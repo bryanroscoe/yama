@@ -19,6 +19,8 @@ pub struct Config {
     pub secure_cookies: bool,
     /// Extra origins allowed to call the API: the phone apps (`capacitor://localhost`, `https://localhost`).
     pub cors_origins: Vec<String>,
+    /// Refresh Scryfall data in the background (prices daily, rules weekly).
+    pub auto_import: bool,
 }
 
 impl Config {
@@ -52,6 +54,7 @@ impl Config {
             data_dir,
             secure_cookies: flag("YAMA_SECURE_COOKIES"),
             cors_origins: list("YAMA_CORS_ORIGINS"),
+            auto_import: flag("YAMA_AUTO_IMPORT"),
         })
     }
 }

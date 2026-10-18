@@ -62,6 +62,9 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     if cfg.dev_login {
         tracing::warn!("YAMA_DEV_LOGIN is on: anyone who can reach this server can sign in by email");
     }
+    if cfg.auto_import {
+        crate::cards::import::spawn_scheduler(pool.clone(), cfg.data_dir.clone());
+    }
     let bind = cfg.bind.clone();
     let state = AppState { pool, cfg: Arc::new(cfg), http: http_client(), google_keys: Arc::default(), rooms: Arc::default() };
     let listener = tokio::net::TcpListener::bind(&bind).await?;

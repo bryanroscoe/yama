@@ -60,6 +60,60 @@ pub async fn run(pool: &SqlitePool, cfg: &Config, oracle: Option<PathBuf>, defau
     Ok(())
 }
 
+/// Download and import the latest file of one kind, unless we already have that exact file.
+/// Returns whether anything was imported.
+pub async fn refresh(pool: &SqlitePool, data_dir: &Path, kind: &str) -> anyhow::Result<bool> {
+    let http = crate::routes::http_client();
+    let index = bulk_index(&http).await?;
+    let item = index.find(kind)?;
+    let have: Option<String> = sqlx::query_scalar(
+        "SELECT source_updated_at FROM import_runs WHERE kind = ? AND error IS NULL AND finished_at IS NOT NULL
+         ORDER BY started_at DESC LIMIT 1",
+    )
+    .bind(kind)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    if have.as_deref() == Some(item.updated_at.as_str()) {
+        return Ok(false);
+    }
+    let path = download(&http, item, data_dir).await?;
+    let result = match kind {
+        "oracle_cards" => import_oracle(pool, &path, Some(item)).await,
+        _ => import_default(pool, &path, Some(item)).await,
+    };
+    let _ = std::fs::remove_file(&path);
+    result.map(|_| true)
+}
+
+/// Background refresh for a running server: prices daily, rules text weekly.
+pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
+    tokio::spawn(async move {
+        loop {
+            for (kind, max_age_hours) in [("default_cards", 20), ("oracle_cards", 24 * 6)] {
+                let last: Option<String> = sqlx::query_scalar(
+                    "SELECT MAX(finished_at) FROM import_runs WHERE kind = ? AND error IS NULL",
+                )
+                .bind(kind)
+                .fetch_one(&pool)
+                .await
+                .unwrap_or(None);
+                let age = last
+                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(&t).ok())
+                    .map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_hours());
+                if age.is_none_or(|h| h >= max_age_hours) {
+                    match refresh(&pool, &data_dir, kind).await {
+                        Ok(true) => tracing::info!(kind, "imported fresh Scryfall data"),
+                        Ok(false) => tracing::debug!(kind, "Scryfall data unchanged"),
+                        Err(e) => tracing::warn!(kind, error = %format!("{e:#}"), "Scryfall import failed"),
+                    }
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        }
+    });
+}
+
 #[derive(Deserialize, Clone)]
 pub struct BulkItem {
     #[serde(rename = "type")]
