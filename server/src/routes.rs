@@ -23,7 +23,9 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::collection::router())
         .merge(crate::decks::router())
         .merge(crate::playgroups::router())
-        .merge(crate::games::router());
+        .merge(crate::games::router())
+        // Unknown API paths are errors, not the web app.
+        .route("/api/{*rest}", axum::routing::any(|| async { crate::error::AppError::NotFound("API route") }));
 
     // Serve the built web app, falling back to index.html for client-side routes.
     if let Some(dist) = &state.cfg.web_dist {

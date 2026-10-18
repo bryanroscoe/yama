@@ -3,14 +3,24 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError, setToken, type User } from "./api";
 import { ErrorText, Pips } from "./components/ui";
 
+const ME_KEY = "yama.me";
+
+/** The signed-in user. Offline, the last known user is used so the life counter still opens. */
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
     queryFn: async () => {
       try {
-        return await api<User>("/api/me");
+        const me = await api<User>("/api/me");
+        localStorage.setItem(ME_KEY, JSON.stringify(me));
+        return me;
       } catch (e) {
-        if (e instanceof ApiError && e.status === 401) return null;
+        if (e instanceof ApiError && e.status === 401) {
+          localStorage.removeItem(ME_KEY);
+          return null;
+        }
+        const cached = localStorage.getItem(ME_KEY);
+        if (cached) return JSON.parse(cached) as User;
         throw e;
       }
     },
@@ -23,6 +33,7 @@ export function useLogout() {
   return async () => {
     await api("/api/auth/logout", { method: "POST" });
     setToken(null);
+    localStorage.removeItem(ME_KEY);
     qc.clear();
     qc.setQueryData(["me"], null);
   };
