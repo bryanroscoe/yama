@@ -22,6 +22,8 @@ const NAMES: Record<string, string> = {
   WU: "Azorius", UB: "Dimir", BR: "Rakdos", RG: "Gruul", WG: "Selesnya", WB: "Orzhov", UR: "Izzet",
   BG: "Golgari", WR: "Boros", UG: "Simic", WUG: "Bant", WUB: "Esper", UBR: "Grixis", BRG: "Jund",
   WRG: "Naya", WBG: "Abzan", WUR: "Jeskai", UBG: "Sultai", WBR: "Mardu", URG: "Temur", WUBRG: "Five-color",
+  WUBR: "Four-color, no green", UBRG: "Four-color, no white", WBRG: "Four-color, no blue",
+  WURG: "Four-color, no black", WUBG: "Four-color, no red",
 };
 
 export function identityName(identity: string): string {

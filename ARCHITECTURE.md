@@ -5,7 +5,9 @@ A private Magic app for Bryan and friends, on phone (iOS and Android) and in the
 - **Play:** Commander online against friends or AI, with every game stored and replayable.
 - **Companion:** what Mythic Tools does today (life counter, playgroups and stats, card scanner, collection, prices, card lookup and decks), plus links to Play that Mythic Tools can't offer.
 
-Status: proposal, 2026-10-17. Nothing is built yet. Repo and app-store facts below were checked on that date.
+Status: proposal written 2026-10-17; building started 2026-10-18. See README.md for what works today. Repo and app-store facts below were checked on 2026-10-17.
+
+**Changed 2026-10-18:** the database is SQLite (WAL mode), not Postgres. At friend-group scale one file next to one server process is simpler to run and back up (e.g. Litestream to object storage), and this machine has no Docker. The schema avoids Postgres-only features, so moving later is a migration, not a rewrite.
 
 ## 1. What we're building
 
@@ -91,12 +93,12 @@ Where our own rules work goes:
                                           │             scanner catalog rebuild (per set)│
                                           └───────────────┬─────────────────────────────┘
                                                           │
-                       Postgres ─ users, playgroups, games, events, decks, collection, cards, prices
+                       SQLite ─ users, playgroups, games, events, decks, collection, cards, prices
                        Object storage (R2/S3) ─ scanner model + catalog, replay snapshots, CSV exports
                        Scryfall image CDN ─ card images (cached on device, never re-hosted)
 ```
 
-- **One Rust server and one Postgres database.** At friend-group scale this runs on one Fly.io machine or a small VM.
+- **One Rust server and one SQLite database.** At friend-group scale this runs on one Fly.io machine or a small VM.
 - **Game state:** live games and table rooms sit in memory and are rebuilt from the event log after a restart.
 - **Auth:** Google OIDC with an invite allowlist. Native Google sign-in on mobile; the server checks the ID token and issues our own session token.
 - **Play is server-authoritative.** The server sends each seat only what that seat may see, which protects hidden information. Clients send `{expected_revision, action}`. The server checks the action against the engine's legal list, applies it, appends the event and broadcasts filtered views. Details are in the first draft and carry over unchanged.
