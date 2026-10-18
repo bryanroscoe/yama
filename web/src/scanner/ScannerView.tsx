@@ -185,20 +185,24 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
     const e = engine.current;
     if (!e) return setStatus("The reader is still loading. Try again in a moment.");
     setStatus("Reading the photo");
-    const bmp = await createImageBitmap(file);
-    canvasRef.current ??= document.createElement("canvas");
-    const { image } = grab(bmp, 0, 0, bmp.width, bmp.height, canvasRef.current);
-    // Assume the card is centred; try a few sizes and let the edge finder correct each.
-    let res: ScanResult | null = null;
-    for (const fill of [0.9, 0.78, 0.65]) {
-      const h = Math.min(image.height * fill, image.width * fill * CARD_ASPECT);
-      const w = h / CARD_ASPECT;
-      const guide = rectQuad((image.width - w) / 2, (image.height - h) / 2, w, h);
-      const r = await scanFrame(image, { ...e, guide });
-      if (!res || (r.candidates[0]?.confidence ?? 0) > (res.candidates[0]?.confidence ?? 0)) res = r;
-      if ((res.candidates[0]?.confidence ?? 0) >= SURE) break;
+    try {
+      const bmp = await createImageBitmap(file);
+      canvasRef.current ??= document.createElement("canvas");
+      const { image } = grab(bmp, 0, 0, bmp.width, bmp.height, canvasRef.current);
+      // Assume the card is centred; try a few sizes and let the edge finder correct each.
+      let res: ScanResult | null = null;
+      for (const fill of [0.9, 0.78, 0.65]) {
+        const h = Math.min(image.height * fill, image.width * fill * CARD_ASPECT);
+        const w = h / CARD_ASPECT;
+        const guide = rectQuad((image.width - w) / 2, (image.height - h) / 2, w, h);
+        const r = await scanFrame(image, { ...e, guide });
+        if (!res || (r.candidates[0]?.confidence ?? 0) > (res.candidates[0]?.confidence ?? 0)) res = r;
+        if ((res.candidates[0]?.confidence ?? 0) >= SURE) break;
+      }
+      if (!res || !handle(res, true)) setStatus("Couldn't read that photo. Fill the photo with the card and try again.");
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err));
     }
-    if (!res || !handle(res, true)) setStatus("Couldn't read that photo. Fill the photo with the card and try again.");
   };
 
   const again = () => {

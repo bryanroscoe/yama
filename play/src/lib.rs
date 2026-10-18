@@ -392,6 +392,17 @@ impl Match {
             GameAction::Equip { equipment_id, target_id } => format!("Equip {} to {}", self.name_of(equipment_id), self.name_of(target_id)),
             GameAction::ChooseOption { choice } => choice.clone(),
             GameAction::CancelCast => "Cancel".into(),
+            GameAction::OrderTriggers { order } => {
+                let names: Vec<String> = match &self.state.waiting_for {
+                    WaitingFor::OrderTriggers { triggers, .. } => order
+                        .iter()
+                        .map(|i| triggers.get(*i).map(|t| self.name_of(&t.source_id)).unwrap_or_else(|| format!("trigger {}", i + 1)))
+                        .collect(),
+                    _ => order.iter().map(|i| format!("trigger {}", i + 1)).collect(),
+                };
+                // The stack resolves last-in first; say it in the order things will happen.
+                format!("Resolve {}", names.iter().rev().cloned().collect::<Vec<_>>().join(", then "))
+            }
             GameAction::SelectModes { indices } => {
                 let modal = match &self.state.waiting_for {
                     WaitingFor::ModeChoice { modal, .. } | WaitingFor::AbilityModeChoice { modal, .. } => Some(modal),
