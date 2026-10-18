@@ -82,8 +82,11 @@ pub enum OpKind {
         condition: Option<String>,
         finish: Option<String>,
         lang: Option<String>,
+        #[serde(default, deserialize_with = "crate::util::double_option")]
         container_id: Option<Option<String>>,
+        #[serde(default, deserialize_with = "crate::util::double_option")]
         purchase_price: Option<Option<f64>>,
+        #[serde(default, deserialize_with = "crate::util::double_option")]
         note: Option<Option<String>>,
         proxy: Option<bool>,
     },
@@ -852,5 +855,16 @@ mod tests {
         tx.commit().await.unwrap();
         let rows: Vec<(String, i64)> = sqlx::query_as("SELECT finish, qty FROM collection_items").fetch_all(&pool).await.unwrap();
         assert_eq!(rows, vec![("foil".into(), 4)]);
+    }
+
+    #[test]
+    fn null_clears_and_absent_leaves_alone() {
+        let clear: Op = serde_json::from_str(r#"{"op_id":"a","kind":"update","item_id":"i","container_id":null}"#).unwrap();
+        let keep: Op = serde_json::from_str(r#"{"op_id":"b","kind":"update","item_id":"i","condition":"LP"}"#).unwrap();
+        let OpKind::Update { container_id, .. } = clear.op else { panic!() };
+        assert_eq!(container_id, Some(None));
+        let OpKind::Update { container_id, condition, .. } = keep.op else { panic!() };
+        assert_eq!(container_id, None);
+        assert_eq!(condition.as_deref(), Some("LP"));
     }
 }

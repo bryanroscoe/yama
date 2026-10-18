@@ -17,6 +17,7 @@ pub struct AppState {
     pub http: reqwest::Client,
     pub google_keys: Arc<GoogleKeys>,
     pub rooms: Arc<crate::table_rooms::Rooms>,
+    pub play: Arc<crate::play::PlayHub>,
 }
 
 pub fn app(state: AppState) -> Router {
@@ -29,6 +30,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::playgroups::router())
         .merge(crate::games::router())
         .merge(crate::table_rooms::router())
+        .merge(crate::play::router())
         // Unknown API paths are errors, not the web app.
         .route("/api/{*rest}", axum::routing::any(|| async { crate::error::AppError::NotFound("API route") }));
 
@@ -65,8 +67,9 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     if cfg.auto_import {
         crate::cards::import::spawn_scheduler(pool.clone(), cfg.data_dir.clone());
     }
+    let play = crate::play::PlayHub::start(cfg.engine_card_data.clone(), pool.clone());
     let bind = cfg.bind.clone();
-    let state = AppState { pool, cfg: Arc::new(cfg), http: http_client(), google_keys: Arc::default(), rooms: Arc::default() };
+    let state = AppState { pool, cfg: Arc::new(cfg), http: http_client(), google_keys: Arc::default(), rooms: Arc::default(), play };
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!("listening on http://{bind}");
     axum::serve(listener, app(state)).await?;

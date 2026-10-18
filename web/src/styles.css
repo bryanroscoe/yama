@@ -209,7 +209,7 @@ label > span.hint {
   height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   background: var(--felt-2);
   border-top: 1px solid var(--line);
   z-index: 20;
@@ -221,7 +221,7 @@ label > span.hint {
   gap: 2px;
   text-decoration: none;
   color: var(--paper-dim);
-  font-size: var(--t-sm);
+  font-size: 0.72rem;
   font-weight: 700;
 }
 .nav a svg {

@@ -10,12 +10,16 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 |---|---|
 | Sign-in | Google ID tokens with an invite list; email-only dev login for local use |
 | Card data | Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date |
-| Card search | Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander`, `-`, `or`, parentheses) |
-| Collection | Containers, idempotent offline ops, Mythic Tools CSV import and export |
-| Decks | Paste any common list format; Commander validation; owned/needed with cheapest market price |
+| Card search | Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander`, `-`, `or`, parentheses). Works offline from a 5 MB card bundle kept on the device |
+| Collection | Binders, boxes, decks and lists; add from card search; move, condition, proxy; idempotent offline ops; Mythic Tools CSV import and export |
+| Decks | Paste any common list format; edit as text with versions; Commander validation; owned/needed with cheapest market price; sample hands with mulligans |
 | Life counter | 1–6 players, rotated panels, commander damage and tax, poison and counters, monarch, initiative, day/night, undo, works offline and syncs later |
-| Playgroups | Join codes, guests without accounts, game history, win rates by player and commander |
-| Online play, scanner, phone apps | Planned; see ARCHITECTURE.md §10 |
+| Shared table | Every phone joins the game by QR code; the host phone stays in charge and works offline |
+| Playgroups | Join codes, guests without accounts, game history, logging games played without Yama, win rates by player and commander |
+| Install | Installable web app (home screen, offline shell); Capacitor config for native apps (docs/mobile.md) |
+| Prices | Daily Scryfall snapshots kept by date (`YAMA_AUTO_IMPORT=1`) |
+| Online play | In progress: phase-rs engine embedded in `play/` (docs/engine-integration.md) |
+| Scanner | In progress (docs/scanner.md) |
 
 ## Run it locally
 
@@ -58,7 +62,8 @@ npm run typecheck     # core + web
 server/            Rust (Axum, SQLite via sqlx). One binary: serve, import-cards, import-decks, invite.
   migrations/      Schema
   src/cards/       Scryfall import and search
-packages/core/     Shared TypeScript: life counter state machine, mana colors
+play/              Online play on the phase-rs engine (local fork at ../yama-phase), soak test.
+packages/core/     Shared TypeScript: life counter, offline search, sample hands, mana colors
 web/               React app (Vite). Also the future Capacitor phone app.
 data/              SQLite database and downloads (git-ignored)
 docs/              Design notes

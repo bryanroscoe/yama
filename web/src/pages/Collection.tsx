@@ -23,6 +23,11 @@ export function CollectionPage() {
     placeholderData: (prev) => prev,
   });
 
+  const op = useMutation({
+    mutationFn: (body: Record<string, unknown>) => api("/api/collection/ops", { method: "POST", json: [{ op_id: crypto.randomUUID(), ...body }] }),
+    onSuccess: () => qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" }),
+  });
+  const [newContainer, setNewContainer] = useState(false);
   const adjust = useMutation({
     mutationFn: (v: { item: CollectionItem; delta: number }) =>
       api("/api/collection/ops", {
@@ -72,7 +77,9 @@ export function CollectionPage() {
           ))}
         </select>
         <input type="search" placeholder="Filter by name" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ flex: "1 1 12rem" }} aria-label="Filter by name" />
+        <button onClick={() => setNewContainer(true)}>New binder, box or deck</button>
       </div>
+      {newContainer && <NewContainer onClose={() => setNewContainer(false)} />}
 
       <ErrorText error={items.error ?? summary.error} />
       {items.data && items.data.length === 0 && !filter && !container && (
@@ -121,6 +128,44 @@ export function CollectionPage() {
               <button onClick={() => { adjust.mutate({ item: open, delta: -1 }); setOpen(null); }}>Remove one</button>
               <button onClick={() => { adjust.mutate({ item: open, delta: 1 }); setOpen(null); }}>Add one more</button>
             </div>
+            <label>
+              Kept in
+              <select
+                value={open.container_id ?? ""}
+                onChange={(e) => {
+                  op.mutate({ kind: "update", item_id: open.id, container_id: e.target.value || null });
+                  setOpen(null);
+                }}
+              >
+                <option value="">Not filed anywhere</option>
+                {containers.data?.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
+              </select>
+            </label>
+            <label>
+              Condition
+              <select
+                value={open.condition}
+                onChange={(e) => {
+                  op.mutate({ kind: "update", item_id: open.id, condition: e.target.value });
+                  setOpen(null);
+                }}
+              >
+                {["NM", "LP", "MP", "HP", "DMG"].map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </label>
+            <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
+              <input
+                type="checkbox"
+                checked={open.proxy}
+                style={{ width: "auto", minHeight: 0 }}
+                onChange={(e) => {
+                  op.mutate({ kind: "update", item_id: open.id, proxy: e.target.checked });
+                  setOpen(null);
+                }}
+              />
+              This is a proxy
+            </label>
+            <p className="small faint">Moving all copies in this row. To move just one, remove one here and add it from the Cards tab into the new place.</p>
           </div>
         </Sheet>
       )}
@@ -170,5 +215,38 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </Sheet>
+  );
+}
+
+function NewContainer({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [kind, setKind] = useState("binder");
+  const [name, setName] = useState("");
+  const create = useMutation({
+    mutationFn: () => api("/api/containers", { method: "POST", json: { kind, name } }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["containers"] });
+      onClose();
+    },
+  });
+  return (
+    <form className="row" style={{ marginBottom: "1rem", alignItems: "end" }} onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
+      <label style={{ flex: "0 1 9rem" }}>
+        Kind
+        <select value={kind} onChange={(e) => setKind(e.target.value)}>
+          <option value="binder">Binder</option>
+          <option value="box">Box</option>
+          <option value="deck">Deck</option>
+          <option value="list">List</option>
+        </select>
+      </label>
+      <label style={{ flex: "1 1 12rem" }}>
+        Name
+        <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Trade binder" />
+      </label>
+      <button className="primary" disabled={create.isPending}>Create</button>
+      <button type="button" className="quiet" onClick={onClose}>Cancel</button>
+      <ErrorText error={create.error} />
+    </form>
   );
 }

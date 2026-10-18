@@ -420,7 +420,9 @@ async fn save_version(
 #[derive(Deserialize)]
 struct UpdateDeck {
     name: Option<String>,
+    #[serde(default, deserialize_with = "crate::util::double_option")]
     folder: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::util::double_option")]
     container_id: Option<Option<String>>,
 }
 

@@ -6,6 +6,7 @@ mod db;
 mod decks;
 mod error;
 mod games;
+mod play;
 mod playgroups;
 mod routes;
 mod table_rooms;

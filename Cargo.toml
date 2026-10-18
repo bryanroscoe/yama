@@ -1,5 +1,5 @@
 [workspace]
-members = ["server"]
+members = ["server", "play"]
 resolver = "3"
 
 # Keep debug builds small: the disk is tight and we rarely need a debugger.

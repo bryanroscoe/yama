@@ -16,3 +16,6 @@ export const DecksIcon = () => (
 export const GroupIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5" /></svg>
 );
+export const PlayIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)" /><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)" /></svg>
+);
