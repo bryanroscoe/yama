@@ -1,0 +1,272 @@
+pub mod import;
+pub mod search;
+
+use crate::auth::CurrentUser;
+use crate::error::{AppError, AppResult};
+use crate::routes::AppState;
+use axum::extract::{Path, Query, State};
+use axum::routing::get;
+use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
+use sqlx::{AssertSqlSafe, SqlitePool};
+use std::collections::HashMap;
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/api/cards/search", get(search_cards))
+        .route("/api/cards/autocomplete", get(autocomplete))
+        .route("/api/cards/{oracle_id}", get(card_detail))
+        .route("/api/printings/lookup", get(lookup_printing))
+        .route("/api/meta/data", get(data_status))
+}
+
+pub const CARD_COLUMNS: &str = "cards.oracle_id, cards.name, cards.mana_cost, cards.cmc, cards.type_line, \
+    cards.oracle_text, cards.colors, cards.color_identity, cards.power, cards.toughness, cards.loyalty, \
+    cards.rarity, cards.layout, cards.legalities, cards.image_small, cards.image_normal, cards.image_art_crop, \
+    cards.back_image_normal, cards.artist, cards.default_printing, cards.edhrec_rank";
+
+#[derive(Debug, Serialize, sqlx::FromRow, Clone)]
+pub struct Card {
+    pub oracle_id: String,
+    pub name: String,
+    pub mana_cost: Option<String>,
+    pub cmc: f64,
+    pub type_line: String,
+    pub oracle_text: String,
+    pub colors: String,
+    pub color_identity: String,
+    pub power: Option<String>,
+    pub toughness: Option<String>,
+    pub loyalty: Option<String>,
+    pub rarity: Option<String>,
+    pub layout: Option<String>,
+    #[sqlx(json)]
+    pub legalities: HashMap<String, String>,
+    pub image_small: Option<String>,
+    pub image_normal: Option<String>,
+    pub image_art_crop: Option<String>,
+    pub back_image_normal: Option<String>,
+    pub artist: Option<String>,
+    pub default_printing: Option<String>,
+    pub edhrec_rank: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct SearchParams {
+    q: String,
+    #[serde(default)]
+    order: Option<String>,
+    #[serde(default)]
+    page: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct SearchResult {
+    total: i64,
+    page: u32,
+    page_size: u32,
+    cards: Vec<Card>,
+}
+
+const PAGE_SIZE: u32 = 60;
+const EXTRA_LAYOUTS: &str = "('token','double_faced_token','emblem','vanguard','scheme','planar')";
+
+async fn search_cards(
+    State(st): State<AppState>,
+    _user: CurrentUser,
+    Query(p): Query<SearchParams>,
+) -> AppResult<Json<SearchResult>> {
+    let compiled = search::compile(&p.q).map_err(AppError::BadRequest)?;
+    let mut filter = compiled.sql;
+    if !search::wants_extras(&p.q) {
+        filter = format!("({filter}) AND IFNULL(cards.layout, '') NOT IN {EXTRA_LAYOUTS}");
+    }
+    let order = match p.order.as_deref() {
+        Some("mv" | "cmc") => "cards.cmc, cards.name",
+        Some("edhrec") => "cards.edhrec_rank IS NULL, cards.edhrec_rank, cards.name",
+        Some("color") => "length(cards.colors), cards.colors, cards.name",
+        _ => "cards.name",
+    };
+    let page = p.page.unwrap_or(1).max(1);
+
+    let count_sql = format!("SELECT COUNT(*) FROM cards WHERE {filter}");
+    let mut count_q = sqlx::query_scalar::<_, i64>(AssertSqlSafe(count_sql));
+    for b in &compiled.binds {
+        count_q = match b {
+            search::Bind::Text(s) => count_q.bind(s),
+            search::Bind::Num(n) => count_q.bind(n),
+        };
+    }
+    let total = count_q.fetch_one(&st.pool).await?;
+
+    let sql = format!("SELECT {CARD_COLUMNS} FROM cards WHERE {filter} ORDER BY {order} LIMIT {PAGE_SIZE} OFFSET ?");
+    let mut q = sqlx::query_as::<_, Card>(AssertSqlSafe(sql));
+    for b in &compiled.binds {
+        q = match b {
+            search::Bind::Text(s) => q.bind(s),
+            search::Bind::Num(n) => q.bind(n),
+        };
+    }
+    let cards = q.bind(((page - 1) * PAGE_SIZE) as i64).fetch_all(&st.pool).await?;
+    Ok(Json(SearchResult { total, page, page_size: PAGE_SIZE, cards }))
+}
+
+#[derive(Deserialize)]
+struct AutoParams {
+    q: String,
+}
+
+async fn autocomplete(
+    State(st): State<AppState>,
+    _user: CurrentUser,
+    Query(p): Query<AutoParams>,
+) -> AppResult<Json<Vec<String>>> {
+    let q = p.q.trim();
+    if q.len() < 2 {
+        return Ok(Json(vec![]));
+    }
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM cards WHERE name LIKE ? ESCAPE '\\' AND IFNULL(layout,'') NOT IN ('token','double_faced_token','emblem')
+         ORDER BY (name LIKE ? ESCAPE '\\') DESC, edhrec_rank IS NULL, edhrec_rank, name LIMIT 15",
+    )
+    .bind(format!("%{}%", escape(q)))
+    .bind(format!("{}%", escape(q)))
+    .fetch_all(&st.pool)
+    .await?;
+    Ok(Json(names))
+}
+
+fn escape(v: &str) -> String {
+    v.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct Printing {
+    pub scryfall_id: String,
+    pub oracle_id: String,
+    pub name: String,
+    pub set_code: String,
+    pub set_name: String,
+    pub collector_number: String,
+    pub lang: String,
+    pub rarity: Option<String>,
+    #[sqlx(json)]
+    pub finishes: Vec<String>,
+    pub released_at: Option<String>,
+    pub image_normal: Option<String>,
+    pub image_small: Option<String>,
+    pub back_image_normal: Option<String>,
+    pub artist: Option<String>,
+    /// Latest snapshot. `None` means Scryfall had no price; it is never 0 for "unknown".
+    pub price_date: Option<String>,
+    pub usd: Option<f64>,
+    pub usd_foil: Option<f64>,
+    pub usd_etched: Option<f64>,
+    pub eur: Option<f64>,
+    pub eur_foil: Option<f64>,
+}
+
+pub const PRINTING_SELECT: &str = "SELECT p.scryfall_id, p.oracle_id, p.name, p.set_code, p.set_name, p.collector_number,
+    p.lang, p.rarity, p.finishes, p.released_at, p.image_normal, p.image_small, p.back_image_normal, p.artist,
+    ps.date AS price_date, ps.usd, ps.usd_foil, ps.usd_etched, ps.eur, ps.eur_foil
+    FROM printings p
+    LEFT JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
+      AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id)";
+
+#[derive(Serialize)]
+struct CardDetail {
+    card: Card,
+    printings: Vec<Printing>,
+}
+
+async fn card_detail(
+    State(st): State<AppState>,
+    _user: CurrentUser,
+    Path(oracle_id): Path<String>,
+) -> AppResult<Json<CardDetail>> {
+    let card = sqlx::query_as::<_, Card>(AssertSqlSafe(format!("SELECT {CARD_COLUMNS} FROM cards WHERE oracle_id = ?")))
+        .bind(&oracle_id)
+        .fetch_optional(&st.pool)
+        .await?
+        .ok_or(AppError::NotFound("card"))?;
+    let printings = sqlx::query_as::<_, Printing>(AssertSqlSafe(format!(
+        "{PRINTING_SELECT} WHERE p.oracle_id = ? ORDER BY p.released_at DESC, p.set_code, p.collector_number"
+    )))
+    .bind(&oracle_id)
+    .fetch_all(&st.pool)
+    .await?;
+    Ok(Json(CardDetail { card, printings }))
+}
+
+#[derive(Deserialize)]
+struct LookupParams {
+    set: String,
+    number: String,
+    lang: Option<String>,
+}
+
+async fn lookup_printing(
+    State(st): State<AppState>,
+    _user: CurrentUser,
+    Query(p): Query<LookupParams>,
+) -> AppResult<Json<Printing>> {
+    let printing = sqlx::query_as::<_, Printing>(AssertSqlSafe(format!(
+        "{PRINTING_SELECT} WHERE p.set_code = ? AND p.collector_number = ? ORDER BY (p.lang = ?) DESC LIMIT 1"
+    )))
+    .bind(p.set.to_lowercase())
+    .bind(&p.number)
+    .bind(p.lang.unwrap_or_else(|| "en".into()))
+    .fetch_optional(&st.pool)
+    .await?
+    .ok_or(AppError::NotFound("printing"))?;
+    Ok(Json(printing))
+}
+
+#[derive(Serialize)]
+struct DataStatus {
+    cards: i64,
+    printings: i64,
+    latest_price_date: Option<String>,
+    last_imports: Vec<ImportRun>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct ImportRun {
+    kind: String,
+    source_updated_at: Option<String>,
+    finished_at: Option<String>,
+    rows: Option<i64>,
+    error: Option<String>,
+}
+
+async fn data_status(State(st): State<AppState>, _user: CurrentUser) -> AppResult<Json<DataStatus>> {
+    Ok(Json(DataStatus {
+        cards: sqlx::query_scalar("SELECT COUNT(*) FROM cards").fetch_one(&st.pool).await?,
+        printings: sqlx::query_scalar("SELECT COUNT(*) FROM printings").fetch_one(&st.pool).await?,
+        latest_price_date: sqlx::query_scalar("SELECT MAX(date) FROM price_snapshots").fetch_one(&st.pool).await?,
+        last_imports: sqlx::query_as(
+            "SELECT kind, source_updated_at, finished_at, rows, error FROM import_runs ORDER BY started_at DESC LIMIT 5",
+        )
+        .fetch_all(&st.pool)
+        .await?,
+    }))
+}
+
+/// Resolve card names (any face, any case) to oracle IDs. Unknown names are left out.
+pub async fn resolve_names(pool: &SqlitePool, names: &[String]) -> AppResult<HashMap<String, String>> {
+    let mut out = HashMap::new();
+    for name in names {
+        let key = name.trim();
+        let hit: Option<String> = sqlx::query_scalar(
+            "SELECT n.oracle_id FROM card_names n JOIN cards c ON c.oracle_id = n.oracle_id
+             WHERE n.name = ? ORDER BY IFNULL(c.layout,'') IN ('token','double_faced_token','art_series') LIMIT 1",
+        )
+        .bind(key)
+        .fetch_optional(pool)
+        .await?;
+        if let Some(id) = hit {
+            out.insert(name.clone(), id);
+        }
+    }
+    Ok(out)
+}

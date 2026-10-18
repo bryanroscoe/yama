@@ -1,0 +1,11 @@
+[workspace]
+members = ["server"]
+resolver = "3"
+
+# Keep debug builds small: the disk is tight and we rarely need a debugger.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 1

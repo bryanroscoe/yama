@@ -1,0 +1,856 @@
+//! Collection: containers, items, offline ops, and Mythic Tools CSV import/export.
+//!
+//! Every change is an op with a client-generated `op_id`. The server records applied op IDs,
+//! so a phone that retries a sync never double-counts. Quantity changes are deltas, which
+//! merge cleanly when two devices edit the same card; other fields are last-writer-wins.
+
+use crate::auth::CurrentUser;
+use crate::error::{AppError, AppResult};
+use crate::routes::AppState;
+use crate::util::{new_id, now, sha256_hex};
+use axum::extract::{Path, Query, State};
+use axum::http::header;
+use axum::response::IntoResponse;
+use axum::routing::{get, patch, post};
+use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
+use sqlx::{Sqlite, SqlitePool, Transaction};
+use std::collections::HashMap;
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/api/collection", get(list_items))
+        .route("/api/collection/summary", get(summary))
+        .route("/api/collection/ops", post(apply_ops))
+        .route("/api/collection/import/mythic", post(import_mythic))
+        .route("/api/collection/export.csv", get(export_csv))
+        .route("/api/containers", get(list_containers).post(create_container))
+        .route("/api/containers/{id}", patch(rename_container).delete(delete_container))
+}
+
+pub const KINDS: [&str; 4] = ["binder", "deck", "list", "box"];
+
+// ── ops ────────────────────────────────────────────────────────────────────
+
+/// Fields that, together with the printing and container, make two copies interchangeable.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct CopyKind {
+    #[serde(default = "nm")]
+    pub condition: String,
+    #[serde(default = "nonfoil")]
+    pub finish: String,
+    #[serde(default = "en")]
+    pub lang: String,
+    #[serde(default)]
+    pub altered: bool,
+    #[serde(default)]
+    pub signed: bool,
+    #[serde(default)]
+    pub misprint: bool,
+    #[serde(default)]
+    pub proxy: bool,
+}
+
+fn nm() -> String {
+    "NM".into()
+}
+fn nonfoil() -> String {
+    "nonfoil".into()
+}
+fn en() -> String {
+    "en".into()
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OpKind {
+    /// Add copies. Merges into an identical row if there is one.
+    Add {
+        scryfall_id: String,
+        qty: i64,
+        #[serde(flatten)]
+        copy: CopyKind,
+        container_id: Option<String>,
+        purchase_price: Option<f64>,
+        purchase_currency: Option<String>,
+    },
+    /// Change a row's quantity by `delta`. A row that reaches 0 is removed.
+    Adjust { item_id: String, delta: i64 },
+    /// Change fields. If the result matches another row, the two merge.
+    Update {
+        item_id: String,
+        condition: Option<String>,
+        finish: Option<String>,
+        lang: Option<String>,
+        container_id: Option<Option<String>>,
+        purchase_price: Option<Option<f64>>,
+        note: Option<Option<String>>,
+        proxy: Option<bool>,
+    },
+    Remove { item_id: String },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Op {
+    pub op_id: String,
+    pub device_id: Option<String>,
+    #[serde(flatten)]
+    pub op: OpKind,
+}
+
+#[derive(Serialize)]
+struct OpsResult {
+    applied: usize,
+    skipped_duplicates: usize,
+}
+
+async fn apply_ops(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Json(ops): Json<Vec<Op>>,
+) -> AppResult<Json<OpsResult>> {
+    let mut tx = st.pool.begin().await?;
+    let (mut applied, mut skipped) = (0, 0);
+    for op in ops {
+        if apply_op(&mut tx, &user.id, &op).await? {
+            applied += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+    tx.commit().await?;
+    Ok(Json(OpsResult { applied, skipped_duplicates: skipped }))
+}
+
+/// Apply one op. Returns false if this op was already applied.
+pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) -> AppResult<bool> {
+    let fresh = sqlx::query(
+        "INSERT INTO applied_ops (op_id, owner_id, device_id, kind, payload, applied_at) VALUES (?,?,?,?,?,?)
+         ON CONFLICT(op_id) DO NOTHING",
+    )
+    .bind(&op.op_id)
+    .bind(owner)
+    .bind(&op.device_id)
+    .bind(op_name(&op.op))
+    .bind(serde_json::to_string(&op.op).map_err(anyhow::Error::from)?)
+    .bind(now())
+    .execute(&mut **tx)
+    .await?
+    .rows_affected()
+        == 1;
+    if !fresh {
+        return Ok(false);
+    }
+    match &op.op {
+        OpKind::Add { scryfall_id, qty, copy, container_id, purchase_price, purchase_currency } => {
+            if *qty <= 0 {
+                return Err(AppError::bad("add needs a positive quantity"));
+            }
+            check_container(tx, owner, container_id.as_deref()).await?;
+            add_copies(tx, owner, scryfall_id, *qty, copy, container_id.as_deref(), *purchase_price, purchase_currency.as_deref())
+                .await?;
+        }
+        OpKind::Adjust { item_id, delta } => {
+            let qty: i64 = sqlx::query_scalar("SELECT qty FROM collection_items WHERE id = ? AND owner_id = ?")
+                .bind(item_id)
+                .bind(owner)
+                .fetch_optional(&mut **tx)
+                .await?
+                // Another device may have removed it already; that's fine.
+                .unwrap_or(0);
+            if qty == 0 {
+                return Ok(true);
+            }
+            let next = (qty + delta).max(0);
+            if next == 0 {
+                sqlx::query("DELETE FROM collection_items WHERE id = ?").bind(item_id).execute(&mut **tx).await?;
+            } else {
+                sqlx::query("UPDATE collection_items SET qty = ?, updated_at = ? WHERE id = ?")
+                    .bind(next)
+                    .bind(now())
+                    .bind(item_id)
+                    .execute(&mut **tx)
+                    .await?;
+            }
+        }
+        OpKind::Update { item_id, condition, finish, lang, container_id, purchase_price, note, proxy } => {
+            let Some(item) = load_item(tx, owner, item_id).await? else { return Ok(true) };
+            if let Some(Some(c)) = container_id {
+                check_container(tx, owner, Some(c)).await?;
+            }
+            let copy = CopyKind {
+                condition: condition.clone().unwrap_or(item.condition.clone()),
+                finish: finish.clone().unwrap_or(item.finish.clone()),
+                lang: lang.clone().unwrap_or(item.lang.clone()),
+                altered: item.altered,
+                signed: item.signed,
+                misprint: item.misprint,
+                proxy: proxy.unwrap_or(item.proxy),
+            };
+            let container = container_id.clone().unwrap_or(item.container_id.clone());
+            let price = purchase_price.unwrap_or(item.purchase_price);
+            let note = note.clone().unwrap_or(item.note.clone());
+            // Remove the old row, then add as the new kind so identical rows merge.
+            sqlx::query("DELETE FROM collection_items WHERE id = ?").bind(item_id).execute(&mut **tx).await?;
+            let new_id = add_copies(tx, owner, &item.scryfall_id, item.qty, &copy, container.as_deref(), price, item.purchase_currency.as_deref()).await?;
+            sqlx::query("UPDATE collection_items SET note = ? WHERE id = ?").bind(note).bind(new_id).execute(&mut **tx).await?;
+        }
+        OpKind::Remove { item_id } => {
+            sqlx::query("DELETE FROM collection_items WHERE id = ? AND owner_id = ?")
+                .bind(item_id)
+                .bind(owner)
+                .execute(&mut **tx)
+                .await?;
+        }
+    }
+    Ok(true)
+}
+
+fn op_name(op: &OpKind) -> &'static str {
+    match op {
+        OpKind::Add { .. } => "add",
+        OpKind::Adjust { .. } => "adjust",
+        OpKind::Update { .. } => "update",
+        OpKind::Remove { .. } => "remove",
+    }
+}
+
+async fn check_container(tx: &mut Transaction<'_, Sqlite>, owner: &str, id: Option<&str>) -> AppResult<()> {
+    if let Some(id) = id {
+        let found: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE id = ? AND owner_id = ?")
+            .bind(id)
+            .bind(owner)
+            .fetch_optional(&mut **tx)
+            .await?;
+        found.ok_or(AppError::NotFound("container"))?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn add_copies(
+    tx: &mut Transaction<'_, Sqlite>,
+    owner: &str,
+    scryfall_id: &str,
+    qty: i64,
+    copy: &CopyKind,
+    container_id: Option<&str>,
+    purchase_price: Option<f64>,
+    purchase_currency: Option<&str>,
+) -> AppResult<String> {
+    let id = new_id();
+    let stamp = now();
+    // The unique index on the copy identity turns a duplicate into a quantity bump.
+    // A merged row keeps its existing purchase price unless it had none.
+    sqlx::query(
+        "INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, finish, lang, altered, signed,
+            misprint, proxy, container_id, purchase_price, purchase_currency, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(owner_id, scryfall_id, condition, finish, lang, altered, signed, misprint, proxy, IFNULL(container_id, ''))
+         DO UPDATE SET qty = qty + excluded.qty, updated_at = excluded.updated_at,
+            purchase_price = COALESCE(purchase_price, excluded.purchase_price),
+            purchase_currency = COALESCE(purchase_currency, excluded.purchase_currency)",
+    )
+    .bind(&id)
+    .bind(owner)
+    .bind(scryfall_id)
+    .bind(qty)
+    .bind(&copy.condition)
+    .bind(&copy.finish)
+    .bind(&copy.lang)
+    .bind(copy.altered)
+    .bind(copy.signed)
+    .bind(copy.misprint)
+    .bind(copy.proxy)
+    .bind(container_id)
+    .bind(purchase_price)
+    .bind(purchase_currency)
+    .bind(&stamp)
+    .bind(&stamp)
+    .execute(&mut **tx)
+    .await?;
+    Ok(sqlx::query_scalar(
+        "SELECT id FROM collection_items WHERE owner_id=? AND scryfall_id=? AND condition=? AND finish=? AND lang=?
+         AND altered=? AND signed=? AND misprint=? AND proxy=? AND IFNULL(container_id,'') = IFNULL(?, '')",
+    )
+    .bind(owner)
+    .bind(scryfall_id)
+    .bind(&copy.condition)
+    .bind(&copy.finish)
+    .bind(&copy.lang)
+    .bind(copy.altered)
+    .bind(copy.signed)
+    .bind(copy.misprint)
+    .bind(copy.proxy)
+    .bind(container_id)
+    .fetch_one(&mut **tx)
+    .await?)
+}
+
+#[derive(sqlx::FromRow)]
+struct ItemRow {
+    scryfall_id: String,
+    qty: i64,
+    condition: String,
+    finish: String,
+    lang: String,
+    altered: bool,
+    signed: bool,
+    misprint: bool,
+    proxy: bool,
+    container_id: Option<String>,
+    purchase_price: Option<f64>,
+    purchase_currency: Option<String>,
+    note: Option<String>,
+}
+
+async fn load_item(tx: &mut Transaction<'_, Sqlite>, owner: &str, id: &str) -> AppResult<Option<ItemRow>> {
+    Ok(sqlx::query_as(
+        "SELECT scryfall_id, qty, condition, finish, lang, altered, signed, misprint, proxy, container_id,
+            purchase_price, purchase_currency, note FROM collection_items WHERE id = ? AND owner_id = ?",
+    )
+    .bind(id)
+    .bind(owner)
+    .fetch_optional(&mut **tx)
+    .await?)
+}
+
+// ── reading ────────────────────────────────────────────────────────────────
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct Item {
+    pub id: String,
+    pub scryfall_id: String,
+    pub qty: i64,
+    pub condition: String,
+    pub finish: String,
+    pub lang: String,
+    pub altered: bool,
+    pub signed: bool,
+    pub misprint: bool,
+    pub proxy: bool,
+    pub container_id: Option<String>,
+    pub container_name: Option<String>,
+    pub container_kind: Option<String>,
+    pub purchase_price: Option<f64>,
+    pub purchase_currency: Option<String>,
+    pub note: Option<String>,
+    pub updated_at: String,
+    // printing (NULL if the printing isn't in our card data yet)
+    pub oracle_id: Option<String>,
+    pub name: Option<String>,
+    pub set_code: Option<String>,
+    pub set_name: Option<String>,
+    pub collector_number: Option<String>,
+    pub rarity: Option<String>,
+    pub image_small: Option<String>,
+    pub image_normal: Option<String>,
+    pub type_line: Option<String>,
+    pub color_identity: Option<String>,
+    /// Market price for this item's finish from the latest snapshot. `None` = no price, never 0.
+    pub unit_price_usd: Option<f64>,
+    pub price_date: Option<String>,
+}
+
+const ITEM_SELECT: &str = "SELECT i.id, i.scryfall_id, i.qty, i.condition, i.finish, i.lang, i.altered, i.signed,
+    i.misprint, i.proxy, i.container_id, ct.name AS container_name, ct.kind AS container_kind, i.purchase_price,
+    i.purchase_currency, i.note, i.updated_at, p.oracle_id, p.name, p.set_code, p.set_name, p.collector_number,
+    p.rarity, p.image_small, p.image_normal, c.type_line, c.color_identity,
+    CASE i.finish WHEN 'foil' THEN ps.usd_foil WHEN 'etched' THEN ps.usd_etched ELSE ps.usd END AS unit_price_usd,
+    ps.date AS price_date
+    FROM collection_items i
+    LEFT JOIN containers ct ON ct.id = i.container_id
+    LEFT JOIN printings p ON p.scryfall_id = i.scryfall_id
+    LEFT JOIN cards c ON c.oracle_id = p.oracle_id
+    LEFT JOIN price_snapshots ps ON ps.scryfall_id = i.scryfall_id
+      AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = i.scryfall_id)";
+
+#[derive(Deserialize)]
+struct ListParams {
+    container: Option<String>,
+    q: Option<String>,
+}
+
+async fn list_items(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Query(p): Query<ListParams>,
+) -> AppResult<Json<Vec<Item>>> {
+    let mut sql = format!("{ITEM_SELECT} WHERE i.owner_id = ?");
+    if p.container.as_deref() == Some("none") {
+        sql.push_str(" AND i.container_id IS NULL");
+    } else if p.container.is_some() {
+        sql.push_str(" AND i.container_id = ?");
+    }
+    if p.q.as_deref().is_some_and(|q| !q.trim().is_empty()) {
+        sql.push_str(" AND p.name LIKE ?");
+    }
+    sql.push_str(" ORDER BY p.name, p.set_code, p.collector_number");
+    let mut q = sqlx::query_as::<_, Item>(sqlx::AssertSqlSafe(sql)).bind(&user.id);
+    if let Some(c) = p.container.as_deref().filter(|c| *c != "none") {
+        q = q.bind(c);
+    }
+    if let Some(text) = p.q.as_deref().filter(|q| !q.trim().is_empty()) {
+        q = q.bind(format!("%{}%", text.trim()));
+    }
+    Ok(Json(q.fetch_all(&st.pool).await?))
+}
+
+pub async fn items_for_owner(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Item>> {
+    Ok(sqlx::query_as::<_, Item>(sqlx::AssertSqlSafe(format!("{ITEM_SELECT} WHERE i.owner_id = ?")))
+        .bind(owner)
+        .fetch_all(pool)
+        .await?)
+}
+
+#[derive(Serialize)]
+struct Summary {
+    copies: i64,
+    distinct_printings: i64,
+    /// Sum over copies that have a price. Copies without one are counted separately, not as $0.
+    market_value_usd: f64,
+    copies_without_price: i64,
+    price_date: Option<String>,
+    purchase_total_usd: f64,
+}
+
+async fn summary(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Summary>> {
+    let items = items_for_owner(&st.pool, &user.id).await?;
+    let mut s = Summary {
+        copies: 0,
+        distinct_printings: 0,
+        market_value_usd: 0.0,
+        copies_without_price: 0,
+        price_date: None,
+        purchase_total_usd: 0.0,
+    };
+    let mut printings = std::collections::HashSet::new();
+    for i in &items {
+        s.copies += i.qty;
+        printings.insert(&i.scryfall_id);
+        match i.unit_price_usd {
+            Some(p) => s.market_value_usd += p * i.qty as f64,
+            None => s.copies_without_price += i.qty,
+        }
+        if i.price_date > s.price_date {
+            s.price_date = i.price_date.clone();
+        }
+        if i.purchase_currency.as_deref().unwrap_or("USD") == "USD" {
+            s.purchase_total_usd += i.purchase_price.unwrap_or(0.0) * i.qty as f64;
+        }
+    }
+    s.distinct_printings = printings.len() as i64;
+    s.market_value_usd = (s.market_value_usd * 100.0).round() / 100.0;
+    s.purchase_total_usd = (s.purchase_total_usd * 100.0).round() / 100.0;
+    Ok(Json(s))
+}
+
+// ── containers ─────────────────────────────────────────────────────────────
+
+#[derive(Serialize, sqlx::FromRow)]
+struct Container {
+    id: String,
+    kind: String,
+    name: String,
+    copies: i64,
+}
+
+async fn list_containers(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<Container>>> {
+    Ok(Json(
+        sqlx::query_as(
+            "SELECT ct.id, ct.kind, ct.name, IFNULL(SUM(i.qty), 0) AS copies FROM containers ct
+             LEFT JOIN collection_items i ON i.container_id = ct.id
+             WHERE ct.owner_id = ? GROUP BY ct.id ORDER BY ct.kind, ct.name",
+        )
+        .bind(&user.id)
+        .fetch_all(&st.pool)
+        .await?,
+    ))
+}
+
+#[derive(Deserialize)]
+struct NewContainer {
+    kind: String,
+    name: String,
+}
+
+async fn create_container(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Json(body): Json<NewContainer>,
+) -> AppResult<Json<serde_json::Value>> {
+    let id = ensure_container(&st.pool, &user.id, &body.kind, &body.name).await?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+pub async fn ensure_container(pool: &SqlitePool, owner: &str, kind: &str, name: &str) -> AppResult<String> {
+    let kind = kind.to_lowercase();
+    if !KINDS.contains(&kind.as_str()) {
+        return Err(AppError::bad(format!("container kind must be one of {}", KINDS.join(", "))));
+    }
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AppError::bad("container needs a name"));
+    }
+    sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING")
+        .bind(new_id())
+        .bind(owner)
+        .bind(&kind)
+        .bind(name)
+        .bind(now())
+        .execute(pool)
+        .await?;
+    Ok(sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ?")
+        .bind(owner)
+        .bind(&kind)
+        .bind(name)
+        .fetch_one(pool)
+        .await?)
+}
+
+#[derive(Deserialize)]
+struct RenameContainer {
+    name: String,
+}
+
+async fn rename_container(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    Json(body): Json<RenameContainer>,
+) -> AppResult<()> {
+    let n = sqlx::query("UPDATE containers SET name = ? WHERE id = ? AND owner_id = ?")
+        .bind(body.name.trim())
+        .bind(&id)
+        .bind(&user.id)
+        .execute(&st.pool)
+        .await?
+        .rows_affected();
+    if n == 0 { Err(AppError::NotFound("container")) } else { Ok(()) }
+}
+
+/// Deleting a container keeps its cards; they become unfiled.
+async fn delete_container(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
+    let mut tx = st.pool.begin().await?;
+    // Unfiling can collide with an identical unfiled row, so re-add rather than update.
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM collection_items WHERE container_id = ? AND owner_id = ?")
+        .bind(&id)
+        .bind(&user.id)
+        .fetch_all(&mut *tx)
+        .await?;
+    for item_id in ids {
+        let op = Op {
+            op_id: new_id(),
+            device_id: None,
+            op: OpKind::Update {
+                item_id,
+                condition: None,
+                finish: None,
+                lang: None,
+                container_id: Some(None),
+                purchase_price: None,
+                note: None,
+                proxy: None,
+            },
+        };
+        apply_op(&mut tx, &user.id, &op).await?;
+    }
+    sqlx::query("DELETE FROM containers WHERE id = ? AND owner_id = ?").bind(&id).bind(&user.id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+// ── Mythic Tools CSV ───────────────────────────────────────────────────────
+
+/// One row of a Mythic Tools export. Column names are Mythic Tools' own.
+#[derive(Debug, Deserialize)]
+struct MythicRow {
+    #[serde(rename = "Card Name")]
+    name: String,
+    #[serde(rename = "Set Code")]
+    set_code: String,
+    #[serde(rename = "Collector Number")]
+    collector_number: String,
+    #[serde(rename = "Language", default)]
+    lang: String,
+    #[serde(rename = "Quantity")]
+    qty: i64,
+    #[serde(rename = "Condition", default)]
+    condition: String,
+    #[serde(rename = "Finish", default)]
+    finish: String,
+    #[serde(rename = "Altered", default)]
+    altered: Option<bool>,
+    #[serde(rename = "Signed", default)]
+    signed: Option<bool>,
+    #[serde(rename = "Misprint", default)]
+    misprint: Option<bool>,
+    #[serde(rename = "Proxy", default)]
+    proxy: Option<bool>,
+    #[serde(rename = "Scryfall ID", default)]
+    scryfall_id: String,
+    #[serde(rename = "Container Type", default)]
+    container_type: String,
+    #[serde(rename = "Container Name", default)]
+    container_name: String,
+    #[serde(rename = "Purchase Price (USD)", default)]
+    purchase_usd: Option<f64>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct ImportReport {
+    rows: usize,
+    copies: i64,
+    added_rows: usize,
+    already_imported_rows: usize,
+    containers: Vec<String>,
+    /// Rows whose Scryfall ID isn't in our card data (yet). They're imported anyway.
+    unknown_printings: Vec<String>,
+    errors: Vec<String>,
+}
+
+async fn import_mythic(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: String) -> AppResult<Json<ImportReport>> {
+    Ok(Json(import_mythic_csv(&st.pool, &user.id, &body).await?))
+}
+
+/// Import a Mythic Tools CSV export. Each row becomes an `add` op whose ID is derived from the
+/// file and row, so importing the same file twice changes nothing.
+pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str) -> AppResult<ImportReport> {
+    let text = text.trim_start_matches('\u{feff}');
+    let file_hash = sha256_hex(text);
+    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(text.as_bytes());
+    let mut report = ImportReport {
+        rows: 0,
+        copies: 0,
+        added_rows: 0,
+        already_imported_rows: 0,
+        containers: vec![],
+        unknown_printings: vec![],
+        errors: vec![],
+    };
+    let mut containers: HashMap<(String, String), String> = HashMap::new();
+    let mut rows = Vec::new();
+    for (i, rec) in reader.deserialize::<MythicRow>().enumerate() {
+        match rec {
+            Ok(r) => rows.push((i, r)),
+            Err(e) => report.errors.push(format!("row {}: {e}", i + 2)),
+        }
+    }
+    for (_, r) in &rows {
+        if !r.container_name.trim().is_empty() {
+            let kind = match r.container_type.to_lowercase().as_str() {
+                k if KINDS.contains(&k) => k.to_string(),
+                _ => "list".to_string(),
+            };
+            let key = (kind.clone(), r.container_name.trim().to_string());
+            if !containers.contains_key(&key) {
+                let id = ensure_container(pool, owner, &kind, &key.1).await?;
+                report.containers.push(format!("{} ({kind})", key.1));
+                containers.insert(key, id);
+            }
+        }
+    }
+
+    let mut tx = pool.begin().await?;
+    for (i, r) in rows {
+        report.rows += 1;
+        if r.qty <= 0 {
+            continue;
+        }
+        let scryfall_id = if !r.scryfall_id.trim().is_empty() {
+            r.scryfall_id.trim().to_string()
+        } else {
+            // Fall back to set + number.
+            let found: Option<String> = sqlx::query_scalar(
+                "SELECT scryfall_id FROM printings WHERE set_code = ? AND collector_number = ? ORDER BY (lang = ?) DESC LIMIT 1",
+            )
+            .bind(r.set_code.to_lowercase())
+            .bind(&r.collector_number)
+            .bind(&r.lang)
+            .fetch_optional(&mut *tx)
+            .await?;
+            match found {
+                Some(id) => id,
+                None => {
+                    report.errors.push(format!("row {}: {} ({} {}) has no Scryfall ID and isn't in our card data", i + 2, r.name, r.set_code, r.collector_number));
+                    continue;
+                }
+            }
+        };
+        let known: Option<String> = sqlx::query_scalar("SELECT scryfall_id FROM printings WHERE scryfall_id = ?")
+            .bind(&scryfall_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if known.is_none() {
+            report.unknown_printings.push(format!("{} ({} #{})", r.name, r.set_code.to_uppercase(), r.collector_number));
+        }
+        let container_id = (!r.container_name.trim().is_empty()).then(|| {
+            let kind = if KINDS.contains(&r.container_type.to_lowercase().as_str()) { r.container_type.to_lowercase() } else { "list".into() };
+            containers[&(kind, r.container_name.trim().to_string())].clone()
+        });
+        let op = Op {
+            op_id: format!("mythic:{}:{}", &file_hash[..16], i),
+            device_id: Some("mythic-import".into()),
+            op: OpKind::Add {
+                scryfall_id,
+                qty: r.qty,
+                copy: CopyKind {
+                    condition: if r.condition.is_empty() { nm() } else { r.condition.to_uppercase() },
+                    finish: match r.finish.to_lowercase().as_str() {
+                        "foil" => "foil".into(),
+                        "etched" => "etched".into(),
+                        _ => nonfoil(),
+                    },
+                    lang: if r.lang.is_empty() { en() } else { r.lang.to_lowercase() },
+                    altered: r.altered.unwrap_or(false),
+                    signed: r.signed.unwrap_or(false),
+                    misprint: r.misprint.unwrap_or(false),
+                    proxy: r.proxy.unwrap_or(false),
+                },
+                container_id,
+                // Mythic writes 0 when no purchase price was entered; that's unknown, not free.
+                purchase_price: r.purchase_usd.filter(|p| *p > 0.0),
+                purchase_currency: r.purchase_usd.filter(|p| *p > 0.0).map(|_| "USD".into()),
+            },
+        };
+        if apply_op(&mut tx, owner, &op).await? {
+            report.added_rows += 1;
+            report.copies += r.qty;
+        } else {
+            report.already_imported_rows += 1;
+        }
+    }
+    tx.commit().await?;
+    Ok(report)
+}
+
+/// Export in Mythic Tools' column layout, so the file round-trips into Mythic Tools or back into Yama.
+async fn export_csv(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<impl IntoResponse> {
+    let items = items_for_owner(&st.pool, &user.id).await?;
+    let mut w = csv::Writer::from_writer(Vec::new());
+    w.write_record([
+        "Card Name", "Set Code", "Set Name", "Collector Number", "Rarity", "Language", "Quantity", "Condition", "Finish",
+        "Altered", "Signed", "Misprint", "Proxy", "Price (USD)", "Price Date", "Scryfall ID", "Container Type",
+        "Container Name", "Purchase Price (USD)",
+    ])
+    .map_err(anyhow::Error::from)?;
+    let opt = |v: &Option<String>| v.clone().unwrap_or_default();
+    let money = |v: Option<f64>| v.map(|p| format!("{p:.2}")).unwrap_or_default();
+    for i in items {
+        w.write_record([
+            opt(&i.name),
+            opt(&i.set_code),
+            opt(&i.set_name),
+            opt(&i.collector_number),
+            opt(&i.rarity),
+            i.lang.clone(),
+            i.qty.to_string(),
+            i.condition.clone(),
+            i.finish.clone(),
+            i.altered.to_string(),
+            i.signed.to_string(),
+            i.misprint.to_string(),
+            i.proxy.to_string(),
+            money(i.unit_price_usd),
+            opt(&i.price_date),
+            i.scryfall_id.clone(),
+            opt(&i.container_kind),
+            opt(&i.container_name),
+            money(if i.purchase_currency.as_deref() == Some("USD") { i.purchase_price } else { None }),
+        ])
+        .map_err(anyhow::Error::from)?;
+    }
+    let body = w.into_inner().map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (header::CONTENT_DISPOSITION, "attachment; filename=\"yama-collection.csv\""),
+        ],
+        body,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn user(pool: &SqlitePool) -> String {
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('u1','a@b.c','A','now')")
+            .execute(pool)
+            .await
+            .unwrap();
+        "u1".into()
+    }
+
+    const CSV: &str = "\u{feff}Card Name,English Name,Set Code,Set Name,Collector Number,Rarity,Language,Quantity,Condition,Finish,Altered,Signed,Misprint,Proxy,Price (USD),Price (EUR),Price (USD Foil),Price (EUR Foil),Price (USD Etched),Price (EUR Etched),Scryfall ID,Container Type,Container Name,Purchase Price (USD),Purchase Price (EUR)
+\"Sol Ring\",\"Sol Ring\",\"cmm\",\"Commander Masters\",\"410\",\"uncommon\",\"en\",2,\"NM\",\"nonfoil\",false,false,false,false,1.5,1.2,0,0,0,0,\"p1\",\"list\",\"bulk\",1.25,0
+\"Sol Ring\",\"Sol Ring\",\"cmm\",\"Commander Masters\",\"410\",\"uncommon\",\"en\",1,\"NM\",\"foil\",false,false,false,false,1.5,1.2,0,0,0,0,\"p1\",\"list\",\"bulk\",0,0
+";
+
+    #[tokio::test]
+    async fn mythic_import_is_idempotent() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        let r = import_mythic_csv(&pool, &owner, CSV).await.unwrap();
+        assert_eq!((r.rows, r.added_rows, r.copies), (2, 2, 3));
+        assert_eq!(r.unknown_printings.len(), 2); // no card data loaded in this test
+        let again = import_mythic_csv(&pool, &owner, CSV).await.unwrap();
+        assert_eq!((again.added_rows, again.already_imported_rows), (0, 2));
+
+        let rows: Vec<(String, i64, Option<f64>)> =
+            sqlx::query_as("SELECT finish, qty, purchase_price FROM collection_items ORDER BY finish").fetch_all(&pool).await.unwrap();
+        // A purchase price of 0 means "not entered" in Mythic Tools.
+        assert_eq!(rows, vec![("foil".into(), 1, None), ("nonfoil".into(), 2, Some(1.25))]);
+    }
+
+    #[tokio::test]
+    async fn ops_merge_and_dedupe() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        let add = |op_id: &str, qty| Op {
+            op_id: op_id.into(),
+            device_id: None,
+            op: OpKind::Add {
+                scryfall_id: "p1".into(),
+                qty,
+                copy: CopyKind { condition: nm(), finish: nonfoil(), lang: en(), ..Default::default() },
+                container_id: None,
+                purchase_price: None,
+                purchase_currency: None,
+            },
+        };
+        let mut tx = pool.begin().await.unwrap();
+        assert!(apply_op(&mut tx, &owner, &add("a", 1)).await.unwrap());
+        assert!(apply_op(&mut tx, &owner, &add("b", 2)).await.unwrap());
+        assert!(!apply_op(&mut tx, &owner, &add("b", 2)).await.unwrap()); // retried sync
+        tx.commit().await.unwrap();
+        let (id, qty): (String, i64) = sqlx::query_as("SELECT id, qty FROM collection_items").fetch_one(&pool).await.unwrap();
+        assert_eq!(qty, 3);
+
+        // Update to foil, then add a foil: the rows merge.
+        let mut tx = pool.begin().await.unwrap();
+        let up = Op {
+            op_id: "c".into(),
+            device_id: None,
+            op: OpKind::Update {
+                item_id: id,
+                condition: None,
+                finish: Some("foil".into()),
+                lang: None,
+                container_id: None,
+                purchase_price: None,
+                note: None,
+                proxy: None,
+            },
+        };
+        apply_op(&mut tx, &owner, &up).await.unwrap();
+        let mut foil = add("d", 1);
+        if let OpKind::Add { copy, .. } = &mut foil.op {
+            copy.finish = "foil".into();
+        }
+        apply_op(&mut tx, &owner, &foil).await.unwrap();
+        tx.commit().await.unwrap();
+        let rows: Vec<(String, i64)> = sqlx::query_as("SELECT finish, qty FROM collection_items").fetch_all(&pool).await.unwrap();
+        assert_eq!(rows, vec![("foil".into(), 4)]);
+    }
+}

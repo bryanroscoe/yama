@@ -1,0 +1,10 @@
+/target
+node_modules/
+dist/
+/data/*
+!/data/.gitkeep
+*.db
+*.db-shm
+*.db-wal
+.env
+.DS_Store

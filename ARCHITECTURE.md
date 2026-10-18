@@ -1,0 +1,216 @@
+# Yama (Yet Another Magic App): architecture proposal
+
+A private Magic app for Bryan and friends, on phone (iOS and Android) and in the browser. It does two jobs on one account:
+
+- **Play:** Commander online against friends or AI, with every game stored and replayable.
+- **Companion:** what Mythic Tools does today (life counter, playgroups and stats, card scanner, collection, prices, card lookup and decks), plus links to Play that Mythic Tools can't offer.
+
+Status: proposal, 2026-10-17. Nothing is built yet. Repo and app-store facts below were checked on that date.
+
+## 1. What we're building
+
+| Area | Features | Matches Mythic Tools | Beyond Mythic Tools |
+|---|---|---|---|
+| **Play** | Online Commander (2 to 4 players), AI seats, lobby and invites, replays | n/a | The whole area |
+| **Table** (life counter) | Life, poison, commander damage, monarch, initiative, day/night, energy and other counters, turn timer and chess clock, themes | ✓ | Every phone at the table joins one shared game by QR code. Works offline. |
+| **Playgroups and stats** | Friends, guest players with no account, game log, win rates by deck, player and commander | ✓ | In-person and online games feed the same stats |
+| **Scanner** | Camera scanning straight into the collection, with set, finish and condition | ✓ | Open model, runs on the phone |
+| **Collection** | Containers (binders, decks, lists, boxes), condition, finish, language, purchase price, bulk edit, CSV import and export | ✓ | Imports Mythic Tools CSV losslessly. Shows owned/needed for each deck, spares and proxies. |
+| **Prices** | Daily market prices from Scryfall (TCGplayer, Cardmarket), with history | ✓ | Dated snapshots kept, never shown as $0 when missing (same rules as `commander-decks`) |
+| **Cards** | Scryfall-style search, Oracle text, rulings, legality | ✓ | Works offline |
+| **Decks** | Deck list, folders, precons, coverage check, playtesting | ✓ | Test a deck against AI with the real rules engine (Play). |
+
+Getting off Mythic Tools has to be painless. Mythic Tools has no API, but its CSV export (`commander-decks/data/collection/mythic-tools-export-*.csv`) has everything we need: Scryfall ID, set, collector number, quantity, condition, finish, language, altered/signed/misprint/proxy flags, container type and name, and purchase price. Import should map every column and make no guesses.
+
+## 2. Apps and code layout
+
+**One React and TypeScript codebase for web and mobile, with Capacitor wrapping it as the iOS and Android apps.**
+
+Why not the alternatives:
+
+- **React Native or Expo** gives better native camera access. But the game board we want to reuse from phase is React DOM (Tailwind, Framer Motion). We would end up writing the UI twice.
+- **Tauri mobile** is what phase uses for Android. Its plugin ecosystem (camera, Google sign-in, offline database, push) is thinner than Capacitor's.
+- **PWA only** can't get offline storage or the camera reliably enough on iOS for a scanner and life counter people rely on.
+
+Capacitor lets us drop to native code where the web view is too slow. The scanner is the one likely place (section 6).
+
+```
+yama/
+  apps/web/            React + Vite: the whole UI
+  apps/mobile/         Capacitor shell: same build + native plugins (camera, SQLite, Google sign-in, haptics, keep-awake)
+  packages/core/       TS domain logic: life counter state machine, collection ops, deck validation, search query parser
+  packages/api/        TS types generated from the Rust server (tsify / OpenAPI)
+  packages/board/      Game board, forked from phase's client
+  server/              Rust workspace: api, game-host, jobs (card data, prices, scanner catalog)
+  engine/              phase-rs fork (git submodule), pinned
+  scanner/             Model, catalog build pipeline, eval set of our own card photos
+```
+
+**Distribution to friends without a public store listing:**
+
+- **iOS:** TestFlight. This needs the Apple Developer Program ($99/yr). External testers need a one-time beta review.
+- **Android:** a direct APK, or Play internal testing.
+- **Web:** everything works in the browser too.
+
+Keeping Yama out of the public stores also keeps it private, which matters for the legal side (section 11).
+
+## 3. Rules engine (Play)
+
+Unchanged from the first draft. Build on **[phase-rs](https://github.com/phase-rs/phase)** (MIT or Apache-2.0). It's a Rust engine that compiles to WASM, with a React client.
+
+- It supports 92.5% of Commander cards: 30,494 of 32,950.
+- It has replays as seed plus action log, reconnect, spectators, and both heuristic and LLM AI seats.
+- Our two full 100-card lists each have one card it can't run yet: **Negative Zone Portal** (Fantastic Four) and **Combat Celebrant** (Riders of Rohan).
+
+The alternatives:
+
+- **Forge** (GPL-3.0, Java): the best AI and coverage, but a desktop app.
+- **XMage** (MIT, Java): self-hostable, but a desktop client and a weak AI.
+- **manabrew** (AGPL-3.0): a Rust port of Forge, still early.
+- **Writing our own:** years of work before it can run real decks.
+
+Put the engine behind a `RulesEngine` trait (new game, legal actions, apply, per-player view) so it can be swapped later.
+
+Where our own rules work goes:
+
+- Implementing the cards our decks need and sending them upstream.
+- Our own multiplayer AI (section 7).
+- House rules.
+
+## 4. Backend
+
+```
+ Phone app (Capacitor)  ─┐                ┌─────────────────────────────────────────────┐
+ Browser                ─┼── HTTPS ──────▶│ Rust server (Axum, Tokio, sqlx)             │
+                         └── WebSocket ──▶│  api:       auth, users, playgroups, decks, │
+                                          │             collection, sync, search        │
+                                          │  game-host: live online games (one task     │
+                                          │             each) and live table rooms      │
+                                          │  jobs:      Scryfall bulk import (weekly),  │
+                                          │             price snapshot (daily),         │
+                                          │             scanner catalog rebuild (per set)│
+                                          └───────────────┬─────────────────────────────┘
+                                                          │
+                       Postgres ─ users, playgroups, games, events, decks, collection, cards, prices
+                       Object storage (R2/S3) ─ scanner model + catalog, replay snapshots, CSV exports
+                       Scryfall image CDN ─ card images (cached on device, never re-hosted)
+```
+
+- **One Rust server and one Postgres database.** At friend-group scale this runs on one Fly.io machine or a small VM.
+- **Game state:** live games and table rooms sit in memory and are rebuilt from the event log after a restart.
+- **Auth:** Google OIDC with an invite allowlist. Native Google sign-in on mobile; the server checks the ID token and issues our own session token.
+- **Play is server-authoritative.** The server sends each seat only what that seat may see, which protects hidden information. Clients send `{expected_revision, action}`. The server checks the action against the engine's legal list, applies it, appends the event and broadcasts filtered views. Details are in the first draft and carry over unchanged.
+
+## 5. Offline-first data (Table, Collection, Cards)
+
+Game night has bad wifi, so the companion features must work without a connection.
+
+- **Local store:** SQLite on mobile (Capacitor SQLite plugin) and IndexedDB on web, behind one TS repository interface in `packages/core`.
+- **Writes are operations, not overwrites.** Each change is an op with a client-generated UUID, such as `{op_id, entity, kind: "adjust_qty", delta: +1, at}`. Ops queue locally and sync when online. The server applies each op once, so retries are safe. Quantity deltas merge cleanly when two devices edit the same card. Plain fields (condition, container) use last-writer-wins.
+- **Offline card data:** a compact card database (Oracle text, types, color identity, legality, image URLs) ships with the app and updates with each set. Size not yet measured; it will be tens of MB. Search runs locally on it, using our own parser for the subset of Scryfall syntax we use (`t:`, `o:`, `id:`, `c:`, `cmc`, `f:`, `is:`).
+- **Prices** download as a daily delta. Every price carries its date and source. A missing price stays missing (shown as "no price"); it never becomes 0.
+
+## 6. Scanner
+
+The proven approach is: find the card's four corners, straighten the image, turn it into an embedding (a compact numeric fingerprint), and look up the nearest match in a catalog of every printing. Optionally, OCR the collector number to break ties between printings.
+
+- **[CollectorVision](https://github.com/HanClinto/CollectorVision)** does exactly this. ONNX models (portable neural-net files) for corner detection and 128-number embeddings, a catalog of about 108,000 printings keyed by Scryfall ID (53 MB), under 100 ms per scan on a laptop CPU, and an experimental in-browser scanner. Its catalog updates regularly ([CollectorVisionCatalog](https://github.com/HanClinto/CollectorVisionCatalog), MIT).
+- **Catch:** the CollectorVision code is **AGPL-3.0**, with a commercial license available. If Yama is open source under a compatible license, we can use it directly. If Yama stays private, we either write our own pipeline (the approach isn't hard; the trained models are the valuable part) or contact the author. Decide before we use any of it.
+- **Plan:**
+  1. Spike in the web view with `onnxruntime-web` (WebGPU or WASM) on Bryan's iPhone. Target: under 250 ms per frame, with a live box around the card and a beep or haptic when it locks on.
+  2. If that's too slow, move inference to a native Capacitor plugin: Core ML on iOS, ONNX Runtime Mobile on Android.
+- **Picking the right printing:** the embedding narrows it to a few printings. Then the collector-number and set-code OCR (iOS Vision or ML Kit), the user's recent set, and a one-tap correction pick the right one. Finish (foil or etched) and condition are user toggles; foil detection from a camera is unreliable.
+- **Eval set:** photograph our real cards (the October purchases are a ready-made labeled set: `data/purchases.json` lists set and collector number) and track accuracy on every model or catalog update.
+
+## 7. AI opponents (Play)
+
+AI seats run on the server and go through the same legal-action path as humans.
+
+1. **Day one:** phase's heuristic and search AI.
+2. **Our project:** an MCTS (Monte Carlo tree search) seat that guesses the hidden cards and simulates many games ahead, with 4-player threat assessment and deck-aware plans. We tune it by running AI-vs-AI games in bulk with our real decks, which also finds engine bugs.
+3. **Opt-in Claude seat:** using phase's `phase-llm` pattern, the model picks the index of a legal option and the engine checks it again.
+
+## 8. Table mode (life counter)
+
+- **State:** a pure reducer in `packages/core`: `apply(tableState, event)`. Events: life ±n, poison, commander damage (source commander → player), counters, monarch and initiative, turn pass, timer ticks.
+- **One device:** works fully offline. The event log goes into the sync queue as an in-person game.
+- **Shared table:** one phone hosts and shows a QR code; the others join a room over the same WebSocket infrastructure. Each player updates their own totals, and everyone sees the shared state. If the server drops, the host phone keeps going and syncs later.
+- **Ending a game** records the winner, the decks (from the user's deck list), turn count and length. In-person games use the same `games` table as online ones (`mode = in_person`), so stats cover both. Results can be exported to `commander-decks/data/games.json`.
+
+## 9. Data model (first cut)
+
+```
+-- identity
+users(id, google_sub, email, display_name, invited_by, created_at)
+playgroups(id, name, owner_id) ; playgroup_members(playgroup_id, user_id NULL, guest_name NULL)
+
+-- cards and prices
+cards(oracle_id, name, type_line, color_identity, legalities jsonb, oracle jsonb, updated_at)
+printings(scryfall_id, oracle_id, set_code, collector_number, lang, finishes, image_uris jsonb)
+price_snapshots(scryfall_id, date, source, usd, usd_foil, usd_etched, eur, eur_foil)  -- NULL = no price
+
+-- collection
+containers(id, owner_id, kind[binder|deck|list|box], name)
+collection_items(id, owner_id, scryfall_id, qty, condition, finish, lang, altered, signed, misprint,
+                 proxy, container_id, purchase_price, purchase_currency, acquired_at, source jsonb)
+collection_ops(op_id PK, owner_id, device_id, payload jsonb, applied_at)          -- sync dedupe
+
+-- decks
+decks(id, owner_id, name, folder, commander_oracle_ids, current_version_id, container_id NULL)
+deck_versions(id, deck_id, cards jsonb, created_at, engine_coverage jsonb)
+
+-- games (online and in-person)
+games(id, mode[online|in_person], playgroup_id, status, format, engine_version NULL, seed NULL,
+      started_at, ended_at, result jsonb)
+game_seats(game_id, seat, user_id NULL, guest_name NULL, ai_kind NULL, deck_version_id NULL,
+           final_life, eliminated_at, eliminated_by)
+game_events(game_id, seq, actor_seat, kind, payload jsonb, created_at)  -- engine actions or table events
+game_snapshots(game_id, seq, state bytea)
+```
+
+Linking a deck to a container is what powers owned/needed: each deck list is checked against the collection, so you see what's in the binder, what's in another deck, and what still has to be bought or printed. That's the job the `commander-decks` scripts do today (`docs/spares.md`, scan checks). Yama could take it over later.
+
+## 10. Milestones
+
+0. **Now, no code:** keep using Mythic Tools and play on phase-rs.dev or XMage. Note what annoys us.
+1. **Foundation:** monorepo; Rust server; Google login with allowlist; Scryfall card import; card search and lookup on web.
+2. **Companion v1 (quick wins on mobile):** the Capacitor app, the offline life counter (single device), playgroups, guest players, game logging and stats. TestFlight build to friends.
+3. **Collection:** Mythic Tools CSV import and export, containers, bulk edit, daily prices with history, decks with owned/needed. Import `commander-decks` deck lists.
+4. **Play v1:** solo game vs AI in the browser, then 4-player online with friends: lobby, invites, reconnect, timers.
+5. **Scanner:** web-view spike, then native fallback if needed; eval set from our purchases.
+6. **Shared table mode and replays:** multi-phone life counter; replay viewer; stats across online and in-person games.
+7. **Depth:** our own MCTS AI; Claude seat; card fixes upstream; deck playtesting from the deck page.
+
+Companion comes before Play because it's smaller and we'd use it every game night. The foundation (auth, cards, decks) serves both.
+
+## 11. Risks
+
+- **Legal and IP:**
+  - Stay inside Wizards' Fan Content Policy: free, non-commercial, an "unofficial, not endorsed by Wizards" notice, no Wizards logos, and no card images or rules documents shipped. Images come from Scryfall at runtime, under its rules (keep the artist and copyright visible, no cropping or recoloring, no paywall).
+  - Companion apps like Mythic Tools are common in the app stores. A full game client in a public store listing is a bigger target. Distributing through TestFlight and an APK keeps us private.
+- **Engine maturity:** phase is seven months old, mostly from one maintainer, with about 1,559 open issues. Pin it, run AI soak tests before each upgrade, and keep the trait boundary.
+- **Replay drift:** a replay only reproduces on the engine version that recorded it. Store `engine_version` and keep old WASM builds or snapshots.
+- **Scanner:**
+  - License (AGPL), and accuracy on foils, sleeves and bad lighting, especially when telling printings apart.
+  - The eval set and one-tap correction contain this.
+- **Prices:** Scryfall prices are market reference prices, not availability or checkout quotes. Label them that way. As far as I know, TCGplayer's own API is closed to new developers (not rechecked), so Scryfall is our price source.
+- **Scope:** this is several apps. The milestones deliver something usable at each step; stop wherever it's good enough.
+
+## 12. Questions for Bryan
+
+1. Phase as the engine (recommended), or write our own from scratch?
+2. Open-source or private repo? This decides whether we can use CollectorVision's AGPL code directly.
+3. Hosting budget, and are you OK with the $99/yr Apple developer account for TestFlight?
+4. How many friends, and which Mythic Tools features do they actually use? That sets the companion order.
+5. Should Yama eventually replace the `commander-decks` scripts (swap guides, spares, scan checks), or stay separate and only export?
+
+## Sources
+
+- phase-rs: <https://github.com/phase-rs/phase>; coverage data `https://data.phase-rs.dev/coverage-data.json` (downloaded 2026-10-17)
+- Forge <https://github.com/Card-Forge/forge>; XMage <https://github.com/magefree/mage>; manabrew <https://github.com/witchesofthehill/manabrew>
+- Mythic Tools App Store listing: <https://apps.apple.com/app/id1669698500>
+- CollectorVision: <https://github.com/HanClinto/CollectorVision>; catalog <https://github.com/HanClinto/CollectorVisionCatalog>
+- Other scanners reviewed: <https://github.com/matteot11/open-card-collector> (MIT), <https://github.com/cfbender/oracle> (MPL-2.0), <https://github.com/GrimbiXcode/mtgscan> (GPL-3.0), <https://github.com/fortierq/mtgscan> (MIT)
+- Scryfall API and bulk data: <https://scryfall.com/docs/api>, <https://scryfall.com/docs/api/bulk-data>
+- Wizards Fan Content Policy: <https://company.wizards.com/en/legal/fancontentpolicy>
+- Comprehensive Rules: <https://magic.wizards.com/en/rules> (latest edition found: effective 2026-06-19)
