@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
 import { scanFrame, SURE } from "./pipeline";
+import { api } from "../api";
 import { createServerCatalog } from "./serverCatalog";
 import { createTesseractOcr, type TesseractOcr } from "./tesseract";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
@@ -64,9 +65,10 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
     let owned: TesseractOcr | null = null;
     (async () => {
       try {
-        const catalog = catalogProp ?? (await createServerCatalog());
+        const catalog = catalogProp ?? (await createServerCatalog({ setCodes: await api<string[]>("/api/sets").catch(() => undefined) }));
         let ocr = ocrProp;
-        if (!ocr) ocr = owned = await createTesseractOcr();
+        // Served by the app (scripts/copy-ocr.mjs), so scanning works offline and loads nothing from a CDN.
+        if (!ocr) ocr = owned = await createTesseractOcr({ workerPath: "/ocr/worker.min.js", corePath: "/ocr/core", langPath: "/ocr/lang" });
         const names = new NameIndex(catalog.names());
         if (cancelled) return;
         engine.current = { ocr, catalog, names };
@@ -189,13 +191,21 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
       const bmp = await createImageBitmap(file);
       canvasRef.current ??= document.createElement("canvas");
       const { image } = grab(bmp, 0, 0, bmp.width, bmp.height, canvasRef.current);
-      // Assume the card is centred; try a few sizes and let the edge finder correct each.
+      // A photo cropped to the card (a scan, a screenshot) is the card: try that first, as is.
+      // Otherwise assume the card is centred; try a few sizes and let the edge finder correct each.
       let res: ScanResult | null = null;
-      for (const fill of [0.9, 0.78, 0.65]) {
+      const cropped = Math.abs(image.height / image.width - CARD_ASPECT) < 0.06;
+      const tries: { fill: number; refine: boolean }[] = [
+        ...(cropped ? [{ fill: 1, refine: false }] : []),
+        { fill: 0.9, refine: true },
+        { fill: 0.78, refine: true },
+        { fill: 0.65, refine: true },
+      ];
+      for (const { fill, refine } of tries) {
         const h = Math.min(image.height * fill, image.width * fill * CARD_ASPECT);
         const w = h / CARD_ASPECT;
         const guide = rectQuad((image.width - w) / 2, (image.height - h) / 2, w, h);
-        const r = await scanFrame(image, { ...e, guide });
+        const r = await scanFrame(image, { ...e, guide, refine });
         if (!res || (r.candidates[0]?.confidence ?? 0) > (res.candidates[0]?.confidence ?? 0)) res = r;
         if ((res.candidates[0]?.confidence ?? 0) >= SURE) break;
       }
@@ -250,7 +260,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
               <p className="faint small">{describe(best)}</p>
               <div className="row">
                 {onAccept && (
-                  <button className="primary" onClick={() => onAccept(best)}>
+                  <button className="primary" onClick={() => { onAccept(best); again(); }}>
                     Add
                   </button>
                 )}
@@ -260,7 +270,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
                 <p className="small dim">
                   Or:{" "}
                   {result.candidates.slice(1).map((c) => (
-                    <button key={`${c.name}${c.set ?? ""}${c.number ?? ""}`} className="quiet small" onClick={() => onAccept?.(c)}>
+                    <button key={`${c.name}${c.set ?? ""}${c.number ?? ""}`} className="quiet small" onClick={() => { onAccept?.(c); again(); }}>
                       {c.name}
                     </button>
                   ))}

@@ -525,3 +525,19 @@ fieldset.seat {
   display: block;
   touch-action: none;
 }
+
+.scan-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--felt);
+  display: grid;
+  grid-template-rows: 1fr auto;
+}
+.scan-controls {
+  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  background: var(--felt-2);
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 0.5rem;
+}

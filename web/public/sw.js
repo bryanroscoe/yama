@@ -44,8 +44,8 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Hashed build assets never change: cache first.
-  if (url.origin === location.origin && url.pathname.startsWith("/assets/")) {
+  // Hashed build assets and the OCR engine never change: cache first.
+  if (url.origin === location.origin && (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/ocr/"))) {
     event.respondWith(
       caches.match(req).then(
         (hit) =>

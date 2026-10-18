@@ -20,6 +20,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/meta/data", get(data_status))
         .route("/api/cards/offline", get(offline_cards))
         .route("/api/printings/{id}/prices", get(price_history))
+        .route("/api/sets", get(set_codes))
 }
 
 pub const CARD_COLUMNS: &str = "cards.oracle_id, cards.name, cards.mana_cost, cards.cmc, cards.type_line, \
@@ -344,4 +345,9 @@ async fn price_history(State(st): State<AppState>, _u: CurrentUser, Path(id): Pa
             .fetch_all(&st.pool)
             .await?,
     ))
+}
+
+/// Every set code we have printings for, so the scanner only looks up real sets.
+async fn set_codes(State(st): State<AppState>, _u: CurrentUser) -> AppResult<Json<Vec<String>>> {
+    Ok(Json(sqlx::query_scalar("SELECT DISTINCT set_code FROM printings ORDER BY set_code").fetch_all(&st.pool).await?))
 }

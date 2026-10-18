@@ -1,7 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { api, API_BASE, usd, type CollectionItem, type CollectionSummary, type Container, type ImportReport } from "../api";
 import { CardImage, ErrorText, Sheet } from "../components/ui";
+import type { ScanCandidate } from "../scanner";
+
+// The scanner pulls in OCR; load it only when someone opens it.
+const ScannerView = lazy(() => import("../scanner").then((m) => ({ default: m.ScannerView })));
 
 export function CollectionPage() {
   const qc = useQueryClient();
@@ -28,6 +32,7 @@ export function CollectionPage() {
     onSuccess: () => qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" }),
   });
   const [newContainer, setNewContainer] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const adjust = useMutation({
     mutationFn: (v: { item: CollectionItem; delta: number }) =>
       api("/api/collection/ops", {
@@ -44,7 +49,8 @@ export function CollectionPage() {
         <h1>Collection</h1>
         <div className="row">
           <a className="button" href={`${API_BASE}/api/collection/export.csv`}>Export CSV</a>
-          <button className="primary" onClick={() => setImporting(true)}>Import from Mythic Tools</button>
+          <button className="primary" onClick={() => setScanning(true)}>Scan cards</button>
+          <button onClick={() => setImporting(true)}>Import from Mythic Tools</button>
         </div>
       </div>
 
@@ -170,6 +176,7 @@ export function CollectionPage() {
         </Sheet>
       )}
       {importing && <ImportSheet onClose={() => setImporting(false)} />}
+      {scanning && <ScanToCollection containers={containers.data ?? []} onClose={() => setScanning(false)} />}
     </main>
   );
 }
@@ -248,5 +255,67 @@ function NewContainer({ onClose }: { onClose: () => void }) {
       <button type="button" className="quiet" onClick={onClose}>Cancel</button>
       <ErrorText error={create.error} />
     </form>
+  );
+}
+
+function ScanToCollection({ containers, onClose }: { containers: Container[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [finish, setFinish] = useState<"nonfoil" | "foil">("nonfoil");
+  const [container, setContainer] = useState("");
+  const [added, setAdded] = useState<{ name: string; set?: string }[]>([]);
+  const [error, setError] = useState<unknown>(null);
+
+  const accept = async (c: ScanCandidate) => {
+    try {
+      // A name-only read has no printing; use the card's default printing and fix it later if needed.
+      let id = c.scryfall_id;
+      if (!id) {
+        const r = await api<{ cards: { default_printing: string | null }[] }>(`/api/cards/search?q=${encodeURIComponent(`!"${c.name}"`)}`);
+        id = r.cards[0]?.default_printing ?? undefined;
+      }
+      if (!id) throw new Error(`Couldn't find a printing for ${c.name}`);
+      await api("/api/collection/ops", {
+        method: "POST",
+        json: [{ op_id: crypto.randomUUID(), kind: "add", scryfall_id: id, qty: 1, finish, container_id: container || null }],
+      });
+      setAdded((a) => [{ name: c.name, set: c.set?.toUpperCase() }, ...a]);
+      setError(null);
+      void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
+    } catch (e) {
+      setError(e);
+    }
+  };
+
+  return (
+    <div className="scan-overlay">
+      <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
+        <ScannerView onAccept={(c) => void accept(c)} onClose={onClose} />
+      </Suspense>
+      <div className="scan-controls">
+        <div className="row">
+          <label style={{ flex: "1 1 8rem" }}>
+            Finish
+            <select value={finish} onChange={(e) => setFinish(e.target.value as "nonfoil" | "foil")}>
+              <option value="nonfoil">Regular</option>
+              <option value="foil">Foil</option>
+            </select>
+          </label>
+          <label style={{ flex: "2 1 12rem" }}>
+            Put in
+            <select value={container} onChange={(e) => setContainer(e.target.value)}>
+              <option value="">Not filed anywhere</option>
+              {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
+            </select>
+          </label>
+        </div>
+        <ErrorText error={error} />
+        {added.length > 0 && (
+          <p className="small dim" role="status">
+            Added {added.length}: {added.slice(0, 5).map((a) => `${a.name}${a.set ? ` (${a.set})` : ""}`).join(", ")}
+            {added.length > 5 ? "…" : ""}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }

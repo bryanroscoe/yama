@@ -8,3 +8,4 @@ dist/
 *.db-wal
 .env
 .DS_Store
+web/public/ocr/
