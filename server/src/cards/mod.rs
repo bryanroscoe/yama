@@ -18,6 +18,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/cards/{oracle_id}", get(card_detail))
         .route("/api/printings/lookup", get(lookup_printing))
         .route("/api/meta/data", get(data_status))
+        .route("/api/cards/offline", get(offline_cards))
 }
 
 pub const CARD_COLUMNS: &str = "cards.oracle_id, cards.name, cards.mana_cost, cards.cmc, cards.type_line, \
@@ -269,4 +270,58 @@ pub async fn resolve_names(pool: &SqlitePool, names: &[String]) -> AppResult<Has
         }
     }
     Ok(out)
+}
+
+/// Compact card list for offline search on the device. Field names match `OfflineCard` in
+/// packages/core/src/search.ts. Only the formats the app filters on are included.
+#[derive(Serialize, sqlx::FromRow)]
+struct OfflineCard {
+    i: String,
+    n: String,
+    m: Option<String>,
+    v: f64,
+    t: String,
+    o: String,
+    c: String,
+    ci: String,
+    p: Option<String>,
+    th: Option<String>,
+    l: Option<String>,
+    r: Option<String>,
+    #[sqlx(json)]
+    k: Vec<String>,
+    #[sqlx(json)]
+    f: HashMap<String, String>,
+    y: Option<String>,
+    img: Option<String>,
+    e: Option<i64>,
+}
+
+#[derive(Serialize)]
+struct OfflineBundle {
+    /// Changes whenever the card data is re-imported; the app refetches when it differs.
+    version: String,
+    cards: Vec<OfflineCard>,
+}
+
+async fn offline_cards(State(st): State<AppState>, _user: CurrentUser) -> AppResult<Json<OfflineBundle>> {
+    let version: Option<String> = sqlx::query_scalar("SELECT MAX(updated_at) FROM cards").fetch_one(&st.pool).await?;
+    let cards = sqlx::query_as::<_, OfflineCard>(
+        "SELECT oracle_id AS i, name AS n, mana_cost AS m, cmc AS v, type_line AS t, oracle_text AS o, colors AS c,
+                color_identity AS ci, power AS p, toughness AS th, loyalty AS l, rarity AS r,
+                (SELECT json_group_array(lower(value)) FROM json_each(cards.keywords)) AS k,
+                json_object('commander', json_extract(legalities, '$.commander'),
+                            'standard', json_extract(legalities, '$.standard'),
+                            'pioneer', json_extract(legalities, '$.pioneer'),
+                            'modern', json_extract(legalities, '$.modern'),
+                            'legacy', json_extract(legalities, '$.legacy'),
+                            'vintage', json_extract(legalities, '$.vintage'),
+                            'pauper', json_extract(legalities, '$.pauper'),
+                            'brawl', json_extract(legalities, '$.brawl')) AS f,
+                layout AS y, image_normal AS img, edhrec_rank AS e
+         FROM cards ORDER BY name",
+    )
+    .fetch_all(&st.pool)
+    .await?;
+    Ok(Json(OfflineBundle { version: version.unwrap_or_default(), cards }))
 }

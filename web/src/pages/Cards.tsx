@@ -3,6 +3,10 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { api, usd, type Card, type Printing, type SearchResult } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
+import { offlineCard, offlineSearch } from "../offline/cards";
+
+/** Network trouble (not a bad query): fall back to the copy on this device. */
+const isNetworkError = (e: unknown) => e instanceof TypeError || !navigator.onLine;
 
 const EXAMPLES = [
   { q: "id<=ug is:commander", label: "Simic commanders" },
@@ -22,7 +26,14 @@ export function CardsPage() {
 
   const results = useQuery({
     queryKey: ["search", q, order, page],
-    queryFn: () => api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(q)}&order=${order}&page=${page}`),
+    queryFn: async (): Promise<SearchResult & { offline?: boolean }> => {
+      try {
+        return await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(q)}&order=${order}&page=${page}`);
+      } catch (e) {
+        if (isNetworkError(e)) return offlineSearch(q, order, page);
+        throw e;
+      }
+    },
     enabled: q.trim().length > 0,
     placeholderData: (prev) => prev,
   });
@@ -82,6 +93,7 @@ export function CardsPage() {
         <>
           <p className="dim small" style={{ margin: "1rem 0" }}>
             {results.data.total.toLocaleString()} {results.data.total === 1 ? "card" : "cards"}
+            {results.data.offline && ", searched on this device while offline"}
           </p>
           <div className="card-grid">
             {results.data.cards.map((c) => (
@@ -107,7 +119,15 @@ export function CardsPage() {
 export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: () => void }) {
   const detail = useQuery({
     queryKey: ["card", oracleId],
-    queryFn: () => api<{ card: Card; printings: Printing[] }>(`/api/cards/${oracleId}`),
+    queryFn: async () => {
+      try {
+        return await api<{ card: Card; printings: Printing[] }>(`/api/cards/${oracleId}`);
+      } catch (e) {
+        const card = isNetworkError(e) ? await offlineCard(oracleId) : null;
+        if (card) return { card, printings: [] as Printing[] };
+        throw e;
+      }
+    },
   });
   const [flipped, setFlipped] = useState(false);
   const [added, setAdded] = useState<string | null>(null);

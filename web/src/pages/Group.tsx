@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api, type PlaygroupStats, type Playgroup } from "../api";
 import { useLogout, useMe } from "../auth";
 import { ErrorText } from "../components/ui";
+import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
@@ -164,7 +165,28 @@ function Account() {
           )}
         </div>
       )}
+      <OfflineCardsSetting />
       <div><button onClick={() => void logout()}>Sign out</button></div>
     </section>
+  );
+}
+
+function OfflineCardsSetting() {
+  const s = useOfflineCards();
+  return (
+    <div className="stack" style={{ gap: "0.5rem" }}>
+      <h3>Cards on this device</h3>
+      <p className="dim small">
+        {s.count
+          ? `${s.count.toLocaleString()} cards saved ${s.savedAt ? new Date(s.savedAt).toLocaleDateString() : ""}, so card search works without signal.`
+          : "Save every card's rules text (a 5 MB download) so card search works without signal."}
+      </p>
+      <div className="row">
+        <button onClick={() => void downloadOfflineCards()} disabled={s.downloading}>
+          {s.downloading ? "Saving cards…" : s.count ? "Update saved cards" : "Save cards to this device"}
+        </button>
+      </div>
+      {s.error && <p className="error small">{s.error}</p>}
+    </div>
   );
 }

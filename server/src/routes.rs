@@ -5,6 +5,7 @@ use axum::Router;
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use axum::http::{header, HeaderValue, Method};
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
@@ -46,7 +47,7 @@ pub fn app(state: AppState) -> Router {
                 .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]),
         );
     }
-    router.layer(TraceLayer::new_for_http()).with_state(state)
+    router.layer(CompressionLayer::new()).layer(TraceLayer::new_for_http()).with_state(state)
 }
 
 pub fn http_client() -> reqwest::Client {
