@@ -142,10 +142,26 @@ async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json
     .execute(&mut *tx)
     .await?;
     for s in &g.seats {
-        // Seats from a playgroup member pick up the member's account, if any.
-        let member_user: Option<Option<String>> = match &s.member_id {
-            Some(m) => sqlx::query_scalar("SELECT user_id FROM playgroup_members WHERE id = ?").bind(m).fetch_optional(&mut *tx).await?,
-            None => None,
+        // A seat can name a playgroup member (picking up their account) or, without a
+        // playgroup, only the creator's own account. Anything else is recorded as a guest name,
+        // so nobody can put games on someone else's record.
+        let member_user: Option<Option<String>> = match (&s.member_id, &g.playgroup_id) {
+            (Some(m), Some(pg)) => {
+                let found: Option<Option<String>> =
+                    sqlx::query_scalar("SELECT user_id FROM playgroup_members WHERE id = ? AND playgroup_id = ?")
+                        .bind(m)
+                        .bind(pg)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+                Some(found.ok_or_else(|| AppError::bad("that player isn't in this playgroup"))?)
+            }
+            (Some(_), None) => return Err(AppError::bad("a playgroup member needs the playgroup")),
+            (None, _) => None,
+        };
+        let account = match (member_user.flatten(), &s.user_id) {
+            (Some(u), _) => Some(u),
+            (None, Some(u)) if *u == user.id => Some(u.clone()),
+            _ => None,
         };
         sqlx::query(
             "INSERT INTO game_seats (game_id, seat, member_id, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name)
@@ -153,9 +169,9 @@ async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json
         )
         .bind(&g.id)
         .bind(s.seat)
-        .bind(&s.member_id)
-        .bind(s.user_id.clone().or(member_user.flatten()))
-        .bind(&s.guest_name)
+        .bind(if g.playgroup_id.is_some() { s.member_id.clone() } else { None })
+        .bind(&account)
+        .bind(if account.is_none() { s.guest_name.clone().or(s.display_name.clone()) } else { s.guest_name.clone() })
         .bind(&s.ai_kind)
         .bind(&s.deck_version_id)
         .bind(&s.deck_label)
@@ -191,13 +207,23 @@ async fn insert_events(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, game: &str,
     Ok(n)
 }
 
+/// Only the phone that created an in-person game writes to it. Online games are written by
+/// the rules engine alone.
+async fn can_write(pool: &SqlitePool, game: &str, user: &str) -> AppResult<bool> {
+    let row: Option<(String, String)> = sqlx::query_as("SELECT created_by, mode FROM games WHERE id = ?")
+        .bind(game)
+        .fetch_optional(pool)
+        .await?;
+    Ok(matches!(row, Some((by, mode)) if by == user && mode == "in_person"))
+}
+
 async fn append_events(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
     Path(id): Path<String>,
     Json(events): Json<Vec<Event>>,
 ) -> AppResult<Json<serde_json::Value>> {
-    if !can_see(&st.pool, &id, &user.id).await? {
+    if !can_write(&st.pool, &id, &user.id).await? {
         return Err(AppError::NotFound("game"));
     }
     let mut tx = st.pool.begin().await?;
@@ -212,7 +238,7 @@ async fn finish(
     Path(id): Path<String>,
     Json(f): Json<Finish>,
 ) -> AppResult<()> {
-    if !can_see(&st.pool, &id, &user.id).await? {
+    if !can_write(&st.pool, &id, &user.id).await? {
         return Err(AppError::NotFound("game"));
     }
     finish_game(&st.pool, &id, f).await
@@ -340,7 +366,7 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
 }
 
 async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
-    let n = sqlx::query("DELETE FROM games WHERE id = ? AND created_by = ?")
+    let n = sqlx::query("DELETE FROM games WHERE id = ? AND created_by = ? AND mode = 'in_person'")
         .bind(&id)
         .bind(&user.id)
         .execute(&st.pool)

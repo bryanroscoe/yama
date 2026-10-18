@@ -5,7 +5,7 @@ import { Link, useNavigate } from "react-router";
 import { api, type DeckSummary, type GameRow, type Playgroup, type SearchResult } from "../api";
 import { useMe } from "../auth";
 import { ErrorText, Pips, Sheet } from "../components/ui";
-import { discardGame, startGame, sync, useOutbox, useSyncStatus, useTable } from "./store";
+import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
 
 interface SeatDraft {
   name: string;
@@ -23,6 +23,7 @@ const LAST_SETUP = "yama.table.lastSetup";
 export function TableHome() {
   const { game, state } = useTable();
   const outbox = useOutbox();
+  const rejected = useRejected();
   const syncStatus = useSyncStatus();
   const navigate = useNavigate();
 
@@ -65,6 +66,11 @@ export function TableHome() {
             Upload now
           </button>
           {syncStatus.error && <span className="error"> {syncStatus.error}</span>}
+        </p>
+      )}
+      {rejected.length > 0 && (
+        <p className="small error">
+          {rejected.length} finished {rejected.length === 1 ? "game" : "games"} couldn't be saved to Yama ({rejected[rejected.length - 1]!.error}). They're kept on this phone.
         </p>
       )}
       <RecentGames />

@@ -433,6 +433,14 @@ async fn update_deck(
     Json(body): Json<UpdateDeck>,
 ) -> AppResult<()> {
     let (name, _, container) = owned_deck(&st.pool, &user.id, &id).await?;
+    if let Some(Some(c)) = &body.container_id {
+        let mine: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE id = ? AND owner_id = ?")
+            .bind(c)
+            .bind(&user.id)
+            .fetch_optional(&st.pool)
+            .await?;
+        mine.ok_or(AppError::NotFound("container"))?;
+    }
     let folder: Option<String> = sqlx::query_scalar("SELECT folder FROM decks WHERE id = ?").bind(&id).fetch_one(&st.pool).await?;
     sqlx::query("UPDATE decks SET name = ?, folder = ?, container_id = ?, updated_at = ? WHERE id = ?")
         .bind(body.name.unwrap_or(name))

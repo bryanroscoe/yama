@@ -7,13 +7,30 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { API_BASE } from "../api";
 import { dispatch, getGame, subscribeTable } from "./store";
 
-export function wsUrl(gameId: string, role: "host" | "guest") {
+export function wsUrl(gameId: string, role: "host" | "guest", key: string) {
   const base = new URL(API_BASE || location.origin);
   const proto = base.protocol === "https:" ? "wss" : "ws";
   // Browsers can't set headers on WebSockets, so native apps pass their token in the URL.
   const token = API_BASE ? localStorage.getItem("yama.token") : null;
-  return `${proto}://${base.host}/api/table/${gameId}/ws?role=${role}${token ? `&token=${token}` : ""}`;
+  return `${proto}://${base.host}/api/table/${gameId}/ws?role=${role}&key=${encodeURIComponent(key)}${token ? `&token=${token}` : ""}`;
 }
+
+/** The share key for a game this phone hosts. It rides in the QR link's #fragment. */
+export function shareKey(gameId: string): string {
+  const k = `yama.share.${gameId}`;
+  let key = localStorage.getItem(k);
+  if (!key) {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    key = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+    localStorage.setItem(k, key);
+  }
+  return key;
+}
+
+/** Guests may adjust the table, but only the host's phone ends the game. */
+const GUEST_EVENTS = new Set<TableEvent["type"]>([
+  "life", "poison", "commander_damage", "counter", "commander_cast", "monarch", "initiative", "day_night", "pass_turn", "eliminate", "revive",
+]);
 
 /** Links people open on their own phones always point at the web app. */
 export function publicOrigin() {
@@ -39,7 +56,7 @@ function sendSnapshot() {
 }
 
 function open(gameId: string, attempt = 0) {
-  const ws = new WebSocket(wsUrl(gameId, "host"));
+  const ws = new WebSocket(wsUrl(gameId, "host", shareKey(gameId)));
   socket = ws;
   ws.onopen = () => {
     setStatus({ connected: true });
@@ -48,7 +65,7 @@ function open(gameId: string, attempt = 0) {
   ws.onmessage = (m) => {
     try {
       const msg = JSON.parse(m.data) as { type: string; event?: TableEvent };
-      if (msg.type === "event" && msg.event) dispatch(msg.event);
+      if (msg.type === "event" && msg.event && GUEST_EVENTS.has(msg.event.type)) dispatch(msg.event);
     } catch {
       /* ignore malformed */
     }
@@ -100,7 +117,7 @@ export function useHosting() {
 export function ShareSheet({ gameId }: { gameId: string; onClose: () => void }) {
   const hosting = useHosting();
   const [svg, setSvg] = useState("");
-  const url = `${publicOrigin()}/table/join/${gameId}`;
+  const url = `${publicOrigin()}/table/join/${gameId}#k=${shareKey(gameId)}`;
   useEffect(() => {
     startHosting(gameId);
     QRCode.toString(url, { type: "svg", margin: 1, color: { dark: "#13201C", light: "#ECE5D3" } }).then(setSvg);

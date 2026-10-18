@@ -9,8 +9,12 @@
 //!   guest → server: {"type":"event", "event": {...}}
 //!   server → guest: the host's snapshot, or {"type":"host", "connected": bool}
 //!   server → host:  {"type":"event", "event": {...}, "from": "<user name>"}
+//!
+//! Access: only the game's creator may host. The host picks a random share key (it travels in
+//! the QR code's URL fragment, never in a page request), and guests must present the same key.
 
 use crate::auth::CurrentUser;
+use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
@@ -33,6 +37,8 @@ pub struct Rooms {
 }
 
 struct Room {
+    /// Set by the host; guests must match it.
+    key: Option<String>,
     snapshot: Option<String>,
     host: Option<(u64, mpsc::UnboundedSender<String>)>,
     guests: broadcast::Sender<String>,
@@ -41,13 +47,14 @@ struct Room {
 
 impl Room {
     fn new() -> Self {
-        Self { snapshot: None, host: None, guests: broadcast::channel(64).0, next_conn: 0 }
+        Self { key: None, snapshot: None, host: None, guests: broadcast::channel(64).0, next_conn: 0 }
     }
 }
 
 #[derive(Deserialize)]
 struct ConnectParams {
     role: String,
+    key: String,
 }
 
 const MAX_MESSAGE: usize = 512 * 1024;
@@ -58,17 +65,36 @@ async fn connect(
     Path(game_id): Path<String>,
     Query(p): Query<ConnectParams>,
     ws: WebSocketUpgrade,
-) -> Response {
-    let rooms = st.rooms.clone();
+) -> AppResult<Response> {
+    if p.key.len() < 16 {
+        return Err(AppError::bad("missing share key"));
+    }
     let host = p.role == "host";
-    ws.max_message_size(MAX_MESSAGE)
-        .on_upgrade(move |socket| async move {
-            if host {
-                run_host(rooms, game_id, socket).await
-            } else {
-                run_guest(rooms, game_id, user.display_name, socket).await
-            }
-        })
+    if host {
+        let creator: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ?")
+            .bind(&game_id)
+            .fetch_optional(&st.pool)
+            .await?;
+        if creator.as_deref() != Some(user.id.as_str()) {
+            return Err(AppError::Forbidden("only the phone that started this game can share it".into()));
+        }
+        let mut map = st.rooms.rooms.lock().unwrap();
+        map.entry(game_id.clone()).or_insert_with(Room::new).key = Some(p.key.clone());
+    } else {
+        let map = st.rooms.rooms.lock().unwrap();
+        let ok = map.get(&game_id).and_then(|r| r.key.as_deref()) == Some(p.key.as_str());
+        if !ok {
+            return Err(AppError::Forbidden("that table link has expired; scan the code again".into()));
+        }
+    }
+    let rooms = st.rooms.clone();
+    Ok(ws.max_message_size(MAX_MESSAGE).on_upgrade(move |socket| async move {
+        if host {
+            run_host(rooms, game_id, socket).await
+        } else {
+            run_guest(rooms, game_id, user.display_name, socket).await
+        }
+    }))
 }
 
 async fn run_host(rooms: Arc<Rooms>, game_id: String, socket: WebSocket) {

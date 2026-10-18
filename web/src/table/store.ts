@@ -11,20 +11,27 @@ import {
   type TableState,
 } from "@yama/core";
 import { useSyncExternalStore } from "react";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 
 export interface LocalGame {
   setup: TableSetup;
   log: LoggedEvent[];
   /** Undone events, newest last, for redo. Cleared by any new event. */
   redo: LoggedEvent[];
-  /** Highest seq the server has. Events at or below it are never rewritten. */
+  /** Highest seq the server has. */
   syncedThrough: number;
+  /**
+   * Highest seq handed to an upload (maybe still in flight). Events at or below it are never
+   * merged into or undone, so the phone and the server can't end up with different versions.
+   */
+  frozenThrough?: number;
   finishSynced?: boolean;
 }
 
 const CURRENT = "yama.table.current";
 const OUTBOX = "yama.table.outbox";
+/** Finished games the server refused (not a network problem). Kept so nothing is lost. */
+const REJECTED = "yama.table.rejected";
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -40,6 +47,7 @@ function read<T>(key: string, fallback: T): T {
 
 let current: LocalGame | null = read<LocalGame | null>(CURRENT, null);
 let outbox: LocalGame[] = read<LocalGame[]>(OUTBOX, []);
+let rejected: { game: LocalGame; error: string }[] = read(REJECTED, []);
 let derived: TableState | null = current ? replay(current.setup, current.log) : null;
 let syncState: { syncing: boolean; error: string | null; lastSyncedAt: string | null } = {
   syncing: false,
@@ -50,6 +58,7 @@ let syncState: { syncing: boolean; error: string | null; lastSyncedAt: string | 
 function emit() {
   localStorage.setItem(CURRENT, JSON.stringify(current));
   localStorage.setItem(OUTBOX, JSON.stringify(outbox));
+  localStorage.setItem(REJECTED, JSON.stringify(rejected));
   for (const l of listeners) l();
 }
 
@@ -74,6 +83,15 @@ export function useOutbox() {
   return useSyncExternalStore(subscribe, () => outbox);
 }
 
+export function useRejected() {
+  return useSyncExternalStore(subscribe, () => rejected);
+}
+
+/** A 4xx other than auth or rate limits: retrying the same upload won't help. */
+function isPermanent(e: unknown) {
+  return e instanceof ApiError && e.status >= 400 && e.status < 500 && ![401, 408, 429].includes(e.status);
+}
+
 export function useSyncStatus() {
   return useSyncExternalStore(subscribe, () => syncState);
 }
@@ -83,14 +101,16 @@ export function startGame(setup: TableSetup) {
   void sync();
 }
 
+const fixedThrough = (g: LocalGame) => Math.max(g.syncedThrough, g.frozenThrough ?? 0);
+
 export function dispatch(event: TableEvent) {
   if (!current) return;
-  setCurrent({ ...current, log: record(current.log, event, new Date(), current.syncedThrough), redo: [] });
+  setCurrent({ ...current, log: record(current.log, event, new Date(), fixedThrough(current)), redo: [] });
 }
 
-/** Undo only reaches events the server doesn't have yet; older ones are history. */
+/** Undo only reaches events not yet sent to the server; older ones are history. */
 export function canUndo() {
-  return !!current && current.log.length > 0 && current.log[current.log.length - 1]!.seq > current.syncedThrough;
+  return !!current && current.log.length > 0 && current.log[current.log.length - 1]!.seq > fixedThrough(current);
 }
 
 export function undo() {
@@ -110,7 +130,8 @@ export function redo() {
 export function finishGame(winnerSeat: number | null) {
   if (!current) return;
   const log = record(current.log, { type: "finish", winnerSeat, endedAt: new Date().toISOString() }, new Date(), Infinity);
-  outbox = [...outbox, { ...current, log }];
+  // A finished game uploads whole: drop the in-flight mark so nothing is held back.
+  outbox = [...outbox, { ...current, log, frozenThrough: undefined }];
   setCurrent(null);
   void sync();
 }
@@ -145,7 +166,8 @@ async function pushGame(g: LocalGame): Promise<number> {
       })),
     },
   });
-  const fresh = g.log.filter((l) => l.seq > g.syncedThrough);
+  const upTo = g.frozenThrough ?? Infinity;
+  const fresh = g.log.filter((l) => l.seq > g.syncedThrough && l.seq <= upTo);
   if (fresh.length) await api(`/api/games/${s.id}/events`, { method: "POST", json: toServerEvents(fresh) });
   const finish = finishOf(g);
   if (finish) {
@@ -165,7 +187,7 @@ async function pushGame(g: LocalGame): Promise<number> {
       },
     });
   }
-  return g.log[g.log.length - 1]?.seq ?? 0;
+  return upTo === Infinity ? (g.log[g.log.length - 1]?.seq ?? 0) : upTo;
 }
 
 let inflight: Promise<void> | null = null;
@@ -178,13 +200,24 @@ export function sync(): Promise<void> {
     try {
       // Finished games first: they're complete and the most valuable.
       while (outbox.length) {
-        await pushGame(outbox[0]!);
+        const g = outbox[0]!;
+        try {
+          await pushGame(g);
+        } catch (e) {
+          if (!isPermanent(e)) throw e;
+          // Set it aside so the games behind it still upload.
+          rejected = [...rejected, { game: g, error: e instanceof Error ? e.message : String(e) }];
+        }
         outbox = outbox.slice(1);
         emit();
       }
       if (current) {
+        // Freeze what we're about to send: later taps start new events instead of changing these.
+        const through = current.log[current.log.length - 1]?.seq ?? 0;
+        current = { ...current, frozenThrough: Math.max(current.frozenThrough ?? 0, through) };
+        emit();
         const snapshot = current;
-        const through = await pushGame(snapshot);
+        await pushGame(snapshot);
         // Only advance if the game is still the same one (it may have been finished meanwhile).
         if (current && current.setup.id === snapshot.setup.id) {
           current = { ...current, syncedThrough: Math.max(current.syncedThrough, through) };

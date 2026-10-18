@@ -266,29 +266,31 @@ impl Match {
             return None;
         }
         let contract = AiDecisionContract::issue(&self.state, me);
+        // Labels come from what this seat may see, never the full state.
+        let vs = filter_state_for_viewer(&self.state, me);
         let options = contract
             .candidates
             .iter()
             .enumerate()
             .map(|(index, c)| OptionView {
                 index,
-                label: self.label(&c.action),
+                label: self.label(&vs, &c.action),
                 object: c.action.source_object().map(|o| o.0),
             })
             .collect();
-        Some(Decision { revision: self.revision, prompt: self.prompt(), options })
+        Some(Decision { revision: self.revision, prompt: self.prompt(&vs), options })
     }
 
     /// What the current decision is about, naming the card behind it when the engine says.
-    fn prompt(&self) -> String {
-        let kind = phase_llm::render::action::describe_waiting_for(&self.state.waiting_for);
+    fn prompt(&self, vs: &GameState) -> String {
+        let kind = phase_llm::render::action::describe_waiting_for(&vs.waiting_for);
         // Look for the source card at the top level, then one level down (tagged enums).
-        let source = serde_json::to_value(&self.state.waiting_for).ok().and_then(|v| {
+        let source = serde_json::to_value(&vs.waiting_for).ok().and_then(|v| {
             let top = v.as_object()?;
             std::iter::once(top)
                 .chain(top.values().filter_map(|inner| inner.as_object()))
                 .find_map(|fields| ["source_id", "source", "object_id"].iter().find_map(|k| fields.get(*k).and_then(|id| id.as_u64())))
-                .and_then(|id| self.state.objects.get(&ObjectId(id)).map(|o| o.name.clone()))
+                .map(|id| Self::name_in(vs, &ObjectId(id)))
         });
         match source {
             Some(name) => format!("{kind}: {name}"),
@@ -334,8 +336,13 @@ impl Match {
         }
     }
 
-    fn name_of(&self, id: &ObjectId) -> String {
-        self.state.objects.get(id).map(|o| o.name.clone()).unwrap_or_else(|| "a card".into())
+    /// A card's name as `vs` (one seat's filtered view) shows it. Face-down cards stay hidden.
+    fn name_in(vs: &GameState, id: &ObjectId) -> String {
+        match vs.objects.get(id) {
+            Some(o) if o.face_down => "a face-down card".into(),
+            Some(o) if !o.name.is_empty() => o.name.clone(),
+            _ => "a card".into(),
+        }
     }
 
     fn seat_name(&self, p: PlayerId) -> String {
@@ -344,23 +351,23 @@ impl Match {
 
     /// Plain-language label for an option. Common actions get hand-written wording; the rest
     /// fall back to phase's own description.
-    fn label(&self, action: &GameAction) -> String {
+    fn label(&self, vs: &GameState, action: &GameAction) -> String {
         let target_text = |t: &TargetRef| match t {
-            TargetRef::Object(id) => self.name_of(id),
+            TargetRef::Object(id) => Self::name_in(vs, id),
             TargetRef::Player(p) => self.seat_name(*p),
         };
         match action {
             GameAction::PassPriority => {
-                if self.state.stack.is_empty() { "Pass (move on)".into() } else { "Pass (let it resolve)".into() }
+                if vs.stack.is_empty() { "Pass (move on)".into() } else { "Pass (let it resolve)".into() }
             }
-            GameAction::PlayLand { object_id, .. } => format!("Play {}", self.name_of(object_id)),
-            GameAction::CastSpell { object_id, targets, .. } if targets.is_empty() => format!("Cast {}", self.name_of(object_id)),
+            GameAction::PlayLand { object_id, .. } => format!("Play {}", Self::name_in(vs, object_id)),
+            GameAction::CastSpell { object_id, targets, .. } if targets.is_empty() => format!("Cast {}", Self::name_in(vs, object_id)),
             GameAction::CastSpell { object_id, targets, .. } => format!(
                 "Cast {} targeting {}",
-                self.name_of(object_id),
-                targets.iter().map(|t| self.name_of(t)).collect::<Vec<_>>().join(", ")
+                Self::name_in(vs, object_id),
+                targets.iter().map(|t| Self::name_in(vs, t)).collect::<Vec<_>>().join(", ")
             ),
-            GameAction::ActivateAbility { source_id, .. } => format!("Use {}", self.name_of(source_id)),
+            GameAction::ActivateAbility { source_id, .. } => format!("Use {}", Self::name_in(vs, source_id)),
             GameAction::MulliganDecision { choice: MulliganChoice::Keep } => "Keep this hand".into(),
             GameAction::MulliganDecision { choice: MulliganChoice::Mulligan } => "Mulligan".into(),
             GameAction::DeclareAttackers { attacks, .. } if attacks.is_empty() => "Don't attack".into(),
@@ -369,9 +376,9 @@ impl Match {
                 for (attacker, target) in attacks {
                     let who = match target {
                         AttackTarget::Player(p) => self.seat_name(*p),
-                        AttackTarget::Planeswalker(id) | AttackTarget::Battle(id) => self.name_of(id),
+                        AttackTarget::Planeswalker(id) | AttackTarget::Battle(id) => Self::name_in(vs, id),
                     };
-                    by_target.entry(who).or_default().push(self.name_of(attacker));
+                    by_target.entry(who).or_default().push(Self::name_in(vs, attacker));
                 }
                 let parts: Vec<String> = by_target.into_iter().map(|(who, a)| format!("{} at {who}", a.join(", "))).collect();
                 format!("Attack: {}", parts.join("; "))
@@ -379,24 +386,24 @@ impl Match {
             GameAction::DeclareBlockers { assignments } if assignments.is_empty() => "Don't block".into(),
             GameAction::DeclareBlockers { assignments } => format!(
                 "Block: {}",
-                assignments.iter().map(|(b, a)| format!("{} blocks {}", self.name_of(b), self.name_of(a))).collect::<Vec<_>>().join("; ")
+                assignments.iter().map(|(b, a)| format!("{} blocks {}", Self::name_in(vs, b), Self::name_in(vs, a))).collect::<Vec<_>>().join("; ")
             ),
             GameAction::SelectTargets { targets } => format!("Target {}", targets.iter().map(target_text).collect::<Vec<_>>().join(", ")),
             GameAction::ChooseTarget { target: Some(t) } => format!("Target {}", target_text(t)),
             GameAction::ChooseTarget { target: None } => "No target".into(),
             GameAction::SelectCards { cards } if cards.is_empty() => "Choose none".into(),
-            GameAction::SelectCards { cards } => format!("Choose {}", cards.iter().map(|c| self.name_of(c)).collect::<Vec<_>>().join(", ")),
+            GameAction::SelectCards { cards } => format!("Choose {}", cards.iter().map(|c| Self::name_in(vs, c)).collect::<Vec<_>>().join(", ")),
             GameAction::DecideOptionalEffect { accept } => if *accept { "Yes".into() } else { "No".into() },
             GameAction::DecideOptionalCost { pay } => if *pay { "Pay the extra cost".into() } else { "Don't pay it".into() },
             GameAction::ChooseX { value } => format!("X = {value}"),
-            GameAction::Equip { equipment_id, target_id } => format!("Equip {} to {}", self.name_of(equipment_id), self.name_of(target_id)),
+            GameAction::Equip { equipment_id, target_id } => format!("Equip {} to {}", Self::name_in(vs, equipment_id), Self::name_in(vs, target_id)),
             GameAction::ChooseOption { choice } => choice.clone(),
             GameAction::CancelCast => "Cancel".into(),
             GameAction::OrderTriggers { order } => {
-                let names: Vec<String> = match &self.state.waiting_for {
+                let names: Vec<String> = match &vs.waiting_for {
                     WaitingFor::OrderTriggers { triggers, .. } => order
                         .iter()
-                        .map(|i| triggers.get(*i).map(|t| self.name_of(&t.source_id)).unwrap_or_else(|| format!("trigger {}", i + 1)))
+                        .map(|i| triggers.get(*i).map(|t| Self::name_in(vs, &t.source_id)).unwrap_or_else(|| format!("trigger {}", i + 1)))
                         .collect(),
                     _ => order.iter().map(|i| format!("trigger {}", i + 1)).collect(),
                 };
@@ -404,7 +411,7 @@ impl Match {
                 format!("Resolve {}", names.iter().rev().cloned().collect::<Vec<_>>().join(", then "))
             }
             GameAction::SelectModes { indices } => {
-                let modal = match &self.state.waiting_for {
+                let modal = match &vs.waiting_for {
                     WaitingFor::ModeChoice { modal, .. } | WaitingFor::AbilityModeChoice { modal, .. } => Some(modal),
                     _ => None,
                 };
@@ -414,7 +421,7 @@ impl Match {
                     .collect();
                 format!("Choose: {}", text.join(" + "))
             }
-            GameAction::ChooseReplacement { index } => match &self.state.waiting_for {
+            GameAction::ChooseReplacement { index } => match &vs.waiting_for {
                 WaitingFor::ReplacementChoice { candidates, .. } => candidates
                     .get(*index)
                     .map(|c| if c.description.is_empty() { c.source_name.clone() } else { c.description.clone() })
@@ -588,7 +595,7 @@ impl Match {
                     .commander_damage
                     .iter()
                     .filter(|d| d.player == p.id)
-                    .map(|d| (state.objects.get(&d.commander).map(|o| o.name.clone()).unwrap_or_default(), d.damage))
+                    .map(|d| (Self::name_in(&state, &d.commander), d.damage))
                     .collect(),
             })
             .collect();
@@ -605,7 +612,11 @@ impl Match {
                 .stack
                 .iter()
                 .map(|s| StackView {
-                    name: state.objects.get(&s.source_id).map(|o| o.name.clone()).unwrap_or_else(|| "Ability".into()),
+                    name: match state.objects.get(&s.source_id) {
+                        Some(o) if o.face_down => "A face-down spell".into(),
+                        Some(o) if !o.name.is_empty() => o.name.clone(),
+                        _ => "An ability".into(),
+                    },
                     controller: s.controller.0,
                 })
                 .collect(),

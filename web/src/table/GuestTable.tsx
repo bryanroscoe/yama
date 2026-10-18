@@ -24,13 +24,19 @@ export function GuestTable() {
   });
   const [sheet, setSheet] = useState(false);
   const socket = useRef<WebSocket | null>(null);
+  // The share key comes in the link's #fragment; keep it so a reload can reconnect.
+  const [key] = useState(() => {
+    const fromLink = new URLSearchParams(location.hash.slice(1)).get("k");
+    if (fromLink) localStorage.setItem(`yama.guestkey.${gameId}`, fromLink);
+    return fromLink ?? localStorage.getItem(`yama.guestkey.${gameId}`) ?? "";
+  });
 
   useEffect(() => {
     let closed = false;
     let attempt = 0;
     let timer: number | null = null;
     const open = () => {
-      const ws = new WebSocket(wsUrl(gameId, "guest"));
+      const ws = new WebSocket(wsUrl(gameId, "guest", key));
       socket.current = ws;
       ws.onopen = () => {
         attempt = 0;
@@ -52,7 +58,7 @@ export function GuestTable() {
       if (timer) window.clearTimeout(timer);
       socket.current?.close();
     };
-  }, [gameId]);
+  }, [gameId, key]);
 
   const state = useMemo(() => (snapshot ? replay(snapshot.setup, snapshot.log) : null), [snapshot]);
   const send = (event: TableEvent) => {
@@ -63,6 +69,14 @@ export function GuestTable() {
     setSeat(s);
   };
 
+  if (!key) {
+    return (
+      <main className="page">
+        <h1>Joining the table</h1>
+        <p className="dim">This link is missing its code. Scan the QR code on the host's phone again.</p>
+      </main>
+    );
+  }
   if (!state) {
     return (
       <main className="page">

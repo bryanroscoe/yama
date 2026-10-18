@@ -269,7 +269,12 @@ async fn delete_invite(
     axum::extract::Path(email): axum::extract::Path<String>,
 ) -> AppResult<()> {
     require_admin(&user)?;
-    sqlx::query("DELETE FROM invites WHERE email = ?").bind(email.to_lowercase()).execute(&st.pool).await?;
+    let email = email.to_lowercase();
+    sqlx::query("DELETE FROM invites WHERE email = ?").bind(&email).execute(&st.pool).await?;
+    // Revoking an invite signs that person out everywhere, unless they're an admin.
+    if !st.cfg.admin_emails.contains(&email) {
+        sqlx::query("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email = ?)").bind(&email).execute(&st.pool).await?;
+    }
     Ok(())
 }
 

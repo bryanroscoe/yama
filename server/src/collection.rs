@@ -129,7 +129,7 @@ async fn apply_ops(
 pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) -> AppResult<bool> {
     let fresh = sqlx::query(
         "INSERT INTO applied_ops (op_id, owner_id, device_id, kind, payload, applied_at) VALUES (?,?,?,?,?,?)
-         ON CONFLICT(op_id) DO NOTHING",
+         ON CONFLICT(owner_id, op_id) DO NOTHING",
     )
     .bind(&op.op_id)
     .bind(owner)
@@ -154,6 +154,7 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                 .await?;
         }
         OpKind::Adjust { item_id, delta } => {
+            let item_id = &resolve_item(tx, owner, item_id).await?;
             let qty: i64 = sqlx::query_scalar("SELECT qty FROM collection_items WHERE id = ? AND owner_id = ?")
                 .bind(item_id)
                 .bind(owner)
@@ -177,6 +178,7 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
             }
         }
         OpKind::Update { item_id, condition, finish, lang, container_id, purchase_price, note, proxy } => {
+            let item_id = &resolve_item(tx, owner, item_id).await?;
             let Some(item) = load_item(tx, owner, item_id).await? else { return Ok(true) };
             if let Some(Some(c)) = container_id {
                 check_container(tx, owner, Some(c)).await?;
@@ -193,12 +195,72 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
             let container = container_id.clone().unwrap_or(item.container_id.clone());
             let price = purchase_price.unwrap_or(item.purchase_price);
             let note = note.clone().unwrap_or(item.note.clone());
-            // Remove the old row, then add as the new kind so identical rows merge.
-            sqlx::query("DELETE FROM collection_items WHERE id = ?").bind(item_id).execute(&mut **tx).await?;
-            let new_id = add_copies(tx, owner, &item.scryfall_id, item.qty, &copy, container.as_deref(), price, item.purchase_currency.as_deref()).await?;
-            sqlx::query("UPDATE collection_items SET note = ? WHERE id = ?").bind(note).bind(new_id).execute(&mut **tx).await?;
+            // If the change makes this row identical to another one, merge into it and leave an
+            // alias so ops still naming this row (from other devices) follow. Otherwise update in
+            // place, keeping the row's id.
+            let twin: Option<String> = sqlx::query_scalar(
+                "SELECT id FROM collection_items WHERE owner_id=? AND scryfall_id=? AND condition=? AND finish=? AND lang=?
+                 AND altered=? AND signed=? AND misprint=? AND proxy=? AND IFNULL(container_id,'') = IFNULL(?, '') AND id != ?",
+            )
+            .bind(owner)
+            .bind(&item.scryfall_id)
+            .bind(&copy.condition)
+            .bind(&copy.finish)
+            .bind(&copy.lang)
+            .bind(copy.altered)
+            .bind(copy.signed)
+            .bind(copy.misprint)
+            .bind(copy.proxy)
+            .bind(&container)
+            .bind(item_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+            match twin {
+                Some(twin) => {
+                    sqlx::query("UPDATE collection_items SET qty = qty + ?, updated_at = ?, purchase_price = COALESCE(purchase_price, ?), note = COALESCE(note, ?) WHERE id = ?")
+                        .bind(item.qty)
+                        .bind(now())
+                        .bind(price)
+                        .bind(&note)
+                        .bind(&twin)
+                        .execute(&mut **tx)
+                        .await?;
+                    sqlx::query("DELETE FROM collection_items WHERE id = ?").bind(item_id).execute(&mut **tx).await?;
+                    sqlx::query("INSERT OR REPLACE INTO item_aliases (old_id, owner_id, new_id, created_at) VALUES (?,?,?,?)")
+                        .bind(item_id)
+                        .bind(owner)
+                        .bind(&twin)
+                        .bind(now())
+                        .execute(&mut **tx)
+                        .await?;
+                    sqlx::query("UPDATE item_aliases SET new_id = ? WHERE new_id = ? AND owner_id = ?")
+                        .bind(&twin)
+                        .bind(item_id)
+                        .bind(owner)
+                        .execute(&mut **tx)
+                        .await?;
+                }
+                None => {
+                    sqlx::query(
+                        "UPDATE collection_items SET condition=?, finish=?, lang=?, proxy=?, container_id=?, purchase_price=?, note=?, updated_at=?
+                         WHERE id = ?",
+                    )
+                    .bind(&copy.condition)
+                    .bind(&copy.finish)
+                    .bind(&copy.lang)
+                    .bind(copy.proxy)
+                    .bind(&container)
+                    .bind(price)
+                    .bind(&note)
+                    .bind(now())
+                    .bind(item_id)
+                    .execute(&mut **tx)
+                    .await?;
+                }
+            }
         }
         OpKind::Remove { item_id } => {
+            let item_id = &resolve_item(tx, owner, item_id).await?;
             sqlx::query("DELETE FROM collection_items WHERE id = ? AND owner_id = ?")
                 .bind(item_id)
                 .bind(owner)
@@ -207,6 +269,23 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
         }
     }
     Ok(true)
+}
+
+/// Follow merge aliases to the row an old item id now lives in.
+async fn resolve_item(tx: &mut Transaction<'_, Sqlite>, owner: &str, id: &str) -> AppResult<String> {
+    let mut id = id.to_string();
+    for _ in 0..8 {
+        let next: Option<String> = sqlx::query_scalar("SELECT new_id FROM item_aliases WHERE old_id = ? AND owner_id = ?")
+            .bind(&id)
+            .bind(owner)
+            .fetch_optional(&mut **tx)
+            .await?;
+        match next {
+            Some(n) => id = n,
+            None => break,
+        }
+    }
+    Ok(id)
 }
 
 fn op_name(op: &OpKind) -> &'static str {
@@ -303,14 +382,13 @@ struct ItemRow {
     proxy: bool,
     container_id: Option<String>,
     purchase_price: Option<f64>,
-    purchase_currency: Option<String>,
     note: Option<String>,
 }
 
 async fn load_item(tx: &mut Transaction<'_, Sqlite>, owner: &str, id: &str) -> AppResult<Option<ItemRow>> {
     Ok(sqlx::query_as(
         "SELECT scryfall_id, qty, condition, finish, lang, altered, signed, misprint, proxy, container_id,
-            purchase_price, purchase_currency, note FROM collection_items WHERE id = ? AND owner_id = ?",
+            purchase_price, note FROM collection_items WHERE id = ? AND owner_id = ?",
     )
     .bind(id)
     .bind(owner)
@@ -866,5 +944,52 @@ mod tests {
         let OpKind::Update { container_id, condition, .. } = keep.op else { panic!() };
         assert_eq!(container_id, None);
         assert_eq!(condition.as_deref(), Some("LP"));
+    }
+
+    #[tokio::test]
+    async fn ops_on_a_merged_row_follow_it() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        let add = |op_id: &str, finish: &str| Op {
+            op_id: op_id.into(),
+            device_id: None,
+            op: OpKind::Add {
+                scryfall_id: "p1".into(),
+                qty: 1,
+                copy: CopyKind { condition: nm(), finish: finish.into(), lang: en(), ..Default::default() },
+                container_id: None,
+                purchase_price: None,
+                purchase_currency: None,
+            },
+        };
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &add("a", "nonfoil")).await.unwrap();
+        apply_op(&mut tx, &owner, &add("b", "foil")).await.unwrap();
+        tx.commit().await.unwrap();
+        let nonfoil: String = sqlx::query_scalar("SELECT id FROM collection_items WHERE finish='nonfoil'").fetch_one(&pool).await.unwrap();
+
+        // Device A marks the nonfoil copy as foil: it merges into the foil row.
+        let mut tx = pool.begin().await.unwrap();
+        let update = Op {
+            op_id: "c".into(),
+            device_id: None,
+            op: OpKind::Update { item_id: nonfoil.clone(), condition: None, finish: Some("foil".into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None },
+        };
+        apply_op(&mut tx, &owner, &update).await.unwrap();
+        // Device B, offline before that, adds two to the old row id.
+        apply_op(&mut tx, &owner, &Op { op_id: "d".into(), device_id: None, op: OpKind::Adjust { item_id: nonfoil, delta: 2 } }).await.unwrap();
+        tx.commit().await.unwrap();
+        let rows: Vec<(String, i64)> = sqlx::query_as("SELECT finish, qty FROM collection_items").fetch_all(&pool).await.unwrap();
+        assert_eq!(rows, vec![("foil".into(), 4)]);
+    }
+
+    #[tokio::test]
+    async fn the_same_op_id_counts_separately_per_user() {
+        let pool = crate::db::test_pool().await;
+        let a = user(&pool).await;
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('u2','b@b.c','B','now')").execute(&pool).await.unwrap();
+        let r1 = import_mythic_csv(&pool, &a, CSV).await.unwrap();
+        let r2 = import_mythic_csv(&pool, "u2", CSV).await.unwrap();
+        assert_eq!((r1.added_rows, r2.added_rows), (2, 2));
     }
 }

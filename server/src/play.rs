@@ -356,6 +356,25 @@ impl Row {
     }
 }
 
+/// Host, seated players, and members of the game's playgroup may see a game. Everyone else
+/// gets "not found", so game ids leak nothing.
+async fn can_view(pool: &SqlitePool, r: &Row, user: &str) -> AppResult<bool> {
+    if r.host_id == user || r.seats().iter().any(|s| s.user_id.as_deref() == Some(user)) {
+        return Ok(true);
+    }
+    let group: Option<Option<String>> =
+        sqlx::query_scalar("SELECT playgroup_id FROM games WHERE id = ?").bind(&r.game_id).fetch_optional(pool).await?;
+    match group.flatten() {
+        Some(g) => crate::playgroups::is_member(pool, &g, user).await,
+        None => Ok(false),
+    }
+}
+
+async fn load_visible(pool: &SqlitePool, id: &str, user: &str) -> AppResult<Row> {
+    let r = load_row(pool, id).await?;
+    if can_view(pool, &r, user).await? { Ok(r) } else { Err(AppError::NotFound("game")) }
+}
+
 async fn load_row(pool: &SqlitePool, id: &str) -> AppResult<Row> {
     sqlx::query_as("SELECT game_id, code, host_id, stage, seats, created_at FROM online_games WHERE game_id = ?")
         .bind(id)
@@ -391,9 +410,11 @@ async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> App
 
 fn summarize(r: &Row, user: &str, missing_cards: HashMap<String, Vec<String>>) -> OnlineGame {
     let seats = r.seats();
+    let participant = r.host_id == user || seats.iter().any(|s| s.user_id.as_deref() == Some(user));
     OnlineGame {
         id: r.game_id.clone(),
-        code: r.code.clone(),
+        // The join code is an invitation; only people already in the game hand it out.
+        code: if participant { r.code.clone() } else { String::new() },
         status: r.status(),
         host: r.host_id.clone(),
         you: seats.iter().find(|s| s.user_id.as_deref() == Some(user)).map(|s| s.seat),
@@ -404,7 +425,7 @@ fn summarize(r: &Row, user: &str, missing_cards: HashMap<String, Vec<String>>) -
 }
 
 async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<OnlineGame>> {
-    let r = load_row(&st.pool, &id).await?;
+    let r = load_visible(&st.pool, &id, &user.id).await?;
     let mut missing = HashMap::new();
     if r.stage == "lobby" && let Ok(engine) = st.play.engine() {
         for s in r.seats() {
@@ -562,33 +583,42 @@ async fn join(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(b
         .fetch_optional(&st.pool)
         .await?
         .ok_or(AppError::NotFound("game with that code"))?;
-    let r = load_row(&st.pool, &id).await?;
-    let mut seats = r.seats();
-    if seats.iter().any(|s| s.user_id.as_deref() == Some(user.id.as_str())) {
-        return Ok(Json(serde_json::json!({ "id": id }))); // already seated
-    }
-    if r.stage != "lobby" {
-        return Err(AppError::Conflict("that game has already started".into()));
-    }
     let (version, deck_name, commander, identity) = deck_for_seat(&st.pool, &user.id, &body.deck_id).await?;
-    let seat = seats
-        .iter_mut()
-        .find(|s| s.kind == "human" && s.user_id.is_none())
-        .ok_or_else(|| AppError::Conflict("that game is full".into()))?;
-    seat.user_id = Some(user.id.clone());
-    seat.name = user.display_name.clone();
-    seat.deck_id = Some(body.deck_id.clone());
-    seat.deck_version_id = Some(version);
-    seat.deck_name = Some(deck_name);
-    seat.commander = commander;
-    seat.color_identity = identity;
-    sqlx::query("UPDATE online_games SET seats = ?, updated_at = ? WHERE game_id = ? AND stage = 'lobby'")
-        .bind(serde_json::to_string(&seats).map_err(anyhow::Error::from)?)
-        .bind(now())
-        .bind(&id)
-        .execute(&st.pool)
-        .await?;
-    Ok(Json(serde_json::json!({ "id": id })))
+    // Seats are one JSON value: take a seat with compare-and-set, retrying if someone else
+    // joined at the same moment, so two joins can't overwrite each other.
+    for _ in 0..5 {
+        let r = load_row(&st.pool, &id).await?;
+        let mut seats = r.seats();
+        if seats.iter().any(|s| s.user_id.as_deref() == Some(user.id.as_str())) {
+            return Ok(Json(serde_json::json!({ "id": id }))); // already seated
+        }
+        if r.stage != "lobby" {
+            return Err(AppError::Conflict("that game has already started".into()));
+        }
+        let seat = seats
+            .iter_mut()
+            .find(|s| s.kind == "human" && s.user_id.is_none())
+            .ok_or_else(|| AppError::Conflict("that game is full".into()))?;
+        seat.user_id = Some(user.id.clone());
+        seat.name = user.display_name.clone();
+        seat.deck_id = Some(body.deck_id.clone());
+        seat.deck_version_id = Some(version.clone());
+        seat.deck_name = Some(deck_name.clone());
+        seat.commander = commander.clone();
+        seat.color_identity = identity.clone();
+        let updated = sqlx::query("UPDATE online_games SET seats = ?, updated_at = ? WHERE game_id = ? AND stage = 'lobby' AND seats = ?")
+            .bind(serde_json::to_string(&seats).map_err(anyhow::Error::from)?)
+            .bind(now())
+            .bind(&id)
+            .bind(&r.seats)
+            .execute(&st.pool)
+            .await?
+            .rows_affected();
+        if updated == 1 {
+            return Ok(Json(serde_json::json!({ "id": id })));
+        }
+    }
+    Err(AppError::Conflict("the table changed while you were joining; try again".into()))
 }
 
 async fn start(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
@@ -608,14 +638,40 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
         return Err(AppError::Conflict("every seat needs a player and a deck".into()));
     }
     let engine = st.play.engine()?;
+    // Claim the lobby before building anything, so a double tap or a racing request can't
+    // start two engines for one game. The seats must still be the ones we read.
+    let claimed = sqlx::query("UPDATE online_games SET stage = 'live', updated_at = ? WHERE game_id = ? AND stage = 'lobby' AND seats = ?")
+        .bind(now())
+        .bind(id)
+        .bind(&r.seats)
+        .execute(&st.pool)
+        .await?
+        .rows_affected();
+    if claimed == 0 {
+        return Ok(()); // someone else started it, or the seats just changed
+    }
+    let release = || async {
+        let _ = sqlx::query("UPDATE online_games SET stage = 'lobby' WHERE game_id = ?").bind(id).execute(&st.pool).await;
+    };
     let mut decks = Vec::new();
     for s in &seats {
-        let cards = load_version_cards(&st.pool, s.deck_version_id.as_deref().unwrap()).await?;
-        decks.push(resolve(&engine, &cards).0);
+        match load_version_cards(&st.pool, s.deck_version_id.as_deref().unwrap()).await {
+            Ok(cards) => decks.push(resolve(&engine, &cards).0),
+            Err(e) => {
+                release().await;
+                return Err(e);
+            }
+        }
     }
     let seed: u64 = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
     let ai = ai_seats(&seats);
-    let m = engine.new_match(seed, decks, &ai).map_err(AppError::Other)?;
+    let m = match engine.new_match(seed, decks, &ai) {
+        Ok(m) => m,
+        Err(e) => {
+            release().await;
+            return Err(AppError::Other(e));
+        }
+    };
 
     let mut tx = st.pool.begin().await?;
     sqlx::query("UPDATE games SET engine_version = ?, seed = ?, started_at = ? WHERE id = ?")
@@ -641,7 +697,7 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
         .execute(&mut *tx)
         .await?;
     }
-    sqlx::query("UPDATE online_games SET stage = 'live', replay = ?, updated_at = ? WHERE game_id = ?")
+    sqlx::query("UPDATE online_games SET replay = ?, updated_at = ? WHERE game_id = ?")
         .bind(m.replay_json())
         .bind(now())
         .bind(id)
@@ -663,7 +719,7 @@ enum ClientMessage {
 }
 
 async fn connect(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, ws: WebSocketUpgrade) -> AppResult<Response> {
-    let r = load_row(&st.pool, &id).await?;
+    let r = load_visible(&st.pool, &id, &user.id).await?;
     let seats = r.seats();
     let you = seats.iter().find(|s| s.user_id.as_deref() == Some(user.id.as_str())).map(|s| s.seat);
     let live = st.play.live(&id).ok_or_else(|| AppError::Conflict("that game isn't running".into()))?;
@@ -746,7 +802,7 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
 /// The board as it stands, over HTTP: for finished games (rebuilt from the replay log) and
 /// anyone who can't hold a socket open. Same payload as a socket message.
 async fn final_view(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
-    let r = load_row(&st.pool, &id).await?;
+    let r = load_visible(&st.pool, &id, &user.id).await?;
     let seats = r.seats();
     let you = seats.iter().find(|s| s.user_id.as_deref() == Some(user.id.as_str())).map(|s| s.seat);
     let view = if let Some(live) = st.play.live(&id) {
