@@ -182,7 +182,7 @@ pub struct Match {
     names: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogLine {
     pub turn: u32,
     pub text: String,
@@ -276,11 +276,34 @@ impl Match {
                 object: c.action.source_object().map(|o| o.0),
             })
             .collect();
-        Some(Decision {
-            revision: self.revision,
-            prompt: phase_llm::render::action::describe_waiting_for(&self.state.waiting_for),
-            options,
-        })
+        Some(Decision { revision: self.revision, prompt: self.prompt(), options })
+    }
+
+    /// What the current decision is about, naming the card behind it when the engine says.
+    fn prompt(&self) -> String {
+        let kind = phase_llm::render::action::describe_waiting_for(&self.state.waiting_for);
+        // Look for the source card at the top level, then one level down (tagged enums).
+        let source = serde_json::to_value(&self.state.waiting_for).ok().and_then(|v| {
+            let top = v.as_object()?;
+            std::iter::once(top)
+                .chain(top.values().filter_map(|inner| inner.as_object()))
+                .find_map(|fields| ["source_id", "source", "object_id"].iter().find_map(|k| fields.get(*k).and_then(|id| id.as_u64())))
+                .and_then(|id| self.state.objects.get(&ObjectId(id)).map(|o| o.name.clone()))
+        });
+        match source {
+            Some(name) => format!("{kind}: {name}"),
+            None => kind,
+        }
+    }
+
+    /// Recent public log lines, for saving alongside the replay.
+    pub fn log_lines(&self) -> &[LogLine] {
+        &self.lines
+    }
+
+    /// Restore saved log lines after a resume (replaying doesn't regenerate them).
+    pub fn set_log_lines(&mut self, lines: Vec<LogLine>) {
+        self.lines = lines;
     }
 
     /// Apply a human choice by its index in [`Match::decision`].

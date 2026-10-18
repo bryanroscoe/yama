@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
-import { scanFrame } from "./pipeline";
+import { scanFrame, SURE } from "./pipeline";
 import { createServerCatalog } from "./serverCatalog";
 import { createTesseractOcr, type TesseractOcr } from "./tesseract";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
@@ -53,7 +53,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
   const engine = useRef<{ ocr: OcrEngine; catalog: ScanCatalog; names: NameIndex } | null>(null);
   const last = useRef<{ card: ScanCandidate; at: number } | undefined>(undefined);
   const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState("Getting the reader ready");
+  const [status, setStatus] = useState("Line the card up with the frame");
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -183,17 +183,22 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
 
   const fromPhoto = async (file: File) => {
     const e = engine.current;
-    if (!e) return;
+    if (!e) return setStatus("The reader is still loading. Try again in a moment.");
     setStatus("Reading the photo");
     const bmp = await createImageBitmap(file);
     canvasRef.current ??= document.createElement("canvas");
     const { image } = grab(bmp, 0, 0, bmp.width, bmp.height, canvasRef.current);
-    // Assume the card is centred and fills most of the photo; the edge finder corrects the rest.
-    const h = Math.min(image.height * 0.9, image.width * 0.9 * CARD_ASPECT);
-    const w = h / CARD_ASPECT;
-    const guide = rectQuad((image.width - w) / 2, (image.height - h) / 2, w, h);
-    const res = await scanFrame(image, { ...e, guide });
-    if (!handle(res, true)) setStatus("Couldn't read that photo. Fill the photo with the card and try again.");
+    // Assume the card is centred; try a few sizes and let the edge finder correct each.
+    let res: ScanResult | null = null;
+    for (const fill of [0.9, 0.78, 0.65]) {
+      const h = Math.min(image.height * fill, image.width * fill * CARD_ASPECT);
+      const w = h / CARD_ASPECT;
+      const guide = rectQuad((image.width - w) / 2, (image.height - h) / 2, w, h);
+      const r = await scanFrame(image, { ...e, guide });
+      if (!res || (r.candidates[0]?.confidence ?? 0) > (res.candidates[0]?.confidence ?? 0)) res = r;
+      if ((res.candidates[0]?.confidence ?? 0) >= SURE) break;
+    }
+    if (!res || !handle(res, true)) setStatus("Couldn't read that photo. Fill the photo with the card and try again.");
   };
 
   const again = () => {

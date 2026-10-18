@@ -114,16 +114,19 @@ impl PlayHub {
 
     /// Restart every game that was live when the server stopped, by replaying its log.
     async fn resume_live(self: &Arc<Self>, pool: &SqlitePool) {
-        let rows: Vec<(String, String, Option<String>)> =
-            sqlx::query_as("SELECT game_id, seats, replay FROM online_games WHERE stage = 'live'")
+        let rows: Vec<(String, String, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT game_id, seats, replay, log FROM online_games WHERE stage = 'live'")
                 .fetch_all(pool)
                 .await
                 .unwrap_or_default();
-        for (game_id, seats, replay) in rows {
+        for (game_id, seats, replay, log) in rows {
             let (Ok(seats), Some(replay)) = (serde_json::from_str::<Vec<SeatCfg>>(&seats), replay) else { continue };
             let Ok(engine) = self.engine() else { return };
             match engine.resume(&replay, &ai_seats(&seats)) {
-                Ok(m) => {
+                Ok(mut m) => {
+                    if let Some(lines) = log.and_then(|l| serde_json::from_str(&l).ok()) {
+                        m.set_log_lines(lines);
+                    }
                     self.spawn_game(game_id.clone(), m, seats, pool.clone());
                     tracing::info!(game_id, "resumed online game");
                 }
@@ -236,8 +239,9 @@ fn run_game(
 
 async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<()> {
     let stage = if m.is_over() { "over" } else { "live" };
-    sqlx::query("UPDATE online_games SET replay = ?, revision = ?, stage = ?, updated_at = ? WHERE game_id = ?")
+    sqlx::query("UPDATE online_games SET replay = ?, log = ?, revision = ?, stage = ?, updated_at = ? WHERE game_id = ?")
         .bind(m.replay_json())
+        .bind(serde_json::to_string(m.log_lines())?)
         .bind(m.revision as i64)
         .bind(stage)
         .bind(now())
@@ -741,7 +745,9 @@ async fn final_view(State(st): State<AppState>, CurrentUser(user): CurrentUser, 
         let snap = live.views.borrow().clone();
         snap.views.get(&you).or_else(|| snap.views.get(&None)).cloned().ok_or(AppError::NotFound("view"))?
     } else {
-        let replay: Option<String> = sqlx::query_scalar("SELECT replay FROM online_games WHERE game_id = ?").bind(&id).fetch_one(&st.pool).await?;
+        let (replay, log): (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT replay, log FROM online_games WHERE game_id = ?").bind(&id).fetch_one(&st.pool).await?;
+        let lines: Vec<yama_play::LogLine> = log.and_then(|l| serde_json::from_str(&l).ok()).unwrap_or_default();
         let replay = replay.ok_or(AppError::NotFound("game record"))?;
         let engine = st.play.engine()?;
         let names: Vec<String> = seats.iter().map(|s| s.name.clone()).collect();
@@ -753,6 +759,7 @@ async fn final_view(State(st): State<AppState>, CurrentUser(user): CurrentUser, 
                 .spawn(move || -> anyhow::Result<View> {
                     let mut m = engine.resume(&replay, &ai)?;
                     m.set_names(names);
+                    m.set_log_lines(lines);
                     // Finished games show everything; there's nothing left to hide.
                     Ok(m.view(you))
                 })
