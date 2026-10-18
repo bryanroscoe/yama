@@ -185,6 +185,31 @@ Linking a deck to a container is what powers owned/needed: each deck list is che
 
 Companion comes before Play because it's smaller and we'd use it every game night. The foundation (auth, cards, decks) serves both.
 
+### Progress (2026-10-18)
+
+| Milestone | State |
+|---|---|
+| 1 Foundation | Done |
+| 2 Companion v1 | Done on the web and as an installable web app. Native apps wait on Xcode and the Apple account |
+| 3 Collection | Done, except bulk edit and a price-history view (the history is stored) |
+| 4 Play v1 | Working: lobby, friends by code, AI seats, reconnect, restart recovery. No turn timers yet |
+| 5 Scanner | Research spike in progress (docs/scanner.md) |
+| 6 Shared table and replays | Shared table done. Final boards are rebuilt from replays; a step-through viewer isn't built |
+| 7 Depth | Sample hands done; the rest not started |
+
+### How online play ended up working
+
+- **Engine:** phase v0.113.0 from a local fork (`../yama-phase`, one commit so it builds on stable Rust), wrapped by `play/` (`Engine`, `Match`). `soak` plays Bryan's decks AI-vs-AI and checks that the replay log reproduces the game.
+- **Board:** we didn't fork phase's 1,400-file client. Each decision is the engine's own option list (`AiDecisionContract`), the same list the AI chooses from, shown as plain-language buttons. Tapping a card filters the list to options for that card. Every option is legal by construction, every engine decision type works from day one, and the UI can grow special cases (drag to attack, mana payment) later.
+- **Smart stops:** the server passes for a person unless:
+  - it's their main phase,
+  - the stack holds something they could answer (land abilities alone don't count),
+  - or they could cast a spell at an opponent's end step.
+
+  A full-control switch turns this off.
+- **Runtime:** one OS thread per live game with a 32 MiB stack, because the AI search recurses deeply. Views go out over a `watch` channel and WebSocket. The replay log and public log lines are saved after every change, and live games resume after a restart by replaying the log.
+- **Hidden information:** Yama's own view type never includes libraries or opponents' hands. phase's filtered state still names opponents' library cards internally, so never send the raw engine state to a client.
+
 ## 11. Risks
 
 - **Legal and IP:**
@@ -200,11 +225,15 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 
 ## 12. Questions for Bryan
 
-1. Phase as the engine (recommended), or write our own from scratch?
-2. Open-source or private repo? This decides whether we can use CollectorVision's AGPL code directly.
-3. Hosting budget, and are you OK with the $99/yr Apple developer account for TestFlight?
-4. How many friends, and which Mythic Tools features do they actually use? That sets the companion order.
-5. Should Yama eventually replace the `commander-decks` scripts (swap guides, spares, scan checks), or stay separate and only export?
+Answered 2026-10-18 ("do all those things"): phase is the engine. Defaults taken until Bryan says otherwise: private repo with local git only, no hosting or paid accounts yet.
+
+Still open:
+
+1. Hosting: where, and on what budget? Online play needs about 1 GB of RAM because the engine's card data is big.
+2. Is the $99/yr Apple developer account OK for TestFlight?
+3. Which Mythic Tools features do your friends actually use?
+4. Should Yama eventually replace the `commander-decks` scripts, or stay separate and only export?
+5. Google sign-in needs an OAuth client ID from your Google Cloud account.
 
 ## Sources
 
