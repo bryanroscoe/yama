@@ -8,6 +8,7 @@ mod error;
 mod games;
 mod playgroups;
 mod routes;
+mod table_rooms;
 mod util;
 
 use anyhow::Context;

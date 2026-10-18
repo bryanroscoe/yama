@@ -11,12 +11,17 @@ import {
   type CounterKind,
   type LoggedEvent,
   type PlayerState,
+  type TableEvent,
   type TableState,
 } from "@yama/core";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { Sheet } from "../components/ui";
+import { ShareSheet } from "./share";
 import { canUndo, discardGame, dispatch, finishGame, redo, undo, useSyncStatus, useTable } from "./store";
+
+/** Where panel taps go: this device's game, or the host's game for a guest phone. */
+export const DispatchContext = createContext<(e: TableEvent) => void>(dispatch);
 import "./table.css";
 
 /** Rotation for each seat so every player reads their own panel. Seats go clockwise. */
@@ -121,7 +126,7 @@ export function TablePlay() {
 }
 
 /** The running total of the current tap burst, for the little "−3" next to the number. */
-function pendingDelta(log: LoggedEvent[], seat: number): number | null {
+export function pendingDelta(log: LoggedEvent[], seat: number): number | null {
   const last = log[log.length - 1];
   if (!last || last.event.type !== "life" || last.event.seat !== seat) return null;
   if (Date.now() - Date.parse(last.at) > COALESCE_MS) return null;
@@ -137,7 +142,7 @@ function useTick(active: boolean) {
   });
 }
 
-function Panel(props: {
+export function Panel(props: {
   p: PlayerState;
   rot: number;
   area: string;
@@ -148,6 +153,7 @@ function Panel(props: {
   onOpen: () => void;
 }) {
   const { p, rot, area, active, pending, onOpen, state, fill } = props;
+  const dispatch = useContext(DispatchContext);
   useTick(pending !== null); // clear the bubble once the burst ends
   const keys = identityKeys(p.colorIdentity);
   const base = MANA[fill];
@@ -262,7 +268,8 @@ function Stepper({ label, value, onChange, hint }: { label: string; value: numbe
   );
 }
 
-function PlayerSheet({ state, seat, onClose }: { state: TableState; seat: number; onClose: () => void }) {
+export function PlayerSheet({ state, seat, onClose }: { state: TableState; seat: number; onClose: () => void }) {
+  const dispatch = useContext(DispatchContext);
   const p = state.players.find((x) => x.seat === seat)!;
   const opponents = state.players.filter((x) => x.seat !== seat);
   const counters: CounterKind[] = ["energy", "experience", "rad"];
@@ -332,6 +339,7 @@ function PlayerSheet({ state, seat, onClose }: { state: TableState; seat: number
 function TableMenu({ state, onClose, onLeave, aliveCount }: { state: TableState; onClose: () => void; onLeave: () => void; aliveCount: number }) {
   const sync = useSyncStatus();
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const active = state.players.find((p) => p.seat === state.activeSeat);
   return (
     <div className="stack">
@@ -355,6 +363,10 @@ function TableMenu({ state, onClose, onLeave, aliveCount }: { state: TableState;
         </button>
         <RollButton players={state.players.map((p) => p.name)} />
       </div>
+      <div className="row">
+        <button onClick={() => setSharing(true)}>Share with the table</button>
+      </div>
+      {sharing && <ShareSheet gameId={state.setup.id} onClose={() => setSharing(false)} />}
 
       <h3>End the game</h3>
       {!confirmEnd ? (

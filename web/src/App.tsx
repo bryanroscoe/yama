@@ -6,6 +6,7 @@ import { CardsPage } from "./pages/Cards";
 import { CollectionPage } from "./pages/Collection";
 import { DeckPage, DecksPage } from "./pages/Decks";
 import { GroupPage } from "./pages/Group";
+import { GuestTable } from "./table/GuestTable";
 import { TableHome } from "./table/TableHome";
 import { TablePlay } from "./table/TablePlay";
 
@@ -52,6 +53,7 @@ export function App() {
     <Routes>
       {/* The live counter takes the whole screen. */}
       <Route path="/table/play" element={<TablePlay />} />
+      <Route path="/table/join/:gameId" element={<GuestTable />} />
       <Route element={<Shell />}>
         <Route index element={<TableHome />} />
         <Route path="cards" element={<CardsPage />} />

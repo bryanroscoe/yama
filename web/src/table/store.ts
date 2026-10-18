@@ -207,3 +207,9 @@ if (typeof window !== "undefined") {
     if (navigator.onLine && (current || outbox.length)) void sync();
   }, 20_000);
 }
+
+/** For the shared-table host connection: current game and change notifications. */
+export function getGame(): LocalGame | null {
+  return current;
+}
+export { subscribe as subscribeTable };
