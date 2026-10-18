@@ -1,0 +1,15 @@
+{
+  "name": "yama",
+  "private": true,
+  "workspaces": ["packages/*", "web"],
+  "scripts": {
+    "dev": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/core && tsc -p web"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

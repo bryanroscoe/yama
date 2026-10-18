@@ -1,0 +1,209 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { identityName } from "@yama/core";
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router";
+import { api, usd, type DeckEntry, type DeckSummary, type DeckView } from "../api";
+import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
+import { CardSheet } from "./Cards";
+
+export function DecksPage() {
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const [adding, setAdding] = useState(false);
+  return (
+    <main className="page">
+      <div className="page-head">
+        <h1>Decks</h1>
+        <button className="primary" onClick={() => setAdding(true)}>Add a deck</button>
+      </div>
+      <ErrorText error={decks.error} />
+      {decks.data?.length === 0 && (
+        <p className="empty">No decks yet. Paste a list from Moxfield, Archidekt, Arena or a text file to add one.</p>
+      )}
+      <div className="list">
+        {decks.data?.map((d) => (
+          <Link key={d.id} to={`/decks/${d.id}`} className="list-row">
+            {d.commander_image ? <img className="art-thumb" src={d.commander_image} alt="" /> : <span className="art-thumb" />}
+            <span>
+              <span className="title">{d.name}</span>
+              <br />
+              <span className="dim small">{d.commanders.join(" and ") || "No commander set"}</span>
+            </span>
+            <span style={{ textAlign: "right" }}>
+              <Pips identity={d.color_identity} />
+              <br />
+              <span className="dim small num">{d.card_count} cards</span>
+            </span>
+          </Link>
+        ))}
+      </div>
+      {adding && <AddDeck onClose={() => setAdding(false)} />}
+    </main>
+  );
+}
+
+function AddDeck({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [text, setText] = useState("");
+  const [firstIsCommander, setFirst] = useState(true);
+  const create = useMutation({
+    mutationFn: () => api<{ id: string; unknown: string[] }>("/api/decks", { method: "POST", json: { name, text, first_is_commander: firstIsCommander } }),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ["decks"] });
+      if (r.unknown.length) alert(`Added. These names didn't match any card: ${r.unknown.join(", ")}`);
+      navigate(`/decks/${r.id}`);
+    },
+  });
+  return (
+    <Sheet label="Add a deck" onClose={onClose}>
+      <form
+        className="stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          create.mutate();
+        }}
+      >
+        <div className="sheet-head">
+          <h2>Add a deck</h2>
+          <button type="button" className="quiet" onClick={onClose}>Close</button>
+        </div>
+        <label>
+          Name
+          <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Omo lands" />
+        </label>
+        <label>
+          Deck list
+          <span className="hint">One card per line, like "1 Sol Ring". Sections such as "Commander" and set codes are fine.</span>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} required />
+        </label>
+        <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
+          <input type="checkbox" checked={firstIsCommander} onChange={(e) => setFirst(e.target.checked)} style={{ width: "auto", minHeight: 0 }} />
+          With no Commander section, the first card is the commander
+        </label>
+        <ErrorText error={create.error} />
+        <div className="row">
+          <button className="primary" disabled={create.isPending}>Add the deck</button>
+        </div>
+      </form>
+    </Sheet>
+  );
+}
+
+const GROUPS: [string, (t: string) => boolean][] = [
+  ["Creatures", (t) => t.includes("Creature")],
+  ["Planeswalkers", (t) => t.includes("Planeswalker")],
+  ["Instants", (t) => t.includes("Instant")],
+  ["Sorceries", (t) => t.includes("Sorcery")],
+  ["Artifacts", (t) => t.includes("Artifact")],
+  ["Enchantments", (t) => t.includes("Enchantment")],
+  ["Battles", (t) => t.includes("Battle")],
+  ["Lands", (t) => t.includes("Land")],
+];
+
+function groupOf(e: DeckEntry): string {
+  if (e.board === "commander") return "Commander";
+  if (e.board === "side") return "Sideboard";
+  // Lands that are also creatures (Dryad Arbor) read as lands; the front face decides for MDFCs.
+  const t = (e.card?.type_line ?? "").split(" // ")[0]!;
+  if (t.includes("Land")) return "Lands";
+  return GROUPS.find(([, test]) => test(t))?.[0] ?? "Other";
+}
+
+export function DeckPage() {
+  const { id } = useParams();
+  const deck = useQuery({ queryKey: ["deck", id], queryFn: () => api<DeckView>(`/api/decks/${id}`) });
+  const [view, setView] = useState<"all" | "needed">("all");
+  const [open, setOpen] = useState<string | null>(null);
+
+  const groups = useMemo(() => {
+    const order = ["Commander", ...GROUPS.map(([g]) => g), "Other", "Sideboard"];
+    const map = new Map<string, DeckEntry[]>();
+    for (const e of deck.data?.cards ?? []) {
+      if (view === "needed" && e.needed === 0) continue;
+      const g = groupOf(e);
+      map.set(g, [...(map.get(g) ?? []), e]);
+    }
+    return order.filter((g) => map.has(g)).map((g) => [g, map.get(g)!.sort((a, b) => (a.card?.cmc ?? 0) - (b.card?.cmc ?? 0) || a.name.localeCompare(b.name))] as const);
+  }, [deck.data, view]);
+
+  if (deck.error) return <main className="page"><ErrorText error={deck.error} /></main>;
+  const d = deck.data;
+  if (!d) return <main className="page" />;
+  const v = d.validation;
+  const o = d.ownership;
+
+  return (
+    <main className="page">
+      <p className="small"><Link to="/decks">Decks</Link></p>
+      <div className="page-head">
+        <div>
+          <h1>{d.name}</h1>
+          <p className="dim" style={{ margin: 0 }}>
+            <Pips identity={v.color_identity} /> {identityName(v.color_identity)}, {v.total} cards
+          </p>
+        </div>
+      </div>
+
+      <div className="figures">
+        <div className="figure">
+          <b className="num">{o.owned}/{o.cards}</b>
+          <span>cards you own</span>
+        </div>
+        <div className="figure">
+          <b className="num">{o.needed}</b>
+          <span>still needed</span>
+        </div>
+        <div className="figure">
+          <b className="num">{usd(o.needed_cost_usd)}</b>
+          <span>
+            cheapest market price for the rest, basics excluded
+            {o.needed_without_price > 0 ? `; ${o.needed_without_price} have no price` : ""}
+          </span>
+        </div>
+      </div>
+
+      {v.ok ? (
+        <p><span className="tag good">Commander-legal</span> <span className="dim small">by size, singleton, color identity and the ban list in our card data.</span></p>
+      ) : (
+        <div>
+          <p><span className="tag bad">Not legal yet</span></p>
+          <ul className="small">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>
+        </div>
+      )}
+      {v.warnings.length > 0 && <ul className="small dim">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+
+      <div className="row" role="tablist" style={{ margin: "1rem 0" }}>
+        <button role="tab" aria-selected={view === "all"} className={view === "all" ? "primary" : ""} onClick={() => setView("all")}>Whole deck</button>
+        <button role="tab" aria-selected={view === "needed"} className={view === "needed" ? "primary" : ""} onClick={() => setView("needed")}>Cards you still need</button>
+      </div>
+
+      {groups.map(([group, entries]) => (
+        <section key={group} style={{ marginBottom: "1.5rem" }}>
+          <h3>
+            {group} <span className="dim num">{entries.reduce((a, e) => a + e.qty, 0)}</span>
+          </h3>
+          <div className="list">
+            {entries.map((e) => (
+              <button key={`${e.oracle_id}-${e.board}`} className="list-row" onClick={() => setOpen(e.oracle_id)}>
+                <CardImage src={e.card?.image_small} name={e.name} className="thumb" />
+                <span>
+                  <span className="title">{e.qty > 1 ? `${e.qty} ` : ""}{e.name}</span> <ManaCost cost={e.card?.mana_cost ?? null} />
+                  <br />
+                  <span className="small dim">
+                    {e.owned > 0 ? `Own ${e.owned}: ${Object.entries(e.locations).map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ""}`).join(", ")}` : e.proxies > 0 ? "Proxy only" : "Not owned"}
+                  </span>
+                </span>
+                <span className="small num" style={{ textAlign: "right" }}>
+                  {e.needed > 0 ? <span className="tag">need {e.needed}</span> : <span className="tag good">have</span>}
+                  {e.needed > 0 && <><br /><span className="dim">{usd(e.cheapest_usd)}</span></>}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+      {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
+    </main>
+  );
+}
