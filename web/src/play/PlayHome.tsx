@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { api, type DeckSummary } from "../api";
+import { api, type DeckSummary, type Playgroup } from "../api";
 import { ErrorText, Pips } from "../components/ui";
 import type { OnlineGame } from "./types";
 
@@ -67,6 +67,8 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
     { kind: "ai", deckId: "", difficulty: "Medium" },
     { kind: "ai", deckId: "", difficulty: "Medium" },
   ]);
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
+  const [groupId, setGroupId] = useState("");
   const deckOf = (s: SeatPlan) => s.deckId || first;
   const update = (i: number, patch: Partial<SeatPlan>) => setSeats((all) => all.map((s, j) => (j === i ? { ...s, ...patch } : s)));
   const create = useMutation({
@@ -74,6 +76,7 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
       api<{ id: string }>("/api/play", {
         method: "POST",
         json: {
+          playgroup_id: groupId || null,
           seats: seats.map((s) => ({
             kind: s.kind,
             deck_id: s.kind === "friend" ? null : deckOf(s),
@@ -94,6 +97,15 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
     <section className="stack">
       <h2>New game</h2>
       <p className="dim small">Seat 1 is you. Friends join with a code; the computer plays the AI seats with your decks.</p>
+      {!!groups.data?.length && (
+        <label style={{ maxWidth: "24rem" }}>
+          Playgroup
+          <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+            <option value="">None (not counted in group stats)</option>
+            {groups.data.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        </label>
+      )}
       {seats.map((s, i) => (
         <fieldset key={i} className="seat">
           <legend className="small dim">Seat {i + 1}</legend>

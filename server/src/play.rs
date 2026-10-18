@@ -464,6 +464,8 @@ struct SeatRequest {
 #[derive(Deserialize)]
 struct CreateRequest {
     seats: Vec<SeatRequest>,
+    /// Count the game in this playgroup's stats.
+    playgroup_id: Option<String>,
 }
 
 async fn create(
@@ -477,6 +479,11 @@ async fn create(
     }
     if body.seats.first().map(|s| s.kind.as_str()) != Some("me") || body.seats.iter().filter(|s| s.kind == "me").count() != 1 {
         return Err(AppError::bad("seat 1 is you"));
+    }
+    if let Some(pg) = &body.playgroup_id
+        && !crate::playgroups::is_member(&st.pool, pg, &user.id).await?
+    {
+        return Err(AppError::NotFound("playgroup"));
     }
     let mut seats = Vec::new();
     for (i, s) in body.seats.iter().enumerate() {
@@ -518,8 +525,9 @@ async fn create(
     let id = new_id();
     let stamp = now();
     let mut tx = st.pool.begin().await?;
-    sqlx::query("INSERT INTO games (id, mode, created_by, format, status, starting_life, started_at) VALUES (?, 'online', ?, 'commander', 'in_progress', 40, ?)")
+    sqlx::query("INSERT INTO games (id, mode, playgroup_id, created_by, format, status, starting_life, started_at) VALUES (?, 'online', ?, ?, 'commander', 'in_progress', 40, ?)")
         .bind(&id)
+        .bind(&body.playgroup_id)
         .bind(&user.id)
         .bind(&stamp)
         .execute(&mut *tx)
