@@ -1,10 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { identityName, type PlayerSetup, type TableSetup } from "@yama/core";
 import { useEffect, useId, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, type DeckSummary, type GameRow, type Playgroup, type SearchResult } from "../api";
 import { useMe } from "../auth";
-import { ErrorText, Pips } from "../components/ui";
+import { ErrorText, Pips, Sheet } from "../components/ui";
 import { discardGame, startGame, sync, useOutbox, useSyncStatus, useTable } from "./store";
 
 interface SeatDraft {
@@ -267,12 +267,17 @@ function SeatEditor({ index, seat, onChange, group, decks }: { index: number; se
 
 function RecentGames() {
   const games = useQuery({ queryKey: ["games"], queryFn: () => api<GameRow[]>("/api/games") });
-  if (!games.data?.length) return null;
+  const [logging, setLogging] = useState(false);
   return (
     <section style={{ marginTop: "2.5rem" }}>
-      <h2>Recent games</h2>
+      <div className="page-head" style={{ marginBottom: "0.5rem" }}>
+        <h2 style={{ margin: 0 }}>Recent games</h2>
+        <button onClick={() => setLogging(true)}>Log a game played without Yama</button>
+      </div>
+      {logging && <LogGame onClose={() => setLogging(false)} />}
+      {!games.data?.length && <p className="dim">No games yet.</p>}
       <div className="list">
-        {games.data.slice(0, 10).map((g) => {
+        {games.data?.slice(0, 10).map((g) => {
           const winner = g.seats.find((s) => s.seat === g.winner_seat);
           return (
             <div key={g.id} className="list-row" style={{ gridTemplateColumns: "1fr auto" }}>
@@ -295,5 +300,95 @@ function RecentGames() {
       </div>
       <p className="small"><Link to="/group">Playgroup stats</Link></p>
     </section>
+  );
+}
+
+function LogGame({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
+  const [groupId, setGroupId] = useState("");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [turns, setTurns] = useState("");
+  const [winner, setWinner] = useState<number | null>(null);
+  const [seats, setSeats] = useState<SeatDraft[]>(() =>
+    Array.from({ length: 4 }, () => ({ name: "", commanderName: "", colorIdentity: "" })),
+  );
+  const group = groups.data?.find((g) => g.id === groupId);
+  const update = (i: number, patch: Partial<SeatDraft>) => setSeats((s) => s.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+
+  const save = useMutation({
+    mutationFn: () => {
+      const players = seats.filter((s) => s.name.trim() || s.memberId);
+      if (players.length < 1) throw new Error("Add at least one player.");
+      const at = new Date(`${date}T20:00:00`).toISOString();
+      return api("/api/games", {
+        method: "POST",
+        json: {
+          id: crypto.randomUUID(),
+          playgroup_id: groupId || null,
+          started_at: at,
+          seats: players.map((s, i) => ({
+            seat: i,
+            member_id: s.memberId ?? null,
+            user_id: s.userId ?? null,
+            guest_name: s.memberId ? null : s.name.trim(),
+            commander_name: s.commanderName || null,
+            deck_label: s.commanderName || null,
+          })),
+          finish: { winner_seat: winner, turns: turns ? Number(turns) : null, ended_at: at, seats: [] },
+          note: "Logged after the game",
+        },
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["games"] });
+      void qc.invalidateQueries({ queryKey: ["stats"] });
+      onClose();
+    },
+  });
+
+  return (
+    <Sheet label="Log a game" onClose={onClose}>
+      <form className="stack" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+        <div className="sheet-head">
+          <h2>Log a game</h2>
+          <button type="button" className="quiet" onClick={onClose}>Close</button>
+        </div>
+        <div className="row" style={{ alignItems: "end" }}>
+          <label style={{ flex: "1 1 12rem" }}>
+            Playgroup
+            <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+              <option value="">None</option>
+              {groups.data?.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          </label>
+          <label style={{ flex: "1 1 9rem" }}>
+            Played on
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </label>
+          <label style={{ flex: "0 1 6rem" }}>
+            Turns
+            <input inputMode="numeric" value={turns} onChange={(e) => setTurns(e.target.value.replace(/\D/g, ""))} />
+          </label>
+        </div>
+        {seats.map((s, i) => (
+          <div key={i} className="stack" style={{ gap: "0.4rem" }}>
+            <SeatEditor index={i} seat={s} onChange={(p) => update(i, p)} group={group} />
+            <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
+              <input type="radio" name="winner" checked={winner === i} onChange={() => setWinner(i)} style={{ width: "auto", minHeight: 0 }} />
+              Won this game
+            </label>
+          </div>
+        ))}
+        <div className="row">
+          <button type="button" onClick={() => setSeats((s) => [...s, { name: "", commanderName: "", colorIdentity: "" }])}>Add a player</button>
+          <button type="button" className="quiet" onClick={() => setWinner(null)}>It was a draw</button>
+        </div>
+        <ErrorText error={save.error} />
+        <div className="row">
+          <button className="primary" disabled={save.isPending}>Save the game</button>
+        </div>
+      </form>
+    </Sheet>
   );
 }
