@@ -18,7 +18,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Playgroups | Join codes, guests without accounts, game history, logging games played without Yama, win rates by player and commander |
 | Install | Installable web app (home screen, offline shell); Capacitor config for native apps (docs/mobile.md) |
 | Prices | Daily Scryfall snapshots kept by date (`YAMA_AUTO_IMPORT=1`) |
-| Online play | In progress: phase-rs engine embedded in `play/` (docs/engine-integration.md) |
+| Online play | Commander on the phase-rs rules engine (`play/`): lobby, friends join by code, AI seats (Easy/Medium/Hard), legal options only, auto-pass, per-seat hidden information, replay log saved after every move, games resume after a restart, final boards rebuilt from replays. Needs the engine card data (below) |
 | Scanner | In progress (docs/scanner.md) |
 
 ## Run it locally
@@ -33,6 +33,16 @@ cargo build -p yama-server
 
 npm install
 npm run dev                                  # web app on http://localhost:5173 (proxies /api)
+```
+
+Online play needs the local phase fork and its card data (see docs/engine-integration.md):
+
+```sh
+git clone --depth 1 --branch v0.113.0 https://github.com/phase-rs/phase ../yama-phase
+# then drop the three nightly-only codegen-backend lines from ../yama-phase/Cargo.toml
+mkdir -p data/engine && curl -o data/engine/card-data-eb309108eb0df708.json \
+  https://data.phase-rs.dev/card-data-eb309108eb0df708.json   # 101 MB; sha256 eb309108eb0df708…
+./target/debug/soak                     # all-AI game with Bryan's decks; checks replay determinism
 ```
 
 Optional:
