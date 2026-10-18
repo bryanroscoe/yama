@@ -22,6 +22,7 @@ USAGE:
   yama-server import-cards [--oracle FILE] [--default FILE]
                                              Import Scryfall bulk data (downloads the
                                              latest files when no FILE is given)
+  yama-server import-decks DIR --owner EMAIL Import every .txt deck list in DIR
   yama-server invite EMAIL                   Allow EMAIL to sign in
 
 Configuration comes from the environment; see .env.example.";
@@ -42,6 +43,11 @@ async fn main() -> anyhow::Result<()> {
             let oracle = flag_value(&args, "--oracle").map(PathBuf::from);
             let default = flag_value(&args, "--default").map(PathBuf::from);
             cards::import::run(&pool, &cfg, oracle, default).await
+        }
+        Some("import-decks") => {
+            let dir = args.get(1).context("usage: yama-server import-decks DIR --owner EMAIL")?;
+            let owner = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
+            decks::import_dir(&pool, std::path::Path::new(dir), &owner).await
         }
         Some("invite") => {
             let email = args.get(1).context("usage: yama-server invite EMAIL")?;
