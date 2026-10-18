@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { identityName } from "@yama/core";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, usd, type DeckEntry, type DeckSummary, type DeckView } from "../api";
+import { api, usd, type Container, type DeckCard, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { CardSheet } from "./Cards";
 
@@ -115,6 +115,7 @@ export function DeckPage() {
   const deck = useQuery({ queryKey: ["deck", id], queryFn: () => api<DeckView>(`/api/decks/${id}`) });
   const [view, setView] = useState<"all" | "needed">("all");
   const [open, setOpen] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   const groups = useMemo(() => {
     const order = ["Commander", ...GROUPS.map(([g]) => g), "Other", "Sideboard"];
@@ -143,7 +144,9 @@ export function DeckPage() {
             <Pips identity={v.color_identity} /> {identityName(v.color_identity)}, {v.total} cards
           </p>
         </div>
+        <button onClick={() => setEditing(true)}>Edit deck</button>
       </div>
+      {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
 
       <div className="figures">
         <div className="figure">
@@ -205,5 +208,93 @@ export function DeckPage() {
       ))}
       {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
     </main>
+  );
+}
+
+function listText(cards: DeckCard[]): string {
+  const section = (title: string, board: DeckCard["board"]) => {
+    const rows = cards.filter((c) => c.board === board).map((c) => `${c.qty} ${c.name}`);
+    return rows.length ? [title, ...rows, ""] : [];
+  };
+  return [...section("Commander", "commander"), ...section("Deck", "main"), ...section("Sideboard", "side")].join("\n").trim();
+}
+
+function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const containers = useQuery({ queryKey: ["containers"], queryFn: () => api<Container[]>("/api/containers") });
+  const [name, setName] = useState(deck.name);
+  const [container, setContainer] = useState(deck.container_id ?? "");
+  const [text, setText] = useState(() => listText(deck.cards));
+  const [note, setNote] = useState("");
+  const [unknown, setUnknown] = useState<string[]>([]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const parsed = await api<{ cards: DeckCard[]; unknown: string[] }>("/api/decks/parse", {
+        method: "POST",
+        json: { text, first_is_commander: false },
+      });
+      if (parsed.unknown.length) {
+        setUnknown(parsed.unknown);
+        throw new Error("Some lines didn't match a card. Fix them, then save again.");
+      }
+      await api(`/api/decks/${deck.id}`, { method: "PATCH", json: { name, container_id: container || null } });
+      if (listText(parsed.cards) !== listText(deck.cards)) {
+        await api(`/api/decks/${deck.id}`, { method: "PUT", json: { cards: parsed.cards, note: note || null } });
+      }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["deck", deck.id] });
+      void qc.invalidateQueries({ queryKey: ["decks"] });
+      onClose();
+    },
+  });
+  const archive = useMutation({
+    mutationFn: () => api(`/api/decks/${deck.id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["decks"] });
+      navigate("/decks");
+    },
+  });
+
+  return (
+    <Sheet label="Edit deck" onClose={onClose}>
+      <form className="stack" onSubmit={(e) => { e.preventDefault(); setUnknown([]); save.mutate(); }}>
+        <div className="sheet-head">
+          <h2>Edit deck</h2>
+          <button type="button" className="quiet" onClick={onClose}>Close</button>
+        </div>
+        <label>
+          Name
+          <input value={name} onChange={(e) => setName(e.target.value)} required />
+        </label>
+        <label>
+          Physical deck
+          <span className="hint">The collection container this deck's cards live in, so you can see which copies are already sleeved up.</span>
+          <select value={container} onChange={(e) => setContainer(e.target.value)}>
+            <option value="">None</option>
+            {containers.data?.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
+          </select>
+        </label>
+        <label>
+          Deck list
+          <span className="hint">Keep the Commander and Deck headings. Saving makes a new version; older versions stay with the games they were played in.</span>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} style={{ minHeight: "18rem" }} />
+        </label>
+        <label>
+          What changed
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Swapped Cultivate for Three Visits" />
+        </label>
+        {unknown.length > 0 && <p className="error small">Not found: {unknown.join(", ")}</p>}
+        <ErrorText error={save.error ?? archive.error} />
+        <div className="row">
+          <button className="primary" disabled={save.isPending}>Save changes</button>
+          <button type="button" className="quiet" onClick={() => confirm("Archive this deck? Its game history stays.") && archive.mutate()}>
+            Archive deck
+          </button>
+        </div>
+      </form>
+    </Sheet>
   );
 }

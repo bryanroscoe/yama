@@ -5,6 +5,7 @@ resolver = "3"
 # Keep debug builds small: the disk is tight and we rarely need a debugger.
 [profile.dev]
 debug = "line-tables-only"
+incremental = false # saves ~750 MB of cache
 
 [profile.dev.package."*"]
 debug = false
