@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { identityName } from "@yama/core";
+import { bottom, draw, expandDeck, identityName, newHand, rng, type Goldfish } from "@yama/core";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, usd, type Container, type DeckCard, type DeckEntry, type DeckSummary, type DeckView } from "../api";
@@ -116,6 +116,7 @@ export function DeckPage() {
   const [view, setView] = useState<"all" | "needed">("all");
   const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [goldfish, setGoldfish] = useState(false);
 
   const groups = useMemo(() => {
     const order = ["Commander", ...GROUPS.map(([g]) => g), "Other", "Sideboard"];
@@ -144,9 +145,13 @@ export function DeckPage() {
             <Pips identity={v.color_identity} /> {identityName(v.color_identity)}, {v.total} cards
           </p>
         </div>
-        <button onClick={() => setEditing(true)}>Edit deck</button>
+        <div className="row">
+          <button onClick={() => setGoldfish(true)}>Draw a sample hand</button>
+          <button onClick={() => setEditing(true)}>Edit deck</button>
+        </div>
       </div>
       {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
+      {goldfish && <SampleHand deck={d} onClose={() => setGoldfish(false)} />}
 
       <div className="figures">
         <div className="figure">
@@ -295,6 +300,45 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
           </button>
         </div>
       </form>
+    </Sheet>
+  );
+}
+
+function SampleHand({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
+  const library = useMemo(() => expandDeck(deck.cards), [deck]);
+  const images = useMemo(() => new Map(deck.cards.map((c) => [c.name, c.card?.image_normal ?? null])), [deck]);
+  const deal = (mulligans: number) => newHand(library, rng(crypto.getRandomValues(new Uint32Array(1))[0]!), mulligans);
+  const [g, setG] = useState<Goldfish>(() => deal(0));
+  const lands = g.hand.filter((c) => deck.cards.find((d) => d.name === c.name)?.card?.type_line.includes("Land")).length;
+  return (
+    <Sheet label="Sample hand" onClose={onClose}>
+      <div className="stack">
+        <div className="sheet-head">
+          <div>
+            <h2>Sample hand</h2>
+            <p className="dim small" style={{ margin: 0 }}>
+              {g.hand.length} cards, {lands} {lands === 1 ? "land" : "lands"}
+              {g.mulligans ? `, mulligan ${g.mulligans}` : ""}
+              {g.drawn ? `, drawn ${g.drawn}` : ""}. {g.library.length} left in the library.
+            </p>
+          </div>
+          <button className="quiet" onClick={onClose}>Close</button>
+        </div>
+        {g.toBottom > 0 && <p className="small">Tap {g.toBottom === 1 ? "a card" : `${g.toBottom} cards`} to put on the bottom.</p>}
+        <div className="card-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))" }}>
+          {g.hand.map((c, i) => (
+            <button key={c.id} onClick={() => setG(bottom(g, i))} disabled={g.toBottom === 0} aria-label={c.name} style={{ opacity: 1 }}>
+              <CardImage src={images.get(c.name)} name={c.name} />
+            </button>
+          ))}
+        </div>
+        <div className="row">
+          <button className="primary" onClick={() => setG(draw(g))} disabled={g.toBottom > 0 || g.library.length === 0}>Draw a card</button>
+          <button onClick={() => setG(deal(g.mulligans + 1))}>Mulligan</button>
+          <button onClick={() => setG(deal(0))}>New hand</button>
+        </div>
+        <p className="small faint">The first mulligan is free, as in most Commander games.</p>
+      </div>
     </Sheet>
   );
 }
