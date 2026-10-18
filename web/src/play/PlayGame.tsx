@@ -83,6 +83,7 @@ function Board({ id, live }: { id: string; live: boolean }) {
   const [connected, setConnected] = useState(false);
   const [focus, setFocus] = useState<number | null>(null);
   const [logOpen, setLogOpen] = useState(false);
+  const [fullControl, setFullControl] = useState(() => localStorage.getItem("yama.play.fullControl") === "1");
   const socket = useRef<WebSocket | null>(null);
 
   // Finished games: one fetch of the final board, no socket.
@@ -102,6 +103,7 @@ function Board({ id, live }: { id: string; live: boolean }) {
       ws.onopen = () => {
         attempt = 0;
         setConnected(true);
+        if (localStorage.getItem("yama.play.fullControl") === "1") ws.send(JSON.stringify({ type: "full_control", on: true }));
       };
       ws.onmessage = (m) => {
         const data = JSON.parse(m.data) as ServerMessage;
@@ -133,7 +135,10 @@ function Board({ id, live }: { id: string; live: boolean }) {
   const mine = view.players.find((p) => p.seat === you);
   // The server passes for you when passing is all you could do; don't flash that choice.
   const decision = view.decision && !(view.decision.options.length === 1 && view.decision.options[0]!.label.startsWith("Pass")) ? view.decision : null;
-  const options = decision?.options.filter((o) => focus === null || o.object === focus) ?? [];
+  // Two Forests in hand make two identical "Play Forest" options; one button is enough.
+  const options = (decision?.options.filter((o) => focus === null || o.object === focus) ?? []).filter(
+    (o, i, all) => all.findIndex((x) => x.label === o.label) === i,
+  );
 
   return (
     <div className="play">
@@ -229,7 +234,22 @@ function Board({ id, live }: { id: string; live: boolean }) {
               ))}
             </ol>
             {you !== null && !view.over && (
-              <button className="quiet error" onClick={() => confirm("Concede this game?") && send({ type: "concede" })}>Concede</button>
+              <>
+                <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
+                  <input
+                    type="checkbox"
+                    checked={fullControl}
+                    style={{ width: "auto", minHeight: 0 }}
+                    onChange={(e) => {
+                      setFullControl(e.target.checked);
+                      localStorage.setItem("yama.play.fullControl", e.target.checked ? "1" : "0");
+                      send({ type: "full_control", on: e.target.checked });
+                    }}
+                  />
+                  Full control: stop at every step, not only where you can act
+                </label>
+                <button className="quiet error" onClick={() => confirm("Concede this game?") && send({ type: "concede" })}>Concede</button>
+              </>
             )}
           </div>
         </Sheet>

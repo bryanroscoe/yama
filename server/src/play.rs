@@ -62,6 +62,8 @@ struct Snapshot {
 enum Cmd {
     Choose { seat: u8, revision: u64, index: usize, reply: oneshot::Sender<Result<(), String>> },
     Concede { seat: u8 },
+    /// Stop at every priority instead of only where it matters.
+    FullControl { seat: u8, on: bool },
 }
 
 const STACK: usize = 32 << 20;
@@ -178,8 +180,9 @@ fn run_game(
     let humans: Vec<u8> = seats.iter().filter(|s| s.kind == "human").map(|s| s.seat).collect();
     // Let the computer act, and pass for people who have nothing else they could do, until a
     // person has a real decision. Publish as it goes so the table can follow along.
-    let ai_turns = |m: &mut Match| loop {
-        let passed = m.auto_pass(&humans);
+    let mut full_control: std::collections::HashSet<u8> = std::collections::HashSet::new();
+    let ai_turns = |m: &mut Match, full_control: &std::collections::HashSet<u8>| loop {
+        let passed = m.auto_pass(&humans, full_control);
         match m.run_ai(AI_BATCH) {
             Ok(0) if passed == 0 => break,
             Ok(_) => {
@@ -195,7 +198,7 @@ fn run_game(
 
     m.set_names(seats.iter().map(|s| s.name.clone()).collect());
     publish(&m);
-    ai_turns(&mut m);
+    ai_turns(&mut m, &full_control);
     publish(&m);
     while !m.is_over() {
         let Ok(cmd) = cmds.recv() else { return };
@@ -207,14 +210,22 @@ fn run_game(
                 if ok {
                     publish(&m);
                     save(&m);
-                    ai_turns(&mut m);
+                    ai_turns(&mut m, &full_control);
                 }
             }
             Cmd::Concede { seat } => {
                 if m.concede(seat).is_ok() {
                     publish(&m);
                     save(&m);
-                    ai_turns(&mut m);
+                    ai_turns(&mut m, &full_control);
+                }
+            }
+            Cmd::FullControl { seat, on } => {
+                if on {
+                    full_control.insert(seat);
+                } else {
+                    full_control.remove(&seat);
+                    ai_turns(&mut m, &full_control);
                 }
             }
         }
@@ -636,6 +647,7 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
 enum ClientMessage {
     Choose { revision: u64, index: usize },
     Concede,
+    FullControl { on: bool },
 }
 
 async fn connect(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, ws: WebSocketUpgrade) -> AppResult<Response> {
@@ -671,6 +683,9 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                 }
                 ClientMessage::Concede => {
                     let _ = cmds.send(Cmd::Concede { seat });
+                }
+                ClientMessage::FullControl { on } => {
+                    let _ = cmds.send(Cmd::FullControl { seat, on });
                 }
             }
         }

@@ -103,6 +103,7 @@ describe.skipIf(!process.env.SCANNER_EMBED_EVAL)("embedding retrieval (spike)", 
     const report = lines.join("\n");
     console.log(report);
     writeFileSync(join(SPIKE_DIR, "embedding-results.md"), report + "\n");
+    writeFileSync(join(SPIKE_DIR, "embedding-results.json"), JSON.stringify(rows));
     expect(rows.length).toBeGreaterThan(0);
   });
 });

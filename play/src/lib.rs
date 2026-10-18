@@ -26,6 +26,7 @@ use engine::types::ability::TargetRef;
 use engine::types::actions::{GameAction, MulliganChoice};
 use engine::types::log::{GameLogEntry, LogImportance, LogSegment, LogVisibility};
 use engine::types::match_config::MatchConfig;
+use engine::types::phase::Phase;
 use engine::types::player::PlayerId;
 use engine::types::replay::{ReplayHeader, ReplayLog};
 use phase_ai::auto_play::eligible_ai_decision;
@@ -367,29 +368,90 @@ impl Match {
             GameAction::ChooseX { value } => format!("X = {value}"),
             GameAction::Equip { equipment_id, target_id } => format!("Equip {} to {}", self.name_of(equipment_id), self.name_of(target_id)),
             GameAction::ChooseOption { choice } => choice.clone(),
+            GameAction::CancelCast => "Cancel".into(),
+            GameAction::SelectModes { indices } => {
+                let modal = match &self.state.waiting_for {
+                    WaitingFor::ModeChoice { modal, .. } | WaitingFor::AbilityModeChoice { modal, .. } => Some(modal),
+                    _ => None,
+                };
+                let text: Vec<String> = indices
+                    .iter()
+                    .map(|i| modal.and_then(|m| m.mode_descriptions.get(*i).cloned()).unwrap_or_else(|| format!("Mode {}", i + 1)))
+                    .collect();
+                format!("Choose: {}", text.join(" + "))
+            }
+            GameAction::ChooseReplacement { index } => match &self.state.waiting_for {
+                WaitingFor::ReplacementChoice { candidates, .. } => candidates
+                    .get(*index)
+                    .map(|c| if c.description.is_empty() { c.source_name.clone() } else { c.description.clone() })
+                    .unwrap_or_else(|| format!("Option {}", index + 1)),
+                _ => format!("Option {}", index + 1),
+            },
             _ => phase_llm::render::action::describe_action(&self.state, action),
         }
     }
 
-    /// When passing priority is a person's only legal move, take it for them. Returns how
-    /// many passes were made. Anything else (a spell you could cast, a block) waits for you.
-    pub fn auto_pass(&mut self, humans: &[u8]) -> usize {
+    /// Pass priority for people when stopping wouldn't help them, like Arena's smart stops:
+    /// a person stops in their own main phases, whenever the stack has something they could
+    /// respond to, and at an opponent's end step if they could cast a spell. Every other
+    /// decision (targets, blocks, mulligans) always waits. Seats in `full_control` stop at
+    /// every priority. Returns how many passes were made.
+    pub fn auto_pass(&mut self, humans: &[u8], full_control: &HashSet<u8>) -> usize {
         let mut passed = 0;
         loop {
-            let Some(seat) = self
-                .waiting_on()
-                .into_iter()
-                .find(|s| humans.contains(s) && {
-                    let c = AiDecisionContract::issue(&self.state, PlayerId(*s));
-                    c.candidates.len() == 1 && matches!(c.candidates[0].action, GameAction::PassPriority)
-                })
-            else {
+            let Some(seat) = self.waiting_on().into_iter().find(|s| humans.contains(s) && self.should_auto_pass(*s, full_control)) else {
                 return passed;
             };
-            if self.choose(seat, self.revision, 0).is_err() {
+            let contract = AiDecisionContract::issue(&self.state, PlayerId(seat));
+            let Some(index) = contract.candidates.iter().position(|c| matches!(c.action, GameAction::PassPriority)) else {
+                return passed;
+            };
+            if self.choose(seat, self.revision, index).is_err() {
                 return passed;
             }
             passed += 1;
+        }
+    }
+
+    fn should_auto_pass(&self, seat: u8, full_control: &HashSet<u8>) -> bool {
+        let WaitingFor::Priority { player } = &self.state.waiting_for else { return false };
+        if player.0 != seat {
+            return false;
+        }
+        let contract = AiDecisionContract::issue(&self.state, PlayerId(seat));
+        // Land abilities (fetchlands and the like) don't make a stop worthwhile on their own;
+        // you still get them whenever you do stop.
+        let is_land_ability = |a: &GameAction| match a {
+            GameAction::ActivateAbility { source_id, .. } => self
+                .state
+                .objects
+                .get(source_id)
+                .is_some_and(|o| o.card_types.core_types.iter().any(|t| format!("{t:?}") == "Land")),
+            _ => false,
+        };
+        let mut others = contract
+            .candidates
+            .iter()
+            .filter(|c| !matches!(c.action, GameAction::PassPriority) && !is_land_ability(&c.action))
+            .peekable();
+        let anything_else = contract.candidates.iter().any(|c| !matches!(c.action, GameAction::PassPriority));
+        if !anything_else {
+            return true; // nothing else is legal
+        }
+        if full_control.contains(&seat) {
+            return false;
+        }
+        if others.peek().is_none() {
+            return true; // only land abilities
+        }
+        if !self.state.stack.is_empty() {
+            return false; // something to respond to
+        }
+        let mine = self.state.active_player.0 == seat;
+        match self.state.phase {
+            Phase::PreCombatMain | Phase::PostCombatMain => !mine,
+            Phase::End => mine || !others.any(|c| matches!(c.action, GameAction::CastSpell { .. })),
+            _ => true,
         }
     }
 
