@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router";
 import { api, usd, type Card, type Printing, type SearchResult } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { offlineCard, offlineSearch } from "../offline/cards";
+import { PriceHistory } from "../components/PriceHistory";
 
 /** Network trouble (not a bad query): fall back to the copy on this device. */
 const isNetworkError = (e: unknown) => e instanceof TypeError || !navigator.onLine;
@@ -131,6 +132,8 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
   });
   const [flipped, setFlipped] = useState(false);
   const [added, setAdded] = useState<string | null>(null);
+  const [allPrintings, setAllPrintings] = useState(false);
+  const [chart, setChart] = useState<{ id: string; finish: "nonfoil" | "foil" | "etched"; set: string } | null>(null);
   const qc = useQueryClient();
   const add = useMutation({
     mutationFn: (v: { p: Printing; finish: string }) =>
@@ -179,6 +182,7 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
           {detail.data!.printings.length > 0 && (
             <div>
               <h3>Printings and market prices</h3>
+              {chart && <PriceHistory key={chart.id} scryfallId={chart.id} finish={chart.finish} setName={chart.set} />}
               <table className="plain small">
                 <thead>
                   <tr>
@@ -190,9 +194,17 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
                   </tr>
                 </thead>
                 <tbody>
-                  {detail.data!.printings.map((p) => (
+                  {detail.data!.printings.slice(0, allPrintings ? undefined : 12).map((p) => (
                     <tr key={p.scryfall_id}>
-                      <td>{p.set_name}</td>
+                      <td>
+                        <button
+                          className="quiet small"
+                          style={{ minHeight: 32, padding: 0, fontWeight: 400, textAlign: "left" }}
+                          onClick={() => setChart({ id: p.scryfall_id, finish: p.finishes.includes("nonfoil") ? "nonfoil" : (p.finishes[0] as "foil" | "etched"), set: p.set_name })}
+                        >
+                          {p.set_name}
+                        </button>
+                      </td>
                       <td className="num">{p.collector_number}</td>
                       <td className="r num">{p.finishes.includes("nonfoil") ? usd(p.usd) : ""}</td>
                       <td className="r num">{p.finishes.includes("foil") ? usd(p.usd_foil) : p.finishes.includes("etched") ? usd(p.usd_etched) : ""}</td>
@@ -215,10 +227,13 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
                   ))}
                 </tbody>
               </table>
+              {detail.data!.printings.length > 12 && !allPrintings && (
+                <button className="quiet small" onClick={() => setAllPrintings(true)}>Show all {detail.data!.printings.length} printings</button>
+              )}
               {added && <p className="small" role="status">{added}</p>}
               <ErrorText error={add.error} />
               <p className="small faint">
-                +1 adds a regular copy, +F a foil, +E an etched foil. TCGplayer market prices via Scryfall, {detail.data!.printings.find((p) => p.price_date)?.price_date ?? "date unknown"}. A market price isn't a quote from any store.
+                Tap a set to see its price history. +1 adds a regular copy, +F a foil, +E an etched foil. TCGplayer market prices via Scryfall, {detail.data!.printings.find((p) => p.price_date)?.price_date ?? "date unknown"}. A market price isn't a quote from any store.
               </p>
             </div>
           )}

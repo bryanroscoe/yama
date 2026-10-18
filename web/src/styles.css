@@ -513,3 +513,15 @@ fieldset.seat {
   margin: 0;
   min-width: 0;
 }
+
+.price-history {
+  margin: 0.5rem 0 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.price-history svg {
+  width: 100%;
+  height: 72px;
+  display: block;
+  touch-action: none;
+}

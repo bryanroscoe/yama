@@ -19,6 +19,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/printings/lookup", get(lookup_printing))
         .route("/api/meta/data", get(data_status))
         .route("/api/cards/offline", get(offline_cards))
+        .route("/api/printings/{id}/prices", get(price_history))
 }
 
 pub const CARD_COLUMNS: &str = "cards.oracle_id, cards.name, cards.mana_cost, cards.cmc, cards.type_line, \
@@ -324,4 +325,23 @@ async fn offline_cards(State(st): State<AppState>, _user: CurrentUser) -> AppRes
     .fetch_all(&st.pool)
     .await?;
     Ok(Json(OfflineBundle { version: version.unwrap_or_default(), cards }))
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct PricePoint {
+    date: String,
+    usd: Option<f64>,
+    usd_foil: Option<f64>,
+    usd_etched: Option<f64>,
+    eur: Option<f64>,
+}
+
+/// Every daily snapshot we've kept for one printing, oldest first. Gaps are days we didn't import.
+async fn price_history(State(st): State<AppState>, _u: CurrentUser, Path(id): Path<String>) -> AppResult<Json<Vec<PricePoint>>> {
+    Ok(Json(
+        sqlx::query_as("SELECT date, usd, usd_foil, usd_etched, eur FROM price_snapshots WHERE scryfall_id = ? ORDER BY date")
+            .bind(&id)
+            .fetch_all(&st.pool)
+            .await?,
+    ))
 }
