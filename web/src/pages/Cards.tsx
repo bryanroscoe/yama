@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { api, usd, type Card, type Printing, type SearchResult } from "../api";
@@ -110,6 +110,19 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
     queryFn: () => api<{ card: Card; printings: Printing[] }>(`/api/cards/${oracleId}`),
   });
   const [flipped, setFlipped] = useState(false);
+  const [added, setAdded] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const add = useMutation({
+    mutationFn: (v: { p: Printing; finish: string }) =>
+      api("/api/collection/ops", {
+        method: "POST",
+        json: [{ op_id: crypto.randomUUID(), kind: "add", scryfall_id: v.p.scryfall_id, qty: 1, finish: v.finish }],
+      }),
+    onSuccess: (_, v) => {
+      setAdded(`Added ${v.finish === "nonfoil" ? "a" : `a ${v.finish}`} ${v.p.set_name} copy to your collection.`);
+      void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") });
+    },
+  });
   const card = detail.data?.card;
   return (
     <Sheet label={card?.name ?? "Card"} onClose={onClose}>
@@ -153,6 +166,7 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
                     <th>#</th>
                     <th className="r">Normal</th>
                     <th className="r">Foil</th>
+                    <th className="r">Add</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -162,12 +176,29 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
                       <td className="num">{p.collector_number}</td>
                       <td className="r num">{p.finishes.includes("nonfoil") ? usd(p.usd) : ""}</td>
                       <td className="r num">{p.finishes.includes("foil") ? usd(p.usd_foil) : p.finishes.includes("etched") ? usd(p.usd_etched) : ""}</td>
+                      <td className="r">
+                        <span className="row" style={{ justifyContent: "end", gap: 4, flexWrap: "nowrap" }}>
+                          {p.finishes.map((f) => (
+                            <button
+                              key={f}
+                              className="small"
+                              style={{ minHeight: 32, padding: "0 0.5rem" }}
+                              onClick={() => add.mutate({ p, finish: f })}
+                              aria-label={`Add a ${f} ${p.set_name} copy to your collection`}
+                            >
+                              {f === "nonfoil" ? "+1" : f === "foil" ? "+F" : "+E"}
+                            </button>
+                          ))}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {added && <p className="small" role="status">{added}</p>}
+              <ErrorText error={add.error} />
               <p className="small faint">
-                TCGplayer market prices via Scryfall, {detail.data!.printings.find((p) => p.price_date)?.price_date ?? "date unknown"}. A market price isn't a quote from any store.
+                +1 adds a regular copy, +F a foil, +E an etched foil. TCGplayer market prices via Scryfall, {detail.data!.printings.find((p) => p.price_date)?.price_date ?? "date unknown"}. A market price isn't a quote from any store.
               </p>
             </div>
           )}

@@ -17,6 +17,8 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// Set the session cookie `Secure` flag (true behind HTTPS).
     pub secure_cookies: bool,
+    /// Extra origins allowed to call the API: the phone apps (`capacitor://localhost`, `https://localhost`).
+    pub cors_origins: Vec<String>,
 }
 
 impl Config {
@@ -49,6 +51,7 @@ impl Config {
             dev_login: flag("YAMA_DEV_LOGIN"),
             data_dir,
             secure_cookies: flag("YAMA_SECURE_COOKIES"),
+            cors_origins: list("YAMA_CORS_ORIGINS"),
         })
     }
 }

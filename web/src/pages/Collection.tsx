@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, usd, type CollectionItem, type CollectionSummary, type Container, type ImportReport } from "../api";
+import { api, API_BASE, usd, type CollectionItem, type CollectionSummary, type Container, type ImportReport } from "../api";
 import { CardImage, ErrorText, Sheet } from "../components/ui";
 
 export function CollectionPage() {
@@ -38,7 +38,7 @@ export function CollectionPage() {
       <div className="page-head">
         <h1>Collection</h1>
         <div className="row">
-          <a className="button" href="/api/collection/export.csv">Export CSV</a>
+          <a className="button" href={`${API_BASE}/api/collection/export.csv`}>Export CSV</a>
           <button className="primary" onClick={() => setImporting(true)}>Import from Mythic Tools</button>
         </div>
       </div>

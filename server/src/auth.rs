@@ -52,7 +52,18 @@ impl FromRequestParts<AppState> for CurrentUser {
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.strip_prefix("Bearer "))
             .map(str::to_string);
+        // WebSockets from the native apps can't send headers or share the web cookie, so they
+        // pass the token as `?token=`. Only honored on WebSocket upgrades.
+        let ws_token = parts
+            .headers
+            .get(axum::http::header::UPGRADE)
+            .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"))
+            .then(|| parts.uri.query())
+            .flatten()
+            .and_then(|q| q.split('&').find_map(|kv| kv.strip_prefix("token=")))
+            .map(str::to_string);
         let token = bearer
+            .or(ws_token)
             .or_else(|| CookieJar::from_headers(&parts.headers).get(SESSION_COOKIE).map(|c| c.value().to_string()))
             .ok_or(AppError::Unauthorized)?;
         user_for_token(&state.pool, &token).await?.map(CurrentUser).ok_or(AppError::Unauthorized)

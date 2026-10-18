@@ -4,6 +4,8 @@ use axum::routing::get;
 use axum::Router;
 use sqlx::SqlitePool;
 use std::sync::Arc;
+use axum::http::{header, HeaderValue, Method};
+use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
@@ -33,6 +35,16 @@ pub fn app(state: AppState) -> Router {
     if let Some(dist) = &state.cfg.web_dist {
         let index = dist.join("index.html");
         router = router.fallback_service(ServeDir::new(dist).fallback(ServeFile::new(index)));
+    }
+    // The phone apps call the API from their own origin with a bearer token (no cookies).
+    if !state.cfg.cors_origins.is_empty() {
+        let origins: Vec<HeaderValue> = state.cfg.cors_origins.iter().filter_map(|o| o.parse().ok()).collect();
+        router = router.layer(
+            CorsLayer::new()
+                .allow_origin(origins)
+                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
+                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]),
+        );
     }
     router.layer(TraceLayer::new_for_http()).with_state(state)
 }

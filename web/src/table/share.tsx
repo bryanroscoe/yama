@@ -4,11 +4,20 @@
 import type { TableEvent } from "@yama/core";
 import QRCode from "qrcode";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { API_BASE } from "../api";
 import { dispatch, getGame, subscribeTable } from "./store";
 
 export function wsUrl(gameId: string, role: "host" | "guest") {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${location.host}/api/table/${gameId}/ws?role=${role}`;
+  const base = new URL(API_BASE || location.origin);
+  const proto = base.protocol === "https:" ? "wss" : "ws";
+  // Browsers can't set headers on WebSockets, so native apps pass their token in the URL.
+  const token = API_BASE ? localStorage.getItem("yama.token") : null;
+  return `${proto}://${base.host}/api/table/${gameId}/ws?role=${role}${token ? `&token=${token}` : ""}`;
+}
+
+/** Links people open on their own phones always point at the web app. */
+export function publicOrigin() {
+  return (import.meta.env.VITE_PUBLIC_URL as string | undefined) ?? (API_BASE || location.origin);
 }
 
 type Status = { gameId: string | null; connected: boolean };
@@ -91,7 +100,7 @@ export function useHosting() {
 export function ShareSheet({ gameId }: { gameId: string; onClose: () => void }) {
   const hosting = useHosting();
   const [svg, setSvg] = useState("");
-  const url = `${location.origin}/table/join/${gameId}`;
+  const url = `${publicOrigin()}/table/join/${gameId}`;
   useEffect(() => {
     startHosting(gameId);
     QRCode.toString(url, { type: "svg", margin: 1, color: { dark: "#13201C", light: "#ECE5D3" } }).then(setSvg);

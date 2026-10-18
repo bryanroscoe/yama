@@ -8,6 +8,9 @@ export class ApiError extends Error {
 
 const TOKEN_KEY = "yama.token";
 
+/** Empty on the web (same origin). The phone apps load from the device, so they set the server URL. */
+export const API_BASE: string = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ?? "";
+
 /** Native apps can't share the web cookie, so they keep the bearer token. Web relies on the cookie. */
 export function setToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
@@ -23,7 +26,7 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
     headers.set("Content-Type", "application/json");
     body = JSON.stringify(init.json);
   }
-  const res = await fetch(path, { ...init, headers, body, credentials: "include" });
+  const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: "include" });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try {
