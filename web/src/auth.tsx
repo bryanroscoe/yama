@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError, setToken, type User } from "./api";
 import { ErrorText, Pips } from "./components/ui";
 import { outbox } from "./plan/outbox";
-import { signOut, within } from "./plan/signout";
+import { discardQuestion, signOut, within } from "./plan/signout";
 import { clearPlanData } from "./plan/store";
 
 const ME_KEY = "yama.me";
@@ -45,10 +45,7 @@ export function useLogout() {
       userId,
       pending: () => outbox.pendingCount(userId),
       flush: () => within(userId ? outbox.sync(userId) : Promise.resolve(), 4000),
-      confirmDiscard: (n) =>
-        window.confirm(
-          `${n === 1 ? "1 answer on this device hasn't" : `${n} answers on this device haven't`} reached Yama yet (no connection). Signing out deletes ${n === 1 ? "it" : "them"}. Sign out anyway?`,
-        ),
+      confirmDiscard: (n) => window.confirm(discardQuestion(n, outbox.sending(userId))),
       clearPlan: clearPlanData,
       dropQueries: () => {
         qc.removeQueries({ queryKey: ["plan"] });

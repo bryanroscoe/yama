@@ -51,6 +51,19 @@ export async function signOut(s: SignOutSteps): Promise<SignOutResult> {
   return "signed-out";
 }
 
+/**
+ * The question before deleting unsent answers. A request still on its way after the short wait
+ * isn't "no connection": clearing aborts it, but the server may already have it.
+ */
+export function discardQuestion(count: number, stillSending: boolean): string {
+  const one = count === 1;
+  const n = one ? "1 answer on this device" : `${count} answers on this device`;
+  if (stillSending) {
+    return `${n} ${one ? "is" : "are"} still on ${one ? "its" : "their"} way to Yama (slow connection). Signing out stops ${one ? "it" : "them"} and deletes ${one ? "it" : "them"} from this device, though Yama may already have ${one ? "it" : "some"}. Sign out anyway?`;
+  }
+  return `${n} ${one ? "hasn't" : "haven't"} reached Yama yet (Yama couldn't be reached). Signing out deletes ${one ? "it" : "them"}. Sign out anyway?`;
+}
+
 /** Resolve after `promise` or `ms`, whichever comes first. */
 export function within(promise: Promise<unknown>, ms: number): Promise<void> {
   return Promise.race([promise.then(() => undefined), new Promise<void>((r) => setTimeout(r, ms))]);

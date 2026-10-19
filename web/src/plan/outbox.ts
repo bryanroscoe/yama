@@ -8,6 +8,10 @@
 // An op the server accepted moves to `sent` and stays in the overlay until a bundle with the
 // reply's revision arrives, so the page never flickers back to the old answer. An op the server
 // refused moves to `rejected`, with its error, for the page to show.
+//
+// Clearing a box (sign-out, "Clear plan data") aborts a request still on its way and fences it
+// off: each user has a generation that clear() moves on, and a reply or error from an older
+// generation is dropped, so a late reply can't write the user's answers back to the device.
 import type { LocalOp, PlanOp } from "@yama/core/plan";
 import { useSyncExternalStore } from "react";
 import { api, ApiError } from "../api";
@@ -85,12 +89,16 @@ export class PlanOutbox {
   private listeners = new Set<() => void>();
   private syncedListeners = new Set<(userId: string, revision: number) => void>();
   private inflight = new Map<string, Promise<void>>();
+  /** The running sync's abort handle, per user; it also tells one run from the next. */
+  private runs = new Map<string, AbortController>();
+  /** Goes up each time the user's box is cleared. A sync started before a clear writes nothing. */
+  private generations = new Map<string, number>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   state: SyncState = { syncing: false, error: null, lastSyncedAt: null };
 
   constructor(
     private kv: KV | null,
-    private post: (ops: PlanOp[]) => Promise<InputsReply>,
+    private post: (ops: PlanOp[], signal?: AbortSignal) => Promise<InputsReply>,
     private autoSync = true,
   ) {}
 
@@ -145,6 +153,11 @@ export class PlanOutbox {
     return this.box(userId).pending.length;
   }
 
+  /** A request for this user is still on its way (slow, not failed). */
+  sending(userId: string | null | undefined): boolean {
+    return !!userId && this.runs.has(userId);
+  }
+
   /**
    * Queue a tap. Answers and marks are full records, so an unsent one for the same swap is replaced
    * by the newer one (three taps on one card send one op). Ideas are never merged.
@@ -158,38 +171,62 @@ export class PlanOutbox {
     this.timers.set(userId, setTimeout(() => void this.sync(userId), DEBOUNCE_MS));
   }
 
+  private generation(userId: string): number {
+    return this.generations.get(userId) ?? 0;
+  }
+
   /** Send what waits, a batch at a time. Never throws; the error goes in `state`. */
   sync(userId: string): Promise<void> {
     const running = this.inflight.get(userId);
     if (running) return running;
-    const run = (async () => {
-      this.state = { ...this.state, syncing: true };
-      this.emit();
-      try {
-        for (let round = 0; round < 50; round++) {
-          const batch = this.box(userId).pending.slice(0, BATCH);
-          if (!batch.length) break;
-          let reply: InputsReply;
-          try {
-            reply = await this.post(batch);
-          } catch (e) {
-            if (!(e instanceof ApiError && e.status === 400)) throw e;
-            // The server refused the whole request; retrying it won't help.
-            reply = { revision: 0, results: batch.map((op) => ({ op_id: op.op_id, status: "rejected" as const, error: e.message, seq: null })) };
-          }
-          this.write(userId, applyReply(this.box(userId), batch, reply));
-          if (reply.results.some((r) => r.status !== "rejected")) for (const l of this.syncedListeners) l(userId, reply.revision);
+    const gen = this.generation(userId);
+    const current = () => this.generation(userId) === gen;
+    const ctl = new AbortController();
+    this.runs.set(userId, ctl);
+    this.state = { ...this.state, syncing: true };
+    this.emit();
+    const run = this.send(userId, current, ctl.signal)
+      .then(
+        () => {
+          if (current()) this.state = { syncing: false, error: null, lastSyncedAt: new Date().toISOString() };
+        },
+        (e: unknown) => {
+          if (current()) this.state = { ...this.state, syncing: false, error: e instanceof Error ? e.message : String(e) };
+        },
+      )
+      .finally(() => {
+        // A clear() since may have let a newer run start; that one's bookkeeping stays.
+        if (this.runs.get(userId) === ctl) {
+          this.runs.delete(userId);
+          this.inflight.delete(userId);
         }
-        this.state = { syncing: false, error: null, lastSyncedAt: new Date().toISOString() };
-      } catch (e) {
-        this.state = { ...this.state, syncing: false, error: e instanceof Error ? e.message : String(e) };
-      } finally {
-        this.inflight.delete(userId);
         this.emit();
-      }
-    })();
+      });
+    // Set after the run is under way: its finally always runs later (a microtask), even when
+    // there is nothing to send, so it can't leave a finished run here.
     this.inflight.set(userId, run);
     return run;
+  }
+
+  private async send(userId: string, current: () => boolean, signal: AbortSignal): Promise<void> {
+    for (let round = 0; round < 50; round++) {
+      const batch = this.box(userId).pending.slice(0, BATCH);
+      if (!batch.length) return;
+      let reply: InputsReply;
+      try {
+        reply = await this.post(batch, signal);
+      } catch (e) {
+        if (!current()) return;
+        if (!(e instanceof ApiError && e.status === 400)) throw e;
+        // The server refused the whole request; retrying it won't help.
+        reply = { revision: 0, results: batch.map((op) => ({ op_id: op.op_id, status: "rejected" as const, error: e.message, seq: null })) };
+      }
+      // The box was cleared while the request was out (sign-out, "Clear plan data"). The server
+      // may have the answers, but they must not come back onto this device.
+      if (!current()) return;
+      this.write(userId, applyReply(this.box(userId), batch, reply));
+      if (reply.results.some((r) => r.status !== "rejected")) for (const l of this.syncedListeners) l(userId, reply.revision);
+    }
   }
 
   /** Forget sent ops that a bundle at `revision` already includes. */
@@ -204,10 +241,22 @@ export class PlanOutbox {
     this.write(userId, { ...b, rejected: b.rejected.filter((r) => r.op.op_id !== opId) });
   }
 
-  /** Delete this user's box from the device (sign-out, "Clear plan data"). Never throws. */
+  /**
+   * Delete this user's box from the device (sign-out, "Clear plan data"). A sync on its way is
+   * aborted, and whatever it hears back is dropped. Never throws.
+   */
   clear(userId: string | null | undefined) {
     if (!userId) return;
     clearTimeout(this.timers.get(userId));
+    this.timers.delete(userId);
+    this.generations.set(userId, this.generation(userId) + 1);
+    const run = this.runs.get(userId);
+    if (run) {
+      run.abort();
+      this.runs.delete(userId);
+      this.inflight.delete(userId);
+      this.state = { ...this.state, syncing: false };
+    }
     this.boxes.delete(userId);
     try {
       this.kv?.removeItem(boxKey(userId));
@@ -220,7 +269,11 @@ export class PlanOutbox {
 
 const browser = typeof window !== "undefined" && typeof localStorage !== "undefined";
 
-export const outbox = new PlanOutbox(browser ? localStorage : null, (ops) => api<InputsReply>("/api/plan/inputs", { method: "POST", json: ops }), browser);
+export const outbox = new PlanOutbox(
+  browser ? localStorage : null,
+  (ops, signal) => api<InputsReply>("/api/plan/inputs", { method: "POST", json: ops, signal }),
+  browser,
+);
 
 /** This device's id, sent with each op so an inbox line says which device it came from. */
 export function deviceId(): string {

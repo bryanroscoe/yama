@@ -4,7 +4,7 @@ import type { PlanOp, ReviewOp } from "@yama/core/plan";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api";
 import { applyReply, boxKey, type InputsReply, PlanOutbox } from "./outbox";
-import { signOut, type SignOutSteps } from "./signout";
+import { discardQuestion, signOut, type SignOutSteps, within } from "./signout";
 
 class MemoryKV {
   data = new Map<string, string>();
@@ -154,6 +154,68 @@ describe("PlanOutbox", () => {
     expect([...server.seen.keys()]).toEqual(["c", "d", "i1", "i2", "e"]);
   });
 
+  it("a sync with nothing to send doesn't block the next one", async () => {
+    const server = fakeServer();
+    const box = new PlanOutbox(new MemoryKV(), server.post, false);
+    await box.sync("u1");
+    box.enqueue("u1", review("a"));
+    await box.sync("u1");
+    expect(server.post).toHaveBeenCalledTimes(1);
+    expect(box.pendingCount("u1")).toBe(0);
+  });
+
+  it("a reply that lands after the box was cleared writes nothing back", async () => {
+    const kv = new MemoryKV();
+    let resolve!: (r: InputsReply) => void;
+    let signal: AbortSignal | undefined;
+    const post = vi.fn((_ops: PlanOp[], s?: AbortSignal) => {
+      signal = s;
+      return new Promise<InputsReply>((r) => (resolve = r));
+    });
+    const phone = new PlanOutbox(kv, post, false);
+    const synced = vi.fn();
+    phone.onSynced(synced);
+    phone.enqueue("u1", { ...review("a"), note: "paid $4 at Pat's" });
+    const run = phone.sync("u1");
+    expect(phone.sending("u1")).toBe(true);
+    phone.clear("u1");
+    expect(signal?.aborted).toBe(true);
+    expect(phone.sending("u1")).toBe(false);
+    expect(phone.state.syncing).toBe(false);
+    // The server still had the session and answers anyway.
+    resolve({ revision: 2, results: [{ op_id: "a", status: "applied", seq: 1 }] });
+    await run;
+    expect(kv.getItem(boxKey("u1"))).toBeNull();
+    expect(phone.box("u1")).toEqual({ pending: [], sent: [], rejected: [] });
+    expect(synced).not.toHaveBeenCalled();
+    expect(phone.state.error).toBeNull();
+  });
+
+  it("an aborted request after a clear isn't shown as an error, and doesn't end a newer sync", async () => {
+    const kv = new MemoryKV();
+    const calls: { ops: PlanOp[]; resolve: (r: InputsReply) => void; reject: (e: unknown) => void }[] = [];
+    const post = vi.fn((ops: PlanOp[]) => new Promise<InputsReply>((resolve, reject) => calls.push({ ops, resolve, reject })));
+    const phone = new PlanOutbox(kv, post, false);
+    phone.enqueue("u1", review("a"));
+    const old = phone.sync("u1");
+    phone.clear("u1");
+    // The same person signs in again and taps before the old request has failed.
+    phone.enqueue("u1", { ...review("b"), swap_key: "p2" });
+    const fresh = phone.sync("u1");
+    expect(fresh).not.toBe(old);
+    expect(calls.map((c) => c.ops.map((o) => o.op_id))).toEqual([["a"], ["b"]]);
+    calls[0]!.reject(new DOMException("The operation was aborted.", "AbortError"));
+    await old;
+    expect(phone.state.error).toBeNull();
+    expect(phone.sending("u1")).toBe(true);
+    expect(phone.state.syncing).toBe(true);
+    calls[1]!.resolve({ revision: 3, results: [{ op_id: "b", status: "applied", seq: 2 }] });
+    await fresh;
+    expect(phone.sending("u1")).toBe(false);
+    expect(phone.box("u1").pending).toEqual([]);
+    expect(phone.box("u1").sent.map((s) => s.op.op_id)).toEqual(["b"]);
+  });
+
   it("keeps each user's taps apart and clears one user's box", async () => {
     const kv = new MemoryKV();
     const box = new PlanOutbox(kv, offline(), false);
@@ -225,6 +287,37 @@ describe("signOut", () => {
     const anyway = steps({ pending: () => 2 });
     await signOut(anyway.s);
     expect(anyway.calls).toEqual(["flush", "confirm", "clear", "drop", "logout", "clear", "finish"]);
+  });
+
+  it("a flush that runs out of time: the question says it's slow, and the late reply leaves nothing", async () => {
+    const kv = new MemoryKV();
+    let resolve!: (r: InputsReply) => void;
+    const phone = new PlanOutbox(kv, () => new Promise<InputsReply>((r) => (resolve = r)), false);
+    phone.enqueue("u1", { ...review("a"), note: "paid $4 at Pat's" });
+    const asked: string[] = [];
+    const { s } = steps({
+      pending: () => phone.pendingCount("u1"),
+      flush: () => within(phone.sync("u1"), 10),
+      confirmDiscard: (n) => {
+        asked.push(discardQuestion(n, phone.sending("u1")));
+        return true;
+      },
+      clearPlan: async (u) => phone.clear(u),
+      logoutRequest: async () => undefined,
+    });
+    await expect(signOut(s)).resolves.toBe("signed-out");
+    expect(asked).toEqual([
+      "1 answer on this device is still on its way to Yama (slow connection). Signing out stops it and deletes it from this device, though Yama may already have it. Sign out anyway?",
+    ]);
+    // The logout reply came first; the inputs reply comes after both clears.
+    resolve({ revision: 2, results: [{ op_id: "a", status: "applied", seq: 1 }] });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(kv.getItem(boxKey("u1"))).toBeNull();
+  });
+
+  it("says no connection only when sending failed", () => {
+    expect(discardQuestion(2, false)).toBe("2 answers on this device haven't reached Yama yet (Yama couldn't be reached). Signing out deletes them. Sign out anyway?");
+    expect(discardQuestion(2, true)).toMatch(/^2 answers on this device are still on their way to Yama \(slow connection\)\. .*Yama may already have some\./);
   });
 
   it("the real clearPlanData removes the outbox too", async () => {
