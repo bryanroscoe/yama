@@ -59,7 +59,14 @@ export interface PlanState {
 export interface Bag {
   out: string;
   in: string;
+  /** Private: the writer's own sentence (it can name a store and an order date). */
   from?: string | null;
+  /**
+   * Where the swapped-back card comes from, structured, so a shared page can say it without
+   * stores or dates. A card from this deck's own precon names this deck with origin "precon".
+   * Missing for a basic land, and from writers that don't send it.
+   */
+  got?: Got | null;
 }
 
 export interface Bracket {

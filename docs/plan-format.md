@@ -85,7 +85,7 @@ When an agent renames a swap's in or out, or promotes a proposal, the old key be
 
 ### Private fields
 
-Some fields can name stores, order dates or prices paid. A shared view (slice 10) never includes them: all of `orders`, `quotes`, `stores`, `settings` and `reviews`; and on swaps and slots, `listing`, `note`, `store_label`, `source`, `order_item` and the state `log`. Shared pages build their sentences from the structured fields that remain (`got`, `kind`, `from_deck`) instead.
+Some fields can name stores, order dates or prices paid. A shared view (slice 10) never includes them: all of `orders`, `quotes`, `stores`, `settings` and `reviews`; and on swaps and slots, `listing`, `note`, `store_label`, `source`, `order_item` and the state `log`; and on bracket bag entries, `from`. Shared pages build their sentences from the structured fields that remain (`got`, `kind`, `from_deck`) instead.
 
 ## `plan`
 
@@ -143,7 +143,7 @@ Every section is optional; a missing section is empty. For an imported plan, a m
 | `commander` | The plan's commander, which may differ from the box's face commander. One name, or two for partners. |
 | `owner_changes` | Changes the owner made before any plan. |
 | `notes` | `open_question`, `warning` or `note`. commander-decks takes these from a hand-kept structured file, never by parsing markdown. Open questions show first on the deck page. |
-| `bracket` | Optional. `{target, keep_note, callouts: [text], bags: {"3": [Bag], "2": [Bag]}}`, where a bag entry is `{out, in, from}` and `from` says where the swapped-back card comes from. Bags are swaps applied to the after list, so basic counts survive. |
+| `bracket` | Optional. `{target, keep_note, callouts: [text], bags: {"3": [Bag], "2": [Bag]}}`, where a bag entry is `{out, in, from, got}`. `from` is the writer's own sentence for where the swapped-back card comes from; it can name a store and an order date, so it is private. `got` (optional) says the same in a swap's `got` shapes, checked the same way: a card from this deck's own precon names this deck with `"origin": "precon"`; leave it out for a basic land. Bags are swaps applied to the after list, so basic counts survive. |
 | `groups` | Optional. Proposal groups in order, `[{label, bracket, note}]`, where `bracket` is a number or `null`. Groups are cumulative: the proposed build for a group includes every group before it. That lets a deck whose proposals go **up** in bracket (adding Game Changers) show each step. |
 | `computed_by` | Optional. Who computed the lists, when they all share it: `"commander-decks library.py, guide v6"`. A state's own `computed_by` wins; without either, Yama writes `"<meta.app>, guide v<meta.guide_version>"`. |
 | `states` | The lists. See below. |

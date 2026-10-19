@@ -2,7 +2,8 @@
 // than the writer's own text, so a shared page can leave out stores, dates and prices.
 // gotText is a port of commander-decks' swapdata.got_text.
 
-import type { Got, ItemRef, Order, OrderItem, PlanBundle, PlanDeck, Slot, Store, Swap } from "./types";
+import { BASICS } from "./text";
+import type { Bag, Got, ItemRef, Order, OrderItem, PlanBundle, PlanDeck, Slot, Store, Swap } from "./types";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -114,6 +115,21 @@ export function swapSource(s: Swap, ctx: SourceContext, opts: SourceOptions = {}
   return opts.private !== false && s.store_label ? `Not bought yet (planned at ${s.store_label}).` : "Not bought yet.";
 }
 
+/**
+ * Where a bracket swap-back's card comes from. Owner pages keep the writer's sentence (`from`).
+ * A shared view never uses it, because it can name a store and an order date: it builds the
+ * sentence from `got`, or says what it can without one.
+ */
+export function bagSource(bag: Pick<Bag, "in" | "from" | "got">, ctx: SourceContext, deck?: PlanDeck, opts: SourceOptions = {}): string {
+  if (opts.private !== false && bag.from) return `${bag.from.replace(/\.$/, "")}.`;
+  const g = bag.got;
+  if (g) {
+    const own = g.how === "deck" && g.origin === "precon" && !!deck && (g.deck === deck.key || (!g.deck && g.deck_name === deck.name));
+    return own ? "Came in this precon." : gotText(g, ctx, opts);
+  }
+  return BASICS.has(bag.in) ? "Basic land." : "A card you own.";
+}
+
 /** Where a card in a list comes from. Falls back to the writer's own sentence on owner pages. */
 export function slotSource(slot: Slot, ctx: SourceContext, deck?: PlanDeck, opts: SourceOptions = {}): string {
   switch (slot.kind) {
@@ -137,9 +153,12 @@ export function slotSource(slot: Slot, ctx: SourceContext, deck?: PlanDeck, opts
       if (slot.order_item) return boughtText(slot.order_item, ctx, opts);
       if (slot.got) return gotText(slot.got, ctx, opts);
       break;
-    case "proposed":
     case "bracket":
-      return slot.source ?? "";
+      return bagSource({ in: slot.name, from: slot.source, got: slot.got }, ctx, deck, opts);
+    case "proposed":
+      // Built on the device from a proposed swap. It has no structured source, so a shared view
+      // says nothing rather than pass the writer's text through.
+      break;
   }
   return opts.private !== false ? slot.source ?? "" : "";
 }

@@ -4,9 +4,12 @@ import { api } from "../api";
 
 export type BundleReply = PlanBundle | { unchanged: true; rev: string };
 
-/** The whole bundle, or `{unchanged}` when `rev` (the cached copy's key) is still current. */
-export function fetchBundle(rev?: string): Promise<BundleReply> {
-  return api<BundleReply>(`/api/plan/bundle${rev ? `?rev=${encodeURIComponent(rev)}` : ""}`);
+/**
+ * The whole bundle, or `{unchanged}` when `rev` (the cached copy's key) is still current. `signal`
+ * is React Query's: cancelling or removing the query (sign-out does) aborts the request.
+ */
+export function fetchBundle(rev?: string, signal?: AbortSignal): Promise<BundleReply> {
+  return api<BundleReply>(`/api/plan/bundle${rev ? `?rev=${encodeURIComponent(rev)}` : ""}`, { signal });
 }
 
 /**

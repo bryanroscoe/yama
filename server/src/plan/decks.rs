@@ -97,8 +97,9 @@ fn state_label(state: &str) -> Option<&'static str> {
 
 /// `POST /api/plan/decks/{key}/yama-deck` `{state}`: a new Yama deck, in the folder "Plans", from
 /// the plan deck's **stored** list. Every card must be in Yama's card data (400 lists the ones
-/// that aren't). The first version's note names the list by its content hash, so asking again
-/// for the same list returns the deck already made (unless it was archived) instead of a copy.
+/// that aren't). The first version's note starts with the plan deck and the list's content hash,
+/// so asking again for the same list returns the deck already made (unless it was archived)
+/// instead of a copy, even after a re-import has changed who the list says computed it.
 pub async fn make_yama_deck(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -135,16 +136,18 @@ pub async fn make_yama_deck(
         )));
     }
 
-    let note = format!(
-        "Made from the plan's {label} list ({computed_by}; list {}). A plan list, not a record of what's in your deck box.",
-        &hash[..hash.len().min(12)]
-    );
+    // The note starts with the list's identity (plan deck, state, content hash) and only then says
+    // who computed it. A re-import rewrites `computed_by` (commander-decks puts its guide version
+    // there), so the earlier deck is found by that stable prefix, never by the whole note.
+    let identity = format!("Made from the plan's {label} list (deck {key}, list {}", &hash[..hash.len().min(12)]);
+    let by = if computed_by.trim().is_empty() { String::new() } else { format!("; {computed_by}") };
+    let note = format!("{identity}{by}). A plan list, not a record of what's in your deck box.");
     let existing: Option<(String, String)> = sqlx::query_as(
         "SELECT d.id, d.name FROM decks d JOIN deck_versions v ON v.deck_id = d.id
-         WHERE d.owner_id = ? AND d.archived = 0 AND v.note = ? ORDER BY v.created_at LIMIT 1",
+         WHERE d.owner_id = ? AND d.archived = 0 AND instr(v.note, ?) = 1 ORDER BY v.created_at LIMIT 1",
     )
     .bind(&user.id)
-    .bind(&note)
+    .bind(&identity)
     .fetch_optional(&st.pool)
     .await?;
     if let Some((id, name)) = existing {
@@ -276,7 +279,8 @@ mod tests {
         assert_eq!(forest.len(), 1);
         assert_eq!(forest[0]["qty"], 98);
         let note: String = sqlx::query_scalar("SELECT note FROM deck_versions WHERE deck_id = ?").bind(&id).fetch_one(&pool).await.unwrap();
-        assert!(note.starts_with("Made from the plan's stock list (test writer, guide v6; list "), "{note}");
+        assert!(note.starts_with("Made from the plan's stock list (deck alpha, list "), "{note}");
+        assert!(note.contains("; test writer, guide v6). "), "{note}");
         assert!(note.ends_with("A plan list, not a record of what's in your deck box."), "{note}");
 
         // Asking again gives the same deck, not a copy.
@@ -296,6 +300,52 @@ mod tests {
         sqlx::query("UPDATE decks SET archived = 1 WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
         let (_, fresh) = send(&app, Method::POST, "/api/plan/decks/alpha/yama-deck", Some(&a), Some(json!({"state": "stock"}))).await;
         assert_ne!(fresh["id"], made["id"]);
+    }
+
+    /// commander-decks writes its guide version into `computed_by`, and a re-import with the same
+    /// cards rewrites it on the stored list. The same list must still give the same deck.
+    #[tokio::test]
+    async fn a_new_guide_version_with_the_same_list_gives_the_same_deck() {
+        let (app, pool, _, a, _) = setup().await;
+        let (status, made) = send(&app, Method::POST, "/api/plan/decks/alpha/yama-deck", Some(&a), Some(json!({"state": "stock"}))).await;
+        assert_eq!(status, StatusCode::OK, "{made}");
+        assert_eq!(made["existing"], false);
+
+        let mut d = doc();
+        d["meta"]["guide_version"] = json!(7);
+        d["plan"]["decks"][0]["computed_by"] = json!("test writer, guide v7");
+        for st in ["stock", "now", "after"] {
+            d["plan"]["decks"][0]["states"][st]["computed_by"] = json!("test writer, guide v7");
+        }
+        // A second plan deck with the very same lists.
+        let mut beta = d["plan"]["decks"][0].clone();
+        beta["key"] = json!("beta");
+        beta["name"] = json!("Beta Deck");
+        d["plan"]["decks"].as_array_mut().unwrap().push(beta);
+        let (status, report) = send(&app, Method::POST, "/api/plan/import", Some(&a), Some(d)).await;
+        assert_eq!(status, StatusCode::OK, "{report}");
+        let by: String = sqlx::query_scalar(
+            "SELECT s.computed_by FROM plan_states s JOIN plan_decks d ON d.id = s.plan_deck_id
+             WHERE d.key = 'alpha' AND s.state = 'stock' AND s.current = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(by, "test writer, guide v7", "the re-import rewrote who computed the list");
+
+        let (status, again) = send(&app, Method::POST, "/api/plan/decks/alpha/yama-deck", Some(&a), Some(json!({"state": "stock"}))).await;
+        assert_eq!(status, StatusCode::OK, "{again}");
+        assert_eq!(again["existing"], true, "{again}");
+        assert_eq!(again["id"], made["id"]);
+        let decks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decks").fetch_one(&pool).await.unwrap();
+        assert_eq!(decks, 1);
+
+        // The same cards in another plan deck are that deck's list, so they get their own Yama deck.
+        let (status, other) = send(&app, Method::POST, "/api/plan/decks/beta/yama-deck", Some(&a), Some(json!({"state": "stock"}))).await;
+        assert_eq!(status, StatusCode::OK, "{other}");
+        assert_eq!(other["existing"], false);
+        assert_ne!(other["id"], made["id"]);
+        assert_eq!(other["name"], "Beta Deck (stock list)");
     }
 
     #[tokio::test]

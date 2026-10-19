@@ -35,7 +35,7 @@ export function applyBag(cards: Slot[], bag: Bag[], label: string): { cards: Slo
     else out.splice(i, 1);
     const k = at(b.in);
     if (k >= 0) out[k]!.qty += 1;
-    else out.push({ name: b.in, qty: 1, board: "main", kind: "bracket", replaces: b.out, source: b.from ?? null });
+    else out.push({ name: b.in, qty: 1, board: "main", kind: "bracket", replaces: b.out, got: b.got ?? null, source: b.from ?? null });
   }
   return { cards: out, warnings };
 }

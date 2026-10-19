@@ -33,11 +33,15 @@ export function useLogout() {
   const qc = useQueryClient();
   return async () => {
     // Plans hold prices paid: clear them first, so neither the Cloudflare Access path below nor
-    // a failed (offline) logout request can leave them on the device.
-    await clearPlanData(qc.getQueryData<User | null>(["me"])?.id);
+    // a failed (offline) logout request can leave them on the device. clearPlanData also stops a
+    // bundle still on its way from being saved, and removing the queries aborts its request.
+    const userId = qc.getQueryData<User | null>(["me"])?.id;
+    await clearPlanData(userId);
     qc.removeQueries({ queryKey: ["plan"] });
     qc.removeQueries({ queryKey: ["plan-cache"] });
     await api("/api/auth/logout", { method: "POST" });
+    // Once more, now the server has ended the session, for anything saved while it was asked.
+    await clearPlanData(userId);
     const config = qc.getQueryData<AuthConfig>(["auth-config"]) ?? (await api<AuthConfig>("/api/auth/config").catch(() => null));
     if (config?.cf_access) {
       // Cloudflare Access holds the real session; end it there.

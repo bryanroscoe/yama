@@ -120,7 +120,8 @@ fn doc() -> Value {
             "decks": [
                 {"key": "alpha", "name": "Alpha Deck", "sort": 1, "product": "Alpha (TST)", "commander": ["Test Commander"],
                  "color_identity": "G", "owner_changes": [], "notes": [{"kind": "open_question", "text": "Where did this come from?"}],
-                 "bracket": {"target": 3, "bags": {"2": [{"out": "Sol Ring", "in": "Cut Card", "from": "Came in this precon"}]}},
+                 "bracket": {"target": 3, "bags": {"2": [{"out": "Sol Ring", "in": "Cut Card", "from": "Came in this precon",
+                                                          "got": {"how": "deck", "deck": "alpha", "deck_name": "Alpha Deck", "origin": "precon"}}]}},
                  "states": {
                      "stock": {"cards": alpha_list("Old Card", "Cut Card")},
                      "now": {"cards": alpha_list("Stand Card", "Bought Card"),
@@ -323,6 +324,7 @@ async fn an_import_creates_rows_under_the_owner() {
     assert_eq!(alpha["states"]["stock"]["computed_by"], "commander-decks, guide v6");
     assert_eq!(alpha["notes"][0]["kind"], "open_question");
     assert_eq!(alpha["bracket"]["bags"]["2"][0]["in"], "Cut Card");
+    assert_eq!(alpha["bracket"]["bags"]["2"][0]["got"]["origin"], "precon", "a bag's structured source reaches the pages");
     assert_eq!(b["settings"][1]["effective_from"], "2026-10-10");
     assert_eq!(find(&b["stores"], "key", "shop")["cart_url_template"], "https://example.com/cart/{items}");
 }
@@ -804,6 +806,8 @@ async fn bad_documents_get_400_naming_the_json_path() {
         ("plan.swaps[4].got.origin:", Box::new(|d| d["plan"]["swaps"][4]["got"] = json!({"how": "deck", "deck": "beta"}))),
         ("plan.swaps[4].got.order: no order", Box::new(|d| d["plan"]["swaps"][4]["got"] = json!({"how": "bought", "order": "nope"}))),
         ("plan.swaps[4].got.product:", Box::new(|d| d["plan"]["swaps"][4]["got"] = json!({"how": "pulled"}))),
+        ("plan.decks[0].bracket.bags.2[0].got.how: unknown how", Box::new(|d| d["plan"]["decks"][0]["bracket"]["bags"]["2"][0]["got"] = json!({"how": "found"}))),
+        ("plan.decks[0].bracket.bags.2[0].got.order: no order", Box::new(|d| d["plan"]["decks"][0]["bracket"]["bags"]["2"][0]["got"] = json!({"how": "bought", "order": "nope"}))),
         ("plan.swaps[2].order_item.line:", Box::new(|d| d["plan"]["swaps"][2]["order_item"]["line"] = json!(9))),
         ("plan.swaps[0].print_order: no order", Box::new(|d| d["plan"]["swaps"][0]["print_order"] = json!("proxy-9"))),
         ("plan.swaps[4].key: \"alpha-idea\" appears twice", Box::new(|d| d["plan"]["swaps"][4]["key"] = json!("alpha-idea"))),

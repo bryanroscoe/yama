@@ -747,6 +747,19 @@ pub fn check(plan: &Plan) -> AppResult<Checked> {
             out.warnings.push(format!("{}: the source data says {d}; the export made it {}", s.key, s.src));
         }
     }
+    // A bracket bag entry's optional `got` has a swap's shapes. Shared pages build their sentence
+    // from it, because the entry's `from` text can name a store and an order date.
+    for (i, d) in plan.decks.iter().enumerate() {
+        let Some(Value::Object(bags)) = d.bracket.as_ref().and_then(|b| b.get("bags")) else { continue };
+        for (k, list) in bags {
+            for (j, bag) in list.as_array().into_iter().flatten().enumerate() {
+                if let Some(g) = bag.get("got").filter(|g| !g.is_null()) {
+                    let key = format!("{} bracket {k} bag", d.key);
+                    check_got(|| format!("plan.decks[{i}].bracket.bags.{k}[{j}].got"), g, &orders, &decks, &deck_names, &mut out.warnings, &key)?;
+                }
+            }
+        }
+    }
     claims_warnings(plan, &decks, &mut out.warnings);
     print_order_warnings(plan, &orders, &mut out.warnings);
 
@@ -1035,7 +1048,7 @@ pub fn card_names(plan: &Plan) -> BTreeMap<String, Vec<String>> {
     out
 }
 
-/// The `{out, in, from}` entries of a deck's bracket bags, with the bracket they belong to.
+/// The `{out, in, from, got}` entries of a deck's bracket bags, with the bracket they belong to.
 pub fn bracket_bags(bracket: Option<&Value>) -> Vec<(String, &Value)> {
     let mut out = Vec::new();
     if let Some(Value::Object(bags)) = bracket.and_then(|b| b.get("bags")) {

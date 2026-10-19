@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   answerIndex,
   applyBag,
+  bagSource,
   boughtText,
   bracketBuilds,
   deckChanges,
@@ -151,6 +152,47 @@ describe("where it came from", () => {
     }
   });
 
+  it("leaves them out for every kind of slot, whatever the writer's own text says", () => {
+    const shared = { private: false };
+    const leaky = "Stand-in you bought at Example, ordered 2026-10-08, $0.50";
+    const kinds: Slot["kind"][] = ["stock", "owner", "bought", "standin", "fill", "print", "moved", "optional", "proposed", "bracket", undefined];
+    const structured: Partial<Slot>[] = [
+      {},
+      { order_item: { order: "shop-1", line: 1 } },
+      { got: { how: "bought", order: "shop-1" } },
+      { got: { how: "deck", deck: "beta", origin: "shop-1" } },
+      { got: { how: "deck", deck: "alpha", origin: "precon" } },
+      { got: { how: "pulled", product: "a prerelease pack", date: "2026-10-01" } },
+      { print_order: "proxy-1" },
+      { from_deck: "beta" },
+    ];
+    for (const kind of kinds) {
+      for (const extra of structured) {
+        for (const d of [deck(), undefined]) {
+          const slot = s("Some Card", 1, { kind, source: leaky, note: leaky, ...extra });
+          expect(slotSource(slot, ctx, d, shared), `${kind} ${JSON.stringify(extra)}`).not.toMatch(/\$|Example|Oct|2026/);
+        }
+      }
+    }
+  });
+
+  it("says where a bracket swap-back comes from without the writer's text on a shared page", () => {
+    const shared = { private: false };
+    const from = "Stand-in you bought at Example, ordered 2026-10-08";
+    const back = (name: string, got: Slot["got"] = null) => s(name, 1, { kind: "bracket", replaces: "Bought Card", source: from, got });
+    // Owner pages keep the writer's sentence.
+    expect(slotSource(back("Stand Card", { how: "bought", order: "shop-1" }), ctx, deck())).toBe(`${from}.`);
+    expect(slotSource(back("Stand Card", { how: "bought", order: "shop-1" }), ctx, deck(), shared)).toBe("Bought.");
+    expect(slotSource(back("Cut Card", { how: "deck", deck: "alpha", deck_name: "Alpha", origin: "precon" }), ctx, deck(), shared)).toBe("Came in this precon.");
+    expect(slotSource(back("Moved Card", { how: "deck", deck: "beta", origin: "shop-1" }), ctx, deck(), shared)).toBe("From Beta Deck (bought for that deck).");
+    expect(slotSource(back("Island"), ctx, deck(), shared)).toBe("Basic land.");
+    expect(slotSource(back("Old Card"), ctx, deck(), shared)).toBe("A card you own.");
+    // The Brackets tab reads bag entries the same way.
+    expect(bagSource({ in: "Stand Card", from, got: { how: "bought", order: "shop-1" } }, ctx, deck())).toBe(`${from}.`);
+    expect(bagSource({ in: "Stand Card", from, got: { how: "bought", order: "shop-1" } }, ctx, deck(), shared)).toBe("Bought.");
+    expect(bagSource({ in: "Island", from: "Basic land" }, ctx, deck(), shared)).toBe("Basic land.");
+  });
+
   it("describes swaps and slots from their structured fields", () => {
     expect(swapSource(swap({ key: "k1", in: "Bought Card", order_item: { order: "shop-1", line: 1 } }), ctx)).toBe("Bought at Example, ordered 8 Oct 2026, $0.50.");
     expect(swapSource(swap({ key: "k2", in: "X", store_label: "Example" }), ctx)).toBe("Not bought yet (planned at Example).");
@@ -196,6 +238,12 @@ describe("bracket builds", () => {
     expect(b3.warnings).toEqual(["Bracket 3: Missing Card isn't in the list, so Cut Card wasn't swapped in."]);
     expect(b3.cards.some((c) => c.name === "Cut Card")).toBe(false);
     expect(applyBag(after, [{ out: "Zap", in: "Éclair" }], "Bracket 3").warnings).toEqual(["Bracket 3: Éclair is already in the list, so Zap stays."]);
+  });
+
+  it("carries a bag entry's structured source onto the swapped-back card", () => {
+    const got = { how: "bought" as const, order: "shop-1" };
+    const r = applyBag(after, [{ out: "Zap", in: "Stand Card", from: "Stand-in you bought at Example, ordered 2026-10-08", got }], "Bracket 3");
+    expect(r.cards.find((c) => c.name === "Stand Card")).toMatchObject({ kind: "bracket", replaces: "Zap", got });
   });
 
   it("with no bags there is only the full build", () => {

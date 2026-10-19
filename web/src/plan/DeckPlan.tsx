@@ -1,5 +1,6 @@
 import { GROUP_ORDER, groupOf, identityName } from "@yama/core";
 import {
+  bagSource,
   bracketBuilds,
   cardCount,
   deckChanges,
@@ -492,7 +493,7 @@ function BracketsTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
                       <p className="swap-title">
                         <b>{s.in}</b> <span className="dim">back for {s.out}</span>
                       </p>
-                      {s.from && <p className="small dim">{s.from}.</p>}
+                      <p className="small dim">{bagSource(s, view.ctx, deck)}</p>
                     </div>
                   </div>
                 ))}
