@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   appId: "app.yama.companion",
   appName: "Yama",
   webDir: "dist",
-  backgroundColor: "#13201C",
+  backgroundColor: "#0b0c0e",
   ios: { contentInset: "never" },
   android: { allowMixedContent: false },
 };

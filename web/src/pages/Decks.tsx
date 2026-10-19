@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, usd, type Container, type DeckCard, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
+import { ArtPanel } from "../components/ArtPanel";
 import { CardSheet } from "./Cards";
 
 export function DecksPage() {
@@ -19,20 +20,17 @@ export function DecksPage() {
       {decks.data?.length === 0 && (
         <p className="empty">No decks yet. Paste a list from Moxfield, Archidekt, Arena or a text file to add one.</p>
       )}
-      <div className="list">
+      <div className="deck-tiles">
         {decks.data?.map((d) => (
-          <Link key={d.id} to={`/decks/${d.id}`} className="list-row">
-            {d.commander_image ? <img className="art-thumb" src={d.commander_image} alt="" /> : <span className="art-thumb" />}
-            <span>
-              <span className="title">{d.name}</span>
-              <br />
-              <span className="dim small">{d.commanders.join(" and ") || "No commander set"}</span>
-            </span>
-            <span style={{ textAlign: "right" }}>
-              <Pips identity={d.color_identity} />
-              <br />
-              <span className="dim small num">{d.card_count} cards</span>
-            </span>
+          <Link key={d.id} to={`/decks/${d.id}`} className="deck-tile">
+            <ArtPanel art={d.commander_image} artist={d.commander_artist} wash="bottom" empty={!d.commanders.length}>
+              <span className="deck-tile-name">{d.name}</span>
+              <span className="deck-tile-meta">
+                <Pips identity={d.color_identity} />
+                <span>{d.commanders.join(" and ") || "No commander set"}</span>
+              </span>
+              <span className="deck-tile-meta num">{d.card_count} cards</span>
+            </ArtPanel>
           </Link>
         ))}
       </div>
@@ -134,17 +132,18 @@ export function DeckPage() {
   if (!d) return <main className="page" />;
   const v = d.validation;
   const o = d.ownership;
+  const commander = d.cards.find((e) => e.board === "commander" && e.card?.image_art_crop)?.card;
 
   return (
     <main className="page">
       <p className="small"><Link to="/decks">Decks</Link></p>
-      <div className="page-head">
-        <div>
-          <h1>{d.name}</h1>
-          <p className="dim" style={{ margin: 0 }}>
-            <Pips identity={v.color_identity} /> {identityName(v.color_identity)}, {v.total} cards
-          </p>
-        </div>
+      <ArtPanel className="deck-hero" art={commander?.image_art_crop} artist={commander?.artist} wash="bottom" toGround>
+        <h1 className="hero-title">{d.name}</h1>
+        <p className="hero-sub">
+          <Pips identity={v.color_identity} /> {identityName(v.color_identity)}, {v.total} cards
+        </p>
+      </ArtPanel>
+      <div className="page-head deck-actions">
         <div className="row">
           <button onClick={() => setGoldfish(true)}>Draw a sample hand</button>
           <button onClick={() => setEditing(true)}>Edit deck</button>
@@ -181,9 +180,9 @@ export function DeckPage() {
       )}
       {v.warnings.length > 0 && <ul className="small dim">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
 
-      <div className="row" role="tablist" style={{ margin: "1rem 0" }}>
-        <button role="tab" aria-selected={view === "all"} className={view === "all" ? "primary" : ""} onClick={() => setView("all")}>Whole deck</button>
-        <button role="tab" aria-selected={view === "needed"} className={view === "needed" ? "primary" : ""} onClick={() => setView("needed")}>Cards you still need</button>
+      <div className="segmented" role="tablist" style={{ margin: "1rem 0" }}>
+        <button role="tab" aria-selected={view === "all"} onClick={() => setView("all")}>Whole deck</button>
+        <button role="tab" aria-selected={view === "needed"} onClick={() => setView("needed")}>Cards you still need</button>
       </div>
 
       {groups.map(([group, entries]) => (

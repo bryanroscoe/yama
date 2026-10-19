@@ -9,7 +9,7 @@ interface Point {
   usd_etched: number | null;
 }
 
-// One series, so no legend: the heading names it. Gold validated against --felt-2
+// One series, so no legend: the heading names it. Gold validated against --surface
 // (in the dark lightness band, chroma above the floor, 3:1+ contrast).
 const LINE = "#b8862e";
 const W = 300;
@@ -69,11 +69,11 @@ export function PriceHistory({ scryfallId, finish, setName }: { scryfallId: stri
         <path d={path} fill="none" stroke={LINE} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
         {hover !== null && (
           <>
-            <line x1={x(hover)} x2={x(hover)} y1={PAD.top} y2={H - PAD.bottom} stroke="var(--paper-faint)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-            <circle cx={x(hover)} cy={y(points[hover]!.value)} r="4" fill={LINE} stroke="var(--felt-2)" strokeWidth="2" />
+            <line x1={x(hover)} x2={x(hover)} y1={PAD.top} y2={H - PAD.bottom} stroke="var(--dim)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+            <circle cx={x(hover)} cy={y(points[hover]!.value)} r="4" fill={LINE} stroke="var(--surface)" strokeWidth="2" />
           </>
         )}
-        {hover === null && <circle cx={x(points.length - 1)} cy={y(last.value)} r="4" fill={LINE} stroke="var(--felt-2)" strokeWidth="2" />}
+        {hover === null && <circle cx={x(points.length - 1)} cy={y(last.value)} r="4" fill={LINE} stroke="var(--surface)" strokeWidth="2" />}
       </svg>
       <details className="small">
         <summary className="dim">Show as a table</summary>

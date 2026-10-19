@@ -120,7 +120,7 @@ export function ShareSheet({ gameId }: { gameId: string; onClose: () => void }) 
   const url = `${publicOrigin()}/table/join/${gameId}#k=${shareKey(gameId)}`;
   useEffect(() => {
     startHosting(gameId);
-    QRCode.toString(url, { type: "svg", margin: 1, color: { dark: "#13201C", light: "#ECE5D3" } }).then(setSvg);
+    QRCode.toString(url, { type: "svg", margin: 1, color: { dark: "#0b0c0e", light: "#f2efe8" } }).then(setSvg);
   }, [gameId, url]);
   return (
     <div className="stack">

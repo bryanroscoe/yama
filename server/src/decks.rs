@@ -166,6 +166,9 @@ struct DeckSummary {
     card_count: i64,
     #[sqlx(skip)]
     commander_image: Option<String>,
+    /// The artist of that art crop, so the deck tile can credit it.
+    #[sqlx(skip)]
+    commander_artist: Option<String>,
 }
 
 async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<DeckSummary>>> {
@@ -184,14 +187,17 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
             d.commanders = commanders.iter().map(|c| c.name.clone()).collect();
             let mut identity = String::new();
             for c in &commanders {
-                let row: Option<(String, Option<String>)> =
-                    sqlx::query_as("SELECT color_identity, image_art_crop FROM cards WHERE oracle_id = ?")
+                let row: Option<(String, Option<String>, Option<String>)> =
+                    sqlx::query_as("SELECT color_identity, image_art_crop, artist FROM cards WHERE oracle_id = ?")
                         .bind(&c.oracle_id)
                         .fetch_optional(&st.pool)
                         .await?;
-                if let Some((ci, art)) = row {
+                if let Some((ci, art, artist)) = row {
                     identity.push_str(&ci);
-                    d.commander_image = d.commander_image.take().or(art);
+                    if d.commander_image.is_none() && art.is_some() {
+                        d.commander_image = art;
+                        d.commander_artist = artist;
+                    }
                 }
             }
             d.color_identity = "WUBRG".chars().filter(|c| identity.contains(*c)).collect();

@@ -5,6 +5,10 @@ import { useLogout, useMe } from "../auth";
 import { ErrorText } from "../components/ui";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 
+/** Below these, a win rate says little: those rows are greyed out. */
+const FEW_PLAYER_GAMES = 10;
+const FEW_COMMANDER_GAMES = 5;
+
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
   const [selected, setSelected] = useState<string | null>(null);
@@ -56,7 +60,7 @@ function GroupDetail({ group }: { group: Playgroup }) {
               <thead><tr><th>Player</th><th className="r">Games</th><th className="r">Wins</th><th className="r">Win rate</th></tr></thead>
               <tbody>
                 {s.players.map((p) => (
-                  <tr key={p.name}>
+                  <tr key={p.name} className={p.games < FEW_PLAYER_GAMES ? "few" : undefined}>
                     <td>{p.name}</td>
                     <td className="r num">{p.games}</td>
                     <td className="r num">{p.wins}</td>
@@ -65,6 +69,9 @@ function GroupDetail({ group }: { group: Playgroup }) {
                 ))}
               </tbody>
             </table>
+            {s.players.some((p) => p.games < FEW_PLAYER_GAMES) && (
+              <p className="small dim">Greyed out: fewer than {FEW_PLAYER_GAMES} games, too few to read much into.</p>
+            )}
           </section>
           <section>
             <h2>Commanders</h2>
@@ -72,7 +79,7 @@ function GroupDetail({ group }: { group: Playgroup }) {
               <thead><tr><th>Commander</th><th className="r">Games</th><th className="r">Wins</th></tr></thead>
               <tbody>
                 {s.commanders.map((c) => (
-                  <tr key={c.commander}>
+                  <tr key={c.commander} className={c.games < FEW_COMMANDER_GAMES ? "few" : undefined}>
                     <td>{c.commander}</td>
                     <td className="r num">{c.games}</td>
                     <td className="r num">{c.wins}</td>
@@ -80,6 +87,9 @@ function GroupDetail({ group }: { group: Playgroup }) {
                 ))}
               </tbody>
             </table>
+            {s.commanders.some((c) => c.games < FEW_COMMANDER_GAMES) && (
+              <p className="small dim">Greyed out: fewer than {FEW_COMMANDER_GAMES} games.</p>
+            )}
           </section>
         </>
       ) : (

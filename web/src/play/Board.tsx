@@ -3,11 +3,13 @@
 // text and the options you have for it right now.
 
 import { identityKeys, MANA } from "@yama/core";
+import { useQueries } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
-import { api, API_BASE } from "../api";
-import { Sheet } from "../components/ui";
-import type { CardMeta, CardView, Decision, OptionView, PlayerView, ServerMessage } from "./types";
+import { api, API_BASE, type SearchResult } from "../api";
+import { ArtPanel, artCredit } from "../components/ArtPanel";
+import { Pips, Sheet } from "../components/ui";
+import type { CardMeta, CardView, Decision, OptionView, PlayerView, ServerMessage, View } from "./types";
 import "./board.css";
 
 type ViewMessage = Extract<ServerMessage, { type: "view" }>;
@@ -185,6 +187,53 @@ function Zone(props: {
   );
 }
 
+// ── commander art ──────────────────────────────────────────────────────────
+
+interface SeatArt {
+  art: string | null;
+  artist: string | null;
+}
+
+/**
+ * Each seat's commander art, for the art behind its header. Every commander starts the game in
+ * the command zone, so the first one seen there is remembered (for this tab) and stays the seat's
+ * art wherever the card goes later. A seat with no known commander gets the no-art block.
+ */
+function useCommanderArt(gameId: string, view: View | undefined): Map<number, SeatArt> {
+  const key = `yama.play.commanders.${gameId}`;
+  const [names, setNames] = useState<Record<number, string>>(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem(key) ?? "{}") as Record<number, string>;
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (!view) return;
+    const fresh = view.command_zone.filter((c) => !(c.owner in names));
+    if (!fresh.length) return;
+    const next = { ...names };
+    for (const c of fresh) next[c.owner] ??= c.name;
+    setNames(next);
+    sessionStorage.setItem(key, JSON.stringify(next));
+  }, [view, names, key]);
+  const unique = [...new Set(Object.values(names))];
+  const cards = useQueries({
+    queries: unique.map((name) => ({
+      queryKey: ["commander-art", name],
+      queryFn: async () => (await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(`!"${name}"`)}`)).cards[0] ?? null,
+      staleTime: Infinity,
+    })),
+  });
+  const byName = new Map(unique.map((n, i) => [n, cards[i]?.data ?? null]));
+  return new Map(
+    Object.entries(names).map(([seat, name]) => {
+      const card = byName.get(name);
+      return [Number(seat), { art: card?.image_art_crop ?? null, artist: card?.artist ?? null }];
+    }),
+  );
+}
+
 // ── the board ──────────────────────────────────────────────────────────────
 
 export function Board({ id, live }: { id: string; live: boolean }) {
@@ -242,6 +291,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
   // A new decision clears a stale card selection.
   const revision = msg?.view.revision;
   useEffect(() => setSelected(null), [revision]);
+  const seatArt = useCommanderArt(id, msg?.view);
 
   const send = (data: unknown) => socket.current?.readyState === WebSocket.OPEN && socket.current.send(JSON.stringify(data));
 
@@ -360,6 +410,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
             p={p}
             name={seatName(p.seat)}
             identity={identity(p.seat)}
+            art={seatArt.get(p.seat)}
             active={view.active === p.seat}
             deciding={view.waiting_on.includes(p.seat)}
             cards={view.battlefield.filter((c) => c.controller === p.seat)}
@@ -371,6 +422,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
             onHover={setHover}
           />
         ))}
+        <OpponentCredits arts={others.map((p) => seatArt.get(p.seat))} />
       </section>
 
       <section className="mine" aria-label="Your board">
@@ -480,6 +532,7 @@ function Opponent(props: {
   p: PlayerView;
   name: string;
   identity: string;
+  art?: SeatArt;
   active: boolean;
   deciding: boolean;
   cards: CardView[];
@@ -494,17 +547,18 @@ function Opponent(props: {
   const color = MANA[identityKeys(props.identity)[0]!].fill;
   const cmdr = Object.entries(p.commander_damage);
   return (
-    <div className={`opp${props.active ? " active" : ""}${p.eliminated ? " out" : ""}`} style={{ borderColor: props.active ? undefined : color }}>
-      <div className="opp-head" style={{ borderLeftColor: color }}>
+    <div className={`opp${props.active ? " active" : ""}${p.eliminated ? " out" : ""}`}>
+      <ArtPanel className="opp-head" art={props.art?.art} artist={props.art?.artist} wash="left" credit={false} style={{ borderLeftColor: color }}>
         <span className="opp-name">{props.name}</span>
         <b className="opp-life num">{p.eliminated ? "out" : p.life}</b>
-        <span className="dim small num">
+        <Pips identity={props.identity} />
+        <span className="art-chip opp-meta num">
           {p.hand} in hand, {p.library} in library
           {p.poison ? `, ${p.poison} poison` : ""}
           {cmdr.map(([n, d]) => `, ${d} from ${n}`).join("")}
         </span>
-        {props.deciding && <span className="thinking small">deciding…</span>}
-      </div>
+        {props.deciding && <span className="art-chip thinking">deciding…</span>}
+      </ArtPanel>
       <Zone
         cards={props.cards}
         command={props.commanders}
@@ -517,6 +571,14 @@ function Opponent(props: {
       />
     </div>
   );
+}
+
+/** The art behind the opponents' headers, credited once for all of them. */
+function OpponentCredits({ arts }: { arts: (SeatArt | undefined)[] }) {
+  const artists = [...new Set(arts.filter((a) => a?.art).map((a) => a!.artist ?? ""))];
+  if (!artists.length) return null;
+  const named = artists.filter(Boolean);
+  return <p className="opp-credits">{artCredit(named.length ? named.join(", ") : null)}</p>;
 }
 
 function DecisionPanel(props: {
@@ -578,7 +640,7 @@ function DecisionPanel(props: {
           <b>{decision.prompt}</b>
           {selectedCard && (
             <>
-              {" "}<span className="dim">· {selectedCard.name}</span>{" "}
+              {" "}<span className="dim prompt-card">{selectedCard.name}</span>{" "}
               <button className="quiet small" onClick={() => props.onRead(selectedCard)}>Read card</button>
               <button className="quiet small" onClick={props.onClear}>All options</button>
             </>

@@ -178,6 +178,8 @@ export interface DeckSummary {
   color_identity: string;
   card_count: number;
   commander_image: string | null;
+  /** Who painted that art crop, for the credit line. */
+  commander_artist: string | null;
 }
 
 export interface DeckEntry extends DeckCard {

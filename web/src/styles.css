@@ -1,35 +1,95 @@
-/* Yama — the playmat. Felt green ground, paper text, and the five mana colors as the only
-   strong color, always meaning "whose" (a player, a deck, a card's identity). */
-
+/* Yama: the night table. A near-black, neutral table, so the commander art and the five mana
+   colors carry all the color. White is the only accent. Mana colors still only mean "whose"
+   (a player, a deck, a card's identity). Spec: design/tokens.md, picked on 2026-10-19. */
 
 :root {
-  --felt: #13201c;
-  --felt-2: #1a2b26;
-  --felt-3: #233830;
-  --line: #2e463c;
-  --paper: #ece5d3;
-  --paper-dim: #a6b3a8;
-  --paper-faint: #6f8378;
-  --warn: #e0a84a;
-  --bad: #e2664e;
-  --good: #6cc08b;
+  --ground: #0b0c0e; /* page background */
+  --surface: #15171a; /* cards, panels, sheets */
+  --raised: #1e2125; /* inputs on surface, chips, secondary buttons */
+  --line: #2a2e33; /* hairlines and outlines */
+  --text: #f2efe8; /* body text, primary buttons (dark text on it) */
+  --dim: #a9adb3; /* secondary text: 8:1 on ground, 6:1 on raised */
+  --good: #8fd3a8; /* have it, legal, ready, connected */
+  --warn: #f0b45a; /* need it, waiting, uploads pending, 25% baselines */
+  --bad: #f07a62; /* attacking, destructive actions, banned */
+
+  /* Phase stop ladder only: the two kinds differ in hue and in shape (filled dot or outlined square). */
+  --stop-mine: #f0b45a;
+  --stop-opp: #7fb0ff;
+
+  /* Status tints, behind status text of the same tone (legality pills). */
+  --good-tint: rgb(143 211 168 / 0.14);
+  --warn-tint: rgb(240 180 90 / 0.14);
+  --bad-tint: rgb(240 122 98 / 0.14);
+
+  /* On top of commander art: white text, a grey for second lines, near-solid chips for small
+     text and a soft shadow under big numbers. */
+  --on-art: #fff;
+  --on-art-dim: #d5d7db;
+  --art-chip: rgb(11 12 14 / 0.82);
+  --art-shadow: 0 2px 18px rgb(0 0 0 / 0.55);
+
+  /* The playmat's names, kept as aliases so stylesheets written against them keep working.
+     --paper-faint is retired: it failed 4.5:1. Use --dim for text and --line for decoration. */
+  --felt: var(--ground);
+  --felt-2: var(--surface);
+  --felt-3: var(--raised);
+  --paper: var(--text);
+  --paper-dim: var(--dim);
+  --paper-faint: var(--dim);
+  --text-dim: var(--dim);
+  --accent: var(--text);
 
   --display: "Big Shoulders Display", "Arial Narrow", sans-serif;
   --body: "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --mono: "Atkinson Hyperlegible Mono", ui-monospace, monospace;
 
-  /* 1.25 scale on a 16px base */
-  --t-sm: 0.8rem;
+  /* Type. Body is 16 px; captions and meta 13 px; labels 14 px; credits 11 px. */
+  --t-xs: 0.6875rem;
+  --t-sm: 0.8125rem;
+  --t-label: 0.875rem;
   --t-base: 1rem;
   --t-md: 1.25rem;
-  --t-lg: 1.563rem;
-  --t-xl: 1.953rem;
-  --t-2xl: 2.441rem;
+  --t-lg: 1.5rem;
+  --t-xl: 2rem;
+  --t-2xl: 2.5rem;
+  --t-big: 2.75rem; /* big numbers: prices, counts, win rates (28-56 px) */
+  --t-title: 3rem; /* page titles: 48 px on phones, 64 px on laptops */
+  --t-hero: 3.5rem; /* hero deck title: 56 px on phones, 96 px on laptops */
 
-  --gap: 1rem;
-  --radius: 6px;
+  /* Shape. --radius is the old single radius, now the input and nav-item size. */
+  --radius: 12px;
+  --r-input: 12px;
+  --r-nav: 12px;
+  --r-list: 16px;
+  --r-panel: 20px;
+  --r-sheet: 24px;
+  --r-pill: 999px;
+  --r-tile: 10px;
   --card-radius: 4.75% / 3.4%; /* a real card's corner, proportionally */
-  --nav-h: 64px;
+
+  /* Spacing: gaps of 8 / 12 / 16 / 24 / 32. */
+  --s-1: 8px;
+  --s-2: 12px;
+  --s-3: 16px;
+  --s-4: 24px;
+  --s-5: 32px;
+  --gap: 16px;
+  --page-pad: 16px;
+  --content-w: 1120px;
+  --target: 44px;
+  --target-primary: 52px;
+  --nav-h: 76px;
+  --rail-w: 232px;
   color-scheme: dark;
+}
+
+@media (min-width: 900px) {
+  :root {
+    --page-pad: clamp(20px, 4vw, 56px);
+    --t-title: 4rem;
+    --t-hero: 6rem;
+  }
 }
 
 * {
@@ -39,8 +99,8 @@
 html,
 body {
   margin: 0;
-  background: var(--felt);
-  color: var(--paper);
+  background: var(--ground);
+  color: var(--text);
   font-family: var(--body);
   font-size: 16px;
   line-height: 1.5;
@@ -52,20 +112,26 @@ h1,
 h2,
 h3 {
   font-family: var(--display);
-  font-weight: 800;
-  line-height: 1.05;
-  letter-spacing: 0.01em;
+  font-weight: 700;
+  line-height: 1;
   margin: 0 0 0.5em;
+  text-wrap: balance;
 }
 h1 {
-  font-size: var(--t-2xl);
+  font-size: var(--t-title);
+  font-weight: 800;
+  line-height: 0.9;
 }
 h2 {
-  font-size: var(--t-xl);
+  font-size: 1.75rem;
 }
 h3 {
-  font-size: var(--t-md);
-  font-weight: 600;
+  font-size: var(--t-lg);
+}
+@media (min-width: 900px) {
+  h2 {
+    font-size: var(--t-xl);
+  }
 }
 p {
   margin: 0 0 1em;
@@ -74,21 +140,30 @@ p {
 a {
   color: inherit;
 }
-.dim {
-  color: var(--paper-dim);
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--raised);
+  border-radius: 6px;
+  padding: 0.05em 0.35em;
 }
+.dim {
+  color: var(--dim);
+}
+/* Was the faint token, which failed 4.5:1; faint text is dim text now. */
 .faint {
-  color: var(--paper-faint);
+  color: var(--dim);
 }
 .small {
   font-size: var(--t-sm);
 }
-.num {
+.num,
+table {
   font-variant-numeric: tabular-nums;
 }
 
 :focus-visible {
-  outline: 3px solid var(--paper);
+  outline: 3px solid var(--text);
   outline-offset: 2px;
 }
 
@@ -103,16 +178,17 @@ a {
 
 /* ── controls ───────────────────────────────────────────────────────────── */
 
+/* Secondary by default: a raised pill. */
 button,
 .button {
   font: inherit;
   font-weight: 700;
-  border: 1px solid var(--line);
-  background: var(--felt-3);
-  color: var(--paper);
-  border-radius: var(--radius);
-  padding: 0.55rem 1rem;
-  min-height: 44px;
+  border: 1px solid transparent;
+  background: var(--raised);
+  color: var(--text);
+  border-radius: var(--r-pill);
+  padding: 0.5rem 1.125rem;
+  min-height: var(--target);
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
@@ -122,19 +198,41 @@ button,
 }
 button:hover,
 .button:hover {
-  border-color: var(--paper-faint);
+  background: color-mix(in srgb, var(--raised), var(--text) 7%);
 }
+/* Primary: a text-colored pill with ground text. One per view. */
 button.primary,
 .button.primary {
-  background: var(--paper);
-  color: var(--felt);
-  border-color: var(--paper);
+  background: var(--text);
+  color: var(--ground);
+  border-color: var(--text);
+  min-height: var(--target-primary);
+  padding: 0.5rem 1.5rem;
+}
+button.primary:hover,
+.button.primary:hover {
+  background: #fff;
+  border-color: #fff;
+}
+/* The other secondary: transparent with a hairline. */
+button.outline,
+.button.outline {
+  background: transparent;
+  border-color: var(--line);
+}
+button.outline:hover,
+.button.outline:hover {
+  border-color: var(--dim);
 }
 button.quiet {
   background: transparent;
   border-color: transparent;
 }
-button:disabled {
+button.quiet:hover {
+  background: var(--raised);
+}
+button:disabled,
+button:disabled:hover {
   opacity: 0.5;
   cursor: default;
 }
@@ -143,32 +241,62 @@ input,
 select,
 textarea {
   font: inherit;
-  color: var(--paper);
-  background: var(--felt-2);
+  font-size: var(--t-base);
+  font-weight: 400;
+  color: var(--text);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0.55rem 0.75rem;
-  min-height: 44px;
+  border-radius: var(--r-input);
+  padding: 0.6rem 0.85rem;
+  min-height: var(--target);
   width: 100%;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--dim);
+  opacity: 1;
+}
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: color-mix(in srgb, var(--line), var(--text) 18%);
+}
+/* On a surface (sheets, seat cards, side panels) fields drop to the ground color. */
+:where(.sheet, fieldset.seat, .surface, .side, .scan-controls) :is(input, select, textarea) {
+  background: var(--ground);
+}
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--text);
+}
+/* The card search box is the one place the mono face appears. */
+form[role="search"] input[type="search"],
+input.search-box {
+  font-family: var(--mono);
 }
 textarea {
   min-height: 10rem;
   font-size: var(--t-sm);
   line-height: 1.4;
 }
+/* Labels sit above their field, 14 px bold. */
 label {
   display: grid;
-  gap: 0.3rem;
+  gap: 6px;
   font-weight: 700;
+  font-size: var(--t-label);
+}
+label:has(> input[type="checkbox"], > input[type="radio"]) {
+  font-size: var(--t-base);
 }
 label > span.hint {
   font-weight: 400;
-  color: var(--paper-dim);
+  color: var(--dim);
   font-size: var(--t-sm);
 }
 .row {
   display: flex;
-  gap: 0.6rem;
+  gap: 12px;
   align-items: center;
   flex-wrap: wrap;
 }
@@ -180,6 +308,45 @@ label > span.hint {
   color: var(--bad);
 }
 
+/* Segmented control: a surface track; the chosen segment is a text-colored pill. */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface);
+  border-radius: var(--r-pill);
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.segmented > button,
+.segmented > a {
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  min-height: var(--target);
+  padding: 0 1.1rem;
+  border-radius: var(--r-pill);
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.segmented > button:hover,
+.segmented > a:hover {
+  background: transparent;
+  color: var(--text);
+}
+.segmented > [aria-selected="true"],
+.segmented > [aria-current="page"],
+.segmented > .active,
+.segmented > [aria-selected="true"]:hover,
+.segmented > .active:hover {
+  background: var(--text);
+  color: var(--ground);
+}
+
 /* ── app shell ──────────────────────────────────────────────────────────── */
 
 .shell {
@@ -187,22 +354,23 @@ label > span.hint {
   padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
 }
 .page {
-  padding: 1.25rem 1rem 2rem;
-  max-width: 1100px;
+  padding: 24px var(--page-pad) 48px;
+  max-width: calc(var(--content-w) + 2 * var(--page-pad));
   margin: 0 auto;
 }
 .page-head {
   display: flex;
   align-items: end;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 12px 16px;
   flex-wrap: wrap;
-  margin-bottom: 1rem;
+  margin-bottom: 24px;
 }
 .page-head h1 {
   margin: 0;
 }
 
+/* Phones: a 76 px tab bar with six tabs. The active tab is text-colored, the rest dim. */
 .nav {
   position: fixed;
   inset: auto 0 0 0;
@@ -210,7 +378,7 @@ label > span.hint {
   padding-bottom: env(safe-area-inset-bottom);
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  background: var(--felt-2);
+  background: var(--ground);
   border-top: 1px solid var(--line);
   z-index: 20;
 }
@@ -218,61 +386,155 @@ label > span.hint {
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 2px;
+  gap: 4px;
+  min-width: 0;
   text-decoration: none;
-  color: var(--paper-dim);
-  font-size: 0.72rem;
+  color: var(--dim);
+  font-size: 0.75rem;
   font-weight: 700;
+  letter-spacing: -0.01em;
 }
 .nav a svg {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
 }
 .nav a.active {
-  color: var(--paper);
+  color: var(--text);
 }
-.nav .wordmark {
+.nav .wordmark,
+.nav .rail-foot {
   display: none;
 }
 
+/* Laptops: a left rail. The active item is a raised pill; your avatar and the sync status sit at
+   the bottom. */
 @media (min-width: 900px) {
   .shell {
     padding-bottom: 0;
-    padding-left: 200px;
+    padding-left: var(--rail-w);
   }
   .nav {
     inset: 0 auto 0 0;
-    width: 200px;
+    width: var(--rail-w);
     height: auto;
-    grid-template-columns: 1fr;
-    grid-auto-rows: 52px;
-    align-content: start;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     border-top: none;
     border-right: 1px solid var(--line);
-    padding: 1rem 0.75rem;
+    padding: 20px 16px 16px;
+    overflow-y: auto;
   }
   .nav a {
-    grid-auto-flow: column;
-    justify-content: start;
-    gap: 0.75rem;
-    padding: 0 0.75rem;
-    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 14px;
+    min-height: 48px;
+    padding: 0 14px;
+    border-radius: var(--r-nav);
     font-size: var(--t-base);
+    letter-spacing: 0;
+  }
+  .nav a svg {
+    width: 22px;
+    height: 22px;
+  }
+  .nav a:hover {
+    color: var(--text);
   }
   .nav a.active {
-    background: var(--felt-3);
+    background: var(--raised);
+    color: var(--text);
   }
   .nav .wordmark {
     display: block;
     font-family: var(--display);
     font-weight: 800;
-    font-size: var(--t-xl);
-    padding: 0 0.75rem 0.5rem;
-    line-height: 52px;
+    font-size: 2.25rem;
+    line-height: 1;
+    padding: 6px 14px 22px;
   }
-  .page {
-    padding: 2rem 2rem 3rem;
+  .nav .rail-foot {
+    display: grid;
+    margin-top: auto;
   }
+}
+
+.rail-foot {
+  gap: 8px;
+  padding-top: 16px;
+}
+.nav a.rail-me {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 8px 10px;
+  border-radius: var(--r-list);
+  color: var(--text);
+}
+.nav a.rail-me:hover {
+  background: var(--surface);
+}
+.rail-me-text {
+  display: grid;
+  min-width: 0;
+  line-height: 1.25;
+}
+.rail-me-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sync {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-sm);
+  font-weight: 400;
+  color: var(--dim);
+}
+.sync::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--good);
+}
+.sync.waiting::before {
+  background: var(--warn);
+}
+.rail-credit {
+  margin: 0;
+  padding: 0 10px;
+  font-size: var(--t-xs);
+  line-height: 1.3;
+  color: var(--dim);
+}
+
+/* Your commander's art in a circle, or your initials on raised. */
+.avatar {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--raised);
+  color: var(--text);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 /* ── mana ───────────────────────────────────────────────────────────────── */
@@ -291,27 +553,36 @@ label > span.hint {
 }
 .mana-cost {
   font-family: var(--display);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--paper-dim);
+  color: var(--dim);
   white-space: nowrap;
 }
 
 /* ── lists and rows ─────────────────────────────────────────────────────── */
 
+/* A list is a surface panel with hairlines between its rows. */
 .list {
   display: grid;
-  border-top: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--r-list);
+  overflow: hidden;
 }
 .list > * {
   border-bottom: 1px solid var(--line);
 }
+.list > :last-child {
+  border-bottom: none;
+}
+.list + p {
+  margin-top: 12px;
+}
 .list-row {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 0.75rem;
+  gap: 12px;
   align-items: center;
-  padding: 0.6rem 0.25rem;
+  padding: 10px 16px;
   text-decoration: none;
   color: inherit;
   background: none;
@@ -321,10 +592,11 @@ label > span.hint {
   text-align: left;
   font-weight: 400;
   width: 100%;
-  min-height: 56px;
+  min-height: 60px;
 }
-.list-row:hover {
-  background: var(--felt-2);
+a.list-row:hover,
+button.list-row:hover {
+  background: var(--raised);
 }
 .list-row .title {
   font-weight: 700;
@@ -334,21 +606,27 @@ label > span.hint {
   aspect-ratio: 488 / 680;
   border-radius: var(--card-radius);
   object-fit: cover;
-  background: var(--felt-3);
+  background: var(--raised);
 }
 .art-thumb {
   width: 64px;
   height: 46px;
-  border-radius: var(--radius);
+  border-radius: 8px;
   object-fit: cover;
-  background: var(--felt-3);
+  background: var(--raised);
 }
 
 /* card grid for search results */
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 0.75rem;
+  gap: 12px;
+}
+@media (min-width: 900px) {
+  .card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+    gap: 16px;
+  }
 }
 .card-grid button {
   padding: 0;
@@ -356,12 +634,13 @@ label > span.hint {
   background: none;
   min-height: 0;
   display: block;
+  border-radius: var(--card-radius);
 }
 .card-img {
   width: 100%;
   aspect-ratio: 488 / 680;
   border-radius: var(--card-radius);
-  background: var(--felt-3);
+  background: var(--raised);
   display: block;
   object-fit: cover;
 }
@@ -369,38 +648,43 @@ label > span.hint {
   width: 100%;
   aspect-ratio: 488 / 680;
   border-radius: var(--card-radius);
-  background: var(--felt-2);
+  background: var(--surface);
   border: 1px solid var(--line);
   padding: 0.6rem;
   text-align: left;
   font-size: var(--t-sm);
-  color: var(--paper);
+  color: var(--text);
 }
 
 /* figures: a big number with its meaning underneath */
 .figures {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.5rem 2.5rem;
-  margin: 0.5rem 0 1.5rem;
+  gap: 16px 40px;
+  margin: 8px 0 24px;
+}
+.figure {
+  min-width: 0;
 }
 .figure b {
   display: block;
   font-family: var(--display);
   font-weight: 800;
-  font-size: var(--t-2xl);
+  font-size: var(--t-big);
   line-height: 1;
 }
 .figure span {
-  color: var(--paper-dim);
+  display: block;
+  max-width: 28ch;
+  color: var(--dim);
   font-size: var(--t-sm);
 }
 
-/* sheet: bottom drawer on phones, side panel on desktop */
+/* sheet: bottom drawer on phones, side panel on laptops */
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgb(5 10 8 / 0.6);
+  background: rgb(0 0 0 / 0.6);
   z-index: 40;
 }
 .sheet {
@@ -409,10 +693,10 @@ label > span.hint {
   inset: auto 0 0 0;
   max-height: 88dvh;
   overflow: auto;
-  background: var(--felt-2);
+  background: var(--surface);
   border-top: 1px solid var(--line);
-  border-radius: 14px 14px 0 0;
-  padding: 1rem 1rem calc(1.5rem + env(safe-area-inset-bottom));
+  border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  padding: 20px 16px calc(24px + env(safe-area-inset-bottom));
   animation: sheet-in 180ms ease-out;
 }
 @keyframes sheet-in {
@@ -426,10 +710,10 @@ label > span.hint {
     inset: 0 0 0 auto;
     width: min(520px, 100%);
     max-height: none;
-    border-radius: 0;
+    border-radius: var(--r-sheet) 0 0 var(--r-sheet);
     border-top: none;
     border-left: 1px solid var(--line);
-    padding: 1.5rem;
+    padding: 28px;
   }
 }
 .sheet-head {
@@ -447,18 +731,27 @@ label > span.hint {
 .tag {
   display: inline-block;
   font-size: var(--t-sm);
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
+  font-weight: 700;
+  line-height: 1.4;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
   border: 1px solid var(--line);
-  color: var(--paper-dim);
+  color: var(--dim);
 }
 .tag.good {
   color: var(--good);
-  border-color: color-mix(in srgb, var(--good) 40%, transparent);
+  background: var(--good-tint);
+  border-color: transparent;
+}
+.tag.warn {
+  color: var(--warn);
+  background: var(--warn-tint);
+  border-color: transparent;
 }
 .tag.bad {
   color: var(--bad);
-  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+  background: var(--bad-tint);
+  border-color: transparent;
 }
 
 table.plain {
@@ -468,11 +761,11 @@ table.plain {
 table.plain th,
 table.plain td {
   text-align: left;
-  padding: 0.45rem 0.5rem;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--line);
 }
 table.plain th {
-  color: var(--paper-dim);
+  color: var(--dim);
   font-weight: 700;
   font-size: var(--t-sm);
 }
@@ -480,38 +773,52 @@ table.plain td.r,
 table.plain th.r {
   text-align: right;
 }
+/* Too few games to read much into: players under 10, commanders under 5. */
+table.plain tr.few td {
+  color: var(--dim);
+}
 
 .empty {
   padding: 2rem 0;
-  color: var(--paper-dim);
+  color: var(--dim);
 }
 
 .login {
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 1.5rem;
+  padding: 24px;
 }
 .login-inner {
   width: min(360px, 100%);
   display: grid;
-  gap: 1.25rem;
+  gap: 24px;
 }
 .login h1 {
-  font-size: 4.5rem;
-  margin: 0;
+  font-size: 6rem;
+  margin: 8px 0 4px;
 }
 .login .pips .pip {
   width: 14px;
   height: 14px;
 }
 
+/* A seat in a new-game form: a surface card with its caption inside. */
 fieldset.seat {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0.5rem 0.9rem 0.9rem;
+  border-radius: var(--r-list);
+  background: var(--surface);
+  padding: 4px 16px 16px;
   margin: 0;
   min-width: 0;
+}
+fieldset.seat > legend {
+  float: left;
+  width: 100%;
+  padding: 10px 0 6px;
+}
+fieldset.seat > legend + * {
+  clear: both;
 }
 
 .price-history {
@@ -530,14 +837,99 @@ fieldset.seat {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: var(--felt);
+  background: var(--ground);
   display: grid;
   grid-template-rows: 1fr auto;
 }
 .scan-controls {
   padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
-  background: var(--felt-2);
+  background: var(--surface);
   border-top: 1px solid var(--line);
   display: grid;
   gap: 0.5rem;
+}
+
+/* ── decks ──────────────────────────────────────────────────────────────── */
+
+/* Deck tiles: the commander's art with the deck's name along the bottom. */
+.deck-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+.deck-tile {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--r-panel);
+}
+.deck-tile .art-panel {
+  aspect-ratio: 16 / 10;
+  display: grid;
+}
+.deck-tile .art-body {
+  align-self: end;
+  display: grid;
+  gap: 4px;
+  padding: 16px 18px;
+}
+.deck-tile-name {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 2rem;
+  line-height: 0.95;
+  text-shadow: var(--art-shadow);
+  text-wrap: balance;
+}
+.deck-tile-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: var(--t-sm);
+  color: var(--on-art-dim);
+}
+.deck-tile .art-none .deck-tile-meta,
+.deck-tile .art-empty .deck-tile-meta {
+  color: var(--dim);
+}
+.deck-tile:hover .art-panel {
+  box-shadow: 0 0 0 2px var(--text);
+}
+
+/* The deck page's hero: the commander's art with the deck's name on it. */
+.deck-hero {
+  margin: 4px 0 16px;
+  min-height: 260px;
+  display: grid;
+}
+.deck-hero .art-body {
+  align-self: end;
+  padding: 72px 20px 20px;
+}
+.deck-hero .hero-title {
+  font-size: var(--t-hero);
+  line-height: 0.9;
+  margin: 0 0 10px;
+  text-shadow: var(--art-shadow);
+}
+.deck-hero .hero-sub {
+  margin: 0;
+  color: var(--on-art-dim);
+}
+.deck-hero.art-none .hero-sub {
+  color: var(--dim);
+}
+@media (min-width: 900px) {
+  .deck-hero {
+    min-height: 380px;
+  }
+  .deck-hero .art-body {
+    padding: 120px 32px 28px;
+  }
+}
+@media (min-width: 900px) {
+  .deck-actions {
+    justify-content: flex-end;
+  }
 }

@@ -1,5 +1,6 @@
 /* The live counter. Each panel is filled with its player's first identity color, with a band
-   of every identity color along the player's top edge. The life total is the one big thing. */
+   of every identity color along the player's top edge. The life total is the one big thing;
+   names and badges sit on near-solid dark chips, as they would over commander art. */
 
 .table {
   position: fixed;
@@ -9,7 +10,7 @@
   padding: 4px;
   padding: max(4px, env(safe-area-inset-top)) max(4px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom))
     max(4px, env(safe-area-inset-left));
-  background: var(--felt);
+  background: var(--ground);
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
@@ -19,19 +20,33 @@
 .panel {
   position: relative;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--r-panel);
   background: var(--fill);
   color: var(--ink);
   container-type: size;
 }
-.panel.active {
-  box-shadow: inset 0 0 0 4px var(--paper);
+/* The active player: a 3 px text-colored ring inside the panel, drawn on top of everything. */
+.panel.active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 3px var(--text);
+  pointer-events: none;
 }
-.panel.out {
-  filter: grayscale(0.85) brightness(0.55);
+/* Out of the game: a dark veil over the panel (an overlay, so art could sit under it unfiltered). */
+.panel.out .panel-inner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgb(11 12 14 / 0.62);
+  pointer-events: none;
 }
 
-/* The rotated content box: sideways panels swap width and height. */
+/* The rotated content box: sideways panels swap width and height. The life total takes the
+   whole top; the name chip and the badges share the bottom row, so the number can be big. */
 .panel-inner {
   position: absolute;
   top: 50%;
@@ -39,8 +54,13 @@
   width: 100cqw;
   height: 100cqh;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-columns: 1fr auto auto 1fr;
+  grid-template-rows: 1fr auto;
+  grid-template-areas:
+    "life life life life"
+    ". who badges .";
   place-items: center;
+  padding-top: 10px;
 }
 .panel-inner.sideways {
   width: 100cqh;
@@ -66,10 +86,13 @@
   background: transparent;
   color: inherit;
   font-family: var(--display);
-  font-weight: 600;
+  font-weight: 500;
   font-size: clamp(2.25rem, 14cqmin, 4rem);
-  opacity: 0.6;
+  opacity: 0.5;
   padding: 0 6%;
+}
+.tap:hover {
+  background: transparent;
 }
 .tap:active {
   background: rgb(0 0 0 / 0.08);
@@ -83,39 +106,52 @@
   justify-content: flex-end;
 }
 
+/* 132 px on a 4-player phone, up to 220 px for a guest's own panel. */
 .life {
-  grid-row: 2;
+  grid-area: life;
   position: relative;
   pointer-events: none;
   font-family: var(--display);
   font-weight: 800;
-  font-size: clamp(3.5rem, 48cqmin, 16rem);
+  font-size: clamp(3.5rem, 70cqmin, 220px);
   line-height: 0.9;
   letter-spacing: -0.01em;
 }
+/* The running delta ("−3") in a dark pill beside the number. */
 .pending {
   position: absolute;
   left: 100%;
-  top: 0.1em;
-  margin-left: 0.15em;
-  font-size: 0.28em;
-  font-weight: 600;
-  opacity: 0.8;
+  top: 0.15em;
+  margin-left: 0.12em;
+  font-size: max(0.2em, 1rem);
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.18em 0.45em;
+  border-radius: var(--r-pill);
+  background: var(--art-chip);
+  color: var(--on-art);
+  white-space: nowrap;
 }
 
 .who {
-  grid-row: 3;
+  grid-area: who;
   z-index: 1;
-  background: rgb(0 0 0 / 0.14);
-  color: inherit;
+  background: var(--art-chip);
+  color: var(--on-art);
   border: none;
-  border-radius: 999px;
-  min-height: 40px;
-  padding: 0.3rem 1rem;
-  margin-bottom: 3cqmin;
+  border-radius: var(--r-pill);
+  min-height: var(--target);
+  padding: 0.3rem 1.1rem;
+  margin-bottom: max(6px, 2.5cqmin);
   display: grid;
   line-height: 1.15;
-  max-width: 80%;
+  max-width: 64cqw;
+}
+.panel-inner.sideways .who {
+  max-width: 64cqh;
+}
+.who:hover {
+  background: rgb(11 12 14 / 0.9);
 }
 .who .name {
   font-weight: 700;
@@ -123,43 +159,57 @@
 .who .cmdr {
   font-size: var(--t-sm);
   font-weight: 400;
-  opacity: 0.85;
+  color: var(--on-art-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .badges {
-  grid-row: 1;
-  margin-top: calc(10px + 2cqmin);
+  grid-area: badges;
+  align-self: start;
+  margin: 11px 0 0 8px;
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
   pointer-events: none;
-  min-height: 1.5rem;
+  z-index: 1;
+}
+.badges:empty {
+  display: none;
 }
 .badge {
   font-size: var(--t-sm);
   font-weight: 700;
-  padding: 0.05rem 0.55rem;
-  border-radius: 999px;
-  background: rgb(0 0 0 / 0.18);
+  line-height: 1.4;
+  padding: 0 0.6rem;
+  border-radius: var(--r-pill);
+  background: var(--art-chip);
+  color: var(--on-art);
 }
 
 .out-prompt {
   position: absolute;
   bottom: 22%;
   z-index: 2;
-  background: var(--felt);
-  color: var(--paper);
-  border-color: var(--paper);
+  background: var(--ground);
+  color: var(--text);
+  border-color: var(--text);
   font-size: var(--t-sm);
+}
+.out-prompt:hover {
+  background: var(--ground);
 }
 .out-label {
   position: absolute;
+  z-index: 3;
   bottom: 24%;
   font-weight: 700;
+  padding: 0.15rem 0.75rem;
+  border-radius: var(--r-pill);
+  background: var(--art-chip);
+  color: var(--on-art);
 }
 
 .hub {
@@ -170,14 +220,17 @@
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  background: var(--felt);
-  color: var(--paper);
-  border: 3px solid var(--paper);
+  background: var(--ground);
+  color: var(--text);
+  border: 2px solid var(--text);
   font-family: var(--display);
   font-weight: 800;
   font-size: var(--t-lg);
   z-index: 5;
   padding: 0;
+}
+.hub:hover {
+  background: var(--ground);
 }
 
 .winner-banner {
@@ -185,9 +238,9 @@
   left: 50%;
   bottom: max(16px, env(safe-area-inset-bottom));
   transform: translateX(-50%);
-  background: var(--felt-2);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--r-list);
   padding: 0.75rem 1rem;
   z-index: 6;
   width: min(420px, calc(100% - 32px));
@@ -227,7 +280,7 @@
   inset: 0;
   display: grid;
   grid-template-rows: auto 1fr;
-  background: var(--felt);
+  background: var(--ground);
   padding-top: env(safe-area-inset-top);
 }
 .guest-others {
@@ -241,8 +294,8 @@
   display: grid;
   justify-items: center;
   padding: 0.3rem 0.75rem;
-  border-radius: 8px;
-  background: var(--felt-2);
+  border-radius: var(--r-list);
+  background: var(--surface);
   border: 1px solid var(--line);
 }
 .guest-other b {
@@ -252,7 +305,8 @@
   line-height: 1;
 }
 .guest-other.active {
-  border-color: var(--paper);
+  border-color: var(--text);
+  box-shadow: inset 0 0 0 2px var(--text);
 }
 .guest-other.out {
   opacity: 0.45;
@@ -266,10 +320,10 @@
   left: 50%;
   bottom: max(12px, env(safe-area-inset-bottom));
   transform: translateX(-50%);
-  background: var(--felt-2);
+  background: var(--surface);
   border: 1px solid var(--line);
   padding: 0.4rem 0.9rem;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   margin: 0;
 }
 .qr {
@@ -279,5 +333,5 @@
   display: block;
   width: 100%;
   height: auto;
-  border-radius: var(--radius);
+  border-radius: var(--r-list);
 }

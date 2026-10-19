@@ -180,7 +180,7 @@ function JoinGame({ decks }: { decks: DeckSummary[] }) {
             {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </label>
-        <button className="primary" disabled={join.isPending}>Join</button>
+        <button disabled={join.isPending}>Join</button>
       </form>
       <ErrorText error={join.error} />
     </section>
