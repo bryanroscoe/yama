@@ -370,9 +370,12 @@ export interface PlayerStat {
   /** The share they'd win by chance: 1/N averaged over their pods (0 to 1). */
   expected: number;
   streak: { kind: "win" | "no_win"; games: number } | null;
-  /** Out of the group's knockout_games. */
+  /** Out of knockout_games: their games with at least one recorded knockout. */
   first_out: number;
+  knockout_games: number;
+  /** Out of last_out_games: their games with a recorded knockout and a winner. */
   last_out: number;
+  last_out_games: number;
   knockouts: number;
   archnemesis: { names: string[]; knockouts: number; of: number } | null;
   fun: number | null;

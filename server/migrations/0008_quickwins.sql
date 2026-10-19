@@ -67,8 +67,8 @@ ALTER TABLE printings ADD COLUMN set_type TEXT;
 
 -- The seat that took the first turn; turn order runs clockwise (up the seat numbers) from it.
 -- NULL = nobody said. In-person games get it from the table's set_first event (Roll for first,
--- "X goes first", or whoever passed the turn first) or from Log a game; online games from the
--- rules engine's starting player.
+-- "X goes first", or the finish sheet's question) or from Log a game; online games from the
+-- rules engine's starting player. Passing the turn never fills it in.
 ALTER TABLE games ADD COLUMN first_seat INTEGER;
 
 -- How the winner won, if the table said. NULL = not recorded, and always NULL for a draw.

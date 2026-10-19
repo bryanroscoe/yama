@@ -185,6 +185,8 @@ function WinConditions({ s }: { s: PlaygroupStats }) {
 function Rivalries({ s }: { s: PlaygroupStats }) {
   const kg = s.knockout_games;
   const nemeses = s.players.filter((p) => p.archnemesis);
+  // A player who never sat in a game with a recorded knockout has no answer here, not zeros.
+  const koPlayers = s.players.filter((p) => p.knockout_games > 0);
   const faded = kg < s.provisional_under;
   return (
     <section>
@@ -227,16 +229,18 @@ function Rivalries({ s }: { s: PlaygroupStats }) {
           <div>
             <h3>First out and last out<Provisional games={kg} under={s.provisional_under} /></h3>
             <p className="lede">
-              Out of {kg} {kg === 1 ? "game" : "games"} with a knockout recorded. Last out means the last losers standing; ties count for everyone tied.
+              From {kg} {kg === 1 ? "game" : "games"} with a knockout recorded. Each count is out of that player's own games with a knockout
+              recorded (for last out, ones with a winner too). Last out means the last losers standing; ties count for everyone tied.
+              {koPlayers.length < s.players.length && " Players with no knockout recorded in their games aren't listed."}
             </p>
             <table className="plain">
               <thead><tr><th>Player</th><th className="r">First out</th><th className="r">Last out</th><th className="r">Knockouts</th></tr></thead>
               <tbody>
-                {s.players.map((p) => (
-                  <tr key={p.key} className={faded ? "provisional" : undefined}>
+                {koPlayers.map((p) => (
+                  <tr key={p.key} className={faded || p.knockout_games < s.provisional_under ? "provisional" : undefined}>
                     <td>{p.name}</td>
-                    <td className="r num">{p.first_out}</td>
-                    <td className="r num">{p.last_out}</td>
+                    <td className="r num">{p.first_out} of {p.knockout_games}</td>
+                    <td className="r num">{p.last_out_games > 0 ? `${p.last_out} of ${p.last_out_games}` : "–"}</td>
                     <td className="r num">{p.knockouts}</td>
                   </tr>
                 ))}

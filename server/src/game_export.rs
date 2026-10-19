@@ -32,9 +32,38 @@ pub const FORMAT: &str = "yama-games/1";
 #[derive(Deserialize)]
 struct Params {
     playgroup: Option<String>,
-    /// The browser's offset from UTC in minutes (e.g. -300 for US Central in summer), so each
-    /// game's `date` is the local day it was played. UTC without it.
+    /// The browser's time zone (IANA, e.g. America/Chicago), so each game's `date` is the local
+    /// day it was played, with daylight saving as it was on that day.
+    tz: Option<String>,
+    /// The browser's offset from UTC in minutes, from apps that don't send `tz` yet. One offset
+    /// for every game, so it can be an hour off across daylight saving. UTC without either.
     offset: Option<i32>,
+}
+
+/// The zone the export's dates are in.
+#[derive(Clone, Copy, Debug)]
+pub enum Zone {
+    Named(chrono_tz::Tz),
+    /// Minutes east of UTC.
+    Offset(i32),
+}
+
+impl Zone {
+    fn from_params(p: &Params) -> Zone {
+        match p.tz.as_deref().and_then(|t| t.parse::<chrono_tz::Tz>().ok()) {
+            Some(tz) => Zone::Named(tz),
+            None => Zone::Offset(p.offset.unwrap_or(0).clamp(-14 * 60, 14 * 60)),
+        }
+    }
+
+    /// How the file names its zone: "America/Chicago", "UTC" or "UTC-05:00".
+    fn name(&self) -> String {
+        match *self {
+            Zone::Named(tz) => tz.name().to_string(),
+            Zone::Offset(0) => "UTC".into(),
+            Zone::Offset(m) => format!("UTC{}{:02}:{:02}", if m < 0 { '-' } else { '+' }, m.abs() / 60, m.abs() % 60),
+        }
+    }
 }
 
 /// A deck version as the export names it.
@@ -47,7 +76,10 @@ pub struct VersionLabel {
     pub saved_at: String,
 }
 
-async fn version_labels(pool: &SqlitePool, games: &[GameFacts]) -> AppResult<HashMap<String, VersionLabel>> {
+/// Names for the deck versions in these games that belong to `owner`, the person exporting.
+/// Other people's decks stay private (their deck pages are owner-only), so their seats show
+/// only what the table typed: the deck label and commander.
+async fn version_labels(pool: &SqlitePool, games: &[GameFacts], owner: &str) -> AppResult<HashMap<String, VersionLabel>> {
     let mut out = HashMap::new();
     // Collected first: an iterator of closures held across an await isn't Send.
     let ids: Vec<String> = games.iter().flat_map(|g| g.seats.iter().filter_map(|s| s.deck_version_id.clone())).collect();
@@ -59,9 +91,10 @@ async fn version_labels(pool: &SqlitePool, games: &[GameFacts]) -> AppResult<Has
             "SELECT d.name, v.note, v.created_at,
                     (SELECT COUNT(*) FROM deck_versions w WHERE w.deck_id = v.deck_id
                        AND (w.created_at < v.created_at OR (w.created_at = v.created_at AND w.rowid <= v.rowid)))
-             FROM deck_versions v JOIN decks d ON d.id = v.deck_id WHERE v.id = ?",
+             FROM deck_versions v JOIN decks d ON d.id = v.deck_id WHERE v.id = ? AND d.owner_id = ?",
         )
         .bind(&v)
+        .bind(owner)
         .fetch_optional(pool)
         .await?;
         if let Some((deck, note, saved_at, number)) = row {
@@ -75,7 +108,7 @@ struct Export {
     games: Vec<GameFacts>,
     labels: HashMap<String, VersionLabel>,
     scope: Value,
-    offset_minutes: i32,
+    zone: Zone,
     me: String,
 }
 
@@ -90,17 +123,19 @@ async fn load(st: &AppState, user: &str, p: &Params) -> AppResult<Export> {
         }
         None => (finished_games(&st.pool, Scope::User(user)).await?, json!({ "kind": "user" })),
     };
-    let labels = version_labels(&st.pool, &games).await?;
-    let offset_minutes = p.offset.unwrap_or(0).clamp(-14 * 60, 14 * 60);
-    Ok(Export { games, labels, scope, offset_minutes, me: user.to_string() })
+    let labels = version_labels(&st.pool, &games, user).await?;
+    Ok(Export { games, labels, scope, zone: Zone::from_params(p), me: user.to_string() })
 }
 
-/// The local day a game was played: its start, shifted by the viewer's UTC offset.
-pub fn local_date(started_at: &str, offset_minutes: i32) -> String {
-    match chrono::DateTime::parse_from_rfc3339(started_at) {
-        Ok(t) => (t.with_timezone(&chrono::Utc) + chrono::Duration::minutes(offset_minutes.into())).format("%Y-%m-%d").to_string(),
-        Err(_) => started_at.chars().take(10).collect(),
-    }
+/// The local day a game was played: its start in the export's zone. None if the stored start
+/// isn't a time (the server checks new ones; this keeps an odd old row from inventing a date).
+pub fn local_date(started_at: &str, zone: Zone) -> Option<String> {
+    let t = chrono::DateTime::parse_from_rfc3339(started_at).ok()?.with_timezone(&chrono::Utc);
+    let day = match zone {
+        Zone::Named(tz) => t.with_timezone(&tz).date_naive(),
+        Zone::Offset(m) => (t + chrono::Duration::minutes(m.into())).date_naive(),
+    };
+    Some(day.format("%Y-%m-%d").to_string())
 }
 
 fn file_name(scope: &Value, ext: &str) -> String {
@@ -115,7 +150,8 @@ fn file_name(scope: &Value, ext: &str) -> String {
 #[derive(Serialize)]
 struct ExportGame<'a> {
     // The fields commander-decks' README asks for, from your seat (null if you didn't play).
-    date: String,
+    /// The local day it started, in the file's `time_zone`.
+    date: Option<String>,
     deck: Option<String>,
     version: Option<String>,
     version_id: Option<&'a str>,
@@ -165,6 +201,8 @@ struct ExportFile<'a> {
     exported_from: &'static str,
     exported_at: String,
     scope: &'a Value,
+    /// The zone each game's `date` is in.
+    time_zone: String,
     about: &'static str,
     games: Vec<ExportGame<'a>>,
 }
@@ -205,7 +243,7 @@ fn export_file(e: &Export) -> ExportFile<'_> {
                 .collect();
             let my_version = mine.and_then(|s| label(&s.deck_version_id));
             ExportGame {
-                date: local_date(&g.started_at, e.offset_minutes),
+                date: local_date(&g.started_at, e.zone),
                 deck: my_version.map(|v| v.deck.clone()).or_else(|| mine.and_then(|s| s.deck_label.clone())),
                 version: my_version.map(|v| v.label.clone()),
                 version_id: mine.and_then(|s| s.deck_version_id.as_deref()),
@@ -233,7 +271,10 @@ fn export_file(e: &Export) -> ExportFile<'_> {
         exported_from: "Yama",
         exported_at: now(),
         scope: &e.scope,
+        time_zone: e.zone.name(),
         about: "Finished games only, oldest first. Seats run clockwise and turn_position 1 took the first turn. \
+                date is the local day the game started, in time_zone. \
+                Deck names and version notes are only given for your own decks. \
                 Null means not recorded; a null result means you didn't play in that game. \
                 win_condition is one of combat, commander_damage, combo, alternate, mill, poison, concession, other. \
                 fun is each player's rating from 1 to 5.",
@@ -274,9 +315,10 @@ fn to_csv(e: &Export) -> anyhow::Result<Vec<u8>> {
             let deck = v.map(|v| v.deck.clone()).or(s.deck_label.clone());
             w.write_record([
                 g.id.clone(),
-                local_date(&g.started_at, e.offset_minutes),
-                g.started_at.clone(),
-                g.ended_at.clone().unwrap_or_default(),
+                // Times are checked on the way in; cell() still guards anything older.
+                text(local_date(&g.started_at, e.zone).as_deref()),
+                cell(&g.started_at),
+                text(g.ended_at.as_deref()),
                 g.mode.clone(),
                 text(g.playgroup_name.as_deref()),
                 g.seats.len().to_string(),
@@ -340,13 +382,14 @@ mod tests {
         g.seats[2].name = "-Sam, the \"guest\"".into();
         let mut labels = HashMap::new();
         labels.insert("v3".to_string(), VersionLabel { deck: "Fantastic Four".into(), label: "Fantastic Four v3".into(), note: Some("Sol Ring in".into()), saved_at: "2026-10-12T10:00:00Z".into() });
-        Export { games: vec![g], labels, scope: json!({ "kind": "user" }), offset_minutes: -300, me: "me".into() }
+        Export { games: vec![g], labels, scope: json!({ "kind": "user" }), zone: Zone::Named(chrono_tz::America::Chicago), me: "me".into() }
     }
 
     #[test]
     fn json_leads_with_commander_decks_fields_from_your_seat() {
         let v = to_json(&sample());
         assert_eq!(v["format"], FORMAT);
+        assert_eq!(v["time_zone"], "America/Chicago");
         let g = &v["games"][0];
         assert_eq!(g["date"], "2026-10-17");
         assert_eq!(g["deck"], "Fantastic Four");
@@ -404,9 +447,78 @@ mod tests {
     }
 
     #[test]
-    fn local_date_shifts_by_the_offset() {
-        assert_eq!(local_date("2026-10-18T02:30:00Z", -300), "2026-10-17");
-        assert_eq!(local_date("2026-10-18T02:30:00Z", 0), "2026-10-18");
-        assert_eq!(local_date("2026-10-18T23:30:00Z", 120), "2026-10-19");
+    fn local_date_follows_daylight_saving_in_a_named_zone() {
+        let chicago = Zone::Named(chrono_tz::America::Chicago);
+        // 23:30 CST on 15 January is the 16th in UTC; exported in October (CDT) it stays the 15th.
+        assert_eq!(local_date("2026-01-16T05:30:00Z", chicago).as_deref(), Some("2026-01-15"));
+        assert_eq!(local_date("2026-10-18T02:30:00Z", chicago).as_deref(), Some("2026-10-17"));
+        assert_eq!(local_date("2026-10-18T02:30:00Z", Zone::Offset(0)).as_deref(), Some("2026-10-18"));
+        assert_eq!(local_date("2026-10-18T23:30:00Z", Zone::Offset(120)).as_deref(), Some("2026-10-19"));
+        // A start that isn't a time has no date rather than a made-up one.
+        assert_eq!(local_date("=HYPERLINK(\"x\")", chicago), None);
+    }
+
+    #[test]
+    fn zone_comes_from_the_name_then_the_offset() {
+        let p = |tz: Option<&str>, offset: Option<i32>| Params { playgroup: None, tz: tz.map(String::from), offset };
+        assert_eq!(Zone::from_params(&p(Some("America/Chicago"), Some(-300))).name(), "America/Chicago");
+        assert_eq!(Zone::from_params(&p(Some("Not/AZone"), Some(-300))).name(), "UTC-05:00");
+        assert_eq!(Zone::from_params(&p(None, Some(330))).name(), "UTC+05:30");
+        assert_eq!(Zone::from_params(&p(None, None)).name(), "UTC");
+    }
+
+    #[test]
+    fn csv_defuses_formulas_in_times() {
+        // Times are checked on the way in now (games::check_time); this guards older rows.
+        let mut g = game("1", &["a", "b"], Some(0));
+        g.started_at = "=HYPERLINK(\"https://evil.example\",\"open\")".into();
+        g.ended_at = Some("+1+1".into());
+        let e = Export { games: vec![g], labels: HashMap::new(), scope: json!({ "kind": "playgroup" }), zone: Zone::Offset(0), me: "me".into() };
+        let bytes = to_csv(&e).unwrap();
+        let mut r = csv::Reader::from_reader(bytes.as_slice());
+        let row = r.records().next().unwrap().unwrap();
+        let col = |name: &str| CSV_HEADER.iter().position(|h| *h == name).unwrap();
+        for name in ["date", "started_at", "ended_at"] {
+            let v = &row[col(name)];
+            assert!(!v.starts_with(['=', '+', '-', '@']), "{name} column is a live formula: {v:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn other_players_deck_names_and_notes_stay_private() {
+        let pool = crate::db::test_pool().await;
+        for (id, name) in [("alice", "Alice"), ("bob", "Bob")] {
+            sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES (?,?,?,'t')").bind(id).bind(format!("{id}@x.y")).bind(name).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO playgroups (id, name, owner_id, join_code, created_at) VALUES ('pg','Friday','alice','ABC123','t')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO decks (id, owner_id, name, created_at, updated_at) VALUES ('d','alice','Alice Secret Deck','t','t')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at) VALUES ('v','d','[]','Private: proxies before buying','2026-10-01T00:00:00Z')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO games (id, mode, playgroup_id, created_by, status, started_at, ended_at, winner_seat) VALUES ('g','in_person','pg','alice','finished','2026-10-18T01:00:00Z','2026-10-18T02:00:00Z',0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO game_seats (game_id, seat, user_id, deck_version_id, deck_label, commander_name) VALUES ('g',0,'alice','v','Atraxa','Atraxa, Praetors'' Voice')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO game_seats (game_id, seat, user_id) VALUES ('g',1,'bob')").execute(&pool).await.unwrap();
+        let games = finished_games(&pool, Scope::Playgroup("pg")).await.unwrap();
+        let export = |me: &str, labels| Export { games: games.clone(), labels, scope: json!({ "kind": "playgroup" }), zone: Zone::Offset(0), me: me.into() };
+
+        // Bob sees what the table typed for Alice's seat, nothing from her deck page.
+        let bob = to_json(&export("bob", version_labels(&pool, &games, "bob").await.unwrap()));
+        let seat = &bob["games"][0]["seats"][0];
+        assert_eq!(seat["deck"], "Atraxa");
+        assert_eq!((&seat["deck_version"], &seat["deck_version_note"], &seat["deck_version_saved_at"]), (&Value::Null, &Value::Null, &Value::Null));
+        let csv = String::from_utf8(to_csv(&export("bob", version_labels(&pool, &games, "bob").await.unwrap())).unwrap()).unwrap();
+        assert!(!csv.contains("Secret") && !csv.contains("Private"), "{csv}");
+
+        // Alice's own export names her deck and version.
+        let alice = to_json(&export("alice", version_labels(&pool, &games, "alice").await.unwrap()));
+        assert_eq!(alice["games"][0]["version"], "Alice Secret Deck v1");
+        assert_eq!(alice["games"][0]["seats"][0]["deck_version_note"], "Private: proxies before buying");
     }
 }

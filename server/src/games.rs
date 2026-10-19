@@ -100,9 +100,19 @@ struct SeatResult {
     fun: Option<i64>,
 }
 
+/// A time from the phone must be RFC 3339, as `Date.toISOString()` writes it. Stats order games
+/// by these and the export copies them into every member's CSV, so nothing else gets stored.
+fn check_time(t: Option<&str>, what: &str) -> AppResult<()> {
+    match t {
+        Some(t) if chrono::DateTime::parse_from_rfc3339(t).is_err() => Err(AppError::bad(format!("{what} isn't an RFC 3339 time"))),
+        _ => Ok(()),
+    }
+}
+
 /// Check a finish against the game's seats. Everything here comes from the phone's event log,
 /// so the same finish arrives unchanged on every retry; a bad value is a bug worth a 400.
 fn check_finish(f: &Finish, seats: &[i64]) -> AppResult<()> {
+    check_time(f.ended_at.as_deref(), "ended_at")?;
     let is_seat = |s: Option<i64>| s.is_none_or(|s| seats.contains(&s));
     if !is_seat(f.winner_seat) {
         return Err(AppError::bad("the winner isn't one of the game's seats"));
@@ -148,8 +158,107 @@ async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json
     Ok(Json(create_game(&st.pool, &user.id, g).await?))
 }
 
-/// Create an in-person game (and finish it, for a game logged afterwards). Creating the same
-/// game again is a no-op, so an offline phone can retry.
+/// A seat as it's stored, after the checks in `resolve_seat`.
+#[derive(Debug, PartialEq, sqlx::FromRow)]
+struct StoredSeat {
+    seat: i64,
+    member_id: Option<String>,
+    user_id: Option<String>,
+    guest_name: Option<String>,
+    ai_kind: Option<String>,
+    deck_version_id: Option<String>,
+    deck_label: Option<String>,
+    commander_name: Option<String>,
+}
+
+impl StoredSeat {
+    /// Who sits in the seat: what a retry of the same game can't change.
+    fn who(&self) -> (i64, Option<&str>, Option<&str>, Option<&str>, Option<&str>) {
+        (self.seat, self.member_id.as_deref(), self.user_id.as_deref(), self.guest_name.as_deref(), self.ai_kind.as_deref())
+    }
+}
+
+/// Decide what a seat sent by `user` stores. A seat can name a playgroup member (picking up their
+/// account) or, without a playgroup, only the creator's own account. Anything else is recorded as
+/// a guest name, so nobody can put games on someone else's record.
+async fn resolve_seat(conn: &mut sqlx::SqliteConnection, user: &str, playgroup: Option<&str>, s: &Seat) -> AppResult<StoredSeat> {
+    let member: Option<(Option<String>, Option<String>)> = match (&s.member_id, playgroup) {
+        (Some(m), Some(pg)) => {
+            let found: Option<(Option<String>, Option<String>)> =
+                sqlx::query_as("SELECT user_id, guest_name FROM playgroup_members WHERE id = ? AND playgroup_id = ?")
+                    .bind(m)
+                    .bind(pg)
+                    .fetch_optional(&mut *conn)
+                    .await?;
+            Some(found.ok_or_else(|| AppError::bad("that player isn't in this playgroup"))?)
+        }
+        (Some(_), None) => return Err(AppError::bad("a playgroup member needs the playgroup")),
+        (None, _) => None,
+    };
+    let (member_user, member_guest) = member.unwrap_or_default();
+    let account = match (member_user, &s.user_id) {
+        (Some(u), _) => Some(u),
+        (None, Some(u)) if *u == user => Some(u.clone()),
+        _ => None,
+    };
+    // Results per deck version count these, so a seat keeps a deck version only when it's a
+    // version of a deck the seat's own account owns. Anything else is dropped rather than
+    // refused, so a phone's offline game still uploads.
+    let deck_version: Option<String> = match (&s.deck_version_id, &account) {
+        (Some(v), Some(owner)) => {
+            sqlx::query_scalar("SELECT v.id FROM deck_versions v JOIN decks d ON d.id = v.deck_id WHERE v.id = ? AND d.owner_id = ?")
+                .bind(v)
+                .bind(owner)
+                .fetch_optional(&mut *conn)
+                .await?
+        }
+        _ => None,
+    };
+    Ok(StoredSeat {
+        seat: s.seat,
+        member_id: if playgroup.is_some() { s.member_id.clone() } else { None },
+        // A guest member's name is kept on the seat too, so the game still names them if they're
+        // removed from the playgroup later.
+        guest_name: if account.is_none() { s.guest_name.clone().or(member_guest).or(s.display_name.clone()) } else { s.guest_name.clone() },
+        user_id: account,
+        ai_kind: s.ai_kind.clone(),
+        deck_version_id: deck_version,
+        deck_label: s.deck_label.clone(),
+        commander_name: s.commander_name.clone(),
+    })
+}
+
+async fn insert_seats(conn: &mut sqlx::SqliteConnection, game: &str, seats: &[StoredSeat]) -> AppResult<()> {
+    for s in seats {
+        sqlx::query(
+            "INSERT INTO game_seats (game_id, seat, member_id, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name)
+             VALUES (?,?,?,?,?,?,?,?,?)",
+        )
+        .bind(game)
+        .bind(s.seat)
+        .bind(&s.member_id)
+        .bind(&s.user_id)
+        .bind(&s.guest_name)
+        .bind(&s.ai_kind)
+        .bind(&s.deck_version_id)
+        .bind(&s.deck_label)
+        .bind(&s.commander_name)
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Create an in-person game (and finish it, for a game logged afterwards). Sending the same game
+/// again is safe, so an offline phone can retry:
+///
+/// - A table game's retry must name the same players in the same seats. If it doesn't, its
+///   finish is numbered against a different game, so it's refused (409) rather than crediting
+///   the wrong player.
+/// - A logged game (a finish and no table events, from Log a game) is only what the form said, so
+///   saving it again stores what the form says now. That covers a Save whose answer was lost
+///   and an edit made before saving again.
+/// - Online games are written by the rules engine alone; their ids are refused here.
 async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> AppResult<serde_json::Value> {
     if uuid::Uuid::parse_str(&g.id).is_err() {
         return Err(AppError::bad("game id must be a UUID"));
@@ -158,99 +267,83 @@ async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> AppResult<ser
         return Err(AppError::bad("a game needs 1 to 10 seats"));
     }
     let seat_numbers: Vec<i64> = g.seats.iter().map(|s| s.seat).collect();
+    if seat_numbers.iter().enumerate().any(|(i, n)| seat_numbers[..i].contains(n)) {
+        return Err(AppError::bad("each seat number can appear once"));
+    }
+    check_time(g.started_at.as_deref(), "started_at")?;
     if let Some(f) = &g.finish {
         check_finish(f, &seat_numbers)?;
     }
     if let Some(pg) = &g.playgroup_id && !is_member(pool, pg, user).await? {
         return Err(AppError::NotFound("playgroup"));
     }
-    let existing: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ?").bind(&g.id).fetch_optional(pool).await?;
-    match existing {
-        Some(by) if by == user => {
-            // A retry. If the first try stored the game but not its result, finish it now;
-            // finishing again with the same result changes nothing.
-            if let Some(f) = g.finish {
-                finish_game(pool, &g.id, f).await?;
-            }
-            return Ok(serde_json::json!({ "id": g.id, "existing": true }));
-        }
-        Some(_) => return Err(AppError::Conflict("game id already used".into())),
-        None => {}
-    }
     let mut tx = pool.begin().await?;
-    sqlx::query(
-        "INSERT INTO games (id, mode, playgroup_id, created_by, format, status, starting_life, started_at, note)
-         VALUES (?, 'in_person', ?, ?, ?, 'in_progress', ?, ?, ?)",
-    )
-    .bind(&g.id)
-    .bind(&g.playgroup_id)
-    .bind(user)
-    .bind(&g.format)
-    .bind(g.starting_life)
-    .bind(g.started_at.clone().unwrap_or_else(now))
-    .bind(&g.note)
-    .execute(&mut *tx)
-    .await?;
+    let mut seats = Vec::with_capacity(g.seats.len());
     for s in &g.seats {
-        // A seat can name a playgroup member (picking up their account) or, without a
-        // playgroup, only the creator's own account. Anything else is recorded as a guest name,
-        // so nobody can put games on someone else's record.
-        let member: Option<(Option<String>, Option<String>)> = match (&s.member_id, &g.playgroup_id) {
-            (Some(m), Some(pg)) => {
-                let found: Option<(Option<String>, Option<String>)> =
-                    sqlx::query_as("SELECT user_id, guest_name FROM playgroup_members WHERE id = ? AND playgroup_id = ?")
-                        .bind(m)
-                        .bind(pg)
-                        .fetch_optional(&mut *tx)
-                        .await?;
-                Some(found.ok_or_else(|| AppError::bad("that player isn't in this playgroup"))?)
-            }
-            (Some(_), None) => return Err(AppError::bad("a playgroup member needs the playgroup")),
-            (None, _) => None,
-        };
-        let (member_user, member_guest) = member.unwrap_or_default();
-        let account = match (member_user, &s.user_id) {
-            (Some(u), _) => Some(u),
-            (None, Some(u)) if *u == user => Some(u.clone()),
-            _ => None,
-        };
-        // Results per deck version count these, so a seat keeps a deck version only when it's a
-        // version of a deck the seat's own account owns. Anything else is dropped rather than
-        // refused, so a phone's offline game still uploads.
-        let deck_version: Option<String> = match (&s.deck_version_id, &account) {
-            (Some(v), Some(owner)) => {
-                sqlx::query_scalar("SELECT v.id FROM deck_versions v JOIN decks d ON d.id = v.deck_id WHERE v.id = ? AND d.owner_id = ?")
-                    .bind(v)
-                    .bind(owner)
-                    .fetch_optional(&mut *tx)
-                    .await?
-            }
-            _ => None,
-        };
-        sqlx::query(
-            "INSERT INTO game_seats (game_id, seat, member_id, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name)
-             VALUES (?,?,?,?,?,?,?,?,?)",
-        )
+        seats.push(resolve_seat(&mut tx, user, g.playgroup_id.as_deref(), s).await?);
+    }
+    let found: Option<(String, String, Option<String>)> = sqlx::query_as("SELECT created_by, mode, playgroup_id FROM games WHERE id = ?")
         .bind(&g.id)
-        .bind(s.seat)
-        .bind(if g.playgroup_id.is_some() { s.member_id.clone() } else { None })
-        .bind(&account)
-        // A guest member's name is kept on the seat too, so the game still names them if they're
-        // removed from the playgroup later.
-        .bind(if account.is_none() { s.guest_name.clone().or(member_guest).or(s.display_name.clone()) } else { s.guest_name.clone() })
-        .bind(&s.ai_kind)
-        .bind(&deck_version)
-        .bind(&s.deck_label)
-        .bind(&s.commander_name)
-        .execute(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
-    }
-    insert_events(&mut tx, &g.id, &g.events).await?;
-    tx.commit().await?;
+    let existing = match found {
+        None => {
+            sqlx::query(
+                "INSERT INTO games (id, mode, playgroup_id, created_by, format, status, starting_life, started_at, note)
+                 VALUES (?, 'in_person', ?, ?, ?, 'in_progress', ?, ?, ?)",
+            )
+            .bind(&g.id)
+            .bind(&g.playgroup_id)
+            .bind(user)
+            .bind(&g.format)
+            .bind(g.starting_life)
+            .bind(g.started_at.clone().unwrap_or_else(now))
+            .bind(&g.note)
+            .execute(&mut *tx)
+            .await?;
+            insert_seats(&mut tx, &g.id, &seats).await?;
+            insert_events(&mut tx, &g.id, &g.events).await?;
+            false
+        }
+        Some((by, mode, stored_group)) if by == user && mode == "in_person" => {
+            let has_events: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM game_events WHERE game_id = ?)").bind(&g.id).fetch_one(&mut *tx).await?;
+            if g.finish.is_some() && g.events.is_empty() && !has_events {
+                sqlx::query("UPDATE games SET playgroup_id = ?, format = ?, starting_life = ?, started_at = COALESCE(?, started_at), note = ? WHERE id = ?")
+                    .bind(&g.playgroup_id)
+                    .bind(&g.format)
+                    .bind(g.starting_life)
+                    .bind(&g.started_at)
+                    .bind(&g.note)
+                    .bind(&g.id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM game_seats WHERE game_id = ?").bind(&g.id).execute(&mut *tx).await?;
+                insert_seats(&mut tx, &g.id, &seats).await?;
+            } else {
+                let stored: Vec<StoredSeat> = sqlx::query_as(
+                    "SELECT seat, member_id, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name
+                     FROM game_seats WHERE game_id = ? ORDER BY seat",
+                )
+                .bind(&g.id)
+                .fetch_all(&mut *tx)
+                .await?;
+                let mut sent: Vec<&StoredSeat> = seats.iter().collect();
+                sent.sort_by_key(|s| s.seat);
+                if stored_group != g.playgroup_id || !stored.iter().map(StoredSeat::who).eq(sent.iter().map(|s| s.who())) {
+                    return Err(AppError::Conflict("this game was already saved with different players".into()));
+                }
+                insert_events(&mut tx, &g.id, &g.events).await?;
+            }
+            true
+        }
+        // Someone else's game, or an online one.
+        Some(_) => return Err(AppError::Conflict("game id already used".into())),
+    };
     if let Some(f) = g.finish {
-        finish_game(pool, &g.id, f).await?;
+        finish_in(&mut tx, &g.id, f).await?;
     }
-    Ok(serde_json::json!({ "id": g.id, "existing": false }))
+    tx.commit().await?;
+    Ok(serde_json::json!({ "id": g.id, "existing": existing }))
 }
 
 async fn insert_events(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, game: &str, events: &[Event]) -> AppResult<u64> {
@@ -313,12 +406,15 @@ async fn finish_as(pool: &SqlitePool, id: &str, user: &str, f: Finish) -> AppRes
     }
     let seats: Vec<i64> = sqlx::query_scalar("SELECT seat FROM game_seats WHERE game_id = ?").bind(id).fetch_all(pool).await?;
     check_finish(&f, &seats)?;
-    finish_game(pool, id, f).await
+    let mut tx = pool.begin().await?;
+    finish_in(&mut tx, id, f).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
-async fn finish_game(pool: &SqlitePool, id: &str, f: Finish) -> AppResult<()> {
-    let mut tx = pool.begin().await?;
-    // Setting the same values again is harmless, so a retried finish changes nothing.
+/// Store a checked finish. Setting the same values again is harmless, so a retried finish
+/// changes nothing.
+async fn finish_in(conn: &mut sqlx::SqliteConnection, id: &str, f: Finish) -> AppResult<()> {
     sqlx::query(
         "UPDATE games SET status = 'finished', winner_seat = ?, turns = ?, ended_at = ?, first_seat = ?, win_condition = ? WHERE id = ?",
     )
@@ -328,22 +424,21 @@ async fn finish_game(pool: &SqlitePool, id: &str, f: Finish) -> AppResult<()> {
     .bind(f.first_seat)
     .bind(if f.winner_seat.is_some() { f.win_condition } else { None })
     .bind(id)
-    .execute(&mut *tx)
+    .execute(&mut *conn)
     .await?;
     for s in f.seats {
         sqlx::query(
             "UPDATE game_seats SET final_life = ?, eliminated_turn = ?, eliminated_by_seat = ?, fun = ? WHERE game_id = ? AND seat = ?",
         )
-            .bind(s.final_life)
-            .bind(s.eliminated_turn)
-            .bind(s.eliminated_by_seat)
-            .bind(s.fun)
-            .bind(id)
-            .bind(s.seat)
-            .execute(&mut *tx)
-            .await?;
+        .bind(s.final_life)
+        .bind(s.eliminated_turn)
+        .bind(s.eliminated_by_seat)
+        .bind(s.fun)
+        .bind(id)
+        .bind(s.seat)
+        .execute(&mut *conn)
+        .await?;
     }
-    tx.commit().await?;
     Ok(())
 }
 
@@ -610,5 +705,134 @@ mod tests {
         }
         // Someone who didn't create the game can't finish it.
         assert!(matches!(finish_as(&pool, id, "sam", finish(json!({ "winner_seat": 0 }))).await, Err(AppError::NotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn create_refuses_times_that_are_not_rfc3339() {
+        // Stats order games by it and the export copies it into every member's CSV.
+        let pool = crate::db::test_pool().await;
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('me','me@x.y','Bryan','t')").execute(&pool).await.unwrap();
+        let g: NewGame = serde_json::from_value(json!({
+            "id": "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f00aa",
+            "started_at": "=HYPERLINK(\"x\")",
+            "seats": [{ "seat": 0, "user_id": "me" }],
+        }))
+        .unwrap();
+        assert!(matches!(create_game(&pool, "me", g).await, Err(AppError::BadRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn create_retry_cannot_rewrite_an_online_game() {
+        // can_write keeps online games engine-only (POST /finish refuses them); a "retried create"
+        // with the same id mustn't get round that.
+        let pool = crate::db::test_pool().await;
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('me','me@x.y','Bryan','t')").execute(&pool).await.unwrap();
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f00ac";
+        sqlx::query("INSERT INTO games (id, mode, created_by, status, started_at, ended_at, winner_seat, turns) VALUES (?,'online','me','finished','2026-10-18T01:00:00Z','2026-10-18T02:00:00Z',1,9)")
+            .bind(id).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO game_seats (game_id, seat, user_id) VALUES (?,0,'me')").bind(id).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO game_seats (game_id, seat, guest_name, ai_kind) VALUES (?,1,'Atraxa','phase-ai Hard')").bind(id).execute(&pool).await.unwrap();
+        // The /finish route refuses it...
+        assert!(matches!(finish_as(&pool, id, "me", serde_json::from_value(json!({ "winner_seat": 0 })).unwrap()).await, Err(AppError::NotFound(_))));
+        // ...and so does a "retried create" with the same id.
+        let g: NewGame = serde_json::from_value(json!({
+            "id": id, "seats": [{ "seat": 0, "user_id": "me" }, { "seat": 1, "guest_name": "Atraxa" }],
+            "finish": { "winner_seat": 0, "turns": 3, "seats": [] },
+        }))
+        .unwrap();
+        assert!(matches!(create_game(&pool, "me", g).await, Err(AppError::Conflict(_))));
+        let (winner, turns): (Option<i64>, Option<i64>) =
+            sqlx::query_as("SELECT winner_seat, turns FROM games WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!((winner, turns), (Some(1), Some(9)), "the online game's result was rewritten");
+    }
+
+    #[tokio::test]
+    async fn deck_results_leave_out_seats_the_ai_played() {
+        // Online games put the host's deck version on AI seats (play.rs create: deck_for_seat with
+        // the host's id). The computer's results aren't the deck's record.
+        let pool = crate::db::test_pool().await;
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('me','me@x.y','Bryan','t')").execute(&pool).await.unwrap();
+        for (deck, version) in [("d-a", "v-a"), ("d-b", "v-b")] {
+            sqlx::query("INSERT INTO decks (id, owner_id, name, created_at, updated_at) VALUES (?,'me',?,'t','t')").bind(deck).bind(deck).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, created_at) VALUES (?,?,'[]','2026-10-01T00:00:00Z')").bind(version).bind(deck).execute(&pool).await.unwrap();
+        }
+        // Bryan plays deck A against the computer piloting his deck B, and wins.
+        sqlx::query("INSERT INTO games (id, mode, created_by, status, started_at, ended_at, winner_seat) VALUES ('og','online','me','finished','2026-10-18T01:00:00Z','2026-10-18T02:00:00Z',0)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO game_seats (game_id, seat, user_id, deck_version_id) VALUES ('og',0,'me','v-a')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO game_seats (game_id, seat, guest_name, ai_kind, deck_version_id) VALUES ('og',1,'Atraxa','phase-ai Medium','v-b')")
+            .execute(&pool).await.unwrap();
+        let games = crate::stats::finished_games(&pool, crate::stats::Scope::Deck("d-b")).await.unwrap();
+        let by_version = crate::stats::results_by_version(&games);
+        // Bryan never played deck B; its record shouldn't show a loss.
+        assert!(by_version.get("v-b").is_none_or(|r| r.games == 0), "deck B's record: {:?}", by_version.get("v-b"));
+        // A mirror match (the computer with the same version) counts once.
+        sqlx::query("UPDATE game_seats SET deck_version_id = 'v-a' WHERE game_id = 'og' AND seat = 1").execute(&pool).await.unwrap();
+        let games = crate::stats::finished_games(&pool, crate::stats::Scope::Deck("d-a")).await.unwrap();
+        assert_eq!(crate::stats::results_by_version(&games)["v-a"], crate::stats::Record { games: 1, wins: 1, losses: 0, draws: 0 });
+    }
+
+    #[tokio::test]
+    async fn a_retried_log_with_different_seats_does_not_credit_the_wrong_player() {
+        // Log a game keeps one id per form. If the first Save reached the server but the phone
+        // saw an error, and the user then removes a seat and saves again, the new finish is
+        // numbered against the new seat list.
+        let pool = crate::db::test_pool().await;
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('me','me@x.y','Bryan','t')").execute(&pool).await.unwrap();
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f00ab";
+        let first: NewGame = serde_json::from_value(json!({
+            "id": id, "started_at": "2026-10-18T01:00:00Z",
+            "seats": [{ "seat": 0, "user_id": "me" }, { "seat": 1, "guest_name": "Sam" }, { "seat": 2, "guest_name": "Alex" }],
+            "finish": { "winner_seat": 2, "seats": [] },
+        }))
+        .unwrap();
+        create_game(&pool, "me", first).await.unwrap();
+        // Second Save: Bryan's seat removed, Sam (now seat 0) marked as the winner.
+        let edited: NewGame = serde_json::from_value(json!({
+            "id": id, "started_at": "2026-10-18T01:00:00Z",
+            "seats": [{ "seat": 0, "guest_name": "Sam" }, { "seat": 1, "guest_name": "Alex" }],
+            "finish": { "winner_seat": 0, "seats": [] },
+        }))
+        .unwrap();
+        let r = create_game(&pool, "me", edited).await;
+        let winner: Option<String> = sqlx::query_scalar(
+            "SELECT COALESCE(u.display_name, s.guest_name) FROM games g JOIN game_seats s ON s.game_id = g.id AND s.seat = g.winner_seat
+             LEFT JOIN users u ON u.id = s.user_id WHERE g.id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        // A logged game is only what the form said, so the second Save stores what it says now.
+        assert!(r.is_ok() && winner.as_deref() == Some("Sam"), "retry returned {:?}; stored winner {winner:?}", r.map(|v| v.to_string()));
+        let seats: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM game_seats WHERE game_id = ?").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(seats, 2);
+    }
+
+    #[tokio::test]
+    async fn a_table_game_retry_must_name_the_same_players() {
+        let pool = setup().await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0007";
+        create_game(&pool, "me", new_game(id, None)).await.unwrap();
+        let event: Event = serde_json::from_value(json!({ "seq": 1, "actor_seat": 0, "kind": "life", "payload": { "type": "life", "seat": 0, "delta": -3 } })).unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        insert_events(&mut tx, id, &[event]).await.unwrap();
+        tx.commit().await.unwrap();
+        // The phone retries the same create: fine, and a finish with it is checked as usual.
+        let mut again = new_game(id, None);
+        again.events = vec![];
+        assert_eq!(create_game(&pool, "me", again).await.unwrap()["existing"], true);
+        // A different seat list under the same id is refused, not applied to the stored seats.
+        let other: NewGame = serde_json::from_value(json!({
+            "id": id, "started_at": "2026-10-18T01:00:00Z",
+            "seats": [{ "seat": 0, "guest_name": "Sam" }, { "seat": 1, "guest_name": "Alex" }, { "seat": 2, "guest_name": "Jo" }, { "seat": 3, "guest_name": "Kim" }],
+            "finish": { "winner_seat": 3, "seats": [] },
+        }))
+        .unwrap();
+        assert!(matches!(create_game(&pool, "me", other).await, Err(AppError::Conflict(_))));
+        let status: String = sqlx::query_scalar("SELECT status FROM games WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(status, "in_progress");
+        // Someone else can't take over the id either.
+        assert!(matches!(create_game(&pool, "sam", new_game(id, None)).await, Err(AppError::Conflict(_))));
     }
 }

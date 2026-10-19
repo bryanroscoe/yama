@@ -235,6 +235,8 @@ export function Panel(props: {
           </button>
         )}
         {out && <div className="out-label">Out on turn {p.eliminated!.turn}</div>}
+        {/* Scryfall asks for the artist and copyright wherever an art crop shows. */}
+        {art && <p className="art-credit">Art by {p.artist}, © Wizards of the Coast</p>}
       </div>
     </section>
   );
@@ -318,7 +320,7 @@ export function PlayerSheet({ state, seat, onClose }: { state: TableState; seat:
         <div>
           <h2>{p.name}</h2>
           {p.commanderName && <p className="dim" style={{ margin: 0 }}>{p.commanderName}{p.partnerName ? ` and ${p.partnerName}` : ""}</p>}
-          {showArt && panelArt(p) && <p className="small dim" style={{ margin: 0 }}>Art by {p.artist}</p>}
+          {showArt && panelArt(p) && <p className="small dim" style={{ margin: 0 }}>Art by {p.artist}, © Wizards of the Coast</p>}
         </div>
         <button className="quiet" onClick={onClose}>Done</button>
       </div>

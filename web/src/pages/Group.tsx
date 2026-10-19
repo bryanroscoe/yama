@@ -75,10 +75,12 @@ function GroupDetail({ group }: { group: Playgroup }) {
 
 /** Game history as JSON (shaped for commander-decks' data/games.json) or CSV, one row per seat. */
 function ExportGames({ group }: { group?: Playgroup }) {
-  // The browser's offset, so each game's date is the local day it was played.
+  // The browser's time zone, so each game's date is the local day it was played, with daylight
+  // saving as it was that day. The offset is the fallback if the server doesn't know the zone.
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const offset = -new Date().getTimezoneOffset();
   const link = (ext: "json" | "csv", playgroup?: string) =>
-    `${API_BASE}/api/games/export.${ext}?offset=${offset}${playgroup ? `&playgroup=${encodeURIComponent(playgroup)}` : ""}`;
+    `${API_BASE}/api/games/export.${ext}?offset=${offset}${tz ? `&tz=${encodeURIComponent(tz)}` : ""}${playgroup ? `&playgroup=${encodeURIComponent(playgroup)}` : ""}`;
   return (
     <section className="stack" style={{ marginBottom: "2.5rem", gap: "0.6rem" }}>
       <h2 style={{ margin: 0 }}>Export games</h2>

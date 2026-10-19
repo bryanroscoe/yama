@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { versionOn } from "./versions";
+import { localDay, versionOn } from "./versions";
 
 const v = (id: string, created_at: string) => ({ id, note: null, created_at });
 
@@ -12,8 +12,16 @@ describe("versionOn", () => {
     expect(versionOn(versions, "2026-10-19")).toBe("v3");
   });
 
-  it("falls back to the first version for a game before the deck was added", () => {
-    expect(versionOn(versions, "2026-09-01")).toBe("v1");
+  it("credits no version for a game played before the deck had one", () => {
+    expect(versionOn(versions, "2026-09-01")).toBeNull();
     expect(versionOn([], "2026-09-01")).toBeNull();
+  });
+});
+
+describe("localDay", () => {
+  it("uses the local calendar day, not the UTC one", () => {
+    // 21:30 local on the 18th, wherever the test runs.
+    expect(localDay(new Date(2026, 9, 18, 21, 30))).toBe("2026-10-18");
+    expect(localDay(new Date(2026, 0, 5, 0, 10))).toBe("2026-01-05");
   });
 });

@@ -104,10 +104,17 @@ export interface TableState {
   turn: number;
   activeSeat: Seat;
   /**
-   * The seat that took the first turn. Set by a set_first event, or by the first "pass the turn"
-   * (whoever passes first evidently went first). null = nobody said.
+   * The seat that took the first turn, set only by a set_first event (Roll for first, "goes
+   * first", or the finish sheet). null = nobody said. Passing the turn never fills it in: the
+   * app can't tell who pressed the button, and a table that rolled dice may just be moving the
+   * marker to the winner of the roll.
    */
   firstSeat: Seat | null;
+  /**
+   * Where rounds start for the turn counter: the first player if someone said, else whoever
+   * held the turn at the first pass. A guess, so it's never sent as the first player.
+   */
+  roundStart?: Seat;
   /** Times the turn has been passed. Before the first pass, set_first also moves the turn. */
   passes: number;
   monarch: Seat | null;
@@ -186,10 +193,10 @@ export function apply(state: TableState, e: TableEvent): TableState {
           break;
         }
       }
-      const firstSeat = state.firstSeat ?? state.activeSeat;
-      // A new round starts when play wraps back past the first player's seat.
-      const wrapped = turnPosition(order, firstSeat, next)! <= turnPosition(order, firstSeat, state.activeSeat)!;
-      return { ...state, activeSeat: next, firstSeat, passes: state.passes + 1, turn: wrapped ? state.turn + 1 : state.turn };
+      const roundStart = state.firstSeat ?? state.roundStart ?? state.activeSeat;
+      // A new round starts when play wraps back past the seat rounds start from.
+      const wrapped = turnPosition(order, roundStart, next)! <= turnPosition(order, roundStart, state.activeSeat)!;
+      return { ...state, activeSeat: next, roundStart, passes: state.passes + 1, turn: wrapped ? state.turn + 1 : state.turn };
     }
     case "set_first":
       if (!state.players.some((p) => p.seat === e.seat)) return state;

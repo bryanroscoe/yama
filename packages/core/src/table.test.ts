@@ -99,10 +99,32 @@ describe("first player", () => {
   it("after the first pass, set_first only corrects the record", () => {
     let s = initialState(setup);
     s = apply(s, { type: "pass_turn" });
-    expect(s.firstSeat).toBe(0); // whoever passed first went first
+    expect(s.firstSeat).toBeNull(); // passing says nothing about who went first
     s = apply(s, { type: "set_first", seat: 2 });
     expect(s.firstSeat).toBe(2);
     expect(s.activeSeat).toBe(1);
+  });
+
+  it("passing without a first player still counts rounds, from the seat that passed first", () => {
+    let s = initialState(setup);
+    s = apply(s, { type: "pass_turn" }); // 0 -> 1
+    s = apply(s, { type: "pass_turn" }); // 1 -> 2
+    expect(s.turn).toBe(1);
+    s = apply(s, { type: "pass_turn" }); // 2 -> 0: round 2
+    expect(s.turn).toBe(2);
+    expect(s.firstSeat).toBeNull();
+  });
+
+  it("doesn't record a first player when the table only moved the marker", () => {
+    // Alex won a dice roll at the table. Nobody used Roll for first or "goes first"; they tapped
+    // Pass the turn twice to put the marker on Alex, then played. Who went first stays unknown,
+    // so the finish sheet asks instead of crediting seat 0.
+    let log = record([], { type: "pass_turn" }, t0);
+    log = record(log, { type: "pass_turn" }, later(1000));
+    log = record(log, { type: "pass_turn" }, later(60_000));
+    log = record(log, { type: "finish", winnerSeat: 2, endedAt: "2026-10-18T21:00:00Z" }, later(70_000));
+    expect(replay(setup, log).firstSeat).toBeNull();
+    expect(toServerFinish(setup, log)!.first_seat).toBeNull();
   });
 
   it("ignores a seat that isn't at the table and leaves first unknown until someone says", () => {

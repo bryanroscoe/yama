@@ -54,6 +54,10 @@ pub struct SeatFacts {
     pub user_id: Option<String>,
     pub member_id: Option<String>,
     pub deck_version_id: Option<String>,
+    /// A person (not the computer) played this seat with a deck their own account owns. Only
+    /// these seats count toward a deck version's results: online games put the host's decks in
+    /// the AI's seats.
+    pub own_deck: bool,
     pub deck_label: Option<String>,
     pub commander_name: Option<String>,
     pub final_life: Option<i64>,
@@ -138,7 +142,7 @@ pub enum Scope<'a> {
     Playgroup(&'a str),
     /// Games the user recorded or sat in.
     User(&'a str),
-    /// Games where any seat played a version of this deck.
+    /// Games where the deck's owner played a version of it (not the computer with it).
     Deck(&'a str),
 }
 
@@ -148,8 +152,8 @@ impl Scope<'_> {
             Scope::Playgroup(_) => "g.playgroup_id = ?1",
             Scope::User(_) => "(g.created_by = ?1 OR EXISTS (SELECT 1 FROM game_seats us WHERE us.game_id = g.id AND us.user_id = ?1))",
             Scope::Deck(_) => {
-                "EXISTS (SELECT 1 FROM game_seats ds JOIN deck_versions dv ON dv.id = ds.deck_version_id
-                         WHERE ds.game_id = g.id AND dv.deck_id = ?1)"
+                "EXISTS (SELECT 1 FROM game_seats ds JOIN deck_versions dv ON dv.id = ds.deck_version_id JOIN decks dd ON dd.id = dv.deck_id
+                         WHERE ds.game_id = g.id AND dv.deck_id = ?1 AND ds.ai_kind IS NULL AND ds.user_id = dd.owner_id)"
             }
         }
     }
@@ -171,6 +175,7 @@ struct SeatRow {
     guest_name: Option<String>,
     ai_kind: Option<String>,
     deck_version_id: Option<String>,
+    own_deck: bool,
     deck_label: Option<String>,
     commander_name: Option<String>,
     final_life: Option<i64>,
@@ -194,10 +199,12 @@ pub async fn finished_games(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<Ve
     .fetch_all(pool)
     .await?;
     let seats: Vec<SeatRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT s.game_id, s.seat, s.member_id, s.user_id, s.guest_name, s.ai_kind, s.deck_version_id, s.deck_label,
+        "SELECT s.game_id, s.seat, s.member_id, s.user_id, s.guest_name, s.ai_kind, s.deck_version_id,
+                COALESCE(s.ai_kind IS NULL AND sd.owner_id = s.user_id, 0) AS own_deck, s.deck_label,
                 s.commander_name, s.final_life, s.eliminated_turn, s.eliminated_by_seat, s.fun,
                 COALESCE(u.display_name, s.guest_name, m.guest_name, s.ai_kind, 'Unknown') AS name
          FROM game_seats s LEFT JOIN users u ON u.id = s.user_id LEFT JOIN playgroup_members m ON m.id = s.member_id
+              LEFT JOIN deck_versions sv ON sv.id = s.deck_version_id LEFT JOIN decks sd ON sd.id = sv.deck_id
          WHERE s.game_id IN (SELECT g.id FROM games g WHERE g.status = 'finished' AND {cond})
          ORDER BY s.game_id, s.seat"
     )))
@@ -220,6 +227,7 @@ pub async fn finished_games(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<Ve
             user_id: s.user_id,
             member_id: s.member_id,
             deck_version_id: s.deck_version_id,
+            own_deck: s.own_deck,
             deck_label: s.deck_label,
             commander_name: s.commander_name,
             final_life: s.final_life,
@@ -276,10 +284,14 @@ pub struct PlayerStat {
     /// The share of games they'd win by chance: 1/N averaged over their pods.
     pub expected: f64,
     pub streak: Option<Streak>,
-    /// Games where they went out first, or were among the last losers standing, out of the
-    /// group's `knockout_games`.
+    /// Games where they went out first, out of `knockout_games`: their games with at least one
+    /// recorded knockout.
     pub first_out: i64,
+    pub knockout_games: i64,
+    /// Games where they were among the last losers standing, out of `last_out_games`: their
+    /// games with a recorded knockout and a winner.
     pub last_out: i64,
+    pub last_out_games: i64,
     pub knockouts: i64,
     pub archnemesis: Option<Nemesis>,
     /// Average fun rating and how many ratings it's from.
@@ -393,6 +405,7 @@ pub fn players(games: &[GameFacts]) -> Vec<PlayerStat> {
         let n = g.seats.len() as f64;
         let first_out = g.first_out();
         let last_out = g.last_out();
+        let knockout_game = g.seats.iter().any(|s| s.eliminated_turn.is_some());
         for s in &g.seats {
             let p = stats.entry(s.key.clone()).or_insert_with(|| {
                 order.push(s.key.clone());
@@ -406,7 +419,9 @@ pub fn players(games: &[GameFacts]) -> Vec<PlayerStat> {
                     expected: 0.0,
                     streak: None,
                     first_out: 0,
+                    knockout_games: 0,
                     last_out: 0,
+                    last_out_games: 0,
                     knockouts: 0,
                     archnemesis: None,
                     fun: None,
@@ -421,7 +436,9 @@ pub fn players(games: &[GameFacts]) -> Vec<PlayerStat> {
             p.wins += i64::from(won);
             p.draws += i64::from(g.winner_seat.is_none());
             p.first_out += i64::from(first_out.contains(&s.seat));
+            p.knockout_games += i64::from(knockout_game);
             p.last_out += i64::from(last_out.contains(&s.seat));
+            p.last_out_games += i64::from(knockout_game && g.winner_seat.is_some());
             *expected_sum.entry(s.key.clone()).or_default() += 1.0 / n;
             history.entry(s.key.clone()).or_default().push(won);
             if let Some(f) = s.fun {
@@ -554,12 +571,14 @@ pub struct Record {
     pub draws: i64,
 }
 
-/// Wins, losses and draws for each deck version that played, by version id.
+/// Wins, losses and draws for each deck version that played, by version id. Only seats where
+/// a person played their own deck count (`SeatFacts::own_deck`), so the computer piloting your
+/// deck online isn't your deck's record, and a mirror match counts once.
 pub fn results_by_version(games: &[GameFacts]) -> HashMap<String, Record> {
     let mut out: HashMap<String, Record> = HashMap::new();
     for g in games {
         for s in &g.seats {
-            let Some(v) = &s.deck_version_id else { continue };
+            let Some(v) = s.deck_version_id.as_ref().filter(|_| s.own_deck) else { continue };
             let r = out.entry(v.clone()).or_default();
             r.games += 1;
             match g.result_for(s.seat) {
@@ -681,6 +700,16 @@ pub(crate) mod tests {
         assert_eq!(get("c").archnemesis, Some(Nemesis { names: vec!["B".into()], knockouts: 1, of: 1 }));
         assert_eq!((get("d").first_out, get("d").last_out), (2, 0));
         assert_eq!(get("c").last_out, 1);
+        // Each count is out of that player's own games with a knockout recorded.
+        assert_eq!((get("a").knockout_games, get("a").last_out_games), (2, 2));
+        let mut g4 = game("4444", &["a", "z"], Some(0)); // z's only game: no knockout recorded
+        g4.turns = Some(5);
+        let mut g5 = game("55555", &["a", "b"], None); // a draw with a knockout: no last out
+        out(&mut g5, 1, 3, Some(0));
+        let ps = players(&[games, vec![g4, g5]].concat());
+        let get = |k: &str| ps.iter().find(|p| p.key == k).unwrap();
+        assert_eq!((get("z").knockout_games, get("z").last_out_games), (0, 0));
+        assert_eq!((get("b").first_out, get("b").knockout_games, get("b").last_out_games), (1, 3, 2));
     }
 
     #[test]
@@ -725,12 +754,17 @@ pub(crate) mod tests {
 
     #[test]
     fn results_by_version_count_wins_losses_and_draws() {
+        let played = |g: &mut GameFacts, seat: usize, v: &str, own: bool| {
+            g.seats[seat].deck_version_id = Some(v.into());
+            g.seats[seat].own_deck = own;
+        };
         let mut g1 = game("1", &["a", "b"], Some(0));
-        g1.seats[0].deck_version_id = Some("v1".into());
+        played(&mut g1, 0, "v1", true);
         let mut g2 = game("22", &["a", "b"], Some(1));
-        g2.seats[0].deck_version_id = Some("v1".into());
+        played(&mut g2, 0, "v1", true);
+        played(&mut g2, 1, "v1", false); // the computer with the same deck: not the deck's record
         let mut g3 = game("333", &["a", "b"], None);
-        g3.seats[0].deck_version_id = Some("v2".into());
+        played(&mut g3, 0, "v2", true);
         let r = results_by_version(&[g1, g2, g3]);
         assert_eq!(r["v1"], Record { games: 2, wins: 1, losses: 1, draws: 0 });
         assert_eq!(r["v2"], Record { games: 1, wins: 0, losses: 0, draws: 1 });

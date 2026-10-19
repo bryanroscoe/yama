@@ -37,6 +37,42 @@
   background: radial-gradient(ellipse 75% 65% at 50% 50%, rgb(0 0 0 / 0.74), rgb(0 0 0 / 0.6) 60%, rgb(0 0 0 / 0.42));
 }
 
+/* Knocked out: Scryfall's rules forbid desaturating or color-shifting its images, so the art
+   keeps its colors and the panel dims with a heavier scrim and faded text instead of the
+   grayscale filter that mana-color panels use. */
+.panel.out.has-art {
+  filter: none;
+}
+.panel.out .panel-art::after {
+  background: rgb(0 0 0 / 0.84);
+}
+.panel.out.has-art .panel-inner > :not(.panel-art) {
+  opacity: 0.6;
+}
+
+/* The art crop's credit, inside the player's own rotated panel so it reads their way up.
+   Scryfall: "When using the art_crop, list the artist name and copyright elsewhere in the same
+   interface presenting the art crop." */
+.art-credit {
+  position: absolute;
+  inset: auto 5% 0.35rem;
+  margin: 0;
+  text-align: center;
+  font-size: clamp(9px, 2.8cqmin, 11px);
+  line-height: 1.2;
+  color: var(--ap-text);
+  opacity: 0.78;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.9);
+  pointer-events: none;
+}
+.panel.has-art .who {
+  margin-bottom: calc(3cqmin + 0.9rem);
+}
+/* Above the name, which the credit has pushed up. */
+.panel.has-art .out-label {
+  bottom: calc(3cqmin + 0.9rem + 3.4rem);
+}
+
 .panel.has-art .bands {
   height: 5px;
   box-shadow: none;

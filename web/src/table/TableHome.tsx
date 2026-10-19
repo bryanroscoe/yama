@@ -7,20 +7,10 @@ import { useMe } from "../auth";
 import { ErrorText, Pips, Sheet } from "../components/ui";
 import { BracketChips } from "../components/Bracket";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
-import { versionOn } from "./versions";
+import { localDay, versionOn } from "./versions";
+import { emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, type SeatDraft } from "./seats";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
-
-interface SeatDraft {
-  name: string;
-  memberId?: string;
-  userId?: string;
-  deckId?: string;
-  deckVersionId?: string;
-  commanderName: string;
-  colorIdentity: string;
-  art?: string;
-  artist?: string;
-}
+import "./seats.css";
 
 const LAST_SETUP = "yama.table.lastSetup";
 
@@ -96,10 +86,10 @@ function NewGame({ onStart }: { onStart: () => void }) {
       /* ignore */
     }
     return [
-      { name: me.data?.display_name ?? "Me", userId: me.data?.id, commanderName: "", colorIdentity: "" },
-      { name: "", commanderName: "", colorIdentity: "" },
-      { name: "", commanderName: "", colorIdentity: "" },
-      { name: "", commanderName: "", colorIdentity: "" },
+      { ...emptySeat(), name: me.data?.display_name ?? "Me", userId: me.data?.id },
+      emptySeat(),
+      emptySeat(),
+      emptySeat(),
     ];
   });
   useEffect(() => {
@@ -113,9 +103,12 @@ function NewGame({ onStart }: { onStart: () => void }) {
   }, []);
 
   const group = groups.data?.find((g) => g.id === groupId);
-  const update = (i: number, patch: Partial<SeatDraft>) => setSeats((s) => s.map((x, j) => (j === i ? { ...x, ...patch } : x)));
-  const setCount = (n: number) =>
-    setSeats((s) => (n > s.length ? [...s, ...Array.from({ length: n - s.length }, () => ({ name: "", commanderName: "", colorIdentity: "" }))] : s.slice(0, n)));
+  const update = (i: number, patch: Partial<SeatDraft>) => setSeats((s) => patchSeat(s, i, patch));
+  const chooseGroup = (id: string) => {
+    setGroupId(id);
+    setSeats((s) => fitSeatsToGroup(s, groups.data?.find((g) => g.id === id), me.data));
+  };
+  const setCount = (n: number) => setSeats((s) => (n > s.length ? [...s, ...Array.from({ length: n - s.length }, emptySeat)] : s.slice(0, n)));
 
   const start = () => {
     const players: PlayerSetup[] = seats.map((s, i) => ({
@@ -151,7 +144,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
       <div className="row" style={{ alignItems: "end" }}>
         <label style={{ flex: "1 1 12rem" }}>
           Playgroup
-          <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+          <select value={groupId} onChange={(e) => chooseGroup(e.target.value)}>
             <option value="">None (not counted in group stats)</option>
             {groups.data?.map((g) => (
               <option key={g.id} value={g.id}>{g.name}</option>
@@ -174,7 +167,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
       <p className="small dim">Seats go clockwise from the person holding the phone.</p>
       <div className="stack">
         {seats.map((s, i) => (
-          <SeatEditor key={i} index={i} seat={s} onChange={(p) => update(i, p)} group={group} decks={s.userId === me.data?.id ? decks.data : undefined} />
+          <SeatEditor key={i} index={i} seat={s} onChange={(p) => update(i, p)} group={group} decks={s.userId && s.userId === me.data?.id ? decks.data : undefined} />
         ))}
       </div>
       <div className="row">
@@ -185,6 +178,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
 }
 
 function SeatEditor({ index, seat, onChange, group, decks }: { index: number; seat: SeatDraft; onChange: (p: Partial<SeatDraft>) => void; group?: Playgroup; decks?: DeckSummary[] }) {
+  const me = useMe().data;
   const listId = useId();
   const [error, setError] = useState<unknown>(null);
   const chosen = decks?.find((d) => d.id === seat.deckId);
@@ -214,11 +208,12 @@ function SeatEditor({ index, seat, onChange, group, decks }: { index: number; se
           Player
           {group ? (
             <select
-              value={seat.memberId ?? (seat.userId ? `user:${seat.userId}` : "")}
+              value={seat.memberId ?? ""}
               onChange={(e) => {
                 const m = group.members.find((x) => x.id === e.target.value);
-                if (m) onChange({ memberId: m.id, userId: m.user_id ?? undefined, name: m.display_name });
-                else onChange({ memberId: undefined, userId: undefined, name: "" });
+                // Your deck stays only on your own seat.
+                if (m) onChange({ ...NOT_AN_ACCOUNT, memberId: m.id, userId: m.user_id ?? undefined, name: m.display_name, ...(m.user_id && m.user_id === seat.userId ? { deckId: seat.deckId, deckVersionId: seat.deckVersionId } : {}) });
+                else onChange({ ...NOT_AN_ACCOUNT, memberId: undefined, name: "" });
               }}
             >
               <option value="">Someone else…</option>
@@ -227,13 +222,23 @@ function SeatEditor({ index, seat, onChange, group, decks }: { index: number; se
               ))}
             </select>
           ) : (
-            <input value={seat.name} onChange={(e) => onChange({ name: e.target.value })} placeholder={`Player ${index + 1}`} />
+            <input value={seat.name} onChange={(e) => onChange(renameSeat(seat, e.target.value, me))} placeholder={`Player ${index + 1}`} />
           )}
         </label>
         {group && !seat.memberId && (
           <label style={{ flex: "1 1 10rem" }}>
             Name
-            <input value={seat.name} onChange={(e) => onChange({ name: e.target.value })} placeholder="Guest" />
+            <input value={seat.name} onChange={(e) => onChange(renameSeat(seat, e.target.value, me))} placeholder="Guest" />
+          </label>
+        )}
+        {!group && me && (
+          <label className="check-row seat-me">
+            <input
+              type="checkbox"
+              checked={seat.userId === me.id}
+              onChange={(e) => onChange(e.target.checked ? { userId: me.id, name: me.display_name } : NOT_AN_ACCOUNT)}
+            />
+            This is me
           </label>
         )}
         {decks && decks.length > 0 && (
@@ -335,20 +340,26 @@ function LogGame({ onClose }: { onClose: () => void }) {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const [groupId, setGroupId] = useState("");
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  // The day here, not in UTC: after 7 pm in Texas, UTC is already tomorrow.
+  const [date, setDate] = useState(() => localDay());
   const [turns, setTurns] = useState("");
-  const [winner, setWinner] = useState<number | null>(null);
+  /** A seat (its index in the form), "draw", or null while nobody has answered. */
+  const [winner, setWinner] = useState<number | "draw" | null>(null);
   const [first, setFirst] = useState<number | null>(null);
   const [condition, setCondition] = useState<WinCondition | null>(null);
   const [fun, setFun] = useState<FunRating[]>([]);
   // One id per form, so pressing Save again after a failed or slow upload can't log it twice.
   const [gameId] = useState(() => crypto.randomUUID());
   const [seats, setSeats] = useState<SeatDraft[]>(() => [
-    { name: me.data?.display_name ?? "", userId: me.data?.id, commanderName: "", colorIdentity: "" },
-    ...Array.from({ length: 3 }, () => ({ name: "", commanderName: "", colorIdentity: "" })),
+    { ...emptySeat(), name: me.data?.display_name ?? "", userId: me.data?.id },
+    ...Array.from({ length: 3 }, emptySeat),
   ]);
   const group = groups.data?.find((g) => g.id === groupId);
-  const update = (i: number, patch: Partial<SeatDraft>) => setSeats((s) => s.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const update = (i: number, patch: Partial<SeatDraft>) => setSeats((s) => patchSeat(s, i, patch));
+  const chooseGroup = (id: string) => {
+    setGroupId(id);
+    setSeats((s) => fitSeatsToGroup(s, groups.data?.find((g) => g.id === id), me.data));
+  };
   // Seats left blank are dropped; the rest are numbered in order, and picks follow them.
   const filled = seats.map((s, i) => ({ s, i })).filter(({ s }) => s.name.trim() || s.memberId);
   const seatOf = (i: number | null) => (i === null ? null : filled.findIndex((f) => f.i === i));
@@ -357,12 +368,15 @@ function LogGame({ onClose }: { onClose: () => void }) {
   const save = useMutation({
     mutationFn: async () => {
       if (filled.length < 1) throw new Error("Add at least one player.");
+      // A draw is an answer; no answer isn't a draw.
+      if (winner === null) throw new Error("Pick who won, or choose It was a draw.");
+      const winnerSeat = winner === "draw" ? null : seatOf(winner);
+      if (winnerSeat === -1) throw new Error("The winner's seat needs a name.");
       const at = new Date(`${date}T20:00:00`).toISOString();
       // The deck version that was current on the day played, not whatever it is now.
       const versions = await Promise.all(
         filled.map(async ({ s }) => (s.deckId ? versionOn(await api<DeckVersionRow[]>(`/api/decks/${s.deckId}/versions`), date) : null)),
       );
-      const winnerSeat = seatOf(winner);
       return api("/api/games", {
         method: "POST",
         json: {
@@ -379,11 +393,11 @@ function LogGame({ onClose }: { onClose: () => void }) {
             deck_label: s.commanderName || null,
           })),
           finish: {
-            winner_seat: winnerSeat !== null && winnerSeat >= 0 ? winnerSeat : null,
+            winner_seat: winnerSeat,
             turns: turns ? Number(turns) : null,
             ended_at: at,
             first_seat: seatOf(first) !== null && seatOf(first)! >= 0 ? seatOf(first) : null,
-            win_condition: winnerSeat !== null && winnerSeat >= 0 ? condition : null,
+            win_condition: winnerSeat === null ? null : condition,
             seats: fun.map((r) => ({ seat: seatOf(r.seat), fun: r.rating })).filter((r) => r.seat !== null && r.seat >= 0),
           },
           note: "Logged after the game",
@@ -408,7 +422,7 @@ function LogGame({ onClose }: { onClose: () => void }) {
         <div className="row" style={{ alignItems: "end" }}>
           <label style={{ flex: "1 1 12rem" }}>
             Playgroup
-            <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+            <select value={groupId} onChange={(e) => chooseGroup(e.target.value)}>
               <option value="">None</option>
               {groups.data?.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
@@ -426,19 +440,22 @@ function LogGame({ onClose }: { onClose: () => void }) {
         {seats.map((s, i) => (
           <div key={i} className="stack" style={{ gap: "0.4rem" }}>
             <SeatEditor index={i} seat={s} onChange={(p) => update(i, p)} group={group} decks={s.userId && s.userId === me.data?.id ? decks.data : undefined} />
-            <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
-              <input type="radio" name="winner" checked={winner === i} onChange={() => setWinner(i)} style={{ width: "auto", minHeight: 0 }} />
+            <label className="check-row">
+              <input type="radio" name="winner" checked={winner === i} onChange={() => setWinner(i)} />
               Won this game
             </label>
           </div>
         ))}
+        <label className="check-row">
+          <input type="radio" name="winner" checked={winner === "draw"} onChange={() => { setWinner("draw"); setCondition(null); }} />
+          It was a draw
+        </label>
         <div className="row">
-          <button type="button" onClick={() => setSeats((s) => [...s, { name: "", commanderName: "", colorIdentity: "" }])}>Add a player</button>
-          <button type="button" className="quiet" onClick={() => { setWinner(null); setCondition(null); }}>It was a draw</button>
+          <button type="button" onClick={() => setSeats((s) => [...s, emptySeat()])}>Add a player</button>
         </div>
         {named.length > 0 && (
           <>
-            {winner !== null && <WinConditionPicker value={condition} onChange={setCondition} winner={named.find((n) => n.seat === winner)?.name} />}
+            {typeof winner === "number" && <WinConditionPicker value={condition} onChange={setCondition} winner={named.find((n) => n.seat === winner)?.name} />}
             <FirstPlayerPicker seats={named} value={first} onChange={setFirst} />
             <FunPicker seats={named} value={fun.filter((r) => named.some((n) => n.seat === r.seat))} onChange={setFun} />
           </>
