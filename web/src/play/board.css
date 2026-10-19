@@ -1,91 +1,734 @@
-/* Online board. Phones and tablets: opponents, then your board, with a dock pinned to the bottom
-   holding the stack, your options and your hand. Wide screens: the table on the left, a side panel (stack, options, recent events) on the right,
-   and a full-size preview of whatever card the mouse is over. */
+/* The online board, to the Night table artboards (design/screens/PlayBoard and PlayBoardPhone).
+   Laptops: the table on the left (opponents, turn strip, your rows, your hand row) and a 340 px
+   rail on the right (stack, decision, the big button). Phones: opponent tabs, one focused
+   opponent, a strip of chips, your board and a dock. The page itself never scrolls.
 
-.board {
-  /* Square battlefield tiles: your creatures and other permanents, your lands, and the same two
-     rows smaller for each opponent. */
-  --field-w: 72px;
-  --land-w: 52px;
-  --opp-w: 52px;
-  --opp-land-w: 40px;
-  --hand-w: 108px;
-  --card-ratio: 680 / 488;
-  min-height: 100dvh;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "top" "opps" "mine" "hand" "side";
-  align-content: start;
-}
-.board.docked {
-  grid-template-areas: "top" "opps" "mine" "dock";
-  /* The dock is the last row; the rows above take whatever is left so it sits at the bottom. */
-  grid-template-rows: auto auto 1fr auto;
-  padding-top: env(safe-area-inset-top);
-}
+   Card images are never filtered or faded: highlights are rings and badges, darkening is an
+   overlay on top of art, and a tapped tile turns its art while its name and numbers stay put. */
 
-.board-top {
-  grid-area: top;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.35rem 0.75rem;
-  border-bottom: 1px solid var(--line);
-  position: sticky;
-  top: 0;
-  z-index: 10;
+.pb {
+  --tile: 64px;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--ground);
 }
+.pb .zone-empty {
+  margin: 0;
+  color: var(--dim);
+  font-size: var(--t-sm);
+  align-self: center;
+}
+.pb-status {
+  margin: 0;
+}
 
-/* Phase tracker */
-.phases {
+/* ── tiles ──────────────────────────────────────────────────────────────── */
+
+.ft {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--tile);
+  height: var(--tile);
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-tile);
+  background: var(--raised);
+  color: var(--on-art);
+  overflow: visible;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.ft:hover {
+  background: var(--raised);
+}
+/* The art sits in its own clipped square, so turning it never moves the name or numbers. */
+.ft-art {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.ft-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 160ms ease;
+}
+/* Tapped: the art turns a quarter, and a tap mark sits in the name bar. Never dimmed. */
+.ft.tapped .ft-art img {
+  transform: rotate(90deg) scale(1.02);
+}
+.ft-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  min-width: 0;
-  overflow-x: auto;
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: var(--r-tile) var(--r-tile) 0 0;
+  background: var(--art-chip);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: left;
 }
-.whose {
+.ft-name {
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tap-mark {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  color: var(--on-art-dim);
+}
+.ft.no-art .ft-bar {
+  bottom: 0;
+  align-items: flex-start;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--text);
+  padding-top: 4px;
+}
+.ft.no-art .ft-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* P/T: a text-colored box with dark text; damaged, it turns bad-colored. Loyalty sits on a shield. */
+.ft-pt {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--text);
+  color: var(--ground);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.ft-pt.hurt {
+  background: var(--bad);
+}
+.ft-pt.loyalty {
+  border-radius: 4px 4px 9px 9px;
+  padding: 0 5px 1px;
+}
+.ft-count {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--art-chip);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+.ft-counters {
+  position: absolute;
+  top: 20px;
+  left: 3px;
+  right: 3px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--art-chip);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ft-badge {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  max-width: calc(100% - 6px);
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--art-chip);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ft-badge.bad {
+  background: var(--bad);
+  color: var(--ground);
+}
+.ft-badge.block {
+  background: var(--text);
+  color: var(--ground);
+}
+/* With a badge and a P/T box on one small tile, the badge steps up above the P/T. */
+.ft:has(.ft-pt) .ft-badge {
+  bottom: calc(3px + 1.35em + 4px);
+}
+.ft:has(.ft-badge) .ft-count {
+  display: none;
+}
+/* Your commander: an inner text-colored ring. */
+.ft.commander::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px var(--text);
+  pointer-events: none;
+}
+/* Has options, or could join the attack or the block: a good-colored ring (and the dot). */
+.ft.playable,
+.ft.ready {
+  box-shadow: 0 0 0 2px var(--good);
+}
+.ft.selected {
+  box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
+}
+.ft.playable.selected {
+  box-shadow: 0 0 0 2px var(--good), 0 0 0 4px var(--text);
+}
+/* Attacking: a bad-colored ring and the badge, lifted toward the opponents. */
+.ft.attacking {
+  box-shadow: 0 0 0 3px var(--bad);
+  transform: translateY(-6px);
+}
+.ft.commander.attacking {
+  box-shadow: 0 0 0 3px var(--bad);
+}
+.ft.blocking {
+  box-shadow: 0 0 0 3px var(--text);
+}
+/* A legal target: an amber ring and a crosshair badge (shape as well as color). */
+.ft.target {
+  box-shadow: 0 0 0 3px var(--warn);
+  cursor: crosshair;
+}
+.aim {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 18px;
+  height: 18px;
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--ground);
+  color: var(--warn);
+  pointer-events: none;
+}
+.opp-pane.aimed::after {
+  box-shadow: inset 0 0 0 3px var(--warn);
+}
+.opp-tab.aimed::after {
+  box-shadow: inset 0 0 0 3px var(--warn);
+}
+.dot {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--good);
+  border: 2px solid var(--ground);
+  pointer-events: none;
+}
+
+/* Whole cards: your hand and the command zone. */
+.hc {
+  position: relative;
+  flex: 0 0 auto;
+  width: 120px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.hc:hover {
+  background: transparent;
+}
+.hc img,
+.hc .hc-name {
+  display: block;
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  object-fit: cover;
+  background: var(--raised);
+}
+.hc .hc-name {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  color: var(--text);
+  font-size: var(--t-sm);
+  text-align: center;
+}
+.hc.playable {
+  box-shadow: 0 0 0 2px var(--good), 0 0 18px rgb(143 211 168 / 0.25);
+}
+.hc.selected {
+  box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
+}
+.hc-caption {
+  position: absolute;
+  left: 50%;
+  bottom: -22px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--dim);
+}
+
+/* Mana dots in land summaries. */
+.mdot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+.mdot.dark {
+  box-shadow: 0 0 0 1px #6c6f74;
+}
+.mdot.any {
+  background: var(--text);
+  box-shadow: inset 0 0 0 2px var(--ground), 0 0 0 1px var(--text);
+}
+.land-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* Summary chips: lands by color, other permanents by name. */
+.sum-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  max-width: 100%;
+  padding: 2px 10px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.sum-chip.names {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 26px;
+}
+.sum-chip.small {
+  min-height: 0;
+  height: 44px;
+  font-size: 12px;
+  border-radius: 8px;
+  padding: 2px 8px;
+}
+.fold-btn {
+  min-height: 0;
+  height: var(--tile);
+  padding: 0 10px;
+  border-radius: var(--r-tile);
+  font-size: 12px;
+}
+.fold-btn.small {
+  height: 44px;
+}
+.inline-link {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgb(255 255 255 / 0.35);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.inline-link:hover {
+  background: none;
+  text-decoration-color: currentColor;
+}
+
+/* ── laptop ─────────────────────────────────────────────────────────────── */
+
+.pb.wide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  min-height: 640px;
+}
+.pb-table {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 36fr) auto minmax(0, 40fr) auto;
+  gap: 8px;
+  padding: 10px 10px 0;
+}
+
+/* Opponents in turn order across the top, each on its commander's art. */
+.pb-opps {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+}
+.opp-pane {
+  --tile: 64px;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: var(--surface);
+  overflow: hidden;
+}
+/* Rings: a text ring for the active player, a bad ring for the one being attacked. Drawn above
+   the header art, so it shows all the way round. */
+.opp-pane::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.opp-pane.active::after {
+  box-shadow: inset 0 0 0 2px var(--text);
+}
+.opp-pane.attacked::after {
+  box-shadow: inset 0 0 0 2px var(--bad);
+}
+.opp-pane.active.attacked::after {
+  box-shadow: inset 0 0 0 2px var(--bad), inset 0 0 0 4px var(--text);
+}
+.opp-head {
+  position: relative;
+  flex: 0 0 auto;
+  height: 76px;
+  padding: 8px 10px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  background: var(--raised);
+  color: var(--on-art);
+  isolation: isolate;
+}
+.opp-head[role="button"] {
+  cursor: pointer;
+}
+.opp-pane.targetable .opp-head:hover .opp-wash {
+  background: linear-gradient(90deg, rgb(11 12 14 / 0.8) 0%, rgb(11 12 14 / 0.45) 55%, rgb(11 12 14 / 0.1) 100%);
+}
+.opp-art {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 30%;
+}
+.opp-wash {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, rgb(11 12 14 / 0.86) 0%, rgb(11 12 14 / 0.55) 55%, rgb(11 12 14 / 0.25) 100%);
+}
+.opp-veil {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgb(11 12 14 / 0.72);
+}
+.opp-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.opp-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.opp-counts {
+  font-size: 12px;
+  line-height: 1.25;
+  color: var(--on-art-dim);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.opp-credit {
+  font-size: 10px;
+  color: rgb(255 255 255 / 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.opp-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  min-width: 0;
+}
+.cmdr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 2px;
+  border-radius: var(--r-pill);
+  background: rgb(11 12 14 / 0.75);
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
 }
-.whose.mine {
-  color: var(--ground);
-  background: var(--text);
-  padding: 0.1rem 0.7rem;
-  border-radius: var(--r-pill);
+.cmdr-chip img {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
 }
-.phases ol {
+.opp-flag {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--warn);
+}
+.opp-flag.turn {
+  color: var(--on-art);
+}
+.opp-life {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1;
+  text-shadow: var(--art-shadow);
+}
+.opp-pane.out {
+  align-self: start;
+}
+.opp-pane.out .opp-head {
+  height: auto;
+  min-height: 76px;
+}
+.opp-pane.out .opp-life {
+  font-size: 26px;
+  color: var(--dim);
+  text-shadow: none;
+}
+.opp-body {
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
   display: flex;
-  gap: 2px;
-  list-style: none;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+}
+/* Each opponent row scrolls sideways past what fits, so the pane keeps its height. */
+.opp-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px 6px 2px;
+  margin: -10px -6px -2px;
+  scrollbar-width: thin;
+}
+.opp-row.back {
+  --tile: 44px;
+  gap: 4px;
+}
+.opp-row.back .ft-bar {
+  font-size: 10px;
+  padding: 0 3px;
+}
+.opp-row.back .ft-badge,
+.opp-row.back .ft-counters {
+  display: none;
+}
+
+/* Five or more opponents: smaller tiles so each pane still fits. */
+.pb-opps[data-n="4"] .opp-pane,
+.pb-opps[data-n="5"] .opp-pane {
+  --tile: 52px;
+}
+.pb-opps[data-n="4"] .opp-row.back,
+.pb-opps[data-n="5"] .opp-row.back {
+  --tile: 38px;
+}
+.pb-opps[data-n="5"] .opp-credit,
+.pb-opps[data-n="5"] .cmdr-chip img {
+  display: none;
+}
+
+/* The turn strip: whose turn, the stop ladder, and what's happening in combat. */
+.pb-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 2px 6px;
+  min-width: 0;
+}
+.pb-strip > .whose,
+.pb-strip > .ladder {
+  flex: none;
+}
+.whose {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.whose img {
+  width: 20px;
+  height: 20px;
+  margin-left: -6px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.whose.mine {
+  background: var(--text);
+  color: var(--ground);
+}
+.ladder {
   margin: 0;
   padding: 0;
+  list-style: none;
+  display: flex;
+  gap: 2px;
+  font-size: 13px;
 }
-.phases li {
+.ladder li {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  font-size: var(--t-sm);
-  line-height: 1.3;
-  padding: 3px 8px;
+  padding: 4px 8px;
   border-radius: 8px;
   color: var(--dim);
   white-space: nowrap;
+  line-height: 1.2;
 }
-.phases li.now {
+.ladder li.now {
   background: var(--raised);
   color: var(--text);
   font-weight: 700;
 }
-.phases .step {
-  font-weight: 400;
+@media (max-width: 1279px) {
+  .pb.wide .ladder li {
+    padding: 4px 4px;
+    font-size: 12px;
+  }
+  .pb.wide .pb-strip {
+    gap: 8px;
+  }
 }
-/* The stop ladder under each phase: where the game stops for you. The two kinds differ in hue
-   and in shape: a filled dot for your turns, an outlined square for opponents' turns. Off is a
-   hairline of the same shape. */
+/* Live ladder: each mark is a small button (a 22 x 16 target around the 6 px mark). */
+.ladder.live .stops {
+  gap: 0;
+  height: auto;
+  margin: -4px -6px -4px;
+}
+.stop-btn {
+  min-height: 0;
+  width: 22px;
+  height: 16px;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.stop-btn:hover {
+  background: var(--line);
+}
+.ladder.vertical {
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--t-base);
+}
+.ladder.vertical li {
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--raised);
+}
+.ladder.vertical li.now {
+  box-shadow: inset 0 0 0 2px var(--text);
+}
+.ladder.vertical .stops {
+  gap: 8px;
+  height: auto;
+  margin: 0;
+}
+.ladder.vertical .stop-btn {
+  width: auto;
+  height: auto;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--dim);
+}
+.ladder.vertical .stop-btn.on {
+  border-color: var(--text);
+  color: var(--text);
+}
+.ladder.vertical li {
+  align-items: center;
+}
+.ladder.vertical .stop-mine,
+.ladder.vertical .stop-opp {
+  width: 10px;
+  height: 10px;
+}
+/* The stop ladder: the two kinds differ in hue and in shape (a filled dot for your turns, an
+   outlined square for opponents'). Off is a hairline of the same shape. */
 .stops {
   display: flex;
   gap: 3px;
@@ -112,656 +755,646 @@
 .stop-opp.on {
   box-shadow: inset 0 0 0 1.5px var(--stop-opp);
 }
-.stops-note {
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
+.strip-note {
+  margin-left: auto;
+  flex: 0 1 auto;
+  display: inline-flex;
   align-items: center;
-  gap: 2px 6px;
-  color: var(--dim);
-}
-.stops-note button {
-  padding-inline: 10px;
-}
-.stops-note .stop-mine,
-.stops-note .stop-opp {
-  width: 8px;
-  height: 8px;
-}
-
-/* Opponents */
-.opponents {
-  grid-area: opps;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-}
-/* Each opponent: a surface card whose header is their commander's art (an art panel washed from
-   the left, where the text sits), with their mana color as a stripe down its left edge. */
-.opp {
-  position: relative;
+  gap: 8px;
   min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--r-list);
+  max-width: 100%;
+  padding: 6px 12px 6px 6px;
+  border-radius: var(--r-pill);
   background: var(--surface);
+  font-size: 14px;
+}
+.strip-note > span {
+  min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.opp.active {
-  border-color: var(--text);
-  box-shadow: 0 0 0 1px var(--text);
-}
-/* Out of the game: a ground-colored veil over the whole card (never a fade on card images). */
-.opp.out::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  background: rgb(11 12 14 / 0.62);
-  pointer-events: none;
-}
-.opp > .zone,
-.opp > .zone-empty {
-  padding: 8px 10px 10px;
-}
-.opp-head.art-panel {
-  border-radius: 0;
-  border-left: 5px solid;
-}
-.opp-head > .art-body {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  min-height: 56px;
-  padding: 8px 12px 8px 10px;
-}
-.opp-name {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 1.375rem;
-  line-height: 1;
-  text-shadow: var(--art-shadow);
-}
-.opp-life {
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: var(--t-xl);
-  line-height: 1;
-  text-shadow: var(--art-shadow);
-}
-.opp-head.art-none .opp-name,
-.opp-head.art-none .opp-life {
-  text-shadow: none;
-}
-.opp-head.art-none .opp-meta {
-  background: var(--surface);
-  color: var(--dim);
-  font-weight: 400;
-}
-.opp-meta {
-  font-weight: 400;
-  white-space: normal;
-}
-/* One credit line for every opponent's art, under their boards. */
-.opp-credits {
-  grid-column: 1 / -1;
-  margin: 0;
-  font-size: var(--t-xs);
-  line-height: 1.3;
-  color: var(--dim);
-}
-.thinking {
-  color: var(--warn);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-@keyframes pulse {
-  50% {
-    opacity: 0.4;
-  }
-}
-
-/* Each opponent's board is one sideways-scrolling row (any card can be read full size), so the
-   whole table fits on screen. */
-.opponents .zone {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-.opponents .tiles {
-  flex-wrap: nowrap;
-}
-
-/* Your side */
-.mine {
-  grid-area: mine;
-  padding: 0.25rem 0.75rem 0.5rem;
-  border-top: 1px solid var(--line);
-}
-.my-line {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-  margin: 0.25rem 0 0.4rem;
-}
-.my-life {
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: var(--t-big);
-  line-height: 1;
-}
-
-/* Zones and tiles */
-.zone {
-  display: grid;
-  gap: 0.4rem;
-}
-.tiles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-.zone-empty {
-  color: var(--dim);
-  font-size: var(--t-sm);
-  margin: 0.25rem 0;
-}
-
-/* Cards in your hand are full card images; cards on the battlefield are square art crops (below).
-   Highlights are rings drawn around the tile, so the image itself is never dimmed or filtered. */
-.tile {
-  position: relative;
-  padding: 0;
-  min-height: 0;
-  border: none;
-  border-radius: var(--card-radius);
-  overflow: visible;
-  background: transparent;
-  flex: 0 0 auto;
-  transition: transform 140ms ease, margin 140ms ease;
-}
-.tile:hover {
-  background: transparent;
-}
-.tile.field {
-  width: var(--field-w);
-}
-.tile.hand {
-  width: var(--hand-w);
-}
-.tile img,
-.tile .tile-name {
-  width: 100%;
-  aspect-ratio: 488 / 680;
-  display: block;
-  border-radius: var(--card-radius);
+.strip-note img {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
   object-fit: cover;
-  background: var(--raised);
+  flex: none;
 }
-/* No image: a raised block with the name on a bar along the top. */
-.tile .tile-name {
-  font-size: 0.7rem;
-  font-weight: 700;
-  line-height: 1.2;
-  padding: 0;
-  text-align: left;
-  color: var(--text);
-  overflow: hidden;
-}
-.tile .tile-name::first-line {
-  background: var(--art-chip);
-}
-/* A tapped card turns sideways and takes the room it needs; it is never dimmed. */
-.tile.tapped {
-  transform: rotate(90deg);
-  margin-inline: calc(var(--field-w) * 0.2);
+.strip-note.quiet-note {
+  color: var(--dim);
 }
 
-/* Battlefield tiles: the card's art crop in a square, its name on a near-solid bar along the top,
-   P/T bottom-right. A square takes the same room tapped, so it just turns. */
-.tile.square {
-  --tile: var(--field-w);
-  width: var(--tile);
+/* Your battlefield: creatures nearest the centre, lands left and other permanents right below. */
+.pb-mine {
+  position: relative;
+  min-height: 0;
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.pb-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  padding-top: 6px;
+}
+.pb.wide .pb-row.creatures {
+  --tile: 96px;
+}
+.pb.wide .pb-row.creatures .ft-bar {
+  font-size: 12px;
+  padding: 2px 6px;
+}
+.pb.wide .pb-row.creatures .ft-pt {
+  right: 4px;
+  bottom: 4px;
+  padding: 0 5px;
+  font-size: 14px;
+}
+.pb.wide .pb-row.creatures .ft-badge {
+  left: 4px;
+  font-size: 11px;
+  padding: 0 6px;
+}
+.pb.wide .pb-row.creatures .ft:has(.ft-pt) .ft-badge {
+  bottom: calc(4px + 14px * 1.35 + 4px);
+}
+.pb.wide .pb-row.creatures .ft-count {
+  left: 4px;
+  bottom: 4px;
+  font-size: 12px;
+}
+.pb-back {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.pb.wide .pb-row.lands,
+.pb.wide .pb-row.others {
+  --tile: 60px;
+  gap: 6px;
+}
+.pb-row.others {
+  justify-content: flex-end;
+}
+.land-sum {
+  min-height: 0;
   height: var(--tile);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 6px 12px;
   border-radius: var(--r-tile);
   background: var(--raised);
+  font-weight: 400;
+  font-size: 12px;
 }
-.mine .tiles.lands .tile.square {
-  --tile: var(--land-w);
+.land-dots {
+  display: flex;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
 }
-.opponents .tile.square {
-  --tile: var(--opp-w);
+.land-total {
+  color: var(--dim);
 }
-.opponents .tiles.lands .tile.square {
-  --tile: var(--opp-land-w);
+
+/* Your hand row: piles, the commander slot, the hand fan and your portrait. */
+.pb-handrow {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+  padding: 6px 4px 10px;
+}
+.pb-piles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pile-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+button.pile-chip:hover {
+  background: var(--raised);
+}
+.pb-cmdr {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding-bottom: 22px;
+}
+.pb-cmdr .hc {
+  width: 72px;
+}
+.pb-cmdr:not(:has(.hc-caption)) {
+  padding-bottom: 0;
+}
+.cmdr-away {
+  width: 72px;
+  height: 100px;
   border-radius: 8px;
+  border: 1.5px dashed var(--line);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 6px;
+  font-size: 11px;
+  color: var(--dim);
 }
-/* Opponents' tiles are small: the commander shows by its inner ring alone, and how many of a
-   stack are tapped is in the label and the preview. */
-.opponents .tile.square .zone-tag,
-.opponents .tile.square .tapped-n {
-  display: none;
+.hand-fan {
+  position: relative;
+  min-width: 0;
+  height: 172px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding-top: 20px;
 }
-.tile.square.tapped {
-  margin-inline: 0;
+.hand-fan .hc {
+  margin-bottom: 0;
 }
-.tile.square > .tile-art {
-  position: absolute;
-  inset: 0;
+.hand-fan .hc:hover,
+.hand-fan .hc.selected,
+.hand-fan .hc:focus-visible {
+  transform: translateY(-16px);
+  z-index: 50 !important;
+}
+.portrait {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 6px 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  white-space: nowrap;
+}
+.portrait > img,
+.portrait-blank {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 2px var(--text);
+  background: var(--raised);
+  flex: none;
+}
+.portrait.active > img,
+.portrait.active .portrait-blank {
+  box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
+}
+.portrait-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+.portrait-text b {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 40px;
+}
+.portrait-text span {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+/* The rail: stack, decision, recent events, stops and the big button. */
+.pb-rail {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+}
+.rail-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.rail-leave {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--dim);
+  font-weight: 700;
+  text-decoration: none;
+}
+.rail-leave:hover {
+  color: var(--text);
+}
+.rail-log {
+  min-height: 40px;
+  padding: 0 14px;
+  background: var(--surface);
+  font-size: 14px;
+}
+.rail-stack {
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 34%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.rail-stack h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.rail-empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--dim);
+}
+.stack-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stack-list button {
   width: 100%;
-  height: 100%;
-  aspect-ratio: auto;
-  border-radius: inherit;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  justify-content: stretch;
+  min-height: 0;
+  padding: 4px 10px 4px 4px;
+  border-radius: 12px;
+  background: var(--raised);
+  text-align: left;
+  font-weight: 400;
+}
+.stack-list li.top button {
+  grid-template-columns: 56px minmax(0, 1fr);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.stack-img {
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
   object-fit: cover;
   display: block;
 }
-.tile-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  padding: 1px 5px;
-  border-radius: var(--r-tile) var(--r-tile) 0 0;
-  background: var(--art-chip);
-  color: var(--on-art);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.35;
-  text-align: left;
+.stack-img.blank {
+  background: var(--surface);
+}
+.stack-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.stack-text b {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tile.square.no-art .tile-bar {
-  white-space: normal;
-  bottom: 0;
-  border-radius: inherit;
+.stack-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.stack-who img {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.rail-decision {
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+.rail-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  margin: 0 -6px;
+  padding: 0 6px 4px;
+}
+.rail-body:empty {
+  display: none;
+}
+.rail-decision > h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 30px;
+  line-height: 1;
+}
+.rail-help {
+  margin: 0;
+  font-size: 14px;
+  color: var(--dim);
+}
+.rail-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rail-options button {
+  justify-content: flex-start;
+  text-align: left;
+}
+.option-list,
+.combat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.option-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  justify-content: stretch;
+  min-height: 52px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 12px;
   background: transparent;
+  text-align: left;
+  font-size: 14px;
+}
+.option-row:hover {
+  background: var(--raised);
+}
+.option-row img,
+.row-blank.card {
+  width: 40px;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  object-fit: cover;
+  background: var(--raised);
+}
+.combat-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.combat-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  justify-content: stretch;
+  min-height: 52px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  font-weight: 400;
+}
+.combat-row:hover,
+.combat-list li.in .combat-row,
+.combat-list li.pending .combat-row {
+  background: var(--raised);
+}
+.combat-row > img,
+.row-blank {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--raised);
+}
+.row-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
+}
+.row-text b {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row-text span {
+  font-size: 12px;
+  color: var(--dim);
+}
+.row-state {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--dim);
+}
+.combat-list li.in .row-state {
+  color: var(--bad);
+}
+.combat-list li.in.block .row-state {
   color: var(--text);
 }
-@media (min-width: 1000px) {
-  .mine .tiles:not(.lands) .tile-bar {
-    font-size: 12px;
-    padding: 2px 6px;
-  }
+.combat-list li.pending .row-state {
+  color: var(--warn);
 }
-/* Your commander: an inner text-colored ring, plus its tag. */
-.tile.command::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: inset 0 0 0 2px var(--text);
+.row-switch {
+  align-self: flex-end;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+.selected-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sel-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sel-actions {
+  display: flex;
+  gap: 6px;
+}
+.sel-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.rail-foot {
+  margin-top: auto;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rail-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.rail-recent h3 {
+  margin: 0;
+  font-family: var(--body);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--dim);
+}
+.rail-recent p {
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.stops-chip {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  font-size: 13px;
+}
+.stops-chip button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.pb-secondary {
+  min-height: 48px;
+}
+.pb-primary {
+  min-height: 60px;
+  font-weight: 800;
+  font-size: 20px;
+}
+.pb-primary-art {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.pb-credit {
+  margin: 0;
+  font-size: var(--t-xs);
+  line-height: 1.35;
+  color: var(--dim);
+}
+
+/* Hover preview: full size, on the side away from the pointer, never over the rail. */
+.pb-preview {
+  position: fixed;
+  top: 72px;
+  right: 356px;
+  width: 300px;
+  z-index: 30;
   pointer-events: none;
 }
-.zone-tag,
-.tile-badge {
-  position: absolute;
-  bottom: 4px;
-  left: 4px;
-  max-width: calc(100% - 8px);
-  padding: 0 5px;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.45;
-  border-radius: 4px;
-  background: var(--art-chip);
-  color: var(--on-art);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.pb-preview.left {
+  right: auto;
+  left: 16px;
 }
-/* A commander tile with P/T: the tag moves above the P/T box. */
-.tile.square:has(.stat) .zone-tag {
-  bottom: 24px;
-}
-/* Attacking: a bad-colored ring and the badge, lifted a little toward the opponents. */
-.tile.attacking {
-  transform: translateY(-6px);
-}
-.tile.attacking.tapped {
-  transform: translateY(-6px) rotate(90deg);
-}
-/* The badge runs along the bottom edge so "Attacking" fits even on a small opponent's tile; the
-   P/T box steps up above it. */
-.tile-badge.attacking-badge {
-  left: 0;
-  right: 0;
-  bottom: 0;
-  max-width: none;
-  border-radius: 0 0 var(--r-tile) var(--r-tile);
-  text-align: center;
-  background: var(--bad);
-  color: var(--ground);
-}
-.tile.attacking .stat {
-  bottom: 20px;
-}
-/* Has options: a good-colored ring (and the dot, for anyone who can't tell the color). */
-.tile.playable {
-  box-shadow: 0 0 0 2px var(--good);
-}
-.tile.selected {
-  box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
-}
-.tile.playable.selected {
-  box-shadow: 0 0 0 2px var(--good), 0 0 0 4px var(--text);
-}
-.tile.attacking,
-.tile.attacking.playable {
-  box-shadow: 0 0 0 3px var(--bad);
-}
-.tile.attacking.selected {
-  box-shadow: 0 0 0 3px var(--bad), 0 0 0 5px var(--text);
-}
-.tile.hand.selected {
-  transform: translateY(-6px);
-}
-@media (hover: hover) {
-  .tile.hand.playable:hover {
-    transform: translateY(-6px);
-  }
-}
-.dot {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--good);
-  border: 2px solid var(--ground);
-}
-.stat,
-.count {
-  position: absolute;
-  bottom: 4px;
-  font-weight: 700;
-  font-size: 0.8rem;
-  line-height: 1.2;
-  padding: 1px 5px;
-}
-/* P/T: a text-colored box with dark text; damaged, it turns bad-colored. */
-.stat {
-  right: 4px;
-  background: var(--text);
-  color: var(--ground);
-  border-radius: 4px;
-}
-@media (min-width: 1000px) {
-  .mine .tiles:not(.lands) .stat {
-    font-size: 0.875rem;
-  }
-}
-.stat.hurt {
-  background: var(--bad);
-  color: var(--ground);
-}
-/* Stacked copies: the ×N badge. */
-.count {
-  left: 4px;
-  background: var(--art-chip);
-  color: var(--on-art);
-  border-radius: 4px;
-  padding: 0 5px;
-  font-size: 11px;
-  line-height: 1.45;
-}
-.count {
-  white-space: nowrap;
-}
-.tapped-n {
+.pb-preview img {
+  width: 100%;
+  border-radius: var(--card-radius);
   display: block;
-  font-weight: 400;
-  font-size: 11px;
-}
-.counters {
-  position: absolute;
-  top: 24px;
-  left: 4px;
-  right: 4px;
-  background: var(--art-chip);
-  color: var(--on-art);
-  font-size: 11px;
-  font-weight: 700;
-  padding: 1px 4px;
-  border-radius: 6px;
-  text-align: center;
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.6);
 }
 
-/* Hand */
-.hand-row {
-  grid-area: hand;
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 0.6rem 0.75rem 0.5rem;
-  border-top: 1px solid var(--line);
-  background: var(--surface);
-}
-
-/* Side panel: stack, your options, recent events */
-.side {
-  grid-area: side;
-  display: grid;
-  gap: 0.6rem;
-  align-content: start;
-  padding: 0.6rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom));
-  background: var(--surface);
-  border-top: 1px solid var(--line);
-}
-.stack-panel h3,
-.decision h2 {
-  margin: 0 0 0.4rem;
-}
-.stack-panel ol {
+/* Sheets: the log, stops, zones, the hand on a phone, and the card inspector. */
+.pb-log {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 4px;
-}
-.stack-panel li {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 4px 10px 4px 4px;
-  border-radius: 12px;
-  background: var(--raised);
-}
-.stack-panel li img {
-  width: 36px;
-  border-radius: 3px;
-}
-.decision {
-  border: 1px solid var(--line);
-  border-radius: var(--r-list);
-  padding: 0.75rem;
-  background: var(--ground);
-}
-.decision.waiting {
-  border-color: var(--line);
-}
-.decision h2 {
-  font-size: var(--t-lg);
-}
-.options {
-  display: flex;
-  flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 0.5rem;
 }
-.options button {
-  font-weight: 700;
-  justify-content: flex-start;
-  text-align: left;
-}
-/* One primary per view: with several choices for a card, they are outlined instead. */
-.options button.primary:not(:only-child) {
-  min-height: var(--target);
-  background: transparent;
-  color: var(--text);
-  border-color: var(--text);
-}
-.options button.primary:not(:only-child):hover {
-  background: var(--raised);
-}
-.card-options {
-  display: grid;
-  gap: 4px;
-  max-height: 40dvh;
-  overflow-y: auto;
-  margin-bottom: 0.4rem;
-}
-.card-option {
-  display: grid;
-  grid-template-columns: 44px 1fr;
-  gap: 0.6rem;
-  align-items: center;
-  text-align: left;
-  font-weight: 700;
-  padding: 4px 12px 4px 4px;
-  justify-content: stretch;
-  border-radius: 12px;
-}
-.card-option img,
-.card-option-blank {
-  width: 44px;
-  aspect-ratio: 488 / 680;
-  border-radius: var(--card-radius);
-  object-fit: cover;
-  background: var(--raised);
-}
-/* Pass is the board's primary: a text-colored pill. */
-.pass {
-  width: 100%;
-  min-height: 48px;
-  margin-top: 0.25rem;
-  background: var(--text);
-  color: var(--ground);
-  border-color: var(--text);
-}
-.pass:hover {
-  background: #fff;
-}
-/* Phone dock: stack, options and hand pinned to the bottom of the screen. */
-.dock {
-  grid-area: dock;
-  position: sticky;
-  bottom: 0;
-  z-index: 10;
-  display: grid;
-  gap: 0.4rem;
-  padding: 0.4rem 0 env(safe-area-inset-bottom);
-  background: var(--surface);
-  border-top: 1px solid var(--line);
-  border-radius: var(--r-panel) var(--r-panel) 0 0;
-  box-shadow: 0 -8px 24px rgb(0 0 0 / 0.45);
-}
-.dock > * {
-  min-width: 0;
-}
-.dock > :not(.hand-row) {
-  margin-inline: 0.75rem;
-}
-.dock .hand-row {
-  grid-area: auto;
-  border-top: none;
-  padding-top: 0.2rem;
-}
-.dock .stack-panel h3 {
-  display: none;
-}
-.dock .stack-panel ol {
+.pb-check {
   display: flex;
-  overflow-x: auto;
-}
-.dock .stack-panel li {
-  flex: 0 0 auto;
-  font-size: var(--t-sm);
-}
-.dock .stack-panel li img {
-  width: 28px;
-}
-.decision.compact {
-  padding: 0.5rem 0.6rem;
-}
-.decision.compact h2 {
-  font-size: var(--t-md);
-  margin: 0;
-}
-.decision.compact .prompt {
-  margin: 0 0 0.35rem;
-}
-.decision.compact .prompt button {
-  min-height: var(--target);
-  padding: 0 10px;
-}
-.last-event {
-  margin: 0 0 0.2rem;
-  color: var(--dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.choice-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
+  gap: 10px;
   align-items: center;
+  font-weight: 400;
 }
-.chips {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.chip {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 70vw;
-  padding: 4px 10px 4px 4px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.chip.general {
-  padding-left: 10px;
-}
-.chip img {
-  width: 28px;
-  aspect-ratio: 488 / 680;
-  border-radius: var(--card-radius);
-  object-fit: cover;
-}
-.prompt-card {
-  margin-left: 0.4em;
-}
-.chip span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.decision.compact .pass {
+.pb-check input {
   width: auto;
-  margin: 0;
-  white-space: nowrap;
+  min-height: 0;
 }
-
-.recent p {
-  margin: 0 0 0.2rem;
-  color: var(--dim);
+.zone-grid,
+.hand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px 8px;
 }
-
-/* Full-size preview on hover (desktop only) */
-.preview {
-  display: none;
+.hand-grid {
+  padding-bottom: 24px;
 }
-
-/* Inspector (phone tap / desktop click) */
+.hand-grid .hc {
+  width: 100%;
+}
+.hand-grid .hc-caption {
+  position: static;
+  transform: none;
+  display: block;
+  margin-top: 4px;
+  text-align: center;
+}
+.zone-card {
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--card-radius);
+}
+.zone-card:hover {
+  background: transparent;
+}
+.zone-card img,
+.zone-card .hc-name {
+  display: block;
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  background: var(--raised);
+  object-fit: cover;
+}
 .inspector {
   display: grid;
   gap: 0.75rem;
@@ -776,100 +1409,352 @@
   flex-wrap: wrap;
   gap: 6px;
 }
-.inspector .options button {
+.inspector-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.inspector-options button {
   min-height: 48px;
 }
 
-/* Narrow phones: only the current phase in the header and smaller opponent cards. */
-@media (max-width: 639px) {
-  .phases li:not(.now) {
-    display: none;
-  }
-  .board-top button {
-    white-space: nowrap;
-  }
-  .opponents .tapped-n {
-    display: none;
-  }
-  .opponents .stat {
-    font-size: 11px;
-  }
-  .opp-life {
-    font-size: 1.75rem;
-  }
-  .opp-name {
-    font-size: 1.25rem;
-  }
-  .opp-head > .art-body {
-    min-height: 48px;
-    padding-block: 6px;
-  }
-  .opp > .zone,
-  .opp > .zone-empty {
-    padding: 6px 8px 8px;
-  }
-  .board {
-    --hand-w: 96px;
-  }
+/* ── phone ──────────────────────────────────────────────────────────────── */
+
+.pb.phone {
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+}
+.opp-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 8px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: none;
+}
+.opp-tab {
+  flex: 1 0 72px;
+  position: relative;
+  height: 56px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--raised);
+  color: var(--on-art);
+  isolation: isolate;
+}
+.opp-tab:hover {
+  background: var(--raised);
+}
+.opp-tab > img {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.tab-wash {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgb(11 12 14 / 0.6);
+}
+.opp-tab.on .tab-wash {
+  background: rgb(11 12 14 / 0.35);
+}
+.opp-tab.out .tab-wash {
+  background: rgb(11 12 14 / 0.78);
+}
+.opp-tab::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.opp-tab.on::after {
+  box-shadow: inset 0 0 0 2px var(--text);
+}
+.opp-tab.attacked::after {
+  box-shadow: inset 0 0 0 2px var(--bad);
+}
+.opp-tab.on.attacked::after {
+  box-shadow: inset 0 0 0 2px var(--bad), inset 0 0 0 4px var(--text);
+}
+.tab-body {
+  position: absolute;
+  inset: 0;
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+.tab-name {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-life {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 1;
+  text-shadow: var(--art-shadow);
+}
+.tab-flag {
+  position: absolute;
+  left: 8px;
+  bottom: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--on-art-dim);
+}
+.tab-flag.warn {
+  color: var(--warn);
 }
 
-@media (min-width: 640px) {
-  .board {
-    --field-w: 84px;
-    --land-w: 56px;
-    --opp-w: 60px;
-    --opp-land-w: 44px;
-    --hand-w: 128px;
-  }
+.opp-focus {
+  --tile: 72px;
+  flex: none;
+  margin: 8px 8px 0;
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.focus-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.focus-meta > span:first-child {
+  min-width: 0;
+}
+.focus-meta > span:last-child {
+  white-space: nowrap;
+}
+.pb-chips {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.pb-chips .sum-chip {
+  flex: none;
+}
+.pb-chips .sum-chip.names {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.pb.phone .pb-row {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: 8px;
+  padding: 10px 6px 4px;
+  margin: -10px -6px -4px;
+  scrollbar-width: none;
+}
+.pb.phone .pb-row.lands {
+  --tile: 56px;
 }
 
-@media (min-width: 1000px) {
-  .board {
-    --field-w: 96px;
-    --land-w: 60px;
-    --opp-w: 64px;
-    --opp-land-w: 44px;
-    --hand-w: 150px;
-    height: 100dvh;
-    grid-template-columns: minmax(0, 1fr) 360px;
-    /* Opponents take what they need (up to 45% of the height); your board gets the rest. */
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      "top top"
-      "opps side"
-      "mine side"
-      "hand side";
-  }
-  .opponents {
-    max-height: 45dvh;
-    overflow-y: auto;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    align-content: start;
-  }
-  /* Opponents' cards are smaller: the preview shows any of them full size. */
-  .mine {
-    overflow-y: auto;
-  }
-  .side {
-    grid-row: 2 / 5;
-    overflow-y: auto;
-    border-top: none;
-    border-left: 1px solid var(--line);
-  }
-  .preview {
-    display: block;
-    position: fixed;
-    top: 64px;
-    right: 376px;
-    width: 300px;
-    z-index: 30;
-    pointer-events: none;
-  }
-  /* A shadow behind the card, not a filter on it. */
-  .preview img {
-    width: 100%;
-    border-radius: var(--card-radius);
-    display: block;
-    box-shadow: 0 12px 28px rgb(0 0 0 / 0.55);
-  }
+.pb-strip.phone {
+  flex: none;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 8px 12px;
+}
+.strip-chip {
+  min-height: 36px;
+  padding: 0 12px;
+  background: var(--surface);
+  font-size: 13px;
+  white-space: nowrap;
+  flex: none;
+}
+.pb-strip.phone .strip-note {
+  margin: 0;
+  padding: 0;
+  background: none;
+  font-size: 13px;
+  gap: 6px;
+}
+.pb-strip.phone .strip-note img {
+  width: 22px;
+  height: 22px;
+}
+
+.pb-mine.phone {
+  --tile: 78px;
+  flex: 1;
+  margin: 0 8px;
+  padding: 10px;
+  justify-content: flex-start;
+}
+
+.pb-dock {
+  flex: none;
+  margin-top: 8px;
+  background: var(--surface);
+  border-radius: 22px 22px 0 0;
+  padding: 8px 10px calc(10px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hand-peek {
+  align-self: center;
+  display: flex;
+  align-items: flex-end;
+  height: 54px;
+  min-height: 0;
+  padding: 0 0 0 26px;
+  border: none;
+  background: transparent;
+}
+.hand-peek:hover {
+  background: transparent;
+}
+.peek-cards {
+  display: flex;
+  align-items: flex-end;
+}
+.peek-card {
+  width: 48px;
+  margin-left: -26px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--raised);
+  aspect-ratio: 488 / 680;
+  align-self: flex-start;
+}
+.peek-card img {
+  display: block;
+  width: 100%;
+}
+.peek-card.playable {
+  box-shadow: 0 0 0 2px var(--good);
+}
+.peek-label {
+  margin-left: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--dim);
+  align-self: center;
+}
+.dock-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.dock-prompt,
+.dock-hint {
+  margin: 0;
+  font-size: 14px;
+}
+.dock-hint {
+  color: var(--dim);
+}
+.chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 75vw;
+  padding: 4px 12px 4px 4px;
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.chip.general {
+  padding-left: 12px;
+}
+.chip img {
+  width: 28px;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  object-fit: cover;
+}
+.chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dock-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.dock-buttons {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 8px;
+}
+.dock-buttons.one {
+  grid-template-columns: minmax(0, 1fr);
+}
+.pb.phone .pb-secondary {
+  min-height: 50px;
+  padding: 0 10px;
+  font-size: 14px;
+}
+.pb.phone .pb-primary {
+  min-height: 50px;
+  padding: 0 12px;
+  font-size: 17px;
+}
+.portrait.compact {
+  padding: 0;
+  background: none;
+  gap: 6px;
+}
+.portrait.compact > img,
+.portrait.compact .portrait-blank {
+  width: 44px;
+  height: 44px;
+}
+.portrait.compact .portrait-text b {
+  font-size: 34px;
+}
+.dock-links {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+.dock-links a {
+  color: var(--dim);
+  font-weight: 700;
+  text-decoration: none;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+}
+.dock-links button {
+  min-height: 36px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.pb.phone .pb-credit {
+  margin-top: auto;
+  padding-top: 8px;
 }

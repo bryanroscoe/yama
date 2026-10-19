@@ -281,6 +281,18 @@ pub struct LogLine {
     pub text: String,
 }
 
+/// Where a person wants the game to stop for them, by step (phase's names, e.g.
+/// "PreCombatMain"), on their own turns and on everyone else's. Replaces the default smart
+/// stops (main phases, and an opponent's end step when a spell could be cast). Anything on the
+/// stack they could answer, and every decision other than priority, still waits for them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Stops {
+    #[serde(default)]
+    pub own: HashSet<String>,
+    #[serde(default)]
+    pub others: HashSet<String>,
+}
+
 /// What one seat may do right now.
 #[derive(Debug, Clone, Serialize)]
 pub struct Decision {
@@ -288,6 +300,63 @@ pub struct Decision {
     /// The kind of decision, e.g. "priority" or "declare attackers".
     pub prompt: String,
     pub options: Vec<OptionView>,
+    /// While declaring attackers: every creature that may attack and whom it may attack, so the
+    /// board can build any declaration (the option list holds only the engine's sample).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attack: Option<AttackChoice>,
+    /// While declaring blockers: every creature that may block and the attackers it may block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block: Option<BlockChoice>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AttackChoice {
+    pub attackers: Vec<AttackerChoice>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AttackerChoice {
+    pub id: u64,
+    /// Whom this creature may attack, as the engine lists them.
+    pub targets: Vec<AttackAt>,
+}
+
+/// An attack target as the board names it: a player by seat, or a planeswalker or battle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AttackAt {
+    Player { seat: u8 },
+    Planeswalker { id: u64 },
+    Battle { id: u64 },
+}
+
+impl AttackAt {
+    fn from_engine(t: &AttackTarget) -> Self {
+        match t {
+            AttackTarget::Player(p) => Self::Player { seat: p.0 },
+            AttackTarget::Planeswalker(id) => Self::Planeswalker { id: id.0 },
+            AttackTarget::Battle(id) => Self::Battle { id: id.0 },
+        }
+    }
+    fn to_engine(self) -> AttackTarget {
+        match self {
+            Self::Player { seat } => AttackTarget::Player(PlayerId(seat)),
+            Self::Planeswalker { id } => AttackTarget::Planeswalker(ObjectId(id)),
+            Self::Battle { id } => AttackTarget::Battle(ObjectId(id)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BlockChoice {
+    pub blockers: Vec<BlockerChoice>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BlockerChoice {
+    pub id: u64,
+    /// The attacking creatures this one may block.
+    pub attackers: Vec<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -376,7 +445,45 @@ impl Match {
                 object: c.action.source_object().map(|o| o.0),
             })
             .collect();
-        Some(Decision { revision: self.revision, prompt: self.prompt(&vs), options })
+        let (attack, block) = Self::combat_choices(&vs, me);
+        Some(Decision { revision: self.revision, prompt: self.prompt(&vs), options, attack, block })
+    }
+
+    /// The engine's own lists of who may attack (and whom) or block (and what), when `me` is
+    /// declaring. They come from the seat's filtered view and name only public permanents.
+    fn combat_choices(vs: &GameState, me: PlayerId) -> (Option<AttackChoice>, Option<BlockChoice>) {
+        match &vs.waiting_for {
+            WaitingFor::DeclareAttackers { player, valid_attacker_ids, valid_attack_targets, valid_attack_targets_by_attacker, .. }
+                if *player == me =>
+            {
+                let attackers = valid_attacker_ids
+                    .iter()
+                    .map(|id| {
+                        // Older states have no per-attacker map; fall back to the shared list.
+                        let targets = match valid_attack_targets_by_attacker {
+                            Some(by) => by.get(id).map(|ts| ts.iter().map(AttackAt::from_engine).collect()).unwrap_or_default(),
+                            None => valid_attack_targets.iter().map(AttackAt::from_engine).collect(),
+                        };
+                        AttackerChoice { id: id.0, targets }
+                    })
+                    .filter(|a| !a.targets.is_empty())
+                    .collect();
+                (Some(AttackChoice { attackers }), None)
+            }
+            WaitingFor::DeclareBlockers { player, valid_blocker_ids, valid_block_targets, .. } if *player == me => {
+                let blockers = valid_blocker_ids
+                    .iter()
+                    .map(|id| {
+                        let mut attackers: Vec<u64> = valid_block_targets.get(id).map(|a| a.iter().map(|o| o.0).collect()).unwrap_or_default();
+                        attackers.sort_unstable();
+                        BlockerChoice { id: id.0, attackers }
+                    })
+                    .filter(|b| !b.attackers.is_empty())
+                    .collect();
+                (None, Some(BlockChoice { blockers }))
+            }
+            _ => (None, None),
+        }
     }
 
     /// What the current decision is about, naming the card behind it when the engine says.
@@ -432,6 +539,73 @@ impl Match {
             AiProposalApplication::Stale => Err(ChoiceError::Stale),
             AiProposalApplication::Rejected { rejection } => Err(ChoiceError::Rejected(format!("{rejection:?}"))),
         }
+    }
+
+    /// Declare any set of attackers, not only the engine's sample. The engine validates the
+    /// declaration (CR 508.1) and refuses an illegal one; an empty list declares no attack.
+    pub fn declare_attackers(&mut self, seat: u8, revision: u64, attacks: &[(u64, AttackAt)]) -> Result<(), ChoiceError> {
+        let action = GameAction::DeclareAttackers {
+            attacks: attacks.iter().map(|(id, at)| (ObjectId(*id), at.to_engine())).collect(),
+            bands: vec![],
+        };
+        self.declare(seat, revision, action, |w| matches!(w, WaitingFor::DeclareAttackers { .. }))
+    }
+
+    /// Declare any set of blocks as (blocker, attacker) pairs. The engine validates them
+    /// (CR 509.1, menace and the like); an empty list declares no blocks.
+    pub fn declare_blockers(&mut self, seat: u8, revision: u64, blocks: &[(u64, u64)]) -> Result<(), ChoiceError> {
+        let action = GameAction::DeclareBlockers { assignments: blocks.iter().map(|(b, a)| (ObjectId(*b), ObjectId(*a))).collect() };
+        self.declare(seat, revision, action, |w| matches!(w, WaitingFor::DeclareBlockers { .. }))
+    }
+
+    fn declare(&mut self, seat: u8, revision: u64, action: GameAction, expected: impl Fn(&WaitingFor) -> bool) -> Result<(), ChoiceError> {
+        if revision != self.revision {
+            return Err(ChoiceError::Stale);
+        }
+        let owner = PlayerId(seat);
+        if !self.state.waiting_for.acting_players().contains(&owner) {
+            return Err(ChoiceError::NotYourTurn);
+        }
+        if !expected(&self.state.waiting_for) {
+            return Err(ChoiceError::Stale);
+        }
+        let actor = AiDecisionContract::issue(&self.state, owner).authorized_actor;
+        // Apply to a copy first, so a refused declaration leaves the game exactly as it was.
+        let mut next = self.state.clone();
+        match apply_interaction(&mut next, actor, owner, action.clone()) {
+            Ok(result) => {
+                self.state = next;
+                self.log.push_action(actor, action);
+                self.accepted(&result.log_entries);
+                Ok(())
+            }
+            Err(e) => Err(ChoiceError::Rejected(self.plain_reason(owner, &e.to_string()))),
+        }
+    }
+
+    /// The engine's refusal in words a player can read: "Invalid action: ObjectId(114) must be
+    /// blocked by 2 or more creatures" becomes "Roaming Throne must be blocked by 2 or more
+    /// creatures". Names come from the seat's own view, so a hidden card stays "a card".
+    fn plain_reason(&self, seat: PlayerId, reason: &str) -> String {
+        let vs = filter_state_for_viewer(&self.state, seat);
+        let mut out = String::new();
+        let mut rest = reason.strip_prefix("Invalid action: ").unwrap_or(reason);
+        while let Some(at) = rest.find("ObjectId(") {
+            out.push_str(&rest[..at]);
+            let tail = &rest[at + "ObjectId(".len()..];
+            match tail.find(')').and_then(|end| tail[..end].parse::<u64>().ok().map(|id| (id, end))) {
+                Some((id, end)) => {
+                    out.push_str(&Self::name_in(&vs, &ObjectId(id)));
+                    rest = &tail[end + 1..];
+                }
+                None => {
+                    out.push_str("ObjectId(");
+                    rest = tail;
+                }
+            }
+        }
+        out.push_str(rest);
+        out
     }
 
     /// A card's name as `vs` (one seat's filtered view) shows it. Face-down cards stay hidden.
@@ -534,11 +708,12 @@ impl Match {
     /// a person stops in their own main phases, whenever the stack has something they could
     /// respond to, and at an opponent's end step if they could cast a spell. Every other
     /// decision (targets, blocks, mulligans) always waits. Seats in `full_control` stop at
-    /// every priority. Returns how many passes were made.
-    pub fn auto_pass(&mut self, humans: &[u8], full_control: &HashSet<u8>) -> usize {
+    /// every priority; seats with their own `stops` stop at the steps they chose instead of
+    /// the main phases and end step. Returns how many passes were made.
+    pub fn auto_pass(&mut self, humans: &[u8], full_control: &HashSet<u8>, stops: &HashMap<u8, Stops>) -> usize {
         let mut passed = 0;
         loop {
-            let Some(seat) = self.waiting_on().into_iter().find(|s| humans.contains(s) && self.should_auto_pass(*s, full_control)) else {
+            let Some(seat) = self.waiting_on().into_iter().find(|s| humans.contains(s) && self.should_auto_pass(*s, full_control, stops.get(s))) else {
                 return passed;
             };
             let contract = AiDecisionContract::issue(&self.state, PlayerId(seat));
@@ -552,7 +727,7 @@ impl Match {
         }
     }
 
-    fn should_auto_pass(&self, seat: u8, full_control: &HashSet<u8>) -> bool {
+    fn should_auto_pass(&self, seat: u8, full_control: &HashSet<u8>, stops: Option<&Stops>) -> bool {
         let WaitingFor::Priority { player } = &self.state.waiting_for else { return false };
         if player.0 != seat {
             return false;
@@ -587,6 +762,11 @@ impl Match {
             return false; // something to respond to
         }
         let mine = self.state.active_player.0 == seat;
+        if let Some(stops) = stops {
+            // The person's own stops: wait at the steps they chose, on their turns or others'.
+            let phase = format!("{:?}", self.state.phase);
+            return !(if mine { &stops.own } else { &stops.others }).contains(&phase);
+        }
         match self.state.phase {
             Phase::PreCombatMain | Phase::PostCombatMain => !mine,
             Phase::End => mine || !others.any(|c| matches!(c.action, GameAction::CastSpell { .. })),
@@ -677,6 +857,11 @@ impl Match {
                 types: o.card_types.core_types.iter().map(|t| format!("{t:?}")).collect(),
                 attached_to: o.attached_to.as_ref().and_then(|a| serde_json::to_value(a).ok()),
                 attacking: state.combat.as_ref().is_some_and(|c| c.attackers.iter().any(|a| a.object_id == *id)),
+                attacks: state.combat.as_ref().and_then(|c| c.attackers.iter().find(|a| a.object_id == *id)).map(|a| a.defending_player.0),
+                blocking: state.combat.as_ref().is_some_and(|c| c.blocker_to_attacker.contains_key(id)),
+                commander: o.is_commander && !o.face_down,
+                tax: if o.is_commander && !o.face_down { engine::game::commander::commander_tax(&state, *id) } else { 0 },
+                sick: engine::game::combat::has_summoning_sickness(o),
             })
         };
         let players = state
@@ -799,10 +984,84 @@ pub struct CardView {
     pub attached_to: Option<serde_json::Value>,
     /// Declared as an attacker in the current combat.
     pub attacking: bool,
+    /// The player it attacks (the planeswalker's or battle's controller, for those).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attacks: Option<u8>,
+    /// Declared as a blocker in the current combat.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub blocking: bool,
+    /// A commander (public in Commander; never set on a face-down card).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub commander: bool,
+    /// Commander tax: {2} for each earlier cast from the command zone.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub tax: u32,
+    /// A creature that can't attack or tap yet (haste counted).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub sick: bool,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct StackView {
     pub name: String,
     pub controller: u8,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attack_targets_read_as_the_board_sends_them() {
+        let at: AttackAt = serde_json::from_str(r#"{"kind":"player","seat":2}"#).unwrap();
+        assert_eq!(at, AttackAt::Player { seat: 2 });
+        assert_eq!(at.to_engine(), AttackTarget::Player(PlayerId(2)));
+        let pw: AttackAt = serde_json::from_str(r#"{"kind":"planeswalker","id":41}"#).unwrap();
+        assert_eq!(AttackAt::from_engine(&pw.to_engine()), pw);
+        let list: Vec<(u64, AttackAt)> = serde_json::from_str(r#"[[7,{"kind":"battle","id":9}]]"#).unwrap();
+        assert_eq!(list, vec![(7, AttackAt::Battle { id: 9 })]);
+    }
+
+    #[test]
+    fn stops_default_missing_sides_to_empty() {
+        let s: Stops = serde_json::from_str(r#"{"own":["PreCombatMain","DeclareBlockers"]}"#).unwrap();
+        assert!(s.own.contains("DeclareBlockers"));
+        assert!(s.others.is_empty());
+    }
+
+    #[test]
+    fn card_flags_stay_out_of_the_json_when_unset() {
+        let c = CardView {
+            id: 1,
+            name: "Bear".into(),
+            controller: 0,
+            owner: 0,
+            tapped: false,
+            power: Some(2),
+            toughness: Some(2),
+            loyalty: None,
+            damage: 0,
+            counters: BTreeMap::new(),
+            types: vec!["Creature".into()],
+            attached_to: None,
+            attacking: false,
+            attacks: None,
+            blocking: false,
+            commander: false,
+            tax: 0,
+            sick: false,
+        };
+        let v = serde_json::to_value(&c).unwrap();
+        for key in ["attacks", "blocking", "commander", "tax", "sick"] {
+            assert!(v.get(key).is_none(), "{key} should be left out");
+        }
+        let v = serde_json::to_value(CardView { commander: true, tax: 4, attacks: Some(3), ..c }).unwrap();
+        assert_eq!(v["commander"], true);
+        assert_eq!(v["tax"], 4);
+        assert_eq!(v["attacks"], 3);
+    }
 }
