@@ -20,6 +20,7 @@ import {
   pointsWord,
   rateCeiling,
   shortHash,
+  simDetails,
   simLabel,
   verdictText,
 } from "./logic";
@@ -33,7 +34,6 @@ export function experimentLabel(e: ExperimentItem): string {
   const l = e.label;
   return simLabel({
     engine: l.engine,
-    card_data: l.card_data,
     difficulty: l.difficulty,
     games: e.progress.done,
     planned: l.games,
@@ -288,7 +288,15 @@ function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
         </table>
         <p className="lab-note">{s.method}</p>
       </details>
-      <SimLine>{experimentLabel(e)}.{s.builds.length > 1 ? ` Played on ${s.builds.length} builds: ${s.builds.map((b) => `${b.games} games on ${b.engine}, card data ${shortHash(b.card_data)}, runner ${shortHash(b.runner)}`).join("; ")}.` : ""}</SimLine>
+      <SimLine
+        details={
+          s.builds.length > 1
+            ? `${simDetails(e.label.card_data) ?? ""} Played on ${s.builds.length} builds: ${s.builds.map((b) => `${b.games} games on ${b.engine}, card data ${shortHash(b.card_data)}, runner ${shortHash(b.runner)}`).join("; ")}.`.trim()
+            : simDetails(e.label.card_data)
+        }
+      >
+        {experimentLabel(e)}.{s.builds.length > 1 ? ` Played on ${s.builds.length} builds.` : ""}
+      </SimLine>
       <p className="lab-caveat">{caveat(e.label.engine)} These numbers are apart from your playgroup's real games.</p>
     </section>
   );

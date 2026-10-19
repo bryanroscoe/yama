@@ -111,11 +111,15 @@ export function PlansHead({ title, index = false, action, status }: { title: Rea
 /** "a1b2c3d4e5f6": the first 12 digits of a content hash, as pages show it. */
 export const shortHash = (h: string | null | undefined) => (h ? h.slice(0, 12) : "");
 
-/** The facts about where an imported plan came from, as one sentence. */
-export function headSentence(head: PlanHead): string {
-  const parts = [`Imported ${fmtDate(head.imported_at)}`];
-  if (head.guide_version != null) parts.push(`guide v${head.guide_version}${head.guide_date ? ` of ${fmtDate(head.guide_date)}` : ""}`);
+/**
+ * Which file an imported plan came from: guide version, content hash and commit, as one sentence
+ * for a page's Details disclosure (visible copy says only where it was planned and when).
+ */
+export function headDetails(head: PlanHead): string {
+  const parts: string[] = [];
+  if (head.guide_version != null) parts.push(`Guide v${head.guide_version}${head.guide_date ? ` of ${fmtDate(head.guide_date)}` : ""}`);
   parts.push(`plan ${shortHash(head.content_hash)}`);
   if (head.git_sha) parts.push(`commit ${head.git_sha.slice(0, 7)}${head.dirty ? " with uncommitted changes" : ""}`);
-  return `${parts.join(", ")}.`;
+  const text = parts.join(", ");
+  return `${text[0]!.toUpperCase()}${text.slice(1)}.`;
 }

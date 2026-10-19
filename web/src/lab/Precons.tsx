@@ -5,7 +5,7 @@ import { Link, useSearchParams } from "react-router";
 import { api } from "../api";
 import { useMe } from "../auth";
 import { WinBar, winCeiling } from "../components/Crop";
-import { ErrorText, Pips } from "../components/ui";
+import { Details, ErrorText, Pips } from "../components/ui";
 import { usePlan } from "../plan/store";
 import type { PreconItem, PreconList, Rating, RunDetail, RunLabel, RunListItem } from "./api";
 import { LabHead } from "./LabLayout";
@@ -18,6 +18,7 @@ import {
   identityMatches,
   pct,
   pctRange,
+  simDetails,
   simLabel,
   sortPrecons,
   strengthText,
@@ -50,8 +51,8 @@ const FEW = 10;
 /** The run label line under the page title. */
 export function RunLine({ run }: { run: RunLabel }) {
   return (
-    <SimLine>
-      {simLabel({ engine: run.engine, card_data: run.card_data, difficulty: run.difficulty, games: run.games, pod: run.pod, date: run.analysed_at ?? run.created_at, run: run.name })}.
+    <SimLine details={simDetails(run.card_data)}>
+      {simLabel({ engine: run.engine, difficulty: run.difficulty, games: run.games, pod: run.pod, date: run.analysed_at ?? run.created_at, run: run.name })}.
     </SimLine>
   );
 }
@@ -195,12 +196,16 @@ export function PreconsPage() {
             <b>
               {rated} {rated === 1 ? "deck" : "decks"} rated from {run.games.toLocaleString("en-GB")} simulated {run.pod ?? 4}-player games.
             </b>{" "}
-            {run.engine ?? "An unrecorded engine"}, {(run.difficulty ?? "unrecorded").toLowerCase()} AI, {fmtDate(run.analysed_at ?? run.created_at)}, run {run.name}
-            {run.card_data ? `, card data ${run.card_data.slice(0, 8)}` : ""}.
+            {run.engine ?? "An unrecorded engine"}, {(run.difficulty ?? "unrecorded").toLowerCase()} AI, {fmtDate(run.analysed_at ?? run.created_at)}, run {run.name}.
             {few ? ` ${few} ${few === 1 ? "precon has" : "precons have"} fewer than ${FEW} games, so ${few === 1 ? "its interval is" : "their intervals are"} wide and the order will move.` : ""}{" "}
             {caveat(run.engine)} Real-game ranks from playgroup.gg sit in their own column.
           </p>
           {skipped > 0 && <p>Ranks are among all {run.ranked} decks in the run, and {skipped} of those aren't in this list, so some ranks are skipped.</p>}
+          {run.card_data && (
+            <Details>
+              <p>{simDetails(run.card_data)}</p>
+            </Details>
+          )}
         </div>
       ) : (
         <p className="area-note">No rating run is imported on this server yet, so the precons have no simulated strength.</p>

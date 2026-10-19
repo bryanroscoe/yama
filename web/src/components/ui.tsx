@@ -40,6 +40,19 @@ export function Sheet({ onClose, children, label }: { onClose: () => void; child
   );
 }
 
+/**
+ * A collapsed "Details" disclosure for the facts behind a plain sentence: file names, content
+ * hashes, commits and the full rule discussion. Visible copy stays one or two plain sentences.
+ */
+export function Details({ children, label = "Details", className = "" }: { children: ReactNode; label?: string; className?: string }) {
+  return (
+    <details className={`details-fold${className ? ` ${className}` : ""}`}>
+      <summary>{label}</summary>
+      <div className="details-body">{children}</div>
+    </details>
+  );
+}
+
 export function ErrorText({ error }: { error: unknown }) {
   if (!error) return null;
   return <p className="error" role="alert">{error instanceof Error ? error.message : String(error)}</p>;

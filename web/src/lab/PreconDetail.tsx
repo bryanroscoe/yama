@@ -3,7 +3,7 @@ import { identityName } from "@yama/core";
 import { useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api } from "../api";
-import { CardImage, ErrorText, ManaCost, Pips } from "../components/ui";
+import { CardImage, Details, ErrorText, ManaCost, Pips } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 import type { Matchup, PreconDetail, PreconItem, RunLabel } from "./api";
 import { caveat, fmtDate, grouped, linScale, logScale, pct, pctRange, strengthDomain, strengthText } from "./logic";
@@ -115,7 +115,14 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
             </section>
           ))}
         </div>
-        <p className="lab-note">List from {d.source}. Imported {fmtDate(d.imported_at)}.</p>
+        <p className="lab-note">
+          {sourceName(d.source) ? `List from ${sourceName(d.source)}, imported` : "List imported"} {fmtDate(d.imported_at)}.
+        </p>
+        {d.source && (
+          <Details>
+            <p>Source: {d.source}.</p>
+          </Details>
+        )}
       </section>
       {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
     </>
@@ -260,3 +267,8 @@ function Matchups({ rows, run }: { rows: Matchup[]; run: RunLabel }) {
   );
 }
 
+/** "MTGJSON" from "MTGJSON https://…, via …": the source's plain name, without links or file paths. */
+function sourceName(source: string | null | undefined): string | null {
+  const first = source?.trim().split(/[\s,(]/)[0] ?? "";
+  return first && !/[/.:]/.test(first) ? first : null;
+}

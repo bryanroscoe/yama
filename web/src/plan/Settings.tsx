@@ -2,7 +2,7 @@ import { fmtDate } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { ErrorText } from "../components/ui";
+import { Details, ErrorText } from "../components/ui";
 import { createKey, listImports, listKeys, revokeKey, type ScriptKey } from "./api";
 import { outbox, useOutbox } from "./outbox";
 import { PlansHead, shortHash, usePlanOutlet } from "./PlanLayout";
@@ -75,9 +75,11 @@ function Keys() {
     <section className="stack">
       <h3>Keys for scripts</h3>
       <p className="dim small">
-        A key lets a script on your computer send your plan file to Yama and pick up your answers (commander-decks' publish.py and pull.py). It can do
-        nothing else: it can't read your decks, collection or games, or make more keys. Revoke it if the computer is lost.
+        A key lets a script on your computer send your plan file to Yama and pick up your answers, and nothing else. Revoke it if the computer is lost.
       </p>
+      <Details>
+        <p>The scripts are commander-decks' publish.py and pull.py. A key can't read your decks, collection or games, or make more keys.</p>
+      </Details>
       <form
         className="row"
         onSubmit={(e) => {
@@ -175,15 +177,23 @@ function Imports() {
           const sw = i.report.counts?.swaps;
           return (
             <li key={i.id}>
-              {fmtDate(i.imported_at)}, {VIA[i.via] ?? i.via}: {i.meta.guide_version != null ? `guide v${i.meta.guide_version}, ` : ""}plan {shortHash(i.content_hash)}
-              {i.meta.git_sha ? `, commit ${i.meta.git_sha.slice(0, 7)}` : ""}
-              {i.meta.dirty ? " with uncommitted changes" : ""}
+              {fmtDate(i.imported_at)}, {VIA[i.via] ?? i.via}
+              {i.meta.guide_version != null ? `: guide v${i.meta.guide_version}` : ""}
               {i.forced ? ", forced" : ""}
               {sw ? `. Swaps: ${sw.added} added, ${sw.changed} changed, ${sw.retired} retired.` : "."}
             </li>
           );
         })}
       </ul>
+      <Details>
+        {imports.data.map((i) => (
+          <p key={i.id}>
+            {fmtDate(i.imported_at)}: plan {shortHash(i.content_hash)}
+            {i.meta.git_sha ? `, commit ${i.meta.git_sha.slice(0, 7)}` : ""}
+            {i.meta.dirty ? " with uncommitted changes" : ""}.
+          </p>
+        ))}
+      </Details>
     </section>
   );
 }

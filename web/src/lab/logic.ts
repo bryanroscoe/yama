@@ -100,7 +100,6 @@ export function expectedSeconds(pace: Pace | null | undefined, games: number): n
  */
 export function simLabel(l: {
   engine: string | null;
-  card_data?: string | null;
   difficulty: string | null;
   games: number;
   planned?: number | null;
@@ -108,7 +107,7 @@ export function simLabel(l: {
   date: string | null | undefined;
   run?: string | null;
 }): string {
-  const parts = [`Simulated on ${l.engine ?? "an unrecorded engine"}${l.card_data ? ` (card data ${l.card_data.split(", ").map(shortHash).join(", ")})` : ""}`];
+  const parts = [`Simulated on ${l.engine ?? "an unrecorded engine"}`];
   parts.push(`${l.difficulty ?? "unrecorded"} AI`);
   const n = (x: number) => x.toLocaleString("en-GB");
   const games =
@@ -117,6 +116,14 @@ export function simLabel(l: {
   if (l.run) parts.push(`run ${l.run}`);
   if (l.date) parts.push(fmtDate(l.date));
   return parts.join(", ");
+}
+
+/**
+ * The card data build behind simulated numbers ("Card data eb309108."), for the Details
+ * disclosure under a label: hashes stay out of the visible line.
+ */
+export function simDetails(cardData: string | null | undefined): string | null {
+  return cardData ? `Card data ${cardData.split(", ").map(shortHash).join(", ")}.` : null;
 }
 
 /**

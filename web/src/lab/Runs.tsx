@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { api } from "../api";
-import { ErrorText } from "../components/ui";
+import { Details, ErrorText } from "../components/ui";
 import type { BatchComparison, ExperimentItem, RunDetail, RunListItem } from "./api";
-import { caveat, deltaBound, durationText, fmtDate, hasResults, pct, pctRange, points, pointsRange, pointsWord, rateCeiling, sentence, simLabel, verdictText } from "./logic";
+import { caveat, deltaBound, durationText, fmtDate, hasResults, pct, pctRange, points, pointsRange, pointsWord, rateCeiling, sentence, simDetails, simLabel, verdictText } from "./logic";
 import { IntervalChart, SimLine } from "./parts";
 import { RunWarnings } from "./Precons";
 import { experimentLabel } from "./Run";
@@ -202,7 +202,7 @@ export function BatchPage() {
       <div className="page-head">
         <div>
           <h1>{r.name}</h1>
-          <SimLine>{simLabel({ engine: r.engine, card_data: r.card_data, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at })}.</SimLine>
+          <SimLine details={simDetails(r.card_data)}>{simLabel({ engine: r.engine, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at })}.</SimLine>
         </div>
       </div>
       <p className="lab-caveat">{caveat(r.engine)}</p>
@@ -287,9 +287,10 @@ export function BatchPage() {
                 )}
               </div>
             ))}
-            <p className="lab-note">
-              Intervals here are commander-decks' bootstrap over pods (analyze.py), not the interval "Try a change" uses; the verdict wording is the same.
-            </p>
+            <p className="lab-note">Intervals here come from your planner's own analysis, not the one "Try a change" uses; the verdict wording is the same.</p>
+            <Details>
+              <p>A bootstrap over pods, from commander-decks' analyze.py.</p>
+            </Details>
           </section>
         </>
       )}

@@ -436,7 +436,8 @@ export function DeckPage() {
                           aria-label={`${e.qty > 1 ? `${e.qty} ` : ""}${e.name}${e.needed > 0 ? `, need ${e.needed}` : ""}`}
                         >
                           <CardImage src={e.card?.image_normal} name={e.name} />
-                          {e.needed > 0 && <span className="need-badge">Need{e.needed > 1 ? ` ${e.needed}` : ""}</span>}
+                          {/* Still needed: an amber dot just off the card's left edge, so the mana cost stays clear. */}
+                          {e.needed > 0 && <span className="need-dot" aria-hidden="true" title={`Need ${e.needed}`} />}
                           {e.qty > 1 && <span className="qty-badge num">×{e.qty}</span>}
                         </button>
                       ))}

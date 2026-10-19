@@ -3,6 +3,7 @@
 // to the share a player would win by chance, and the page says when it was computed.
 
 import { winConditionLabel } from "@yama/core";
+import { useState } from "react";
 import type { PlaygroupStats, PodSeats } from "../api";
 import "./stats.css";
 
@@ -26,8 +27,9 @@ function Provisional({ games, under }: { games: number; under: number }) {
 }
 
 /**
- * The Group page's deeper numbers: turn order, how games were won, knockouts and fun. The page
- * itself draws the headline figures, the player cards and the commanders (pages/Group.tsx).
+ * The Group page's deeper numbers: turn order, how games were won, knockouts, first and last out,
+ * and fun, in a grid of sections. The page itself draws the headline figures, the player cards
+ * and the commanders (pages/Group.tsx).
  */
 export function GroupStats({ s }: { s: PlaygroupStats }) {
   const under = s.provisional_under;
@@ -36,13 +38,20 @@ export function GroupStats({ s }: { s: PlaygroupStats }) {
       <p className="computed">
         Computed {computedAt(s.computed_at)} from finished games. Rates from fewer than {under} games are faded and marked provisional.
       </p>
-      <TurnOrder s={s} />
-      <WinConditions s={s} />
-      <Rivalries s={s} />
-      <Fun s={s} />
+      {/* One column on phones; side by side as the window allows on laptops. */}
+      <div className="group-stats-grid">
+        <TurnOrder s={s} />
+        <WinConditions s={s} />
+        <Rivalries s={s} />
+        <OutOrder s={s} />
+        <Fun s={s} />
+      </div>
     </div>
   );
 }
+
+/** Head-to-head rows shown before "Show all". */
+const H2H_PEEK = 5;
 
 function PodTable({ pod, reference, under }: { pod: PodSeats | null; reference: number[] | null; under: number }) {
   const n = pod?.players ?? reference?.length ?? 4;
@@ -146,9 +155,8 @@ function WinConditions({ s }: { s: PlaygroupStats }) {
 function Rivalries({ s }: { s: PlaygroupStats }) {
   const kg = s.knockout_games;
   const nemeses = s.players.filter((p) => p.archnemesis);
-  // A player who never sat in a game with a recorded knockout has no answer here, not zeros.
-  const koPlayers = s.players.filter((p) => p.knockout_games > 0);
-  const faded = kg < s.provisional_under;
+  const [allH2h, setAllH2h] = useState(false);
+  const h2h = allH2h ? s.head_to_head : s.head_to_head.slice(0, H2H_PEEK);
   return (
     <section>
       <h2>Knockouts</h2>
@@ -161,7 +169,7 @@ function Rivalries({ s }: { s: PlaygroupStats }) {
               <h3>Head to head</h3>
               <p className="lede">Knockouts each way, when the table said who did it.</p>
               <ul className="plain-list">
-                {s.head_to_head.map((h) => (
+                {h2h.map((h) => (
                   <li key={`${h.a}|${h.b}`} className="h2h">
                     <span>{h.a_name}</span>
                     <span className="score">{h.a_over_b} to {h.b_over_a}</span>
@@ -169,6 +177,11 @@ function Rivalries({ s }: { s: PlaygroupStats }) {
                   </li>
                 ))}
               </ul>
+              {s.head_to_head.length > H2H_PEEK && (
+                <button className="small quiet h2h-more" aria-expanded={allH2h} onClick={() => setAllH2h((v) => !v)}>
+                  {allH2h ? "Show fewer" : `Show all ${s.head_to_head.length}`}
+                </button>
+              )}
             </div>
           )}
           {nemeses.length > 0 && (
@@ -187,29 +200,43 @@ function Rivalries({ s }: { s: PlaygroupStats }) {
               </ul>
             </div>
           )}
-          <div>
-            <h3>First out and last out<Provisional games={kg} under={s.provisional_under} /></h3>
-            <p className="lede">
-              From {kg} {kg === 1 ? "game" : "games"} with a knockout recorded. Each count is out of that player's own games with a knockout
-              recorded (for last out, ones with a winner too). Last out means the last losers standing; ties count for everyone tied.
-              {koPlayers.length < s.players.length && " Players with no knockout recorded in their games aren't listed."}
-            </p>
-            <table className="plain">
-              <thead><tr><th>Player</th><th className="r">First out</th><th className="r">Last out</th><th className="r">Knockouts</th></tr></thead>
-              <tbody>
-                {koPlayers.map((p) => (
-                  <tr key={p.key} className={faded || p.knockout_games < s.provisional_under ? "provisional" : undefined}>
-                    <td>{p.name}</td>
-                    <td className="r num">{p.first_out} of {p.knockout_games}</td>
-                    <td className="r num">{p.last_out_games > 0 ? `${p.last_out} of ${p.last_out_games}` : "–"}</td>
-                    <td className="r num">{p.knockouts}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
+    </section>
+  );
+}
+
+/** Who goes out first and who lasts longest, from games with a knockout recorded. */
+function OutOrder({ s }: { s: PlaygroupStats }) {
+  const kg = s.knockout_games;
+  if (kg === 0) return null;
+  // A player who never sat in a game with a recorded knockout has no answer here, not zeros.
+  const koPlayers = s.players.filter((p) => p.knockout_games > 0);
+  const faded = kg < s.provisional_under;
+  return (
+    <section>
+      <h2>
+        First out and last out
+        <Provisional games={kg} under={s.provisional_under} />
+      </h2>
+      <p className="lede">
+        From {kg} {kg === 1 ? "game" : "games"} with a knockout recorded. Each count is out of that player's own games with a knockout recorded (for last
+        out, ones with a winner too). Last out means the last losers standing; ties count for everyone tied.
+        {koPlayers.length < s.players.length && " Players with no knockout recorded in their games aren't listed."}
+      </p>
+      <table className="plain">
+        <thead><tr><th>Player</th><th className="r">First out</th><th className="r">Last out</th><th className="r">Knockouts</th></tr></thead>
+        <tbody>
+          {koPlayers.map((p) => (
+            <tr key={p.key} className={faded || p.knockout_games < s.provisional_under ? "provisional" : undefined}>
+              <td>{p.name}</td>
+              <td className="r num">{p.first_out} of {p.knockout_games}</td>
+              <td className="r num">{p.last_out_games > 0 ? `${p.last_out} of ${p.last_out_games}` : "–"}</td>
+              <td className="r num">{p.knockouts}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   );
 }

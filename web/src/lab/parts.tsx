@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ArtPanel as SharedArtPanel } from "../components/ArtPanel";
+import { Details } from "../components/ui";
 import type { Art, ExperimentStatus } from "./api";
 import { linScale, type Scale } from "./logic";
 
@@ -15,9 +16,17 @@ export function ArtPanel({ art, children }: { art: Art | null | undefined; child
   );
 }
 
-/** The line every simulated number carries. */
-export function SimLine({ children }: { children: ReactNode }) {
-  return <p className="lab-label">{children}</p>;
+/**
+ * The line every simulated number carries (engine, AI level, games, date), with build hashes
+ * folded into a Details disclosure under it.
+ */
+export function SimLine({ children, details }: { children: ReactNode; details?: ReactNode }) {
+  return (
+    <>
+      <p className="lab-label">{children}</p>
+      {details ? <Details>{typeof details === "string" ? <p>{details}</p> : details}</Details> : null}
+    </>
+  );
 }
 
 /**

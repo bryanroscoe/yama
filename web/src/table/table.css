@@ -71,7 +71,7 @@
 }
 
 /* The rotated content box: sideways panels swap width and height. The life total takes the
-   whole top; the name chip sits in the bottom row with the art credit beside it, and badges run
+   whole top; the name chip sits in the bottom row with the art credit under it, and badges run
    along the top corners, so the number can be big. */
 .panel-inner {
   position: absolute;
@@ -118,24 +118,29 @@
 .panel-inner:not(:has(> .panel-art.art-has)) > .panel-credit {
   display: none;
 }
-/* "Art: Name, © Wizards of the Coast", 11 px on a dark chip in the corner beside the name chip.
-   It wraps rather than cutting off: Scryfall asks for the artist and the copyright wherever an
-   art crop shows, and a phone's sideways panel leaves the corner about 120 px wide. The table
-   menu repeats every artist too. */
+/* "Art: Name, © Wizards of the Coast": one quiet line along the panel's bottom edge, in the
+   rotated frame so it faces the panel's player. No chip, so it doesn't compete with the name;
+   Scryfall asks for the artist and copyright wherever an art crop shows, so it stays, cut short
+   with an ellipsis on a narrow panel. The table menu repeats every artist in full. */
 .panel-credit {
-  grid-area: credit;
-  justify-self: end;
-  align-self: end;
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 5px;
   z-index: 1;
-  max-width: calc(100% - 16px);
-  margin: 0 10px 8px 6px;
-  padding: 2px 8px;
-  border-radius: var(--r-tile);
-  background: rgb(0 0 0 / 0.55);
-  color: var(--on-art-dim);
-  font-size: var(--t-xs);
-  line-height: 1.3;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: right;
+  color: rgb(255 255 255 / 0.7);
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
+  font-size: 10px;
+  line-height: 12px;
   pointer-events: none;
+}
+/* With art, the name chip sits a little higher, leaving the bottom edge to the credit. */
+.panel-inner:has(> .panel-art.art-has) .who {
+  margin-bottom: max(20px, 2.5cqmin);
 }
 
 .bands {
@@ -189,12 +194,12 @@
 .panel-inner.vertical .who {
   margin-bottom: 6px;
 }
+.panel-inner.vertical:has(> .panel-art.art-has) .who {
+  margin-bottom: 22px;
+}
 .panel-inner.vertical .panel-credit {
-  margin: 0 14px 8px;
-  padding: 0;
-  background: none;
-  color: rgb(255 255 255 / 0.75);
-  text-shadow: 0 1px 6px rgb(0 0 0 / 0.7);
+  bottom: 7px;
+  text-align: center;
 }
 .panel-inner.vertical .tap {
   left: 0;

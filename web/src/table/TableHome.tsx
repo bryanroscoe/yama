@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary, type DeckVersionRow, type GameRow, type Playgroup, type SearchResult } from "../api";
 import { useMe } from "../auth";
+import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { ErrorText, Pips, Sheet } from "../components/ui";
 import { BracketChips } from "../components/Bracket";
@@ -503,13 +504,23 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where }: { 
 const shortName = (name: string) => name.split(",")[0]!.trim();
 const listNames = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
+/** Recent games to show before "All games and stats": four on a laptop, three on a phone. */
+const RECENT_WIDE = 4;
+const RECENT_PHONE = 3;
+
 function RecentGames({ waiting }: { waiting: ReactNode }) {
   const games = useQuery({ queryKey: ["games"], queryFn: () => api<(GameRow & { note?: string | null })[]>("/api/games") });
   const [logging, setLogging] = useState(false);
-  const shown = games.data?.slice(0, 10) ?? [];
+  const wide = useWide();
+  const shown = games.data?.slice(0, wide ? RECENT_WIDE : RECENT_PHONE) ?? [];
   const winnerOf = (g: GameRow) => g.seats.find((s) => s.seat === g.winner_seat);
-  const art = useCardArt(shown.map((g) => winnerOf(g)?.commander_name));
-  const credited = shown.map((g) => art.get(winnerOf(g)?.commander_name ?? "")).filter((a) => !!a);
+  // A game with a winner shows the winner's art; one still going, or a draw, shows up to four
+  // seats' art as a mosaic. The credit names exactly the art shown.
+  const winnerShown = (g: GameRow) => (g.status === "finished" ? winnerOf(g) : undefined);
+  const art = useCardArt(shown.flatMap((g) => (winnerShown(g) ? [winnerShown(g)!] : g.seats).map((s) => s.commander_name)));
+  const seatArt = (g: GameRow) => g.seats.map((s) => art.get(s.commander_name ?? "")).filter((a) => !!a?.art).slice(0, 4);
+  const pictured = (g: GameRow) => (winnerShown(g) ? [art.get(winnerShown(g)!.commander_name ?? "")] : seatArt(g));
+  const credited = shown.flatMap(pictured).filter((a) => !!a?.art);
   return (
     <section className="recent-games">
       <div className="rg-head">
@@ -526,8 +537,8 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
       {games.data && !games.data.length && <p className="dim">No games yet.</p>}
       <ol className="rg-list">
         {shown.map((g) => {
-          const winner = winnerOf(g);
           const finished = g.status === "finished";
+          const winner = winnerShown(g);
           const cmdr = winner?.commander_name;
           const a = cmdr ? art.get(cmdr) : undefined;
           const title = !finished ? "In progress" : winner ? `${winner.display_name} won` : "Draw";
@@ -539,7 +550,11 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
           const day = new Date(g.started_at);
           return (
             <li key={g.id} className="rg-row">
-              <span className="rg-art">{a?.art && <img src={a.art} alt="" loading="lazy" />}</span>
+              {winner ? (
+                <span className="rg-art">{a?.art && <img src={a.art} alt="" loading="lazy" />}</span>
+              ) : (
+                <ArtMosaic className="rg-art" arts={seatArt(g).map((a) => a!.art)} />
+              )}
               <span className="rg-text">
                 <span className="rg-title">
                   {title}

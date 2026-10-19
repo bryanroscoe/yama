@@ -23,6 +23,7 @@ import {
   pointsRange,
   pointsWord,
   rateCeiling,
+  simDetails,
   simLabel,
   sortPrecons,
   strengthDomain,
@@ -90,10 +91,16 @@ describe("wording", () => {
     expect(expectedSeconds(undefined, 100)).toBeNull();
   });
 
-  it("labels simulated numbers with engine, card data, AI level, games and date, no middle dots", () => {
-    const s = simLabel({ engine: "phase-rs v0.113.0", card_data: "eb309108eb0df708", difficulty: "Easy", games: 1234, pod: 4, date: "2026-10-19T04:15:40Z", run: "pilot-2" });
-    expect(s).toBe("Simulated on phase-rs v0.113.0 (card data eb309108), Easy AI, 1,234 games in 4-player pods, run pilot-2, 19 Oct 2026");
+  it("labels simulated numbers with engine, AI level, games and date, no middle dots", () => {
+    const s = simLabel({ engine: "phase-rs v0.113.0", difficulty: "Easy", games: 1234, pod: 4, date: "2026-10-19T04:15:40Z", run: "pilot-2" });
+    expect(s).toBe("Simulated on phase-rs v0.113.0, Easy AI, 1,234 games in 4-player pods, run pilot-2, 19 Oct 2026");
     expect(s).not.toContain("·");
+  });
+
+  it("keeps the card data hash for the Details line, not the label", () => {
+    expect(simDetails("eb309108eb0df708")).toBe("Card data eb309108.");
+    expect(simDetails("eb309108eb0df708, 0123456789abcdef")).toBe("Card data eb309108, 01234567.");
+    expect(simDetails(null)).toBeNull();
   });
 
   it("labels a run that stopped early with the games behind its numbers", () => {

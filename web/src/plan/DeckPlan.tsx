@@ -37,7 +37,7 @@ import { useMe } from "../auth";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { Crop, WinBar, winCeiling } from "../components/Crop";
 import { BackButton } from "../components/DeckTabs";
-import { ErrorText, Pips } from "../components/ui";
+import { Details, ErrorText, Pips } from "../components/ui";
 import { pct, pctRange, pointsRange, pointsWord } from "../lab/logic";
 import { pairedFor, simShort, stateLabel, useRuns, variantState, type PlanSim } from "../lab/paired";
 import { CardSheet } from "../pages/Cards";
@@ -158,7 +158,12 @@ export function DeckPlan() {
               <span className="plan-question-text">
                 <b>{lead}</b>
                 {rest && <span>{rest}</span>}
-                {n.source && <span className="small">From {n.source}. Settle it with your planner, or suggest a change below.</span>}
+                <span className="small">Settle it with your planner, or suggest a change below.</span>
+                {n.source && (
+                  <Details>
+                    <p>From {n.source}.</p>
+                  </Details>
+                )}
               </span>
             </section>
           );

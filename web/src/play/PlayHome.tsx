@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, type DeckSummary, type Playgroup } from "../api";
+import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { ErrorText } from "../components/ui";
 import { OnlineSupport } from "../components/OnlineSupport";
@@ -60,7 +61,7 @@ export function PlayHome() {
   const status = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null }>("/api/play/status") });
   const current = games.data?.find((g) => g.status === "in_progress" && g.you !== null);
   const others = games.data?.filter((g) => g !== current) ?? [];
-  const listArt = others.flatMap((g) => g.seats.filter((s) => s.commander_art).slice(0, 2));
+  const listArt = others.flatMap((g) => g.seats.filter((s) => s.commander_art).slice(0, 4));
 
   return (
     <main className="page play-home">
@@ -81,13 +82,10 @@ export function PlayHome() {
             <ul className="ph-game-list">
               {others.map((g) => {
                 const st = gameStatus(g);
-                const arts = g.seats.filter((s) => s.commander_art).slice(0, 2);
                 return (
                   <li key={g.id}>
                     <Link to={`/play/${g.id}`} className="ph-game">
-                      <span className="ph-game-art" aria-hidden="true">
-                        {arts.map((s) => <img key={s.seat} src={s.commander_art!} alt="" loading="lazy" />)}
-                      </span>
+                      <ArtMosaic className="ph-game-art" arts={g.seats.map((s) => s.commander_art)} />
                       <span className="ph-game-text">
                         <span className={`ph-game-status ${st.tone}`}>{st.text}</span>
                         <span className="ph-game-who">

@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, API_BASE, type GameRow, type GameSeat, type PlayerStat, type PlaygroupStats, type Playgroup } from "../api";
 import { useLogout, useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { Details, ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats, pct } from "../components/GroupStats";
 import { streakText } from "../components/statsText";
@@ -353,9 +353,11 @@ function ExportGames({ group }: { group?: Playgroup }) {
     <section className="stack" style={{ marginBottom: "2.5rem", gap: "0.6rem" }}>
       <h2 style={{ margin: 0 }}>Export games</h2>
       <p className="dim small" style={{ margin: 0 }}>
-        Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings. The JSON
-        fits commander-decks' data/games.json; the CSV has one row per seat.
+        Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings.
       </p>
+      <Details>
+        <p>The JSON fits commander-decks' data/games.json; the CSV has one row per seat.</p>
+      </Details>
       {group && (
         <div className="row">
           <span style={{ minWidth: "9rem" }}>{group.name}</span>

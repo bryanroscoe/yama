@@ -400,7 +400,8 @@ fieldset.seat.seat-card2 {
   border-radius: 14px;
   background: var(--surface);
 }
-/* The winner's commander art; a raised block for a draw or a game still going. */
+/* The winner's commander art; for a draw or a game still going, every seat's art as a 2×2
+   mosaic (components/ArtMosaic.tsx). */
 .rg-art {
   display: block;
   width: 64px;
@@ -414,6 +415,9 @@ fieldset.seat.seat-card2 {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.rg-art.art-mosaic {
+  display: grid;
 }
 .rg-text {
   display: flex;

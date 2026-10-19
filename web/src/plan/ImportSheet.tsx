@@ -1,7 +1,7 @@
 import { fmtDate, type ImportReport, type RowCounts } from "@yama/core/plan";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Sheet } from "../components/ui";
 import { uploadPlan } from "./api";
 import { shortHash } from "./PlanLayout";
 import type { PlanView } from "./view";
@@ -88,9 +88,12 @@ function Report({ report: r, view, applied }: { report: ImportReport; view: Plan
   const warnings = older ? r.warnings.filter((w) => !w.startsWith("This file is guide v")) : r.warnings;
   if (r.unchanged) {
     return (
-      <p>
-        This file is the plan Yama already has (plan {shortHash(r.content_hash)}). Nothing to import.
-      </p>
+      <>
+        <p>This file is the plan Yama already has. Nothing to import.</p>
+        <Details>
+          <p>Plan {shortHash(r.content_hash)}.</p>
+        </Details>
+      </>
     );
   }
   return (
@@ -107,17 +110,30 @@ function Report({ report: r, view, applied }: { report: ImportReport; view: Plan
         <dd>
           {r.app ?? "Unknown planner"}
           {r.guide_version != null ? `, guide v${r.guide_version}` : ""}
-          {r.guide_date ? ` of ${fmtDate(r.guide_date)}` : ""}, plan {shortHash(r.content_hash)}
-          {r.git_sha ? `, commit ${r.git_sha.slice(0, 7)}` : ""}
-          {r.dirty ? " with uncommitted changes" : ""}
+          {r.guide_date ? ` of ${fmtDate(r.guide_date)}` : ""}
         </dd>
         <dt>In Yama {applied ? "before" : "now"}</dt>
         <dd>
           {before?.content_hash
-            ? `${before.guide_version != null ? `Guide v${before.guide_version}, ` : ""}plan ${shortHash(before.content_hash)}${before.git_sha ? `, commit ${before.git_sha.slice(0, 7)}` : ""}${before.imported_at ? `, imported ${fmtDate(before.imported_at)}` : ""}`
+            ? [before.guide_version != null ? `Guide v${before.guide_version}` : "A plan", before.imported_at ? `imported ${fmtDate(before.imported_at)}` : null]
+                .filter(Boolean)
+                .join(", ")
             : "No plan yet"}
         </dd>
       </dl>
+      <Details>
+        <p>
+          This file: plan {shortHash(r.content_hash)}
+          {r.git_sha ? `, commit ${r.git_sha.slice(0, 7)}` : ""}
+          {r.dirty ? " with uncommitted changes" : ""}.
+        </p>
+        {before?.content_hash && (
+          <p>
+            In Yama {applied ? "before" : "now"}: plan {shortHash(before.content_hash)}
+            {before.git_sha ? `, commit ${before.git_sha.slice(0, 7)}` : ""}.
+          </p>
+        )}
+      </Details>
       {older && (
         <p>
           <span className="tag warn">Older file</span> This file is guide v{r.guide_version}, older than the guide v{before?.guide_version} plan Yama has.

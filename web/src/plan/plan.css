@@ -866,7 +866,9 @@
   color: var(--dim);
 }
 
-/* One proposal: the full card with the cut card tilted over its corner. */
+/* One proposal: the full incoming card with the cut card beside it. Nothing may sit on a card's
+   rules text: on phones the cut card overlaps only the incoming card's art box, and on laptops
+   the two sit side by side. */
 .review-card {
   display: flex;
   flex-direction: column;
@@ -887,10 +889,13 @@
 .review-fig {
   margin: 0;
 }
+/* Phones: the incoming card takes 72% of the width. The cut card (30%) hangs at the right, its
+   top at 12% of the incoming card's height, so where the two meet it covers only the art box
+   (which runs from about 11% to 55% of a card's height), never the type line or text box. */
 .review-stack {
   position: relative;
   display: block;
-  padding-right: 64px;
+  padding-right: 28%;
 }
 .review-fig .review-in {
   display: block;
@@ -900,8 +905,8 @@
 .review-cut {
   position: absolute;
   right: 0;
-  bottom: 8px;
-  width: 92px;
+  top: 12%;
+  width: 30%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -911,7 +916,7 @@
 }
 .review-cut .review-out {
   display: block;
-  width: 92px;
+  width: 100%;
   border-radius: var(--card-radius);
   box-shadow: 0 10px 24px rgb(0 0 0 / 0.6);
   transform: rotate(4deg);
@@ -1143,28 +1148,33 @@
   box-shadow: none;
   align-items: start;
 }
+/* Laptops: the two cards side by side, the cut card about 40% of the pair's width and set a
+   little lower, with no overlap at all. */
 .review-card.is-wide .review-fig {
-  flex: 0 1 300px;
+  flex: 0 1 400px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 14px;
 }
 .review-card.is-wide .review-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 14px;
+  align-items: start;
   padding-right: 0;
 }
 .review-card.is-wide .review-in {
-  max-width: 300px;
   box-shadow: 0 24px 50px rgb(0 0 0 / 0.55);
 }
 .review-card.is-wide .review-cut {
-  right: -4px;
-  bottom: -14px;
-  width: 130px;
+  position: static;
+  width: auto;
+  margin-top: 40px;
   font-size: var(--t-sm);
 }
 .review-card.is-wide .review-out {
-  width: 130px;
-  transform: rotate(5deg);
+  box-shadow: 0 16px 30px rgb(0 0 0 / 0.6);
+  transform: none;
 }
 .review-card.is-wide .review-body {
   flex: 1 1 320px;

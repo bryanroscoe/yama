@@ -3,10 +3,10 @@ import { buyList, daysBetween, deckCounts, deckWarnings, fmtDate, opTime, overvi
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { Pips } from "../components/ui";
+import { Details, Pips } from "../components/ui";
 import { ImportSheet } from "./ImportSheet";
 import { deviceId, outbox, useOutbox } from "./outbox";
-import { headSentence, PlansHead, usePlanOutlet } from "./PlanLayout";
+import { headDetails, PlansHead, usePlanOutlet } from "./PlanLayout";
 import type { PlanView } from "./view";
 
 /** `/decks/plan`: where the plans came from, the totals, and one art tile per deck (design: PlanOverview). */
@@ -55,7 +55,8 @@ export function Overview() {
           {b.head && (
             <div className="area-note plan-head-note" role="note">
               <p>
-                Planned in {b.head.app ?? "an outside planner"}. {headSentence(b.head)} What you do here goes to its inbox
+                Planned in {b.head.app ?? "an outside planner"} and imported {fmtDate(b.head.imported_at)}, so it's read-only here. What you do here goes
+                to its inbox
                 {b.inputs.pending_pull > 0 ? (
                   <>
                     : <b>{b.inputs.pending_pull === 1 ? "1 item waiting." : `${b.inputs.pending_pull} items waiting.`}</b>
@@ -66,12 +67,15 @@ export function Overview() {
                   "."
                 )}
                 {pending > 0 ? <b> {pending === 1 ? "1 answer is" : `${pending} answers are`} saved on this phone, waiting to sync.</b> : null}
-              </p>
-              <p>
-                Lists, swaps and prices come from that export and are read-only here.
-                {b.prices_as_of ? ` Market prices are TCGplayer market via Scryfall, as of ${fmtDate(b.prices_as_of)}.` : " No market prices yet."}
                 {priceAge != null && priceAge > STALE_DAYS ? ` Yama's prices haven't updated for ${priceAge} days.` : ""}
               </p>
+              <Details>
+                <p>{headDetails(b.head)}</p>
+                <p>
+                  Lists, swaps and prices come from that export.
+                  {b.prices_as_of ? ` Market prices are TCGplayer market via Scryfall, as of ${fmtDate(b.prices_as_of)}.` : " No market prices yet."}
+                </p>
+              </Details>
             </div>
           )}
 

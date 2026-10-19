@@ -15,6 +15,7 @@ import {
 import { useMemo, useState } from "react";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
+import { Details } from "../components/ui";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { BoughtLine, MarkBoughtSheet, marketSentence, unmarkBought } from "./marks";
 import type { PlanView } from "./view";
@@ -56,13 +57,16 @@ export function Buy() {
         <p>
           {list.checkedOn.length ? `Stock and prices checked ${list.checkedOn.map(fmtDate).join(", ")}. Recheck before going in.` : "No store stock checks in the plan."}
           {limit != null ? ` Your rule: never more than ${limit}% over market.` : ""}
+          {age != null && age > STALE_DAYS ? ` Yama's prices haven't updated for ${age} days.` : ""}
         </p>
-        <p className="dim">
-          A market price isn't a quote from any store, and a listing doesn't promise the card is still there.{" "}
-          {asOf ? `Market prices are TCGplayer market via Scryfall, as of ${fmtDate(asOf)}.` : "Yama has no market prices for these cards yet."}
-          {age != null && age > STALE_DAYS ? ` Yama's prices haven't updated for ${age} days.` : ""} Flags use your shopping rules in force on each check date.
-          {unsettled.length > 0 ? ` Not settled yet: ${unsettled.join("; ")}.` : ""}
-        </p>
+        <Details>
+          <p>
+            A market price isn't a quote from any store, and a listing doesn't promise the card is still there.{" "}
+            {asOf ? `Market prices are TCGplayer market via Scryfall, as of ${fmtDate(asOf)}.` : "Yama has no market prices for these cards yet."} Flags use your
+            shopping rules in force on each check date.
+          </p>
+          {unsettled.length > 0 && <p>Not settled yet: {unsettled.join("; ")}.</p>}
+        </Details>
       </div>
 
       <div className="plan-figures">

@@ -121,9 +121,19 @@
   font-weight: 400;
   white-space: nowrap;
 }
-/* Full-width tables spread a name and its numbers too far apart on a desktop screen. */
-.group-stats table.plain {
-  max-width: 44rem;
+/* The sections sit side by side as the width allows (one column on a phone), so each table is
+   only as wide as its cell and a name stays near its numbers. */
+.group-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+  gap: 32px 28px;
+  align-items: start;
+}
+.group-stats-grid > section {
+  min-width: 0;
+}
+.group-stats .h2h-more {
+  margin-top: 8px;
 }
 .group-stats .reference {
   color: var(--st-text-dim);

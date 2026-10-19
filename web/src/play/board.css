@@ -1754,7 +1754,11 @@ button.pile-chip:hover {
   font-size: 13px;
   color: var(--dim);
 }
+/* Phones: the credit is the quietest line on the board, 10 px dim at the foot of your board
+   (the laptop's rail has room for it at 11 px). It stays in view because the art it credits is. */
 .pb.phone .pb-credit {
   margin-top: auto;
   padding-top: 8px;
+  font-size: 10px;
+  line-height: 1.3;
 }

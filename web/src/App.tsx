@@ -40,14 +40,18 @@ function Shell() {
   return (
     <div className="shell">
       <nav className="nav" aria-label="Main">
-        <span className="wordmark">Yama</span>
-        {tabs.map((t) => (
-          <NavLink key={t.to} to={t.to} end={t.end}>
-            {t.icon}
-            <span>{t.label}</span>
-          </NavLink>
-        ))}
-        <RailMe />
+        {/* Laptops: the nav is a full-height column (its border runs the whole page) and this
+            block sticks to the window, so the account chip always sits at the window's foot. */}
+        <div className="nav-inner">
+          <span className="wordmark">Yama</span>
+          {tabs.map((t) => (
+            <NavLink key={t.to} to={t.to} end={t.end}>
+              {t.icon}
+              <span>{t.label}</span>
+            </NavLink>
+          ))}
+          <RailMe />
+        </div>
       </nav>
       <NewsNotice />
       <Outlet />
