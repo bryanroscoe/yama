@@ -6,6 +6,7 @@ mod db;
 mod decks;
 mod error;
 mod games;
+mod lab;
 mod play;
 mod playgroups;
 mod routes;
@@ -25,6 +26,14 @@ USAGE:
                                              Import Scryfall bulk data (downloads the
                                              latest files when no FILE is given)
   yama-server import-decks DIR --owner EMAIL Import every .txt deck list in DIR
+  yama-server import-precons INDEX [--playgroup FILE]
+                                             Import the Commander precon catalog from
+                                             commander-decks data/sim/decks/index.json and
+                                             the deck files beside it
+  yama-server import-lab SUMMARY [--owner EMAIL] [--name NAME]
+                                             Import an analysed lab run (summary.json from
+                                             commander-decks scripts/sim/analyze.py); global
+                                             unless --owner is given
   yama-server invite EMAIL                   Allow EMAIL to sign in
   yama-server user add EMAIL [--name NAME] [--admin] [--password-stdin]
                                              Give EMAIL a password for password sign-in
@@ -57,6 +66,34 @@ async fn main() -> anyhow::Result<()> {
             let dir = args.get(1).context("usage: yama-server import-decks DIR --owner EMAIL")?;
             let owner = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
             decks::import_dir(&pool, std::path::Path::new(dir), &owner).await
+        }
+        Some("import-precons") => {
+            let index = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-precons INDEX [--playgroup FILE]")?;
+            let playgroup = flag_value(&args, "--playgroup").map(PathBuf::from);
+            let r = lab::import_precons(&pool, std::path::Path::new(index), playgroup.as_deref()).await?;
+            println!(
+                "precons: {} added, {} updated, {} unchanged; {} lists that aren't precons skipped; {} repeats the index leaves out",
+                r.added, r.updated, r.unchanged, r.skipped, r.left_out
+            );
+            if !r.unresolved.is_empty() {
+                println!("{} card names Yama's card data doesn't know (kept without an oracle id):", r.unresolved.len());
+                for n in &r.unresolved {
+                    println!("  {n}");
+                }
+            }
+            if !r.not_in_index.is_empty() {
+                println!("in Yama but not in this index (left as they are): {}", r.not_in_index.join(", "));
+            }
+            Ok(())
+        }
+        Some("import-lab") => {
+            let summary = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-lab SUMMARY [--owner EMAIL] [--name NAME]")?;
+            let owner = flag_value(&args, "--owner");
+            let name = flag_value(&args, "--name");
+            let r = lab::import_run(&pool, std::path::Path::new(summary), owner.as_deref(), name.as_deref()).await?;
+            let scope = owner.map_or("global".to_string(), |o| format!("owned by {o}"));
+            println!("run {} ({}, {scope}): {}, {} decks rated; id {}", r.name, r.kind, r.outcome, r.ratings, r.id);
+            Ok(())
         }
         Some("backup") => {
             // A consistent copy of the live database (safe while the server runs).

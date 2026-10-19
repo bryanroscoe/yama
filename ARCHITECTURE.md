@@ -210,6 +210,19 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 - **Runtime:** one OS thread per live game with a 32 MiB stack, because the AI search recurses deeply. Views go out over a `watch` channel and WebSocket. The replay log and public log lines are saved after every change, and live games resume after a restart by replaying the log.
 - **Hidden information:** Yama's own view type never includes libraries or opponents' hands. phase's filtered state still names opponents' library cards internally, so never send the raw engine state to a client.
 
+### Simulation lab (2026-10-19)
+
+Bryan wants to know how the Commander precons do against each other, and to test his own deck changes. The design and analysis live in commander-decks (`docs/deck-lab-plan.md`, `scripts/sim/`); Yama plays the games and shows the results.
+
+- **Core:** `play/src/lab.rs` plays one all-AI game from a schedule line (`GameSpec`) and returns its result line (`GameResult`). It covers the turn, action and per-turn loop caps, the per-thread CPU-time cap, and panic isolation on a named 32 MiB thread. A watchdog can write off a hung game from what the game last published (`Live`). The JSON-lines schedule and result formats are the contract with the Python analysis. A result line for a given schedule line must not change under a refactor (apart from `ms`, and `runner`, which names the build).
+- **Batch runner:** `play/src/bin/lab.rs` is a thin CLI over the core. It adds threads, resume (`--skip-done`), the hang watchdog with clean restarts, and deck loading. It runs on the Mac and on saget (`deploy/lab.sh`).
+- **Tables** (migration 0007):
+  - `precons` is the global catalog, imported from commander-decks' `data/sim/decks/index.json` with `yama-server import-precons`. Precons that repeat an earlier list are left out of that index (Bryan, 2026-10-19), so they're never imported.
+  - `lab_runs` and `lab_ratings` hold analysed runs (`summary.json` from `analyze.py`), imported with `yama-server import-lab`. A run with no owner is global; a run with an owner is visible to that owner only.
+  - `lab_experiments` and `lab_experiment_games` are for "Try a change": a user's own paired runs, played by the server on the core, one row per scheduled game so a restart resumes.
+- **APIs:** `GET /api/precons` (the latest global precon-ratings run joined in), `GET /api/precons/{id}` (list, rating, 1v1 matchups from the run's matrix), `POST /api/precons/{id}/deck` (a Yama deck from the stock list, idempotent with `op_id`), `GET /api/lab/runs` and `GET /api/lab/runs/{id}` (global and own; anyone else's is a 404).
+- **Labels:** every simulated number travels with its run's engine, card data, runner, AI level, games and dates. It is shown apart from real-game stats. playgroup.gg numbers carry their own source and fetch date.
+
 ## 11. Risks
 
 - **Legal and IP:**

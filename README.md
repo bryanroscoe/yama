@@ -20,6 +20,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Prices | Daily Scryfall snapshots kept by date (`YAMA_AUTO_IMPORT=1`) |
 | Online play | Commander on the phase-rs rules engine (`play/`): lobby, friends join by code, AI seats (Easy/Medium/Hard), legal options only, auto-pass, per-seat hidden information, replay log saved after every move, games resume after a restart, final boards rebuilt from replays. Readable board: hover a card for a full-size preview (desktop), tap for the card with its rules text and your options for it (phone); on phones your options and hand sit in a dock at the bottom. Needs the engine card data (below) |
 | Scanner | In progress (docs/scanner.md) |
+| Simulation lab | Batch runner for all-AI games (`play/src/bin/lab.rs`, core in `play/src/lab.rs`); the Commander precon catalog and analysed rating runs imported from commander-decks, with read APIs. Pages and "Try a change" are in progress |
 
 ## Run it locally
 
@@ -50,6 +51,8 @@ Optional:
 ```sh
 ./target/debug/yama-server import-decks ../commander-decks/decks --owner you@example.com
 ./target/debug/yama-server invite friend@gmail.com
+./target/debug/yama-server import-precons ../commander-decks/data/sim/decks/index.json   # precon catalog
+./target/debug/yama-server import-lab ../commander-decks/data/sim/runs/pilot-2/summary.json  # a global rating run
 ```
 
 ### Signing in locally

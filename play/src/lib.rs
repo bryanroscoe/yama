@@ -39,6 +39,8 @@ use serde::{Deserialize, Serialize};
 
 pub use phase_ai::config::AiDifficulty as Difficulty;
 
+pub mod lab;
+
 /// Engine build plus the card data it was built against. Stored with every game, because a
 /// replay only reproduces under the same pair.
 pub const ENGINE_VERSION: &str = "phase-v0.113.0+0571ee32-yama1/cards-eb309108";
