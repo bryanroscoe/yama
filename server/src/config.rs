@@ -46,10 +46,19 @@ impl Config {
         let engine_card_data = std::env::var("YAMA_ENGINE_CARD_DATA")
             .map(PathBuf::from)
             .unwrap_or_else(|_| data_dir.join("engine/card-data-eb309108eb0df708.json"));
+        let bind = std::env::var("YAMA_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
+        // Dev login lets anyone in as anyone, so it only works on a server only this machine can reach.
+        let loopback = bind.parse::<std::net::SocketAddr>().is_ok_and(|a| a.ip().is_loopback());
+        let dev_login = flag("YAMA_DEV_LOGIN") && {
+            if !loopback {
+                eprintln!("YAMA_DEV_LOGIN ignored: YAMA_BIND {bind} is reachable from other machines. Use `yama-server user add` instead.");
+            }
+            loopback
+        };
         Ok(Self {
             database_url: std::env::var("DATABASE_URL")
                 .unwrap_or_else(|_| format!("sqlite://{}/yama.db", data_dir.display())),
-            bind: std::env::var("YAMA_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into()),
+            bind,
             web_dist: std::env::var("YAMA_WEB_DIST").ok().map(PathBuf::from),
             // Client IDs are case-sensitive; don't lowercase them.
             google_client_ids: std::env::var("YAMA_GOOGLE_CLIENT_IDS")
@@ -59,7 +68,7 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .collect(),
             admin_emails: list("YAMA_ADMIN_EMAILS"),
-            dev_login: flag("YAMA_DEV_LOGIN"),
+            dev_login,
             data_dir,
             secure_cookies: flag("YAMA_SECURE_COOKIES"),
             cors_origins: list("YAMA_CORS_ORIGINS"),

@@ -49,6 +49,7 @@ export function useLogout() {
 interface AuthConfig {
   google_client_id: string | null;
   dev_login: boolean;
+  password_login: boolean;
   cf_access: boolean;
 }
 
@@ -84,6 +85,7 @@ export function Login() {
   const [error, setError] = useState<unknown>(null);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
 
   const signedIn = (r: { user: User; token: string }) => {
     setToken(r.token);
@@ -97,6 +99,12 @@ export function Login() {
   });
   const dev = useMutation({
     mutationFn: () => api<{ user: User; token: string }>("/api/auth/dev", { method: "POST", json: { email, name } }),
+    onSuccess: signedIn,
+    onError: setError,
+  });
+
+  const withPassword = useMutation({
+    mutationFn: () => api<{ user: User; token: string }>("/api/auth/password", { method: "POST", json: { email, password } }),
     onSuccess: signedIn,
     onError: setError,
   });
@@ -134,8 +142,36 @@ export function Login() {
             <button className="primary" onClick={() => location.reload()}>Sign in</button>
           </div>
         )}
-        {config.data && !clientId && !config.data.dev_login && !config.data.cf_access && (
-          <p className="dim">Sign-in isn't set up on this server yet. Set YAMA_GOOGLE_CLIENT_IDS, or YAMA_DEV_LOGIN=1 for local use.</p>
+        {config.data && !clientId && !config.data.dev_login && !config.data.cf_access && !config.data.password_login && (
+          <p className="dim">
+            Sign-in isn't set up on this server yet. Set YAMA_GOOGLE_CLIENT_IDS, add an account with <code>yama-server user add</code>, or set
+            YAMA_DEV_LOGIN=1 for local use.
+          </p>
+        )}
+        {config.data?.password_login && (
+          // Accounts made with `yama-server user add`. Tucked away when Google sign-in is the usual way in.
+          <details open={!clientId && !config.data.cf_access && !config.data.dev_login}>
+            <summary className="dim small">Sign in with a password</summary>
+            <form
+              className="stack"
+              onSubmit={(e) => {
+                e.preventDefault();
+                withPassword.mutate();
+              }}
+            >
+              <label>
+                Email
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
+              </label>
+              <label>
+                Password
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
+              </label>
+              <button className="primary" disabled={withPassword.isPending}>
+                {withPassword.isPending ? "Signing in…" : "Sign in"}
+              </button>
+            </form>
+          </details>
         )}
         {config.data?.dev_login && (
           <form
@@ -145,6 +181,7 @@ export function Login() {
               dev.mutate();
             }}
           >
+            <p className="dim small">Development sign-in: any email, no password. Only works on a local server.</p>
             <label>
               Email
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />

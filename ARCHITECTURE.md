@@ -100,7 +100,7 @@ Where our own rules work goes:
 
 - **One Rust server and one SQLite database.** At friend-group scale this runs on one Fly.io machine or a small VM.
 - **Game state:** live games and table rooms sit in memory and are rebuilt from the event log after a restart.
-- **Auth:** Google OIDC with an invite allowlist. Native Google sign-in on mobile; the server checks the ID token and issues our own session token.
+- **Auth:** Google OIDC with an invite allowlist. Native Google sign-in on mobile; the server checks the ID token and issues our own session token. Password accounts (argon2id) are created only from the server's command line (`yama-server user add`), for debugging, test players, or when Google is unavailable. The email-only dev login works only when the server listens on localhost.
 - **Play is server-authoritative.** The server sends each seat only what that seat may see, which protects hidden information. Clients send `{expected_revision, action}`. The server checks the action against the engine's legal list, applies it, appends the event and broadcasts filtered views. Details are in the first draft and carry over unchanged.
 
 ## 5. Offline-first data (Table, Collection, Cards)

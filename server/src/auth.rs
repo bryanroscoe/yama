@@ -24,6 +24,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/auth/google", post(google_login))
         .route("/api/auth/dev", post(dev_login))
+        .route("/api/auth/password", post(password_login))
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/config", get(auth_config))
         .route("/api/me", get(me))
@@ -96,16 +97,22 @@ struct LoginResponse {
 struct AuthConfig {
     google_client_id: Option<String>,
     dev_login: bool,
+    /// Some account has a password (`yama-server user add`), so show the password form.
+    password_login: bool,
     /// Signed in by Cloudflare Access before the app loads; sign-out goes through Cloudflare too.
     cf_access: bool,
 }
 
-async fn auth_config(State(st): State<AppState>) -> Json<AuthConfig> {
-    Json(AuthConfig {
+async fn auth_config(State(st): State<AppState>) -> AppResult<Json<AuthConfig>> {
+    let password_login: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE password_hash IS NOT NULL)")
+        .fetch_one(&st.pool)
+        .await?;
+    Ok(Json(AuthConfig {
         google_client_id: st.cfg.google_client_ids.first().cloned(),
         dev_login: st.cfg.dev_login,
+        password_login,
         cf_access: st.cf_keys.is_some(),
-    })
+    }))
 }
 
 #[derive(Deserialize)]
@@ -163,6 +170,136 @@ async fn dev_login(
     start_session(&st, jar, user).await
 }
 
+#[derive(Deserialize)]
+struct PasswordLogin {
+    email: String,
+    password: String,
+}
+
+/// Sign in to an account given a password with `yama-server user add`. Only someone with a shell
+/// on the server can create one, so these accounts skip the invite check.
+async fn password_login(
+    State(st): State<AppState>,
+    jar: CookieJar,
+    Json(body): Json<PasswordLogin>,
+) -> AppResult<(CookieJar, Json<LoginResponse>)> {
+    let email = body.email.trim().to_lowercase();
+    let row: Option<(String,)> = sqlx::query_as("SELECT password_hash FROM users WHERE email = ? AND password_hash IS NOT NULL")
+        .bind(&email)
+        .fetch_optional(&st.pool)
+        .await?;
+    let ok = match row {
+        Some((hash,)) => {
+            let password = body.password;
+            tokio::task::spawn_blocking(move || verify_password(&password, &hash)).await.unwrap_or(false)
+        }
+        None => false,
+    };
+    if !ok {
+        // Same answer and a pause either way: no hint which emails have accounts, and guessing is slow.
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tracing::warn!(%email, "failed password sign-in");
+        return Err(AppError::Forbidden("wrong email or password".into()));
+    }
+    let user = sqlx::query_as::<_, User>("SELECT id, email, display_name, is_admin FROM users WHERE email = ?")
+        .bind(&email)
+        .fetch_one(&st.pool)
+        .await?;
+    start_session(&st, jar, user).await
+}
+
+// ── local accounts (command line) ──────────────────────────────────────────
+
+/// `yama-server user add`: create the account if needed, give it a password, optionally make it admin.
+/// Returns the generated password when none was supplied.
+pub async fn add_local_user(
+    pool: &SqlitePool,
+    email: &str,
+    name: Option<&str>,
+    admin: bool,
+    password: Option<String>,
+) -> anyhow::Result<Option<String>> {
+    let email = email.trim().to_lowercase();
+    anyhow::ensure!(email.contains('@'), "{email} isn't an email address");
+    let generated = password.is_none().then(generate_password);
+    let password = password.or_else(|| generated.clone()).unwrap();
+    anyhow::ensure!(password.chars().count() >= 12, "use a password of at least 12 characters");
+    let hash = hash_password(&password)?;
+    let name = name.map(str::to_string).unwrap_or_else(|| email.split('@').next().unwrap_or("player").to_string());
+    sqlx::query(
+        "INSERT INTO users (id, email, display_name, is_admin, admin_granted, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash,
+                                          admin_granted = users.admin_granted OR excluded.admin_granted,
+                                          is_admin = users.is_admin OR excluded.admin_granted",
+    )
+    .bind(new_id())
+    .bind(&email)
+    .bind(&name)
+    .bind(admin)
+    .bind(admin)
+    .bind(&hash)
+    .bind(now())
+    .execute(pool)
+    .await?;
+    // A new password ends the account's existing sessions.
+    sqlx::query("DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE email = ?)").bind(&email).execute(pool).await?;
+    Ok(generated)
+}
+
+/// `yama-server user remove-password`: no more password sign-in, and sign the account out everywhere.
+pub async fn remove_local_password(pool: &SqlitePool, email: &str) -> anyhow::Result<bool> {
+    let email = email.trim().to_lowercase();
+    let done = sqlx::query("UPDATE users SET password_hash = NULL WHERE email = ? AND password_hash IS NOT NULL")
+        .bind(&email)
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE email = ?)").bind(&email).execute(pool).await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// `yama-server user list`: who has an account and how they sign in.
+pub async fn list_users(pool: &SqlitePool) -> anyhow::Result<()> {
+    let rows: Vec<(String, String, bool, bool, bool)> = sqlx::query_as(
+        "SELECT email, display_name, is_admin, password_hash IS NOT NULL, google_sub IS NOT NULL FROM users ORDER BY email",
+    )
+    .fetch_all(pool)
+    .await?;
+    for (email, name, admin, password, google) in rows {
+        let how: Vec<&str> = [(google, "google"), (password, "password")].into_iter().filter(|(on, _)| *on).map(|(_, s)| s).collect();
+        println!(
+            "{email:<36} {name:<20} {:<6} {}",
+            if admin { "admin" } else { "" },
+            if how.is_empty() { "dev/access".to_string() } else { how.join(", ") }
+        );
+    }
+    Ok(())
+}
+
+pub fn hash_password(password: &str) -> anyhow::Result<String> {
+    use argon2::password_hash::PasswordHasher;
+    argon2::Argon2::default()
+        .hash_password(password.as_bytes())
+        .map(|h| h.to_string())
+        .map_err(|e| anyhow::anyhow!("hashing password: {e}"))
+}
+
+fn verify_password(password: &str, hash: &str) -> bool {
+    use argon2::password_hash::{PasswordVerifier, phc::PasswordHash};
+    PasswordHash::new(hash).is_ok_and(|h| argon2::Argon2::default().verify_password(password.as_bytes(), &h).is_ok())
+}
+
+/// A generated password: 20 characters from a 32-letter alphabet (100 bits), in groups of five.
+pub fn generate_password() -> String {
+    const ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789A";
+    // Skip the UUID bytes that carry the fixed version and variant bits.
+    let bytes: Vec<u8> = (0..3)
+        .flat_map(|_| uuid::Uuid::new_v4().into_bytes().into_iter().enumerate().filter(|(i, _)| *i != 6 && *i != 8).map(|(_, b)| b))
+        .take(20)
+        .collect();
+    let chars: Vec<char> = bytes.iter().map(|b| ALPHABET[(*b as usize) % ALPHABET.len()] as char).collect();
+    chars.chunks(5).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join("-")
+}
+
 async fn logout(State(st): State<AppState>, jar: CookieJar) -> AppResult<CookieJar> {
     if let Some(c) = jar.get(SESSION_COOKIE) {
         sqlx::query("DELETE FROM sessions WHERE token_hash = ?").bind(sha256_hex(c.value())).execute(&st.pool).await?;
@@ -192,7 +329,7 @@ pub async fn upsert_user(st: &AppState, google_sub: Option<&str>, email: &str, n
     sqlx::query(
         "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(email) DO UPDATE SET google_sub = COALESCE(excluded.google_sub, users.google_sub),
-                                          is_admin = excluded.is_admin",
+                                          is_admin = excluded.is_admin OR users.admin_granted",
     )
     .bind(new_id())
     .bind(google_sub)
@@ -398,4 +535,42 @@ async fn access_user(parts: &Parts, state: &AppState) -> AppResult<Option<User>>
     }
     let name = email.split('@').next().unwrap_or("player").to_string();
     Ok(Some(upsert_user(state, None, &email, &name).await?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_passwords_look_right_and_verify() {
+        let p = generate_password();
+        assert_eq!(p.len(), 23, "{p}");
+        assert_eq!(p.matches('-').count(), 3);
+        assert_ne!(p, generate_password());
+        let hash = hash_password(&p).unwrap();
+        assert!(hash.starts_with("$argon2id$"));
+        assert!(verify_password(&p, &hash));
+        assert!(!verify_password("not the password", &hash));
+        assert!(!verify_password(&p, "garbage"));
+    }
+
+    #[tokio::test]
+    async fn local_accounts_can_be_added_promoted_and_turned_off() {
+        let pool = crate::db::test_pool().await;
+        let generated = add_local_user(&pool, "Debug@Example.com", Some("Debug"), false, None).await.unwrap().unwrap();
+        let (hash, admin): (String, bool) =
+            sqlx::query_as("SELECT password_hash, is_admin FROM users WHERE email = 'debug@example.com'").fetch_one(&pool).await.unwrap();
+        assert!(verify_password(&generated, &hash));
+        assert!(!admin);
+
+        // Adding again with --admin and a chosen password keeps one account and promotes it.
+        assert!(add_local_user(&pool, "debug@example.com", None, true, Some("short".into())).await.is_err());
+        assert!(add_local_user(&pool, "debug@example.com", None, true, Some("a long enough one".into())).await.unwrap().is_none());
+        let (n, admin, granted): (i64, bool, bool) =
+            sqlx::query_as("SELECT COUNT(*), MAX(is_admin), MAX(admin_granted) FROM users").fetch_one(&pool).await.unwrap();
+        assert_eq!((n, admin, granted), (1, true, true));
+
+        assert!(remove_local_password(&pool, "debug@example.com").await.unwrap());
+        assert!(!remove_local_password(&pool, "debug@example.com").await.unwrap());
+    }
 }

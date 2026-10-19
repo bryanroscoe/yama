@@ -52,6 +52,15 @@ Optional:
 ./target/debug/yama-server invite friend@gmail.com
 ```
 
+### Signing in locally
+
+Google sign-in only works on origins added to the OAuth client, so locally use one of these:
+
+- **Dev login** (`YAMA_DEV_LOGIN=1`): any email, no password. Handy for playing as several people in different browsers. It only works while the server listens on localhost (`YAMA_BIND` 127.0.0.1); on any other address it's ignored.
+- **Password accounts**: `./target/debug/yama-server user add debug@example.com --admin` prints a generated password (or pipe one in with `--password-stdin`). The login screen then offers "Sign in with a password". These skip the invite list and work on any server, including saget. `user list` shows every account; `user remove-password EMAIL` turns one off and signs it out.
+
+To debug with real data, stop the local server and run `./deploy/pull-db.sh`. It copies saget's newest backup to `data/yama.db` and keeps your old local database beside it. It only reads from saget unless you pass `--fresh`, which writes a new backup there first. Then sign in as yourself with dev login, or give your account a password with `user add`.
+
 To serve the built web app from the Rust server (one process, as in production): `npm run build`, then `YAMA_WEB_DIST=web/dist ./target/debug/yama-server serve`.
 
 ### Google sign-in

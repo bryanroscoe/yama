@@ -25,6 +25,7 @@ Ask Bryan before any action that changes the server. Read-only checks (`docker p
 - **Google sign-in:** Google Cloud project `yama-512101`, OAuth web client `228285497505-i6ocbd3fndfdrjim4t0p2grsmiglrkfo.apps.googleusercontent.com`, authorized origin `https://yama.saget.org`. The client ID is public and is set in the server's `yama.env`. Yama never needs the client secret; Bryan keeps the downloaded JSON.
   - While the OAuth consent screen is in **Testing** mode, only listed test users can sign in. Either add each friend there, or publish the app (the email and profile scopes need no Google review).
   - Friends also need a Yama invite: `ssh root@<saget-lan-address> docker exec yama yama-server invite friend@gmail.com`. Admins (`YAMA_ADMIN_EMAILS`) can invite from the Group tab instead.
+- **Password accounts:** for debugging on the server, test players, or if Google sign-in breaks. `ssh root@<saget-lan-address> docker exec yama yama-server user add debug@example.com --admin` prints a generated password; the login screen then shows "Sign in with a password". `user list` shows every account; `user remove-password EMAIL` turns one off. Dev login (`YAMA_DEV_LOGIN`) never works here: the container listens on 0.0.0.0, so the server ignores it.
 - **Cloudflare Access:** optional, and not set up yet.
 - **Public route:** `yama.saget.org` → `http://yama:8787` on the `novalyst` tunnel, added by Bryan 2026-10-18 (DNS CNAME to the tunnel). Checked through Cloudflare: HTTPS pages, the API and WebSocket upgrades all reach Yama.
 
@@ -46,6 +47,10 @@ Android only, no app store:
 ssh root@<saget-lan-address> 'docker logs --tail 50 yama'
 curl -s http://<saget-lan-address>:8099/api/health
 ```
+
+## Debugging with real data
+
+`./deploy/pull-db.sh` copies saget's newest backup to the local `data/yama.db` (read-only on saget; `--fresh` writes a new backup first, which changes the server). See "Signing in locally" in the main README.
 
 ## Rollback
 

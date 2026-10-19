@@ -26,6 +26,12 @@ USAGE:
                                              latest files when no FILE is given)
   yama-server import-decks DIR --owner EMAIL Import every .txt deck list in DIR
   yama-server invite EMAIL                   Allow EMAIL to sign in
+  yama-server user add EMAIL [--name NAME] [--admin] [--password-stdin]
+                                             Give EMAIL a password for password sign-in
+                                             (creates the account; prints a generated
+                                             password unless one is piped in)
+  yama-server user remove-password EMAIL     Turn off password sign-in for EMAIL
+  yama-server user list                      Every account and how it signs in
   yama-server backup FILE                    Write a consistent copy of the database
 
 Configuration comes from the environment; see .env.example.";
@@ -65,6 +71,40 @@ async fn main() -> anyhow::Result<()> {
             println!("invited {email}");
             Ok(())
         }
+        Some("user") => match args.get(1).map(String::as_str) {
+            Some("add") => {
+                let email = args.get(2).filter(|a| !a.starts_with("--")).context("usage: yama-server user add EMAIL")?;
+                let password = if args.iter().any(|a| a == "--password-stdin") {
+                    let mut line = String::new();
+                    std::io::stdin().read_line(&mut line)?;
+                    Some(line.trim_end_matches(['\r', '\n']).to_string())
+                } else {
+                    None
+                };
+                let admin = args.iter().any(|a| a == "--admin");
+                let generated = auth::add_local_user(&pool, email, flag_value(&args, "--name").as_deref(), admin, password).await?;
+                println!("{email} can sign in with a password{}", if admin { " (admin)" } else { "" });
+                if let Some(p) = generated {
+                    println!("password: {p}");
+                    println!("It isn't stored anywhere readable; run this again to set a new one.");
+                }
+                Ok(())
+            }
+            Some("remove-password") => {
+                let email = args.get(2).context("usage: yama-server user remove-password EMAIL")?;
+                if auth::remove_local_password(&pool, email).await? {
+                    println!("{email} can no longer sign in with a password");
+                } else {
+                    println!("{email} had no password");
+                }
+                Ok(())
+            }
+            Some("list") => auth::list_users(&pool).await,
+            _ => {
+                eprintln!("{USAGE}");
+                std::process::exit(2);
+            }
+        },
         Some(_) => {
             eprintln!("{USAGE}");
             std::process::exit(2);
