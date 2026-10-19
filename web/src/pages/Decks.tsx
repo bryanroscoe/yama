@@ -2,9 +2,28 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, identityName, newHand, rng, type Goldfish } from "@yama/core";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, usd, type Container, type DeckCard, type DeckEntry, type DeckSummary, type DeckView } from "../api";
+import { api, priceSource, usd, type Container, type DeckCard, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
+import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { CardSheet } from "./Cards";
+
+/** "Own 87 of 100" (still short: warn) or "Own all 100" (good). */
+function ownership(owned: number | undefined, total: number): { text: string; tone: "good" | "warn" } | null {
+  if (owned === undefined) return null;
+  return owned >= total ? { text: `Own all ${total}`, tone: "good" } : { text: `Own ${owned} of ${total}`, tone: "warn" };
+}
+
+/** "6 wins, 3 losses" from finished games with the deck, or "Not played yet". */
+function record(d: Pick<DeckSummary, "games" | "wins" | "draws">): string | null {
+  if (d.games === undefined) return null;
+  if (!d.games) return "Not played yet";
+  const wins = d.wins ?? 0;
+  const draws = d.draws ?? 0;
+  const losses = d.games - wins - draws;
+  const parts = [`${wins} ${wins === 1 ? "win" : "wins"}`, `${losses} ${losses === 1 ? "loss" : "losses"}`];
+  if (draws) parts.push(`${draws} ${draws === 1 ? "draw" : "draws"}`);
+  return parts.join(", ");
+}
 
 export function DecksPage() {
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
@@ -19,23 +38,31 @@ export function DecksPage() {
       {decks.data?.length === 0 && (
         <p className="empty">No decks yet. Paste a list from Moxfield, Archidekt, Arena or a text file to add one.</p>
       )}
-      <div className="list">
-        {decks.data?.map((d) => (
-          <Link key={d.id} to={`/decks/${d.id}`} className="list-row">
-            {d.commander_image ? <img className="art-thumb" src={d.commander_image} alt="" /> : <span className="art-thumb" />}
-            <span>
-              <span className="title">{d.name}</span>
-              <br />
-              <span className="dim small">{d.commanders.join(" and ") || "No commander set"}</span>
-            </span>
-            <span style={{ textAlign: "right" }}>
-              <Pips identity={d.color_identity} />
-              <br />
-              <span className="dim small num">{d.card_count} cards</span>
-            </span>
-          </Link>
-        ))}
-      </div>
+      <ul className="deck-tiles">
+        {decks.data?.map((d) => {
+          const own = ownership(d.owned, d.card_count);
+          const played = record(d);
+          return (
+            <li key={d.id}>
+              <Link to={`/decks/${d.id}`} className="deck-tile">
+                {/* One credit line for every tile's art sits under the grid. */}
+                <ArtPanel art={d.commander_image} artist={d.commander_artist} wash="bottom" empty={!d.commanders.length} credit={false}>
+                  <Pips identity={d.color_identity} />
+                  <span className="deck-tile-name">{d.name}</span>
+                  <span className="deck-tile-meta deck-tile-cmdr">{d.commanders.join(" and ") || "No commander set"}</span>
+                  <span className="deck-tile-foot num">
+                    {own ? <span className={`deck-own ${own.tone}`}>{own.text}</span> : <span>{d.card_count} cards</span>}
+                    {played && <span className="deck-record">{played}</span>}
+                  </span>
+                </ArtPanel>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+      {!!decks.data?.some((d) => d.commander_image) && (
+        <p className="small dim art-credits">{artCredits(decks.data.filter((d) => d.commander_image).map((d) => d.commander_artist))}</p>
+      )}
       {adding && <AddDeck onClose={() => setAdding(false)} />}
     </main>
   );
@@ -110,11 +137,27 @@ function groupOf(e: DeckEntry): string {
   return GROUPS.find(([, test]) => test(t))?.[0] ?? "Other";
 }
 
+/** How many cards a collapsed stack shows before "Show all". */
+const STACK_PEEK = 6;
+
 export function DeckPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const deck = useQuery({ queryKey: ["deck", id], queryFn: () => api<DeckView>(`/api/decks/${id}`) });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const [view, setView] = useState<"all" | "needed">("all");
+  const [layout, setLayoutState] = useState<"stacks" | "list">(() => {
+    const saved = localStorage.getItem("yama.deck.layout");
+    if (saved === "stacks" || saved === "list") return saved;
+    return window.matchMedia("(min-width: 900px)").matches ? "stacks" : "list";
+  });
+  const setLayout = (l: "stacks" | "list") => {
+    localStorage.setItem("yama.deck.layout", l);
+    setLayoutState(l);
+  };
   const [open, setOpen] = useState<string | null>(null);
+  const [preview, setPreview] = useState<DeckEntry | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [editing, setEditing] = useState(false);
   const [goldfish, setGoldfish] = useState(false);
 
@@ -134,86 +177,206 @@ export function DeckPage() {
   if (!d) return <main className="page" />;
   const v = d.validation;
   const o = d.ownership;
+  const commanderEntries = d.cards.filter((e) => e.board === "commander");
+  const commander = commanderEntries.find((e) => e.card?.image_art_crop)?.card;
+  const summary = decks.data?.find((x) => x.id === d.id);
+  const played = summary ? record(summary) : null;
+  const priced = priceSource(o.price_date);
+  const shown = preview ?? commanderEntries[0] ?? d.cards[0] ?? null;
+
+  const stats = (
+    <>
+      <span className="deck-stat">
+        <b className="num">{o.owned}/{o.cards}</b>
+        <span>cards you own</span>
+      </span>
+      <span className="deck-stat">
+        <b className="num">{o.needed ? usd(o.needed_cost_usd) : "Done"}</b>
+        <span>
+          {o.needed ? "to finish, basics excluded" : "nothing left to buy"}
+          {o.needed_without_price > 0 ? `; ${o.needed_without_price} with no price` : ""}. {priced}
+        </span>
+      </span>
+      {played && summary?.games ? (
+        <span className="deck-stat">
+          <b className="num">{summary.wins ?? 0}–{summary.games - (summary.wins ?? 0) - (summary.draws ?? 0)}</b>
+          <span>{played} in Yama games</span>
+        </span>
+      ) : null}
+    </>
+  );
+  const actions = (
+    <>
+      <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
+      <button className="on-art" onClick={() => setEditing(true)}>Edit list</button>
+      <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
+    </>
+  );
 
   return (
-    <main className="page">
-      <p className="small"><Link to="/decks">Decks</Link></p>
-      <div className="page-head">
-        <div>
-          <h1>{d.name}</h1>
-          <p className="dim" style={{ margin: 0 }}>
-            <Pips identity={v.color_identity} /> {identityName(v.color_identity)}, {v.total} cards
-          </p>
-        </div>
-        <div className="row">
-          <button onClick={() => setGoldfish(true)}>Draw a sample hand</button>
-          <button onClick={() => setEditing(true)}>Edit deck</button>
-        </div>
-      </div>
-      {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
-      {goldfish && <SampleHand deck={d} onClose={() => setGoldfish(false)} />}
-
-      <div className="figures">
-        <div className="figure">
-          <b className="num">{o.owned}/{o.cards}</b>
-          <span>cards you own</span>
-        </div>
-        <div className="figure">
-          <b className="num">{o.needed}</b>
-          <span>still needed</span>
-        </div>
-        <div className="figure">
-          <b className="num">{usd(o.needed_cost_usd)}</b>
-          <span>
-            cheapest market price for the rest, basics excluded
-            {o.needed_without_price > 0 ? `; ${o.needed_without_price} have no price` : ""}
+    <main className="deck-page">
+      <ArtPanel as="header" className="deck-hero" art={commander?.image_art_crop} artist={commander?.artist} wash="bottom" toGround credit={false}>
+        <Link to="/decks" className="hero-back" aria-label="Back to decks">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+          <span className="hero-back-text">Decks</span>
+        </Link>
+        {commander && (
+          <span className="hero-credit">
+            <span className="hero-credit-card">{commander.name}. </span>
+            {artCredit(commander.artist)}.
           </span>
-        </div>
-      </div>
-
-      {v.ok ? (
-        <p><span className="tag good">Commander-legal</span> <span className="dim small">by size, singleton, color identity and the ban list in our card data.</span></p>
-      ) : (
-        <div>
-          <p><span className="tag bad">Not legal yet</span></p>
-          <ul className="small">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>
-        </div>
-      )}
-      {v.warnings.length > 0 && <ul className="small dim">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
-
-      <div className="row" role="tablist" style={{ margin: "1rem 0" }}>
-        <button role="tab" aria-selected={view === "all"} className={view === "all" ? "primary" : ""} onClick={() => setView("all")}>Whole deck</button>
-        <button role="tab" aria-selected={view === "needed"} className={view === "needed" ? "primary" : ""} onClick={() => setView("needed")}>Cards you still need</button>
-      </div>
-
-      {groups.map(([group, entries]) => (
-        <section key={group} style={{ marginBottom: "1.5rem" }}>
-          <h3>
-            {group} <span className="dim num">{entries.reduce((a, e) => a + e.qty, 0)}</span>
-          </h3>
-          <div className="list">
-            {entries.map((e) => (
-              <button key={`${e.oracle_id}-${e.board}`} className="list-row" onClick={() => setOpen(e.oracle_id)}>
-                <CardImage src={e.card?.image_small} name={e.name} className="thumb" />
-                <span>
-                  <span className="title">{e.qty > 1 ? `${e.qty} ` : ""}{e.name}</span> <ManaCost cost={e.card?.mana_cost ?? null} />
-                  <br />
-                  <span className="small dim">
-                    {e.owned > 0 ? `Own ${e.owned}: ${Object.entries(e.locations).map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ""}`).join(", ")}` : e.proxies > 0 ? "Proxy only" : "Not owned"}
-                  </span>
-                </span>
-                <span className="small num" style={{ textAlign: "right" }}>
-                  {e.needed > 0 ? <span className="tag">need {e.needed}</span> : <span className="tag good">have</span>}
-                  {e.needed > 0 && <><br /><span className="dim">{usd(e.cheapest_usd)}</span></>}
-                </span>
-              </button>
-            ))}
+        )}
+        <div className="hero-inner">
+          <span className="hero-sub">
+            <Pips identity={v.color_identity} />
+            <span>
+              {commanderEntries.map((e) => e.name).join(" and ") || "No commander set"}. {identityName(v.color_identity)}
+            </span>
+          </span>
+          <h1 className="hero-title">{d.name}</h1>
+          <div className="hero-row">
+            <div className="hero-stats">{stats}</div>
+            <div className="hero-actions">{actions}</div>
           </div>
-        </section>
-      ))}
-      {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
+        </div>
+      </ArtPanel>
+
+      <div className="page deck-body">
+        <div className="deck-stats-tiles">{stats}</div>
+        <div className="row deck-actions-phone">{actions}</div>
+        {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
+        {goldfish && <SampleHand deck={d} onClose={() => setGoldfish(false)} />}
+
+        <div className="deck-legal">
+          {v.ok ? (
+            <p><span className="tag good">Commander-legal</span> <span className="dim small">by size, singleton, color identity and the ban list in our card data.</span></p>
+          ) : (
+            <div>
+              <p><span className="tag bad">Not legal yet</span></p>
+              <ul className="small">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>
+            </div>
+          )}
+          {v.warnings.length > 0 && <ul className="small dim">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+        </div>
+
+        <div className="deck-toolbar">
+          <div className="segmented" role="tablist" aria-label="Show">
+            <button role="tab" aria-selected={view === "all"} onClick={() => setView("all")}>Whole deck</button>
+            <button role="tab" aria-selected={view === "needed"} onClick={() => setView("needed")}>Still need {o.needed}</button>
+          </div>
+          <div className="segmented" role="group" aria-label="View">
+            <button aria-pressed={layout === "stacks"} onClick={() => setLayout("stacks")}>Stacks</button>
+            <button aria-pressed={layout === "list"} onClick={() => setLayout("list")}>List</button>
+          </div>
+        </div>
+
+        {groups.length === 0 && <p className="empty">Nothing left to get for this deck.</p>}
+
+        {layout === "stacks" ? (
+          <div className="deck-stacks-wrap">
+            <div className="deck-stacks">
+              {groups.map(([group, entries]) => {
+                const count = entries.reduce((a, e) => a + e.qty, 0);
+                const need = entries.reduce((a, e) => a + e.needed, 0);
+                const all = expanded.has(group) || entries.length <= STACK_PEEK + 1;
+                const cards = all ? entries : entries.slice(0, STACK_PEEK);
+                return (
+                  <section key={group} className="deck-stack" aria-label={group}>
+                    <h2>
+                      {group} <span className="deck-stack-meta num">{count}{need && view === "all" ? `, need ${need}` : ""}</span>
+                    </h2>
+                    <div className="stack-cards">
+                      {cards.map((e) => (
+                        <button
+                          key={`${e.oracle_id}-${e.board}`}
+                          className="stack-card"
+                          onClick={() => setOpen(e.oracle_id)}
+                          onMouseEnter={() => setPreview(e)}
+                          onFocus={() => setPreview(e)}
+                          aria-label={`${e.qty > 1 ? `${e.qty} ` : ""}${e.name}${e.needed > 0 ? `, need ${e.needed}` : ""}`}
+                        >
+                          <CardImage src={e.card?.image_normal} name={e.name} />
+                          {e.needed > 0 && <span className="need-badge">Need{e.needed > 1 ? ` ${e.needed}` : ""}</span>}
+                          {e.qty > 1 && <span className="qty-badge num">×{e.qty}</span>}
+                        </button>
+                      ))}
+                    </div>
+                    {entries.length > STACK_PEEK + 1 && (
+                      <button
+                        className="small stack-more"
+                        onClick={() => setExpanded((cur) => {
+                          const next = new Set(cur);
+                          if (next.has(group)) next.delete(group);
+                          else next.add(group);
+                          return next;
+                        })}
+                      >
+                        {expanded.has(group) ? "Show fewer" : `Show all ${entries.length}`}
+                      </button>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+            {shown && (
+              <aside className="deck-preview" aria-label="Card preview">
+                <CardImage src={shown.card?.image_normal} name={shown.name} />
+                <div className="deck-preview-facts">
+                  <b>{shown.name}</b>
+                  <CardStatus e={shown} />
+                  {shown.board !== "side" && (
+                    <span>
+                      {shown.cheapest_usd != null ? <>Cheapest {usd(shown.cheapest_usd)} </> : "No price "}
+                      <span className="dim">{priced}</span>
+                    </span>
+                  )}
+                </div>
+              </aside>
+            )}
+          </div>
+        ) : (
+          groups.map(([group, entries]) => (
+            <section key={group} className="deck-group">
+              <h3>
+                {group} <span className="dim num">{entries.reduce((a, e) => a + e.qty, 0)}</span>
+              </h3>
+              <div className="list">
+                {entries.map((e) => (
+                  <button key={`${e.oracle_id}-${e.board}`} className="list-row" onClick={() => setOpen(e.oracle_id)}>
+                    <CardImage src={e.card?.image_small} name={e.name} className="thumb" />
+                    <span>
+                      <span className="title">{e.qty > 1 ? `${e.qty} ` : ""}{e.name}</span> <ManaCost cost={e.card?.mana_cost ?? null} />
+                      <br />
+                      <CardStatus e={e} small />
+                    </span>
+                    <span className="small num" style={{ textAlign: "right" }}>
+                      {e.needed > 0 ? <span className="tag warn">Need {e.needed}</span> : <span className="tag good">Have</span>}
+                      {e.needed > 0 && <><br /><span className="dim">{usd(e.cheapest_usd)}</span></>}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))
+        )}
+        <p className="small dim">
+          Prices are each card's cheapest printing, for one copy: {priced}. A market price isn't a quote from any store.
+        </p>
+        {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
+      </div>
     </main>
   );
+}
+
+/** Where your copies are, or that you still need it (in the warn color). */
+function CardStatus({ e, small = false }: { e: DeckEntry; small?: boolean }) {
+  const cls = small ? "small" : "";
+  if (e.owned > 0) {
+    const where = Object.entries(e.locations).map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ""}`).join(", ");
+    return <span className={`${cls} dim`}>Own {e.owned}: {where}</span>;
+  }
+  if (e.proxies > 0) return <span className={`${cls} dim`}>Proxy only</span>;
+  return <span className={`${cls} not-owned`}>Not owned</span>;
 }
 
 function listText(cards: DeckCard[]): string {

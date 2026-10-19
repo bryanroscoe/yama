@@ -13,6 +13,8 @@ export interface CardView {
   counters: Record<string, number>;
   types: string[];
   attached_to: unknown;
+  /** Declared as an attacker in the current combat (older servers leave it out). */
+  attacking?: boolean;
 }
 
 export interface PlayerView {
@@ -62,6 +64,8 @@ export interface SeatInfo {
   name: string;
   ai: string | null;
   deck_name: string | null;
+  /** The deck's commander ("A and B" for partners), for its art. */
+  commander?: string | null;
   color_identity: string;
   ready: boolean;
 }
@@ -69,6 +73,9 @@ export interface SeatInfo {
 export interface CardMeta {
   image: string | null;
   back_image: string | null;
+  /** Art crop for square battlefield tiles, and its artist. */
+  art?: string | null;
+  artist?: string | null;
   mana_cost: string | null;
   type_line: string;
   oracle_text: string;

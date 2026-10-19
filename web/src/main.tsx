@@ -3,10 +3,12 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { App } from "./App";
-import "@fontsource/big-shoulders-display/600";
+import "@fontsource/big-shoulders-display/500";
+import "@fontsource/big-shoulders-display/700";
 import "@fontsource/big-shoulders-display/800";
 import "@fontsource/atkinson-hyperlegible-next/400";
 import "@fontsource/atkinson-hyperlegible-next/700";
+import "@fontsource/atkinson-hyperlegible-mono/400";
 import "./styles.css";
 import { refreshOfflineCardsIfStale } from "./offline/cards";
 

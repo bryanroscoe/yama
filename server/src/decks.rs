@@ -166,6 +166,19 @@ struct DeckSummary {
     card_count: i64,
     #[sqlx(skip)]
     commander_image: Option<String>,
+    /// The artist of that art crop, so the deck tile can credit it.
+    #[sqlx(skip)]
+    commander_artist: Option<String>,
+    /// Real (non-proxy) copies you own of the main deck and commanders, out of `card_count`.
+    #[sqlx(skip)]
+    owned: i64,
+    /// Finished games this deck was played in (any version), and how they went.
+    #[sqlx(skip)]
+    games: i64,
+    #[sqlx(skip)]
+    wins: i64,
+    #[sqlx(skip)]
+    draws: i64,
 }
 
 async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<DeckSummary>>> {
@@ -176,22 +189,46 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
     .bind(&user.id)
     .fetch_all(&st.pool)
     .await?;
+    let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
+    let mut owned_by_oracle: HashMap<&str, i64> = HashMap::new();
+    for i in items.iter().filter(|i| !i.proxy) {
+        if let Some(o) = &i.oracle_id {
+            *owned_by_oracle.entry(o.as_str()).or_insert(0) += i.qty;
+        }
+    }
     for d in &mut decks {
+        let (games, wins, draws): (i64, i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*), IFNULL(SUM(g.winner_seat = s.seat), 0), IFNULL(SUM(g.winner_seat IS NULL), 0)
+             FROM game_seats s JOIN games g ON g.id = s.game_id JOIN deck_versions v ON v.id = s.deck_version_id
+             WHERE v.deck_id = ? AND g.status = 'finished'",
+        )
+        .bind(&d.id)
+        .fetch_one(&st.pool)
+        .await?;
+        (d.games, d.wins, d.draws) = (games, wins, draws);
         if let Some(v) = &d.current_version_id {
             let cards = load_version_cards(&st.pool, v).await?;
             d.card_count = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
+            d.owned = cards
+                .iter()
+                .filter(|c| c.board != Board::Side)
+                .map(|c| c.qty.min(owned_by_oracle.get(c.oracle_id.as_str()).copied().unwrap_or(0)))
+                .sum();
             let commanders: Vec<&DeckCard> = cards.iter().filter(|c| c.board == Board::Commander).collect();
             d.commanders = commanders.iter().map(|c| c.name.clone()).collect();
             let mut identity = String::new();
             for c in &commanders {
-                let row: Option<(String, Option<String>)> =
-                    sqlx::query_as("SELECT color_identity, image_art_crop FROM cards WHERE oracle_id = ?")
+                let row: Option<(String, Option<String>, Option<String>)> =
+                    sqlx::query_as("SELECT color_identity, image_art_crop, artist FROM cards WHERE oracle_id = ?")
                         .bind(&c.oracle_id)
                         .fetch_optional(&st.pool)
                         .await?;
-                if let Some((ci, art)) = row {
+                if let Some((ci, art, artist)) = row {
                     identity.push_str(&ci);
-                    d.commander_image = d.commander_image.take().or(art);
+                    if d.commander_image.is_none() && art.is_some() {
+                        d.commander_image = art;
+                        d.commander_artist = artist;
+                    }
                 }
             }
             d.color_identity = "WUBRG".chars().filter(|c| identity.contains(*c)).collect();
@@ -326,6 +363,8 @@ struct OwnershipTotals {
     /// Sum of cheapest prices for needed cards that have a price.
     needed_cost_usd: f64,
     needed_without_price: i64,
+    /// The Scryfall price snapshot those prices come from (YYYY-MM-DD).
+    price_date: Option<String>,
 }
 
 async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<DeckView>> {
@@ -369,11 +408,11 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             *locations.entry(label).or_insert(0) += i.qty;
         }
         let needed = (c.qty - owned).max(0);
-        let cheapest_usd: Option<f64> = if c.board == Board::Side {
-            None
+        let (cheapest_usd, price_date): (Option<f64>, Option<String>) = if c.board == Board::Side {
+            (None, None)
         } else {
-            sqlx::query_scalar(
-                "SELECT MIN(COALESCE(ps.usd, ps.usd_foil, ps.usd_etched)) FROM printings p
+            sqlx::query_as(
+                "SELECT MIN(COALESCE(ps.usd, ps.usd_foil, ps.usd_etched)), MAX(ps.date) FROM printings p
                  JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
                    AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id)
                  WHERE p.oracle_id = ?",
@@ -382,6 +421,9 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             .fetch_one(&st.pool)
             .await?
         };
+        if price_date > totals.price_date {
+            totals.price_date = price_date;
+        }
         if c.board != Board::Side {
             totals.cards += c.qty;
             totals.owned += c.qty.min(owned);

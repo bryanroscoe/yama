@@ -1,5 +1,6 @@
 import { NavLink, Outlet, Route, Routes } from "react-router";
 import { Login, useMe } from "./auth";
+import { RailMe } from "./components/RailMe";
 import { CardsIcon, CollectionIcon, DecksIcon, GroupIcon, PlayIcon, TableIcon } from "./components/icons";
 import { ErrorText } from "./components/ui";
 import { CardsPage } from "./pages/Cards";
@@ -31,6 +32,7 @@ function Shell() {
             <span>{t.label}</span>
           </NavLink>
         ))}
+        <RailMe />
       </nav>
       <Outlet />
     </div>

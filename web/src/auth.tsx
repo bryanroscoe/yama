@@ -1,7 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, setToken, type User } from "./api";
-import { ErrorText, Pips } from "./components/ui";
+import { ArtPanel } from "./components/ArtPanel";
+import { ErrorText } from "./components/ui";
+
+/** The sign-in page's art: Éowyn, Shieldmaiden by Craig Elliott, loaded from Scryfall at runtime. */
+const SIGN_IN_ART = "https://cards.scryfall.io/art_crop/front/d/d/dd4a00ff-2206-4e12-a0ab-61ed82c9e6c5.jpg";
 
 const ME_KEY = "yama.me";
 
@@ -128,12 +132,17 @@ export function Login() {
   }, [clientId]);
 
   return (
-    <main className="login">
+    <main className="login login-split">
+      <ArtPanel as="section" className="login-hero" art={SIGN_IN_ART} artist="Craig Elliott" wash="bottom" credit={false}>
+        <h1>Yama</h1>
+        <p className="login-tag">Life totals, cards, collection and decks for our playgroup.</p>
+        <p className="login-credit">Éowyn, Shieldmaiden. Art by Craig Elliott, ™ &amp; © Wizards of the Coast.</p>
+      </ArtPanel>
+      <section className="login-side" aria-label="Sign in">
       <div className="login-inner">
         <div>
-          <Pips identity="WUBRG" label={false} />
-          <h1>Yama</h1>
-          <p className="dim">Life totals, cards, collection and decks for our playgroup.</p>
+          <h2 className="login-title">Sign in</h2>
+          <p className="dim" style={{ margin: 0 }}>Yama is invite-only. Use the account your host added.</p>
         </div>
         {clientId && <div ref={googleRef} />}
         {config.data?.cf_access && (
@@ -196,7 +205,12 @@ export function Login() {
           </form>
         )}
         <ErrorText error={error ?? config.error} />
+        <p className="small dim" style={{ margin: 0 }}>Offline? The life counter still opens on any phone that has signed in before.</p>
+        <p className="small dim login-notice">
+          Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images from Scryfall.
+        </p>
       </div>
+      </section>
     </main>
   );
 }

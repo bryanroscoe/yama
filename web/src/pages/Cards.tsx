@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
-import { api, usd, type Card, type Printing, type SearchResult } from "../api";
+import { api, priceSource, usd, type Card, type Printing, type SearchResult } from "../api";
+import { ArtPanel } from "../components/ArtPanel";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { offlineCard, offlineSearch } from "../offline/cards";
 import { PriceHistory } from "../components/PriceHistory";
@@ -64,7 +65,7 @@ export function CardsPage() {
           type="search"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Name, or Scryfall syntax like t:elf id<=gw"
+          placeholder="Name, or syntax like t:elf id<=gw"
           aria-label="Search cards"
           autoCapitalize="off"
           autoCorrect="off"
@@ -151,25 +152,27 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
     <Sheet label={card?.name ?? "Card"} onClose={onClose}>
       <ErrorText error={detail.error} />
       {card && (
-        <div className="stack">
-          <div className="sheet-head">
-            <div>
-              <h2 style={{ marginBottom: "0.2rem" }}>{card.name}</h2>
-              <div className="row">
-                <ManaCost cost={card.mana_cost} />
-                <Pips identity={card.color_identity} />
-              </div>
-            </div>
-            <button className="quiet" onClick={onClose}>Close</button>
-          </div>
-          <div style={{ maxWidth: 320 }}>
+        <div className="stack card-sheet">
+          {/* The card's art behind the top of the sheet, washed into the sheet's color, with the
+              whole card standing on it. The full card shows here, so it carries the credit. */}
+          <ArtPanel className="card-hero" art={card.image_art_crop} artist={card.artist} wash="bottom" toGround credit={false}>
+            <button className="hero-close" onClick={onClose}>Close</button>
+          </ArtPanel>
+          <figure className="card-figure">
             <CardImage src={flipped && card.back_image_normal ? card.back_image_normal : card.image_normal} name={card.name} />
+            <figcaption className="small dim">
+              {card.artist ? `Art by ${card.artist}. ` : ""}™ &amp; © Wizards of the Coast. Image from Scryfall.
+            </figcaption>
             {card.back_image_normal && (
               <button className="quiet small" onClick={() => setFlipped((f) => !f)}>Show the other face</button>
             )}
-            {card.artist && <p className="small faint">Illustrated by {card.artist}. Image from Scryfall.</p>}
-          </div>
+          </figure>
           <div>
+            <h2 style={{ marginBottom: "0.3rem" }}>{card.name}</h2>
+            <div className="row" style={{ marginBottom: "0.5rem" }}>
+              <ManaCost cost={card.mana_cost} />
+              <Pips identity={card.color_identity} />
+            </div>
             <p className="dim" style={{ marginBottom: "0.3rem" }}>{card.type_line}</p>
             <p className="oracle">{card.oracle_text}</p>
             {(card.power || card.loyalty) && (
@@ -199,7 +202,7 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
                       <td>
                         <button
                           className="quiet small"
-                          style={{ minHeight: 32, padding: 0, fontWeight: 400, textAlign: "left" }}
+                          style={{ padding: "0 4px", marginInline: -4, fontWeight: 400, textAlign: "left" }}
                           onClick={() => setChart({ id: p.scryfall_id, finish: p.finishes.includes("nonfoil") ? "nonfoil" : (p.finishes[0] as "foil" | "etched"), set: p.set_name })}
                         >
                           {p.set_name}
@@ -214,7 +217,7 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
                             <button
                               key={f}
                               className="small"
-                              style={{ minHeight: 32, padding: "0 0.5rem" }}
+                              style={{ padding: "0 0.6rem", minWidth: 44 }}
                               onClick={() => add.mutate({ p, finish: f })}
                               aria-label={`Add a ${f} ${p.set_name} copy to your collection`}
                             >
@@ -233,7 +236,7 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
               {added && <p className="small" role="status">{added}</p>}
               <ErrorText error={add.error} />
               <p className="small faint">
-                Tap a set to see its price history. +1 adds a regular copy, +F a foil, +E an etched foil. TCGplayer market prices via Scryfall, {detail.data!.printings.find((p) => p.price_date)?.price_date ?? "date unknown"}. A market price isn't a quote from any store.
+                Tap a set to see its price history. +1 adds a regular copy, +F a foil, +E an etched foil. {priceSource(detail.data!.printings.find((p) => p.price_date)?.price_date)}. A market price isn't a quote from any store.
               </p>
             </div>
           )}
@@ -246,5 +249,6 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
 function Legality({ status }: { status: string | undefined }) {
   if (status === "legal") return <span className="tag good">Legal</span>;
   if (status === "banned") return <span className="tag bad">Banned</span>;
-  return <span className="tag">{status ? status.replace("_", " ") : "unknown"}</span>;
+  const text = status ? status.replace("_", " ") : "unknown";
+  return <span className="tag">{text[0]!.toUpperCase() + text.slice(1)}</span>;
 }

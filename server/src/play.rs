@@ -302,6 +302,8 @@ struct SeatInfo {
     name: String,
     ai: Option<String>,
     deck_name: Option<String>,
+    /// The deck's commander, so seats and boards can show its art.
+    commander: Option<String>,
     color_identity: String,
     ready: bool,
 }
@@ -314,6 +316,7 @@ fn seat_infos(seats: &[SeatCfg]) -> Vec<SeatInfo> {
             name: s.name.clone(),
             ai: (s.kind == "ai").then(|| s.difficulty.clone().unwrap_or_else(|| "Medium".into())),
             deck_name: s.deck_name.clone(),
+            commander: s.commander.clone(),
             color_identity: s.color_identity.clone(),
             ready: s.deck_version_id.is_some(),
         })
@@ -731,6 +734,9 @@ async fn connect(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pat
 struct CardMeta {
     image: Option<String>,
     back_image: Option<String>,
+    /// The art crop, for square battlefield tiles, and who painted it.
+    art: Option<String>,
+    artist: Option<String>,
     mana_cost: Option<String>,
     type_line: String,
     oracle_text: String,
@@ -760,7 +766,7 @@ async fn card_meta(pool: &SqlitePool, names: &[String], cache: &mut HashMap<Stri
             continue;
         }
         let meta: Option<CardMeta> = sqlx::query_as(
-            "SELECT c.image_normal AS image, c.back_image_normal AS back_image, c.mana_cost, c.type_line, c.oracle_text
+            "SELECT c.image_normal AS image, c.back_image_normal AS back_image, c.image_art_crop AS art, c.artist, c.mana_cost, c.type_line, c.oracle_text
              FROM card_names n JOIN cards c ON c.oracle_id = n.oracle_id WHERE n.name = ?
              ORDER BY IFNULL(c.layout,'') IN ('token','double_faced_token') LIMIT 1",
         )

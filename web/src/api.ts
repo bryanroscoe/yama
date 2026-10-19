@@ -134,6 +134,12 @@ export interface Container {
   kind: string;
   name: string;
   copies: number;
+  /** Market value of the copies that have a price; the others are counted separately. */
+  market_value_usd?: number;
+  copies_without_price?: number;
+  /** Art crop of the most valuable card inside, and its artist, for the container's tile. */
+  art?: string | null;
+  artist?: string | null;
 }
 
 export interface CollectionSummary {
@@ -178,6 +184,14 @@ export interface DeckSummary {
   color_identity: string;
   card_count: number;
   commander_image: string | null;
+  /** Who painted that art crop, for the credit line. */
+  commander_artist: string | null;
+  /** Real copies you own of the main deck and commanders, out of card_count. */
+  owned?: number;
+  /** Finished games played with any version of this deck. */
+  games?: number;
+  wins?: number;
+  draws?: number;
 }
 
 export interface DeckEntry extends DeckCard {
@@ -197,7 +211,15 @@ export interface DeckView {
   version_id: string | null;
   cards: DeckEntry[];
   validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[] };
-  ownership: { cards: number; owned: number; needed: number; needed_cost_usd: number; needed_without_price: number };
+  ownership: {
+    cards: number;
+    owned: number;
+    needed: number;
+    needed_cost_usd: number;
+    needed_without_price: number;
+    /** The Scryfall price snapshot behind those prices (YYYY-MM-DD). */
+    price_date?: string | null;
+  };
 }
 
 export interface Member {
@@ -247,4 +269,18 @@ export interface GameRow {
   seats: GameSeat[];
 }
 
-export const usd = (v: number | null | undefined) => (v == null ? "no price" : `$${v.toFixed(2)}`);
+/** A market price, or "No price" when there isn't one (never $0). */
+export const usd = (v: number | null | undefined) => (v == null ? "No price" : `$${v.toFixed(2)}`);
+
+/** A price snapshot date ("2026-10-19") as people say it: "Oct 19". Read as a local date, not UTC. */
+export function shortDate(iso: string | null | undefined): string | null {
+  const m = iso?.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/** Where a market price comes from, with its date: "TCGplayer market via Scryfall, Oct 19". */
+export function priceSource(date: string | null | undefined): string {
+  const d = shortDate(date);
+  return d ? `TCGplayer market via Scryfall, ${d}` : "TCGplayer market via Scryfall, date unknown";
+}

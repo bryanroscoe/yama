@@ -23,6 +23,8 @@ export interface PlayerSetup {
   colorIdentity: string;
   /** Small art crop of the commander, if known. */
   art?: string;
+  /** Who painted that art crop, for the credit on the panel. */
+  artist?: string;
 }
 
 export interface TableSetup {

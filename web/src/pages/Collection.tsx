@@ -1,7 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
-import { api, API_BASE, usd, type CollectionItem, type CollectionSummary, type Container, type ImportReport } from "../api";
+import { api, API_BASE, priceSource, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary, type ImportReport } from "../api";
+import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { CardImage, ErrorText, Sheet } from "../components/ui";
+
+const KIND_LABEL: Record<string, string> = { binder: "Binder", box: "Box", deck: "Deck box", list: "List" };
+
+/** "146 cards, $402" for a tile; copies without a price are said, not counted as $0. */
+function tileMeta(copies: number, value: number | undefined, unpriced: number | undefined): string {
+  const cards = `${copies.toLocaleString()} ${copies === 1 ? "card" : "cards"}`;
+  if (value === undefined) return cards;
+  const money = `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  return `${cards}, ${money}${unpriced ? `, ${unpriced} with no price` : ""}`;
+}
 import type { ScanCandidate } from "../scanner";
 
 // The scanner pulls in OCR; load it only when someone opens it.
@@ -16,6 +27,7 @@ export function CollectionPage() {
 
   const summary = useQuery({ queryKey: ["collection-summary"], queryFn: () => api<CollectionSummary>("/api/collection/summary") });
   const containers = useQuery({ queryKey: ["containers"], queryFn: () => api<Container[]>("/api/containers") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const items = useQuery({
     queryKey: ["collection", container, filter],
     queryFn: () => {
@@ -43,6 +55,15 @@ export function CollectionPage() {
   });
 
   const s = summary.data;
+  // A deck box shows its deck's commander; anything else, the most valuable card inside.
+  const tiles = (containers.data ?? []).map((c) => {
+    const deck = decks.data?.find((d) => d.container_id === c.id && d.commander_image);
+    return { c, art: deck ? deck.commander_image : (c.art ?? null), artist: deck ? deck.commander_artist : (c.artist ?? null) };
+  });
+  const filed = (containers.data ?? []).reduce((a, c) => a + c.copies, 0);
+  const loose = s ? s.copies - filed : 0;
+  const chosen = containers.data?.find((c) => c.id === container);
+  const priced = priceSource(s?.price_date);
   return (
     <main className="page">
       <div className="page-head">
@@ -63,8 +84,8 @@ export function CollectionPage() {
           <div className="figure">
             <b className="num">${s.market_value_usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}</b>
             <span>
-              market value{s.price_date ? ` on ${s.price_date}` : ""}
-              {s.copies_without_price > 0 ? `, ${s.copies_without_price} without a price` : ""}
+              market value, {priced}
+              {s.copies_without_price > 0 ? `. ${s.copies_without_price} ${s.copies_without_price === 1 ? "has no price and isn't" : "have no price and aren't"} counted` : ""}
             </span>
           </div>
           <div className="figure">
@@ -74,18 +95,53 @@ export function CollectionPage() {
         </div>
       )}
 
-      <div className="row" style={{ marginBottom: "1rem" }}>
-        <select value={container} onChange={(e) => setContainer(e.target.value)} aria-label="Container" style={{ flex: "0 1 16rem" }}>
-          <option value="">Everything</option>
-          <option value="none">Not filed anywhere</option>
-          {containers.data?.map((c) => (
-            <option key={c.id} value={c.id}>{c.name} ({c.kind}, {c.copies})</option>
-          ))}
-        </select>
-        <input type="search" placeholder="Filter by name" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ flex: "1 1 12rem" }} aria-label="Filter by name" />
-        <button onClick={() => setNewContainer(true)}>New binder, box or deck</button>
+      {(tiles.length > 0 || loose > 0) && (
+        <section className="containers" aria-labelledby="where">
+          <div className="section-head">
+            <h2 id="where">Binders, boxes and decks</h2>
+            <button onClick={() => setNewContainer(true)}>New</button>
+          </div>
+          {newContainer && <NewContainer onClose={() => setNewContainer(false)} />}
+          <ul className="container-tiles">
+            {tiles.map(({ c, art, artist }) => (
+              <li key={c.id}>
+                <button className="container-tile" aria-pressed={container === c.id} onClick={() => setContainer(container === c.id ? "" : c.id)}>
+                  <ArtPanel as="span" art={art} artist={artist} wash="bottom" credit={false}>
+                    <span className="ct-kind">{KIND_LABEL[c.kind] ?? c.kind}</span>
+                    <span className="ct-name">{c.name}</span>
+                    <span className="ct-meta num">{tileMeta(c.copies, c.market_value_usd, c.copies_without_price)}</span>
+                  </ArtPanel>
+                </button>
+              </li>
+            ))}
+            {loose > 0 && (
+              <li>
+                <button className="container-tile" aria-pressed={container === "none"} onClick={() => setContainer(container === "none" ? "" : "none")}>
+                  <ArtPanel as="span" art={null} wash="bottom" empty>
+                    <span className="ct-kind">Not filed</span>
+                    <span className="ct-name">Loose cards</span>
+                    <span className="ct-meta num">{tileMeta(loose, undefined, undefined)}</span>
+                  </ArtPanel>
+                </button>
+              </li>
+            )}
+          </ul>
+          <p className="small dim">
+            Values are {priced}.{" "}
+            {tiles.some((t) => t.art) ? artCredits(tiles.filter((t) => t.art).map((t) => t.artist)) : ""}
+          </p>
+        </section>
+      )}
+      {tiles.length === 0 && loose === 0 && newContainer && <NewContainer onClose={() => setNewContainer(false)} />}
+
+      <div className="section-head">
+        <h2>{chosen ? chosen.name : container === "none" ? "Loose cards" : "Every card"}</h2>
+        {container && <button className="quiet small" onClick={() => setContainer("")}>Show everything</button>}
       </div>
-      {newContainer && <NewContainer onClose={() => setNewContainer(false)} />}
+      <div className="row" style={{ marginBottom: "1rem" }}>
+        <input type="search" placeholder="Filter by name" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ flex: "1 1 12rem" }} aria-label="Filter by name" />
+        {tiles.length === 0 && loose === 0 && <button onClick={() => setNewContainer(true)}>New binder, box or deck</button>}
+      </div>
 
       <ErrorText error={items.error ?? summary.error} />
       {items.data && items.data.length === 0 && !filter && !container && (
@@ -99,8 +155,8 @@ export function CollectionPage() {
             <CardImage src={i.image_small} name={i.name ?? "?"} className="thumb" />
             <span>
               <span className="title">{i.name ?? i.scryfall_id}</span>
-              {i.finish !== "nonfoil" && <span className="tag" style={{ marginLeft: 6 }}>{i.finish}</span>}
-              {i.proxy && <span className="tag" style={{ marginLeft: 6 }}>proxy</span>}
+              {i.finish !== "nonfoil" && <span className="tag" style={{ marginLeft: 6 }}>{i.finish[0]!.toUpperCase() + i.finish.slice(1)}</span>}
+              {i.proxy && <span className="tag" style={{ marginLeft: 6 }}>Proxy</span>}
               <br />
               <span className="dim small">
                 {i.set_name} #{i.collector_number}, {i.condition}
@@ -115,6 +171,11 @@ export function CollectionPage() {
           </button>
         ))}
       </div>
+      {!!items.data?.length && (
+        <p className="small dim">
+          Each price is for one copy in that finish, {priced}. A market price isn't a quote from any store.
+        </p>
+      )}
 
       {open && (
         <Sheet label={open.name ?? "Card"} onClose={() => setOpen(null)}>

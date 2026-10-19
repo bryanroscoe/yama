@@ -6,8 +6,11 @@ import { identityKeys, MANA } from "@yama/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { api, API_BASE } from "../api";
-import { Sheet } from "../components/ui";
-import type { CardMeta, CardView, Decision, OptionView, PlayerView, ServerMessage } from "./types";
+import { ArtPanel, artCredit } from "../components/ArtPanel";
+import { Pips, Sheet } from "../components/ui";
+import { useCardArt } from "../components/useCardArt";
+import { promptText, shortName } from "./text";
+import type { CardMeta, CardView, Decision, OptionView, PlayerView, SeatInfo, ServerMessage, View } from "./types";
 import "./board.css";
 
 type ViewMessage = Extract<ServerMessage, { type: "view" }>;
@@ -48,22 +51,63 @@ const STEP_NAMES: Record<string, string> = {
   EndCombat: "end of combat",
 };
 
-function PhaseTrack({ phase, whose, mine }: { phase: string; whose: string; mine: boolean }) {
+/**
+ * Where the game stops to ask you, by phase, on your turns and on opponents' turns. This mirrors
+ * the server's smart stops (play/src/lib.rs, should_auto_pass): your main phases, combat (declaring
+ * attackers on your turn, blockers on theirs) and an opponent's end step if you could cast
+ * something. Anything on the stack you could answer always stops. Full control stops everywhere.
+ */
+function stopsAt(label: string, fullControl: boolean): { mine: boolean; opp: boolean } {
+  if (fullControl) return { mine: true, opp: true };
+  switch (label) {
+    case "Main 1":
+    case "Main 2":
+      return { mine: true, opp: false };
+    case "Combat":
+      return { mine: true, opp: true };
+    case "End":
+      return { mine: false, opp: true };
+    default:
+      return { mine: false, opp: false };
+  }
+}
+
+function stopText({ mine, opp }: { mine: boolean; opp: boolean }): string {
+  if (mine && opp) return "Stops on every turn.";
+  if (mine) return "Stops on your turns.";
+  if (opp) return "Stops on opponents' turns.";
+  return "Passes unless something is on the stack.";
+}
+
+function PhaseTrack({ phase, whose, mine, fullControl }: { phase: string; whose: string; mine: boolean; fullControl: boolean }) {
   const current = PHASES.findIndex((p) => p.steps.includes(phase));
   return (
     <div className="phases" aria-label={`${mine ? "Your" : `${whose}'s`} turn, ${STEP_NAMES[phase] ?? phase}`}>
       <span className={`whose${mine ? " mine" : ""}`}>{mine ? "Your turn" : `${whose}'s turn`}</span>
       <ol>
-        {PHASES.map((p, i) => (
-          <li key={p.label} className={i === current ? "now" : i < current ? "done" : ""}>
-            {p.label}
-            {i === current && STEP_NAMES[phase] ? <span className="step">: {STEP_NAMES[phase]}</span> : null}
-          </li>
-        ))}
+        {PHASES.map((p, i) => {
+          const stops = stopsAt(p.label, fullControl);
+          return (
+            <li key={p.label} className={i === current ? "now" : i < current ? "done" : ""}>
+              <span className="phase-name">
+                {p.label}
+                {i === current && STEP_NAMES[phase] ? <span className="step">: {STEP_NAMES[phase]}</span> : null}
+              </span>
+              {/* The stop ladder: a filled dot for your turns, an outlined square for opponents'. */}
+              <span className="stops" aria-hidden="true">
+                <span className={`stop-mine${stops.mine ? " on" : ""}`} />
+                <span className={`stop-opp${stops.opp ? " on" : ""}`} />
+              </span>
+              <span className="visually-hidden"> {stopText(stops)}</span>
+            </li>
+          );
+        })}
       </ol>
     </div>
   );
 }
+
+
 
 // ── cards ──────────────────────────────────────────────────────────────────
 
@@ -120,16 +164,27 @@ function CardTile(props: {
   const c = pile.card;
   const count = pile.ids.length;
   const allTapped = pile.tapped === count && count > 0;
+  const attacking = size === "field" && !!c.attacking;
   const counters = Object.entries(c.counters);
+  const label = `${c.name}${command ? ", in the command zone" : ""}${count > 1 ? `, ${count}` : ""}${pile.tapped ? `, ${pile.tapped} tapped` : ""}${attacking ? ", attacking" : ""}${playable ? ", has options" : ""}`;
+  const classes = `tile ${size}${allTapped ? " tapped" : ""}${playable ? " playable" : ""}${selected ? " selected" : ""}${command ? " command" : ""}${attacking ? " attacking" : ""}`;
+  const hover = { onMouseEnter: () => onHover(c), onMouseLeave: () => onHover(null) };
+
+  if (size === "hand") {
+    // Your hand shows whole cards, so you can read them where they are.
+    return (
+      <button className={classes} onClick={() => onPick(pile)} {...hover} aria-label={label}>
+        {meta?.image ? <img src={meta.image} alt="" loading="lazy" draggable={false} /> : <span className="tile-name">{c.name}</span>}
+        {playable && <span className="dot" aria-hidden="true" />}
+      </button>
+    );
+  }
+  // On the battlefield: a square art crop with its name on a bar along the top. The whole card
+  // is a hover (or tap) away.
   return (
-    <button
-      className={`tile ${size}${allTapped ? " tapped" : ""}${playable ? " playable" : ""}${selected ? " selected" : ""}${command ? " command" : ""}`}
-      onClick={() => onPick(pile)}
-      onMouseEnter={() => onHover(c)}
-      onMouseLeave={() => onHover(null)}
-      aria-label={`${c.name}${count > 1 ? `, ${count}` : ""}${pile.tapped ? `, ${pile.tapped} tapped` : ""}${playable ? ", has options" : ""}`}
-    >
-      {meta?.image ? <img src={meta.image} alt="" loading="lazy" draggable={false} /> : <span className="tile-name">{c.name}</span>}
+    <button className={`${classes} square${meta?.art ? "" : " no-art"}`} onClick={() => onPick(pile)} {...hover} aria-label={label}>
+      {meta?.art && <img className="tile-art" src={meta.art} alt="" loading="lazy" draggable={false} />}
+      <span className="tile-bar">{shortName(c.name)}</span>
       <Stat card={c} />
       {count > 1 && (
         <span className="count num">
@@ -139,7 +194,8 @@ function CardTile(props: {
       )}
       {counters.length > 0 && <span className="counters">{counters.map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`).join(", ")}</span>}
       {playable && <span className="dot" aria-hidden="true" />}
-      {command && <span className="zone-tag">Commander</span>}
+      {attacking && <span className="tile-badge attacking-badge">Attacking</span>}
+      {command && !attacking && <span className="zone-tag">Commander</span>}
     </button>
   );
 }
@@ -182,6 +238,48 @@ function Zone(props: {
       )}
       {lands.length > 0 && <div className="tiles lands">{lands.map((p) => tile(p))}</div>}
     </div>
+  );
+}
+
+// ── commander art ──────────────────────────────────────────────────────────
+
+interface SeatArt {
+  art: string | null;
+  artist: string | null;
+}
+
+/**
+ * Each seat's commander art, for the art behind its header. The server names each seat's
+ * commander; older servers don't, so the first commander seen in the command zone is remembered
+ * (for this tab) and stays the seat's art wherever the card goes later. A seat with no known
+ * commander gets the no-art block.
+ */
+function useCommanderArt(gameId: string, view: View | undefined, seats: SeatInfo[]): Map<number, SeatArt> {
+  const key = `yama.play.commanders.${gameId}`;
+  const [names, setNames] = useState<Record<number, string>>(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem(key) ?? "{}") as Record<number, string>;
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (!view) return;
+    const fresh = view.command_zone.filter((c) => !(c.owner in names));
+    if (!fresh.length) return;
+    const next = { ...names };
+    for (const c of fresh) next[c.owner] ??= c.name;
+    setNames(next);
+    sessionStorage.setItem(key, JSON.stringify(next));
+  }, [view, names, key]);
+  const all: Record<number, string> = { ...names };
+  for (const s of seats) if (s.commander) all[s.seat] = s.commander;
+  const found = useCardArt(Object.values(all));
+  return new Map(
+    Object.entries(all).map(([seat, name]) => {
+      const art = found.get(name);
+      return [Number(seat), { art: art?.art ?? null, artist: art?.artist ?? null }];
+    }),
   );
 }
 
@@ -242,6 +340,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
   // A new decision clears a stale card selection.
   const revision = msg?.view.revision;
   useEffect(() => setSelected(null), [revision]);
+  const seatArt = useCommanderArt(id, msg?.view, msg?.seats ?? []);
 
   const send = (data: unknown) => socket.current?.readyState === WebSocket.OPEN && socket.current.send(JSON.stringify(data));
 
@@ -349,7 +448,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
     <div className={`board${wide ? "" : " docked"}`}>
       <header className="board-top">
         <Link to="/play" className="small">Leave</Link>
-        <PhaseTrack phase={view.phase} whose={seatName(view.active)} mine={view.active === you} />
+        <PhaseTrack phase={view.phase} whose={seatName(view.active)} mine={view.active === you} fullControl={fullControl} />
         <button className="quiet small" onClick={() => setLogOpen(true)}>Game log</button>
       </header>
 
@@ -360,6 +459,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
             p={p}
             name={seatName(p.seat)}
             identity={identity(p.seat)}
+            art={seatArt.get(p.seat)}
             active={view.active === p.seat}
             deciding={view.waiting_on.includes(p.seat)}
             cards={view.battlefield.filter((c) => c.controller === p.seat)}
@@ -371,6 +471,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
             onHover={setHover}
           />
         ))}
+        <OpponentCredits arts={others.map((p) => seatArt.get(p.seat))} />
       </section>
 
       <section className="mine" aria-label="Your board">
@@ -405,6 +506,16 @@ export function Board({ id, live }: { id: string; live: boolean }) {
               <p key={i} className="small"><span className="faint num">T{l.turn}</span> {named(l.text)}</p>
             ))}
           </section>
+          {you !== null && !view.over && (
+            <div className="stops-note small">
+              <span className="stop-mine on" aria-hidden="true" />
+              <span>Stops on your turns</span>
+              <span className="stop-opp on" aria-hidden="true" />
+              <span>on opponents' turns.</span>
+              <span>{fullControl ? "Stopping at every step." : "Stopping only where you can act."}</span>
+              <button className="quiet small" onClick={() => setLogOpen(true)}>Change</button>
+            </div>
+          )}
         </aside>
       )}
 
@@ -462,6 +573,10 @@ export function Board({ id, live }: { id: string; live: boolean }) {
                   />
                   Full control: stop at every step, not only where you can act
                 </label>
+                <p className="small dim">
+                  Under each phase, a filled dot means the game stops there on your turns and an outlined square on opponents' turns.
+                  Anything on the stack you could answer always stops.
+                </p>
                 <button className="quiet error" onClick={() => confirm("Concede this game?") && send({ type: "concede" })}>Concede</button>
               </>
             )}
@@ -480,6 +595,7 @@ function Opponent(props: {
   p: PlayerView;
   name: string;
   identity: string;
+  art?: SeatArt;
   active: boolean;
   deciding: boolean;
   cards: CardView[];
@@ -494,17 +610,18 @@ function Opponent(props: {
   const color = MANA[identityKeys(props.identity)[0]!].fill;
   const cmdr = Object.entries(p.commander_damage);
   return (
-    <div className={`opp${props.active ? " active" : ""}${p.eliminated ? " out" : ""}`} style={{ borderColor: props.active ? undefined : color }}>
-      <div className="opp-head" style={{ borderLeftColor: color }}>
+    <div className={`opp${props.active ? " active" : ""}${p.eliminated ? " out" : ""}`}>
+      <ArtPanel className="opp-head" art={props.art?.art} artist={props.art?.artist} wash="left" credit={false} style={{ borderLeftColor: color }}>
         <span className="opp-name">{props.name}</span>
-        <b className="opp-life num">{p.eliminated ? "out" : p.life}</b>
-        <span className="dim small num">
+        <b className="opp-life num">{p.eliminated ? "Out" : p.life}</b>
+        <Pips identity={props.identity} />
+        <span className="art-chip opp-meta num">
           {p.hand} in hand, {p.library} in library
           {p.poison ? `, ${p.poison} poison` : ""}
           {cmdr.map(([n, d]) => `, ${d} from ${n}`).join("")}
         </span>
-        {props.deciding && <span className="thinking small">deciding…</span>}
-      </div>
+        {props.deciding && <span className="art-chip thinking">Deciding</span>}
+      </ArtPanel>
       <Zone
         cards={props.cards}
         command={props.commanders}
@@ -517,6 +634,14 @@ function Opponent(props: {
       />
     </div>
   );
+}
+
+/** The art behind the opponents' headers, credited once for all of them. */
+function OpponentCredits({ arts }: { arts: (SeatArt | undefined)[] }) {
+  const artists = [...new Set(arts.filter((a) => a?.art).map((a) => a!.artist ?? ""))];
+  if (!artists.length) return null;
+  const named = artists.filter(Boolean);
+  return <p className="opp-credits">{artCredit(named.length ? named.join(", ") : null)}</p>;
 }
 
 function DecisionPanel(props: {
@@ -575,10 +700,10 @@ function DecisionPanel(props: {
       <section className="decision compact" aria-live="polite">
         {last}
         <p className="prompt">
-          <b>{decision.prompt}</b>
+          <b>{promptText(decision.prompt)}</b>
           {selectedCard && (
             <>
-              {" "}<span className="dim">· {selectedCard.name}</span>{" "}
+              {" "}<span className="dim prompt-card">{selectedCard.name}</span>{" "}
               <button className="quiet small" onClick={() => props.onRead(selectedCard)}>Read card</button>
               <button className="quiet small" onClick={props.onClear}>All options</button>
             </>
@@ -606,7 +731,7 @@ function DecisionPanel(props: {
 
   return (
     <section className="decision" aria-live="polite">
-      <h2>{decision.prompt}</h2>
+      <h2>{promptText(decision.prompt)}</h2>
       {selectedCard && (
         <div className="selected-card">
           <p className="small">

@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { identityName, type PlayerSetup, type TableSetup } from "@yama/core";
-import { useEffect, useId, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { useEffect, useId, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary, type GameRow, type Playgroup, type SearchResult } from "../api";
 import { useMe } from "../auth";
+import { ArtPanel } from "../components/ArtPanel";
 import { ErrorText, Pips, Sheet } from "../components/ui";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
 
@@ -16,6 +17,7 @@ interface SeatDraft {
   commanderName: string;
   colorIdentity: string;
   art?: string;
+  artist?: string;
 }
 
 const LAST_SETUP = "yama.table.lastSetup";
@@ -43,7 +45,7 @@ export function TableHome() {
                   {p.commanderName && <span className="dim"> playing {p.commanderName}</span>}
                 </span>
                 <span className="num" style={{ fontFamily: "var(--display)", fontWeight: 800, fontSize: "var(--t-lg)" }}>
-                  {p.eliminated ? "out" : p.life}
+                  {p.eliminated ? "Out" : p.life}
                 </span>
               </div>
             ))}
@@ -108,6 +110,35 @@ function NewGame({ onStart }: { onStart: () => void }) {
     }
   }, []);
 
+  // "Play this deck" on a deck page: put that deck in your seat.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const wanted = (location.state as { deckId?: string } | null)?.deckId;
+  const applied = useRef<string | null>(null);
+  useEffect(() => {
+    const d = wanted ? decks.data?.find((x) => x.id === wanted) : undefined;
+    if (!d || applied.current === d.id) return;
+    applied.current = d.id;
+    setSeats((all) =>
+      all.map((x, i) =>
+        i === 0
+          ? {
+              ...x,
+              name: x.userId === me.data?.id && x.name ? x.name : (me.data?.display_name ?? x.name),
+              userId: me.data?.id,
+              deckId: d.id,
+              deckVersionId: d.current_version_id ?? undefined,
+              commanderName: d.commanders[0] ?? "",
+              colorIdentity: d.color_identity,
+              art: d.commander_image ?? undefined,
+              artist: d.commander_artist ?? undefined,
+            }
+          : x,
+      ),
+    );
+    navigate(".", { replace: true, state: null });
+  }, [wanted, decks.data, me.data, navigate]);
+
   const group = groups.data?.find((g) => g.id === groupId);
   const update = (i: number, patch: Partial<SeatDraft>) => setSeats((s) => s.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const setCount = (n: number) =>
@@ -124,6 +155,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
       commanderName: s.commanderName || undefined,
       colorIdentity: s.colorIdentity,
       art: s.art,
+      artist: s.artist,
     }));
     const setup: TableSetup = {
       id: crypto.randomUUID(),
@@ -139,12 +171,12 @@ function NewGame({ onStart }: { onStart: () => void }) {
   };
 
   return (
-    <section className="stack">
+    <section className="stack new-game">
       <div className="page-head">
         <h1>New game</h1>
       </div>
-      <div className="row" style={{ alignItems: "end" }}>
-        <label style={{ flex: "1 1 12rem" }}>
+      <div className="setup-controls">
+        <label className="setup-group">
           Playgroup
           <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
             <option value="">None (not counted in group stats)</option>
@@ -153,33 +185,47 @@ function NewGame({ onStart }: { onStart: () => void }) {
             ))}
           </select>
         </label>
-        <label style={{ flex: "0 1 8rem" }}>
-          Players
-          <select value={seats.length} onChange={(e) => setCount(Number(e.target.value))}>
-            {[1, 2, 3, 4, 5, 6].map((n) => <option key={n}>{n}</option>)}
-          </select>
-        </label>
-        <label style={{ flex: "0 1 8rem" }}>
-          Starting life
-          <select value={life} onChange={(e) => setLife(Number(e.target.value))}>
-            {[40, 30, 25, 20].map((n) => <option key={n}>{n}</option>)}
-          </select>
-        </label>
+        <Choice label="Players" options={[1, 2, 3, 4, 5, 6]} value={seats.length} onChange={setCount} />
+        <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
       </div>
-      <p className="small dim">Seats go clockwise from the person holding the phone.</p>
-      <div className="stack">
+      <div className="seats">
         {seats.map((s, i) => (
-          <SeatEditor key={i} index={i} seat={s} onChange={(p) => update(i, p)} group={group} decks={s.userId === me.data?.id ? decks.data : undefined} />
+          <SeatEditor
+            key={i}
+            index={i}
+            seat={s}
+            onChange={(p) => update(i, p)}
+            group={group}
+            decks={s.userId === me.data?.id ? decks.data : undefined}
+            deckName={decks.data?.find((d) => d.id === s.deckId)?.name}
+          />
         ))}
       </div>
-      <div className="row">
+      <p className="small dim setup-note">Seats go clockwise from the person holding the phone. Each panel faces its player.</p>
+      {/* After the seats on phones; top right, beside the title, on laptops. */}
+      <div className="row setup-start">
         <button className="primary" onClick={start}>Start the game</button>
       </div>
     </section>
   );
 }
 
-function SeatEditor({ index, seat, onChange, group, decks }: { index: number; seat: SeatDraft; onChange: (p: Partial<SeatDraft>) => void; group?: Playgroup; decks?: DeckSummary[] }) {
+/** A short list of numbers as a segmented control, with its label beside it on phones and above it on laptops. */
+function Choice({ label, options, value, onChange }: { label: string; options: number[]; value: number; onChange: (n: number) => void }) {
+  const id = useId();
+  return (
+    <div className="setup-choice">
+      <span id={id} className="field-label">{label}</span>
+      <div className="segmented" role="group" aria-labelledby={id}>
+        {options.map((n) => (
+          <button key={n} type="button" aria-pressed={n === value} onClick={() => onChange(n)}>{n}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SeatEditor({ index, seat, onChange, group, decks, deckName }: { index: number; seat: SeatDraft; onChange: (p: Partial<SeatDraft>) => void; group?: Playgroup; decks?: DeckSummary[]; deckName?: string }) {
   const listId = useId();
   const [error, setError] = useState<unknown>(null);
   const suggestions = useQuery({
@@ -193,17 +239,28 @@ function SeatEditor({ index, seat, onChange, group, decks }: { index: number; se
     try {
       const r = await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(`!"${name}"`)}`);
       const card = r.cards[0];
-      if (card) onChange({ commanderName: card.name, colorIdentity: card.color_identity, art: card.image_art_crop ?? undefined });
+      if (card) onChange({ commanderName: card.name, colorIdentity: card.color_identity, art: card.image_art_crop ?? undefined, artist: card.artist ?? undefined });
       setError(null);
     } catch (e) {
       setError(e);
     }
   };
 
+  const who = seat.name.trim() || `Player ${index + 1}`;
+  const what = seat.commanderName ? (deckName ? `${deckName}, ${seat.commanderName}` : seat.commanderName) : "Pick a commander";
   return (
-    <fieldset className="seat">
-      <legend className="small dim">Seat {index + 1}</legend>
-      <div className="row" style={{ alignItems: "end" }}>
+    <fieldset className="seat seat-card">
+      <legend className="visually-hidden">Seat {index + 1}</legend>
+      {/* Commander art once a commander is picked; a dashed empty slot until then. */}
+      <ArtPanel className="seat-head" art={seat.art} artist={seat.artist} wash="left" empty={!seat.commanderName}>
+        <span className="seat-n">Seat {index + 1}</span>
+        <span className="seat-name">{who}</span>
+        <span className="seat-what">
+          <span className="seat-cmdr">{what}</span>
+          {seat.commanderName && <Pips identity={seat.colorIdentity} label={false} />}
+        </span>
+      </ArtPanel>
+      <div className="row seat-fields" style={{ alignItems: "end" }}>
         <label style={{ flex: "1 1 10rem" }}>
           Player
           {group ? (
@@ -238,7 +295,7 @@ function SeatEditor({ index, seat, onChange, group, decks }: { index: number; se
               onChange={(e) => {
                 const d = decks.find((x) => x.id === e.target.value);
                 if (!d) return onChange({ deckId: undefined, deckVersionId: undefined });
-                onChange({ deckId: d.id, deckVersionId: d.current_version_id ?? undefined, colorIdentity: d.color_identity, art: d.commander_image ?? undefined });
+                onChange({ deckId: d.id, deckVersionId: d.current_version_id ?? undefined, colorIdentity: d.color_identity, art: d.commander_image ?? undefined, artist: d.commander_artist ?? undefined });
                 if (d.commanders[0]) void pickCommander(d.commanders[0]);
               }}
             >
@@ -254,7 +311,7 @@ function SeatEditor({ index, seat, onChange, group, decks }: { index: number; se
             value={seat.commanderName}
             onChange={(e) => {
               const v = e.target.value;
-              onChange({ commanderName: v, colorIdentity: "" });
+              onChange({ commanderName: v, colorIdentity: "", art: undefined, artist: undefined });
               if (suggestions.data?.includes(v)) void pickCommander(v);
             }}
             onBlur={() => seat.commanderName && !seat.colorIdentity && void pickCommander(seat.commanderName)}
@@ -262,9 +319,7 @@ function SeatEditor({ index, seat, onChange, group, decks }: { index: number; se
           />
           <datalist id={listId}>{suggestions.data?.map((n) => <option key={n} value={n} />)}</datalist>
         </label>
-        <span title={identityName(seat.colorIdentity)} style={{ paddingBottom: "0.7rem" }}>
-          <Pips identity={seat.colorIdentity} />
-        </span>
+        <span className="visually-hidden">{seat.colorIdentity ? identityName(seat.colorIdentity) : ""}</span>
       </div>
       <ErrorText error={error} />
     </fieldset>
