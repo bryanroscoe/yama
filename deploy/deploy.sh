@@ -8,6 +8,7 @@ DIR=/mnt/user/appdata/yama
 REV=$(git rev-parse --short HEAD)
 
 echo "Copying source to saget…"
+ssh "$HOST" "mkdir -p $DIR/build/yama $DIR/build/yama-phase"
 # The build runs on saget itself (detached), so a dropped SSH connection can't kill it.
 rsync -a --delete --exclude target --exclude node_modules --exclude data --exclude .git \
   --exclude web/dist --exclude web/public/ocr --exclude .env ./ "$HOST:$DIR/build/yama/"
