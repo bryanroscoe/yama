@@ -3,24 +3,26 @@ import { Link, useParams } from "react-router";
 import { api } from "../api";
 import { ErrorText } from "../components/ui";
 import type { BatchComparison, ExperimentItem, RunDetail, RunListItem } from "./api";
-import { deltaBound, durationText, fmtDate, pct, pctRange, points, pointsRange, pointsWord, rateCeiling, sentence, simLabel } from "./logic";
-import { CAVEAT, IntervalChart, SimLine, StatusTag } from "./parts";
+import { caveat, deltaBound, durationText, fmtDate, hasResults, pct, pctRange, points, pointsRange, pointsWord, rateCeiling, sentence, simLabel, verdictText } from "./logic";
+import { IntervalChart, SimLine, StatusTag } from "./parts";
 import { RunWarnings } from "./Precons";
+import { experimentLabel } from "./Run";
 
 /** A run's headline: the verdict when there is one, else where it has got to. */
 export function headline(e: ExperimentItem): string {
   const p = e.progress;
+  const s = e.summary && hasResults(e.summary) ? e.summary : null;
   switch (e.status) {
     case "queued":
       return p.eta_seconds != null ? `Waiting, done in ${durationText(p.eta_seconds)}` : "Waiting for its turn";
     case "running":
-      return `${p.done} of ${p.total} games${p.eta_seconds != null ? `, ${durationText(p.eta_seconds)} left` : ""}${e.summary ? `. So far: ${e.summary.verdict.text}` : ""}`;
+      return `${p.done} of ${p.total} games${p.eta_seconds != null ? `, ${durationText(p.eta_seconds)} left` : ""}${s ? `. So far: ${s.verdict.text}` : ""}`;
     case "failed":
       return `Failed: ${e.error ?? "no reason recorded"}`;
     case "cancelled":
-      return `Cancelled after ${p.done} of ${p.total} games${e.summary ? `. ${e.summary.verdict.text}` : ""}`;
+      return `Cancelled after ${p.done} of ${p.total} games${s ? `. ${verdictText(e.status, s)}` : ""}`;
     default:
-      return e.summary?.verdict.text ?? "Done";
+      return s?.verdict.text ?? "Done";
   }
 }
 
@@ -60,7 +62,7 @@ export function RunsPage() {
                 </span>
                 <br />
                 <span className="sub">
-                  {e.label.games} games, {e.label.difficulty} AI, {e.field?.label.replace(/^./, (c) => c.toLowerCase()) ?? "unknown field"}, {fmtDate(e.label.created_at)}
+                  {experimentLabel(e)}. Against {e.field?.label.replace(/^./, (c) => c.toLowerCase()) ?? "an unrecorded field"}.
                 </span>
               </span>
             </Link>
@@ -136,7 +138,7 @@ export function BatchPage() {
           <SimLine>{simLabel({ engine: r.engine, card_data: r.card_data, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at })}.</SimLine>
         </div>
       </div>
-      <p className="lab-caveat">{CAVEAT}</p>
+      <p className="lab-caveat">{caveat(r.engine)}</p>
       {r.warnings.length > 0 && <RunWarnings warnings={r.warnings} />}
       {!p ? (
         <p className="dim">This run has no paired comparison.</p>

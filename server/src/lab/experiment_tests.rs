@@ -1115,37 +1115,91 @@ async fn the_pace_comes_from_recent_games_then_from_game_lengths() {
     let pool = fixture().await;
     let sim = FakeSim::new();
     let ok = || Ok(());
+    let (bryan, admin) = (user("bryan", false), user("admin", true));
+    let secs = |p: &Pace| p.estimates.iter().map(|e| (e.games, e.seconds)).collect::<Vec<_>>();
     // Nothing played yet: nothing to go on.
-    let p = pace(&pool, "bryan", 2, ok()).await.unwrap();
+    let p = pace(&pool, &admin, 2, ok()).await.unwrap();
     assert_eq!((p.available, p.seconds_per_game, p.basis.as_deref(), p.your_pending), (true, None, None, 0));
-    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
-    assert_eq!(pace(&pool, "bryan", 2, ok()).await.unwrap().your_pending, 100);
-    assert_eq!(pace(&pool, "other", 2, ok()).await.unwrap().your_pending, 0);
+    assert!(p.estimates.is_empty());
+    let d = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
+    assert_eq!(pace(&pool, &bryan, 2, ok()).await.unwrap().your_pending, 100);
+    assert_eq!(pace(&pool, &user("other", false), 2, ok()).await.unwrap().your_pending, 0);
     let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
     worker.drain().await;
 
     // Games from long ago: the mean game length (30 s) over two threads.
     sqlx::query("UPDATE lab_experiment_games SET result = json_set(result, '$.ms', 30000), finished_at = '2026-01-01T00:00:00Z'").execute(&pool).await.unwrap();
     sqlx::query("UPDATE lab_experiments SET updated_at = '2026-01-01T00:00:00Z'").execute(&pool).await.unwrap();
-    let p = pace(&pool, "bryan", 2, ok()).await.unwrap();
-    assert_eq!((p.seconds_per_game, p.basis.as_deref(), p.sample, p.your_pending), (Some(15.0), Some("average"), 100, 0));
+    let p = pace(&pool, &admin, 2, ok()).await.unwrap();
+    assert_eq!((p.seconds_per_game, p.basis.as_deref(), p.sample, p.your_pending), (Some(15.0), Some("average"), Some(100), 0));
+    assert_eq!(secs(&p), vec![(100, 1500), (200, 3000), (400, 6000)]);
+    // Anyone else gets the expected times only, rounded up to 5 minutes.
+    let p = pace(&pool, &bryan, 2, ok()).await.unwrap();
+    assert_eq!((p.seconds_per_game, p.basis.as_deref(), p.sample), (None, None, None));
+    assert_eq!(secs(&p), vec![(100, 1500), (200, 3000), (400, 6000)]);
     // An unreadable result line is skipped, not an error.
     sqlx::query("UPDATE lab_experiment_games SET result = 'not json' WHERE experiment_id = ? AND ord = 99").bind(&d.item.id).execute(&pool).await.unwrap();
-    let p = pace(&pool, "bryan", 2, ok()).await.unwrap();
-    assert_eq!((p.seconds_per_game, p.sample), (Some(15.0), 99));
-    assert_eq!(pace(&pool, "bryan", 0, ok()).await.unwrap().seconds_per_game, None);
+    let p = pace(&pool, &admin, 2, ok()).await.unwrap();
+    assert_eq!((p.seconds_per_game, p.sample), (Some(15.0), Some(99)));
+    let none = pace(&pool, &admin, 0, ok()).await.unwrap();
+    assert_eq!(none.seconds_per_game, None);
+    assert!(none.estimates.is_empty());
 
     // Five games finished over the last 40 seconds: one every 10 seconds.
-    let at = |s: i64| (chrono::Utc::now() - chrono::Duration::seconds(s)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let now = chrono::Utc::now();
+    let at = |s: i64| (now - chrono::Duration::seconds(s)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     for (i, s) in [40, 30, 20, 10, 0].into_iter().enumerate() {
         sqlx::query("UPDATE lab_experiment_games SET finished_at = ? WHERE experiment_id = ? AND ord = ?").bind(at(s)).bind(&d.item.id).bind(i as i64).execute(&pool).await.unwrap();
     }
     sqlx::query("UPDATE lab_experiments SET updated_at = ?").bind(at(0)).execute(&pool).await.unwrap();
-    let p = pace(&pool, "bryan", 2, ok()).await.unwrap();
-    assert_eq!((p.basis.as_deref(), p.sample), (Some("recent"), 5));
+    let p = pace(&pool, &admin, 2, ok()).await.unwrap();
+    assert_eq!((p.basis.as_deref(), p.sample), (Some("recent"), Some(5)));
     assert!((p.seconds_per_game.unwrap() - 10.0).abs() < 1e-9);
+    assert_eq!(secs(&p), vec![(100, 1020), (200, 2040), (400, 4020)]);
+    let p = pace(&pool, &bryan, 2, ok()).await.unwrap();
+    assert_eq!((p.seconds_per_game, p.basis.as_deref(), p.sample), (None, None, None));
+    assert_eq!(secs(&p), vec![(100, 1200), (200, 2100), (400, 4200)]);
 
     // Why a new experiment can't start, when it can't.
-    let off = pace(&pool, "bryan", 0, Err("Simulations are turned off".into())).await.unwrap();
+    let off = pace(&pool, &bryan, 0, Err("Simulations are turned off".into())).await.unwrap();
     assert_eq!((off.available, off.message.as_deref(), off.threads), (false, Some("Simulations are turned off"), 0));
+}
+
+#[tokio::test]
+async fn another_users_queue_cant_be_worked_out_from_the_pace_and_eta() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let ok = || Ok(());
+    let (bryan, other, admin) = (user("bryan", false), user("other", false), user("admin", true));
+    // A recent pace: an earlier experiment finished five games over the last 40 seconds.
+    let first = create(&pool, &admin, swap_req(100), sim.as_ref()).await.unwrap();
+    LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
+    sqlx::query("UPDATE lab_experiment_games SET finished_at = '2026-01-01T00:00:00Z'").execute(&pool).await.unwrap();
+    let now = chrono::Utc::now();
+    let at = |s: i64| (now - chrono::Duration::seconds(s)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    for (i, s) in [40, 30, 20, 10, 0].into_iter().enumerate() {
+        sqlx::query("UPDATE lab_experiment_games SET finished_at = ? WHERE experiment_id = ? AND ord = ?").bind(at(s)).bind(&first.item.id).bind(i as i64).execute(&pool).await.unwrap();
+    }
+    sqlx::query("UPDATE lab_experiments SET updated_at = ?").bind(at(0)).execute(&pool).await.unwrap();
+
+    // Someone else's experiment is queued ahead of Bryan's.
+    let theirs = create(&pool, &other, swap_req(100), sim.as_ref()).await.unwrap();
+    let mine = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
+    async fn seen(pool: &SqlitePool, viewer: &User, id: &str) -> (Pace, Progress) {
+        let p = pace(pool, viewer, 2, Ok(())).await.unwrap();
+        (p, detail(pool, &viewer.id, id).await.unwrap().item.progress)
+    }
+    let (p, before) = seen(&pool, &bryan, &mine.item.id).await;
+    // No exact pace or sample of anyone's games, and a rough ETA.
+    assert_eq!((p.seconds_per_game, p.basis.as_deref(), p.sample, before.games_ahead), (None, None, None, None));
+    let eta = before.eta_seconds.expect("an ETA from the recent pace");
+    assert_eq!(eta % ROUGH_SECONDS, 0);
+
+    // Ten fewer games queued by the other user change nothing Bryan sees.
+    sqlx::query("UPDATE lab_experiment_games SET result = 'x' WHERE experiment_id = ? AND ord < 10").bind(&theirs.item.id).execute(&pool).await.unwrap();
+    let (p2, after) = seen(&pool, &bryan, &mine.item.id).await;
+    assert_eq!((p2, after.eta_seconds), (p, Some(eta)));
+    // Admins still get the exact pace.
+    let admins = pace(&pool, &admin, 2, ok()).await.unwrap();
+    assert!((admins.seconds_per_game.unwrap() - 10.0).abs() < 1e-9);
 }

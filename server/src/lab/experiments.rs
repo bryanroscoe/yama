@@ -678,7 +678,7 @@ async fn build_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base:
                 let mine: HashSet<&str> = base_commanders.iter().map(String::as_str).collect();
                 all.iter()
                     .find(|p| p.strength.is_some() && !mine.is_empty() && p.commanders.iter().map(String::as_str).collect::<HashSet<_>>() == mine)
-                    .ok_or_else(|| AppError::bad("Pick a precon to set the power level (field.ids: [a precon id]); the base isn't a rated precon"))?
+                    .ok_or_else(|| AppError::bad("Pick a precon about as strong as your list to set the power level: the list you start from has no rating"))?
             };
             let a = anchor.strength.expect("checked").ln();
             let mut near: Vec<&PreconEntry> = all.iter().filter(|p| p.strength.is_some() && !is_base(p) && p.slug != anchor.slug).collect();
@@ -1097,8 +1097,9 @@ pub struct SimLabel {
 pub struct Progress {
     pub done: i64,
     pub total: i64,
-    /// Seconds until this experiment's last game should be in, from the lab's recent pace, in
-    /// whole minutes; null until a few games have finished, and once it's over.
+    /// Seconds until this experiment's last game should be in, from the lab's recent pace: in
+    /// whole minutes for admins, rounded up to ROUGH_SECONDS for anyone else (see `Pace`); null
+    /// until a few games have finished, and once it's over.
     pub eta_seconds: Option<i64>,
     /// Games earlier experiments (anyone's) still have to play before this one's turn (FIFO).
     /// Admins only: for anyone else it is null, because it would show other users' queues.
@@ -1241,7 +1242,7 @@ impl ExpRow {
         let display: Option<Display> = self.display.as_deref().and_then(|d| serde_json::from_str(d).ok());
         let (games_ahead, eta) = match q.ahead.get(&self.id) {
             Some((before, own)) => {
-                let eta = q.rate.map(|r| (((before + own) as f64 / r) / 60.0).ceil() as i64 * 60);
+                let eta = q.rate.map(|r| round_up((before + own) as f64 / r, time_step(q.admin)));
                 (q.admin.then_some(*before), eta)
             }
             None => (None, None),
@@ -1474,6 +1475,11 @@ pub async fn pods(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Vec<Pod
 }
 
 /// How fast the lab is playing, for the "expected time" before an experiment is created.
+///
+/// The pace is measured on everyone's games, so only admins get it exactly. Anyone else gets
+/// expected times rounded up to ROUGH_SECONDS, like their experiments' ETAs: with an exact pace,
+/// an ETA (which counts the games queued ahead) and your own pending games would give away how
+/// many games other people have queued, and the recent sample how many they played.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Pace {
     /// Whether a new experiment can start now; `message` says why not.
@@ -1481,22 +1487,46 @@ pub struct Pace {
     pub message: Option<String>,
     /// Games the lab plays at once.
     pub threads: usize,
-    /// Seconds of lab time per game, all threads together; null with nothing to go on.
+    /// Lab time for a new experiment of each size anyone may choose, after your own unfinished
+    /// games (other people's can add to it): whole minutes for admins, rounded up to
+    /// ROUGH_SECONDS for anyone else. Empty with nothing to go on (no game stored yet, or no
+    /// threads).
+    pub estimates: Vec<Estimate>,
+    /// Admins only (null for anyone else): seconds of lab time per game, all threads together;
+    /// null with nothing to go on.
     pub seconds_per_game: Option<f64>,
-    /// "recent": games finished in the last hour; "average": the mean length of the lab's latest
-    /// stored games, spread over its threads; null: no game stored yet.
+    /// Admins only: "recent": games finished in the last hour; "average": the mean length of the
+    /// lab's latest stored games, spread over its threads; null: no game stored yet.
     pub basis: Option<String>,
-    /// Games that measure is based on.
-    pub sample: usize,
+    /// Admins only: games that measure is based on.
+    pub sample: Option<usize>,
     /// Games your own queued and running experiments still have to play; they go first.
     pub your_pending: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Estimate {
+    pub games: u32,
+    pub seconds: i64,
 }
 
 /// Recent experiments whose games give the average game length.
 const PACE_EXPERIMENTS: i64 = 10;
 const PACE_GAMES: i64 = 400;
 
-pub async fn pace(pool: &SqlitePool, owner: &str, threads: usize, available: Result<(), String>) -> AppResult<Pace> {
+/// What a non-admin's expected times and ETAs are rounded up to.
+pub const ROUGH_SECONDS: i64 = 5 * 60;
+
+fn time_step(admin: bool) -> i64 {
+    if admin { 60 } else { ROUGH_SECONDS }
+}
+
+/// Seconds rounded up to a whole number of `step`s.
+fn round_up(seconds: f64, step: i64) -> i64 {
+    (seconds / step as f64).ceil() as i64 * step
+}
+
+pub async fn pace(pool: &SqlitePool, viewer: &User, threads: usize, available: Result<(), String>) -> AppResult<Pace> {
     let (rate, recent) = recent_rate(pool).await?;
     let (seconds_per_game, basis, sample) = match rate {
         Some(r) => (Some(1.0 / r), Some("recent"), recent),
@@ -1527,14 +1557,20 @@ pub async fn pace(pool: &SqlitePool, owner: &str, threads: usize, available: Res
         "SELECT COUNT(*) FROM lab_experiment_games g JOIN lab_experiments e ON e.id = g.experiment_id
          WHERE e.owner_id = ? AND e.status IN ('queued','running') AND g.result IS NULL",
     )
-    .bind(owner)
+    .bind(&viewer.id)
     .fetch_one(pool)
     .await?;
     let (available, message) = match available {
         Ok(()) => (true, None),
         Err(m) => (false, Some(m)),
     };
-    Ok(Pace { available, message, threads, seconds_per_game, basis: basis.map(String::from), sample, your_pending })
+    let step = time_step(viewer.is_admin);
+    let estimates = match seconds_per_game {
+        Some(spg) => GAME_CHOICES.iter().map(|&games| Estimate { games, seconds: round_up((your_pending + i64::from(games)) as f64 * spg, step) }).collect(),
+        None => Vec::new(),
+    };
+    let (seconds_per_game, basis, sample) = if viewer.is_admin { (seconds_per_game, basis.map(String::from), Some(sample)) } else { (None, None, None) };
+    Ok(Pace { available, message, threads, estimates, seconds_per_game, basis, sample, your_pending })
 }
 
 // ── handlers ────────────────────────────────────────────────────────────────
@@ -1547,7 +1583,7 @@ async fn pods_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser
 /// Never a 503: the page shows why experiments can't start instead.
 async fn pace_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Pace>> {
     let available = st.lab.simulator().map(|_| ()).map_err(|e| e.to_string());
-    Ok(Json(pace(&st.pool, &user.id, st.lab.threads(), available).await?))
+    Ok(Json(pace(&st.pool, &user, st.lab.threads(), available).await?))
 }
 
 async fn list_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<ExperimentItem>>> {

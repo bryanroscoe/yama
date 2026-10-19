@@ -8,6 +8,7 @@ import { CardImage, ErrorText, ManaCost, Pips } from "../components/ui";
 import { offlineSearch } from "../offline/cards";
 import type { BaseChoice, ExperimentDetail, FieldChoice, NewExperiment, Pace, PreconDetail, TryPrefill } from "./api";
 import {
+  caveat,
   changeText,
   changedCount,
   cuttable,
@@ -19,7 +20,6 @@ import {
   tally,
   type BaseLine,
 } from "./logic";
-import { CAVEAT } from "./parts";
 import { usePrecons } from "./Precons";
 
 type BaseKind = "deck" | "precon" | "list";
@@ -37,6 +37,8 @@ interface LoadedBase {
   commanders: string[];
   /** A precon base's slug, for "similar strength". */
   precon: string | null;
+  /** Whether the base is a precon with a simulated strength, so it sets "similar strength" itself. */
+  rated: boolean;
   note?: string;
 }
 
@@ -48,6 +50,7 @@ function fromDeck(d: DeckView): LoadedBase {
     identity: d.validation.color_identity,
     commanders: d.cards.filter((c) => c.board === "commander").map((c) => c.name),
     precon: null,
+    rated: false,
     note: d.version_id ? "Its latest version" : undefined,
   };
 }
@@ -60,11 +63,18 @@ function fromPrecon(p: PreconDetail): LoadedBase {
     identity: p.precon.color_identity,
     commanders: p.precon.commanders,
     precon: p.precon.id,
+    rated: p.precon.rating?.strength != null,
     note: `${p.precon.set_name ?? p.precon.set_code} stock list`,
   };
 }
 
 export function TryPage() {
+  // Keyed on the query, so the bare "Try a change" link (or another ?precon=) starts afresh.
+  const { search } = useLocation();
+  return <TryForm key={search} />;
+}
+
+function TryForm() {
   const me = useMe();
   const navigate = useNavigate();
   const location = useLocation();
@@ -113,6 +123,7 @@ export function TryPage() {
         identity: null,
         commanders: pasted.cards.filter((c) => c.board === "commander").map((c) => c.name),
         precon: null,
+        rated: false,
       };
     return null;
   }, [kind, deck.data, precon.data, pasted]);
@@ -129,14 +140,17 @@ export function TryPage() {
   const count = base ? changedCount(base.lines, add, cut) : 0;
   const changed = add.length + cut.length > 0;
   const rated = useMemo(() => (precons.data?.precons ?? []).filter((p) => p.rating?.strength != null).sort((a, b) => a.name.localeCompare(b.name)), [precons.data]);
-  // "Similar strength" for a deck or a list: a rated precon with the same commanders, if there is one.
+  // A rated precon sets "similar strength" itself. Anything else (a deck, a list, a precon added
+  // since the last rating run) needs one picked: by default a rated precon with the same commanders.
+  const selfAnchor = !!base?.precon && base.rated;
   const sameCommander = useMemo(() => {
-    if (!base || base.precon) return null;
+    if (!base || selfAnchor) return null;
     const mine = [...base.commanders].sort().join("|");
-    return rated.find((p) => [...p.commanders].sort().join("|") === mine) ?? null;
-  }, [base, rated]);
-  const anchorId = base?.precon ? "" : anchor || sameCommander?.id || "";
+    return rated.find((p) => p.id !== base.precon && [...p.commanders].sort().join("|") === mine) ?? null;
+  }, [base, selfAnchor, rated]);
+  const anchorId = selfAnchor ? "" : anchor || sameCommander?.id || "";
   const run = precons.data?.run;
+  const preconMissing = kind === "precon" && !!precon.error;
 
   const field: FieldChoice =
     fieldKind === "precons_top"
@@ -154,7 +168,7 @@ export function TryPage() {
     if (count !== 100) blockers.push(`The changed list has ${count} cards; a game needs exactly 100.`);
     if (base.commanders.length === 0) blockers.push("The list needs a commander.");
   }
-  if (fieldKind === "precons_near" && base && !base.precon && !anchorId) blockers.push("Pick a precon to set the power level.");
+  if (fieldKind === "precons_near" && base && !selfAnchor && !anchorId) blockers.push("Pick a precon to set the power level.");
   if ((fieldKind === "precons_top" || fieldKind === "precons_near") && precons.data && !run) blockers.push("No rating run is imported yet, so there's no strength to choose by.");
   if (pace.data && !pace.data.available) blockers.push(pace.data.message ?? "Simulations can't start on this server right now.");
 
@@ -192,7 +206,7 @@ export function TryPage() {
         <div>
           <h1>Try a change</h1>
           <p className="dim" style={{ margin: 0, maxWidth: "62ch" }}>
-            Play a list and a changed copy of it against the same opponents, seats and shuffles, then compare. {CAVEAT}
+            Play a list and a changed copy of it against the same opponents, seats and shuffles, then compare. {caveat()}
           </p>
         </div>
       </div>
@@ -214,7 +228,7 @@ export function TryPage() {
         </div>
         {kind === "precon" && (
           <PreconPicker
-            value={preconId}
+            value={preconMissing ? "" : preconId}
             onChange={(id) => {
               resetChanges();
               setPreconId(id);
@@ -266,7 +280,13 @@ export function TryPage() {
             <ErrorText error={parse.error} />
           </div>
         )}
-        <ErrorText error={deck.error ?? precon.error} />
+        {preconMissing && precon.error instanceof ApiError && precon.error.status === 404 ? (
+          <p className="error" role="alert">
+            No precon has the id "{preconId}". Find one above.
+          </p>
+        ) : (
+          <ErrorText error={kind === "deck" ? deck.error : kind === "precon" ? precon.error : null} />
+        )}
         {base && (
           <div className="row" style={{ marginTop: "0.6rem", justifyContent: "space-between" }}>
             <p style={{ margin: 0 }}>
@@ -316,7 +336,7 @@ export function TryPage() {
             {run ? `The top of rating run ${run.name}.` : "Needs a rating run."}
           </Choice>
           <Choice on={fieldKind === "precons_near"} pick={() => setFieldKind("precons_near")} title="Similar strength">
-            {FIELD_N} precons nearest in strength to {base?.precon ? base.label : "a precon you pick"}.
+            {FIELD_N} precons nearest in strength to {selfAnchor ? base!.label : "a precon you pick"}.
           </Choice>
           <Choice on={fieldKind === "precons_all"} pick={() => setFieldKind("precons_all")} title="All precons">
             Every playable precon ({precons.data?.precons.length ?? "…"}); each sits in only a pod or two.
@@ -325,10 +345,13 @@ export function TryPage() {
             Your own decks with 100 cards and a commander.
           </Choice>
         </div>
-        {fieldKind === "precons_near" && base && !base.precon && (
+        {fieldKind === "precons_near" && base && !selfAnchor && (
           <label style={{ marginTop: "0.75rem" }}>
             Similar to
-            <span className="hint">{sameCommander ? `${sameCommander.name} has the same commander.` : "No rated precon has this commander; pick one about as strong as your list."}</span>
+            <span className="hint">
+              {base.precon ? `${base.label} has no simulated rating yet, so pick a precon about as strong. ` : ""}
+              {sameCommander ? `${sameCommander.name} has the same commander.` : base.precon ? "" : "No rated precon has this commander; pick one about as strong as your list."}
+            </span>
             <select value={anchorId} onChange={(e) => setAnchor(e.target.value)}>
               <option value="">Choose a precon</option>
               {rated.map((p) => (
@@ -370,10 +393,7 @@ export function TryPage() {
           })}
         </div>
         <p className="lab-note" style={{ marginTop: "0.6rem" }}>
-          More games take longer and give a tighter answer.{" "}
-          {pace.data?.seconds_per_game
-            ? `Times are from the lab's ${pace.data.basis === "recent" ? "pace over the last hour" : "average game length"} (${pace.data.threads} ${pace.data.threads === 1 ? "game" : "games"} at a time)${pace.data.your_pending ? `, after the ${pace.data.your_pending} games your other runs still have to play` : ""}. Other people's runs can add to that.`
-            : "No games have been played on this server yet, so there's no time estimate."}
+          More games take longer and give a tighter answer. <PaceNote pace={pace.data} error={pace.error} />
         </p>
         <div className="row" style={{ marginTop: "0.5rem" }}>
           <label style={{ flex: "0 1 12rem" }}>
@@ -413,6 +433,22 @@ export function TryPage() {
       </div>
     </>
   );
+}
+
+/** Where the expected times come from, or why there are none. */
+function PaceNote({ pace, error }: { pace: Pace | undefined; error: unknown }) {
+  if (error) return <>Couldn't get the lab's pace, so there's no time estimate.</>;
+  if (!pace) return null;
+  if (pace.threads === 0) return <>The lab plays no games on this server (it's turned off), so there's no time estimate.</>;
+  if (pace.estimates.length === 0) return <>No games have been played on this server yet, so there's no time estimate.</>;
+  const at = `${pace.threads} ${pace.threads === 1 ? "game" : "games"} at a time`;
+  const after = pace.your_pending ? `, after the ${pace.your_pending} games your other runs still have to play` : "";
+  // Admins get the exact pace; anyone else, times rounded up to 5 minutes.
+  const from =
+    pace.seconds_per_game != null
+      ? `Times are from the lab's ${pace.basis === "recent" ? `pace over the last hour (${pace.sample ?? 0} games)` : "average game length"}, ${at}${after}.`
+      : `Times are rough, rounded up to 5 minutes, from how fast the lab has been playing (${at})${after}.`;
+  return <>{from} Other people's runs can add to that.</>;
 }
 
 function Choice({ on, pick, title, children }: { on: boolean; pick: () => void; title: string; children: ReactNode }) {

@@ -114,5 +114,3 @@ const STATUS: Record<ExperimentStatus, string> = {
 export function StatusTag({ status }: { status: ExperimentStatus }) {
   return <span className={`lab-status ${status}`}>{STATUS[status]}</span>;
 }
-
-export const CAVEAT = "AI vs AI games on the phase engine: evidence about the simulation, not your table.";

@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { identityName, MANA, type ManaKey } from "@yama/core";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api } from "../api";
 import { ErrorText, Pips } from "../components/ui";
 import type { PreconItem, PreconList, RunLabel } from "./api";
 import {
+  caveat,
   DEFAULT_DESC,
+  engineName,
   filterPrecons,
   fmtDate,
   linScale,
@@ -24,7 +26,7 @@ import {
   type Scale,
   type SortKey,
 } from "./logic";
-import { CAVEAT, IntervalBar, SimLine } from "./parts";
+import { IntervalBar, SimLine } from "./parts";
 
 export const usePrecons = () => useQuery({ queryKey: ["lab", "precons"], queryFn: () => api<PreconList>("/api/precons"), staleTime: 5 * 60_000 });
 
@@ -100,26 +102,47 @@ export function PreconsPage() {
   const rated = all.filter((p) => p.rating).length;
   const real = all.find((p) => p.playgroup?.source)?.playgroup;
 
+  const head = (sub: ReactNode) => (
+    <div className="page-head">
+      <div>
+        <h1>Commander precons</h1>
+        {sub}
+      </div>
+    </div>
+  );
+  // No count, filters or table until the list is in: a count from nothing would be made up.
+  if (!precons.data) {
+    return (
+      <>
+        {head(!precons.error && <p className="dim" style={{ margin: 0 }}>Loading…</p>)}
+        <ErrorText error={precons.error} />
+      </>
+    );
+  }
+  // Ranks are among every deck in the run, which can include decks the catalogue leaves out.
+  const rankedHere = all.filter((p) => p.rating?.rank != null).length;
+  const skipped = run ? run.ranked - rankedHere : 0;
+  const engine = run ? engineName(run.engine) : null;
+  const ai = engine ? `${engine}${engine.endsWith("s") ? "'" : "'s"} AI` : "the engine's AI";
+
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Commander precons</h1>
-          <p className="dim" style={{ margin: 0 }}>
-            {all.length} precons{run ? `, ${rated} rated by simulation` : ""}.
-          </p>
-        </div>
-      </div>
+      {head(
+        <p className="dim" style={{ margin: 0 }}>
+          {all.length} precons{run ? `, ${rated} rated by simulation` : ""}.
+          {run && skipped > 0 ? ` Ranks are among all ${run.ranked} decks in run ${run.name}, and ${skipped} of those aren't in this list, so some ranks are skipped.` : ""}
+        </p>,
+      )}
       <ErrorText error={precons.error} />
       {run ? (
         <>
           <RunLine run={run} />
-          <p className="lab-caveat">{CAVEAT} Real-game ranks from playgroup.gg sit in their own column.</p>
+          <p className="lab-caveat">{caveat(run.engine)} Real-game ranks from playgroup.gg sit in their own column.</p>
           {run.warnings.length > 0 && <RunWarnings warnings={run.warnings} />}
           <details className="small">
             <summary>How the ratings work</summary>
             <p className="lab-note">
-              Every precon played whole games against other precons, with phase's AI in every seat, in 4-player pods. <b>Strength</b> comes from a
+              Every precon played whole games against other precons, with {ai} in every seat, in 4-player pods. <b>Strength</b> comes from a
               model of finishing order ({run.model ?? "Plackett-Luce"}): 1 is an average precon, 2 finishes ahead about twice as often. The line on each
               bar marks average; the band is the {run.level ? `${Math.round(run.level * 100)}%` : ""} interval, so a wide band means few games.
               <b> Wins in 4-player pods</b> is the model's chance of winning a pod of three random precons; a quarter is average. Rank ranges and the
@@ -134,7 +157,7 @@ export function PreconsPage() {
           </details>
         </>
       ) : (
-        precons.data && <p className="lab-caveat">No rating run is imported on this server yet, so the precons have no simulated strength.</p>
+        <p className="lab-caveat">No rating run is imported on this server yet, so the precons have no simulated strength.</p>
       )}
 
       <div className="lab-tools" style={{ marginTop: "1rem" }}>
@@ -172,17 +195,15 @@ export function PreconsPage() {
           )}
         </div>
       </div>
-      {precons.data && (
-        <p className="lab-count">
-          {rows.length === all.length ? `${all.length} precons` : `${rows.length} of ${all.length} precons`}
-          {colors && `, ${mode === "exactly" ? "exactly" : mode === "within" ? "within" : "including"} ${identityName(colors.replace("C", "")).toLowerCase()}`}
-        </p>
-      )}
+      <p className="lab-count">
+        {rows.length === all.length ? `${all.length} precons` : `${rows.length} of ${all.length} precons`}
+        {colors && `, ${mode === "exactly" ? "exactly" : mode === "within" ? "within" : "including"} ${identityName(colors.replace("C", "")).toLowerCase()}`}
+      </p>
 
       <table className="lab-table">
         <thead>
           <tr>
-            <Th k="rank" label="Rank" sort={sort} desc={desc} onSort={sortBy} num />
+            <Th k="rank" label={run && run.ranked > 0 ? `Rank of ${run.ranked}` : "Rank"} sort={sort} desc={desc} onSort={sortBy} num />
             <Th k="name" label="Deck" sort={sort} desc={desc} onSort={sortBy} />
             <Th k="set" label="Set" sort={sort} desc={desc} onSort={sortBy} />
             <Th k="year" label="Year" sort={sort} desc={desc} onSort={sortBy} num />
@@ -223,7 +244,7 @@ export function PreconsPage() {
           </Link>
         ))}
       </div>
-      {precons.data && rows.length === 0 && <p className="empty">No precon matches. Clear the search or a colour.</p>}
+      {rows.length === 0 && <p className="empty">No precon matches. Clear the search or a colour.</p>}
     </>
   );
 }

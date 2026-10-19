@@ -13,6 +13,8 @@ export interface RunLabel {
   runner: string | null;
   difficulty: string | null;
   games: number;
+  /** Decks the run ranks: a rank is out of this many, which can be more than the catalogue's precons. */
+  ranked: number;
   pod: number | null;
   level: number | null;
   model: string | null;
@@ -303,9 +305,15 @@ export interface Pace {
   available: boolean;
   message: string | null;
   threads: number;
+  /**
+   * Lab time for a new experiment of each size, after your own unfinished games: whole minutes
+   * for admins, rounded up to 5 minutes for anyone else. Empty with nothing to go on.
+   */
+  estimates: { games: number; seconds: number }[];
+  /** Admins only (null for anyone else, since the pace counts everyone's games). */
   seconds_per_game: number | null;
   basis: "recent" | "average" | null;
-  sample: number;
+  sample: number | null;
   your_pending: number;
 }
 

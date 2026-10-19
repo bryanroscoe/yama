@@ -495,6 +495,9 @@ pub struct RunLabel {
     pub runner: Option<String>,
     pub difficulty: Option<String>,
     pub games: i64,
+    /// Decks the run ranks: a rating's `rank` is out of this many, which can be more than the
+    /// catalog's precons (the run may rate decks the catalog leaves out).
+    pub ranked: i64,
     /// Players per pod in the run's main pod size.
     pub pod: Option<i64>,
     /// Interval level, e.g. 0.9 for 90% intervals.
@@ -509,6 +512,7 @@ pub struct RunLabel {
 
 const RUN_COLUMNS: &str = "lab_runs.id, lab_runs.name, lab_runs.kind, lab_runs.owner_id IS NULL AS global, lab_runs.engine, \
     lab_runs.card_data, lab_runs.runner, lab_runs.difficulty, lab_runs.games, \
+    (SELECT COUNT(*) FROM lab_ratings lr WHERE lr.run_id = lab_runs.id AND json_extract(lr.extra, '$.rank') IS NOT NULL) AS ranked, \
     json_extract(lab_runs.summary, '$.run_meta.pod') AS pod, json_extract(lab_runs.summary, '$.analysis.bootstrap.level') AS level, \
     json_extract(lab_runs.summary, '$.analysis.model') AS model, lab_runs.created_at, lab_runs.analysed_at, lab_runs.imported_at, \
     IFNULL(json_extract(lab_runs.summary, '$.warnings'), '[]') AS warnings";
@@ -1342,6 +1346,8 @@ mod tests {
         assert_eq!(ids(runs_for(&pool, "other").await.unwrap()), vec![a.id.clone()]);
         let own_detail = run_for(&pool, "bryan", &mine.id).await.unwrap();
         assert!(!own_detail.run.global);
+        // Ranks are out of the decks the run ranked.
+        assert_eq!(own_detail.run.ranked, 2);
         assert_eq!(own_detail.ratings.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), vec!["Counterpunch", "Mine (Bryan)"]);
         assert_eq!(own_detail.summary["paired"]["comparisons"][0]["variant"], "bryan/mine");
         assert!(matches!(run_for(&pool, "other", &mine.id).await, Err(AppError::NotFound(_))));
@@ -1356,7 +1362,7 @@ mod tests {
 
         // Precon pages use the newest global run, never someone's own.
         let list = precon_list(&pool).await.unwrap();
-        assert_eq!(list.run.as_ref().map(|r| r.id.as_str()), Some(a.id.as_str()));
+        assert_eq!(list.run.as_ref().map(|r| (r.id.as_str(), r.ranked)), Some((a.id.as_str(), 1)));
         let cp = list.precons.iter().find(|p| p.id == "counterpunch").unwrap();
         let r = cp.rating.as_ref().unwrap();
         assert_eq!((r.strength, r.rank, r.lo, r.wr_hi), (Some(3.0), Some(1), Some(0.5), Some(0.79)));

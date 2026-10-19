@@ -2,7 +2,7 @@
 // filters and sorts, and the "Try a change" list arithmetic. No React here, so it's tested on its own.
 
 import { identityKeys } from "@yama/core";
-import type { Pace, PreconItem } from "./api";
+import type { ExperimentStatus, Pace, PreconItem, Summary } from "./api";
 
 // ── wording ──────────────────────────────────────────────────────────────────
 
@@ -88,31 +88,75 @@ export function durationText(seconds: number): string {
   return m === 0 || m === 60 ? `about ${m === 60 ? `${h + 1} hours` : hours}` : `about ${hours} ${m} minutes`;
 }
 
-/** Lab time for `games` more games behind your own unfinished ones, or null with nothing to go on. */
+/** The server's expected lab time for a new run of `games` games behind your own unfinished ones, or null with nothing to go on. */
 export function expectedSeconds(pace: Pace | null | undefined, games: number): number | null {
-  if (!pace?.seconds_per_game) return null;
-  return (pace.your_pending + games) * pace.seconds_per_game;
+  return pace?.estimates.find((e) => e.games === games)?.seconds ?? null;
 }
 
 /**
  * The label every simulated number carries: engine, card data, AI level, games and date. Commas,
- * never middle dots.
+ * never middle dots. `games` is the games behind the numbers; with `planned` above it, the label
+ * says how many were planned ("1 of 100 planned games").
  */
 export function simLabel(l: {
   engine: string | null;
   card_data?: string | null;
   difficulty: string | null;
   games: number;
+  planned?: number | null;
   pod?: number | null;
   date: string | null | undefined;
   run?: string | null;
 }): string {
   const parts = [`Simulated on ${l.engine ?? "an unrecorded engine"}${l.card_data ? ` (card data ${l.card_data.split(", ").map(shortHash).join(", ")})` : ""}`];
   parts.push(`${l.difficulty ?? "unrecorded"} AI`);
-  parts.push(`${l.games.toLocaleString("en-GB")} ${l.games === 1 ? "game" : "games"}${l.pod ? ` in ${l.pod}-player pods` : ""}`);
+  const n = (x: number) => x.toLocaleString("en-GB");
+  const games =
+    l.planned != null && l.planned > l.games ? `${n(l.games)} of ${n(l.planned)} planned games` : `${n(l.games)} ${l.games === 1 ? "game" : "games"}`;
+  parts.push(`${games}${l.pod ? ` in ${l.pod}-player pods` : ""}`);
   if (l.run) parts.push(`run ${l.run}`);
   if (l.date) parts.push(fmtDate(l.date));
   return parts.join(", ");
+}
+
+/**
+ * The engines named in a label ("phase-rs v0.113.0", "forge 2.0.15, phase-rs v0.114.0"), as the
+ * prose says them: "phase", "Forge", "phase and Forge". Null when unrecorded.
+ */
+export function engineFamily(engine: string | null | undefined): string | null {
+  if (!engine) return null;
+  const names = engine
+    .split(", ")
+    .map((e) => e.trim().split(/[\s-]/)[0]?.toLowerCase() ?? "")
+    .filter(Boolean)
+    .map((e) => (e === "forge" ? "Forge" : e));
+  const unique = [...new Set(names)];
+  return unique.length ? unique.join(" and ") : null;
+}
+
+/** The engine with its noun: "the phase engine", "the phase and Forge engines", or null. */
+export function engineName(engine: string | null | undefined): string | null {
+  const f = engineFamily(engine);
+  return f ? `the ${f} ${f.includes(" and ") ? "engines" : "engine"}` : null;
+}
+
+/** The caveat beside simulated numbers, naming the run's engine when it's recorded. */
+export function caveat(engine?: string | null): string {
+  const name = engineName(engine);
+  return `AI vs AI games${name ? ` on ${name}` : ""}: evidence about the simulation, not your table.`;
+}
+
+// ── experiment results ───────────────────────────────────────────────────────
+
+/** Whether a summary has any scored game to show. A run stopped before one finished has none. */
+export function hasResults(s: Summary | null | undefined): boolean {
+  return s != null && s.base.games + s.variant.games > 0;
+}
+
+/** The verdict as the page says it: a cancelled run that can't tell won't play more games. */
+export function verdictText(status: ExperimentStatus, s: Summary): string {
+  if (status === "cancelled" && s.verdict.kind === "unclear") return "Can't tell from the games played before it was cancelled";
+  return s.verdict.text;
 }
 
 /** A finished game for the tested list, in a few words. */

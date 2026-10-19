@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
-import type { PreconItem } from "./api";
+import type { PreconItem, Summary } from "./api";
 import {
+  caveat,
   changeText,
   changedCount,
   cuttable,
   deltaBound,
   durationText,
+  engineFamily,
   expectedSeconds,
   filterPrecons,
   fmtDate,
   gameText,
   grouped,
+  hasResults,
   identityMatches,
   identityQuery,
   logScale,
@@ -23,6 +26,7 @@ import {
   simLabel,
   sortPrecons,
   strengthDomain,
+  verdictText,
   yearsOf,
 } from "./logic";
 
@@ -78,10 +82,11 @@ describe("wording", () => {
     expect(durationText(3600 + 58 * 60)).toBe("about 2 hours");
   });
 
-  it("expects time for your own waiting games first", () => {
-    const pace = { available: true, message: null, threads: 2, seconds_per_game: 20, basis: "recent" as const, sample: 40, your_pending: 50 };
+  it("takes expected times from the server's estimates", () => {
+    const pace = { available: true, message: null, threads: 2, estimates: [{ games: 100, seconds: 3000 }, { games: 200, seconds: 5100 }], seconds_per_game: null, basis: null, sample: null, your_pending: 50 };
     expect(expectedSeconds(pace, 100)).toBe(3000);
-    expect(expectedSeconds({ ...pace, seconds_per_game: null }, 100)).toBeNull();
+    expect(expectedSeconds(pace, 400)).toBeNull();
+    expect(expectedSeconds({ ...pace, estimates: [] }, 100)).toBeNull();
     expect(expectedSeconds(undefined, 100)).toBeNull();
   });
 
@@ -89,6 +94,33 @@ describe("wording", () => {
     const s = simLabel({ engine: "phase-rs v0.113.0", card_data: "eb309108eb0df708", difficulty: "Easy", games: 1234, pod: 4, date: "2026-10-19T04:15:40Z", run: "pilot-2" });
     expect(s).toBe("Simulated on phase-rs v0.113.0 (card data eb309108), Easy AI, 1,234 games in 4-player pods, run pilot-2, 19 Oct 2026");
     expect(s).not.toContain("·");
+  });
+
+  it("labels a run that stopped early with the games behind its numbers", () => {
+    const l = { engine: "phase-rs v0.113.0", difficulty: "Easy", pod: 4, date: "2026-10-19" };
+    expect(simLabel({ ...l, games: 1, planned: 100 })).toBe("Simulated on phase-rs v0.113.0, Easy AI, 1 of 100 planned games in 4-player pods, 19 Oct 2026");
+    expect(simLabel({ ...l, games: 100, planned: 100 })).toBe("Simulated on phase-rs v0.113.0, Easy AI, 100 games in 4-player pods, 19 Oct 2026");
+  });
+
+  it("names the run's engine in the caveat", () => {
+    expect(caveat("phase-rs v0.113.0")).toBe("AI vs AI games on the phase engine: evidence about the simulation, not your table.");
+    expect(caveat("forge 2.0.15")).toBe("AI vs AI games on the Forge engine: evidence about the simulation, not your table.");
+    expect(caveat(null)).toBe("AI vs AI games: evidence about the simulation, not your table.");
+    expect(engineFamily("phase-rs v0.113.0, phase-rs v0.114.0")).toBe("phase");
+    expect(engineFamily("phase-rs v0.113.0, forge 2.0.15")).toBe("phase and Forge");
+    expect(caveat("phase-rs v0.113.0, forge 2.0.15")).toContain("on the phase and Forge engines:");
+  });
+
+  it("has no results before a scored game, and a cancelled run doesn't ask for more games", () => {
+    const empty = { base: { games: 0 }, variant: { games: 0 }, verdict: { kind: "unclear", text: "Can't tell yet: run more games", final: true } } as unknown as Summary;
+    expect(hasResults(empty)).toBe(false);
+    expect(hasResults(null)).toBe(false);
+    const some = { ...empty, base: { games: 3 } } as unknown as Summary;
+    expect(hasResults(some)).toBe(true);
+    expect(verdictText("cancelled", some)).toBe("Can't tell from the games played before it was cancelled");
+    expect(verdictText("running", some)).toBe("Can't tell yet: run more games");
+    const better = { ...some, verdict: { kind: "better", text: "Probably better (+4 points, 90% interval +1 to +7)", final: true } } as unknown as Summary;
+    expect(verdictText("cancelled", better)).toBe(better.verdict.text);
   });
 
   it("says how a game went for the tested list", () => {

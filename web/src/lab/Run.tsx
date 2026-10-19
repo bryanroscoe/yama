@@ -4,20 +4,38 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api } from "../api";
 import { ErrorText, Pips } from "../components/ui";
-import type { ExperimentDetail, ExperimentItem, FieldChoice, PodView, Summary, TryPrefill } from "./api";
-import { deltaBound, durationText, fmtDate, gameText, moreOften, pct, pctRange, points, pointsRange, pointsWord, rateCeiling, shortHash, simLabel } from "./logic";
-import { ArtPanel, CAVEAT, IntervalChart, SimLine, StatusTag } from "./parts";
+import type { ExperimentDetail, ExperimentItem, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
+import {
+  caveat,
+  deltaBound,
+  durationText,
+  fmtDate,
+  gameText,
+  hasResults,
+  moreOften,
+  pct,
+  pctRange,
+  points,
+  pointsRange,
+  pointsWord,
+  rateCeiling,
+  shortHash,
+  simLabel,
+  verdictText,
+} from "./logic";
+import { ArtPanel, IntervalChart, SimLine, StatusTag } from "./parts";
 
 const LIVE = new Set(["queued", "running"]);
 
-/** The label line for an experiment's numbers. */
+/** The label line for an experiment's numbers: the games played so far, out of those planned. */
 export function experimentLabel(e: ExperimentItem): string {
   const l = e.label;
   return simLabel({
     engine: l.engine,
     card_data: l.card_data,
     difficulty: l.difficulty,
-    games: l.games,
+    games: e.progress.done,
+    planned: l.games,
     pod: l.pod,
     date: l.finished_at ?? l.started_at ?? l.created_at,
   });
@@ -64,6 +82,7 @@ export function RunPage() {
   if (!e) return <p className="dim">Loading…</p>;
   const live = LIVE.has(e.status);
   const s = e.summary;
+  const scored = s && hasResults(s) ? s : null;
 
   return (
     <>
@@ -88,14 +107,24 @@ export function RunPage() {
         </p>
       )}
 
-      {s ? <Results e={e} s={s} /> : !live && <p className="dim">No games finished, so there are no results.</p>}
+      {scored ? (
+        <Results e={e} s={scored} />
+      ) : (
+        !live && (
+          <p className="dim">
+            {s && s.unscored.total > 0
+              ? `None of the games that finished was scored (${s.unscored.total} ran out of time, crashed or hit an error), so there are no results.`
+              : "No games finished, so there are no results."}
+          </p>
+        )
+      )}
 
       <section>
         <h2>The change</h2>
         <Change e={e} />
       </section>
 
-      {e.progress.done > 0 && <Pods id={e.id} done={e.progress.done} />}
+      {e.progress.done > 0 && <Pods id={e.id} done={e.progress.done} status={e.status} />}
 
       <section>
         <div className="row">
@@ -173,6 +202,7 @@ function Progress({ e }: { e: ExperimentDetail }) {
 
 function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
   const level = `${Math.round(s.level * 100)}%`;
+  const cancelled = e.status === "cancelled";
   const d = s.paired.delta_win_rate;
   const ci = s.paired.delta_ci;
   const bound = deltaBound([ci?.[0], ci?.[1], d]);
@@ -206,12 +236,14 @@ function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
   return (
     <section>
       <h2>{s.verdict.final ? "Result" : "So far"}</h2>
-      <p className="lab-verdict">{s.verdict.text}</p>
+      <p className="lab-verdict">{verdictText(e.status, s)}</p>
       <p className="dim" style={{ marginTop: 0 }}>
         {d != null && ci
           ? `The changed list won ${moreOften(d)} the base on the same ${s.paired.pods} pods (${pointsWord(d)}, ${level} interval ${pointsRange(ci)}).`
-          : "Not enough pods where both lists finished yet."}
-        {!s.verdict.final ? " More games are still to come." : ""}
+          : cancelled
+            ? "Too few pods where both lists finished."
+            : "Not enough pods where both lists finished yet."}
+        {cancelled ? " The rest of the games were cancelled." : !s.verdict.final ? " More games are still to come." : ""}
       </p>
 
       {d != null && ci && (
@@ -262,7 +294,7 @@ function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
         <p className="lab-note">{s.method}</p>
       </details>
       <SimLine>{experimentLabel(e)}.{s.builds.length > 1 ? ` Played on ${s.builds.length} builds: ${s.builds.map((b) => `${b.games} games on ${b.engine}, card data ${shortHash(b.card_data)}, runner ${shortHash(b.runner)}`).join("; ")}.` : ""}</SimLine>
-      <p className="lab-caveat">{CAVEAT} These numbers are apart from your playgroup's real games.</p>
+      <p className="lab-caveat">{caveat(e.label.engine)} These numbers are apart from your playgroup's real games.</p>
     </section>
   );
 }
@@ -319,7 +351,16 @@ function Change({ e }: { e: ExperimentDetail }) {
   );
 }
 
-function Pods({ id, done }: { id: string; done: number }) {
+/** What an empty cell says: a game still to come, or one that won't be played. */
+const MISSING: Record<ExperimentStatus, string> = {
+  queued: "not played yet",
+  running: "not played yet",
+  cancelled: "cancelled",
+  failed: "not played",
+  done: "not played",
+};
+
+function Pods({ id, done, status }: { id: string; done: number; status: ExperimentStatus }) {
   const [open, setOpen] = useState(false);
   const pods = useQuery({
     queryKey: ["lab", "pods", id, done],
@@ -329,7 +370,7 @@ function Pods({ id, done }: { id: string; done: number }) {
   });
   const played = (pods.data ?? []).filter((p) => p.base || p.variant);
   const cell = (g: PodView["base"]) => {
-    if (!g) return <span className="faint">not played yet</span>;
+    if (!g) return <span className="faint">{MISSING[status]}</span>;
     return (
       <span className={g.won ? "won" : g.scored ? "" : "faint"} title={g.error ?? undefined}>
         {gameText(g)}

@@ -6,8 +6,8 @@ import { api } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 import type { Matchup, PreconDetail, PreconItem, RunLabel } from "./api";
-import { fmtDate, grouped, linScale, logScale, pct, pctRange, strengthDomain, strengthText } from "./logic";
-import { ArtPanel, CAVEAT, IntervalBar } from "./parts";
+import { caveat, fmtDate, grouped, linScale, logScale, pct, pctRange, strengthDomain, strengthText } from "./logic";
+import { ArtPanel, IntervalBar } from "./parts";
 import { RunLine, usePrecons } from "./Precons";
 
 interface EngineSupport {
@@ -19,6 +19,12 @@ interface EngineSupport {
 
 export function PreconDetailPage() {
   const { id } = useParams();
+  // Keyed on the precon, so moving to another one (a matchup link) starts afresh: a new op id for
+  // "Make this a Yama deck", no deck made for the last one, the card sheet and search cleared.
+  return <PreconDetailBody key={id} id={id} />;
+}
+
+function PreconDetailBody({ id }: { id: string | undefined }) {
   const detail = useQuery({ queryKey: ["lab", "precon", id], queryFn: () => api<PreconDetail>(`/api/precons/${id}`) });
   const list = usePrecons();
   const [open, setOpen] = useState<string | null>(null);
@@ -165,14 +171,18 @@ function Rating({ detail, all }: { detail: PreconDetail; all: PreconItem[] }) {
       <RunLine run={run} />
     </>
   );
-  const ratedCount = all.filter((p) => p.rating?.rank != null).length;
+  // A rank is among every deck the run ranked, which can be more than the catalogue's precons.
+  const of = run.ranked >= (r.rank ?? 0) && run.ranked > 0 ? run.ranked : null;
   const wins = r.win_rate != null ? Math.round(r.win_rate * r.games) : null;
   return (
     <>
       <div className="lab-figures">
         <div className="lab-figure">
-          <b>{r.rank != null ? `${r.rank}${ratedCount ? ` of ${ratedCount}` : ""}` : "no rank"}</b>
-          <span>{r.rank_lo != null && r.rank_hi != null ? `simulated rank; could be anywhere from ${r.rank_lo} to ${r.rank_hi}` : "simulated rank"}</span>
+          <b>{r.rank != null ? `${r.rank}${of ? ` of ${of}` : ""}` : "no rank"}</b>
+          <span>
+            simulated rank{of ? ` among the ${of} decks in run ${run.name}` : ""}
+            {r.rank_lo != null && r.rank_hi != null ? `; could be anywhere from ${r.rank_lo} to ${r.rank_hi}` : ""}
+          </span>
         </div>
         <div className="lab-figure">
           <b>{strengthText(r.strength)}</b>
@@ -204,7 +214,7 @@ function Rating({ detail, all }: { detail: PreconDetail; all: PreconItem[] }) {
         </p>
       )}
       <RunLine run={run} />
-      <p className="lab-caveat">{CAVEAT}</p>
+      <p className="lab-caveat">{caveat(run.engine)}</p>
     </>
   );
 }
