@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, identityName, newHand, rng, type Goldfish } from "@yama/core";
-import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
-import { api, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { api, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView, type PreconList } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
 import { day } from "../components/Rulings";
@@ -17,6 +17,17 @@ import { CardSheet } from "./Cards";
 export function DecksPage() {
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const [adding, setAdding] = useState(false);
+  // "Start a deck" on a precon (Cards page, release calendar) opens Add a deck with its stock list.
+  const [params, setParams] = useSearchParams();
+  const precon = params.get("precon");
+  const closeAdd = () => {
+    setAdding(false);
+    if (precon) {
+      const next = new URLSearchParams(params);
+      next.delete("precon");
+      setParams(next, { replace: true });
+    }
+  };
   return (
     <main className="page">
       <div className="page-head">
@@ -50,17 +61,31 @@ export function DecksPage() {
           </Link>
         ))}
       </div>
-      {adding && <AddDeck onClose={() => setAdding(false)} />}
+      {(adding || precon) && <AddDeck key={precon ?? "blank"} precon={precon} onClose={closeAdd} />}
     </main>
   );
 }
 
-function AddDeck({ onClose }: { onClose: () => void }) {
+function AddDeck({ onClose, precon }: { onClose: () => void; precon?: string | null }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [text, setText] = useState("");
   const [firstIsCommander, setFirst] = useState(true);
+  const stock = useQuery({
+    queryKey: ["precon", precon],
+    queryFn: () => api<PreconList>(`/api/precons/${encodeURIComponent(precon!)}`),
+    enabled: !!precon,
+    retry: false,
+    staleTime: Infinity,
+  });
+  // Paste the stock list in once it arrives, without overwriting anything already typed.
+  useEffect(() => {
+    if (!stock.data) return;
+    setName((n) => n || stock.data.name);
+    setText((t) => t || stock.data.text);
+  }, [stock.data]);
+  const fetched = stock.data?.fetched_at ? day(stock.data.fetched_at.slice(0, 10)) : null;
   const create = useMutation({
     mutationFn: () => api<{ id: string; unknown: string[] }>("/api/decks", { method: "POST", json: { name, text, first_is_commander: firstIsCommander } }),
     onSuccess: (r) => {
@@ -79,9 +104,35 @@ function AddDeck({ onClose }: { onClose: () => void }) {
         }}
       >
         <div className="sheet-head">
-          <h2>Add a deck</h2>
+          <h2>{precon ? "Start a deck from a precon" : "Add a deck"}</h2>
           <button type="button" className="quiet" onClick={onClose}>Close</button>
         </div>
+        {precon && stock.isPending && <p className="dim">Getting the stock list from MTGJSON…</p>}
+        <ErrorText error={stock.error} />
+        {stock.data && (
+          <div className="stack" style={{ gap: "0.4rem" }}>
+            <p className="dim small" style={{ margin: 0 }}>
+              The stock list of {stock.data.name}
+              {stock.data.commanders.length ? `, led by ${stock.data.commanders.join(" and ")}` : ""}
+              {stock.data.cards != null ? `, ${stock.data.cards} cards` : ""}. From{" "}
+              <a href="https://mtgjson.com" target="_blank" rel="noreferrer">MTGJSON</a>
+              {fetched ? `, downloaded ${fetched}` : ""}
+              {stock.data.source_url && (
+                <>
+                  {" "}(<a href={stock.data.source_url} target="_blank" rel="noreferrer">its source</a>)
+                </>
+              )}
+              . Check it, then add the deck.
+            </p>
+            {stock.data.unknown.length > 0 && (
+              <p className="small" style={{ margin: 0, color: "var(--warn)" }} role="note">
+                {stock.data.unknown.length === 1 ? "1 card isn't" : `${stock.data.unknown.length} cards aren't`} in Yama's card data yet,
+                so the deck would leave {stock.data.unknown.length === 1 ? "it" : "them"} out: {stock.data.unknown.join(", ")}. New cards
+                arrive with the weekly card import. Add the deck after that, or add it now and paste the missing cards in later.
+              </p>
+            )}
+          </div>
+        )}
         <label>
           Name
           <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Omo lands" />
@@ -91,10 +142,12 @@ function AddDeck({ onClose }: { onClose: () => void }) {
           <span className="hint">One card per line, like "1 Sol Ring". Sections such as "Commander" and set codes are fine.</span>
           <textarea value={text} onChange={(e) => setText(e.target.value)} required />
         </label>
-        <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
-          <input type="checkbox" checked={firstIsCommander} onChange={(e) => setFirst(e.target.checked)} style={{ width: "auto", minHeight: 0 }} />
-          With no Commander section, the first card is the commander
-        </label>
+        {!precon && (
+          <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
+            <input type="checkbox" checked={firstIsCommander} onChange={(e) => setFirst(e.target.checked)} style={{ width: "auto", minHeight: 0 }} />
+            With no Commander section, the first card is the commander
+          </label>
+        )}
         <ErrorText error={create.error} />
         <div className="row">
           <button className="primary" disabled={create.isPending}>Add the deck</button>

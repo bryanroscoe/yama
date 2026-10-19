@@ -462,3 +462,67 @@ export interface DeckResults {
 }
 
 export const usd = (v: number | null | undefined) => (v == null ? "no price" : `$${v.toFixed(2)}`);
+
+/** A Commander precon MTGJSON has a list for (GET /api/calendar). */
+export interface PreconSummary {
+  file_name: string;
+  set_code: string;
+  name: string;
+  release_date: string | null;
+  /** Where MTGJSON got the list, usually Wizards' decklist announcement. */
+  source_url: string | null;
+  first_seen_at: string;
+  /** null until Yama has downloaded the list. */
+  commanders: string[] | null;
+  list_cards: number | null;
+}
+
+/** A set from Scryfall's /sets that releases today or later, or one the reader watches. */
+export interface CalendarSet {
+  code: string;
+  name: string;
+  set_type: string;
+  released_at: string | null;
+  /** Cards Scryfall has in the set so far. */
+  card_count: number;
+  /** The printed set size, when Scryfall knows it. */
+  printed_size: number | null;
+  parent_set_code: string | null;
+  parent_name: string | null;
+  digital: boolean;
+  scryfall_uri: string | null;
+  checked_at: string;
+  watched: boolean;
+  /** The reader watches the set this one sits under. */
+  parent_watched: boolean;
+  precons: PreconSummary[];
+}
+
+export interface CalendarRun {
+  checked_at: string | null;
+  source_date: string | null;
+  error: string | null;
+}
+
+export interface CalendarView {
+  today: string;
+  sets: CalendarRun;
+  precons: CalendarRun;
+  auto_refresh: boolean;
+  upcoming: CalendarSet[];
+}
+
+/** GET /api/precons/:file_name: a precon's stock list, ready to paste into a new deck. */
+export interface PreconList {
+  file_name: string;
+  name: string;
+  set_code: string;
+  release_date: string | null;
+  source_url: string | null;
+  commanders: string[];
+  text: string;
+  cards: number | null;
+  fetched_at: string;
+  /** Names Yama's card data doesn't have yet; a deck made now leaves them out. */
+  unknown: string[];
+}

@@ -12,6 +12,8 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Card data | Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date, rulings, the Game Changer flag. Images are Scryfall's WebP sizes (JPEG fallback for older files) |
 | Card search | Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander` `is:gamechanger`, `-`, `or`, parentheses). Works offline from a 5 MB card bundle kept on the device |
 | Card sheet | Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history |
+| Release calendar | Upcoming sets on the Cards page (Scryfall's `/sets`: release date, type, cards Scryfall has so far). Watch a set; once MTGJSON publishes a watched set's Commander precon lists, the Cards page names each deck and its commander and starts a Yama deck from the stock list. Refreshed daily with `YAMA_AUTO_IMPORT=1`, or `yama-server import-calendar` |
+| What's new | A page listing what has shipped, in plain sentences, with a notice on each device until it's opened (Group, Account links to it too) |
 | Collection | Binders, boxes, decks and lists; add from card search; move, condition, proxy; idempotent offline ops; Mythic Tools CSV import and export |
 | Decks | Paste any common list format; edit as text with versions; version history with a diff between any two versions; Commander validation; owned/needed with cheapest market price; sample hands with mulligans; Game Changers count; how many cards online play supports; real-game results per version ("This version: 3-2, 5 games") |
 | Brackets | A declared bracket per deck (chips on the deck list, table setup and online lobby), shown beside Commander Spellbook's estimate for each saved version: its bracket, Game Changers, mass land denial, extra turns and combos. Checked in the background after a save; turn off with `YAMA_DECK_CHECKS=0` |
@@ -21,7 +23,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Playgroups | Join codes, guests without accounts, game history, logging games played without Yama (with first player, win condition and fun), win rates by player and commander beside the share they'd win by chance, win rate by turn order (with playgroup.gg's 4-player figures until the group has 20 games), how games were won, head to head, archnemesis, first out and last out, streaks, fun. Every rate shows its count, under 5 games it's marked provisional, and the page says when it was computed |
 | Game export | Every finished game you played or recorded, or a whole playgroup's, as JSON (shaped for commander-decks' `data/games.json`) or CSV (one row per seat). Dates are the local day in your time zone; other people's deck names and notes stay private |
 | Install | Installable web app (home screen, offline shell); Capacitor config for native apps (docs/mobile.md) |
-| Prices | Daily Scryfall snapshots kept by date (`YAMA_AUTO_IMPORT=1`) |
+| Prices | Daily Scryfall snapshots kept by date (`YAMA_AUTO_IMPORT=1`, which also refreshes the release calendar) |
 | Online play | Commander on the phase-rs rules engine (`play/`): lobby, friends join by code, AI seats (Easy/Medium/Hard), legal options only, auto-pass, per-seat hidden information, replay log saved after every move, games resume after a restart, final boards rebuilt from replays. Readable board: hover a card for a full-size preview (desktop), tap for the card with its rules text and your options for it (phone); on phones your options and hand sit in a dock at the bottom. Needs the engine card data (below) |
 | Scanner | In progress (docs/scanner.md) |
 
@@ -53,6 +55,7 @@ Optional:
 
 ```sh
 ./target/debug/yama-server import-decks ../commander-decks/decks --owner you@example.com
+./target/debug/yama-server import-calendar  # upcoming sets and Commander precon lists, once (daily with YAMA_AUTO_IMPORT=1)
 ./target/debug/yama-server invite friend@gmail.com
 ```
 
@@ -82,7 +85,7 @@ npm run typecheck     # core + web
 ## Layout
 
 ```
-server/            Rust (Axum, SQLite via sqlx). One binary: serve, import-cards, import-decks, invite.
+server/            Rust (Axum, SQLite via sqlx). One binary: serve, import-cards, import-calendar, import-decks, invite.
   migrations/      Schema
   src/cards/       Scryfall import and search
 play/              Online play on the phase-rs engine (local fork at ../yama-phase), soak test.

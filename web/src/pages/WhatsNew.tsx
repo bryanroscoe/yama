@@ -1,0 +1,107 @@
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { Link, useLocation } from "react-router";
+import { day } from "../components/Rulings";
+import { NEWS, SEEN_KEY, unseen } from "../whatsNew";
+import "../components/calendar.css";
+
+const SEEN_EVENT = "yama-news-seen";
+
+function readSeen(): string | null {
+  try {
+    return localStorage.getItem(SEEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function subscribe(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(SEEN_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(SEEN_EVENT, onChange);
+  };
+}
+
+function markSeen() {
+  const newest = NEWS[0]?.id;
+  if (!newest) return;
+  try {
+    localStorage.setItem(SEEN_KEY, newest);
+  } catch {
+    /* private mode: the notice just shows again next time */
+  }
+  window.dispatchEvent(new Event(SEEN_EVENT));
+}
+
+function useSeen() {
+  return useSyncExternalStore(subscribe, readSeen, () => null);
+}
+
+/** A line above every page while there's news this device hasn't opened. */
+export function NewsNotice() {
+  const seen = useSeen();
+  const { pathname } = useLocation();
+  const fresh = unseen(NEWS, seen);
+  if (!fresh.length || pathname === "/new") return null;
+  return (
+    <aside className="news-notice" aria-label="What's new">
+      <p>
+        {fresh.length === 1 ? `New in Yama: ${fresh[0]!.title}.` : `Yama has ${fresh.length} updates since you last looked.`}
+      </p>
+      <span className="row">
+        <Link to="/new" className="button">See what's new</Link>
+        <button className="quiet" onClick={markSeen}>Dismiss</button>
+      </span>
+    </aside>
+  );
+}
+
+export function WhatsNewPage() {
+  // What this device had seen before opening the page, so the new entries stay marked after
+  // the page records that they've been seen.
+  const [before] = useState(readSeen);
+  const freshIds = new Set(unseen(NEWS, before).map((e) => e.id));
+  useEffect(() => {
+    markSeen();
+  }, []);
+  return (
+    <main className="page">
+      <div className="page-head">
+        <h1>What's new</h1>
+      </div>
+      <div className="whats-new">
+        {NEWS.map((e) => (
+          <article key={e.id} aria-labelledby={`news-${e.id}`}>
+            <h2 id={`news-${e.id}`}>
+              {e.title}
+              {freshIds.has(e.id) && before !== null && <span className="news-new">New</span>}
+            </h2>
+            <p className="news-date">{day(e.date)}</p>
+            <ul>
+              {e.items.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+            {e.link && (
+              <p style={{ margin: 0 }}>
+                <Link to={e.link.to}>{e.link.label}</Link>
+              </p>
+            )}
+          </article>
+        ))}
+        <footer>
+          <p>
+            Yama is unofficial fan software, free and private to our playgroup. It isn't affiliated with, endorsed by, or sponsored by Wizards of the
+            Coast.
+          </p>
+          <p>
+            Card data and images come from <a href="https://scryfall.com" target="_blank" rel="noreferrer">Scryfall</a>, precon lists from{" "}
+            <a href="https://mtgjson.com" target="_blank" rel="noreferrer">MTGJSON</a>, and bracket estimates and combos from{" "}
+            <a href="https://commanderspellbook.com" target="_blank" rel="noreferrer">Commander Spellbook</a>.
+          </p>
+        </footer>
+      </div>
+    </main>
+  );
+}

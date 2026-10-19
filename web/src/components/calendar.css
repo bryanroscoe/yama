@@ -1,0 +1,224 @@
+/* Release calendar (Cards page) and the What's new page and notice.
+
+   These rules use the semantic token names the new design will define (ground, surface,
+   raised, line, text, text-dim, accent, good, warn, bad). Until it lands, each one falls back
+   to today's playmat variable. This block is the only place the old names appear here. */
+:where(.upcoming, .precons-out, .whats-new, .news-notice) {
+  --cal-ground: var(--ground, var(--felt));
+  --cal-surface: var(--surface, var(--felt-2));
+  --cal-raised: var(--raised, var(--felt-3));
+  --cal-line: var(--line);
+  --cal-text: var(--text, var(--paper));
+  --cal-text-dim: var(--text-dim, var(--paper-dim));
+  --cal-accent: var(--accent, var(--paper));
+  --cal-good: var(--good);
+  --cal-warn: var(--warn);
+}
+
+/* Small print under a section. Dim text, not the faint token, for 4.5:1 at this size. */
+.cal-note {
+  margin: 0;
+  color: var(--cal-text-dim);
+  font-size: var(--t-sm);
+}
+.cal-note.cal-warn {
+  color: var(--cal-warn);
+}
+
+/* ── upcoming sets ──────────────────────────────────────────────────────── */
+
+.upcoming,
+.precons-out {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--cal-line);
+  border-radius: var(--radius);
+  background: var(--cal-surface);
+  display: grid;
+  gap: 0.75rem;
+}
+.upcoming h2,
+.precons-out h2 {
+  font-size: var(--t-lg);
+  margin: 0;
+}
+.upcoming-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}
+
+.upcoming-list,
+.precons-out-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  border-top: 1px solid var(--cal-line);
+}
+.upcoming-set,
+.precons-out-list > li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--cal-line);
+}
+/* A set under the one above it (Star Trek Commander under Star Trek). */
+.upcoming-set.is-child {
+  padding-left: 0.9rem;
+  border-left: 2px solid var(--cal-line);
+  margin-left: 0.15rem;
+}
+.upcoming-text,
+.precon-text {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.upcoming-name,
+.precon-name {
+  font-weight: 700;
+  color: var(--cal-text);
+}
+a.upcoming-name {
+  text-decoration-color: color-mix(in srgb, var(--cal-text) 35%, transparent);
+  text-underline-offset: 0.2em;
+}
+.upcoming-meta,
+.precon-meta {
+  color: var(--cal-text-dim);
+  font-size: var(--t-sm);
+}
+.upcoming-precons {
+  color: var(--cal-good);
+}
+
+/* Preview progress, only when Scryfall gives the printed set size. */
+.upcoming-bar {
+  display: block;
+  height: 4px;
+  max-width: 12rem;
+  margin-top: 0.2rem;
+  border-radius: 2px;
+  background: var(--cal-raised);
+  overflow: hidden;
+}
+.upcoming-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--cal-accent);
+}
+
+.watch {
+  min-width: 7.5rem;
+}
+.watch.is-on {
+  border-color: var(--cal-accent);
+  background: color-mix(in srgb, var(--cal-accent) 14%, var(--cal-surface));
+}
+.watch.is-on::before {
+  content: "";
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: var(--cal-good);
+}
+.upcoming-via {
+  color: var(--cal-text-dim);
+  font-size: var(--t-sm);
+  text-align: right;
+  max-width: 9rem;
+}
+
+/* ── precons are out ────────────────────────────────────────────────────── */
+
+.precons-out {
+  border-color: color-mix(in srgb, var(--cal-good) 55%, var(--cal-line));
+}
+.precons-out-sub {
+  margin: 0;
+  color: var(--cal-text-dim);
+}
+.precon-made {
+  font-size: var(--t-sm);
+  color: var(--cal-good);
+  white-space: nowrap;
+}
+
+/* ── what's new ─────────────────────────────────────────────────────────── */
+
+.news-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  margin: 0.75rem 1rem 0;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  border: 1px solid var(--cal-line);
+  border-radius: var(--radius);
+  background: var(--cal-surface);
+  color: var(--cal-text);
+}
+.news-notice p {
+  margin: 0;
+  flex: 1 1 14rem;
+}
+.news-notice .row {
+  gap: 0.25rem;
+}
+@media (min-width: 900px) {
+  .news-notice {
+    max-width: calc(1100px - 4rem);
+    margin: 1rem auto 0;
+  }
+}
+
+.whats-new {
+  display: grid;
+  gap: 1.5rem;
+  max-width: 68ch;
+}
+.whats-new article {
+  display: grid;
+  gap: 0.5rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--cal-line);
+}
+.whats-new h2 {
+  font-size: var(--t-lg);
+  margin: 0;
+}
+.whats-new .news-date {
+  color: var(--cal-text-dim);
+  font-size: var(--t-sm);
+  margin: 0;
+}
+.whats-new ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.35rem;
+}
+.whats-new .news-new {
+  font-size: var(--t-sm);
+  color: var(--cal-good);
+  margin-left: 0.5rem;
+  font-family: var(--body);
+  font-weight: 700;
+}
+.whats-new footer {
+  color: var(--cal-text-dim);
+  font-size: var(--t-sm);
+}
+.whats-new footer p {
+  margin: 0 0 0.5rem;
+}
+
+.upcoming > button.quiet {
+  justify-self: start;
+  padding-left: 0;
+}

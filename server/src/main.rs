@@ -1,4 +1,5 @@
 mod auth;
+mod calendar;
 mod cards;
 mod collection;
 mod config;
@@ -28,6 +29,8 @@ USAGE:
                                              Import Scryfall bulk data and rulings
                                              (downloads the latest files unless both
                                              card files are given)
+  yama-server import-calendar                Refresh upcoming sets (Scryfall) and Commander
+                                             precon lists (MTGJSON) once
   yama-server import-decks DIR --owner EMAIL Import every .txt deck list in DIR
   yama-server invite EMAIL                   Allow EMAIL to sign in
   yama-server user add EMAIL [--name NAME] [--admin] [--password-stdin]
@@ -58,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
             let rulings = flag_value(&args, "--rulings").map(PathBuf::from);
             cards::import::run(&pool, &cfg, oracle, default, rulings).await
         }
+        Some("import-calendar") => calendar::run_once(&pool).await,
         Some("import-decks") => {
             let dir = args.get(1).context("usage: yama-server import-decks DIR --owner EMAIL")?;
             let owner = flag_value(&args, "--owner").context("--owner EMAIL is required")?;

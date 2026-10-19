@@ -77,3 +77,52 @@ ALTER TABLE games ADD COLUMN win_condition TEXT CHECK (win_condition IN
 
 -- How much fun each player had, 1 to 5, if they said. NULL = skipped.
 ALTER TABLE game_seats ADD COLUMN fun INTEGER CHECK (fun BETWEEN 1 AND 5);
+
+-- ── batch "calendar" ───────────────────────────────────────────────────────
+
+-- Sets from Scryfall's /sets that release today or later, plus every set someone watches and the
+-- sets under it (Star Trek Commander, trc, sits under Star Trek, trk). Refreshed once a day with
+-- YAMA_AUTO_IMPORT=1, or by `yama-server import-calendar`; each refresh is logged in import_runs
+-- (kind 'scryfall_sets'). A set that has come out drops off at the next refresh unless watched.
+CREATE TABLE calendar_sets (
+    code             TEXT PRIMARY KEY,   -- Scryfall's set code, lowercase
+    name             TEXT NOT NULL,
+    set_type         TEXT NOT NULL,      -- Scryfall's set_type: expansion, commander, token, ...
+    released_at      TEXT,               -- YYYY-MM-DD as Scryfall has it; NULL = no date yet
+    card_count       INTEGER NOT NULL,   -- cards Scryfall has in the set so far (previews before release)
+    printed_size     INTEGER,            -- the printed set size, when Scryfall knows it; NULL = unknown
+    parent_set_code  TEXT,
+    digital          INTEGER NOT NULL DEFAULT 0,
+    scryfall_uri     TEXT,
+    checked_at       TEXT NOT NULL       -- RFC 3339, when Yama last read this set from Scryfall
+);
+
+-- Sets a person watches for their Commander precon lists. Not a foreign key: a watch outlives
+-- the set's row if Scryfall ever drops or renames the code.
+CREATE TABLE calendar_watches (
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    set_code    TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (user_id, set_code)
+);
+
+-- Commander precons that MTGJSON has lists for (DeckList.json entries of type 'Commander Deck'),
+-- refreshed once a day (import_runs kind 'mtgjson_decklist'). A deck's own list is downloaded
+-- from MTGJSON when it belongs to a watched set, or when someone starts a deck from it, and kept
+-- here as a pasteable list. NULL list columns = not downloaded yet.
+CREATE TABLE calendar_precons (
+    file_name            TEXT PRIMARY KEY,  -- MTGJSON's fileName, e.g. MultiverseReforged_FRC
+    set_code             TEXT NOT NULL,     -- lowercase, as Scryfall writes it
+    name                 TEXT NOT NULL,
+    release_date         TEXT,              -- YYYY-MM-DD, per MTGJSON
+    source_url           TEXT,              -- where MTGJSON got the list (usually Wizards' announcement)
+    first_seen_at        TEXT NOT NULL,     -- RFC 3339, when Yama first saw MTGJSON list it
+    commanders           TEXT,              -- JSON array of the commanders' names
+    list_text            TEXT,              -- the stock list, Commander and Deck sections, with set and number
+    list_cards           INTEGER,           -- cards in the list, commanders included, sideboard not
+    list_fetched_at      TEXT,              -- RFC 3339
+    list_source_version  TEXT,              -- MTGJSON's meta.version of the downloaded file
+    list_error           TEXT,              -- why the last download failed; NULL after a good one
+    list_tried_at        TEXT               -- last download attempt, good or not, to pace retries
+);
+CREATE INDEX calendar_precons_set ON calendar_precons(set_code);

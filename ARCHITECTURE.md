@@ -164,6 +164,12 @@ deck_versions(id, deck_id, cards jsonb, created_at, engine_coverage jsonb)
 deck_version_checks(version_id, source, requested_at, checked_at, bracket_tag, game_changers jsonb,
       mld jsonb, extra_turns jsonb, combos jsonb, unrecognized jsonb, attempts, error)  -- outside estimates
 
+-- release calendar
+calendar_sets(code, name, set_type, released_at, card_count, printed_size NULL, parent_set_code, checked_at)
+calendar_watches(user_id, set_code, created_at)
+calendar_precons(file_name, set_code, name, release_date, source_url, first_seen_at, commanders jsonb,
+      list_text, list_cards, list_fetched_at, list_error, list_tried_at)   -- MTGJSON Commander decks
+
 -- games (online and in-person)
 games(id, mode[online|in_person], playgroup_id, status, format, engine_version NULL, seed NULL,
       started_at, ended_at, turns, winner_seat, first_seat NULL, win_condition NULL)
@@ -240,6 +246,15 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 - **Results per deck version** (`GET /api/decks/{id}/results`) count finished games where the deck's owner played that version. Seats the computer played don't count (online games put the host's decks in AI seats), so a mirror match counts once. A seat keeps a deck version only if it belongs to a deck owned by the seat's own account (otherwise it's dropped, not refused, so offline games still upload). Log a game credits the version that was current on the day played (local day), and none if the deck had no saved version yet.
 - **Game export** (`GET /api/games/export.json` and `.csv`, optional `playgroup`, and the browser's IANA `tz` so each game's date is the local day it started, with that day's daylight saving; `offset` in minutes is the fallback, and the file says which zone it used in `time_zone`). Deck names, version labels and version notes appear only for the exporter's own decks; other people's seats show what the table typed (deck label and commander), since their deck pages are private. JSON format `yama-games/1`: a top-level `games` list as commander-decks' `data/games.json` expects, each game leading with that README's fields (date, deck, version, player_count, result, notes) from the exporting player's seat, then the whole game with every seat. CSV: one row per seat, with spreadsheet formulas in names, notes and times defused.
 
+### Release calendar and What's new (2026-10-19)
+
+- **Upcoming sets** come from Scryfall's `/sets` (every set in one list, about 630 KB; `has_more` pages are followed 100 ms apart). Yama keeps sets releasing on or after the day before today, every watched set, and the sets under a watched set (`parent_set_code`: Star Trek Commander, `trc`, sits under Star Trek, `trk`; both release 2026-11-13 per Scryfall on 2026-10-19). `card_count` is what Scryfall has so far, shown as "41 cards on Scryfall so far"; a total is shown only when Scryfall gives `printed_size`, which upcoming sets don't, so there's no made-up progress bar. The Cards page asks with the reader's local date, so "out today" and "in 25 days" follow their day. Tokens, promos, one-card bonus sheets and digital sets sit behind "Show N more" unless watched directly or holding precons.
+- **Watching** is per person (`calendar_watches`); PUT and DELETE `/api/calendar/watch/{code}` are idempotent. Watching a set covers the sets under it.
+- **Precon lists** come from MTGJSON (MIT). `DeckList.json` (about 70 KB compressed) names every preconstructed deck MTGJSON has a list for, by set code and release date; Yama keeps the `Commander Deck` entries (198 on 2026-10-19, Collector's Editions included). A deck's own file (`decks/<fileName>.json`, about 540 KB of full card data) is downloaded only for watched sets (by the daily pass, at most 16 a pass, one a second, again after 7 days in case Wizards corrects a list) or when someone presses "Start a deck" (`GET /api/precons/{file_name}`, which only serves decks from MTGJSON's own index and won't ask again within a minute of a failed download). It's kept as a pasteable list: Commander and Deck sections, one `1 Name (SET) 123` line per printing; tokens, planes and schemes are left out.
+- **"These precons are out"**: once a watched set's lists are in MTGJSON's index, the Cards page names each deck, its commander once the list is downloaded, and MTGJSON's source (usually Wizards' decklist article), with "Start a deck". That opens Add a deck pre-filled with the name and stock list for the person to check and save, through the normal deck import, so nothing is created behind their back. Cards Yama's card data doesn't know yet (new cards arrive with the weekly oracle import) are listed before saving. A deck with the same name shows as "In your decks".
+- **Refresh**: with `YAMA_AUTO_IMPORT=1` a background task wakes hourly and refreshes each source once it's 20 hours old, waiting 55 minutes after a failure; `yama-server import-calendar` runs everything once. Runs are logged in `import_runs` (kinds `scryfall_sets`, `mtgjson_decklist`; for MTGJSON `source_updated_at` holds its build date), and the page shows when each was last checked and whether the latest try failed. Without auto import the page says it hasn't checked, rather than showing an empty calendar as if nothing were coming.
+- **What's new** (`web/src/whatsNew.ts`, page at `/new`) lists shipped features newest first in plain sentences, ending with the unofficial-fan-software notice and data credits. Each device remembers the newest entry it has seen (`yama.whatsNew.seen`) and shows a one-line notice above every page until then. Add an entry when something people will notice ships.
+
 ## 11. Risks
 
 - **Legal and IP:**
@@ -278,6 +293,7 @@ Still open:
 - Other scanners reviewed: <https://github.com/matteot11/open-card-collector> (MIT), <https://github.com/cfbender/oracle> (MPL-2.0), <https://github.com/GrimbiXcode/mtgscan> (GPL-3.0), <https://github.com/fortierq/mtgscan> (MIT)
 - Scryfall API and bulk data: <https://scryfall.com/docs/api>, <https://scryfall.com/docs/api/bulk-data>
 - playgroup.gg turn order (read 2026-10-19; "Computed 19 Oct 2026 from 577,284 finished multiplayer games", 4-player figures from 284,950 single-winner games): <https://playgroup.gg/commander/turn-order>
+- Scryfall sets API (read 2026-10-19): <https://scryfall.com/docs/api/sets>; MTGJSON deck list and deck files (read 2026-10-19): <https://mtgjson.com/api/v5/DeckList.json>, <https://mtgjson.com/data-models/deck/>
 - Commander Spellbook API guidelines and bracket tags (read 2026-10-19): <https://github.com/SpaceCowMedia/commander-spellbook-backend/blob/master/docs/api.md>, `backend/spellbook/models/variant.py` (BracketTag, estimate_bracket); schema <https://backend.commanderspellbook.com/schema/>
 - Scryfall, "New WebP images + JPEG Deprecations" (2026-10-14; read 2026-10-18): <https://scryfall.com/blog/new-webp-images-jpeg-deprecations-237>
 - Wizards Fan Content Policy: <https://company.wizards.com/en/legal/fancontentpolicy>

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router";
 import { api, API_BASE, type PlaygroupStats, type Playgroup } from "../api";
 import { useLogout, useMe } from "../auth";
 import { ErrorText } from "../components/ui";
@@ -163,6 +164,7 @@ function Account() {
         </div>
       )}
       <OfflineCardsSetting />
+      <p style={{ margin: 0 }}><Link to="/new">What's new in Yama</Link></p>
       <div><button onClick={() => void logout()}>Sign out</button></div>
     </section>
   );

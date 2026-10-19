@@ -7,6 +7,7 @@ import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { offlineSearch } from "../offline/cards";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
+import { ReleaseCalendar } from "../components/Upcoming";
 
 const EXAMPLES = [
   { q: "id<=ug is:commander", label: "Simic commanders" },
@@ -85,6 +86,7 @@ export function CardsPage() {
               <button key={e.q} onClick={() => set({ q: e.q, page: "1" })}>{e.label}</button>
             ))}
           </div>
+          <ReleaseCalendar />
         </div>
       )}
 

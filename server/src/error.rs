@@ -15,6 +15,9 @@ pub enum AppError {
     BadRequest(String),
     #[error("{0}")]
     Conflict(String),
+    /// An outside service Yama needs for this request didn't answer (503).
+    #[error("{0}")]
+    Unavailable(String),
     #[error(transparent)]
     Db(#[from] sqlx::Error),
     #[error(transparent)]
@@ -37,10 +40,11 @@ impl IntoResponse for AppError {
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Db(sqlx::Error::RowNotFound) => StatusCode::NOT_FOUND,
             Self::Db(_) | Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        let message = if status.is_server_error() {
+        let message = if status.is_server_error() && status != StatusCode::SERVICE_UNAVAILABLE {
             tracing::error!(error = ?self, "request failed");
             "internal error".to_string()
         } else {
