@@ -21,7 +21,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, watch};
-use yama_play::{DeckLine, DeckSupport, Difficulty, Engine, Match, SeatDeck, View};
+use yama_play::{AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, SeatDeck, Stops, View};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -63,9 +63,15 @@ struct Snapshot {
 
 enum Cmd {
     Choose { seat: u8, revision: u64, index: usize, reply: oneshot::Sender<Result<(), String>> },
+    /// Any legal set of attackers (the option list only holds the engine's sample).
+    Attack { seat: u8, revision: u64, attacks: Vec<(u64, AttackAt)>, reply: oneshot::Sender<Result<(), String>> },
+    /// Any legal set of blocks, as (blocker, attacker) pairs.
+    Block { seat: u8, revision: u64, blocks: Vec<(u64, u64)>, reply: oneshot::Sender<Result<(), String>> },
     Concede { seat: u8 },
     /// Stop at every priority instead of only where it matters.
     FullControl { seat: u8, on: bool },
+    /// The seat's own stops by step, or `None` for the default smart stops.
+    Stops { seat: u8, stops: Option<Stops> },
 }
 
 const STACK: usize = 32 << 20;
@@ -196,8 +202,9 @@ fn run_game(
     // Let the computer act, and pass for people who have nothing else they could do, until a
     // person has a real decision. Publish as it goes so the table can follow along.
     let mut full_control: std::collections::HashSet<u8> = std::collections::HashSet::new();
-    let ai_turns = |m: &mut Match, full_control: &std::collections::HashSet<u8>| loop {
-        let passed = m.auto_pass(&humans, full_control);
+    let mut stops: HashMap<u8, Stops> = HashMap::new();
+    let ai_turns = |m: &mut Match, full_control: &std::collections::HashSet<u8>, stops: &HashMap<u8, Stops>| loop {
+        let passed = m.auto_pass(&humans, full_control, stops);
         match m.run_ai(AI_BATCH) {
             Ok(0) if passed == 0 => break,
             Ok(_) => {
@@ -213,7 +220,7 @@ fn run_game(
 
     m.set_names(seats.iter().map(|s| s.name.clone()).collect());
     publish(&m);
-    ai_turns(&mut m, &full_control);
+    ai_turns(&mut m, &full_control, &stops);
     publish(&m);
     while !m.is_over() {
         let Ok(cmd) = cmds.recv() else { return };
@@ -223,16 +230,45 @@ fn run_game(
                 let ok = result.is_ok();
                 let _ = reply.send(result);
                 if ok {
+                    // Pass for people with nothing to do first, so the board sent out doesn't
+                    // flash a stop that would be passed a moment later.
+                    m.auto_pass(&humans, &full_control, &stops);
                     publish(&m);
                     save(&m);
-                    ai_turns(&mut m, &full_control);
+                    ai_turns(&mut m, &full_control, &stops);
+                }
+            }
+            Cmd::Attack { seat, revision, attacks, reply } => {
+                let result = m.declare_attackers(seat, revision, &attacks).map_err(|e| e.to_string());
+                let ok = result.is_ok();
+                let _ = reply.send(result);
+                if ok {
+                    // Pass for people with nothing to do first, so the board sent out doesn't
+                    // flash a stop that would be passed a moment later.
+                    m.auto_pass(&humans, &full_control, &stops);
+                    publish(&m);
+                    save(&m);
+                    ai_turns(&mut m, &full_control, &stops);
+                }
+            }
+            Cmd::Block { seat, revision, blocks, reply } => {
+                let result = m.declare_blockers(seat, revision, &blocks).map_err(|e| e.to_string());
+                let ok = result.is_ok();
+                let _ = reply.send(result);
+                if ok {
+                    // Pass for people with nothing to do first, so the board sent out doesn't
+                    // flash a stop that would be passed a moment later.
+                    m.auto_pass(&humans, &full_control, &stops);
+                    publish(&m);
+                    save(&m);
+                    ai_turns(&mut m, &full_control, &stops);
                 }
             }
             Cmd::Concede { seat } => {
                 if m.concede(seat).is_ok() {
                     publish(&m);
                     save(&m);
-                    ai_turns(&mut m, &full_control);
+                    ai_turns(&mut m, &full_control, &stops);
                 }
             }
             Cmd::FullControl { seat, on } => {
@@ -240,8 +276,15 @@ fn run_game(
                     full_control.insert(seat);
                 } else {
                     full_control.remove(&seat);
-                    ai_turns(&mut m, &full_control);
+                    ai_turns(&mut m, &full_control, &stops);
                 }
+            }
+            // New stops apply from the next priority; the decision on screen stays put.
+            Cmd::Stops { seat, stops: Some(s) } => {
+                stops.insert(seat, s);
+            }
+            Cmd::Stops { seat, stops: None } => {
+                stops.remove(&seat);
             }
         }
         publish(&m);
@@ -320,6 +363,10 @@ struct SeatInfo {
     deck_name: Option<String>,
     /// The deck's commander, so seats and boards can show its art.
     commander: Option<String>,
+    /// The commander's art crop (Scryfall, loaded by the browser) and who painted it, so every
+    /// seat's art is known from the lobby on, wherever the commander card is later.
+    commander_art: Option<String>,
+    commander_artist: Option<String>,
     color_identity: String,
     ready: bool,
     /// The bracket the deck's owner declared.
@@ -328,21 +375,55 @@ struct SeatInfo {
     estimate: Option<Estimated>,
 }
 
-fn seat_infos(seats: &[SeatCfg], estimates: &HashMap<String, Estimated>) -> Vec<SeatInfo> {
+/// A commander's art crop and its artist.
+type Art = (Option<String>, Option<String>);
+
+fn seat_infos(seats: &[SeatCfg], estimates: &HashMap<String, Estimated>, arts: &HashMap<String, Art>) -> Vec<SeatInfo> {
     seats
         .iter()
-        .map(|s| SeatInfo {
-            seat: s.seat,
-            name: s.name.clone(),
-            ai: (s.kind == "ai").then(|| s.difficulty.clone().unwrap_or_else(|| "Medium".into())),
-            deck_name: s.deck_name.clone(),
-            commander: s.commander.clone(),
-            color_identity: s.color_identity.clone(),
-            ready: s.deck_version_id.is_some(),
-            bracket: s.bracket,
-            estimate: s.deck_version_id.as_ref().and_then(|v| estimates.get(v)).cloned(),
+        .map(|s| {
+            let (commander_art, commander_artist) = s.commander.as_ref().and_then(|c| arts.get(c)).cloned().unwrap_or_default();
+            SeatInfo {
+                seat: s.seat,
+                name: s.name.clone(),
+                ai: (s.kind == "ai").then(|| s.difficulty.clone().unwrap_or_else(|| "Medium".into())),
+                deck_name: s.deck_name.clone(),
+                commander: s.commander.clone(),
+                commander_art,
+                commander_artist,
+                color_identity: s.color_identity.clone(),
+                ready: s.deck_version_id.is_some(),
+                bracket: s.bracket,
+                estimate: s.deck_version_id.as_ref().and_then(|v| estimates.get(v)).cloned(),
+            }
         })
         .collect()
+}
+
+/// Art for every commander seated in these games, by the seat's commander name. Partners
+/// ("A and B") show the first one's art, unless a single card has the whole name.
+async fn commander_arts<'a>(pool: &SqlitePool, seats: impl Iterator<Item = &'a SeatCfg>) -> sqlx::Result<HashMap<String, Art>> {
+    let mut arts = HashMap::new();
+    for name in seats.filter_map(|s| s.commander.as_ref()) {
+        if arts.contains_key(name) {
+            continue;
+        }
+        let mut found = None;
+        for candidate in [Some(name.as_str()), name.split(" and ").next().filter(|first| *first != name)].into_iter().flatten() {
+            found = sqlx::query_as::<_, Art>(
+                "SELECT c.image_art_crop, c.artist FROM card_names n JOIN cards c ON c.oracle_id = n.oracle_id WHERE n.name = ?
+                 ORDER BY IFNULL(c.layout,'') IN ('token','double_faced_token') LIMIT 1",
+            )
+            .bind(candidate)
+            .fetch_optional(pool)
+            .await?;
+            if found.is_some() {
+                break;
+            }
+        }
+        arts.insert(name.clone(), found.unwrap_or_default());
+    }
+    Ok(arts)
 }
 
 /// Spellbook estimates for the deck versions seated in these games.
@@ -362,6 +443,14 @@ struct OnlineGame {
     seats: Vec<SeatInfo>,
     you: Option<u8>,
     created_at: String,
+    /// When the game last changed (a move, a seat taken).
+    updated_at: String,
+    /// The winning seat of a finished game (none for a draw or an abandoned game).
+    winner: Option<u8>,
+    /// How many turns a finished game took.
+    turns: Option<i64>,
+    /// The playgroup whose stats the game counts toward.
+    playgroup: Option<String>,
     /// Deck name → cards the engine can't play yet (left out of the game).
     missing_cards: HashMap<String, Vec<String>>,
 }
@@ -374,7 +463,15 @@ struct Row {
     stage: String,
     seats: String,
     created_at: String,
+    updated_at: String,
+    winner_seat: Option<i64>,
+    turns: Option<i64>,
+    playgroup: Option<String>,
 }
+
+/// The columns a [`Row`] reads; `o` is online_games, `g` games, `p` playgroups.
+const ROW_SELECT: &str = "SELECT o.game_id, o.code, o.host_id, o.stage, o.seats, o.created_at, o.updated_at, g.winner_seat, g.turns, p.name AS playgroup
+     FROM online_games o LEFT JOIN games g ON g.id = o.game_id LEFT JOIN playgroups p ON p.id = g.playgroup_id";
 
 impl Row {
     fn seats(&self) -> Vec<SeatCfg> {
@@ -409,7 +506,7 @@ async fn load_visible(pool: &SqlitePool, id: &str, user: &str) -> AppResult<Row>
 }
 
 async fn load_row(pool: &SqlitePool, id: &str) -> AppResult<Row> {
-    sqlx::query_as("SELECT game_id, code, host_id, stage, seats, created_at FROM online_games WHERE game_id = ?")
+    sqlx::query_as(sqlx::AssertSqlSafe(format!("{ROW_SELECT} WHERE o.game_id = ?")))
         .bind(id)
         .fetch_optional(pool)
         .await?
@@ -430,19 +527,26 @@ async fn status(State(st): State<AppState>, _u: CurrentUser) -> Json<Status> {
 }
 
 async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<OnlineGame>>> {
-    let rows: Vec<Row> = sqlx::query_as(
-        "SELECT game_id, code, host_id, stage, seats, created_at FROM online_games
-         WHERE host_id = ? OR seats LIKE ? ORDER BY created_at DESC LIMIT 50",
-    )
+    let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "{ROW_SELECT} WHERE o.host_id = ? OR o.seats LIKE ? ORDER BY o.updated_at DESC LIMIT 50"
+    )))
     .bind(&user.id)
     .bind(format!("%\"user_id\":\"{}\"%", user.id))
     .fetch_all(&st.pool)
     .await?;
     let estimates = seat_estimates(&st.pool, &rows.iter().collect::<Vec<_>>()).await?;
-    Ok(Json(rows.iter().map(|r| summarize(r, &user.id, HashMap::new(), &estimates)).collect()))
+    let all_seats: Vec<SeatCfg> = rows.iter().flat_map(|r| r.seats()).collect();
+    let arts = commander_arts(&st.pool, all_seats.iter()).await?;
+    Ok(Json(rows.iter().map(|r| summarize(r, &user.id, HashMap::new(), &estimates, &arts)).collect()))
 }
 
-fn summarize(r: &Row, user: &str, missing_cards: HashMap<String, Vec<String>>, estimates: &HashMap<String, Estimated>) -> OnlineGame {
+fn summarize(
+    r: &Row,
+    user: &str,
+    missing_cards: HashMap<String, Vec<String>>,
+    estimates: &HashMap<String, Estimated>,
+    arts: &HashMap<String, Art>,
+) -> OnlineGame {
     let seats = r.seats();
     let participant = r.host_id == user || seats.iter().any(|s| s.user_id.as_deref() == Some(user));
     OnlineGame {
@@ -452,8 +556,12 @@ fn summarize(r: &Row, user: &str, missing_cards: HashMap<String, Vec<String>>, e
         status: r.status(),
         host: r.host_id.clone(),
         you: seats.iter().find(|s| s.user_id.as_deref() == Some(user)).map(|s| s.seat),
-        seats: seat_infos(&seats, estimates),
+        seats: seat_infos(&seats, estimates, arts),
         created_at: r.created_at.clone(),
+        updated_at: r.updated_at.clone(),
+        winner: if r.stage == "over" { r.winner_seat.and_then(|w| u8::try_from(w).ok()) } else { None },
+        turns: if r.stage == "over" { r.turns } else { None },
+        playgroup: r.playgroup.clone(),
         missing_cards,
     }
 }
@@ -472,7 +580,8 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
         }
     }
     let estimates = seat_estimates(&st.pool, &[&r]).await?;
-    Ok(Json(summarize(&r, &user.id, missing, &estimates)))
+    let arts = commander_arts(&st.pool, r.seats().iter()).await?;
+    Ok(Json(summarize(&r, &user.id, missing, &estimates, &arts)))
 }
 
 fn deck_lines(cards: &[DeckCard]) -> Vec<DeckLine<'_>> {
@@ -809,8 +918,12 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientMessage {
     Choose { revision: u64, index: usize },
+    Attack { revision: u64, attacks: Vec<(u64, AttackAt)> },
+    Block { revision: u64, blocks: Vec<(u64, u64)> },
     Concede,
     FullControl { on: bool },
+    /// Your own stops by step; `null` goes back to the default smart stops.
+    Stops { stops: Option<Stops> },
 }
 
 async fn connect(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, ws: WebSocketUpgrade) -> AppResult<Response> {
@@ -878,7 +991,8 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
     let (mut sink, mut stream) = socket.split();
     let mut views = live.views.clone();
     let mut meta_cache: HashMap<String, Option<CardMeta>> = HashMap::new();
-    let infos = serde_json::to_value(seat_infos(&seats, &HashMap::new())).unwrap_or_default();
+    let arts = commander_arts(&pool, seats.iter()).await.unwrap_or_default();
+    let infos = serde_json::to_value(seat_infos(&seats, &HashMap::new(), &arts)).unwrap_or_default();
     let (err_tx, mut err_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
     // Incoming choices go to the game thread; refusals come back as error messages.
@@ -897,11 +1011,32 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                         let _ = err_tx.send(e);
                     }
                 }
+                ClientMessage::Attack { revision, attacks } => {
+                    let (tx, rx) = oneshot::channel();
+                    if cmds.send(Cmd::Attack { seat, revision, attacks, reply: tx }).is_err() {
+                        break;
+                    }
+                    if let Ok(Err(e)) = rx.await {
+                        let _ = err_tx.send(e);
+                    }
+                }
+                ClientMessage::Block { revision, blocks } => {
+                    let (tx, rx) = oneshot::channel();
+                    if cmds.send(Cmd::Block { seat, revision, blocks, reply: tx }).is_err() {
+                        break;
+                    }
+                    if let Ok(Err(e)) = rx.await {
+                        let _ = err_tx.send(e);
+                    }
+                }
                 ClientMessage::Concede => {
                     let _ = cmds.send(Cmd::Concede { seat });
                 }
                 ClientMessage::FullControl { on } => {
                     let _ = cmds.send(Cmd::FullControl { seat, on });
+                }
+                ClientMessage::Stops { stops } => {
+                    let _ = cmds.send(Cmd::Stops { seat, stops });
                 }
             }
         }
@@ -968,5 +1103,6 @@ async fn final_view(State(st): State<AppState>, CurrentUser(user): CurrentUser, 
         view
     };
     let cards = card_meta(&st.pool, &view_names(&view), &mut HashMap::new()).await;
-    Ok(Json(serde_json::json!({ "type": "view", "you": you, "seats": seat_infos(&seats, &HashMap::new()), "cards": cards, "view": view })))
+    let arts = commander_arts(&st.pool, seats.iter()).await?;
+    Ok(Json(serde_json::json!({ "type": "view", "you": you, "seats": seat_infos(&seats, &HashMap::new(), &arts), "cards": cards, "view": view })))
 }

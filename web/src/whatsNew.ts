@@ -14,6 +14,22 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-19-online-board",
+    date: "2026-10-19",
+    title: "A new online board",
+    items: [
+      "Opponents sit across the top on their commander's art, in turn order, with life, cards in hand and commander damage to you.",
+      "One big button says what it will do: To combat, Attack (2), Resolve or End turn. Space presses it on a laptop.",
+      "Attack with any of your creatures, at whichever opponents you choose, and make any blocks: click the creatures, then the player or attacker.",
+      "Pick targets on the board. Legal targets get an amber ring.",
+      "Click the dots on the phase ladder to choose where the game stops for you.",
+      "Graveyards and exile open from each player. Double-click a card to play it, or right-click to read it.",
+      "Tapped cards turn their art, so their names stay readable.",
+      "Play online and the lobby show every seat's commander art, and your games say who won.",
+    ],
+    link: { to: "/play", label: "Open Play" },
+  },
+  {
     id: "2026-10-19-calendar",
     date: "2026-10-19",
     title: "Release calendar",

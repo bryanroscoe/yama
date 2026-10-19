@@ -15,6 +15,16 @@ export interface CardView {
   attached_to: unknown;
   /** Declared as an attacker in the current combat (older servers leave it out). */
   attacking?: boolean;
+  /** The seat it attacks (a planeswalker's or battle's controller, for those). */
+  attacks?: number;
+  /** Declared as a blocker in the current combat. */
+  blocking?: boolean;
+  /** A commander (never set on a face-down card). */
+  commander?: boolean;
+  /** Commander tax: 2 for each earlier cast from the command zone. */
+  tax?: number;
+  /** A creature that can't attack or tap yet (haste counted). */
+  sick?: boolean;
 }
 
 export interface PlayerView {
@@ -34,10 +44,17 @@ export interface OptionView {
   object: number | null;
 }
 
+/** An attack target: a player by seat, or a planeswalker or battle by object id. */
+export type AttackAt = { kind: "player"; seat: number } | { kind: "planeswalker"; id: number } | { kind: "battle"; id: number };
+
 export interface Decision {
   revision: number;
   prompt: string;
   options: OptionView[];
+  /** While declaring attackers: who may attack and whom (newer servers). */
+  attack?: { attackers: { id: number; targets: AttackAt[] }[] };
+  /** While declaring blockers: who may block and which attackers. */
+  block?: { blockers: { id: number; attackers: number[] }[] };
 }
 
 export interface View {
@@ -66,6 +83,9 @@ export interface SeatInfo {
   deck_name: string | null;
   /** The deck's commander ("A and B" for partners), for its art. */
   commander?: string | null;
+  /** The commander's art crop and its artist (newer servers send them). */
+  commander_art?: string | null;
+  commander_artist?: string | null;
   color_identity: string;
   ready: boolean;
   /** The bracket the deck's owner declared. */
@@ -99,5 +119,12 @@ export interface OnlineGame {
   seats: SeatInfo[];
   you: number | null;
   created_at: string;
+  /** When the game last changed (newer servers). */
+  updated_at?: string;
+  /** The winning seat of a finished game. */
+  winner?: number | null;
+  turns?: number | null;
+  /** The playgroup whose stats it counts toward. */
+  playgroup?: string | null;
   missing_cards: Record<string, string[]>;
 }
