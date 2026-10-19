@@ -200,7 +200,7 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 ### How online play ended up working
 
 - **Engine:** phase v0.113.0 from a local fork (`../yama-phase`, one commit so it builds on stable Rust), wrapped by `play/` (`Engine`, `Match`). `soak` plays Bryan's decks AI-vs-AI and checks that the replay log reproduces the game.
-- **Board:** we didn't fork phase's 1,400-file client. Each decision is the engine's own option list (`AiDecisionContract`), the same list the AI chooses from, shown as plain-language buttons. Tapping a card filters the list to options for that card. Every option is legal by construction, every engine decision type works from day one, and the UI can grow special cases (drag to attack, mana payment) later.
+- **Board:** we didn't fork phase's 1,400-file client. Each decision is the engine's own option list (`AiDecisionContract`), the same list the AI chooses from, shown as plain-language buttons. Tapping a card filters the list to options for that card. The server sends each card's full-size image and rules text with every view, so any card can be read at full size (hover preview on desktop, a card sheet on phones). Every option is legal by construction, every engine decision type works from day one, and the UI can grow special cases (drag to attack, mana payment) later.
 - **Smart stops:** the server passes for a person unless:
   - it's their main phase,
   - the stack holds something they could answer (land abilities alone don't count),

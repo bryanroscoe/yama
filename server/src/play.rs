@@ -726,10 +726,58 @@ async fn connect(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pat
     Ok(ws.on_upgrade(move |socket| watch_game(socket, st.pool.clone(), live, you, seats)))
 }
 
+/// What the board needs to show a card readably: full-size image and rules text, by name.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+struct CardMeta {
+    image: Option<String>,
+    back_image: Option<String>,
+    mana_cost: Option<String>,
+    type_line: String,
+    oracle_text: String,
+}
+
+/// Every card name the view shows (board, hand, stack, graveyards, exile, command zone).
+fn view_names(view: &View) -> Vec<String> {
+    let mut names: Vec<String> = view
+        .battlefield
+        .iter()
+        .chain(&view.hand)
+        .chain(&view.command_zone)
+        .chain(&view.exile)
+        .chain(view.players.iter().flat_map(|p| p.graveyard.iter()))
+        .map(|c| c.name.clone())
+        .chain(view.stack.iter().map(|s| s.name.clone()))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// Look up card details by name, remembering answers (including "unknown") for this connection.
+async fn card_meta(pool: &SqlitePool, names: &[String], cache: &mut HashMap<String, Option<CardMeta>>) -> HashMap<String, CardMeta> {
+    for name in names {
+        if cache.contains_key(name) {
+            continue;
+        }
+        let meta: Option<CardMeta> = sqlx::query_as(
+            "SELECT c.image_normal AS image, c.back_image_normal AS back_image, c.mana_cost, c.type_line, c.oracle_text
+             FROM card_names n JOIN cards c ON c.oracle_id = n.oracle_id WHERE n.name = ?
+             ORDER BY IFNULL(c.layout,'') IN ('token','double_faced_token') LIMIT 1",
+        )
+        .bind(name)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+        cache.insert(name.clone(), meta);
+    }
+    names.iter().filter_map(|n| cache.get(n).cloned().flatten().map(|m| (n.clone(), m))).collect()
+}
+
 async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Option<u8>, seats: Vec<SeatCfg>) {
     let (mut sink, mut stream) = socket.split();
     let mut views = live.views.clone();
-    let mut images: HashMap<String, Option<String>> = HashMap::new();
+    let mut meta_cache: HashMap<String, Option<CardMeta>> = HashMap::new();
     let infos = serde_json::to_value(seat_infos(&seats)).unwrap_or_default();
     let (err_tx, mut err_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
@@ -774,24 +822,8 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
         first = false;
         let snap = views.borrow_and_update().clone();
         let Some(view) = snap.views.get(&you).or_else(|| snap.views.get(&None)) else { continue };
-        let mut names: Vec<&str> = view.battlefield.iter().chain(&view.hand).chain(&view.command_zone).map(|c| c.name.as_str()).collect();
-        names.dedup();
-        for name in names {
-            if !images.contains_key(name) {
-                let url: Option<String> = sqlx::query_scalar(
-                    "SELECT c.image_small FROM card_names n JOIN cards c ON c.oracle_id = n.oracle_id WHERE n.name = ? LIMIT 1",
-                )
-                .bind(name)
-                .fetch_optional(&pool)
-                .await
-                .ok()
-                .flatten()
-                .flatten();
-                images.insert(name.to_string(), url);
-            }
-        }
-        let image_map: HashMap<&String, &String> = images.iter().filter_map(|(k, v)| v.as_ref().map(|v| (k, v))).collect();
-        let msg = serde_json::json!({ "type": "view", "you": you, "seats": infos, "images": image_map, "view": view });
+        let cards = card_meta(&pool, &view_names(view), &mut meta_cache).await;
+        let msg = serde_json::json!({ "type": "view", "you": you, "seats": infos, "cards": cards, "view": view });
         if sink.send(Message::Text(msg.to_string().into())).await.is_err() {
             break;
         }
@@ -835,21 +867,6 @@ async fn final_view(State(st): State<AppState>, CurrentUser(user): CurrentUser, 
         .map_err(anyhow::Error::from)??;
         view
     };
-    let mut images = HashMap::new();
-    for c in view.battlefield.iter().chain(&view.hand).chain(&view.command_zone) {
-        if images.contains_key(&c.name) {
-            continue;
-        }
-        let url: Option<String> = sqlx::query_scalar(
-            "SELECT c.image_small FROM card_names n JOIN cards c ON c.oracle_id = n.oracle_id WHERE n.name = ? LIMIT 1",
-        )
-        .bind(&c.name)
-        .fetch_optional(&st.pool)
-        .await?
-        .flatten();
-        if let Some(url) = url {
-            images.insert(c.name.clone(), url);
-        }
-    }
-    Ok(Json(serde_json::json!({ "type": "view", "you": you, "seats": seat_infos(&seats), "images": images, "view": view })))
+    let cards = card_meta(&st.pool, &view_names(&view), &mut HashMap::new()).await;
+    Ok(Json(serde_json::json!({ "type": "view", "you": you, "seats": seat_infos(&seats), "cards": cards, "view": view })))
 }

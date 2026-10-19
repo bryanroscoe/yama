@@ -18,7 +18,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Playgroups | Join codes, guests without accounts, game history, logging games played without Yama, win rates by player and commander |
 | Install | Installable web app (home screen, offline shell); Capacitor config for native apps (docs/mobile.md) |
 | Prices | Daily Scryfall snapshots kept by date (`YAMA_AUTO_IMPORT=1`) |
-| Online play | Commander on the phase-rs rules engine (`play/`): lobby, friends join by code, AI seats (Easy/Medium/Hard), legal options only, auto-pass, per-seat hidden information, replay log saved after every move, games resume after a restart, final boards rebuilt from replays. Needs the engine card data (below) |
+| Online play | Commander on the phase-rs rules engine (`play/`): lobby, friends join by code, AI seats (Easy/Medium/Hard), legal options only, auto-pass, per-seat hidden information, replay log saved after every move, games resume after a restart, final boards rebuilt from replays. Readable board: hover a card for a full-size preview (desktop), tap for the card with its rules text and your options for it (phone); on phones your options and hand sit in a dock at the bottom. Needs the engine card data (below) |
 | Scanner | In progress (docs/scanner.md) |
 
 ## Run it locally

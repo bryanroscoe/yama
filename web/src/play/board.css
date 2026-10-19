@@ -1,0 +1,639 @@
+/* Online board. Phones and tablets: opponents, then your board, with a dock pinned to the bottom
+   holding the stack, your options and your hand. Wide screens: the table on the left, a side panel (stack, options, recent events) on the right,
+   and a full-size preview of whatever card the mouse is over. */
+
+.board {
+  --field-w: 78px;
+  --hand-w: 108px;
+  --card-ratio: 680 / 488;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "top" "opps" "mine" "hand" "side";
+  align-content: start;
+}
+.board.docked {
+  grid-template-areas: "top" "opps" "mine" "dock";
+  /* The dock is the last row; the rows above take whatever is left so it sits at the bottom. */
+  grid-template-rows: auto auto 1fr auto;
+  padding-top: env(safe-area-inset-top);
+}
+
+.board-top {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--felt);
+}
+
+/* Phase tracker */
+.phases {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  overflow-x: auto;
+}
+.whose {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.whose.mine {
+  color: var(--felt);
+  background: var(--paper);
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+}
+.phases ol {
+  display: flex;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.phases li {
+  font-size: var(--t-sm);
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  color: var(--paper-faint);
+  white-space: nowrap;
+}
+.phases li.done {
+  color: var(--paper-dim);
+}
+.phases li.now {
+  background: var(--felt-3);
+  color: var(--paper);
+  font-weight: 700;
+  outline: 1px solid var(--paper-dim);
+}
+.phases .step {
+  font-weight: 400;
+}
+
+/* Opponents */
+.opponents {
+  grid-area: opps;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+.opp {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--felt-2);
+  padding: 0.4rem 0.6rem 0.6rem;
+}
+.opp.active {
+  border-color: var(--paper);
+  box-shadow: 0 0 0 1px var(--paper);
+}
+.opp.out {
+  opacity: 0.5;
+}
+.opp-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+  border-left: 5px solid;
+  padding-left: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.opp-name {
+  font-weight: 700;
+}
+.opp-life {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-xl);
+  line-height: 1;
+}
+.thinking {
+  color: var(--paper);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Each opponent's board is one sideways-scrolling row (any card can be read full size), so the
+   whole table fits on screen. */
+.opponents .zone {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.opponents .tiles {
+  flex-wrap: nowrap;
+}
+.opponents .tiles.lands .tile.field {
+  width: calc(var(--opp-w, var(--field-w)) * 0.75);
+}
+
+/* Your side */
+.mine {
+  grid-area: mine;
+  padding: 0.25rem 0.75rem 0.5rem;
+  border-top: 1px solid var(--line);
+}
+.my-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.25rem 0 0.4rem;
+}
+.my-life {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-2xl);
+  line-height: 1;
+}
+
+/* Zones and tiles */
+.zone {
+  display: grid;
+  gap: 0.4rem;
+}
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.zone-empty {
+  color: var(--paper-faint);
+  font-size: var(--t-sm);
+  margin: 0.25rem 0;
+}
+
+.tile {
+  position: relative;
+  padding: 0;
+  min-height: 0;
+  border: 2px solid transparent;
+  border-radius: 7px;
+  overflow: visible;
+  background: transparent;
+  flex: 0 0 auto;
+  transition: transform 140ms ease, margin 140ms ease;
+}
+.tile.field {
+  width: var(--field-w);
+}
+.tile.hand {
+  width: var(--hand-w);
+}
+.tile img,
+.tile .tile-name {
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  display: block;
+  border-radius: 5px;
+  object-fit: cover;
+  background: var(--felt-3);
+}
+.tile .tile-name {
+  font-size: 0.7rem;
+  line-height: 1.2;
+  padding: 4px;
+  text-align: left;
+  color: var(--paper);
+}
+/* A tapped card turns sideways and takes the room it needs. */
+.tile.tapped {
+  transform: rotate(90deg);
+  margin-inline: calc(var(--field-w) * 0.2);
+}
+.tile.tapped img {
+  filter: brightness(0.8);
+}
+.tile.command img {
+  outline: 2px dashed var(--paper-dim);
+  outline-offset: 2px;
+}
+.zone-tag {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  right: 3px;
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: rgb(19 32 28 / 0.9);
+  color: var(--paper);
+  border-radius: 3px;
+}
+.tile.playable {
+  border-color: var(--paper-dim);
+}
+.tile.selected {
+  border-color: var(--paper);
+  box-shadow: 0 0 0 3px rgb(236 229 211 / 0.35);
+}
+.tile.hand.selected {
+  transform: translateY(-6px);
+}
+@media (hover: hover) {
+  .tile.hand.playable:hover {
+    transform: translateY(-6px);
+  }
+}
+.dot {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--felt);
+}
+.stat,
+.count {
+  position: absolute;
+  bottom: 3px;
+  background: rgb(19 32 28 / 0.92);
+  color: var(--paper);
+  font-weight: 700;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.stat {
+  right: 3px;
+}
+.stat.hurt {
+  color: var(--bad);
+}
+.count {
+  left: 3px;
+}
+.count {
+  white-space: nowrap;
+}
+.tapped-n {
+  display: block;
+  font-weight: 400;
+  font-size: 0.65rem;
+}
+.counters {
+  position: absolute;
+  top: 18%;
+  left: 3px;
+  right: 3px;
+  background: rgb(19 32 28 / 0.9);
+  color: var(--paper);
+  font-size: 0.7rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+  text-align: center;
+}
+
+/* Hand */
+.hand-row {
+  grid-area: hand;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 0.6rem 0.75rem 0.5rem;
+  border-top: 1px solid var(--line);
+  background: var(--felt-2);
+}
+
+/* Side panel: stack, your options, recent events */
+.side {
+  grid-area: side;
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+  padding: 0.6rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom));
+  background: var(--felt-2);
+  border-top: 1px solid var(--line);
+}
+.stack-panel h3,
+.decision h2 {
+  margin: 0 0 0.4rem;
+}
+.stack-panel ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.stack-panel li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--felt-3);
+}
+.stack-panel li img {
+  width: 36px;
+  border-radius: 3px;
+}
+.decision {
+  border: 1px solid var(--paper-dim);
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: var(--felt);
+}
+.decision.waiting {
+  border-color: var(--line);
+}
+.decision h2 {
+  font-size: var(--t-lg);
+}
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 0.5rem;
+}
+.options button {
+  font-weight: 700;
+  justify-content: flex-start;
+  text-align: left;
+}
+.card-options {
+  display: grid;
+  gap: 4px;
+  max-height: 40dvh;
+  overflow-y: auto;
+  margin-bottom: 0.4rem;
+}
+.card-option {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 0.6rem;
+  align-items: center;
+  text-align: left;
+  font-weight: 700;
+  padding: 4px 8px 4px 4px;
+  justify-content: stretch;
+}
+.card-option img,
+.card-option-blank {
+  width: 44px;
+  aspect-ratio: 488 / 680;
+  border-radius: 3px;
+  object-fit: cover;
+  background: var(--felt-3);
+}
+.pass {
+  width: 100%;
+  margin-top: 0.25rem;
+  background: var(--paper);
+  color: var(--felt);
+  border-color: var(--paper);
+}
+/* Phone dock: stack, options and hand pinned to the bottom of the screen. */
+.dock {
+  grid-area: dock;
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.4rem 0 env(safe-area-inset-bottom);
+  background: var(--felt-2);
+  border-top: 1px solid var(--paper-dim);
+  box-shadow: 0 -8px 24px rgb(0 0 0 / 0.35);
+}
+.dock > * {
+  min-width: 0;
+}
+.dock > :not(.hand-row) {
+  margin-inline: 0.75rem;
+}
+.dock .hand-row {
+  grid-area: auto;
+  border-top: none;
+  padding-top: 0.2rem;
+}
+.dock .stack-panel h3 {
+  display: none;
+}
+.dock .stack-panel ol {
+  display: flex;
+  overflow-x: auto;
+}
+.dock .stack-panel li {
+  flex: 0 0 auto;
+  font-size: var(--t-sm);
+}
+.dock .stack-panel li img {
+  width: 28px;
+}
+.decision.compact {
+  padding: 0.5rem 0.6rem;
+}
+.decision.compact h2 {
+  font-size: var(--t-md);
+  margin: 0;
+}
+.decision.compact .prompt {
+  margin: 0 0 0.35rem;
+}
+.decision.compact .prompt button {
+  min-height: 32px;
+  padding: 0 6px;
+}
+.last-event {
+  margin: 0 0 0.2rem;
+  color: var(--paper-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.choice-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 70vw;
+  padding: 4px 10px 4px 4px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.chip.general {
+  padding-left: 10px;
+}
+.chip img {
+  width: 28px;
+  aspect-ratio: 488 / 680;
+  border-radius: 2px;
+  object-fit: cover;
+}
+.chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.decision.compact .pass {
+  width: auto;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.recent p {
+  margin: 0 0 0.2rem;
+  color: var(--paper-dim);
+}
+
+/* Full-size preview on hover (desktop only) */
+.preview {
+  display: none;
+}
+
+/* Inspector (phone tap / desktop click) */
+.inspector {
+  display: grid;
+  gap: 0.75rem;
+}
+.inspector-card img {
+  width: min(320px, 80vw);
+  border-radius: 4.75% / 3.4%;
+  display: block;
+}
+.inspector-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.inspector .options button {
+  min-height: 48px;
+}
+
+/* Narrow phones: only the current phase in the header and smaller opponent cards. */
+@media (max-width: 639px) {
+  .phases li:not(.now) {
+    display: none;
+  }
+  .board-top button {
+    white-space: nowrap;
+  }
+  .board {
+    --opp-w: 60px;
+  }
+  .opponents .tile.field {
+    width: var(--opp-w);
+  }
+  .opponents .tile.tapped {
+    margin-inline: 10px;
+  }
+  .opponents .tiles.lands .tile.tapped {
+    margin-inline: 8px;
+  }
+  .opponents .tapped-n {
+    display: none;
+  }
+  .opponents .zone-tag {
+    font-size: 0.55rem;
+  }
+  .opponents .stat {
+    font-size: 0.7rem;
+  }
+  .opp-life {
+    font-size: var(--t-lg);
+  }
+  .opp {
+    padding: 0.3rem 0.5rem 0.45rem;
+  }
+  .opp-head {
+    margin-bottom: 0.3rem;
+  }
+  .board {
+    --hand-w: 96px;
+  }
+}
+
+@media (min-width: 640px) {
+  .board {
+    --field-w: 92px;
+    --hand-w: 128px;
+  }
+}
+
+@media (min-width: 1000px) {
+  .board {
+    --field-w: 104px;
+    --hand-w: 150px;
+    height: 100dvh;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    /* Opponents take what they need (up to 45% of the height); your board gets the rest. */
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "top top"
+      "opps side"
+      "mine side"
+      "hand side";
+  }
+  .opponents {
+    max-height: 45dvh;
+    overflow-y: auto;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    align-content: start;
+  }
+  /* Opponents' cards are smaller: the preview shows any of them full size. */
+  .board {
+    --opp-w: 76px;
+  }
+  .opponents .tile.field {
+    width: var(--opp-w);
+  }
+  .opponents .tile.tapped {
+    margin-inline: calc(var(--opp-w) * 0.2);
+  }
+  .mine {
+    overflow-y: auto;
+  }
+  .side {
+    grid-row: 2 / 5;
+    overflow-y: auto;
+    border-top: none;
+    border-left: 1px solid var(--line);
+  }
+  .preview {
+    display: block;
+    position: fixed;
+    top: 64px;
+    right: 376px;
+    width: 300px;
+    z-index: 30;
+    pointer-events: none;
+    filter: drop-shadow(0 12px 28px rgb(0 0 0 / 0.55));
+  }
+  .preview img {
+    width: 100%;
+    border-radius: 4.75% / 3.4%;
+    display: block;
+  }
+}

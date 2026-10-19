@@ -66,9 +66,17 @@ export interface SeatInfo {
   ready: boolean;
 }
 
+export interface CardMeta {
+  image: string | null;
+  back_image: string | null;
+  mana_cost: string | null;
+  type_line: string;
+  oracle_text: string;
+}
+
 /** What the server sends over the play socket. */
 export type ServerMessage =
-  | { type: "view"; you: number | null; seats: SeatInfo[]; images: Record<string, string>; view: View }
+  | { type: "view"; you: number | null; seats: SeatInfo[]; cards: Record<string, CardMeta>; view: View }
   | { type: "error"; message: string };
 
 export interface OnlineGame {
