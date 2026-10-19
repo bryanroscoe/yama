@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NEWS, unseen, type NewsEntry } from "./whatsNew";
+import { NEWS, noticeLine, unseen, type NewsEntry } from "./whatsNew";
 
 const entry = (id: string): NewsEntry => ({ id, date: "2026-10-19", title: id, items: [`${id} shipped.`] });
 
@@ -11,6 +11,14 @@ describe("what's new", () => {
     expect(unseen(list, "b").map((e) => e.id)).toEqual(["c"]);
     expect(unseen(list, "c")).toEqual([]);
     expect(unseen(list, "gone").map((e) => e.id)).toEqual(["c", "b", "a"]);
+  });
+
+  it("invites a device that has never looked, and counts only after it has", () => {
+    expect(noticeLine(list, null)).toBe("Yama keeps a list of what's new.");
+    expect(noticeLine(list, "a")).toBe("Yama has 2 updates since you last looked.");
+    expect(noticeLine(list, "b")).toBe("New in Yama: c.");
+    expect(noticeLine(list, "c")).toBeNull();
+    expect(noticeLine([], null)).toBeNull();
   });
 
   it("keeps the list tidy: unique ids, newest first, plain sentences", () => {

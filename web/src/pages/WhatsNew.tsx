@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Link, useLocation } from "react-router";
 import { day } from "../components/Rulings";
-import { NEWS, SEEN_KEY, unseen } from "../whatsNew";
+import { NEWS, SEEN_KEY, noticeLine, unseen } from "../whatsNew";
 import "../components/calendar.css";
 
 const SEEN_EVENT = "yama-news-seen";
@@ -42,13 +42,11 @@ function useSeen() {
 export function NewsNotice() {
   const seen = useSeen();
   const { pathname } = useLocation();
-  const fresh = unseen(NEWS, seen);
-  if (!fresh.length || pathname === "/new") return null;
+  const line = noticeLine(NEWS, seen);
+  if (!line || pathname === "/new") return null;
   return (
     <aside className="news-notice" aria-label="What's new">
-      <p>
-        {fresh.length === 1 ? `New in Yama: ${fresh[0]!.title}.` : `Yama has ${fresh.length} updates since you last looked.`}
-      </p>
+      <p>{line}</p>
       <span className="row">
         <Link to="/new" className="button">See what's new</Link>
         <button className="quiet" onClick={markSeen}>Dismiss</button>

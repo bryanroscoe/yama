@@ -107,13 +107,15 @@ CREATE TABLE calendar_watches (
 );
 
 -- Commander precons that MTGJSON has lists for (DeckList.json entries of type 'Commander Deck'),
--- refreshed once a day (import_runs kind 'mtgjson_decklist'). A deck's own list is downloaded
--- from MTGJSON when it belongs to a watched set, or when someone starts a deck from it, and kept
--- here as a pasteable list. NULL list columns = not downloaded yet.
+-- refreshed once a day (import_runs kind 'mtgjson_decklist'); a deck MTGJSON stops listing is
+-- removed at the next good refresh. A deck's own list is downloaded from MTGJSON when it belongs
+-- to a watched set, or when someone starts a deck from it, and kept here as a pasteable list.
+-- NULL list columns = not downloaded yet.
 CREATE TABLE calendar_precons (
     file_name            TEXT PRIMARY KEY,  -- MTGJSON's fileName, e.g. MultiverseReforged_FRC
     set_code             TEXT NOT NULL,     -- lowercase, as Scryfall writes it
     name                 TEXT NOT NULL,
+    variant_of           TEXT,              -- the base deck's file_name when this is its Collector's Edition
     release_date         TEXT,              -- YYYY-MM-DD, per MTGJSON
     source_url           TEXT,              -- where MTGJSON got the list (usually Wizards' announcement)
     first_seen_at        TEXT NOT NULL,     -- RFC 3339, when Yama first saw MTGJSON list it

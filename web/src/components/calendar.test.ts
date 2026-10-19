@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { CalendarSet, PreconSummary } from "../api";
-import { daysBetween, hasDeckNamed, hostOf, isExtra, localToday, previewLine, releaseLine, setTypeLabel, watchedPrecons } from "./calendar";
+import {
+  daysBetween,
+  hasDeckNamed,
+  headlined,
+  hostOf,
+  isExtra,
+  localToday,
+  preconMade,
+  previewLine,
+  publishedLine,
+  releaseLine,
+  setTypeLabel,
+  watchedPrecons,
+} from "./calendar";
 
 const id = (d: string) => d;
 
@@ -25,7 +38,17 @@ function set(code: string, patch: Partial<CalendarSet> = {}): CalendarSet {
 }
 
 function precon(file_name: string, set_code: string): PreconSummary {
-  return { file_name, set_code, name: file_name, release_date: "2026-11-13", source_url: null, first_seen_at: "2026-10-30T06:00:00Z", commanders: null, list_cards: null };
+  return {
+    file_name,
+    set_code,
+    name: file_name,
+    release_date: "2026-11-13",
+    source_url: null,
+    first_seen_at: "2026-10-30T06:00:00Z",
+    commanders: null,
+    list_cards: null,
+    variants: [],
+  };
 }
 
 describe("release calendar", () => {
@@ -91,5 +114,27 @@ describe("release calendar", () => {
   it("spots a precon already made into a deck", () => {
     expect(hasDeckNamed(["Riders of Rohan", " federation  fleet"], "Federation Fleet")).toBe(true);
     expect(hasDeckNamed(["Riders of Rohan"], "Federation Fleet")).toBe(false);
+  });
+
+  it("counts a Collector's Edition as the deck it belongs to", () => {
+    const f4 = { ...precon("TheFantasticFour_MSC", "msc"), name: "The Fantastic Four" };
+    f4.variants = [{ file_name: "TheFantasticFourCollectorSEdition_MSC", name: "The Fantastic Four Collector's Edition" }];
+    expect(preconMade(["the fantastic four"], f4)).toBe(true);
+    expect(preconMade(["The Fantastic Four Collector's Edition"], f4)).toBe(true);
+    expect(preconMade(["Doom Prevails"], f4)).toBe(false);
+    expect(publishedLine(1)).toBe("The list for one deck is published");
+    expect(publishedLine(4)).toBe("Lists for 4 decks are published");
+  });
+
+  it("keeps watched precons at the top until four weeks after release or a deck for each", () => {
+    const decks = [precon("FederationFleet_TRC", "trc"), precon("WeAreTheBorg_TRC", "trc")];
+    const g = { released: "2026-11-13", precons: decks };
+    expect(headlined(g, "2026-10-19", [])).toBe(true);
+    expect(headlined(g, "2026-10-19", ["FederationFleet_TRC", "WeAreTheBorg_TRC"]), "before release, even with every deck made").toBe(true);
+    expect(headlined(g, "2026-11-20", ["FederationFleet_TRC"])).toBe(true);
+    expect(headlined(g, "2026-11-20", ["FederationFleet_TRC", "WeAreTheBorg_TRC"]), "out, and a deck for each").toBe(false);
+    expect(headlined(g, "2026-12-11", [])).toBe(true);
+    expect(headlined(g, "2026-12-12", []), "29 days after release").toBe(false);
+    expect(headlined({ released: null, precons: decks }, "2027-06-01", [])).toBe(true);
   });
 });
