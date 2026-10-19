@@ -3635,6 +3635,8 @@ name = "yama-play"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "libc",
+ "mimalloc",
  "phase-ai",
  "phase-engine",
  "phase-llm",

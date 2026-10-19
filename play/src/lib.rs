@@ -81,6 +81,11 @@ impl Engine {
         self.db.card_count()
     }
 
+    /// The loaded card database, for batch runners (the lab) that share one across threads.
+    pub fn database(&self) -> &Arc<CardDatabase> {
+        &self.db
+    }
+
     /// Map Yama's deck lines to engine card names: by oracle ID first, then by name.
     pub fn resolve_deck(&self, lines: &[DeckLine]) -> (SeatDeck, DeckReport) {
         let mut deck = SeatDeck { commander: vec![], main: vec![] };
