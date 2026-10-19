@@ -1,0 +1,373 @@
+/* The deck page (pages/Decks.tsx) beyond the shared deck rules in styles.css: the status row, the
+   plan link, the card rows with art crops, the phone action bar and the sample hand (design:
+   DeckView, DeckPhone, Hand). styles.css loads after this file, so selectors that style buttons
+   and links carry a parent class to stay ahead of its element rules. */
+
+/* ── status row: legality, the plan, simulated strength ─────────────────── */
+
+.deck-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 4px 0 8px;
+}
+.deck-legal-pill {
+  padding: 6px 14px;
+  font-size: var(--t-label);
+}
+.deck-sim {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  max-width: 70ch;
+}
+.deck-errors {
+  margin: 0 0 8px;
+}
+.deck-page .deck-plan-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface);
+}
+.deck-plan-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.deck-plan-text b {
+  font-weight: 700;
+}
+.deck-plan-text .phone-only {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+/* Laptops: a pill with "Open plan" on a raised chip. */
+.deck-page .deck-plan-wide .deck-plan-link {
+  padding: 6px 8px 6px 14px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-label);
+}
+.deck-plan-wide .deck-plan-text b {
+  font-weight: 400;
+}
+.deck-plan-open {
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  font-weight: 700;
+}
+.deck-page .deck-plan-link:hover .deck-plan-open {
+  background: color-mix(in srgb, var(--raised), var(--text) 10%);
+}
+/* Phones: a card under the figures. */
+.deck-plan-phone {
+  margin-bottom: 12px;
+}
+.deck-plan-phone .deck-plan-link {
+  padding: 12px 14px;
+  border-radius: 14px;
+  min-height: 56px;
+}
+.deck-price-note {
+  margin: -4px 0 12px;
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+@media (max-width: 899px) {
+  /* The phone shows legality inside the plan card; with no plan it keeps its own pill. */
+  .deck-status.has-plan .deck-legal-pill {
+    display: none;
+  }
+}
+
+/* ── toolbar: Whole deck / Still need, Stacks / List ────────────────────── */
+
+.deck-show,
+.deck-layout {
+  display: flex;
+  gap: 4px;
+}
+.deck-toolbar .deck-show > button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: none;
+  background: transparent;
+  color: var(--dim);
+}
+.deck-toolbar .deck-show > button:hover {
+  color: var(--text);
+}
+.deck-toolbar .deck-show > button[aria-selected="true"] {
+  background: var(--text);
+  color: var(--ground);
+}
+.deck-toolbar .deck-layout > button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--t-label);
+}
+.deck-toolbar .deck-layout > button[aria-pressed="true"] {
+  background: var(--raised);
+  color: var(--text);
+}
+@media (max-width: 899px) {
+  .deck-page .deck-toolbar {
+    margin: 8px 0 16px;
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  /* Phones: Whole deck / Still need is the full-width segmented track. */
+  .deck-show {
+    flex: 1 1 100%;
+    padding: 3px;
+    gap: 2px;
+    border-radius: var(--r-pill);
+    background: var(--surface);
+  }
+  .deck-toolbar .deck-show > button {
+    flex: 1;
+  }
+  .deck-layout {
+    margin-left: auto;
+  }
+}
+
+/* ── list rows: art crop, name, where it is, have or need ───────────────── */
+
+.deck-group-head {
+  margin: 0 0 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 1.5rem;
+}
+.deck-rows {
+  display: flex;
+  flex-direction: column;
+}
+.deck-page .deck-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 58px;
+  padding: 4px 0;
+  border: none;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: 400;
+  text-align: left;
+  justify-content: stretch;
+}
+.deck-page .deck-row:hover {
+  background: var(--surface);
+}
+.deck-row-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+.deck-row-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deck-row-state {
+  display: flex;
+  flex-direction: column;
+  align-items: end;
+  font-size: var(--t-sm);
+  font-weight: 700;
+}
+.deck-row-state .have {
+  color: var(--good);
+}
+.deck-row-state .need {
+  color: var(--warn);
+}
+.deck-row-state .dim {
+  font-weight: 400;
+}
+
+/* ── everything else about the deck, under the cards ────────────────────── */
+
+.deck-more {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+/* ── phone action bar ───────────────────────────────────────────────────── */
+
+.deck-actbar {
+  display: none;
+}
+@media (max-width: 899px) {
+  .deck-actbar {
+    position: sticky;
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+    z-index: 15;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--ground);
+    border-top: 1px solid var(--line);
+  }
+  .deck-page .deck-actbar > button {
+    min-height: 52px;
+  }
+  .deck-page .deck-actions-phone {
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  .deck-page .deck-actions-phone > button {
+    flex: 1 1 0;
+    min-height: 44px;
+    padding: 0 10px;
+    font-size: var(--t-label);
+  }
+}
+
+/* ── sample hand ────────────────────────────────────────────────────────── */
+
+.hand-view {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--ground);
+  overflow-y: auto;
+}
+.hand-head.art-panel {
+  flex: none;
+  min-height: 130px;
+  border-radius: 0;
+  display: grid;
+}
+.hand-head > .art-body {
+  align-self: end;
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 12px;
+  width: 100%;
+  max-width: calc(var(--content-w) + 2 * var(--page-pad));
+  margin: 0 auto;
+  padding: 40px var(--page-pad) 14px;
+}
+.hand-title {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  min-width: 0;
+}
+.hand-deck {
+  font-size: var(--t-sm);
+  color: var(--on-art-dim);
+}
+.hand-name {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 2.5rem;
+  line-height: 0.95;
+  text-shadow: var(--art-shadow);
+}
+.hand-head.art-none .hand-deck,
+.hand-head.art-none .hand-name {
+  color: var(--text);
+  text-shadow: none;
+}
+.hand-view .hand-head button.hand-done {
+  min-height: 40px;
+  padding: 0 16px;
+}
+.hand-body {
+  flex: 1;
+  width: 100%;
+  max-width: calc(var(--content-w) + 2 * var(--page-pad));
+  margin: 0 auto;
+  padding: 0 var(--page-pad) 16px;
+}
+.hand-summary {
+  margin: 0 0 12px;
+  color: var(--dim);
+  font-size: var(--t-label);
+}
+.hand-bottom {
+  margin: 0 0 12px;
+  font-weight: 700;
+}
+.hand-cards {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (min-width: 900px) {
+  .hand-cards {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 14px;
+  }
+  .hand-name {
+    font-size: 3.5rem;
+  }
+  .hand-head.art-panel {
+    min-height: 200px;
+  }
+}
+.hand-view .hand-cards button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  min-height: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--card-radius);
+}
+.hand-view .hand-cards button:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.hand-cards .card-img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+}
+.hand-note {
+  margin: 0;
+}
+.hand-bar {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px var(--page-pad) calc(22px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--ground);
+}
+.hand-view .hand-bar > button {
+  min-height: 52px;
+}
+@media (min-width: 900px) {
+  .hand-bar {
+    grid-template-columns: repeat(3, minmax(0, 12rem));
+    justify-content: center;
+  }
+}

@@ -4,9 +4,14 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { api, ApiError, type DeckCard, type DeckSummary, type DeckView, type SearchResult } from "../api";
 import { useMe } from "../auth";
+import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
+import { Crop } from "../components/Crop";
 import { CardImage, ErrorText, ManaCost, Pips } from "../components/ui";
+import { useCardArt } from "../components/useCardArt";
 import { offlineSearch } from "../offline/cards";
-import type { BaseChoice, ExperimentDetail, FieldChoice, NewExperiment, Pace, PreconDetail, TryPrefill } from "./api";
+import type { BaseChoice, ExperimentDetail, ExperimentItem, FieldChoice, NewExperiment, Pace, PreconDetail, TryPrefill } from "./api";
+import { LabHead } from "./LabLayout";
+import { experimentLabel } from "./Run";
 import {
   caveat,
   changeText,
@@ -15,8 +20,11 @@ import {
   durationText,
   expectedSeconds,
   grouped,
+  hasResults,
   identityQuery,
   playedCount,
+  pointsRange,
+  pointsWord,
   tally,
   type BaseLine,
 } from "./logic";
@@ -40,6 +48,8 @@ interface LoadedBase {
   /** Whether the base is a precon with a simulated strength, so it sets "similar strength" itself. */
   rated: boolean;
   note?: string;
+  /** The commander's art crop, when known. */
+  art?: { url: string; artist: string | null } | null;
 }
 
 function fromDeck(d: DeckView): LoadedBase {
@@ -52,6 +62,10 @@ function fromDeck(d: DeckView): LoadedBase {
     precon: null,
     rated: false,
     note: d.version_id ? "Its latest version" : undefined,
+    art: (() => {
+      const c = d.cards.find((x) => x.board === "commander" && x.card?.image_art_crop)?.card;
+      return c?.image_art_crop ? { url: c.image_art_crop, artist: c.artist } : null;
+    })(),
   };
 }
 
@@ -65,6 +79,7 @@ function fromPrecon(p: PreconDetail): LoadedBase {
     precon: p.precon.id,
     rated: p.precon.rating?.strength != null,
     note: `${p.precon.set_name ?? p.precon.set_code} stock list`,
+    art: p.precon.art ? { url: p.precon.art.url, artist: p.precon.art.artist } : null,
   };
 }
 
@@ -199,239 +214,302 @@ function TryForm() {
             ? `${myDecks.length} of your decks`
             : "your decks";
   const eta = expectedSeconds(pace.data, games);
+  const changeBase = () => {
+    resetChanges();
+    if (kind === "precon") setPreconId("");
+    else if (kind === "deck") setDeckId("");
+    else setPasted(null);
+  };
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Try a change</h1>
-          <p className="dim" style={{ margin: 0, maxWidth: "62ch" }}>
-            Play a list and a changed copy of it against the same opponents, seats and shuffles, then compare. {caveat()}
-          </p>
-        </div>
+      <LabHead title="Try a change" />
+      <p className="dim lab-try-intro">
+        Play a list and a changed copy of it against the same opponents, seats and shuffles, then compare. {caveat()}
+      </p>
+
+      <div className="phone-only">
+        <RunningNow />
       </div>
-
-      <section className="lab-step">
-        <h2><span className="n">1</span> Start from</h2>
-        <div className="lab-chips" role="radiogroup" aria-label="Start from" style={{ marginBottom: "0.75rem" }}>
-          {(
-            [
-              ["precon", "A precon"],
-              ["deck", "One of my decks"],
-              ["list", "Paste a list"],
-            ] as [BaseKind, string][]
-          ).map(([k, label]) => (
-            <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => chooseKind(k)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        {kind === "precon" && (
-          <PreconPicker
-            value={preconMissing ? "" : preconId}
-            onChange={(id) => {
-              resetChanges();
-              setPreconId(id);
-            }}
-          />
-        )}
-        {kind === "deck" && (
-          <label>
-            Deck
-            <span className="hint">Its latest version is used. Simulations need 100 cards with a commander.</span>
-            <select
-              value={deckId}
-              onChange={(e) => {
-                resetChanges();
-                setDeckId(e.target.value);
-              }}
-            >
-              <option value="">Choose a deck</option>
-              {decks.data?.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                  {d.commanders.length ? `, ${d.commanders.join(" and ")}` : ""} ({d.card_count} cards)
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {kind === "list" && (
-          <div className="stack" style={{ gap: "0.5rem" }}>
-            <label>
-              Deck list
-              <span className="hint">One card per line, like "1 Sol Ring". With no Commander section, the first card is the commander.</span>
-              <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} />
-            </label>
-            <div className="row">
-              <button
-                type="button"
-                onClick={() => {
-                  resetChanges();
-                  parse.mutate(pasteText);
-                }}
-                disabled={!pasteText.trim() || parse.isPending}
-              >
-                Use this list
-              </button>
-              {pasted && pasted.text !== pasteText && <span className="small dim">The text changed since it was read.</span>}
-            </div>
-            {pasted && pasted.unknown.length > 0 && <p className="error small">Not found, so left out: {pasted.unknown.join(", ")}</p>}
-            <ErrorText error={parse.error} />
-          </div>
-        )}
-        {preconMissing && precon.error instanceof ApiError && precon.error.status === 404 ? (
-          <p className="error" role="alert">
-            No precon has the id "{preconId}". Find one above.
-          </p>
-        ) : (
-          <ErrorText error={kind === "deck" ? deck.error : kind === "precon" ? precon.error : null} />
-        )}
-        {base && (
-          <div className="row" style={{ marginTop: "0.6rem", justifyContent: "space-between" }}>
-            <p style={{ margin: 0 }}>
-              <b>{base.label}</b>
-              <br />
-              <span className="small dim">
-                {base.commanders.length ? base.commanders.join(" and ") : "No commander"}
-                {base.identity != null && (
-                  <>
-                    {" "}
-                    <Pips identity={base.identity} /> {identityName(base.identity)}
-                  </>
-                )}
-                {base.note ? `. ${base.note}` : ""}. {playedCount(base.lines)} cards.
-              </span>
-            </p>
-            {kind === "precon" && (
-              <button
-                type="button"
-                onClick={() => {
-                  resetChanges();
-                  setPreconId("");
-                }}
-              >
-                Choose another precon
-              </button>
-            )}
-          </div>
-        )}
-      </section>
-
-      {base && (
-        <section className="lab-step">
-          <h2><span className="n">2</span> Change it</h2>
-          <Diff base={base} add={add} cut={cut} count={count} setAdd={setAdd} setCut={setCut} />
-          <div className="lab-two" style={{ marginTop: "1rem", alignItems: "start" }}>
-            <AddSearch identity={base.identity} onAdd={(n) => setAdd((a) => [...a, n])} inBase={(n) => base.lines.some((l) => l.name === n)} />
-            <BaseList base={base} cut={cut} setCut={setCut} />
-          </div>
-        </section>
-      )}
-
-      <section className="lab-step">
-        <h2><span className="n">3</span> Play against</h2>
-        <div className="lab-choices" role="radiogroup" aria-label="Opponents">
-          <Choice on={fieldKind === "precons_top"} pick={() => setFieldKind("precons_top")} title={`Strongest ${FIELD_N} precons`}>
-            {run ? `The top of rating run ${run.name}.` : "Needs a rating run."}
-          </Choice>
-          <Choice on={fieldKind === "precons_near"} pick={() => setFieldKind("precons_near")} title="Similar strength">
-            {FIELD_N} precons nearest in strength to {selfAnchor ? base!.label : "a precon you pick"}.
-          </Choice>
-          <Choice on={fieldKind === "precons_all"} pick={() => setFieldKind("precons_all")} title="All precons">
-            Every playable precon ({precons.data?.precons.length ?? "…"}); each sits in only a pod or two.
-          </Choice>
-          <Choice on={fieldKind === "my_decks"} pick={() => setFieldKind("my_decks")} title="My decks">
-            Your own decks with 100 cards and a commander.
-          </Choice>
-        </div>
-        {fieldKind === "precons_near" && base && !selfAnchor && (
-          <label style={{ marginTop: "0.75rem" }}>
-            Similar to
-            <span className="hint">
-              {base.precon ? `${base.label} has no simulated rating yet, so pick a precon about as strong. ` : ""}
-              {sameCommander ? `${sameCommander.name} has the same commander.` : base.precon ? "" : "No rated precon has this commander; pick one about as strong as your list."}
-            </span>
-            <select value={anchorId} onChange={(e) => setAnchor(e.target.value)}>
-              <option value="">Choose a precon</option>
-              {rated.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </label>
-        )}
-        {fieldKind === "my_decks" && (
-          <fieldset className="seat" style={{ marginTop: "0.75rem" }}>
-            <legend className="small dim">Leave all unticked to use every deck that can be simulated.</legend>
-            {decks.data
-              ?.filter((d) => !(kind === "deck" && d.id === deckId))
-              .map((d) => (
-                <label key={d.id} style={{ display: "flex", gap: "0.6rem", alignItems: "center", fontWeight: 400, minHeight: 44 }}>
-                  <input
-                    type="checkbox"
-                    style={{ width: "auto", minHeight: 0 }}
-                    checked={myDecks.includes(d.id)}
-                    onChange={(e) => setMyDecks((m) => (e.target.checked ? [...m, d.id] : m.filter((x) => x !== d.id)))}
+      <div className="lab-try">
+        <div className="lab-try-main">
+          <section className="lab-step" aria-labelledby="try-1">
+            <h2 id="try-1">
+              <span className="n">1.</span> Start from
+            </h2>
+            {base ? (
+              <div className="lab-base">
+                <ArtPanel art={base.art?.url} artist={base.art?.artist} wash="left" className="lab-base-art" credit={false}>
+                  <span className="lab-base-text">
+                    <b>{base.label}</b>
+                    <span>
+                      {kind === "deck" ? "One of your decks" : kind === "precon" ? (base.note ?? "A precon") : "A pasted list"}.{" "}
+                      {base.commanders.length ? base.commanders.join(" and ") : "No commander"}
+                      {base.identity != null && <> ({identityName(base.identity)})</>}. {playedCount(base.lines)} cards.
+                    </span>
+                  </span>
+                  <button type="button" className="lab-base-change" onClick={changeBase}>
+                    Change
+                  </button>
+                </ArtPanel>
+                {base.art && <span className="small dim">{artCredit(base.art.artist)}</span>}
+              </div>
+            ) : (
+              <>
+                <div className="lab-chips" role="radiogroup" aria-label="Start from">
+                  {(
+                    [
+                      ["precon", "A precon"],
+                      ["deck", "One of my decks"],
+                      ["list", "Paste a list"],
+                    ] as [BaseKind, string][]
+                  ).map(([k, label]) => (
+                    <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => chooseKind(k)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {kind === "precon" && (
+                  <PreconPicker
+                    value={preconMissing ? "" : preconId}
+                    onChange={(id) => {
+                      resetChanges();
+                      setPreconId(id);
+                    }}
                   />
-                  {d.name} <span className="dim small">({d.card_count} cards)</span>
-                </label>
-              ))}
-          </fieldset>
-        )}
-      </section>
+                )}
+                {kind === "deck" && (
+                  <label>
+                    Deck
+                    <span className="hint">Its latest version is used. Simulations need 100 cards with a commander.</span>
+                    <select
+                      value={deckId}
+                      onChange={(e) => {
+                        resetChanges();
+                        setDeckId(e.target.value);
+                      }}
+                    >
+                      <option value="">Choose a deck</option>
+                      {decks.data?.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                          {d.commanders.length ? `, ${d.commanders.join(" and ")}` : ""} ({d.card_count} cards)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {kind === "list" && (
+                  <div className="stack" style={{ gap: "0.5rem" }}>
+                    <label>
+                      Deck list
+                      <span className="hint">One card per line, like "1 Sol Ring". With no Commander section, the first card is the commander.</span>
+                      <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} />
+                    </label>
+                    <div className="row">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          resetChanges();
+                          parse.mutate(pasteText);
+                        }}
+                        disabled={!pasteText.trim() || parse.isPending}
+                      >
+                        Use this list
+                      </button>
+                    </div>
+                    <ErrorText error={parse.error} />
+                  </div>
+                )}
+                {(kind === "deck" && deck.isFetching) || (kind === "precon" && precon.isFetching) ? <p className="small dim">Loading the list…</p> : null}
+              </>
+            )}
+            {kind === "list" && pasted && pasted.text !== pasteText && <p className="small dim">The text changed since it was read.</p>}
+            {kind === "list" && pasted && pasted.unknown.length > 0 && <p className="error small">Not found, so left out: {pasted.unknown.join(", ")}</p>}
+            {preconMissing && precon.error instanceof ApiError && precon.error.status === 404 ? (
+              <p className="error" role="alert">
+                No precon has the id "{preconId}". Find one above.
+              </p>
+            ) : (
+              <ErrorText error={kind === "deck" ? deck.error : kind === "precon" ? precon.error : null} />
+            )}
+          </section>
 
-      <section className="lab-step">
-        <h2><span className="n">4</span> Games</h2>
-        <div className="lab-choices" role="radiogroup" aria-label="Games">
-          {GAMES.map((g) => {
-            const s = expectedSeconds(pace.data, g);
-            return (
-              <Choice key={g} on={games === g} pick={() => setGames(g)} title={`${g} games`}>
-                {g / 2} pods, each played by both lists{s != null ? `. ${durationText(s).replace(/^about/, "About")}` : ""}
+          {base && (
+            <section className="lab-step" aria-labelledby="try-2">
+              <div className="lab-step-head">
+                <h2 id="try-2">
+                  <span className="n">2.</span> Change it
+                </h2>
+                <span className={`lab-total ${count === 100 ? "ok" : "off"}`} aria-live="polite">
+                  {count} cards{count === 100 ? "" : count < 100 ? `, ${100 - count} short` : `, ${count - 100} too many`}
+                </span>
+              </div>
+              <AddSearch identity={base.identity} onAdd={(n) => setAdd((a) => [...a, n])} inBase={(n) => base.lines.some((l) => l.name === n)} />
+              <Diff base={base} add={add} cut={cut} setAdd={setAdd} setCut={setCut} />
+              <details className="lab-cut-list">
+                <summary>Cut a card from {base.label}</summary>
+                <BaseList base={base} cut={cut} setCut={setCut} />
+              </details>
+            </section>
+          )}
+
+          <section className="lab-step" aria-labelledby="try-3">
+            <h2 id="try-3">
+              <span className="n">{base ? 3 : 2}.</span> Against
+            </h2>
+            <div className="lab-choices" role="radiogroup" aria-label="Opponents">
+              <Choice on={fieldKind === "precons_near"} pick={() => setFieldKind("precons_near")} title="Similar power">
+                {FIELD_N} precons nearest in strength to {selfAnchor ? base!.label : "a precon you pick"}.
               </Choice>
-            );
-          })}
+              <Choice on={fieldKind === "precons_top"} pick={() => setFieldKind("precons_top")} title={`Strongest ${FIELD_N}`}>
+                {run ? `The top of the precon table (run ${run.name}).` : "Needs a rating run."}
+              </Choice>
+              <Choice on={fieldKind === "precons_all"} pick={() => setFieldKind("precons_all")} title="All precons">
+                Every playable precon ({precons.data?.precons.length ?? "…"}); each sits in only a pod or two.
+              </Choice>
+              <Choice on={fieldKind === "my_decks"} pick={() => setFieldKind("my_decks")} title="Your decks">
+                {decks.data?.length ? `${decks.data.slice(0, 3).map((d) => d.commanders[0] ?? d.name).join(", ")}${decks.data.length > 3 ? " and more" : ""}` : "Your own decks with 100 cards and a commander."}
+              </Choice>
+            </div>
+            {fieldKind === "precons_near" && base && !selfAnchor && (
+              <label style={{ marginTop: "0.75rem" }}>
+                Similar to
+                <span className="hint">
+                  {base.precon ? `${base.label} has no simulated rating yet, so pick a precon about as strong. ` : ""}
+                  {sameCommander ? `${sameCommander.name} has the same commander.` : base.precon ? "" : "No rated precon has this commander; pick one about as strong as your list."}
+                </span>
+                <select value={anchorId} onChange={(e) => setAnchor(e.target.value)}>
+                  <option value="">Choose a precon</option>
+                  {rated.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {fieldKind === "my_decks" && (
+              <fieldset className="seat" style={{ marginTop: "0.75rem" }}>
+                <legend className="small dim">Leave all unticked to use every deck that can be simulated.</legend>
+                {decks.data
+                  ?.filter((d) => !(kind === "deck" && d.id === deckId))
+                  .map((d) => (
+                    <label key={d.id} style={{ display: "flex", gap: "0.6rem", alignItems: "center", fontWeight: 400, minHeight: 44 }}>
+                      <input
+                        type="checkbox"
+                        style={{ width: "auto", minHeight: 0 }}
+                        checked={myDecks.includes(d.id)}
+                        onChange={(e) => setMyDecks((m) => (e.target.checked ? [...m, d.id] : m.filter((x) => x !== d.id)))}
+                      />
+                      {d.name} <span className="dim small">({d.card_count} cards)</span>
+                    </label>
+                  ))}
+              </fieldset>
+            )}
+            <div className="lab-games">
+              <span id="try-games" className="lab-games-label">
+                Games
+              </span>
+              <div className="segmented" role="radiogroup" aria-labelledby="try-games">
+                {GAMES.map((g) => (
+                  <button key={g} type="button" role="radio" aria-checked={games === g} aria-pressed={games === g} onClick={() => setGames(g)}>
+                    {g}
+                  </button>
+                ))}
+              </div>
+              <span className="lab-note">
+                {games / 2} pods, each played by both lists. More games take longer and give a tighter answer.
+                {eta != null ? ` ${durationText(eta).replace(/^about/, "About")}.` : ""} <PaceNote pace={pace.data} error={pace.error} />
+              </span>
+            </div>
+          </section>
         </div>
-        <p className="lab-note" style={{ marginTop: "0.6rem" }}>
-          More games take longer and give a tighter answer. <PaceNote pace={pace.data} error={pace.error} />
-        </p>
-        <div className="row" style={{ marginTop: "0.5rem" }}>
-          <label style={{ flex: "0 1 12rem" }}>
-            AI level
-            <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
-              <option>Easy</option>
-              <option>Medium</option>
-            </select>
-          </label>
-          <label style={{ flex: "1 1 18rem" }}>
-            <span>
-              Name <span className="dim small" style={{ fontWeight: 400 }}>(optional)</span>
-            </span>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder={base && changed ? `${base.label}: ${changeText(add, cut)}` : "Named after the change"} maxLength={120} />
-          </label>
-        </div>
-      </section>
 
-      <div className="lab-run">
-        {base && changed && (
-          <p className="small" style={{ margin: 0 }}>
-            <b>{base.label}</b>: {changeText(add, cut)}. {games} games against {fieldLabel}, {difficulty} AI{eta != null ? `, ${durationText(eta)}` : ""}.
-          </p>
-        )}
-        {blockers.length > 0 && (
-          <ul className="lab-problems dim">
-            {blockers.map((b) => <li key={b}>{b}</li>)}
-          </ul>
-        )}
-        <CreateError error={create.error} />
-        <div className="row">
-          <button className="primary" onClick={() => create.mutate()} disabled={blockers.length > 0 || create.isPending || !me.data}>
-            {create.isPending ? "Starting…" : "Run"}
-          </button>
-          <Link className="button quiet" to="/decks/lab/runs">My runs</Link>
-        </div>
+        <aside className="lab-try-side" aria-label="Run">
+          <div className="wide-only">
+            <RunningNow />
+          </div>
+          <section className="lab-run" aria-labelledby="try-run">
+            <h2 id="try-run">Run</h2>
+            {base && changed ? (
+              <p className="small" style={{ margin: 0 }}>
+                <b>{base.label}</b>: {changeText(add, cut)}. {games} games against {fieldLabel}, {difficulty} AI{eta != null ? `, ${durationText(eta)}` : ""}.
+              </p>
+            ) : (
+              <p className="small dim" style={{ margin: 0 }}>
+                Pick a list, change it, and choose who it plays against.
+              </p>
+            )}
+            {blockers.length > 0 && (
+              <ul className="lab-problems dim">
+                {blockers.map((b) => (
+                  <li key={b}>{b}</li>
+                ))}
+              </ul>
+            )}
+            <label>
+              AI level
+              <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
+                <option>Easy</option>
+                <option>Medium</option>
+              </select>
+            </label>
+            <label>
+              <span>
+                Name <span className="dim small" style={{ fontWeight: 400 }}>(optional)</span>
+              </span>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder={base && changed ? `${base.label}: ${changeText(add, cut)}` : "Named after the change"} maxLength={120} />
+            </label>
+            <CreateError error={create.error} />
+            <button className="primary" onClick={() => create.mutate()} disabled={blockers.length > 0 || create.isPending || !me.data}>
+              {create.isPending ? "Starting…" : "Run"}
+            </button>
+            <p className="lab-note" style={{ margin: 0 }}>
+              Same shuffles and seats for both lists. Simulated games, not your table. <Link to="/decks/lab/runs">My runs</Link>
+            </p>
+          </section>
+        </aside>
       </div>
     </>
+  );
+}
+
+/** Your experiment that's playing now, if any: its progress and its answer so far. */
+function RunningNow() {
+  const exps = useQuery({
+    queryKey: ["lab", "experiments"],
+    queryFn: () => api<ExperimentItem[]>("/api/lab/experiments"),
+    refetchInterval: (q) => (q.state.data?.some((e) => e.status === "queued" || e.status === "running") ? 5000 : false),
+  });
+  const e = exps.data?.find((x) => x.status === "running") ?? exps.data?.find((x) => x.status === "queued");
+  if (!e) return null;
+  const p = e.progress;
+  const s = e.summary && hasResults(e.summary) ? e.summary : null;
+  return (
+    <section className="lab-running" aria-label="Running now">
+      <h2>{e.status === "running" ? "Running" : "Waiting"}</h2>
+      <span className="lab-progress" role="progressbar" aria-label="Games played" aria-valuemin={0} aria-valuemax={p.total} aria-valuenow={p.done}>
+        <span style={{ width: `${p.total ? (p.done / p.total) * 100 : 0}%` }} />
+      </span>
+      <span className="small dim">
+        {e.name}: {p.done} of {p.total} games{p.eta_seconds != null ? `, ${durationText(p.eta_seconds)} left` : ""}. You can leave this page.
+      </span>
+      {s && s.paired.delta_win_rate != null && (
+        <div className="lab-sofar">
+          <span className="small dim">So far</span>
+          <b>{s.verdict.kind === "unclear" ? "Can't tell yet" : s.verdict.kind === "better" ? "Probably better" : "Probably worse"}</b>
+          <span className="small">
+            {s.paired.delta_win_rate != null ? `${pointsWord(s.paired.delta_win_rate)} so far` : ""}
+            {s.paired.delta_ci ? `, ${Math.round(s.level * 100)}% interval ${pointsRange(s.paired.delta_ci)}` : ""}.
+          </span>
+        </div>
+      )}
+      <span className="lab-note">{experimentLabel(e)}.</span>
+      <Link className="button outline" to={`/decks/lab/runs/${e.id}`}>
+        Open the run
+      </Link>
+    </section>
   );
 }
 
@@ -502,51 +580,49 @@ function PreconPicker({ value, onChange }: { value: string; onChange: (id: strin
   );
 }
 
-function Diff({ base, add, cut, count, setAdd, setCut }: { base: LoadedBase; add: string[]; cut: string[]; count: number; setAdd: (f: (a: string[]) => string[]) => void; setCut: (f: (c: string[]) => string[]) => void }) {
+/** The changes so far, a cut and an add to a row: art crop, name, and an undo. */
+function Diff({ base, add, cut, setAdd, setCut }: { base: LoadedBase; add: string[]; cut: string[]; setAdd: (f: (a: string[]) => string[]) => void; setCut: (f: (c: string[]) => string[]) => void }) {
   const removeOne = (list: string[], name: string) => {
     const i = list.lastIndexOf(name);
     return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 1)];
   };
-  const ok = count === 100;
+  const cuts = [...tally(cut)];
+  const adds = [...tally(add)];
+  const art = useCardArt([...cuts.map(([n]) => n), ...adds.map(([n]) => n)]);
+  if (!cuts.length && !adds.length) {
+    return <p className="small dim lab-diff-empty">Search above for a card to add, or open {base.label} below and tap a card to cut it.</p>;
+  }
+  const rows: { kind: "cut" | "add"; name: string; k: number }[] = [];
+  for (let i = 0; i < Math.max(cuts.length, adds.length); i++) {
+    if (cuts[i]) rows.push({ kind: "cut", name: cuts[i]![0], k: cuts[i]![1] });
+    if (adds[i]) rows.push({ kind: "add", name: adds[i]![0], k: adds[i]![1] });
+  }
   return (
     <div className="lab-diff" aria-live="polite">
-      <div className="lab-total">
-        <b>{count}</b>
-        <span>cards in the changed list</span>
-        <div style={{ marginTop: "0.35rem" }}>
-          {ok ? <span className="tag good">100, ready to play</span> : <span className="tag warn">{count < 100 ? `${100 - count} short` : `${count - 100} too many`}; a game needs 100</span>}
+      {rows.map((r) => (
+        <div key={`${r.kind}-${r.name}`} className={`lab-diff-row ${r.kind}`}>
+          <span className="lab-diff-mark" aria-hidden="true">
+            {r.kind === "cut" ? "−" : "+"}
+          </span>
+          <Crop src={art.get(r.name)?.art} size="md" />
+          <span className="lab-diff-text">
+            <b>{r.name}</b>
+            <span>
+              {r.kind === "cut" ? "Cut" : "Added"}
+              {r.k > 1 ? `, ${r.k} copies` : ""}
+            </span>
+          </span>
+          <button
+            type="button"
+            className="lab-diff-undo"
+            aria-label={r.kind === "cut" ? `Keep ${r.name}` : `Don't add ${r.name}`}
+            onClick={() => (r.kind === "cut" ? setCut((c) => removeOne(c, r.name)) : setAdd((a) => removeOne(a, r.name)))}
+          >
+            ×
+          </button>
         </div>
-      </div>
-      <div>
-        <h3>Cutting {cut.length > 0 && <span className="dim num">{cut.length}</span>}</h3>
-        {cut.length === 0 ? (
-          <p className="small dim" style={{ margin: 0 }}>Tap a card in {base.label} to cut it.</p>
-        ) : (
-          <ul>
-            {[...tally(cut)].map(([n, k]) => (
-              <li key={n}>
-                <span>{k > 1 ? `${k} ` : ""}{n}</span>
-                <button type="button" onClick={() => setCut((c) => removeOne(c, n))} aria-label={`Keep ${n}`}>Keep</button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div>
-        <h3>Adding {add.length > 0 && <span className="dim num">{add.length}</span>}</h3>
-        {add.length === 0 ? (
-          <p className="small dim" style={{ margin: 0 }}>Search for a card to add.</p>
-        ) : (
-          <ul>
-            {[...tally(add)].map(([n, k]) => (
-              <li key={n}>
-                <span>{k > 1 ? `${k} ` : ""}{n}</span>
-                <button type="button" onClick={() => setAdd((a) => removeOne(a, n))} aria-label={`Don't add ${n}`}>Remove</button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      ))}
+      {[...art.values()].length > 0 && <p className="small dim">{artCredits(rows.map((r) => art.get(r.name)?.artist))}</p>}
     </div>
   );
 }
@@ -579,7 +655,7 @@ function AddSearch({ identity, onAdd, inBase }: { identity: string | null; onAdd
   });
   return (
     <div>
-      <h3>Add a card</h3>
+      <h3 className="visually-hidden">Add a card</h3>
       <form className="stack" style={{ gap: "0.4rem" }} role="search" onSubmit={(e) => { e.preventDefault(); setQ(draft.trim()); }}>
         <input type="search" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Name, or Scryfall syntax like t:instant o:destroy" aria-label="Search cards to add" autoCapitalize="off" autoCorrect="off" />
         {identity != null && (

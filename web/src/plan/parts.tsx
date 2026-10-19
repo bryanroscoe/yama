@@ -1,25 +1,8 @@
 // Small pieces the plan pages share.
-import type { PlanCard, Tone } from "@yama/core/plan";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import type { PlanCard } from "@yama/core/plan";
+import { useState } from "react";
 import { CardImage, Sheet } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
-
-/**
- * A block with the commander's art behind a solid wash of the page colour, so text stays readable
- * and the deck is recognisable. The image loads from Scryfall at runtime.
- */
-export function ArtPanel({ art, className = "", children }: { art: string | null; className?: string; children: ReactNode }) {
-  const style: CSSProperties | undefined = art ? { backgroundImage: `url("${art}")` } : undefined;
-  return (
-    <div className={`plan-art ${className}`} style={style}>
-      <div className="plan-art-body">{children}</div>
-    </div>
-  );
-}
-
-export function StatusTag({ label, tone }: { label: string; tone: Tone }) {
-  return <span className={`tag${tone === "plain" ? "" : ` ${tone}`}`}>{label}</span>;
-}
 
 /** A card thumbnail that opens the card (read-only) when Yama knows it. */
 export function Thumb({ name, card, oracleId, dim = false }: { name: string; card: PlanCard | undefined; oracleId: string | undefined; dim?: boolean }) {

@@ -1,39 +1,40 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { identityName, MANA, type ManaKey } from "@yama/core";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api } from "../api";
+import { useMe } from "../auth";
+import { WinBar, winCeiling } from "../components/Crop";
 import { ErrorText, Pips } from "../components/ui";
-import type { PreconItem, PreconList, RunLabel } from "./api";
+import { usePlan } from "../plan/store";
+import type { PreconItem, PreconList, Rating, RunDetail, RunLabel, RunListItem } from "./api";
+import { LabHead } from "./LabLayout";
 import {
   caveat,
   DEFAULT_DESC,
   engineName,
   filterPrecons,
   fmtDate,
-  linScale,
-  logScale,
+  identityMatches,
   pct,
   pctRange,
-  rateCeiling,
   simLabel,
   sortPrecons,
-  strengthDomain,
   strengthText,
   year,
   yearsOf,
   type ColorMode,
-  type Scale,
   type SortKey,
 } from "./logic";
-import { IntervalBar, SimLine } from "./parts";
+import { stateLabel, useRuns, variantState } from "./paired";
+import { SimLine } from "./parts";
 
 export const usePrecons = () => useQuery({ queryKey: ["lab", "precons"], queryFn: () => api<PreconList>("/api/precons"), staleTime: 5 * 60_000 });
 
 const SORTS: { key: SortKey; label: string }[] = [
   { key: "rank", label: "Simulated rank" },
+  { key: "p4", label: "Model win rate" },
   { key: "strength", label: "Strength" },
-  { key: "p4", label: "Wins in 4-player pods" },
   { key: "games", label: "Games" },
   { key: "real", label: "Real-game rank" },
   { key: "name", label: "Name" },
@@ -42,6 +43,9 @@ const SORTS: { key: SortKey; label: string }[] = [
 ];
 
 const COLORS: ManaKey[] = ["W", "U", "B", "R", "G", "C"];
+
+/** Under this many games a precon's rating is too uncertain to trust: faded, with "few games" in amber. */
+const FEW = 10;
 
 /** The run label line under the page title. */
 export function RunLine({ run }: { run: RunLabel }) {
@@ -68,8 +72,56 @@ export function RunWarnings({ warnings }: { warnings: string[] }) {
   );
 }
 
+/** One of your own lists as your paired run rated it (its own field and model fit, not the table's). */
+interface MyList {
+  id: string;
+  name: string;
+  state: string;
+  run: RunListItem;
+  rating: Rating;
+  commanders: string[];
+  identity: string | null;
+}
+
+/** "your after-prints list", "your list now", "your stock copy". */
+function listWords(state: string): string {
+  if (state === "stock") return "your stock copy";
+  if (state === "now") return "your list now";
+  if (state === "after") return "your after-prints list";
+  return `your ${stateLabel(state)[0].toLowerCase()} list`;
+}
+
+/** Your lists from your paired runs, with the commanders and colours of the plan deck they belong to. */
+function useMyLists(): MyList[] {
+  const runs = useRuns();
+  const userId = useMe().data?.id;
+  const plan = usePlan(userId);
+  const mine = (runs.data ?? []).filter((r) => !r.global && r.kind === "paired" && r.paired);
+  const details = useQueries({
+    queries: mine.map((r) => ({ queryKey: ["lab", "run", r.id], queryFn: () => api<RunDetail>(`/api/lab/runs/${r.id}`), staleTime: 5 * 60_000 })),
+  });
+  return useMemo(() => {
+    const out: MyList[] = [];
+    mine.forEach((run, i) => {
+      const d = details[i]?.data;
+      if (!d) return;
+      for (const v of run.paired!.variants) {
+        const rating = d.ratings.find((r) => r.deck_ref === v.id);
+        if (!rating) continue;
+        const deck = plan.bundle?.decks.find((p) => variantState(v.id, p.key) != null);
+        const state = deck ? variantState(v.id, deck.key)! : (/,\s*([^,)]+)\)\s*$/.exec(v.name)?.[1] ?? "list");
+        const base = deck?.name ?? v.name.replace(/\s*\([^)]*\)\s*$/, "");
+        out.push({ id: v.id, name: `${base}, ${listWords(state)}`, state, run, rating, commanders: deck?.commander ?? [], identity: deck?.color_identity ?? null });
+      }
+    });
+    return out.sort((a, b) => (b.rating.p4_field ?? -1) - (a.rating.p4_field ?? -1));
+    // `details` is a new array each render; its data is what matters.
+  }, [mine.map((r) => r.id).join(), details.map((d) => d.dataUpdatedAt).join(), plan.bundle]);
+}
+
 export function PreconsPage() {
   const precons = usePrecons();
+  const myLists = useMyLists();
   const [params, setParams] = useSearchParams();
   const q = params.get("q") ?? "";
   const colors = params.get("c") ?? "";
@@ -77,6 +129,10 @@ export function PreconsPage() {
   const yr = params.get("y") ? Number(params.get("y")) : null;
   const sort = (params.get("s") ?? "rank") as SortKey;
   const desc = params.has("d") ? params.get("d") === "1" : DEFAULT_DESC[sort];
+  const tenPlus = params.get("g") === "10";
+  // Phones keep the colour, year and sort controls folded until asked for (or in use).
+  const [moreOpen, setMoreOpen] = useState(false);
+  const filtering = !!colors || yr != null || tenPlus || params.has("s") || params.has("d");
 
   const set = (patch: Record<string, string | null>) => {
     const next = new URLSearchParams(params);
@@ -91,30 +147,33 @@ export function PreconsPage() {
 
   const all = precons.data?.precons ?? [];
   const run = precons.data?.run ?? null;
-  const rows = useMemo(() => sortPrecons(filterPrecons(all, { q, colors, mode, year: yr }), sort, desc), [all, q, colors, mode, yr, sort, desc]);
-  // Axes from every rated precon, so filtering never rescales the bars.
-  const strengthScale = useMemo(() => {
-    const [lo, hi] = strengthDomain(all.map((p) => p.rating ?? { strength: null, lo: null, hi: null }));
-    return logScale(lo, hi);
-  }, [all]);
-  const p4Scale = useMemo(() => linScale(0, rateCeiling(all.map((p) => p.rating?.p4_hi))), [all]);
+  const rows = useMemo(
+    () => sortPrecons(filterPrecons(all, { q, colors, mode, year: yr }), sort, desc).filter((p) => !tenPlus || (p.rating?.games ?? 0) >= FEW),
+    [all, q, colors, mode, yr, sort, desc, tenPlus],
+  );
+  const needle = q.trim().toLowerCase();
+  // Your lists start folded (there can be dozens), and open when asked or when the search finds one.
+  const mineOpen = params.get("mine") === "1";
+  const mineShown = myLists.filter(
+    (m) =>
+      (!needle || [m.name, ...m.commanders].some((s) => s.toLowerCase().includes(needle))) &&
+      (!colors || (m.identity != null && identityMatches(m.identity, colors, mode))) &&
+      (!tenPlus || m.rating.games >= FEW) &&
+      yr == null,
+  );
+  // One axis for every row, so filtering never rescales the bars.
+  const max = useMemo(() => winCeiling([...all.map((p) => p.rating?.p4_hi), ...myLists.map((m) => m.rating.p4_hi)], 0.5), [all, myLists]);
   const years = useMemo(() => yearsOf(all), [all]);
   const rated = all.filter((p) => p.rating).length;
+  const few = all.filter((p) => p.rating && p.rating.games < FEW).length;
   const real = all.find((p) => p.playgroup?.source)?.playgroup;
 
-  const head = (sub: ReactNode) => (
-    <div className="page-head">
-      <div>
-        <h1>Commander precons</h1>
-        {sub}
-      </div>
-    </div>
-  );
   // No count, filters or table until the list is in: a count from nothing would be made up.
   if (!precons.data) {
     return (
       <>
-        {head(!precons.error && <p className="dim" style={{ margin: 0 }}>Loading…</p>)}
+        <LabHead title="Lab" index />
+        {!precons.error && <p className="dim">Loading…</p>}
         <ErrorText error={precons.error} />
       </>
     );
@@ -124,127 +183,185 @@ export function PreconsPage() {
   const skipped = run ? run.ranked - rankedHere : 0;
   const engine = run ? engineName(run.engine) : null;
   const ai = engine ? `${engine}${engine.endsWith("s") ? "'" : "'s"} AI` : "the engine's AI";
+  const level = run?.level ? `${Math.round(run.level * 100)}%` : "90%";
 
   return (
     <>
-      {head(
-        <p className="dim" style={{ margin: 0 }}>
-          {all.length} precons{run ? `, ${rated} rated by simulation` : ""}.
-          {run && skipped > 0 ? ` Ranks are among all ${run.ranked} decks in run ${run.name}, and ${skipped} of those aren't in this list, so some ranks are skipped.` : ""}
-        </p>,
-      )}
+      <LabHead title="Lab" index />
       <ErrorText error={precons.error} />
       {run ? (
-        <>
-          <RunLine run={run} />
-          <p className="lab-caveat">{caveat(run.engine)} Real-game ranks from playgroup.gg sit in their own column.</p>
-          {run.warnings.length > 0 && <RunWarnings warnings={run.warnings} />}
-          <details className="small">
-            <summary>How the ratings work</summary>
-            <p className="lab-note">
-              Every precon played whole games against other precons, with {ai} in every seat, in 4-player pods. <b>Strength</b> comes from a
-              model of finishing order ({run.model ?? "Plackett-Luce"}): 1 is an average precon, 2 finishes ahead about twice as often. The line on each
-              bar marks average; the band is the {run.level ? `${Math.round(run.level * 100)}%` : ""} interval, so a wide band means few games.
-              <b> Wins in 4-player pods</b> is the model's chance of winning a pod of three random precons; a quarter is average. Rank ranges and the
-              raw wins are in each precon's page.
-            </p>
-            {real && (
-              <p className="lab-note">
-                Real-game ranks: playgroup.gg's precon tier list ({real.method}), fetched {fmtDate(real.fetched)}. They count people's games, not
-                simulations, and only cover precons with enough logged games.
-              </p>
-            )}
-          </details>
-        </>
+        <div className="area-note" role="note">
+          <p>
+            <b>
+              {rated} {rated === 1 ? "deck" : "decks"} rated from {run.games.toLocaleString("en-GB")} simulated {run.pod ?? 4}-player games.
+            </b>{" "}
+            {run.engine ?? "An unrecorded engine"}, {(run.difficulty ?? "unrecorded").toLowerCase()} AI, {fmtDate(run.analysed_at ?? run.created_at)}, run {run.name}
+            {run.card_data ? `, card data ${run.card_data.slice(0, 8)}` : ""}.
+            {few ? ` ${few} ${few === 1 ? "precon has" : "precons have"} fewer than ${FEW} games, so ${few === 1 ? "its interval is" : "their intervals are"} wide and the order will move.` : ""}{" "}
+            {caveat(run.engine)} Real-game ranks from playgroup.gg sit in their own column.
+          </p>
+          {skipped > 0 && <p>Ranks are among all {run.ranked} decks in the run, and {skipped} of those aren't in this list, so some ranks are skipped.</p>}
+        </div>
       ) : (
-        <p className="lab-caveat">No rating run is imported on this server yet, so the precons have no simulated strength.</p>
+        <p className="area-note">No rating run is imported on this server yet, so the precons have no simulated strength.</p>
+      )}
+      {run && run.warnings.length > 0 && <RunWarnings warnings={run.warnings} />}
+      {run && (
+        <details className="small">
+          <summary>How the ratings work</summary>
+          <p className="lab-note">
+            Every precon played whole games against other precons, with {ai} in every seat, in 4-player pods. The <b>model win rate</b> is a model of
+            finishing order ({run.model ?? "Plackett-Luce"})'s chance that the deck wins a pod of three random precons; a quarter is an even share. The bar is
+            its {level} interval, so a wide bar means few games. <b>Strength</b> is the same model's rating: 1 is an average precon, 2 finishes ahead about
+            twice as often. Raw wins and rank ranges are on each precon's page.
+          </p>
+          {real && (
+            <p className="lab-note">
+              Real-game ranks: playgroup.gg's precon tier list ({real.method}), fetched {fmtDate(real.fetched)}. They count people's games, not simulations,
+              and only cover precons with enough logged games.
+            </p>
+          )}
+        </details>
       )}
 
-      <div className="lab-tools" style={{ marginTop: "1rem" }}>
-        <div className="row">
-          <input type="search" value={q} onChange={(e) => set({ q: e.target.value })} placeholder="Search by deck, commander or set" aria-label="Search precons" />
-          <select value={yr ?? ""} onChange={(e) => set({ y: e.target.value })} aria-label="Year">
-            <option value="">Any year</option>
-            {years.map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
+      <div className={`lab-filters${moreOpen || filtering ? " open" : ""}`}>
+        <input type="search" className="lab-search" value={q} onChange={(e) => set({ q: e.target.value })} placeholder={`Search ${all.length} precons`} aria-label="Search precons by deck, commander or set" />
+        <div className="lab-colors" role="group" aria-label="Colours">
+          {COLORS.map((k) => (
+            <button key={k} type="button" aria-pressed={colors.includes(k)} onClick={() => toggleColor(k)} aria-label={MANA[k].name} title={MANA[k].name}>
+              <span className="pip" style={{ background: MANA[k].fill }} />
+            </button>
+          ))}
+        </div>
+        {colors && (
+          <select className="lab-select" value={mode} onChange={(e) => set({ m: e.target.value === "includes" ? null : e.target.value })} aria-label="How colours match">
+            <option value="includes">Includes these colours</option>
+            <option value="exactly">Exactly these colours</option>
+            <option value="within">Within these colours</option>
           </select>
-          <select value={sort} onChange={(e) => set({ s: e.target.value, d: null })} aria-label="Sort by">
-            {SORTS.map((s) => (
-              <option key={s.key} value={s.key}>Sort: {s.label.toLowerCase()}</option>
-            ))}
-          </select>
-          <button type="button" aria-pressed={desc !== DEFAULT_DESC[sort]} onClick={() => set({ d: desc ? "0" : "1" })}>
-            Reverse
+        )}
+        <select className="lab-select" value={yr ?? ""} onChange={(e) => set({ y: e.target.value })} aria-label="Year">
+          <option value="">Any year</option>
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+        <select className="lab-select" value={sort} onChange={(e) => set({ s: e.target.value, d: null })} aria-label="Sort by">
+          {SORTS.map((s) => (
+            <option key={s.key} value={s.key}>
+              Sort: {s.label.toLowerCase()}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="lab-reverse" aria-pressed={desc !== DEFAULT_DESC[sort]} onClick={() => set({ d: desc ? "0" : "1" })}>
+          Reverse
+        </button>
+        <label className="lab-ten">
+          <input type="checkbox" checked={tenPlus} onChange={(e) => set({ g: e.target.checked ? "10" : null })} />
+          Only {FEW}+ games
+        </label>
+        {!filtering && (
+          <button type="button" className="phone-only lab-more" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
+            {moreOpen ? "Fewer filters" : "Filters"}
           </button>
-        </div>
-        <div className="row" style={{ gap: "0.5rem" }}>
-          <div className="lab-chips" role="group" aria-label="Colours">
-            {COLORS.map((k) => (
-              <button key={k} type="button" aria-pressed={colors.includes(k)} onClick={() => toggleColor(k)} title={MANA[k].name}>
-                <span className="pip" style={{ background: MANA[k].fill }} /> {MANA[k].name}
-              </button>
-            ))}
-          </div>
-          {colors && (
-            <select value={mode} onChange={(e) => set({ m: e.target.value === "includes" ? null : e.target.value })} aria-label="How colours match" style={{ width: "auto" }}>
-              <option value="includes">Includes these colours</option>
-              <option value="exactly">Exactly these colours</option>
-              <option value="within">Within these colours</option>
-            </select>
-          )}
-        </div>
+        )}
       </div>
       <p className="lab-count">
         {rows.length === all.length ? `${all.length} precons` : `${rows.length} of ${all.length} precons`}
         {colors && `, ${mode === "exactly" ? "exactly" : mode === "within" ? "within" : "including"} ${identityName(colors.replace("C", "")).toLowerCase()}`}
       </p>
 
-      <table className="lab-table">
-        <thead>
-          <tr>
-            <Th k="rank" label={run && run.ranked > 0 ? `Rank of ${run.ranked}` : "Rank"} sort={sort} desc={desc} onSort={sortBy} num />
-            <Th k="name" label="Deck" sort={sort} desc={desc} onSort={sortBy} />
-            <Th k="set" label="Set" sort={sort} desc={desc} onSort={sortBy} />
-            <Th k="year" label="Year" sort={sort} desc={desc} onSort={sortBy} num />
-            <Th k="strength" label="Strength (1 = average)" sort={sort} desc={desc} onSort={sortBy} />
-            <Th k="p4" label="Wins in 4-player pods" sort={sort} desc={desc} onSort={sortBy} />
-            <Th k="games" label="Games" sort={sort} desc={desc} onSort={sortBy} num />
-            <Th k="real" label="Real games (playgroup.gg)" sort={sort} desc={desc} onSort={sortBy} className="real" />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((p) => (
-            <TableRow key={p.id} p={p} strengthScale={strengthScale} p4Scale={p4Scale} />
-          ))}
-        </tbody>
-      </table>
-      <div className="lab-cards">
-        {rows.map((p) => (
-          <Link key={p.id} to={`/decks/lab/p/${p.id}`} className="lab-card">
-            <span className="rank">{p.rating?.rank ?? ""}</span>
-            <span>
-              <span className="title">{p.name}</span> <Pips identity={p.color_identity} />
-              <span className="sub">
-                {p.set_name ?? p.set_code}, {year(p.released) ?? "no date"}
-              </span>
-              {p.playgroup?.rank != null && <span className="sub">Real games: {p.playgroup.rank} of {p.playgroup.of} on playgroup.gg</span>}
-            </span>
-            <span className="metric">
-              {p.rating?.strength != null ? (
-                <>
-                  {strengthText(p.rating.strength)} <span>strength</span>
-                  <IntervalBar value={p.rating.strength} lo={p.rating.lo} hi={p.rating.hi} scale={strengthScale} reference={1} label={strengthAria(p)} />
-                  {p.rating.p4_field != null && <span>wins {pct(p.rating.p4_field)} of pods</span>}
-                </>
-              ) : (
-                <span>not rated</span>
-              )}
-            </span>
-          </Link>
-        ))}
+      <div className="lab-table-wrap">
+        <table className="lab-table">
+          <thead>
+            <tr>
+              <Th k="rank" label={run && run.ranked > 0 ? `Rank of ${run.ranked}` : "Rank"} sort={sort} desc={desc} onSort={sortBy} num />
+              <Th k="name" label="Deck" sort={sort} desc={desc} onSort={sortBy} />
+              <Th k="p4" label={`Model win rate in 4-player pods, ${level} interval`} sort={sort} desc={desc} onSort={sortBy} />
+              <Th k="games" label="Games" sort={sort} desc={desc} onSort={sortBy} num />
+              <Th k="strength" label="Strength" sort={sort} desc={desc} onSort={sortBy} num />
+              <Th k="real" label="Real games, playgroup.gg" sort={sort} desc={desc} onSort={sortBy} className="real" num />
+            </tr>
+          </thead>
+          {mineShown.length > 0 && (
+            <tbody className="lab-mine">
+              <tr className="lab-mine-head">
+                <th colSpan={6} scope="rowgroup">
+                  <span className="lab-mine-title">
+                    Your lists <span>Rated in your own paired runs: each run has its own field and model fit, so its rank is out of that run's decks.</span>
+                  </span>
+                  {!needle && (
+                    <button type="button" className="quiet small" aria-expanded={mineOpen} onClick={() => set({ mine: mineOpen ? null : "1" })}>
+                      {mineOpen ? "Hide your lists" : `Show your ${mineShown.length} lists`}
+                    </button>
+                  )}
+                </th>
+              </tr>
+              {(mineOpen || needle) &&
+                mineShown.map((m) => (
+                  <MineRow key={m.id} m={m} max={max} level={level} />
+                ))}
+            </tbody>
+          )}
+          <tbody>
+            {rows.map((p) => (
+              <TableRow key={p.id} p={p} max={max} level={level} />
+            ))}
+          </tbody>
+        </table>
       </div>
+      <ol className="lab-cards" aria-label="Precons">
+        {mineShown.length > 0 && !needle && (
+          <li className="lab-card-mine-toggle">
+            <button type="button" className="quiet small" aria-expanded={mineOpen} onClick={() => set({ mine: mineOpen ? null : "1" })}>
+              {mineOpen ? "Hide your lists" : `Show your ${mineShown.length} lists, from your own runs`}
+            </button>
+          </li>
+        )}
+        {(mineOpen || needle ? mineShown : []).map((m) => (
+          <li key={m.id} className="lab-card is-mine">
+            <span className="rank num">{m.rating.rank ?? ""}</span>
+            <span className="lab-card-main">
+              <span className="lab-card-name">
+                <b>{m.name}</b> {m.identity != null && <Pips identity={m.identity} />}
+              </span>
+              <WinBar value={m.rating.p4_field} lo={m.rating.p4_lo} hi={m.rating.p4_hi} max={max} few={m.rating.games < FEW} label={rateAria(m.name, m.rating, level)} />
+              <span className={`lab-card-games${m.rating.games < FEW ? " few" : ""}`}>
+                {m.rating.games} games{m.rating.games < FEW ? ", too few to trust" : ""}. Your run {m.run.name}, rank of {m.run.ranked}
+              </span>
+            </span>
+            <b className="lab-card-rate num">{pct(m.rating.p4_field, 1)}</b>
+          </li>
+        ))}
+        {rows.map((p) => {
+          const r = p.rating;
+          const isFew = !!r && r.games < FEW;
+          return (
+            <li key={p.id} className={`lab-card${isFew ? " few" : ""}`}>
+              <span className="rank num">{r?.rank ?? ""}</span>
+              <span className="lab-card-main">
+                <Link to={`/decks/lab/p/${p.id}`} className="lab-card-name">
+                  <b>{p.name}</b> <Pips identity={p.color_identity} />
+                </Link>
+                {r?.p4_field != null && <WinBar value={r.p4_field} lo={r.p4_lo} hi={r.p4_hi} max={max} few={isFew} label={rateAria(p.name, r, level)} />}
+                <span className={`lab-card-games${isFew ? " few" : ""}`}>
+                  {r ? `${r.games} games${isFew ? ", too few to trust" : ""}` : "Not rated"}
+                  {p.playgroup?.rank != null ? `. Real games: ${p.playgroup.rank} of ${p.playgroup.of} on playgroup.gg` : ""}
+                </span>
+              </span>
+              <b className="lab-card-rate num">{r?.p4_field != null ? pct(r.p4_field, 1) : ""}</b>
+            </li>
+          );
+        })}
+      </ol>
       {rows.length === 0 && <p className="empty">No precon matches. Clear the search or a colour.</p>}
+      <p className="lab-note">
+        The amber line is 25%, an even share at a 4-player table. Precons with fewer than {FEW} games are faded, with "few games" in amber. Open a precon for its
+        list, matchups and "Make this a Yama deck".
+        {mineShown.length ? ` Your lists come from your own runs with ${mineShown.map((m) => m.rating.games).reduce((a, b) => Math.min(a, b))} or more games each, so their intervals are tighter.` : ""}
+      </p>
     </>
   );
 }
@@ -261,62 +378,49 @@ function Th({ k, label, sort, desc, onSort, num, className }: { k: SortKey; labe
   );
 }
 
-const strengthAria = (p: PreconItem) => {
-  const r = p.rating;
-  if (r?.strength == null) return `${p.name}: not rated`;
-  return `${p.name}: strength ${strengthText(r.strength)}${r.lo != null && r.hi != null ? `, interval ${strengthText(r.lo)} to ${strengthText(r.hi)}` : ""}; 1 is average`;
-};
+const rateAria = (name: string, r: Rating, level: string) =>
+  `${name}: model win rate ${pct(r.p4_field, 1)} of 4-player pods${r.p4_lo != null && r.p4_hi != null ? `, ${level} interval ${pctRange(r.p4_lo, r.p4_hi)}` : ""}; a quarter is an even share`;
 
-function TableRow({ p, strengthScale, p4Scale }: { p: PreconItem; strengthScale: Scale; p4Scale: Scale }) {
+function TableRow({ p, max, level }: { p: PreconItem; max: number; level: string }) {
   const r = p.rating;
   const pg = p.playgroup;
+  const isFew = !!r && r.games < FEW;
   return (
-    <tr>
-      <td className="num" title={r?.rank_lo != null ? `Could be anywhere from ${r.rank_lo} to ${r.rank_hi}` : undefined}>
+    <tr className={isFew ? "few" : undefined}>
+      <td className="num rank" title={r?.rank_lo != null ? `Could be anywhere from ${r.rank_lo} to ${r.rank_hi}` : undefined}>
         {r?.rank ?? ""}
       </td>
       <td className="deck">
-        <Link to={`/decks/lab/p/${p.id}`}>{p.name}</Link> <Pips identity={p.color_identity} />
-        <span className="sub">{p.commanders.join(" and ")}</span>
-      </td>
-      <td className="set">
-        {p.set_name ?? p.set_code}
-        {p.set_name && <span className="sub">{p.set_code}</span>}
-      </td>
-      <td className="num">{year(p.released) ?? ""}</td>
-      <td className="bar">
-        {r?.strength != null ? (
-          <>
-            <IntervalBar value={r.strength} lo={r.lo} hi={r.hi} scale={strengthScale} reference={1} label={strengthAria(p)} />
-            <span className="lab-bar-val">
-              {strengthText(r.strength)} {r.lo != null && r.hi != null && <span>({strengthText(r.lo)} to {strengthText(r.hi)})</span>}
-            </span>
-          </>
-        ) : (
-          <span className="dim small">not rated</span>
-        )}
+        <span className="lab-deck-name">
+          <Link to={`/decks/lab/p/${p.id}`}>{p.name}</Link> <Pips identity={p.color_identity} />
+        </span>
+        <span className="sub">
+          {p.commanders.join(" and ")}. {p.set_name ?? p.set_code}
+          {p.set_name ? ` (${p.set_code})` : ""}, {year(p.released) ?? "no date"}
+        </span>
       </td>
       <td className="bar">
         {r?.p4_field != null ? (
-          <>
-            <IntervalBar
-              value={r.p4_field}
-              lo={r.p4_lo}
-              hi={r.p4_hi}
-              scale={p4Scale}
-              reference={0.25}
-              label={`${p.name}: wins ${pct(r.p4_field)} of 4-player pods${r.p4_lo != null && r.p4_hi != null ? `, interval ${pctRange(r.p4_lo, r.p4_hi)}` : ""}; a quarter is average`}
-            />
-            <span className="lab-bar-val">
-              {pct(r.p4_field)} {r.p4_lo != null && r.p4_hi != null && <span>({pctRange(r.p4_lo, r.p4_hi)})</span>}
-            </span>
-          </>
+          <span className="lab-rate">
+            <b className="num">{pct(r.p4_field, 1)}</b>
+            <WinBar value={r.p4_field} lo={r.p4_lo} hi={r.p4_hi} max={max} few={isFew} label={rateAria(p.name, r, level)} />
+          </span>
         ) : (
           <span className="dim small">{r ? "no data" : "not rated"}</span>
         )}
       </td>
-      <td className="num">{r?.games ?? ""}</td>
-      <td className="real">
+      <td className={`num games${isFew ? " few" : ""}`}>{r ? `${r.games}${isFew ? ", few games" : ""}` : ""}</td>
+      <td className="num strength">
+        {r?.strength != null ? (
+          <>
+            {strengthText(r.strength)}
+            {r.lo != null && r.hi != null && <span className="sub">{strengthText(r.lo)} to {strengthText(r.hi)}</span>}
+          </>
+        ) : (
+          <span className="dim small">no data</span>
+        )}
+      </td>
+      <td className="real num">
         {pg?.rank != null ? (
           <>
             {pg.rank} of {pg.of}
@@ -327,8 +431,52 @@ function TableRow({ p, strengthScale, p4Scale }: { p: PreconItem; strengthScale:
             </span>
           </>
         ) : (
+          <span className="dim small">No data</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function MineRow({ m, max, level }: { m: MyList; max: number; level: string }) {
+  const r = m.rating;
+  const isFew = r.games < FEW;
+  return (
+    <tr className={`is-mine${isFew ? " few" : ""}`}>
+      <td className="num rank" title={`Rank in your run ${m.run.name}, out of its ${m.run.ranked} decks`}>
+        {r.rank ?? ""}
+      </td>
+      <td className="deck">
+        <span className="lab-deck-name">
+          <b>{m.name}</b> {m.identity != null && <Pips identity={m.identity} />}
+        </span>
+        <span className="sub">
+          {m.commanders.length ? `${m.commanders.join(" and ")}. ` : ""}Your run {m.run.name}, {fmtDate(m.run.analysed_at ?? m.run.created_at)}; rank of {m.run.ranked}
+        </span>
+      </td>
+      <td className="bar">
+        {r.p4_field != null ? (
+          <span className="lab-rate">
+            <b className="num">{pct(r.p4_field, 1)}</b>
+            <WinBar value={r.p4_field} lo={r.p4_lo} hi={r.p4_hi} max={max} few={isFew} label={rateAria(m.name, r, level)} />
+          </span>
+        ) : (
           <span className="dim small">no data</span>
         )}
+      </td>
+      <td className={`num games${isFew ? " few" : ""}`}>{`${r.games}${isFew ? ", few games" : ""}`}</td>
+      <td className="num strength">
+        {r.strength != null ? (
+          <>
+            {strengthText(r.strength)}
+            {r.lo != null && r.hi != null && <span className="sub">{strengthText(r.lo)} to {strengthText(r.hi)}</span>}
+          </>
+        ) : (
+          <span className="dim small">no data</span>
+        )}
+      </td>
+      <td className="real num">
+        <span className="dim small">Your list</span>
       </td>
     </tr>
   );

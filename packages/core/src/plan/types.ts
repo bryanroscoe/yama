@@ -281,6 +281,10 @@ export interface PlanCard {
   layout: string | null;
   image_small: string | null;
   image_art_crop: string | null;
+  /** The full card. Missing from bundles saved before it was added. */
+  image_normal?: string | null;
+  /** Who painted the art crop: credit them wherever it shows. Missing from older saved bundles. */
+  artist?: string | null;
   faces: unknown;
 }
 

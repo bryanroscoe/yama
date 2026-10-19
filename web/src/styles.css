@@ -1555,17 +1555,13 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   font-size: 0.75rem;
   color: var(--dim);
 }
-/* Phones: the figures as three tiles and the actions in a row under the art. */
+/* Phones: the figures as three tiles in a row (the price's source sits under them) and the
+   other actions in a row under the plan. */
 .deck-stats-tiles {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 12px;
-}
-/* The price, with its source and date, takes the full row. */
-.deck-stats-tiles .deck-stat:nth-child(2) {
-  grid-column: 1 / -1;
-  order: 1;
 }
 .deck-stats-tiles .deck-stat {
   padding: 10px;

@@ -9,6 +9,7 @@ import type { Matchup, PreconDetail, PreconItem, RunLabel } from "./api";
 import { caveat, fmtDate, grouped, linScale, logScale, pct, pctRange, strengthDomain, strengthText } from "./logic";
 import { ArtPanel, IntervalBar } from "./parts";
 import { RunLine, usePrecons } from "./Precons";
+import { LabHead } from "./LabLayout";
 
 interface EngineSupport {
   fully_supported_share?: number;
@@ -32,7 +33,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
   if (detail.error) {
     return (
       <>
-        <Link className="lab-back" to="/decks/lab">All precons</Link>
+        <LabHead slim back={{ to: "/decks/lab", label: "Back to the precons" }} />
         <ErrorText error={detail.error} />
       </>
     );
@@ -45,7 +46,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
 
   return (
     <>
-      <Link className="lab-back" to="/decks/lab">All precons</Link>
+      <LabHead slim back={{ to: "/decks/lab", label: "Back to the precons" }} />
       <ArtPanel art={p.art}>
         <h1>{p.name}</h1>
         <span>

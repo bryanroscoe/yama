@@ -1,12 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { api } from "../api";
 import { ErrorText } from "../components/ui";
 import type { BatchComparison, ExperimentItem, RunDetail, RunListItem } from "./api";
 import { caveat, deltaBound, durationText, fmtDate, hasResults, pct, pctRange, points, pointsRange, pointsWord, rateCeiling, sentence, simLabel, verdictText } from "./logic";
-import { IntervalChart, SimLine, StatusTag } from "./parts";
+import { IntervalChart, SimLine } from "./parts";
 import { RunWarnings } from "./Precons";
 import { experimentLabel } from "./Run";
+import { LabHead } from "./LabLayout";
+import { stateLabel } from "./paired";
 
 /** A run's headline: the verdict when there is one, else where it has got to. */
 export function headline(e: ExperimentItem): string {
@@ -27,6 +29,7 @@ export function headline(e: ExperimentItem): string {
 }
 
 export function RunsPage() {
+  const qc = useQueryClient();
   const exps = useQuery({
     queryKey: ["lab", "experiments"],
     queryFn: () => api<ExperimentItem[]>("/api/lab/experiments"),
@@ -34,68 +37,139 @@ export function RunsPage() {
   });
   const runs = useQuery({ queryKey: ["lab", "runs"], queryFn: () => api<RunListItem[]>("/api/lab/runs") });
   const batch = (runs.data ?? []).filter((r) => !r.global && r.kind === "paired");
+  const refresh = () => void qc.invalidateQueries({ queryKey: ["lab", "experiments"] });
+  const stop = useMutation({ mutationFn: (id: string) => api(`/api/lab/experiments/${id}/cancel`, { method: "POST" }), onSuccess: refresh });
+  const remove = useMutation({ mutationFn: (id: string) => api(`/api/lab/experiments/${id}`, { method: "DELETE" }), onSuccess: refresh });
+  const engines = [...new Set([...(exps.data ?? []).map((e) => e.label.engine), ...batch.map((r) => r.engine)].filter(Boolean))];
 
   return (
     <>
-      <div className="page-head">
-        <h1>My runs</h1>
-        <Link className="button primary" to="/decks/lab/try">Try a change</Link>
-      </div>
-      <ErrorText error={exps.error} />
-      {exps.data?.length === 0 && (
+      <LabHead
+        title="My runs"
+        action={
+          <Link className="button primary" to="/decks/lab/try">
+            Try a change
+          </Link>
+        }
+      />
+      <ErrorText error={exps.error ?? stop.error ?? remove.error} />
+      {exps.data?.length === 0 && batch.length === 0 && (
         <p className="empty">
           No runs yet. <Link to="/decks/lab/try">Try a change</Link> to play a list against a changed copy of it, or start from a precon in{" "}
           <Link to="/decks/lab">Precons</Link>.
         </p>
       )}
       {exps.data && exps.data.length > 0 && (
-        <div className="list" style={{ marginBottom: "2rem" }}>
-          {exps.data.map((e) => (
-            <Link key={e.id} to={`/decks/lab/runs/${e.id}`} className="lab-runrow">
-              {e.base?.art ? <img className="art-thumb lab-thumb" src={e.base.art.url} alt="" /> : <span className="art-thumb lab-thumb" />}
-              <span>
-                <span className="title">{e.name}</span>
-                <br />
-                <span className="sub">
-                  <StatusTag status={e.status} />
-                  {headline(e)}
+        <section className="lab-runs" aria-label="Your experiments">
+          {exps.data.map((e) => {
+            const live = e.status === "queued" || e.status === "running";
+            const s = e.summary && hasResults(e.summary) ? e.summary : null;
+            const tag = live
+              ? { text: e.status === "running" ? "Running" : "Waiting", tone: "" }
+              : e.status === "failed"
+                ? { text: "Failed", tone: "bad" }
+                : s
+                  ? verdictTag(s.verdict.kind)
+                  : { text: e.status === "cancelled" ? "Cancelled" : "Done", tone: "quiet" };
+            return (
+              <article key={e.id} className="lab-runcard">
+                <div className="lab-runcard-head">
+                  {e.base?.art ? <img className="crop crop-sm" src={e.base.art.url} alt="" loading="lazy" /> : <span className="crop crop-sm" aria-hidden="true" />}
+                  <span className="lab-runcard-title">
+                    <Link to={`/decks/lab/runs/${e.id}`}>{e.name}</Link>
+                    <span>
+                      {e.field?.label ?? "An unrecorded field"}, {e.label.games} games, started {fmtDate(e.label.started_at ?? e.label.created_at)}
+                    </span>
+                  </span>
+                  <span className={`pill ${tag.tone}`}>{tag.text}</span>
+                </div>
+                {live && (
+                  <span className="lab-progress" role="progressbar" aria-label="Games played" aria-valuemin={0} aria-valuemax={e.progress.total} aria-valuenow={e.progress.done}>
+                    <span style={{ width: `${e.progress.total ? (e.progress.done / e.progress.total) * 100 : 0}%` }} />
+                  </span>
+                )}
+                <span className="lab-runcard-result">{headline(e)}</span>
+                <span className="lab-note">{experimentLabel(e)}.</span>
+                <span className="lab-runcard-actions">
+                  <Link className="button" to={`/decks/lab/runs/${e.id}`}>
+                    Open
+                  </Link>
+                  {live ? (
+                    <button className="quiet" disabled={stop.isPending} onClick={() => confirm("Stop this run? Games already played are kept.") && stop.mutate(e.id)}>
+                      Stop
+                    </button>
+                  ) : (
+                    <button className="quiet" disabled={remove.isPending} onClick={() => confirm(`Delete ${e.name}? Its games and results go too.`) && remove.mutate(e.id)}>
+                      Delete
+                    </button>
+                  )}
                 </span>
-                <br />
-                <span className="sub">
-                  {experimentLabel(e)}. Against {e.field?.label.replace(/^./, (c) => c.toLowerCase()) ?? "an unrecorded field"}.
-                </span>
-              </span>
-            </Link>
-          ))}
-        </div>
+              </article>
+            );
+          })}
+        </section>
       )}
 
       {batch.length > 0 && (
-        <section>
-          <h2>Batch runs</h2>
+        <section className="lab-runs" aria-labelledby="batch-runs">
+          <h2 id="batch-runs" className="lab-runs-head">
+            Batch runs
+          </h2>
           <p className="lab-note">Paired runs from your overnight batches, analysed in commander-decks and imported here. Only you see them.</p>
-          <div className="list">
-            {batch.map((r) => (
-              <Link key={r.id} to={`/decks/lab/runs/batch/${r.id}`} className="lab-runrow" style={{ gridTemplateColumns: "1fr" }}>
-                <span>
-                  <span className="title">{r.name}</span>
-                  {r.paired?.comparisons.map((c) => (
-                    <span key={`${c.base}>${c.variant}`} className="sub" style={{ display: "block" }}>
-                      {sentence(shortName(c.variant_name))} against {shortName(c.base_name)}: {comparisonText(c)}
+          {batch.flatMap((r) =>
+            (r.paired?.comparisons ?? []).map((c) => {
+              const tag = verdictTag(c.verdict.kind);
+              return (
+                <article key={`${r.id}-${c.base}-${c.variant}`} className="lab-runcard">
+                  <div className="lab-runcard-head">
+                    <span className="lab-runcard-title">
+                      <Link to={`/decks/lab/runs/batch/${r.id}`}>
+                        {deckOf(c.base_name)} {stateLabel(shortName(c.base_name))[0].toLowerCase()} vs {stateLabel(shortName(c.variant_name))[0].toLowerCase()}
+                      </Link>
+                      <span>
+                        Field of {r.ranked} decks, {c.pods} paired pods, {fmtDate(r.analysed_at ?? r.created_at)}
+                      </span>
                     </span>
-                  ))}
-                  <span className="sub" style={{ display: "block" }}>
-                    {simLabel({ engine: r.engine, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at })}
+                    <span className={`pill ${tag.tone}`}>{tag.text}</span>
+                  </div>
+                  <span className="lab-runcard-result">
+                    {c.delta_win_rate != null && c.delta_ci
+                      ? `${pointsWord(c.delta_win_rate)}, ${r.level ? Math.round(r.level * 100) : 90}% interval ${pointsRange(c.delta_ci)}.`
+                      : `${c.verdict.text}.`}
+                    {c.verdict.kind === "unclear" ? " Run more games to tell." : ""} Only {shortName(c.variant_name)} won {c.variant_only}, only {shortName(c.base_name)} won {c.base_only}.
                   </span>
-                </span>
-              </Link>
-            ))}
-          </div>
+                  <span className="lab-note">
+                    {simLabel({ engine: r.engine, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at, run: r.name })}.
+                  </span>
+                  <span className="lab-runcard-actions">
+                    <Link className="button" to={`/decks/lab/runs/batch/${r.id}`}>
+                      Open
+                    </Link>
+                  </span>
+                </article>
+              );
+            }),
+          )}
         </section>
       )}
       <ErrorText error={runs.error} />
+      {(exps.data?.length || batch.length) && engines.length ? (
+        <p className="lab-note">
+          Runs use {engines.join(" and ")} with AI in every seat. {caveat()}
+        </p>
+      ) : null}
     </>
   );
+}
+
+/** "Probably better" (good), "Probably worse" (bad) or "Can't tell yet" (warn). */
+function verdictTag(kind: "better" | "worse" | "unclear"): { text: string; tone: string } {
+  return kind === "better" ? { text: "Probably better", tone: "good" } : kind === "worse" ? { text: "Probably worse", tone: "bad" } : { text: "Can't tell yet", tone: "warn" };
+}
+
+/** "Riders of Rohan (Bryan, stock)" → "Riders of Rohan". */
+function deckOf(name: string): string {
+  return name.replace(/\s*\([^()]*\)\s*$/, "");
 }
 
 /** "The Fantastic Four (Bryan, after)" → "after", when it ends in a bracketed state. */
@@ -104,20 +178,13 @@ function shortName(name: string): string {
   return m ? m[2]!.trim() : name;
 }
 
-function comparisonText(c: BatchComparison): string {
-  if (c.delta_win_rate == null || !c.delta_ci) return c.verdict.text;
-  return c.verdict.kind === "unclear"
-    ? `can't tell yet (${pointsWord(c.delta_win_rate)}, 90% interval ${pointsRange(c.delta_ci)}, ${c.pods} pods)`
-    : `${c.verdict.text.replace(/^./, (x) => x.toLowerCase())}, ${c.pods} pods`;
-}
-
 export function BatchPage() {
   const { id } = useParams();
   const run = useQuery({ queryKey: ["lab", "run", id], queryFn: () => api<RunDetail>(`/api/lab/runs/${id}`) });
   if (run.error) {
     return (
       <>
-        <Link className="lab-back" to="/decks/lab/runs">My runs</Link>
+        <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
         <ErrorText error={run.error} />
       </>
     );
@@ -131,7 +198,7 @@ export function BatchPage() {
   const bound = deltaBound((p?.comparisons ?? []).flatMap((c) => [c.delta_ci?.[0], c.delta_ci?.[1]]));
   return (
     <>
-      <Link className="lab-back" to="/decks/lab/runs">My runs</Link>
+      <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
       <div className="page-head">
         <div>
           <h1>{r.name}</h1>
