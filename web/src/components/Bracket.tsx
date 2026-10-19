@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { api, type Combo, type DeckCheck, type Estimated } from "../api";
+import { checkStatus, estimateValue, localDay, pollAfter, SENDS_LIST } from "./deckCheck";
 import { NameList } from "./OnlineSupport";
-import { day } from "./Rulings";
 import { ErrorText } from "./ui";
 import "./decks.css";
 
@@ -35,9 +35,9 @@ export function BracketChips({ declared, estimate }: { declared: number | null |
       {estimate && (
         <span
           className="bracket-chip estimate"
-          title={`Commander Spellbook's estimate: ${estimate.label}${estimate.checked_at ? `, checked ${day(estimate.checked_at.slice(0, 10))}` : ""}`}
+          title={`Commander Spellbook's estimate: ${estimate.bracket == null && estimate.tag !== "B" ? `a tag Yama doesn't know yet (${estimate.tag})` : estimate.label}${estimate.checked_at ? `, checked ${localDay(estimate.checked_at)}` : ""}`}
         >
-          Estimate <b>{estimate.bracket ?? "banned"}</b>
+          Estimate <b>{estimateValue(estimate.tag, estimate.bracket).value.toLowerCase()}</b>
         </span>
       )}
     </span>
@@ -48,8 +48,7 @@ export function useDeckCheck(deckId: string, versionId: string | null) {
   return useQuery({
     queryKey: ["deck-check", deckId, versionId],
     queryFn: () => api<DeckCheck>(`/api/decks/${deckId}/check`),
-    // The check runs in the background after a save; ask until it has answered.
-    refetchInterval: (q) => (q.state.data?.pending ? 3000 : false),
+    refetchInterval: (q) => pollAfter(q.state.data),
   });
 }
 
@@ -91,20 +90,19 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
     seen.current = r?.checked_at ?? "";
   }, [r, qc]);
 
-  const twoCard = r?.combos.filter((x) => x.two_card) ?? [];
-  const longer = r?.combos.filter((x) => !x.two_card) ?? [];
-
-  let status: string | null = null;
-  if (c && !c.enabled) status = "Outside checks are off on this server.";
-  else if (c?.pending) status = r ? "Checking again with Commander Spellbook." : "Checking with Commander Spellbook. This takes a few seconds after a save.";
-  else if (c?.error) status = `${r ? "The last re-check failed" : "Couldn't check yet"}: ${c.error}.${c.gave_up ? " Stopped trying until you ask again." : " Trying again later."}`;
-  else if (c && !c.result && !c.requested_at) status = "Not checked yet.";
+  // Grouped by Commander Spellbook's own count, which leaves the commander out and counts a
+  // notable prerequisite as a piece.
+  const twoCard = r?.combos.filter((x) => x.definitely_two_card) ?? [];
+  const arguably = r?.combos.filter((x) => !x.definitely_two_card && x.arguably_two_card) ?? [];
+  const longer = r?.combos.filter((x) => !x.definitely_two_card && !x.arguably_two_card) ?? [];
+  const status = checkStatus(c);
+  const shown = r ? estimateValue(r.bracket_tag, r.bracket) : null;
 
   return (
     <section className="deck-panel" aria-labelledby="bracket-head">
       <div className="deck-panel-head">
         <h2 id="bracket-head">Bracket</h2>
-        {c?.enabled && !c.pending && c.version_id && (
+        {c?.enabled && !c.archived && !c.pending && c.version_id && (
           <button className="quiet small" onClick={() => again.mutate()} disabled={again.isPending}>Check again</button>
         )}
       </div>
@@ -125,11 +123,11 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
           )}
         </div>
         <div className="bracket-side estimate">
-          <span className="label">Estimate, {r ? `checked ${day(r.checked_at.slice(0, 10))}` : "not checked yet"}</span>
-          {r ? (
+          <span className="label">Estimate, {r ? `checked ${localDay(r.checked_at)}` : "not checked yet"}</span>
+          {r && shown ? (
             <>
-              <span className="value">{r.bracket ?? "Banned"}</span>
-              <span className="sub">{r.bracket == null ? "A card is banned in Commander" : `Commander Spellbook's "${r.bracket_label}"`}</span>
+              <span className="value">{shown.value}</span>
+              <span className="sub">{shown.sub(r.bracket_label)}</span>
             </>
           ) : (
             <span className="value none">None yet</span>
@@ -168,6 +166,13 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
             <h3 style={{ fontSize: "var(--t-base)", margin: "0 0 0.4rem" }}>Two-card combos: {twoCard.length}</h3>
             {twoCard.length > 0 ? <ComboList combos={twoCard} onCard={onCard} /> : <p className="note">Commander Spellbook found none in this list.</p>}
           </div>
+          {arguably.length > 0 && (
+            <div>
+              <h3 style={{ fontSize: "var(--t-base)", margin: "0 0 0.4rem" }}>Arguably two-card: {arguably.length}</h3>
+              <p className="note" style={{ margin: "0 0 0.4rem" }}>Two cards, plus one more thing that has to be in place first. How it works says what.</p>
+              <ComboList combos={arguably} onCard={onCard} />
+            </div>
+          )}
           {longer.length > 0 && (
             <details>
               <summary>Combos with more pieces: {longer.length}</summary>
@@ -175,7 +180,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
             </details>
           )}
           <p className="note">
-            Bracket estimate, flags and combos from <a href={SPELLBOOK} target="_blank" rel="noreferrer">Commander Spellbook</a>. It's an estimate from the card list; the bracket you declare is yours to set.
+            Bracket estimate, flags and combos from <a href={SPELLBOOK} target="_blank" rel="noreferrer">Commander Spellbook</a>, counted its way: your commander is always available, so it isn't counted as a piece. It's an estimate from the card list; the bracket you declare is yours to set.
           </p>
         </>
       ) : (
@@ -184,6 +189,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
           {gameChangers ? gameChangerFloor(gameChangers.length) : "Game Changer flags aren't loaded on this server yet."}
         </p>
       )}
+      {c?.enabled && <p className="note">{SENDS_LIST}</p>}
     </section>
   );
 }

@@ -340,7 +340,8 @@ struct DeckEntry {
     /// Cheapest current USD market price across printings. `None` = no price data.
     cheapest_usd: Option<f64>,
     /// The printing to name in exports: your own copy (real before proxy, the one in this deck's
-    /// container first), else Scryfall's default printing. `None` if neither is known.
+    /// container first), else a paper printing (see [`paper_printing`]). `None` if neither is
+    /// known, so the export names the card alone.
     printing: Option<PrintRef>,
     /// Colors of mana the card makes (Scryfall's produced_mana, "WUBRGC" order); "" for none,
     /// `None` until the card data import that reads it has run.
@@ -359,7 +360,7 @@ struct PrintRef {
 
 /// The printing an export should name for a card: a real copy (the one in the deck's container
 /// first), then a proxy the same way (it still names a printing), else `None` so the caller can
-/// fall back to the default printing.
+/// fall back to [`paper_printing`].
 fn owned_printing(mine: &[&crate::collection::Item], container_id: Option<&str>) -> Option<PrintRef> {
     let rank = |i: &crate::collection::Item| {
         let here = container_id.is_some() && i.container_id.as_deref() == container_id;
@@ -371,6 +372,66 @@ fn owned_printing(mine: &[&crate::collection::Item], container_id: Option<&str>)
         collector_number: best.collector_number.clone()?,
         finish: best.finish.clone(),
         from: "owned",
+    })
+}
+
+/// One printing of a card, as [`paper_printing`] weighs it.
+#[derive(sqlx::FromRow, Debug, Clone)]
+struct PrintingChoice {
+    set_code: String,
+    collector_number: String,
+    /// JSON array: nonfoil | foil | etched
+    finishes: String,
+    lang: String,
+    released_at: Option<String>,
+    /// Scryfall's `digital` (only released in a video game); `None` until the printings import
+    /// that reads it has run.
+    digital: Option<bool>,
+    set_type: Option<String>,
+    is_default: bool,
+}
+
+/// Kinds of set (Scryfall's `set_type`) whose printings are a last resort for an export:
+/// collectibles that aren't tournament cards, promos, Secret Lair-style boxes, Un-sets.
+const SIDE_SET_TYPES: [&str; 8] = ["memorabilia", "funny", "promo", "token", "minigame", "alchemy", "treasure_chest", "box"];
+
+/// Sets Scryfall files as regular ones whose cards hardly anyone has: Summer Magic, a 1994 run
+/// of Revised that was mostly destroyed. Weighed like [`SIDE_SET_TYPES`], so an old dual land
+/// names Revised rather than Summer Magic.
+const RARE_RUN_SETS: [&str; 1] = ["sum"];
+
+/// The printing an export names for a card you don't own: one that exists on paper, so Moxfield
+/// doesn't import an MTGO or Arena printing into a paper deck. In order: a printing with a
+/// nonfoil finish, Scryfall's default printing, a regular set (not [`SIDE_SET_TYPES`] or
+/// [`RARE_RUN_SETS`]), English, the newest. The finish is the printing's own: nonfoil if it has
+/// one, else foil or etched. Until the printings import has read Scryfall's `digital` flag
+/// nothing is known to be on paper, so it names the default printing as before (with that
+/// printing's finish).
+fn paper_printing(printings: &[PrintingChoice]) -> Option<PrintRef> {
+    let has = |p: &PrintingChoice, finish: &str| {
+        serde_json::from_str::<Vec<String>>(&p.finishes).is_ok_and(|f| f.iter().any(|x| x == finish))
+    };
+    let best = if printings.iter().any(|p| p.digital.is_some()) {
+        printings.iter().filter(|p| p.digital == Some(false)).min_by_key(|p| {
+            (
+                !has(p, "nonfoil"),
+                !p.is_default,
+                p.set_type.as_deref().is_some_and(|t| SIDE_SET_TYPES.contains(&t)) || RARE_RUN_SETS.contains(&p.set_code.as_str()),
+                p.lang != "en",
+                std::cmp::Reverse(p.released_at.clone()),
+                p.collector_number.len(),
+                p.collector_number.clone(),
+            )
+        })?
+    } else {
+        printings.iter().find(|p| p.is_default)?
+    };
+    let finish = ["nonfoil", "foil", "etched"].into_iter().find(|f| has(best, f)).unwrap_or("nonfoil");
+    Some(PrintRef {
+        set_code: best.set_code.clone(),
+        collector_number: best.collector_number.clone(),
+        finish: finish.into(),
+        from: "default",
     })
 }
 
@@ -455,14 +516,16 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         let card = card_info.get(&c.oracle_id).cloned();
         let printing = match owned_printing(&mine, container_id.as_deref()) {
             Some(p) => Some(p),
-            None => sqlx::query_as::<_, (String, String)>(
-                "SELECT p.set_code, p.collector_number FROM cards c JOIN printings p ON p.scryfall_id = c.default_printing
-                 WHERE c.oracle_id = ?",
-            )
-            .bind(&c.oracle_id)
-            .fetch_optional(&st.pool)
-            .await?
-            .map(|(set_code, collector_number)| PrintRef { set_code, collector_number, finish: "nonfoil".into(), from: "default" }),
+            None => paper_printing(
+                &sqlx::query_as::<_, PrintingChoice>(
+                    "SELECT p.set_code, p.collector_number, p.finishes, p.lang, p.released_at, p.digital, p.set_type,
+                            (p.scryfall_id IS c.default_printing) AS is_default
+                     FROM printings p JOIN cards c ON c.oracle_id = p.oracle_id WHERE p.oracle_id = ?",
+                )
+                .bind(&c.oracle_id)
+                .fetch_all(&st.pool)
+                .await?,
+            ),
         };
         let produced_mana: Option<String> = sqlx::query_scalar("SELECT produced_mana FROM cards WHERE oracle_id = ?")
             .bind(&c.oracle_id)
@@ -856,6 +919,65 @@ mod tests {
         assert_eq!(pick(&[&proxy, &binder], Some("deck")), Some(("cmm".into(), "nonfoil".into())));
         assert_eq!(pick(&[&proxy], None), Some(("pip".into(), "nonfoil".into())));
         assert_eq!(pick(&[], None), None);
+    }
+
+    fn printing(set: &str, number: &str, finishes: &str, released: &str, digital: Option<bool>, set_type: &str, is_default: bool) -> PrintingChoice {
+        PrintingChoice {
+            set_code: set.into(),
+            collector_number: number.into(),
+            finishes: finishes.into(),
+            lang: "en".into(),
+            released_at: Some(released.into()),
+            digital,
+            set_type: Some(set_type.into()),
+            is_default,
+        }
+    }
+
+    #[test]
+    fn exports_of_unowned_cards_name_a_paper_printing() {
+        let pick = |ps: &[PrintingChoice]| paper_printing(ps).map(|p| format!("{} {} {}", p.set_code, p.collector_number, p.finish));
+        let both = r#"["nonfoil","foil"]"#;
+        // Plateau: Scryfall's default is Vintage Masters, which is MTGO only. Skip it, the
+        // Masters Editions (also MTGO), the 30th Anniversary collectible and Summer Magic for
+        // Revised.
+        let plateau = [
+            printing("30a", "572", r#"["nonfoil"]"#, "2022-11-28", Some(false), "memorabilia", false),
+            printing("vma", "308", both, "2014-06-16", Some(true), "masters", true),
+            printing("me4", "249", both, "2011-01-10", Some(true), "masters", false),
+            printing("sum", "284", r#"["nonfoil"]"#, "1994-06-21", Some(false), "core", false),
+            printing("3ed", "284", r#"["nonfoil"]"#, "1994-04-11", Some(false), "core", false),
+            printing("leb", "280", r#"["nonfoil"]"#, "1993-10-04", Some(false), "core", false),
+        ];
+        assert_eq!(pick(&plateau).as_deref(), Some("3ed 284 nonfoil"));
+
+        // A default printing on paper wins, even over newer printings.
+        let sol_ring = [
+            printing("cmm", "410", both, "2023-08-04", Some(false), "masters", true),
+            printing("sld", "1512", r#"["foil"]"#, "2024-01-01", Some(false), "box", false),
+            printing("frc", "21", r#"["nonfoil"]"#, "2026-10-02", Some(false), "commander", false),
+        ];
+        assert_eq!(pick(&sol_ring).as_deref(), Some("cmm 410 nonfoil"));
+
+        // A foil-only default gives way to a nonfoil printing; foil-only everywhere is marked foil.
+        let sauron = [
+            printing("ltr", "288", r#"["foil"]"#, "2023-06-23", Some(false), "expansion", true),
+            printing("ltr", "224", both, "2023-06-23", Some(false), "expansion", false),
+        ];
+        assert_eq!(pick(&sauron).as_deref(), Some("ltr 224 nonfoil"));
+        assert_eq!(pick(&sauron[..1]).as_deref(), Some("ltr 288 foil"));
+        let etched = [printing("cmr", "600", r#"["etched"]"#, "2020-11-20", Some(false), "draft_innovation", true)];
+        assert_eq!(pick(&etched).as_deref(), Some("cmr 600 etched"));
+
+        // Only on Arena or MTGO: no printing, so the export names the card alone.
+        assert_eq!(pick(&[printing("ymid", "1", both, "2021-12-09", Some(true), "alchemy", true)]), None);
+
+        // Before the import that reads `digital`: the default printing, with its own finish.
+        let unknown = [
+            printing("vma", "308", r#"["foil"]"#, "2014-06-16", None, "masters", true),
+            printing("3ed", "284", r#"["nonfoil"]"#, "1994-04-11", None, "core", false),
+        ];
+        assert_eq!(pick(&unknown).as_deref(), Some("vma 308 foil"));
     }
 
     #[test]

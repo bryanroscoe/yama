@@ -2,11 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, identityName, newHand, rng, type Goldfish } from "@yama/core";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, usd, type Container, type DeckCard, type DeckEntry, type DeckSummary, type DeckView } from "../api";
+import { api, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
 import { day } from "../components/Rulings";
 import { BRACKETS, BracketChips, BracketPanel } from "../components/Bracket";
+import { SENDS_LIST } from "../components/deckCheck";
 import { DeckStatsPanel } from "../components/DeckStats";
 import { DeckExport } from "../components/DeckExport";
 import { DeckHistory } from "../components/DeckHistory";
@@ -280,6 +281,8 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const containers = useQuery({ queryKey: ["containers"], queryFn: () => api<Container[]>("/api/containers") });
+  // The bracket panel has already asked whether this server sends lists to Spellbook.
+  const checksOn = qc.getQueryData<DeckCheck>(["deck-check", deck.id, deck.version_id])?.enabled === true;
   const [name, setName] = useState(deck.name);
   const [container, setContainer] = useState(deck.container_id ?? "");
   const [bracket, setBracket] = useState(deck.bracket == null ? "" : String(deck.bracket));
@@ -330,7 +333,10 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         </label>
         <label>
           Bracket
-          <span className="hint">The bracket you'd tell the table before a game. Commander Spellbook's estimate is shown beside it and never changes it.</span>
+          <span className="hint">
+            The bracket you'd tell the table before a game. Commander Spellbook's estimate is shown beside it and never changes it.
+            {checksOn && ` ${SENDS_LIST}`}
+          </span>
           <select value={bracket} onChange={(e) => setBracket(e.target.value)}>
             <option value="">Not declared</option>
             {BRACKETS.map((b) => <option key={b.value} value={b.value}>{b.value}, {b.name}</option>)}

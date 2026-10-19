@@ -31,10 +31,11 @@ export interface ColorStat {
   /** Colored mana symbols in the costs of the commander and main deck (per copy). Only colors
    *  with pips are listed: lands like Command Tower make every color, which says nothing here. */
   pips: number;
-  /** Lands (and land faces) that can make this color, per copy. */
-  sources: number;
-  /** Fewer than one source for every three pips. */
-  short: boolean;
+  /** Lands (and land faces) that can make this color, per copy. null while any land in the deck
+   *  has no mana data yet: it could make this color, so a number would be a guess. */
+  sources: number | null;
+  /** Fewer than one source for every three pips; null when sources aren't known. */
+  short: boolean | null;
 }
 
 export interface DeckStats {
@@ -48,8 +49,10 @@ export interface DeckStats {
   averageMvNonland: number | null;
   curve: CurveBucket[];
   colors: ColorStat[];
-  /** Lands whose mana isn't in the card data yet, so they count as no source. */
+  /** Lands whose mana isn't in the card data yet. While there are any, sources aren't counted. */
   landsWithoutManaData: string[];
+  /** Lands (cards with a land face) whose mana is known. */
+  landsWithManaData: number;
   /** Cards missing from the card data, left out of everything above but the count. */
   unknownCards: string[];
 }
@@ -133,20 +136,24 @@ export function deckStats(all: StatCard[]): DeckStats {
   }
   const sources: Record<Color, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   const landsWithoutManaData: string[] = [];
+  let landsWithManaData = 0;
   for (const c of known.filter(hasLandFace)) {
     const colors = landColors(c, deckBasics);
     if (colors == null) {
       landsWithoutManaData.push(c.name);
       continue;
     }
+    landsWithManaData += 1;
     for (const color of colors) sources[color] += c.qty;
   }
+  // A land without data could make any color, so no count is safe until every land has it.
+  const counted = landsWithoutManaData.length === 0;
 
   const colors: ColorStat[] = COLORS.filter((c) => pips[c] > 0).map((color) => ({
     color,
     pips: pips[color],
-    sources: sources[color],
-    short: sources[color] * 3 < pips[color],
+    sources: counted ? sources[color] : null,
+    short: counted ? sources[color] * 3 < pips[color] : null,
   }));
   const total = lands + nonlands;
   const round = (n: number) => Math.round(n * 100) / 100;
@@ -159,6 +166,7 @@ export function deckStats(all: StatCard[]): DeckStats {
     curve,
     colors,
     landsWithoutManaData,
+    landsWithManaData,
     unknownCards,
   };
 }

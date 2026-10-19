@@ -37,6 +37,9 @@ const BACKOFF_SECS: [i64; 6] = [0, 60, 5 * 60, 30 * 60, 2 * 3600, 12 * 3600];
 const IDLE_POLL: Duration = Duration::from_secs(10 * 60);
 /// "Check again" is refused this soon after an answer, so a button can't hammer Spellbook.
 pub const RECHECK_AFTER_SECS: i64 = 10 * 60;
+/// …and this soon after a failed try, so pressing it while retries wait out a pause still
+/// sends at most one request a minute.
+pub const RETRY_GUARD_SECS: i64 = 60;
 
 /// Millisecond RFC 3339 times, so a request and an answer in the same second still order.
 fn stamp_of(t: DateTime<Utc>) -> String {
@@ -71,23 +74,40 @@ pub async fn queue<'e, E: sqlx::SqliteExecutor<'e>>(db: E, version_id: &str) -> 
 
 /// Ask for a fresh check of a version that may have been checked before (outside data changes:
 /// new combos, Game Changer list updates). The old answer stays until the new one arrives.
-/// Refused within [`RECHECK_AFTER_SECS`] of the last answer.
+/// Refused within [`RECHECK_AFTER_SECS`] of the last answer or [`RETRY_GUARD_SECS`] of a failed
+/// try, and for anything the worker wouldn't run: an archived deck, or a version that isn't its
+/// deck's current one.
 pub async fn request_again(pool: &SqlitePool, version_id: &str) -> AppResult<()> {
-    let checked: Option<Option<String>> =
-        sqlx::query_scalar("SELECT checked_at FROM deck_version_checks WHERE version_id = ? AND source = ?")
-            .bind(version_id)
-            .bind(SPELLBOOK)
-            .fetch_optional(pool)
-            .await?;
-    if let Some(at) = checked.flatten().as_deref().and_then(parse_stamp) {
-        let age = (Utc::now() - at).num_seconds();
-        if age < RECHECK_AFTER_SECS {
-            let wait = (RECHECK_AFTER_SECS - age + 59) / 60;
-            return Err(AppError::Conflict(format!(
-                "checked {} ago; try again in {wait} {}",
-                ago(age),
-                if wait == 1 { "minute" } else { "minutes" }
-            )));
+    match deck_state(pool, version_id).await? {
+        DeckState::Live => {}
+        DeckState::Archived => return Err(AppError::Conflict("the deck is archived, so it isn't checked".into())),
+        DeckState::Superseded => return Err(AppError::Conflict("only a deck's current version is checked".into())),
+    }
+    let row: Option<(Option<String>, String, i64, Option<String>)> = sqlx::query_as(
+        "SELECT checked_at, requested_at, attempts, last_attempt_at FROM deck_version_checks WHERE version_id = ? AND source = ?",
+    )
+    .bind(version_id)
+    .bind(SPELLBOOK)
+    .fetch_optional(pool)
+    .await?;
+    let now = Utc::now();
+    let too_soon = |at: Option<&str>, guard: i64, what: &str| -> AppResult<()> {
+        let Some(age) = at.and_then(parse_stamp).map(|t| (now - t).num_seconds()) else { return Ok(()) };
+        if age >= guard {
+            return Ok(());
+        }
+        let wait = (guard - age + 59) / 60;
+        Err(AppError::Conflict(format!(
+            "{what} {} ago; try again in {wait} {}",
+            ago(age),
+            if wait == 1 { "minute" } else { "minutes" }
+        )))
+    };
+    if let Some((checked_at, requested_at, attempts, last_attempt_at)) = &row {
+        too_soon(checked_at.as_deref(), RECHECK_AFTER_SECS, "checked")?;
+        let waiting = checked_at.as_ref().is_none_or(|c| c < requested_at);
+        if waiting && *attempts > 0 {
+            too_soon(last_attempt_at.as_deref(), RETRY_GUARD_SECS, "tried")?;
         }
     }
     sqlx::query(
@@ -96,11 +116,42 @@ pub async fn request_again(pool: &SqlitePool, version_id: &str) -> AppResult<()>
     )
     .bind(version_id)
     .bind(SPELLBOOK)
-    .bind(stamp())
+    .bind(stamp_of(now))
     .execute(pool)
     .await?;
     wake();
     Ok(())
+}
+
+/// Whether the worker runs checks of a version: only a live deck's current version.
+#[derive(Debug, PartialEq)]
+enum DeckState {
+    Live,
+    Archived,
+    /// Not the current version of any deck (a later save replaced it).
+    Superseded,
+}
+
+async fn deck_state(pool: &SqlitePool, version_id: &str) -> sqlx::Result<DeckState> {
+    let archived: Option<i64> = sqlx::query_scalar("SELECT archived FROM decks WHERE current_version_id = ?")
+        .bind(version_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(match archived {
+        Some(0) => DeckState::Live,
+        Some(_) => DeckState::Archived,
+        None => DeckState::Superseded,
+    })
+}
+
+/// When a waiting check's next try falls due: right away for a fresh request (no failures
+/// since it), else the last failed try plus the pause for that many failures.
+fn due_at(attempts: i64, last_attempt_at: Option<&str>, now: DateTime<Utc>) -> DateTime<Utc> {
+    if attempts <= 0 {
+        return now;
+    }
+    let wait = BACKOFF_SECS[attempts.clamp(0, MAX_ATTEMPTS - 1) as usize];
+    last_attempt_at.and_then(parse_stamp).map_or(now, |t| t + chrono::Duration::seconds(wait))
 }
 
 fn ago(secs: i64) -> String {
@@ -121,12 +172,18 @@ pub struct CheckView {
     pub version_id: Option<String>,
     pub source: &'static str,
     pub source_url: &'static str,
-    /// A check is queued or running.
+    /// A try is due now or running, so an answer (or an error) comes within seconds.
     pub pending: bool,
+    /// The last try failed and the next one waits until `next_try_at`.
+    pub retrying: bool,
+    /// RFC 3339; set while `retrying`.
+    pub next_try_at: Option<String>,
     /// The last try failed (kept until one succeeds).
     pub error: Option<String>,
     /// Tries have stopped until someone asks again.
     pub gave_up: bool,
+    /// The deck is archived, so its checks don't run.
+    pub archived: bool,
     pub requested_at: Option<String>,
     /// The newest answer, if any; it can be older than a pending re-check.
     pub result: Option<CheckResult>,
@@ -136,10 +193,12 @@ pub struct CheckView {
 pub struct CheckResult {
     /// When the request that got this answer was sent.
     pub checked_at: String,
-    /// Spellbook's tag: E C O P S R, or B when a card is banned.
+    /// Spellbook's tag: E C O P S R, or B when a card is banned. Kept as sent, so a tag Yama
+    /// doesn't know yet reads as unknown rather than as anything else.
     pub bracket_tag: String,
     pub bracket_label: &'static str,
-    /// The 1-5 bracket Spellbook gives the tag (its own `bracket` field); `None` for B.
+    /// The 1-5 bracket Spellbook gives the tag (its own `bracket` field); `None` for B and for
+    /// tags Yama doesn't know.
     pub bracket: Option<i64>,
     pub game_changers: Vec<String>,
     pub mld: Vec<String>,
@@ -159,8 +218,14 @@ pub struct Combo {
     #[serde(default)]
     pub templates: Vec<String>,
     pub results: Vec<String>,
-    /// Exactly two cards and nothing else named.
-    pub two_card: bool,
+    /// Spellbook's own count (`definitelyTwoCard`): at most two pieces, counting templates, a
+    /// notable prerequisite and a result that matters only in context as pieces, and leaving
+    /// the commander out because it's always available.
+    #[serde(default)]
+    pub definitely_two_card: bool,
+    /// Spellbook's `arguablyTwoCard`: at most two cards, plus at most one of those extras.
+    #[serde(default)]
+    pub arguably_two_card: bool,
     #[serde(default)]
     pub mana_needed: Option<String>,
     /// Plain-language reasons this combo matters for brackets ("extra turns", "lock").
@@ -182,8 +247,14 @@ pub fn bracket_of_tag(tag: &str) -> (&'static str, Option<i64>) {
         "S" => ("Spicy", Some(3)),
         "R" => ("Ruthless", Some(4)),
         "B" => ("Banned card", None),
-        _ => ("Unknown", None),
+        _ => ("Unknown tag", None),
     }
+}
+
+/// Whether [`bracket_of_tag`] knows a tag. A new tag from Spellbook is stored as sent and shown
+/// as unknown (never as banned) until Yama learns it.
+pub fn is_known_tag(tag: &str) -> bool {
+    matches!(tag, "E" | "C" | "O" | "P" | "S" | "R" | "B")
 }
 
 // ── Spellbook's response ───────────────────────────────────────────────────
@@ -234,6 +305,10 @@ struct ClassifiedCombo {
     control_all_opponents: bool,
     #[serde(default)]
     control_some_opponents: bool,
+    #[serde(default)]
+    definitely_two_card: bool,
+    #[serde(default)]
+    arguably_two_card: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -255,8 +330,6 @@ struct Variant {
 #[derive(Deserialize, Debug)]
 struct Uses {
     card: SbCard,
-    #[serde(default = "one")]
-    quantity: i64,
 }
 
 #[derive(Deserialize, Debug)]
@@ -272,10 +345,6 @@ struct Produces {
 #[derive(Deserialize, Debug)]
 struct Named {
     name: String,
-}
-
-fn one() -> i64 {
-    1
 }
 
 /// Turn Spellbook's answer into what Yama stores, naming cards as the deck does.
@@ -310,7 +379,6 @@ pub fn summarize(est: Estimate, deck: &[DeckCard], checked_at: &str) -> CheckRes
             let v = &c.combo;
             let cards: Vec<String> = v.uses.iter().map(|u| name(&u.card)).collect();
             let templates: Vec<String> = v.requires.iter().map(|r| r.template.name.clone()).collect();
-            let copies: i64 = v.uses.iter().map(|u| u.quantity.max(1)).sum();
             let flags = [
                 (c.extra_turn, "extra turns"),
                 (c.mass_land_denial, "mass land denial"),
@@ -325,7 +393,10 @@ pub fn summarize(est: Estimate, deck: &[DeckCard], checked_at: &str) -> CheckRes
             .collect();
             Combo {
                 id: v.id.clone(),
-                two_card: copies == 2 && templates.is_empty(),
+                // Spellbook's own classification, not a recount: it weighs prerequisites and the
+                // commander, which the card list alone doesn't show.
+                definitely_two_card: c.definitely_two_card,
+                arguably_two_card: c.arguably_two_card || c.definitely_two_card,
                 cards,
                 templates,
                 results: v.produces.iter().map(|p| p.feature.name.clone()).collect(),
@@ -335,8 +406,11 @@ pub fn summarize(est: Estimate, deck: &[DeckCard], checked_at: &str) -> CheckRes
             }
         })
         .collect();
-    // Two-card combos first, then by their cards, so the order is stable between checks.
-    combos.sort_by(|a, b| b.two_card.cmp(&a.two_card).then_with(|| a.cards.cmp(&b.cards)));
+    // Two-card combos first, then arguably two-card, then by their cards, so the order is
+    // stable between checks.
+    combos.sort_by(|a, b| {
+        (b.definitely_two_card, b.arguably_two_card).cmp(&(a.definitely_two_card, a.arguably_two_card)).then_with(|| a.cards.cmp(&b.cards))
+    });
 
     let (bracket_label, bracket) = bracket_of_tag(&est.bracket_tag);
     CheckResult {
@@ -378,11 +452,12 @@ struct Row {
     combos: Option<String>,
     unrecognized: Option<String>,
     attempts: i64,
+    last_attempt_at: Option<String>,
     error: Option<String>,
 }
 
 const ROW_COLUMNS: &str =
-    "requested_at, checked_at, bracket_tag, game_changers, mld, extra_turns, combos, unrecognized, attempts, error";
+    "requested_at, checked_at, bracket_tag, game_changers, mld, extra_turns, combos, unrecognized, attempts, last_attempt_at, error";
 
 fn list<T: serde::de::DeserializeOwned>(json: &Option<String>) -> Vec<T> {
     json.as_deref().and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default()
@@ -411,28 +486,43 @@ impl Row {
 }
 
 /// The Spellbook check of one version, for the deck page.
+///
+/// `pending` only while a try is due or running, so the page can poll briefly; while failed
+/// tries wait out their pause it's `retrying` with `next_try_at` instead, and the error shows.
 pub async fn view(pool: &SqlitePool, version_id: Option<&str>, enabled: bool) -> AppResult<CheckView> {
-    let row: Option<Row> = match version_id {
-        Some(v) => {
+    let (row, state): (Option<Row>, DeckState) = match version_id {
+        Some(v) => (
             sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT {ROW_COLUMNS} FROM deck_version_checks WHERE version_id = ? AND source = ?"
             )))
             .bind(v)
             .bind(SPELLBOOK)
             .fetch_optional(pool)
-            .await?
-        }
-        None => None,
+            .await?,
+            deck_state(pool, v).await?,
+        ),
+        None => (None, DeckState::Superseded),
     };
     let gave_up = row.as_ref().is_some_and(|r| r.waiting() && r.attempts >= MAX_ATTEMPTS);
+    // The worker only runs a live deck's current version (see `next_pending`).
+    let runs = enabled && state == DeckState::Live;
+    let now = Utc::now();
+    let due = row
+        .as_ref()
+        .filter(|r| runs && r.waiting() && r.attempts < MAX_ATTEMPTS)
+        .map(|r| due_at(r.attempts, r.last_attempt_at.as_deref(), now));
+    let retrying = due.is_some_and(|d| d > now);
     Ok(CheckView {
         enabled,
         version_id: version_id.map(str::to_string),
         source: "Commander Spellbook",
         source_url: SPELLBOOK_SITE,
-        pending: enabled && row.as_ref().is_some_and(|r| r.waiting() && r.attempts < MAX_ATTEMPTS),
+        pending: due.is_some_and(|d| d <= now),
+        retrying,
+        next_try_at: due.filter(|_| retrying).map(stamp_of),
         error: row.as_ref().and_then(|r| r.error.clone()),
         gave_up,
+        archived: state == DeckState::Archived,
         requested_at: row.as_ref().map(|r| r.requested_at.clone()),
         result: row.as_ref().and_then(Row::result),
     })
@@ -507,8 +597,7 @@ async fn next_pending(pool: &SqlitePool) -> sqlx::Result<Next> {
     let now = Utc::now();
     let mut soonest: Option<Duration> = None;
     for (version, _, attempts, last) in rows {
-        let wait = BACKOFF_SECS[attempts.clamp(0, MAX_ATTEMPTS - 1) as usize];
-        let due = last.as_deref().and_then(parse_stamp).map_or(now, |t| t + chrono::Duration::seconds(wait));
+        let due = due_at(attempts, last.as_deref(), now);
         if due <= now {
             return Ok(Next::Due(version));
         }
@@ -563,6 +652,9 @@ async fn fetch(pool: &SqlitePool, http: &reqwest::Client, url: &str, version_id:
         .json()
         .await
         .map_err(|e| CheckError::Failed(format!("Commander Spellbook's answer didn't read as expected ({})", short_error(&e))))?;
+    if !is_known_tag(&est.bracket_tag) {
+        tracing::warn!(tag = %est.bracket_tag, version_id, "Commander Spellbook sent a bracket tag Yama doesn't know; shown as unknown");
+    }
     Ok(summarize(est, &cards, started))
 }
 
@@ -712,15 +804,56 @@ mod tests {
         let c = &r.combos[0];
         assert_eq!(c.id, "847-4364");
         assert_eq!(c.cards, vec!["Aurelia, the Warleader", "Gilraen, Dúnedain Protector"]);
-        assert!(c.two_card);
+        // Two cards, but Spellbook counts its notable prerequisites (creatures that tap for {2},
+        // Gilraen without summoning sickness): arguably two-card, not definitely.
+        assert!(!c.definitely_two_card && c.arguably_two_card);
         assert!(c.results.iter().any(|x| x == "Infinite combat phases"));
         assert_eq!(c.bracket_tag.as_deref(), Some("S"));
+    }
+
+    #[test]
+    fn two_card_follows_spellbooks_classification() {
+        // Spellbook leaves the commander out of the count: commander plus two cards from the 99
+        // is definitely two-card, though three cards are named.
+        let mut raw: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+        let combo = &mut raw["combos"][0];
+        combo["definitelyTwoCard"] = true.into();
+        combo["arguablyTwoCard"] = true.into();
+        combo["combo"]["uses"].as_array_mut().unwrap().push(serde_json::json!({
+            "card": { "name": "Éowyn, Shieldmaiden", "oracleId": "98a2a642-a30a-43e7-b47f-4776c22d1cb0" },
+            "quantity": 1
+        }));
+        // A second combo of exactly two cards that Spellbook doesn't call two-card at all.
+        let mut other = raw["combos"][0].clone();
+        other["combo"]["id"] = "1-2".into();
+        other["definitelyTwoCard"] = false.into();
+        other["arguablyTwoCard"] = false.into();
+        other["combo"]["uses"].as_array_mut().unwrap().truncate(2);
+        raw["combos"].as_array_mut().unwrap().insert(0, other);
+
+        let est: Estimate = serde_json::from_value(raw).unwrap();
+        let r = summarize(est, &rohan_sample(), "2026-10-19T06:00:00.000Z");
+        assert_eq!(r.combos.len(), 2);
+        assert_eq!((r.combos[0].id.as_str(), r.combos[0].definitely_two_card, r.combos[0].cards.len()), ("847-4364", true, 3));
+        assert!(r.combos[0].arguably_two_card);
+        assert_eq!((r.combos[1].id.as_str(), r.combos[1].definitely_two_card, r.combos[1].arguably_two_card), ("1-2", false, false));
+
+        // Answers stored before these fields existed read as neither.
+        let old: Combo = serde_json::from_str(r#"{"id":"x","cards":["A","B"],"results":[],"two_card":true}"#).unwrap();
+        assert!(!old.definitely_two_card && !old.arguably_two_card);
     }
 
     #[test]
     fn tags_map_to_spellbooks_bracket_numbers() {
         let n = |t| bracket_of_tag(t).1;
         assert_eq!([n("E"), n("C"), n("O"), n("P"), n("S"), n("R"), n("B")], [Some(1), Some(2), Some(2), Some(3), Some(3), Some(4), None]);
+        // A tag Yama doesn't know isn't "banned": it keeps its own label, and the tag as sent.
+        assert_eq!(bracket_of_tag("X"), ("Unknown tag", None));
+        assert!(is_known_tag("B") && !is_known_tag("X"));
+        let mut raw: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+        raw["bracketTag"] = "X".into();
+        let r = summarize(serde_json::from_value(raw).unwrap(), &rohan_sample(), "2026-10-19T06:00:00.000Z");
+        assert_eq!((r.bracket_tag.as_str(), r.bracket_label, r.bracket), ("X", "Unknown tag", None));
     }
 
     #[test]
@@ -770,17 +903,53 @@ mod tests {
         let v = current_version(&pool, &deck).await;
         record_failure(&pool, &v, &stamp(), "no connection").await.unwrap();
         assert!(matches!(next_pending(&pool).await.unwrap(), Next::Later(d) if d > Duration::from_secs(50)));
+        // While the pause runs: not pending (the page stops polling every few seconds), but
+        // retrying at a stated time, with the error to show.
+        let waiting = view(&pool, Some(&v), true).await.unwrap();
+        assert!(!waiting.pending && waiting.retrying && !waiting.gave_up);
+        let next = parse_stamp(waiting.next_try_at.as_deref().unwrap()).unwrap();
+        assert!((next - Utc::now()).num_seconds() > 50);
+        assert_eq!(waiting.error.as_deref(), Some("no connection"));
+        // "Check again" right after a failed try is refused too.
+        assert!(matches!(request_again(&pool, &v).await, Err(AppError::Conflict(m)) if m.starts_with("tried")));
+        // Once the pause is over the try is due again: pending, no longer retrying.
+        sqlx::query("UPDATE deck_version_checks SET last_attempt_at = '2026-01-01T00:00:00.000Z'").execute(&pool).await.unwrap();
+        let due = view(&pool, Some(&v), true).await.unwrap();
+        assert!(due.pending && !due.retrying && due.next_try_at.is_none());
+
         for _ in 1..MAX_ATTEMPTS {
             record_failure(&pool, &v, &stamp(), "no connection").await.unwrap();
         }
         assert!(matches!(next_pending(&pool).await.unwrap(), Next::Idle));
         let gave_up = view(&pool, Some(&v), true).await.unwrap();
-        assert!(gave_up.gave_up && !gave_up.pending);
+        assert!(gave_up.gave_up && !gave_up.pending && !gave_up.retrying);
         assert_eq!(gave_up.error.as_deref(), Some("no connection"));
 
-        // Asking again starts over.
+        // Asking again starts over (once a minute has passed since the last try).
+        sqlx::query("UPDATE deck_version_checks SET last_attempt_at = '2026-01-01T00:00:00.000Z'").execute(&pool).await.unwrap();
         request_again(&pool, &v).await.unwrap();
         assert!(matches!(next_pending(&pool).await.unwrap(), Next::Due(_)));
+    }
+
+    #[tokio::test]
+    async fn archived_decks_are_not_checked_or_shown_as_pending() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        let deck = crate::decks::create_deck_with_cards(&pool, &owner, "Old deck", None, rohan_sample()).await.unwrap();
+        let v = current_version(&pool, &deck).await;
+        sqlx::query("UPDATE decks SET archived = 1 WHERE id = ?").bind(&deck).execute(&pool).await.unwrap();
+
+        // Queued before it was archived: the worker skips it, so the page doesn't wait for it.
+        assert!(matches!(next_pending(&pool).await.unwrap(), Next::Idle));
+        let shown = view(&pool, Some(&v), true).await.unwrap();
+        assert!(shown.archived && !shown.pending && !shown.retrying);
+
+        // Answered long ago, then archived: "check again" is refused rather than queued for
+        // nobody (the deck page still opens from a bookmark).
+        sqlx::query("UPDATE deck_version_checks SET checked_at = '2026-01-01T00:00:00.000Z', bracket_tag = 'C'").execute(&pool).await.unwrap();
+        assert!(matches!(request_again(&pool, &v).await, Err(AppError::Conflict(m)) if m.contains("archived")));
+        let shown = view(&pool, Some(&v), true).await.unwrap();
+        assert!(!shown.pending && shown.result.is_some());
     }
 
     async fn fake_spellbook(status: u16) -> String {
@@ -834,13 +1003,14 @@ mod tests {
         // "Check again" right after an answer is refused; the answer stays.
         assert!(matches!(request_again(&pool, &v).await, Err(AppError::Conflict(_))));
 
-        // A failed re-check keeps the old answer and shows the error beside it.
+        // A failed re-check keeps the old answer and shows the error beside it, retrying later.
         sqlx::query("UPDATE deck_version_checks SET checked_at = '2026-01-01T00:00:00.000Z'").execute(&pool).await.unwrap();
         request_again(&pool, &v).await.unwrap();
+        assert!(view(&pool, Some(&v), true).await.unwrap().pending);
         let url = fake_spellbook(500).await;
         assert!(run_one(&pool, &http, &url, &v).await.is_err());
         let shown = view(&pool, Some(&v), true).await.unwrap();
-        assert!(shown.pending && shown.result.is_some());
+        assert!(!shown.pending && shown.retrying && shown.result.is_some());
         assert!(shown.error.unwrap().contains("500"));
     }
 }

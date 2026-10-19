@@ -158,9 +158,11 @@ function PipTable({ s }: { s: Stats }) {
                 </span>
               </td>
               <td>{c.pips}</td>
-              <td>{c.sources}</td>
+              <td>{c.sources ?? <span className="dim">not counted yet</span>}</td>
               <td className="status">
-                {c.short ? (
+                {c.sources == null ? (
+                  <span className="dim">not known yet</span>
+                ) : c.short ? (
                   <span className="short-flag">
                     <WarnIcon />
                     {((c.sources * 3) / c.pips).toFixed(1)}, short
@@ -175,7 +177,10 @@ function PipTable({ s }: { s: Stats }) {
       </table>
       <p className="note" style={{ marginTop: "0.4rem" }}>
         "Short" means fewer than one land source for every three pips of that color. Hybrid pips count for both colors; mana rocks and creatures aren't counted.
-        {s.landsWithoutManaData.length > 0 && ` Not counted yet (their mana comes with the next card data import): ${s.landsWithoutManaData.join(", ")}.`}
+        {s.landsWithoutManaData.length > 0 &&
+          (s.landsWithManaData === 0
+            ? " Land sources aren't counted yet: which colors each land makes comes with the next card data import."
+            : ` Land sources aren't counted until the next card data import brings the mana of ${s.landsWithoutManaData.join(", ")}.`)}
       </p>
     </div>
   );

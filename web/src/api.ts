@@ -206,16 +206,19 @@ export interface DeckSummary {
 
 /** An outside bracket estimate, shown beside the declared bracket and never instead of it. */
 export interface Estimated {
-  /** Commander Spellbook's tag: E C O P S R, or B for a banned card. */
+  /** Commander Spellbook's tag: E C O P S R, or B for a banned card. Any other tag is one Yama
+   *  doesn't know yet. */
   tag: string;
-  /** "Exhibition", "Core", "Oddball", "Powerful", "Spicy", "Ruthless", "Banned card" */
+  /** "Exhibition", "Core", "Oddball", "Powerful", "Spicy", "Ruthless", "Banned card", or
+   *  "Unknown tag" */
   label: string;
-  /** The 1-5 bracket Spellbook gives the tag; null for a banned card. */
+  /** The 1-5 bracket Spellbook gives the tag; null for a banned card and an unknown tag. */
   bracket: number | null;
   checked_at: string | null;
 }
 
-/** The printing an export names: your copy, else Scryfall's default printing. */
+/** The printing an export names: your copy, else a paper printing (Scryfall's default when it's
+ *  on paper). */
 export interface PrintRef {
   set_code: string;
   collector_number: string;
@@ -260,12 +263,18 @@ export interface DeckCheck {
   version_id: string | null;
   source: string;
   source_url: string;
-  /** Queued or running. */
+  /** A try is due now or running; an answer or an error comes within seconds. */
   pending: boolean;
+  /** The last try failed and the next one waits until next_try_at. */
+  retrying: boolean;
+  /** RFC 3339; set while retrying. */
+  next_try_at: string | null;
   /** The last try failed. */
   error: string | null;
   /** Tries stopped until someone asks again. */
   gave_up: boolean;
+  /** The deck is archived, so it isn't checked. */
+  archived: boolean;
   requested_at: string | null;
   /** The newest answer; can be older than a pending re-check. */
   result: DeckCheckResult | null;
@@ -289,7 +298,10 @@ export interface Combo {
   cards: string[];
   templates: string[];
   results: string[];
-  two_card: boolean;
+  /** Spellbook's own count: two pieces at most, the commander left out (it's always there). */
+  definitely_two_card: boolean;
+  /** Two cards, but one more thing to set up (a prerequisite, or a result that needs context). */
+  arguably_two_card: boolean;
   mana_needed: string | null;
   flags: string[];
   bracket_tag: string | null;

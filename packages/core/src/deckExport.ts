@@ -27,7 +27,7 @@ export interface ExportCard {
 
 export const EXPORT_FORMATS: { value: ExportFormat; label: string; hint: string }[] = [
   { value: "names", label: "Names only", hint: "Commander and Deck headings, no set codes. For EDHbots and most simulators." },
-  { value: "moxfield", label: "Moxfield", hint: "With set and collector number of your copy, or the default printing." },
+  { value: "moxfield", label: "Moxfield", hint: "With set and collector number of your copy, or of a paper printing." },
   { value: "arena", label: "MTG Arena", hint: "Arena's import format: names only, front faces for double-faced cards." },
 ];
 

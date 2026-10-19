@@ -34,18 +34,17 @@ describe("deck stats", () => {
     card("Hallowed Fountain", "Land — Plains Island", 0, null, "WU"),
     card("Evolving Wilds", "Land", 0, null, "", { oracleText: "{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle." }),
     card("Wooded Foothills", "Land", 0, null, "", { oracleText: "{T}, Pay 1 life, Sacrifice Wooded Foothills: Search your library for a Mountain or Forest card, put it onto the battlefield, then shuffle." }),
-    card("Unloaded Land", "Land", 0, null, null),
     card("Lightning Bolt", "Instant", 1, "{R}", "", { board: "side" }),
     { name: "Mystery Card", qty: 1, board: "main", cmc: null, typeLine: null, manaCost: null, producedMana: null },
   ];
   const s = deckStats(deck);
 
   it("counts cards, lands and averages without the sideboard", () => {
-    expect(s.cards).toBe(23);
-    expect(s.lands).toBe(16);
+    expect(s.cards).toBe(22);
+    expect(s.lands).toBe(15);
     expect(s.nonlands).toBe(6); // the spell side of a double-faced land counts as a spell
     expect(s.averageMvNonland).toBeCloseTo((5 + 1 + 1 + 3 + 8 + 3) / 6, 2);
-    expect(s.averageMv).toBeCloseTo(21 / 22, 2);
+    expect(s.averageMv).toBeCloseTo(21 / 21, 2);
     expect(s.unknownCards).toEqual(["Mystery Card"]);
   });
 
@@ -69,7 +68,23 @@ describe("deck stats", () => {
     expect(by.B).toEqual({ color: "B", pips: 3, sources: 1, short: false });
     // G: a source (Foothills names Forest) but no pips, so not listed.
     expect(by.G).toBeUndefined();
-    expect(s.landsWithoutManaData).toEqual(["Unloaded Land"]);
+    expect(s.landsWithoutManaData).toEqual([]);
+    expect(s.landsWithManaData).toBe(6);
+  });
+
+  it("doesn't count sources while any land's mana isn't loaded", () => {
+    // A land without data could make any color: no counts and no "short" flags, not zeros.
+    const partly = deckStats([...deck, card("Unloaded Land", "Land", 0, null, null)]);
+    expect(partly.landsWithoutManaData).toEqual(["Unloaded Land"]);
+    expect(partly.colors.find((c) => c.color === "W")).toEqual({ color: "W", pips: 4, sources: null, short: null });
+    // Before the import that reads produced_mana, no land has data at all.
+    const none = deckStats([
+      card("Counterspell", "Instant", 2, "{U}{U}"),
+      card("Island", "Basic Land — Island", 0, null, null, { qty: 30 }),
+    ]);
+    expect(none.colors).toEqual([{ color: "U", pips: 2, sources: null, short: null }]);
+    expect(none.landsWithManaData).toBe(0);
+    expect(none.lands).toBe(30);
   });
 
   it("flags a color with fewer than one source per three pips", () => {

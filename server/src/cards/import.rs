@@ -94,6 +94,7 @@ async fn run_from(
 pub fn importer_version(kind: &str) -> i64 {
     match kind {
         "oracle_cards" => 3, // 2: game_changer; 3: produced_mana (both migration 0008)
+        "default_cards" => 2, // 2: digital, set_type (migration 0008)
         _ => 1,
     }
 }
@@ -454,6 +455,12 @@ struct ScryCard {
     #[serde(default)]
     finishes: Vec<String>,
     released_at: Option<String>,
+    /// Only released in a video game (MTGO, Arena). Absent stays unknown (NULL), never false.
+    #[serde(default)]
+    digital: Option<bool>,
+    /// Scryfall's kind of set: expansion, core, masters, commander, memorabilia, promo, ...
+    #[serde(default)]
+    set_type: Option<String>,
     #[serde(default)]
     prices: Prices,
 }
@@ -672,15 +679,16 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
             sqlx::query(
                 "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang,
                     rarity, finishes, released_at, image_normal, image_small, image_art_crop, back_image_normal,
-                    artist, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    artist, digital, set_type, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                  ON CONFLICT(scryfall_id) DO UPDATE SET oracle_id=excluded.oracle_id, name=excluded.name,
                     set_code=excluded.set_code, set_name=excluded.set_name,
                     collector_number=excluded.collector_number, lang=excluded.lang, rarity=excluded.rarity,
                     finishes=excluded.finishes, released_at=excluded.released_at,
                     image_normal=excluded.image_normal, image_small=excluded.image_small,
                     image_art_crop=excluded.image_art_crop, back_image_normal=excluded.back_image_normal,
-                    artist=excluded.artist, updated_at=excluded.updated_at",
+                    artist=excluded.artist, digital=excluded.digital, set_type=excluded.set_type,
+                    updated_at=excluded.updated_at",
             )
             .bind(&c.id)
             .bind(&oracle_id)
@@ -697,6 +705,8 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
             .bind(images.art())
             .bind(c.back_image())
             .bind(&c.artist)
+            .bind(c.digital)
+            .bind(&c.set_type)
             .bind(&stamp)
             .execute(&mut *tx)
             .await?;
@@ -786,7 +796,7 @@ mod tests {
        "type_line":"Artifact","oracle_text":"{T}: Add {C}{C}.","colors":[],"color_identity":[],
        "produced_mana":["C"],"keywords":[],"legalities":{"commander":"legal","vintage":"restricted"},"rarity":"uncommon",
        "image_uris":{"small":"s","normal":"n","art_crop":"a"},"set":"cmm","set_name":"Commander Masters",
-       "collector_number":"410","lang":"en","finishes":["nonfoil","foil"],
+       "collector_number":"410","lang":"en","finishes":["nonfoil","foil"],"digital":false,"set_type":"masters",
        "prices":{"usd":"1.50","usd_foil":null,"eur":"1.20","tix":null}},
       {"id":"p2","oracle_id":"o2","name":"Fable of the Mirror-Breaker // Reflection of Kiki-Jiki",
        "layout":"transform","cmc":3.0,"type_line":"Enchantment — Saga // Enchantment Creature — Goblin Shaman",
@@ -830,6 +840,11 @@ mod tests {
             sqlx::query_as("SELECT oracle_id, produced_mana FROM cards ORDER BY oracle_id").fetch_all(&pool).await.unwrap();
         assert_eq!(made, vec![("o1".into(), Some("C".into())), ("o2".into(), Some(String::new()))]);
         assert_eq!(produced_mana(&["G".into(), "W".into(), "C".into(), "U".into()]), "WUGC");
+
+        // Paper or digital-only, and the kind of set; a file without them leaves them unknown.
+        let kinds: Vec<(String, Option<bool>, Option<String>)> =
+            sqlx::query_as("SELECT scryfall_id, digital, set_type FROM printings ORDER BY scryfall_id").fetch_all(&pool).await.unwrap();
+        assert_eq!(kinds, vec![("p1".into(), Some(false), Some("masters".into())), ("p2".into(), None, None)]);
 
         // Missing prices stay missing; a printing with no prices at all gets no row.
         let prices: Vec<(String, Option<f64>, Option<f64>)> =
@@ -1051,8 +1066,9 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        // Prices are current; Game Changer flags (oracle_cards version 2) and rulings aren't loaded.
-        assert_eq!(current_import_date(&pool, "default_cards").await.unwrap().as_deref(), Some("2026-10-17"));
+        // Nothing these importers added is loaded: printings' digital flags (default_cards
+        // version 2), Game Changer flags (oracle_cards version 2) and rulings.
+        assert_eq!(current_import_date(&pool, "default_cards").await.unwrap(), None);
         assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), None);
         assert_eq!(game_changers_date(&pool).await.unwrap(), None);
         assert_eq!(current_import_date(&pool, "rulings").await.unwrap(), None);

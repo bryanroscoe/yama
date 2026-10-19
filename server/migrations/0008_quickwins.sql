@@ -55,3 +55,10 @@ CREATE TABLE deck_version_checks (
     error            TEXT,            -- why the last try failed; NULL once one succeeds
     PRIMARY KEY (version_id, source)
 );
+
+-- Whether a printing exists only in a video game (Scryfall's `digital`: MTGO or Arena) and the
+-- kind of set it's in (Scryfall's `set_type`: core, expansion, masters, memorabilia, promo, ...),
+-- so a Moxfield export of a card you don't own names a paper printing. NULL = not loaded yet
+-- (default_cards importer version 2).
+ALTER TABLE printings ADD COLUMN digital INTEGER;
+ALTER TABLE printings ADD COLUMN set_type TEXT;

@@ -73,8 +73,8 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
         </fieldset>
         {format === "moxfield" && (fromDefault > 0 || noPrinting > 0) && (
           <p className="small dim" style={{ margin: 0 }}>
-            {fromDefault > 0 && `${fromDefault} ${fromDefault === 1 ? "card isn't" : "cards aren't"} in your collection, so ${fromDefault === 1 ? "it names" : "they name"} Scryfall's default printing. `}
-            {noPrinting > 0 && `${noPrinting} ${noPrinting === 1 ? "card has" : "cards have"} no printing on file and ${noPrinting === 1 ? "goes" : "go"} by name only.`}
+            {fromDefault > 0 && `${fromDefault} ${fromDefault === 1 ? "card isn't" : "cards aren't"} in your collection, so ${fromDefault === 1 ? "it names a paper printing" : "they name paper printings"}, Scryfall's default where that is one. `}
+            {noPrinting > 0 && `${noPrinting} ${noPrinting === 1 ? "card has" : "cards have"} no paper printing on file and ${noPrinting === 1 ? "goes" : "go"} by name only.`}
           </p>
         )}
         <label>
