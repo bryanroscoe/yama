@@ -667,6 +667,7 @@ impl Match {
             GameAction::SelectCards { cards } => format!("Choose {}", cards.iter().map(|c| Self::name_in(vs, c)).collect::<Vec<_>>().join(", ")),
             GameAction::DecideOptionalEffect { accept } => if *accept { "Yes".into() } else { "No".into() },
             GameAction::DecideOptionalCost { pay } => if *pay { "Pay the extra cost".into() } else { "Don't pay it".into() },
+            GameAction::PayUnlessCost { pay } => if *pay { "Pay the cost".into() } else { "Don't pay".into() },
             GameAction::ChooseX { value } => format!("X = {value}"),
             GameAction::Equip { equipment_id, target_id } => format!("Equip {} to {}", Self::name_in(vs, equipment_id), Self::name_in(vs, target_id)),
             GameAction::ChooseOption { choice } => choice.clone(),
