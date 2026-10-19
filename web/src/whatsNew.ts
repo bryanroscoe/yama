@@ -91,3 +91,12 @@ export function unseen(entries: NewsEntry[], seenId: string | null): NewsEntry[]
   const i = entries.findIndex((e) => e.id === seenId);
   return i < 0 ? entries : entries.slice(0, i);
 }
+
+/** The notice's line, or null when there's nothing to say. A device that has never opened the
+ *  page gets an invitation, not a count of updates "since you last looked". */
+export function noticeLine(entries: NewsEntry[], seenId: string | null): string | null {
+  const fresh = unseen(entries, seenId);
+  if (!fresh.length) return null;
+  if (!seenId) return "Yama keeps a list of what's new.";
+  return fresh.length === 1 ? `New in Yama: ${fresh[0]!.title}.` : `Yama has ${fresh.length} updates since you last looked.`;
+}

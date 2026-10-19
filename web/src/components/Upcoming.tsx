@@ -4,12 +4,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
-import { api, type CalendarRun, type CalendarSet, type CalendarView, type DeckSummary } from "../api";
+import { api, type CalendarRun, type CalendarSet, type CalendarView, type DeckSummary, type PreconSummary } from "../api";
 import { useMe } from "../auth";
 import { isNetworkError } from "../cardDetail";
 import { day } from "./Rulings";
 import { ErrorText } from "./ui";
-import { daysBetween, hasDeckNamed, hostOf, isExtra, localToday, previewLine, releaseLine, setTypeLabel, watchedPrecons } from "./calendar";
+import {
+  daysBetween,
+  headlined,
+  hostOf,
+  isExtra,
+  localToday,
+  preconMade,
+  previewLine,
+  publishedLine,
+  releaseLine,
+  setTypeLabel,
+  watchedPrecons,
+  type PreconGroup,
+} from "./calendar";
 import "./calendar.css";
 
 export function useCalendar() {
@@ -31,67 +44,110 @@ function checked(run: CalendarRun): string | null {
 /** Release calendar and precon watch, for the Cards page with no search. Quiet when offline. */
 export function ReleaseCalendar() {
   const calendar = useCalendar();
+  const groups = calendar.data ? watchedPrecons(calendar.data.upcoming) : [];
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: groups.length > 0 });
   if (calendar.error && isNetworkError(calendar.error)) return null;
   if (calendar.error) return <ErrorText error={calendar.error} />;
   if (!calendar.data) return null;
+  const view = calendar.data;
+  // Wait for the reader's decks before placing precons, so a set doesn't jump from the top to
+  // the bottom once they arrive.
+  const placed = groups.length > 0 && !decks.isPending;
+  const names = decks.data?.map((d) => d.name) ?? [];
+  const top = placed ? groups.filter((g) => headlined(g, view.today, names)) : [];
+  const past = placed ? groups.filter((g) => !headlined(g, view.today, names)) : [];
   return (
     <>
-      <PreconsOut view={calendar.data} />
-      <UpcomingSets view={calendar.data} />
+      {top.map((g) => (
+        <PreconsOut key={g.code} group={g} today={view.today} names={names} />
+      ))}
+      <UpcomingSets view={view} />
+      {past.map((g) => (
+        <PastPrecons key={g.code} group={g} names={names} />
+      ))}
     </>
   );
 }
 
-function PreconsOut({ view }: { view: CalendarView }) {
-  const groups = watchedPrecons(view.upcoming);
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: groups.length > 0 });
-  if (!groups.length) return null;
-  const names = decks.data?.map((d) => d.name) ?? [];
+function PreconsOut({ group: g, today, names }: { group: PreconGroup; today: string; names: string[] }) {
+  const ahead = g.released ? daysBetween(today, g.released) : null;
   return (
-    <>
-      {groups.map((g) => {
-        const ahead = g.released ? daysBetween(view.today, g.released) : null;
-        const source = g.precons.find((p) => p.source_url)?.source_url ?? null;
+    <section className="precons-out" aria-labelledby={`out-${g.code}`}>
+      <h2 id={`out-${g.code}`}>{g.setName} precons are out</h2>
+      <p className="precons-out-sub">
+        {publishedLine(g.precons.length)}
+        {ahead != null && ahead > 0 ? `, ${ahead === 1 ? "a day" : `${ahead} days`} before release` : ""}. Start a deck from a stock list, then
+        change it as you upgrade.
+      </p>
+      <PreconRows precons={g.precons} names={names} />
+      <PreconSource precons={g.precons} />
+    </section>
+  );
+}
+
+/** A watched set's precons once they no longer lead the page: folded away below the calendar. */
+function PastPrecons({ group: g, names }: { group: PreconGroup; names: string[] }) {
+  return (
+    <details className="precons-past">
+      <summary>
+        <span className="precons-past-title">{g.setName} precons</span>
+        <span className="cal-note">
+          {g.precons.length === 1 ? "1 deck" : `${g.precons.length} decks`}
+          {g.released ? `, out since ${day(g.released)}` : ""}
+        </span>
+      </summary>
+      <div className="precons-past-body">
+        <PreconRows precons={g.precons} names={names} />
+        <PreconSource precons={g.precons} />
+      </div>
+    </details>
+  );
+}
+
+const startLink = (fileName: string) => `/decks?precon=${encodeURIComponent(fileName)}`;
+
+function PreconRows({ precons, names }: { precons: PreconSummary[]; names: string[] }) {
+  return (
+    <ul className="precons-out-list">
+      {precons.map((p) => {
+        const made = preconMade(names, p);
         return (
-          <section key={g.code} className="precons-out" aria-labelledby={`out-${g.code}`}>
-            <h2 id={`out-${g.code}`}>{g.setName} precons are out</h2>
-            <p className="precons-out-sub">
-              {g.precons.length === 1 ? "One list is" : `${g.precons.length} lists are`} published
-              {ahead != null && ahead > 0 ? `, ${ahead === 1 ? "a day" : `${ahead} days`} before release` : ""}. Start a deck from a stock list, then
-              change it as you upgrade.
-            </p>
-            <ul className="precons-out-list">
-              {g.precons.map((p) => {
-                const made = hasDeckNamed(names, p.name);
-                return (
-                  <li key={p.file_name}>
-                    <span className="precon-text">
-                      <span className="precon-name">{p.name}</span>
-                      {p.commanders?.length ? <span className="precon-meta">Led by {p.commanders.join(" and ")}</span> : null}
-                    </span>
-                    {made ? (
-                      <Link to="/decks" className="precon-made">In your decks</Link>
-                    ) : (
-                      <Link to={`/decks?precon=${encodeURIComponent(p.file_name)}`} className="button">Start a deck</Link>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            <p className="cal-note">
-              Lists from <a href="https://mtgjson.com" target="_blank" rel="noreferrer">MTGJSON</a>
-              {source && hostOf(source) && (
-                <>
-                  , which took them from{" "}
-                  <a href={source} target="_blank" rel="noreferrer">{hostOf(source)}</a>
-                </>
-              )}
-              .
-            </p>
-          </section>
+          <li key={p.file_name}>
+            <span className="precon-text">
+              <span className="precon-name">{p.name}</span>
+              {p.commanders?.length ? <span className="precon-meta">Led by {p.commanders.join(" and ")}</span> : null}
+              {!made &&
+                p.variants.map((v) => (
+                  <span key={v.file_name} className="precon-meta">
+                    Collector&rsquo;s Edition: <Link to={startLink(v.file_name)} aria-label={`Start a deck from ${v.name}`}>start from its list</Link>
+                  </span>
+                ))}
+            </span>
+            {made ? (
+              <Link to="/decks" className="precon-made">In your decks</Link>
+            ) : (
+              <Link to={startLink(p.file_name)} className="button" aria-label={`Start a deck from ${p.name}`}>Start a deck</Link>
+            )}
+          </li>
         );
       })}
-    </>
+    </ul>
+  );
+}
+
+function PreconSource({ precons }: { precons: PreconSummary[] }) {
+  const source = precons.find((p) => p.source_url)?.source_url ?? null;
+  return (
+    <p className="cal-note">
+      Lists from <a href="https://mtgjson.com" target="_blank" rel="noreferrer">MTGJSON</a>
+      {source && hostOf(source) && (
+        <>
+          , which took them from{" "}
+          <a href={source} target="_blank" rel="noreferrer">{hostOf(source)}</a>
+        </>
+      )}
+      .
+    </p>
   );
 }
 
@@ -160,7 +216,7 @@ function UpcomingSets({ view }: { view: CalendarView }) {
                   <button
                     className={s.watched ? "watch is-on" : "watch"}
                     aria-pressed={s.watched}
-                    aria-label={`${s.watched ? "Stop watching" : "Watch"} ${s.name}`}
+                    aria-label={`Watch ${s.name}`}
                     disabled={toggle.isPending && toggle.variables?.code === s.code}
                     onClick={() => toggle.mutate(s)}
                   >

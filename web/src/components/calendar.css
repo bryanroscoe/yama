@@ -3,7 +3,7 @@
    These rules use the semantic token names the new design will define (ground, surface,
    raised, line, text, text-dim, accent, good, warn, bad). Until it lands, each one falls back
    to today's playmat variable. This block is the only place the old names appear here. */
-:where(.upcoming, .precons-out, .whats-new, .news-notice) {
+:where(.upcoming, .precons-out, .precons-past, .whats-new, .news-notice) {
   --cal-ground: var(--ground, var(--felt));
   --cal-surface: var(--surface, var(--felt-2));
   --cal-raised: var(--raised, var(--felt-3));
@@ -147,6 +147,35 @@ a.upcoming-name {
   font-size: var(--t-sm);
   color: var(--cal-good);
   white-space: nowrap;
+}
+
+/* A watched set's precons after their first weeks: folded below the calendar. */
+.precons-past {
+  margin-top: 1rem;
+  padding: 0 1rem;
+  border: 1px solid var(--cal-line);
+  border-radius: var(--radius);
+  background: var(--cal-surface);
+  color: var(--cal-text);
+}
+/* Stays a list item so the browser keeps its open and closed marker. */
+.precons-past > summary {
+  cursor: pointer;
+  padding: 0.75rem 0;
+}
+.precons-past-title {
+  font-weight: 700;
+  margin-right: 0.75rem;
+}
+.precons-past > summary .cal-note {
+  display: inline;
+}
+.precons-past[open] {
+  padding-bottom: 1rem;
+}
+.precons-past-body {
+  display: grid;
+  gap: 0.75rem;
 }
 
 /* ── what's new ─────────────────────────────────────────────────────────── */

@@ -113,6 +113,30 @@ export function hasDeckNamed(deckNames: string[], name: string): boolean {
   return deckNames.some((d) => key(d) === key(name));
 }
 
+/** A deck made from this precon or from its Collector's Edition, by name. */
+export function preconMade(deckNames: string[], p: Pick<PreconSummary, "name" | "variants">): boolean {
+  return hasDeckNamed(deckNames, p.name) || p.variants.some((v) => hasDeckNamed(deckNames, v.name));
+}
+
+/** How long after release a watched set's precons stay at the top of the Cards page. */
+export const PRECONS_HEADLINE_DAYS = 28;
+
+/** Whether a watched set's precons still lead the Cards page: before release, and after it
+ *  until the reader has a deck for every one or four weeks have passed. Then they fold away
+ *  below the calendar, and the watch stays. */
+export function headlined(g: Pick<PreconGroup, "released" | "precons">, today: string, deckNames: string[]): boolean {
+  if (!g.released) return true;
+  const since = daysBetween(g.released, today);
+  if (since < 0) return true;
+  if (since > PRECONS_HEADLINE_DAYS) return false;
+  return !g.precons.every((p) => preconMade(deckNames, p));
+}
+
+/** "Lists for 4 decks are published", counting decks (a Collector's Edition sits under its deck). */
+export function publishedLine(decks: number): string {
+  return decks === 1 ? "The list for one deck is published" : `Lists for ${decks} decks are published`;
+}
+
 /** "magic.wizards.com" from a source link, or null if it isn't a URL. */
 export function hostOf(url: string): string | null {
   try {

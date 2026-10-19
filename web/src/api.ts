@@ -475,6 +475,13 @@ export interface PreconSummary {
   /** null until Yama has downloaded the list. */
   commanders: string[] | null;
   list_cards: number | null;
+  /** The deck's Collector's Edition, which MTGJSON lists separately: same deck, its own list. */
+  variants: PreconVariant[];
+}
+
+export interface PreconVariant {
+  file_name: string;
+  name: string;
 }
 
 /** A set from Scryfall's /sets that releases today or later, or one the reader watches. */
@@ -523,6 +530,7 @@ export interface PreconList {
   text: string;
   cards: number | null;
   fetched_at: string;
-  /** Names Yama's card data doesn't have yet; a deck made now leaves them out. */
+  /** Names Yama's card data doesn't match (new cards, or a name written differently); a deck
+   *  made now leaves them out. */
   unknown: string[];
 }

@@ -7,9 +7,10 @@
 //!   <https://scryfall.com/docs/api>).
 //! - **Precon lists** come from MTGJSON (<https://mtgjson.com>): `DeckList.json` names every
 //!   preconstructed deck it has a list for, by set code and release date. Yama reads it once a
-//!   day (about 70 KB compressed) and keeps the Commander decks. A deck's own file (about half a
-//!   megabyte, full card data) is downloaded only when its set is watched, or when someone starts
-//!   a deck from it, one file a second at most, and kept as a pasteable list.
+//!   day (about 70 KB compressed) and keeps the Commander decks; a Collector's Edition is kept as
+//!   a variant of its base deck, and a deck MTGJSON stops listing is removed. A deck's own file
+//!   (about half a megabyte, full card data) is downloaded only when its set is watched, or when
+//!   someone starts a deck from it, one file a second at most, and kept as a pasteable list.
 //!
 //! The refresh runs with the other Scryfall jobs when `YAMA_AUTO_IMPORT=1`, or once with
 //! `yama-server import-calendar`. Runs are logged in `import_runs` like the card imports.
@@ -34,8 +35,13 @@ pub const MTGJSON_API: &str = "https://mtgjson.com/api/v5";
 
 const SETS_KIND: &str = "scryfall_sets";
 const DECKLIST_KIND: &str = "mtgjson_decklist";
-/// MTGJSON's deck type for Commander precons (Collector's Editions included).
+/// MTGJSON's deck type for Commander precons (Collector's Editions included; Yama files each
+/// one under its base deck).
 const COMMANDER_DECK: &str = "Commander Deck";
+/// How MTGJSON's file names mark a Collector's Edition: `TheFantasticFourCollectorSEdition_MSC`
+/// beside `TheFantasticFour_MSC`. Its deck names say `Collector's Edition`.
+const COLLECTOR_FILE: &str = "CollectorSEdition";
+const COLLECTOR_NAME: &str = " Collector's Edition";
 
 /// A refresh counts as current for this long. The job wakes hourly, so this means daily.
 const FRESH_HOURS: i64 = 20;
@@ -47,8 +53,11 @@ const SCRYFALL_GAP: Duration = Duration::from_millis(100);
 const MAX_SET_PAGES: usize = 20;
 /// Pause between two MTGJSON deck file downloads.
 const MTGJSON_GAP: Duration = Duration::from_secs(1);
-/// A watched set's lists are downloaded again after this long, in case Wizards corrects one.
+/// A watched set's lists are downloaded again after this long, in case Wizards corrects one…
 const LIST_REFRESH_DAYS: i64 = 7;
+/// …until this long after the deck's release (corrections land early). A list never downloaded
+/// is still fetched once, whenever its set is watched.
+const LIST_REFRESH_AFTER_RELEASE_DAYS: i64 = 28;
 /// The daily job leaves a list whose download failed for this long before trying again…
 const LIST_RETRY_HOURS: i64 = 1;
 /// …and "Start a deck" waits this long after a failed download before asking MTGJSON again.
@@ -214,30 +223,57 @@ pub struct DeckListEntry {
     pub source: Option<String>,
 }
 
+/// The base deck a Collector's Edition belongs to, from the same index: same set, and the same
+/// file name or deck name without the Collector's Edition mark. `None` for a base deck, or a
+/// Collector's Edition whose base MTGJSON doesn't list (it then stands as a deck of its own).
+fn base_deck<'a>(e: &DeckListEntry, decks: &[&'a DeckListEntry]) -> Option<&'a DeckListEntry> {
+    let by_file = e.file_name.contains(COLLECTOR_FILE).then(|| e.file_name.replacen(COLLECTOR_FILE, "", 1));
+    let by_name = e.name.replace('\u{2019}', "'").contains(COLLECTOR_NAME).then(|| e.name.replace('\u{2019}', "'").replacen(COLLECTOR_NAME, "", 1));
+    if by_file.is_none() && by_name.is_none() {
+        return None;
+    }
+    decks.iter().copied().find(|b| {
+        b.file_name != e.file_name
+            && b.code.eq_ignore_ascii_case(&e.code)
+            && (by_file.as_deref() == Some(b.file_name.as_str()) || by_name.as_deref() == Some(b.name.as_str()))
+    })
+}
+
 /// Store the Commander decks from MTGJSON's list. A deck seen before keeps its first-seen time
-/// and any list already downloaded.
+/// and any list already downloaded; a Collector's Edition is filed under its base deck; a deck
+/// the list no longer names (renamed or withdrawn) is removed. An index with no Commander decks
+/// at all is refused rather than taken as "every deck withdrawn". Returns the decks stored,
+/// Collector's Editions included.
 async fn store_decklist(pool: &SqlitePool, entries: &[DeckListEntry]) -> anyhow::Result<usize> {
+    let decks: Vec<&DeckListEntry> = entries.iter().filter(|e| e.kind == COMMANDER_DECK).collect();
+    if decks.is_empty() {
+        anyhow::bail!("MTGJSON's deck index lists no Commander decks; keeping the ones Yama has");
+    }
     let stamp = now();
-    let mut n = 0;
     let mut tx = pool.begin().await?;
-    for e in entries.iter().filter(|e| e.kind == COMMANDER_DECK) {
+    for e in &decks {
         sqlx::query(
-            "INSERT INTO calendar_precons (file_name, set_code, name, release_date, source_url, first_seen_at) VALUES (?,?,?,?,?,?)
-             ON CONFLICT(file_name) DO UPDATE SET set_code = excluded.set_code, name = excluded.name,
+            "INSERT INTO calendar_precons (file_name, set_code, name, variant_of, release_date, source_url, first_seen_at) VALUES (?,?,?,?,?,?,?)
+             ON CONFLICT(file_name) DO UPDATE SET set_code = excluded.set_code, name = excluded.name, variant_of = excluded.variant_of,
                release_date = excluded.release_date, source_url = excluded.source_url",
         )
         .bind(&e.file_name)
         .bind(e.code.to_lowercase())
         .bind(&e.name)
+        .bind(base_deck(e, &decks).map(|b| &b.file_name))
         .bind(&e.release_date)
         .bind(e.source.as_deref().filter(|s| s.starts_with("http")))
         .bind(&stamp)
         .execute(&mut *tx)
         .await?;
-        n += 1;
     }
+    let listed: Vec<&str> = decks.iter().map(|e| e.file_name.as_str()).collect();
+    sqlx::query("DELETE FROM calendar_precons WHERE file_name NOT IN (SELECT value FROM json_each(?))")
+        .bind(serde_json::to_string(&listed)?)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
-    Ok(n)
+    Ok(decks.len())
 }
 
 /// Read MTGJSON's deck index and store its Commander decks.
@@ -277,6 +313,10 @@ pub struct DeckData {
 #[serde(rename_all = "camelCase")]
 pub struct DeckCardRef {
     pub name: String,
+    /// The face this entry is, for cards with more than one ("Gisela, the Broken Blade").
+    pub face_name: Option<String>,
+    /// MTGJSON's layout: normal, transform, meld, reversible_card, ...
+    pub layout: Option<String>,
     #[serde(default = "one")]
     pub count: i64,
     pub set_code: Option<String>,
@@ -285,6 +325,26 @@ pub struct DeckCardRef {
 
 fn one() -> i64 {
     1
+}
+
+impl DeckCardRef {
+    /// The card's name as Scryfall (and so Yama's card data) has it. MTGJSON names every
+    /// multi-face card "Front // Back". That is Scryfall's name too for split, adventure and
+    /// double-faced cards, but not for a meld card (each half is its own card: "Gisela, the
+    /// Broken Blade // Brisela, Voice of Nightmares" is Gisela) or a reversible card (the same
+    /// card on both sides: "Sol Ring // Sol Ring" is Sol Ring). Checked against all 198 Commander
+    /// decks in MTGJSON 5.3.0+20261018: these two layouts were the only names Yama didn't know.
+    pub fn card_name(&self) -> &str {
+        let single_card = matches!(self.layout.as_deref(), Some("meld" | "reversible_card"));
+        if single_card && let Some(face) = self.face_name.as_deref().filter(|f| !f.trim().is_empty()) {
+            return face;
+        }
+        // The same name twice is one card whatever the layout says.
+        match self.name.split_once(" // ") {
+            Some((front, back)) if front == back => front,
+            _ => &self.name,
+        }
+    }
 }
 
 /// The deck as a list Yama's deck import reads (`decks::parse_list`): Commander, Deck and, if
@@ -301,7 +361,7 @@ pub fn stock_list(deck: &DeckData) -> String {
         out.push_str(heading);
         out.push('\n');
         for c in cards {
-            out.push_str(&format!("{} {}", c.count, c.name));
+            out.push_str(&format!("{} {}", c.count, c.card_name()));
             if let (Some(set), Some(number)) = (&c.set_code, &c.number) {
                 out.push_str(&format!(" ({set}) {number}"));
             }
@@ -340,7 +400,7 @@ pub async fn fetch_list(pool: &SqlitePool, http: &reqwest::Client, base: &str, f
     .await;
     match result {
         Ok(file) => {
-            let commanders: Vec<&str> = file.data.commander.iter().map(|c| c.name.as_str()).collect();
+            let commanders: Vec<&str> = file.data.commander.iter().map(DeckCardRef::card_name).collect();
             let cards: i64 = file.data.commander.iter().chain(&file.data.main_board).map(|c| c.count).sum();
             sqlx::query(
                 "UPDATE calendar_precons SET commanders = ?, list_text = ?, list_cards = ?, list_fetched_at = ?,
@@ -370,19 +430,26 @@ pub async fn fetch_list(pool: &SqlitePool, http: &reqwest::Client, base: &str, f
 }
 
 /// Download the lists of watched sets' precons that Yama doesn't have yet, or got more than
-/// [`LIST_REFRESH_DAYS`] ago. Returns how many downloads succeeded.
+/// [`LIST_REFRESH_DAYS`] ago while the deck is still within [`LIST_REFRESH_AFTER_RELEASE_DAYS`]
+/// of its release. A Collector's Edition is left to "Start a deck" (same deck, other printings);
+/// once someone has started one it's refreshed like the rest. Returns how many downloads
+/// succeeded.
 pub async fn fetch_watched_lists(pool: &SqlitePool, http: &reqwest::Client, base: &str) -> anyhow::Result<usize> {
     let stale = stamp_ago(chrono::Duration::days(LIST_REFRESH_DAYS));
     let retry = stamp_ago(chrono::Duration::hours(LIST_RETRY_HOURS));
+    let released_since = (Utc::now() - chrono::Duration::days(LIST_REFRESH_AFTER_RELEASE_DAYS)).format("%Y-%m-%d").to_string();
     let due: Vec<String> = sqlx::query_scalar(
         "SELECT file_name FROM calendar_precons
          WHERE (set_code IN (SELECT set_code FROM calendar_watches)
              OR set_code IN (SELECT code FROM calendar_sets WHERE parent_set_code IN (SELECT set_code FROM calendar_watches)))
-           AND (list_fetched_at IS NULL OR list_fetched_at < ?)
+           AND (variant_of IS NULL OR list_fetched_at IS NOT NULL)
+           AND (list_fetched_at IS NULL
+                OR (list_fetched_at < ? AND (release_date IS NULL OR release_date >= ?)))
            AND (list_tried_at IS NULL OR list_tried_at < ?)
          ORDER BY list_fetched_at IS NOT NULL, release_date DESC, file_name LIMIT ?",
     )
     .bind(&stale)
+    .bind(&released_since)
     .bind(&retry)
     .bind(LIST_BATCH)
     .fetch_all(pool)
@@ -533,7 +600,7 @@ pub struct SetView {
     pub precons: Vec<PreconSummary>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct PreconSummary {
     pub file_name: String,
     pub set_code: String,
@@ -544,6 +611,15 @@ pub struct PreconSummary {
     /// `None` until the list is downloaded.
     pub commanders: Option<Vec<String>>,
     pub list_cards: Option<i64>,
+    /// Other editions of this deck MTGJSON lists separately (its Collector's Edition).
+    pub variants: Vec<PreconVariant>,
+}
+
+/// A Collector's Edition: the base deck in other printings, with a list of its own.
+#[derive(Serialize, Debug, Clone)]
+pub struct PreconVariant {
+    pub file_name: String,
+    pub name: String,
 }
 
 #[derive(sqlx::FromRow, Clone)]
@@ -551,6 +627,7 @@ struct PreconRow {
     file_name: String,
     set_code: String,
     name: String,
+    variant_of: Option<String>,
     release_date: Option<String>,
     source_url: Option<String>,
     first_seen_at: String,
@@ -558,17 +635,18 @@ struct PreconRow {
     list_cards: Option<i64>,
 }
 
-impl From<PreconRow> for PreconSummary {
-    fn from(r: PreconRow) -> Self {
-        Self {
-            commanders: r.commanders.as_deref().and_then(|c| serde_json::from_str(c).ok()),
-            file_name: r.file_name,
-            set_code: r.set_code,
-            name: r.name,
-            release_date: r.release_date,
-            source_url: r.source_url,
-            first_seen_at: r.first_seen_at,
-            list_cards: r.list_cards,
+impl PreconRow {
+    fn summary(self, variants: Vec<PreconVariant>) -> PreconSummary {
+        PreconSummary {
+            commanders: self.commanders.as_deref().and_then(|c| serde_json::from_str(c).ok()),
+            file_name: self.file_name,
+            set_code: self.set_code,
+            name: self.name,
+            release_date: self.release_date,
+            source_url: self.source_url,
+            first_seen_at: self.first_seen_at,
+            list_cards: self.list_cards,
+            variants,
         }
     }
 }
@@ -646,15 +724,27 @@ pub async fn view(pool: &SqlitePool, user: &str, today: NaiveDate, auto_refresh:
         }
     }
     let precons: Vec<PreconRow> = sqlx::query_as(
-        "SELECT file_name, set_code, name, release_date, source_url, first_seen_at, commanders, list_cards
+        "SELECT file_name, set_code, name, variant_of, release_date, source_url, first_seen_at, commanders, list_cards
          FROM calendar_precons WHERE set_code IN (SELECT value FROM json_each(?)) ORDER BY name",
     )
     .bind(serde_json::to_string(&wanted).map_err(anyhow::Error::from)?)
     .fetch_all(pool)
     .await?;
-    let mut by_set: HashMap<String, Vec<PreconRow>> = HashMap::new();
+    // A Collector's Edition goes under its base deck (same set), so lists count decks, not files.
+    let bases: HashSet<String> = precons.iter().filter(|p| p.variant_of.is_none()).map(|p| p.file_name.clone()).collect();
+    let mut variants: HashMap<String, Vec<PreconVariant>> = HashMap::new();
+    for p in &precons {
+        if let Some(base) = p.variant_of.as_ref().filter(|b| bases.contains(*b)) {
+            variants.entry(base.clone()).or_default().push(PreconVariant { file_name: p.file_name.clone(), name: p.name.clone() });
+        }
+    }
+    let mut by_set: HashMap<String, Vec<PreconSummary>> = HashMap::new();
     for p in precons {
-        by_set.entry(p.set_code.clone()).or_default().push(p);
+        if p.variant_of.as_ref().is_some_and(|b| bases.contains(b)) {
+            continue;
+        }
+        let v = variants.remove(&p.file_name).unwrap_or_default();
+        by_set.entry(p.set_code.clone()).or_default().push(p.summary(v));
     }
     for s in &mut sets {
         s.parent_name = s.parent_set_code.as_deref().and_then(|p| names.get(p)).map(|n| n.to_string());
@@ -663,7 +753,7 @@ pub async fn view(pool: &SqlitePool, user: &str, today: NaiveDate, auto_refresh:
         let mut codes = vec![s.code.as_str()];
         codes.extend(all.iter().filter(|(_, _, p)| p.as_deref() == Some(s.code.as_str())).map(|(c, _, _)| c.as_str()));
         // A Commander set's decks show on its own row and on the main set's.
-        s.precons = codes.into_iter().flat_map(|c| by_set.get(c)).flatten().cloned().map(PreconSummary::from).collect();
+        s.precons = codes.into_iter().flat_map(|c| by_set.get(c)).flatten().cloned().collect();
     }
     Ok(CalendarView {
         today: today_s,
@@ -684,11 +774,17 @@ fn parse_day(s: &str) -> AppResult<NaiveDate> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| AppError::bad("today must be a date like 2026-10-19"))
 }
 
+/// The reader's date, held to within a day of the server's UTC date (every time zone's local
+/// date is). Without the limit an old date would show past sets the calendar only keeps because
+/// someone else watches them.
+pub fn reader_today(asked: Option<NaiveDate>, utc: NaiveDate) -> NaiveDate {
+    let day = chrono::Duration::days(1);
+    asked.map_or(utc, |d| d.clamp(utc - day, utc + day))
+}
+
 async fn calendar(State(st): State<AppState>, CurrentUser(user): CurrentUser, Query(q): Query<CalendarQuery>) -> AppResult<Json<CalendarView>> {
-    let today = match q.today.as_deref() {
-        Some(d) => parse_day(d)?,
-        None => Utc::now().date_naive(),
-    };
+    let asked = q.today.as_deref().map(parse_day).transpose()?;
+    let today = reader_today(asked, Utc::now().date_naive());
     Ok(Json(view(&st.pool, &user.id, today, st.cfg.auto_import).await?))
 }
 
@@ -700,12 +796,28 @@ fn set_code(code: &str) -> AppResult<String> {
     Ok(code)
 }
 
-/// Watch a set. Doing it twice is the same as once.
-pub async fn add_watch(pool: &SqlitePool, user: &str, code: &str) -> AppResult<()> {
+/// Watch a set. Doing it twice is the same as once. Only sets the calendar shows this person
+/// can be watched: ones releasing from the day before `today` (the server's UTC date) on, or a
+/// set they already watch, directly or through the set above. A past set kept only for someone
+/// else's watch answers like an unknown one, so nobody learns what others watch.
+pub async fn add_watch(pool: &SqlitePool, user: &str, code: &str, today: NaiveDate) -> AppResult<()> {
     let code = set_code(code)?;
-    let known: Option<String> = sqlx::query_scalar("SELECT code FROM calendar_sets WHERE code = ?").bind(&code).fetch_optional(pool).await?;
-    if known.is_none() {
+    let set: Option<(Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT released_at, parent_set_code FROM calendar_sets WHERE code = ?").bind(&code).fetch_optional(pool).await?;
+    let Some((released, parent)) = set else {
         return Err(AppError::NotFound("set"));
+    };
+    let cutoff = (today - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+    if released.is_some_and(|d| d < cutoff) {
+        let follows: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM calendar_watches WHERE user_id = ? AND set_code IN (?, ?))")
+            .bind(user)
+            .bind(&code)
+            .bind(parent.as_deref().unwrap_or(""))
+            .fetch_one(pool)
+            .await?;
+        if !follows {
+            return Err(AppError::NotFound("set"));
+        }
     }
     sqlx::query("INSERT INTO calendar_watches (user_id, set_code, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
         .bind(user)
@@ -717,7 +829,7 @@ pub async fn add_watch(pool: &SqlitePool, user: &str, code: &str) -> AppResult<(
 }
 
 async fn watch(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(code): Path<String>) -> AppResult<StatusCode> {
-    add_watch(&st.pool, &user.id, &code).await?;
+    add_watch(&st.pool, &user.id, &code, Utc::now().date_naive()).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -742,8 +854,9 @@ pub struct PreconList {
     pub text: String,
     pub cards: Option<i64>,
     pub fetched_at: String,
-    /// Card names in the list that Yama's card data doesn't have yet (new cards arrive with the
-    /// weekly card import); a deck made now would leave them out.
+    /// Card names in the list that Yama's card data doesn't match: brand-new cards (they arrive
+    /// with the weekly card import) or a name MTGJSON writes differently. A deck made now would
+    /// leave them out.
     pub unknown: Vec<String>,
 }
 
@@ -864,12 +977,20 @@ mod tests {
 
     #[test]
     fn stock_lists_read_back_as_the_precon() {
+        let card = |name: &str, count: i64, number: Option<&str>| DeckCardRef {
+            name: name.into(),
+            face_name: None,
+            layout: None,
+            count,
+            set_code: number.map(|_| "FRC".into()),
+            number: number.map(str::to_string),
+        };
         let deck = DeckData {
-            commander: vec![DeckCardRef { name: "Jace, Multiverse Architect".into(), count: 1, set_code: Some("FRC".into()), number: Some("1".into()) }],
+            commander: vec![card("Jace, Multiverse Architect", 1, Some("1"))],
             main_board: vec![
-                DeckCardRef { name: "Sol Ring".into(), count: 1, set_code: Some("FRC".into()), number: Some("90".into()) },
-                DeckCardRef { name: "Island".into(), count: 7, set_code: Some("FRC".into()), number: Some("120".into()) },
-                DeckCardRef { name: "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki".into(), count: 1, set_code: None, number: None },
+                card("Sol Ring", 1, Some("90")),
+                card("Island", 7, Some("120")),
+                card("Fable of the Mirror-Breaker // Reflection of Kiki-Jiki", 1, None),
             ],
             side_board: vec![],
         };
@@ -900,9 +1021,9 @@ mod tests {
         assert_eq!(store_sets(&pool, &sets, today).await.unwrap(), 3);
 
         // Watch Star Trek; a month after release it and the Commander set under it stay.
-        add_watch(&pool, "u1", "TRK").await.unwrap();
-        add_watch(&pool, "u1", "trk").await.unwrap(); // twice is once
-        assert!(matches!(add_watch(&pool, "u1", "frc").await, Err(AppError::NotFound(_))), "only sets in the calendar");
+        add_watch(&pool, "u1", "TRK", today).await.unwrap();
+        add_watch(&pool, "u1", "trk", today).await.unwrap(); // twice is once
+        assert!(matches!(add_watch(&pool, "u1", "frc", today).await, Err(AppError::NotFound(_))), "only sets in the calendar");
         let later = day("2026-12-15");
         assert_eq!(store_sets(&pool, &sets, later).await.unwrap(), 2);
         let codes: Vec<String> = sqlx::query_scalar("SELECT code FROM calendar_sets ORDER BY code").fetch_all(&pool).await.unwrap();
@@ -919,6 +1040,27 @@ mod tests {
         // Someone who watches nothing sees only what's still to come.
         user(&pool, "u2").await;
         assert!(view(&pool, "u2", later, false).await.unwrap().upcoming.is_empty());
+
+        // u1 still follows Star Trek after release: watching again, or watching the Commander set
+        // under it directly, is fine. u2 gets the same answer as for a set that doesn't exist, so
+        // the past sets kept for u1 stay private.
+        add_watch(&pool, "u1", "trk", later).await.unwrap();
+        add_watch(&pool, "u1", "trc", later).await.unwrap();
+        for code in ["trk", "trc"] {
+            assert!(matches!(add_watch(&pool, "u2", code, later).await, Err(AppError::NotFound("set"))), "{code}");
+        }
+        let u2: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM calendar_watches WHERE user_id = 'u2'").fetch_one(&pool).await.unwrap();
+        assert_eq!(u2, 0);
+    }
+
+    #[test]
+    fn the_readers_date_stays_within_a_day_of_the_servers() {
+        let utc = day("2026-12-15");
+        assert_eq!(reader_today(None, utc), utc);
+        assert_eq!(reader_today(Some(day("2026-12-14")), utc), day("2026-12-14"), "a day behind (Hawaii late at night)");
+        assert_eq!(reader_today(Some(day("2026-12-16")), utc), day("2026-12-16"), "a day ahead (Kiribati)");
+        assert_eq!(reader_today(Some(day("2000-01-01")), utc), day("2026-12-14"), "no peeking at old sets");
+        assert_eq!(reader_today(Some(day("2030-01-01")), utc), day("2026-12-16"));
     }
 
     const DECKLIST: &str = r#"{"meta":{"date":"2026-10-19","version":"5.3.0+20261019"},"data":[
@@ -1009,7 +1151,7 @@ mod tests {
         assert_eq!(fetch_watched_lists(&pool, &http, &src.mtgjson).await.unwrap(), 0);
 
         // Watching the main set downloads its Commander decks' lists; one of the two fails.
-        add_watch(&pool, "u1", "trk").await.unwrap();
+        add_watch(&pool, "u1", "trk", today).await.unwrap();
         assert_eq!(fetch_watched_lists(&pool, &http, &src.mtgjson).await.unwrap(), 1);
         let v = view(&pool, "u1", today, true).await.unwrap();
         let fleet = v.upcoming.iter().find(|s| s.code == "trc").unwrap().precons.iter().find(|p| p.name == "Federation Fleet").unwrap();
@@ -1042,6 +1184,205 @@ mod tests {
         assert_eq!(seen, "2026-10-01T00:00:00Z");
         assert_ne!(seen, first);
         assert!(text.is_some());
+    }
+
+    async fn known_card(pool: &SqlitePool, id: &str, name: &str) {
+        sqlx::query("INSERT INTO cards (oracle_id, name, cmc, type_line, color_identity, colors, legalities, updated_at) VALUES (?, ?, 0, 'Creature', '', '', '{}', '2026-10-19')")
+            .bind(id)
+            .bind(name)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES (?, ?)").bind(name).bind(id).execute(pool).await.unwrap();
+    }
+
+    /// MTGJSON names meld and reversible cards "Front // Back" (with `faceName` holding the
+    /// front), which Scryfall's card names don't have. These are the commanders of three Secret
+    /// Lair Commander decks in MTGJSON's index (5.3.0+20261018): Angels (Gisela), Heads I Win
+    /// (Zndrsplt and Okaun), Raining Cats and Dogs (Rin and Seri). Found in review.
+    #[tokio::test]
+    async fn meld_and_reversible_precon_cards_resolve() {
+        let pool = crate::db::test_pool().await;
+        known_card(&pool, "gisela", "Gisela, the Broken Blade").await;
+        known_card(&pool, "zndr", "Zndrsplt, Eye of Wisdom").await;
+        known_card(&pool, "solring", "Sol Ring").await;
+        known_card(&pool, "fable", "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki").await;
+        // The shape of MTGJSON's deck file entries (trimmed).
+        let deck: DeckData = serde_json::from_str(
+            r#"{
+            "commander":[
+              {"name":"Gisela, the Broken Blade // Brisela, Voice of Nightmares","faceName":"Gisela, the Broken Blade","layout":"meld","side":"a","count":1,"setCode":"SLD","number":"1335"},
+              {"name":"Zndrsplt, Eye of Wisdom // Zndrsplt, Eye of Wisdom","faceName":"Zndrsplt, Eye of Wisdom","layout":"reversible_card","side":"a","count":1,"setCode":"SLD","number":"379"}
+            ],
+            "mainBoard":[
+              {"name":"Sol Ring // Sol Ring","faceName":"Sol Ring","layout":"reversible_card","side":"a","count":1,"setCode":"SLD","number":"1512"},
+              {"name":"Fable of the Mirror-Breaker // Reflection of Kiki-Jiki","faceName":"Fable of the Mirror-Breaker","layout":"transform","side":"a","count":1,"setCode":"NEO","number":"141"}
+            ]}"#,
+        )
+        .unwrap();
+        let text = stock_list(&deck);
+        assert!(text.starts_with("Commander\n1 Gisela, the Broken Blade (SLD) 1335\n1 Zndrsplt, Eye of Wisdom (SLD) 379\n"), "{text}");
+        assert!(text.contains("\n1 Fable of the Mirror-Breaker // Reflection of Kiki-Jiki (NEO) 141\n"), "a double-faced card keeps both names, as Scryfall does");
+        sqlx::query(
+            "INSERT INTO calendar_precons (file_name, set_code, name, first_seen_at, list_text, list_cards, list_fetched_at)
+             VALUES ('Angels_SLD', 'sld', 'Angels', '2026-10-19T00:00:00Z', ?, 4, '2026-10-19T00:00:00Z')",
+        )
+        .bind(&text)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let http = crate::routes::http_client();
+        let list = precon_list(&pool, &http, "http://127.0.0.1:9", "Angels_SLD").await.unwrap();
+        assert!(list.unknown.is_empty(), "known cards reported as missing: {:?}", list.unknown);
+
+        // A layout MTGJSON hasn't sent before still reads "X // X" as one card.
+        let odd = DeckCardRef { name: "Okaun, Eye of Chaos // Okaun, Eye of Chaos".into(), face_name: None, layout: None, count: 1, set_code: None, number: None };
+        assert_eq!(odd.card_name(), "Okaun, Eye of Chaos");
+    }
+
+    fn decklist_entry(file: &str, name: &str, code: &str, release: &str) -> serde_json::Value {
+        serde_json::json!({"code": code, "fileName": file, "name": name, "releaseDate": release, "type": "Commander Deck"})
+    }
+
+    /// A deck MTGJSON drops from DeckList.json (renamed or withdrawn) leaves the calendar at the
+    /// next good refresh. Found in review.
+    #[tokio::test]
+    async fn decks_mtgjson_drops_leave_the_calendar() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU8, Ordering};
+        let pool = crate::db::test_pool().await;
+        let today = day("2026-10-19");
+        store_sets(&pool, &[set("trc", "2026-11-13", "commander", 41, None)], today).await.unwrap();
+
+        // 0: both decks; 1: the preview deck is gone; 2: no Commander decks at all.
+        let stage = Arc::new(AtomicU8::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let app = axum::Router::new()
+            .route(
+                "/DeckList.json",
+                axum_get(|State(stage): State<Arc<AtomicU8>>| async move {
+                    let fleet = decklist_entry("FederationFleet_TRC", "Federation Fleet", "TRC", "2026-11-13");
+                    let preview = decklist_entry("FederationFleetPreview_TRC", "Federation Fleet (preview)", "TRC", "2026-11-13");
+                    let welcome = serde_json::json!({"code":"TRK","fileName":"Starter_TRK","name":"Starter","type":"Welcome Deck"});
+                    let data = match stage.load(Ordering::SeqCst) {
+                        0 => vec![preview, fleet],
+                        1 => vec![fleet],
+                        _ => vec![welcome],
+                    };
+                    Json(serde_json::json!({"meta": {"date": "2026-10-19"}, "data": data}))
+                }),
+            )
+            .with_state(stage.clone());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let http = crate::routes::http_client();
+
+        assert_eq!(refresh_decklist(&pool, &http, &base).await.unwrap(), 2);
+        stage.store(1, Ordering::SeqCst);
+        assert_eq!(refresh_decklist(&pool, &http, &base).await.unwrap(), 1);
+        let names = |v: CalendarView| v.upcoming[0].precons.iter().map(|p| p.file_name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(view(&pool, "nobody", today, true).await.unwrap()), ["FederationFleet_TRC"], "MTGJSON no longer lists the preview deck");
+
+        // An index with no Commander decks is a failed refresh, not "every deck withdrawn".
+        stage.store(2, Ordering::SeqCst);
+        let err = refresh_decklist(&pool, &http, &base).await.unwrap_err();
+        assert!(format!("{err:#}").contains("no Commander decks"));
+        let logged: Option<String> = sqlx::query_scalar("SELECT error FROM import_runs WHERE kind = ? ORDER BY rowid DESC LIMIT 1")
+            .bind(DECKLIST_KIND)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(logged.is_some_and(|e| e.contains("no Commander decks")));
+        assert_eq!(names(view(&pool, "nobody", today, true).await.unwrap()), ["FederationFleet_TRC"]);
+    }
+
+    /// Collector's Editions are the base deck in other printings: they're listed under it, not as
+    /// decks of their own, and the weekly pass leaves their lists alone.
+    #[tokio::test]
+    async fn collector_editions_sit_under_their_base_deck() {
+        let pool = crate::db::test_pool().await;
+        let today = day("2026-06-01");
+        store_sets(&pool, &[set("msc", "2026-06-26", "commander", 400, None), set("fic", "2026-06-13", "commander", 400, None)], today).await.unwrap();
+        let entries: Vec<DeckListEntry> = serde_json::from_value(serde_json::json!([
+            decklist_entry("TheFantasticFour_MSC", "The Fantastic Four", "MSC", "2026-06-26"),
+            decklist_entry("TheFantasticFourCollectorSEdition_MSC", "The Fantastic Four Collector's Edition", "MSC", "2026-06-26"),
+            decklist_entry("DoomPrevails_MSC", "Doom Prevails", "MSC", "2026-06-26"),
+            // MTGJSON's names for Final Fantasy put the edition in the middle.
+            decklist_entry("CounterBlitzFinalFantasyX_FIC", "Counter Blitz (FINAL FANTASY X)", "FIC", "2026-06-13"),
+            decklist_entry("CounterBlitzCollectorSEditionFinalFantasyX_FIC", "Counter Blitz Collector\u{2019}s Edition (FINAL FANTASY X)", "FIC", "2026-06-13"),
+            // A Collector's Edition whose base deck isn't listed stands on its own.
+            decklist_entry("WakandaForeverCollectorSEdition_MSC", "Wakanda Forever Collector's Edition", "MSC", "2026-06-26"),
+        ]))
+        .unwrap();
+        assert_eq!(store_decklist(&pool, &entries).await.unwrap(), 6);
+
+        let v = view(&pool, "nobody", today, true).await.unwrap();
+        let msc = v.upcoming.iter().find(|s| s.code == "msc").unwrap();
+        let listed: Vec<(&str, Vec<&str>)> =
+            msc.precons.iter().map(|p| (p.file_name.as_str(), p.variants.iter().map(|v| v.file_name.as_str()).collect())).collect();
+        assert_eq!(
+            listed,
+            [
+                ("DoomPrevails_MSC", vec![]),
+                ("TheFantasticFour_MSC", vec!["TheFantasticFourCollectorSEdition_MSC"]),
+                ("WakandaForeverCollectorSEdition_MSC", vec![]),
+            ]
+        );
+        let fic = v.upcoming.iter().find(|s| s.code == "fic").unwrap();
+        assert_eq!(fic.precons.len(), 1);
+        assert_eq!(fic.precons[0].variants[0].file_name, "CounterBlitzCollectorSEditionFinalFantasyX_FIC");
+    }
+
+    /// The weekly pass: lists never downloaded come first; a list is downloaded again weekly
+    /// only until four weeks after release; Collector's Editions only once someone started one.
+    #[tokio::test]
+    async fn the_weekly_pass_stops_after_release_and_skips_collector_editions() {
+        use std::sync::{Arc, Mutex};
+        let pool = crate::db::test_pool().await;
+        user(&pool, "u1").await;
+        sqlx::query("INSERT INTO calendar_watches (user_id, set_code, created_at) VALUES ('u1', 'trc', '2026-10-19T00:00:00Z')").execute(&pool).await.unwrap();
+        let date = |days: i64| (Utc::now() + chrono::Duration::days(days)).format("%Y-%m-%d").to_string();
+        let week_old = stamp_ago(chrono::Duration::days(10));
+        let rows: [(&str, Option<&str>, String, Option<&str>); 6] = [
+            ("Coming_TRC", None, date(25), Some(&week_old)),                       // due: stale, before release
+            ("JustOut_TRC", None, date(-20), Some(&week_old)),                     // due: stale, three weeks after release
+            ("LongOut_TRC", None, date(-60), Some(&week_old)),                     // not due: two months after release
+            ("NeverFetched_TRC", None, date(-60), None),                           // due: never downloaded
+            ("ComingCollectorSEdition_TRC", Some("Coming_TRC"), date(25), None),   // not due: nobody started it
+            ("StartedCollectorSEdition_TRC", Some("Coming_TRC"), date(25), Some(&week_old)), // due: someone started it
+        ];
+        for (file, variant_of, release, fetched) in &rows {
+            sqlx::query(
+                "INSERT INTO calendar_precons (file_name, set_code, name, variant_of, release_date, first_seen_at, list_text, list_fetched_at)
+                 VALUES (?, 'trc', ?, ?, ?, '2026-10-01T00:00:00Z', ?, ?)",
+            )
+            .bind(file)
+            .bind(file)
+            .bind(variant_of)
+            .bind(release)
+            .bind(fetched.map(|_| "Commander\n1 Sol Ring\n"))
+            .bind(fetched)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let asked = Arc::new(Mutex::new(Vec::<String>::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let app = axum::Router::new()
+            .route(
+                "/decks/{file}",
+                axum_get(|State(asked): State<Arc<Mutex<Vec<String>>>>, Path(file): Path<String>| async move {
+                    asked.lock().unwrap().push(file.trim_end_matches(".json").to_string());
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }),
+            )
+            .with_state(asked.clone());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        assert_eq!(fetch_watched_lists(&pool, &crate::routes::http_client(), &base).await.unwrap(), 0);
+        let asked = asked.lock().unwrap().clone();
+        assert_eq!(asked, ["NeverFetched_TRC", "Coming_TRC", "StartedCollectorSEdition_TRC", "JustOut_TRC"]);
     }
 
     #[tokio::test]

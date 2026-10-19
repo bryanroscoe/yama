@@ -6,6 +6,7 @@ import { api, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
 import { day } from "../components/Rulings";
+import { hasDeckNamed } from "../components/calendar";
 import { BRACKETS, BracketChips, BracketPanel } from "../components/Bracket";
 import { SENDS_LIST } from "../components/deckCheck";
 import { DeckStatsPanel } from "../components/DeckStats";
@@ -61,12 +62,14 @@ export function DecksPage() {
           </Link>
         ))}
       </div>
-      {(adding || precon) && <AddDeck key={precon ?? "blank"} precon={precon} onClose={closeAdd} />}
+      {(adding || precon) && (
+        <AddDeck key={precon ?? "blank"} precon={precon} deckNames={decks.data?.map((d) => d.name) ?? []} onClose={closeAdd} />
+      )}
     </main>
   );
 }
 
-function AddDeck({ onClose, precon }: { onClose: () => void; precon?: string | null }) {
+function AddDeck({ onClose, precon, deckNames }: { onClose: () => void; precon?: string | null; deckNames: string[] }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -91,7 +94,9 @@ function AddDeck({ onClose, precon }: { onClose: () => void; precon?: string | n
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ["decks"] });
       if (r.unknown.length) alert(`Added. These names didn't match any card: ${r.unknown.join(", ")}`);
-      navigate(`/decks/${r.id}`);
+      // From a precon, the new deck takes the place of /decks?precon=… in history, so Back
+      // doesn't reopen the filled-in sheet (one more tap would add the deck twice).
+      navigate(`/decks/${r.id}`, { replace: !!precon });
     },
   });
   return (
@@ -126,9 +131,10 @@ function AddDeck({ onClose, precon }: { onClose: () => void; precon?: string | n
             </p>
             {stock.data.unknown.length > 0 && (
               <p className="small" style={{ margin: 0, color: "var(--warn)" }} role="note">
-                {stock.data.unknown.length === 1 ? "1 card isn't" : `${stock.data.unknown.length} cards aren't`} in Yama's card data yet,
-                so the deck would leave {stock.data.unknown.length === 1 ? "it" : "them"} out: {stock.data.unknown.join(", ")}. New cards
-                arrive with the weekly card import. Add the deck after that, or add it now and paste the missing cards in later.
+                {stock.data.unknown.length === 1 ? "1 card in this list doesn't" : `${stock.data.unknown.length} cards in this list don't`} match
+                Yama's card data, so the deck would leave {stock.data.unknown.length === 1 ? "it" : "them"} out: {stock.data.unknown.join(", ")}.
+                Brand-new cards arrive with the weekly card import; any other name may be written differently on Scryfall. You can add the
+                deck now and paste the missing cards in later.
               </p>
             )}
           </div>
@@ -137,6 +143,11 @@ function AddDeck({ onClose, precon }: { onClose: () => void; precon?: string | n
           Name
           <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Omo lands" />
         </label>
+        {name.trim() && hasDeckNamed(deckNames, name) && (
+          <p className="small" style={{ margin: 0, color: "var(--warn)" }} role="note">
+            You already have a deck called {name.trim()}. Adding this one makes a second.
+          </p>
+        )}
         <label>
           Deck list
           <span className="hint">One card per line, like "1 Sol Ring". Sections such as "Commander" and set codes are fine.</span>
