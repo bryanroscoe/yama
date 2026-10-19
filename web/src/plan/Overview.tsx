@@ -4,13 +4,15 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { Pips } from "../components/ui";
 import { ImportSheet } from "./ImportSheet";
+import { useOutbox } from "./outbox";
 import { headSentence, usePlanOutlet } from "./PlanLayout";
 import { ArtPanel } from "./parts";
 import type { PlanView } from "./view";
 
 /** `/decks/plan`: where the plans came from, the totals, and one card per deck. */
 export function Overview() {
-  const { view } = usePlanOutlet();
+  const { view, userId } = usePlanOutlet();
+  const pending = useOutbox(userId).pending.length;
   const { b } = view;
   const [importing, setImporting] = useState(false);
   const live = b.decks.filter((d) => d.status !== "archived");
@@ -46,16 +48,22 @@ export function Overview() {
               <p className="small dim">
                 Lists, swaps and prices come from that export and are read-only here.
                 {b.prices_as_of ? ` Market prices are TCGplayer market via Scryfall, as of ${fmtDate(b.prices_as_of)}.` : " No market prices yet."}
-                {b.inputs.pending_pull > 0 ? ` ${b.inputs.pending_pull} of your answers are waiting to be picked up by your planner.` : ""}
+                {` What you do here goes to its inbox`}
+                {b.inputs.pending_pull > 0
+                  ? `: ${b.inputs.pending_pull === 1 ? "1 item is" : `${b.inputs.pending_pull} items are`} waiting to be picked up.`
+                  : b.inputs.pulled_at
+                    ? `; it last picked up ${fmtDate(b.inputs.pulled_at)}.`
+                    : "."}
+                {pending > 0 ? ` ${pending === 1 ? "1 answer is" : `${pending} answers are`} saved on this phone, waiting to sync.` : ""}
               </p>
             </div>
           )}
 
           <div className="figures">
-            <div className="figure">
+            <Link className="figure" to="/decks/plan/review?show=proposed">
               <b className="num">{sum((c) => c.undecided)}</b>
               <span>proposals to review</span>
-            </div>
+            </Link>
             <div className="figure">
               <b className="num">
                 {sum((c) => c.ready)}/{sum((c) => c.planned)}

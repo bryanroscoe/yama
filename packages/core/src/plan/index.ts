@@ -6,3 +6,5 @@ export * from "./source";
 export * from "./text";
 export * from "./brackets";
 export * from "./changes";
+export * from "./overlay";
+export * from "./views";

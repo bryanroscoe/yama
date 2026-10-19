@@ -5,6 +5,7 @@ import type { PlanBundle } from "@yama/core/plan";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { idbDelete, idbGet, idbPut } from "../offline/idb";
 import { type BundleReply, fetchBundle } from "./api";
+import { outbox } from "./outbox";
 
 const cacheKey = (userId: string) => `plan:${userId}`;
 
@@ -73,12 +74,14 @@ export function usePlan(userId: string | undefined): PlanData {
 }
 
 /**
- * Remove this user's plan data from the device. Plans hold prices paid, so sign-out calls this
- * before anything that can fail. It also stops any bundle still on its way from being saved
- * (refreshBundle). It never throws.
+ * Remove this user's plan data from the device: the saved bundle and the outbox of taps. Plans
+ * hold prices paid (and "bought it" marks what was paid), so sign-out calls this before anything
+ * that can fail. It also stops any bundle still on its way from being saved (refreshBundle). It
+ * never throws.
  */
 export async function clearPlanData(userId: string | null | undefined): Promise<void> {
   signOuts += 1;
   if (!userId) return;
+  outbox.clear(userId);
   await idbDelete(cacheKey(userId)).catch(() => undefined);
 }

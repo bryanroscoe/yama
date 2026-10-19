@@ -2,13 +2,16 @@
 //!
 //! Every user gets the same tables and routes on their own rows. Slice 1: storage, the import of a
 //! `yama-plan/1` document, and the bundle the pages read. Slice 3: linking a plan deck to a Yama
-//! deck and making a Yama deck from a plan list (`decks.rs`). Every query binds the caller's id,
-//! and anyone else's row is a 404.
+//! deck and making a Yama deck from a plan list (`decks.rs`). Slice 4: script keys and `SyncUser`
+//! (`tokens.rs`), and inputs with the inbox the export side pulls (`inputs.rs`). Every query binds
+//! the caller's id, and anyone else's row is a 404.
 
 pub mod bundle;
 pub mod decks;
 pub mod import;
+pub mod inputs;
 pub mod model;
+pub mod tokens;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -20,6 +23,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{Sqlite, SqlitePool};
+use tokens::{SyncUser, Via};
 use std::collections::{HashMap, HashSet};
 
 /// A plan file is at most 8 MB; larger bodies get 413.
@@ -36,6 +40,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/plan/bundle", get(bundle_route))
         .route("/api/plan/decks/{key}", patch(decks::patch_deck))
         .route("/api/plan/decks/{key}/yama-deck", post(decks::make_yama_deck))
+        .merge(inputs::router())
+        .merge(tokens::router())
 }
 
 #[derive(Deserialize)]
@@ -49,14 +55,12 @@ fn truthy(v: &Option<String>) -> bool {
 }
 
 /// The upload is read as bytes, untouched: the content hash covers the exact bytes of `plan`.
-async fn import_route(
-    State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
-    Query(q): Query<ImportQuery>,
-    body: Bytes,
-) -> AppResult<Json<import::Report>> {
-    let opts = import::Options { dry_run: truthy(&q.dry_run), force: truthy(&q.force), via: "web" };
-    Ok(Json(import::import_doc(&st.pool, &user.id, &body, opts).await?))
+/// The browser (a session) and `publish.py` (a script key) both use it; the owner is always the
+/// caller.
+async fn import_route(State(st): State<AppState>, user: SyncUser, Query(q): Query<ImportQuery>, body: Bytes) -> AppResult<Json<import::Report>> {
+    let via = if user.via == Via::Token { "token" } else { "web" };
+    let opts = import::Options { dry_run: truthy(&q.dry_run), force: truthy(&q.force), via };
+    Ok(Json(import::import_doc(&st.pool, &user.user_id, &body, opts).await?))
 }
 
 #[derive(Serialize)]
@@ -68,9 +72,9 @@ struct Head {
     revision: i64,
 }
 
-/// What Yama holds now, for `publish.py`'s ancestor check (it moves to SyncUser in slice 4).
-async fn head_route(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Head>> {
-    let h = import::head_info(&st.pool, &user.id).await?;
+/// What Yama holds now, for `publish.py`'s ancestor check.
+async fn head_route(State(st): State<AppState>, user: SyncUser) -> AppResult<Json<Head>> {
+    let h = import::head_info(&st.pool, &user.user_id).await?;
     Ok(Json(Head { head_hash: h.content_hash, git_sha: h.git_sha, guide_version: h.guide_version, imported_at: h.imported_at, revision: h.revision }))
 }
 
@@ -186,3 +190,5 @@ pub fn resolve_key(key: &str, live: &HashSet<String>, aliases: &HashMap<String, 
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_inputs;

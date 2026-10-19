@@ -26,7 +26,7 @@ Ask Bryan before any action that changes the server. Read-only checks (`docker p
   - While the OAuth consent screen is in **Testing** mode, only listed test users can sign in. Either add each friend there, or publish the app (the email and profile scopes need no Google review).
   - Friends also need a Yama invite: `ssh root@<saget-lan-address> docker exec yama yama-server invite friend@gmail.com`. Admins (`YAMA_ADMIN_EMAILS`) can invite from the Group tab instead.
 - **Password accounts:** for debugging on the server, test players, or if Google sign-in breaks. `ssh root@<saget-lan-address> docker exec yama yama-server user add debug@example.com --admin` prints a generated password; the login screen then shows "Sign in with a password". `user list` shows every account; `user remove-password EMAIL` turns one off. Dev login (`YAMA_DEV_LOGIN`) never works here: the container listens on 0.0.0.0, so the server ignores it.
-- **Cloudflare Access:** optional, and not set up yet.
+- **Cloudflare Access:** optional, and not set up yet. If it's turned on, commander-decks' `publish.py` and `pull.py` also need an Access service token: set `YAMA_CF_ACCESS_CLIENT_ID` and `YAMA_CF_ACCESS_CLIENT_SECRET` on the Mac, and allow that token in the Access policy. The Yama script key still decides whose plan it is.
 - **Public route:** `yama.saget.org` → `http://yama:8787` on the `novalyst` tunnel, added by Bryan 2026-10-18 (DNS CNAME to the tunnel). Checked through Cloudflare: HTTPS pages, the API and WebSocket upgrades all reach Yama.
 
 ## Updating

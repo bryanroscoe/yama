@@ -31,3 +31,34 @@ export function linkDeck(key: string, deckId: string | null): Promise<{ key: str
 export function makeYamaDeck(key: string, state: StateName): Promise<{ id: string; name: string; existing: boolean; note: string }> {
   return api(`/api/plan/decks/${encodeURIComponent(key)}/yama-deck`, { method: "POST", json: { state } });
 }
+
+// ── script keys (Settings) ─────────────────────────────────────────────────
+
+export interface ScriptKey {
+  id: string;
+  name: string;
+  scopes: string[];
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+}
+
+export const listKeys = () => api<ScriptKey[]>("/api/me/tokens");
+
+/** The reply is the only time the key itself is shown; Yama keeps only its hash. */
+export const createKey = (name: string) => api<ScriptKey & { token: string }>("/api/me/tokens", { method: "POST", json: { name } });
+
+export const revokeKey = (id: string) => api<ScriptKey>(`/api/me/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export interface ImportRecord {
+  id: string;
+  content_hash: string;
+  via: string;
+  forced: boolean;
+  imported_at: string;
+  meta: { guide_version?: number | null; git_sha?: string | null; dirty?: boolean | null; app?: string | null };
+  report: { warnings?: string[]; counts?: { swaps?: { added: number; changed: number; retired: number } } };
+}
+
+export const listImports = () => api<ImportRecord[]>("/api/plan/imports");

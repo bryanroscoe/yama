@@ -240,9 +240,37 @@ export interface Review {
   cut: string | null;
   deck: string | null;
   card: string | null;
-  /** UTC. */
+  /** UTC, whole seconds. */
   at: string;
   origin: "yama" | "import";
+  /** The op that set it; null for an answer that came in an import. */
+  op_id?: string | null;
+  /** That op's place in the inbox; compared with `inputs.pulled_through`. */
+  seq?: number | null;
+  /** Set on the device only: a tap still in the outbox, or sent but not yet in the bundle. */
+  local?: "pending" | "sent";
+}
+
+/** An installed tick or a "bought it" mark: a claim, never an order or a list change. */
+export interface Mark {
+  value: boolean;
+  at: string;
+  payload: Record<string, unknown>;
+  op_id?: string | null;
+  seq?: number | null;
+  local?: "pending" | "sent";
+}
+
+export interface Idea {
+  op_id: string;
+  seq: number;
+  deck_key: string | null;
+  in: string;
+  out: string | null;
+  why: string | null;
+  at: string;
+  outcome: string | null;
+  outcome_at: string | null;
 }
 
 export interface PlanCard {
@@ -310,8 +338,16 @@ export interface PlanBundle {
   orders: Order[];
   quotes: Quote[];
   reviews: Record<string, Review>;
-  marks: Record<string, unknown>;
-  inputs: { pending_pull: number; outcomes: { op_id: string; outcome: string; outcome_at: string | null }[] };
+  marks: Record<string, { installed?: Mark; bought?: Mark }>;
+  inputs: {
+    /** Ops for the export side it hasn't picked up yet. */
+    pending_pull: number;
+    /** The highest op seq the export side has picked up, and when it last asked. */
+    pulled_through: number;
+    pulled_at: string | null;
+    outcomes: { op_id: string; outcome: string; outcome_at: string | null }[];
+    ideas: Idea[];
+  };
   /** Card name as the plan writes it → oracle id. */
   names: Record<string, string>;
   unresolved: string[];

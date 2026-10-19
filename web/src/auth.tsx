@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, setToken, type User } from "./api";
 import { ErrorText, Pips } from "./components/ui";
+import { outbox } from "./plan/outbox";
+import { signOut, within } from "./plan/signout";
 import { clearPlanData } from "./plan/store";
 
 const ME_KEY = "yama.me";
@@ -29,30 +31,47 @@ export function useMe() {
   });
 }
 
+/**
+ * Sign out. Plan data and unsent taps leave the device first (web/src/plan/signout.ts has the
+ * order), so neither a failed logout request (no connection) nor the Cloudflare Access redirect
+ * can leave them behind. Resolves false if the person chose to keep unsent answers; throws when
+ * the server couldn't be reached, after the plan data is already gone.
+ */
 export function useLogout() {
   const qc = useQueryClient();
-  return async () => {
-    // Plans hold prices paid: clear them first, so neither the Cloudflare Access path below nor
-    // a failed (offline) logout request can leave them on the device. clearPlanData also stops a
-    // bundle still on its way from being saved, and removing the queries aborts its request.
+  return async (): Promise<boolean> => {
     const userId = qc.getQueryData<User | null>(["me"])?.id;
-    await clearPlanData(userId);
-    qc.removeQueries({ queryKey: ["plan"] });
-    qc.removeQueries({ queryKey: ["plan-cache"] });
-    await api("/api/auth/logout", { method: "POST" });
-    // Once more, now the server has ended the session, for anything saved while it was asked.
-    await clearPlanData(userId);
-    const config = qc.getQueryData<AuthConfig>(["auth-config"]) ?? (await api<AuthConfig>("/api/auth/config").catch(() => null));
-    if (config?.cf_access) {
-      // Cloudflare Access holds the real session; end it there.
-      localStorage.removeItem(ME_KEY);
-      location.href = "/cdn-cgi/access/logout";
-      return;
-    }
-    setToken(null);
-    localStorage.removeItem(ME_KEY);
-    qc.clear();
-    qc.setQueryData(["me"], null);
+    const result = await signOut({
+      userId,
+      pending: () => outbox.pendingCount(userId),
+      flush: () => within(userId ? outbox.sync(userId) : Promise.resolve(), 4000),
+      confirmDiscard: (n) =>
+        window.confirm(
+          `${n === 1 ? "1 answer on this device hasn't" : `${n} answers on this device haven't`} reached Yama yet (no connection). Signing out deletes ${n === 1 ? "it" : "them"}. Sign out anyway?`,
+        ),
+      clearPlan: clearPlanData,
+      dropQueries: () => {
+        qc.removeQueries({ queryKey: ["plan"] });
+        qc.removeQueries({ queryKey: ["plan-cache"] });
+      },
+      logoutRequest: () => api("/api/auth/logout", { method: "POST" }),
+      authConfig: async () => qc.getQueryData<AuthConfig>(["auth-config"]) ?? (await api<AuthConfig>("/api/auth/config")),
+      cloudflareLogout: () => {
+        localStorage.removeItem(ME_KEY);
+        location.href = "/cdn-cgi/access/logout";
+      },
+      finish: () => {
+        setToken(null);
+        localStorage.removeItem(ME_KEY);
+        qc.clear();
+        qc.setQueryData(["me"], null);
+      },
+    }).catch((e: unknown) => {
+      throw new Error(
+        `Couldn't reach Yama to sign out (${e instanceof Error ? e.message : String(e)}). Your plans are already off this device; try again when you're online.`,
+      );
+    });
+    return result !== "cancelled";
   };
 }
 

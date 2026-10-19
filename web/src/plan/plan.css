@@ -12,6 +12,11 @@
    - .swap-row: a swap as out → in thumbnails and its text; .swap-standin nests a stand-in under
      the print it holds.
    - .tag.warn: the warning tone, next to the existing .tag.good and .tag.bad.
+   - .plan-subnav: Overview, Review, Settings (Buy, Prints and Spares come later) under the control.
+   - Review: .plan-chips (deck chips and filters, pressed = chosen), .plan-search, .review-row
+     (a .swap-row with the answer), .plan-decide (Want, Unsure, Don't want: the chosen one takes
+     --good, --warn or --bad), .plan-cut, .plan-note, .plan-sync (where answers are on their way).
+   - Settings: .plan-key, a new script key shown once.
    Touch targets stay at least 44 px. Sentence case; no all-caps; no middle-dot separators. */
 
 /* ── the Decks tab's sections ───────────────────────────────────────────── */
@@ -358,4 +363,163 @@
 }
 .plan-kv dd {
   margin: 0;
+}
+
+/* ── the Plans pages' sub-nav ───────────────────────────────────────────── */
+
+.plan-subnav {
+  display: flex;
+  gap: 0.25rem 1.25rem;
+  flex-wrap: wrap;
+  margin: -0.25rem 0 1rem;
+}
+.plan-subnav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--paper-dim);
+  text-decoration: none;
+  font-weight: 700;
+  border-bottom: 2px solid transparent;
+}
+.plan-subnav a.active {
+  color: var(--paper);
+  border-bottom-color: var(--paper);
+}
+a.figure {
+  color: inherit;
+  text-decoration: none;
+}
+a.figure:hover span {
+  color: var(--paper);
+}
+
+/* ── review ─────────────────────────────────────────────────────────────── */
+
+.plan-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+}
+.plan-chips button {
+  border-radius: 999px;
+  font-weight: 700;
+  padding: 0.35rem 0.9rem;
+  background: transparent;
+}
+.plan-chips button[aria-selected="true"],
+.plan-chips button[aria-pressed="true"] {
+  background: var(--paper);
+  color: var(--felt);
+  border-color: var(--paper);
+}
+.plan-chips button[aria-selected="true"] .dim,
+.plan-chips button[aria-pressed="true"] .dim {
+  color: var(--felt-3);
+}
+/* Deck chips scroll sideways on a phone instead of taking the whole screen. */
+.plan-chips-decks {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+.plan-chips-decks button {
+  flex: none;
+}
+@media (min-width: 720px) {
+  .plan-chips-decks {
+    flex-wrap: wrap;
+  }
+}
+.plan-settings section {
+  margin-bottom: 1.5rem;
+}
+.plan-chips-small button {
+  font-weight: 400;
+  font-size: var(--t-sm);
+}
+.plan-search {
+  width: 100%;
+  margin-bottom: 0.75rem;
+}
+.review-row.answered-want {
+  box-shadow: inset 3px 0 0 var(--good);
+}
+.review-row.answered-unsure {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.review-row.answered-no {
+  box-shadow: inset 3px 0 0 var(--bad);
+}
+.review-row {
+  padding-left: 0.5rem;
+}
+.plan-decide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.plan-decide button {
+  flex: 1 1 6rem;
+  background: transparent;
+}
+.plan-decide button[aria-pressed="true"].decide-want {
+  background: var(--good);
+  border-color: var(--good);
+  color: var(--felt);
+}
+.plan-decide button[aria-pressed="true"].decide-unsure {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: var(--felt);
+}
+.plan-decide button[aria-pressed="true"].decide-no {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--felt);
+}
+.plan-cut {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 400;
+}
+.plan-cut select {
+  max-width: 100%;
+}
+.plan-note {
+  width: 100%;
+  min-height: 44px;
+  resize: vertical;
+}
+.plan-stock {
+  margin: 0.2rem 0 0.4rem;
+  padding-left: 1.1rem;
+}
+.plan-sync {
+  margin-bottom: 0.75rem;
+}
+.plan-sync p {
+  margin: 0 0 0.3rem;
+}
+.plan-orphans {
+  margin-top: 2rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+.plan-orphans .list-row {
+  grid-template-columns: 1fr auto;
+}
+
+/* ── settings ───────────────────────────────────────────────────────────── */
+
+.plan-key {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--felt);
+  user-select: all;
 }

@@ -418,9 +418,15 @@ async fn delete_invite(
     require_admin(&user)?;
     let email = email.to_lowercase();
     sqlx::query("DELETE FROM invites WHERE email = ?").bind(&email).execute(&st.pool).await?;
-    // Revoking an invite signs that person out everywhere, unless they're an admin.
+    // Revoking an invite signs that person out everywhere and revokes their script keys, unless
+    // they're an admin.
     if !st.cfg.admin_emails.contains(&email) {
         sqlx::query("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email = ?)").bind(&email).execute(&st.pool).await?;
+        sqlx::query("UPDATE api_tokens SET revoked_at = ? WHERE revoked_at IS NULL AND owner_id IN (SELECT id FROM users WHERE email = ?)")
+            .bind(now())
+            .bind(&email)
+            .execute(&st.pool)
+            .await?;
     }
     Ok(())
 }

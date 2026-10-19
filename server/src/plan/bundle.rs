@@ -56,6 +56,20 @@ impl Default for MetaRow {
 }
 
 #[derive(sqlx::FromRow)]
+struct ReviewRow {
+    swap_key: String,
+    decision: Option<String>,
+    note: Option<String>,
+    cut: Option<String>,
+    deck_name: Option<String>,
+    card: Option<String>,
+    at: String,
+    origin: String,
+    op_id: Option<String>,
+    seq: Option<i64>,
+}
+
+#[derive(sqlx::FromRow)]
 struct DeckRow {
     id: String,
     key: String,
@@ -477,39 +491,56 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
         printings.add(q.scryfall_id.as_deref(), q.set.as_deref(), q.num.as_deref());
     }
 
-    // Answers, ticks and marks, and what the export side did with inbox items
-    #[allow(clippy::type_complexity)]
-    let review_rows: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, String, String)> =
-        sqlx::query_as("SELECT swap_key, decision, note, cut, deck_name, card, at, origin FROM plan_reviews WHERE owner_id = ?")
-            .bind(owner)
-            .fetch_all(pool)
-            .await?;
-    let reviews: Map<String, Value> = review_rows
-        .into_iter()
-        .map(|(key, decision, note, cut, deck, card, at, origin)| {
-            (key, json!({"decision": decision, "note": note, "cut": cut, "deck": deck, "card": card, "at": at, "origin": origin}))
-        })
-        .collect();
-    let mark_rows: Vec<(String, String, i64, String, String)> =
-        sqlx::query_as("SELECT swap_key, kind, value, payload, at FROM plan_marks WHERE owner_id = ?").bind(owner).fetch_all(pool).await?;
-    let mut marks: Map<String, Value> = Map::new();
-    for (key, kind, value, payload, at) in mark_rows {
-        let entry = marks.entry(key).or_insert_with(|| json!({}));
-        entry[kind] = json!({"value": value == 1, "at": at, "payload": parse_or(&payload, json!({}))});
-    }
-    let pending_pull: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM plan_inputs WHERE owner_id = ?1 AND for_export = 1
-           AND seq > COALESCE((SELECT pulled_through FROM plan_meta WHERE owner_id = ?1), 0)",
+    // Answers, ticks and marks, and what the export side did with inbox items. `seq` is the op
+    // that set an answer or mark (null when it came from an import); a page compares it with
+    // `pulled_through` to say whether the export side has picked it up.
+    let review_rows: Vec<ReviewRow> = sqlx::query_as(
+        "SELECT r.swap_key, r.decision, r.note, r.cut, r.deck_name, r.card, r.at, r.origin, r.op_id, i.seq
+         FROM plan_reviews r LEFT JOIN plan_inputs i ON i.owner_id = r.owner_id AND i.op_id = r.op_id WHERE r.owner_id = ?",
     )
     .bind(owner)
-    .fetch_one(pool)
+    .fetch_all(pool)
     .await?;
+    let reviews: Map<String, Value> = review_rows
+        .into_iter()
+        .map(|r| {
+            (
+                r.swap_key,
+                json!({"decision": r.decision, "note": r.note, "cut": r.cut, "deck": r.deck_name, "card": r.card, "at": r.at,
+                       "origin": r.origin, "op_id": r.op_id, "seq": r.seq}),
+            )
+        })
+        .collect();
+    #[allow(clippy::type_complexity)]
+    let mark_rows: Vec<(String, String, i64, String, String, String, Option<i64>)> = sqlx::query_as(
+        "SELECT m.swap_key, m.kind, m.value, m.payload, m.at, m.op_id, i.seq
+         FROM plan_marks m LEFT JOIN plan_inputs i ON i.owner_id = m.owner_id AND i.op_id = m.op_id WHERE m.owner_id = ?",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    let mut marks: Map<String, Value> = Map::new();
+    for (key, kind, value, payload, at, op_id, seq) in mark_rows {
+        let entry = marks.entry(key).or_insert_with(|| json!({}));
+        entry[kind] = json!({"value": value == 1, "at": at, "payload": parse_or(&payload, json!({})), "op_id": op_id, "seq": seq});
+    }
+    let (pulled_through, pulled_at): (i64, Option<String>) = sqlx::query_as("SELECT pulled_through, pulled_at FROM plan_meta WHERE owner_id = ?")
+        .bind(owner)
+        .fetch_optional(pool)
+        .await?
+        .unwrap_or((0, None));
+    let pending_pull: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_inputs WHERE owner_id = ? AND for_export = 1 AND status = 'applied' AND seq > ?")
+        .bind(owner)
+        .bind(pulled_through)
+        .fetch_one(pool)
+        .await?;
     let outcomes: Vec<(String, String, Option<String>)> =
         sqlx::query_as("SELECT op_id, outcome, outcome_at FROM plan_inputs WHERE owner_id = ? AND outcome IS NOT NULL ORDER BY seq")
             .bind(owner)
             .fetch_all(pool)
             .await?;
     let outcomes: Vec<Value> = outcomes.into_iter().map(|(op_id, outcome, at)| json!({"op_id": op_id, "outcome": outcome, "outcome_at": at})).collect();
+    let ideas = super::inputs::ideas(pool, owner).await?;
 
     // Cards: names resolved now, so cards added to Yama since the import are found.
     let name_list: Vec<String> = names.0.iter().cloned().collect();
@@ -669,7 +700,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
         "notes": parse_or(&plan_notes, json!([])), "game_changers": parse(game_changers.as_deref()), "library": parse(library.as_deref()),
         "settings": settings, "stores": stores, "decks": decks, "swaps": swaps, "aliases": aliases,
         "orders": orders, "quotes": quotes, "reviews": reviews, "marks": marks,
-        "inputs": {"pending_pull": pending_pull, "outcomes": outcomes},
+        "inputs": {"pending_pull": pending_pull, "pulled_through": pulled_through, "pulled_at": pulled_at, "outcomes": outcomes, "ideas": ideas},
         "names": names_map, "unresolved": unresolved, "cards": cards,
         "market": market, "market_by_printing": market_by_printing, "printing_ids": printing_ids,
         "prices_as_of": prices_as_of,

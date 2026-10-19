@@ -17,8 +17,12 @@ import {
   swapSource,
   swapStatus,
   usd,
+  answerState,
+  opTime,
+  type IdeaOp,
   type PlanDeck,
   type PlanGroup,
+  type Review,
   type Slot,
   type StateName,
   type Swap,
@@ -30,6 +34,7 @@ import { api, type DeckSummary } from "../api";
 import { useMe } from "../auth";
 import { ErrorText, Pips } from "../components/ui";
 import { linkDeck, makeYamaDeck } from "./api";
+import { deviceId, outbox, useOutbox } from "./outbox";
 import { usePlanOutlet } from "./PlanLayout";
 import { ArtPanel, CopyButton, StatusTag, Thumb } from "./parts";
 import type { PlanView } from "./view";
@@ -128,6 +133,7 @@ export function DeckPlan() {
       {(tab === "stock" || tab === "now" || tab === "after") && <ListTab deck={deck} view={view} state={tab} />}
       {tab === "brackets" && <BracketsTab deck={deck} view={view} />}
 
+      <Ideas deck={deck} view={view} />
       <LinkDeck deck={deck} />
     </>
   );
@@ -172,9 +178,10 @@ function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
       {c.proposed.length > 0 && (
         <section className="stack">
           <h3>Proposed, not in the plan <span className="dim num">{c.proposed.reduce((n, g) => n + g.swaps.length, 0)}</span></h3>
-          {deck.source === "import" && (
-            <p className="dim small">Answer these in your planner for now. A want joins the plan when the plan is updated there.</p>
-          )}
+          <p className="small">
+            <Link to={`/decks/plan/review?deck=${encodeURIComponent(deck.key)}&show=proposed`}>Answer these in Review</Link>
+            {deck.source === "import" && <span className="dim">. Your answers go to your {view.app} inbox; a want joins the plan when the plan is updated there.</span>}
+          </p>
           {c.proposed.length > 1 && deck.groups.length > 1 && (
             <p className="dim small">Each group builds on the ones before it.</p>
           )}
@@ -233,7 +240,7 @@ function SwapRow({ s, view, logs, standins }: { s: Swap; view: PlanView; logs: R
           </p>
         )}
         {s.later_out && <p className="small">Later cut (suggested, not in the plan): {s.later_out}</p>}
-        {answer && <AnswerLine s={s} decision={answer.decision} note={answer.note} cut={answer.cut} />}
+        {answer && <AnswerLine s={s} answer={answer} view={view} />}
         {(s.why || s.why_out || s.note) && (
           <details className="small">
             <summary>Why</summary>
@@ -255,7 +262,10 @@ function SwapRow({ s, view, logs, standins }: { s: Swap; view: PlanView; logs: R
 
 const DECISION: Record<string, string> = { want: "You want this", unsure: "You're unsure", no: "You said no" };
 
-function AnswerLine({ s, decision, note, cut }: { s: Swap; decision: string | null; note: string | null; cut: string | null }) {
+function AnswerLine({ s, answer, view }: { s: Swap; answer: Review; view: PlanView }) {
+  const { decision, note, cut } = answer;
+  const deck = view.deck(s.deck);
+  const state = deck ? answerState(answer, { source: deck.source, pulledThrough: view.b.inputs.pulled_through ?? 0, app: view.app }) : null;
   return (
     <p className="small">
       {decision && <span className={`tag${decision === "want" ? " good" : decision === "no" ? " bad" : ""}`}>{DECISION[decision]}</span>}
@@ -264,6 +274,7 @@ function AnswerLine({ s, decision, note, cut }: { s: Swap; decision: string | nu
       {decision === "no" && s.stage === "planned" && (
         <span className="dim"> Nothing changes until you and your planner decide what to do with this swap.</span>
       )}
+      {state && <span className="faint"> {state.label}.</span>}
     </p>
   );
 }
@@ -588,6 +599,100 @@ function LinkDeck({ deck }: { deck: PlanDeck }) {
         </div>
       )}
       <ErrorText error={link.error ?? decks.error} />
+    </section>
+  );
+}
+
+// ── Ideas for the planner ───────────────────────────────────────────────────
+
+/**
+ * "Suggest a change": an imported plan can't be edited here (its export owns it), so an idea goes
+ * to the planner's inbox as an `idea` op, with what the planner later did with it.
+ */
+function Ideas({ deck, view }: { deck: PlanDeck; view: PlanView }) {
+  const userId = useMe().data?.id;
+  const box = useOutbox(userId);
+  const [open, setOpen] = useState(false);
+  const [inn, setInn] = useState("");
+  const [out, setOut] = useState("");
+  const [why, setWhy] = useState("");
+  const [saved, setSaved] = useState(false);
+  const sent = view.b.inputs.ideas.filter((i) => i.deck_key === deck.key);
+  const local = [...box.sent.map((x) => x.op), ...box.pending].filter((op): op is IdeaOp => op.kind === "idea" && op.deck_key === deck.key && !sent.some((i) => i.op_id === op.op_id));
+  const pendingIds = new Set(box.pending.map((op) => op.op_id));
+  const submit = () => {
+    if (!userId || !inn.trim()) return;
+    outbox.enqueue(userId, {
+      kind: "idea", op_id: crypto.randomUUID(), device_id: deviceId(), at: opTime(), deck_key: deck.key,
+      in: inn.trim(), out: out.trim() || null, why: why.trim() || null,
+    });
+    setInn("");
+    setOut("");
+    setWhy("");
+    setOpen(false);
+    setSaved(true);
+  };
+  return (
+    <section className="plan-link stack">
+      <h3>Ideas for your planner</h3>
+      <p className="dim small">
+        {deck.source === "import"
+          ? `This plan is managed by your ${view.app} export, so it can't be changed here. Suggest a change and it goes to that inbox, for you and your planner to decide.`
+          : "Suggest a change to come back to."}
+      </p>
+      {(sent.length > 0 || local.length > 0) && (
+        <ul className="small">
+          {local.map((i) => (
+            <li key={i.op_id}>
+              {i.in}
+              {i.out ? ` for ${i.out}` : ""}
+              {i.why ? `: ${i.why}` : ""} <span className="faint">{pendingIds.has(i.op_id) ? "Saved on this phone, waiting to sync." : "Saved in Yama."}</span>
+            </li>
+          ))}
+          {sent.map((i) => (
+            <li key={i.op_id}>
+              {i.in}
+              {i.out ? ` for ${i.out}` : ""}
+              {i.why ? `: ${i.why}` : ""}{" "}
+              <span className="faint">
+                {fmtDate(i.at)}.{" "}
+                {i.outcome ? `${i.outcome}.` : i.seq <= (view.b.inputs.pulled_through ?? 0) ? `Picked up by ${view.app}.` : `Waiting for ${view.app} to pick it up.`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {saved && !open && <p className="small" role="status">Saved. It goes to your planner's inbox.</p>}
+      {open ? (
+        <form
+          className="stack"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <label>
+            Card to put in
+            <input value={inn} onChange={(e) => setInn(e.target.value)} required maxLength={200} />
+          </label>
+          <label>
+            Card to take out (optional)
+            <input value={out} onChange={(e) => setOut(e.target.value)} maxLength={200} />
+          </label>
+          <label>
+            Why (optional)
+            <textarea value={why} onChange={(e) => setWhy(e.target.value)} maxLength={2000} />
+          </label>
+          <div className="row">
+            <button className="primary" disabled={!inn.trim()}>Send to the inbox</button>
+            <button type="button" className="quiet" onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </form>
+      ) : (
+        <div className="row">
+          <button onClick={() => { setSaved(false); setOpen(true); }} disabled={!userId}>Suggest a change</button>
+        </div>
+      )}
     </section>
   );
 }

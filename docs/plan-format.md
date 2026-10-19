@@ -354,3 +354,46 @@ Rows store card names, not card ids. Yama resolves names when it builds the bund
 ```
 
 `import_id` is `null` for a dry run. An unchanged upload returns the head's own report with `unchanged: true`. `head_before` is what Yama held before the upload, so a page can show the file next to it. `existing_decks` lists the owner's Yama decks in the folder "commander-decks", which an import never touches.
+
+## The other way: what the owner does in Yama
+
+A plan file carries the plan into Yama. What the owner does on the plan pages comes back as **ops**, and the writer's own scripts pick them up. For commander-decks those are `scripts/planner/publish.py` (sends the file) and `scripts/planner/pull.py` (picks up the ops).
+
+### Script keys
+
+A script signs in with a key the owner makes in Yama (Decks, Plans, Settings, Keys for scripts): `yama_pat_` followed by 64 hex digits, sent as `Authorization: Bearer <key>`. Yama keeps only its SHA-256. A key has the scope `plan:sync`, lasts 365 days unless revoked, and works only on `POST /api/plan/import`, `GET /api/plan/head`, `GET /api/plan/inbox` and `POST /api/plan/inbox/ack`, for its owner's plan. Everywhere else it gets 401. It's never admin and can't make keys. Revoking the owner's invite revokes their keys.
+
+`GET /api/plan/head` returns `{head_hash, git_sha, guide_version, imported_at, revision}`. `publish.py` refuses to send a file unless `git_sha` is HEAD or an ancestor of it.
+
+### Ops
+
+The pages send `POST /api/plan/inputs` with a JSON array of ops (at most 500), and get back `{revision, results: [{op_id, status, original?, error?, seq}]}`. `status` is `applied`, `rejected` (with `error`; the op is stored and never retried), or `duplicate` (an op the server already had, with `original`, the first result). Every op has a client-made `op_id`, a `kind` and an `at` (RFC 3339 with a zone; stored as UTC in whole seconds, and clamped to the time it arrived if it's more than five minutes ahead). Records are always complete, so the newest op replaces the whole answer:
+
+| kind | fields |
+|---|---|
+| `review` | `swap_key`, `deck_key`, `decision` (`want`, `unsure`, `no` or null), `note` (up to 2000 characters), `cut`. All empty is a clear, kept as a tombstone. |
+| `installed` | `swap_key`, `value` (true sets the tick, false clears it) |
+| `bought` | `swap_key`, `value`, `store_key` (one of the plan's stores) or `store_label`, `price_paid` (null when not known, never 0 for unknown), `qty`, `on` (`YYYY-MM-DD`, needed when `value` is true). A claim: it never creates an order or changes a list. |
+| `idea` | `deck_key`, `in`, `out`, `why` |
+
+Answers and marks are last writer wins: the later `at`, then an answer made in Yama over one from a file, then the larger `op_id`. The same rule applies to the `reviews` in a plan file, so the end result doesn't depend on the order ops and files arrive in.
+
+### The inbox
+
+Ops on an imported deck, or on a key that matches no deck, wait in the owner's inbox. `GET /api/plan/inbox[?after=SEQ]` returns them oldest first, after the cursor Yama keeps (`pulled_through`) unless `after` is given:
+
+```json
+{"pulled_through": 40, "pulled_at": "2026-10-19T08:00:00Z", "through": 42, "more": false,
+ "ops": [{"seq": 41, "op_id": "...", "device_id": "...", "kind": "review", "swap_key": "plan|Example Deck|Card C|Card B",
+          "key": "plan|Example Deck|Card C|Card B", "orphan": false, "deck_key": "example-deck", "deck": "Example Deck",
+          "card": "Card C", "out": "Card B", "stage": "proposed", "role": "swap", "at": "2026-10-19T07:59:00Z",
+          "received_at": "2026-10-19T07:59:02Z", "record": {"decision": "want", "note": null, "cut": null},
+          "outcome": null, "outcome_at": null}]}
+```
+
+- `key` is the live key `swap_key` reaches through aliases; `orphan` is true when it reaches none. Orphans are kept, never dropped.
+- `record` is the op's normalized full record (the table above, without the keys).
+- `seq` is one global sequence, so ops from two devices never collide. Pages of 1000; with `more`, ask again with `?after=<through>`.
+- `POST /api/plan/inbox/ack {"through": 42}` moves the cursor forward once the ops are saved. It never moves back, and never past the owner's newest op.
+
+What the writer then does with a "bought it" mark or an idea comes back in the next file's `inbox_resolved`.
