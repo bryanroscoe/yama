@@ -17,7 +17,7 @@ Ask Bryan before any action that changes the server. Read-only checks (`docker p
 2. Choose how people sign in. Edit `yama.env` on the server:
    - **Cloudflare Access (recommended).** Create a self-hosted Access application for the Yama hostname, with an allow policy listing the friends' emails (one-time PIN or Google login). Put the team name and the application's audience tag into `YAMA_CF_ACCESS_TEAM` / `YAMA_CF_ACCESS_AUD`. The Access policy becomes the invite list, and Yama trusts only Cloudflare's signed token, never a bare email header.
    - **Google sign-in.** Set `YAMA_GOOGLE_CLIENT_IDS` (an OAuth web client whose authorized origin is the Yama URL) and invite people with `docker exec yama yama-server invite friend@gmail.com`.
-3. `./deploy/deploy.sh` builds the image on saget's Docker daemon (over the `unraid` docker context) and starts the container. On first start Yama downloads Scryfall card data (about 2 minutes), then refreshes prices daily.
+3. `./deploy/deploy.sh` copies the source to `build/` on saget, builds the image there in the background (so a dropped SSH session can't stop it; log in `build/build.log`) and starts the container. On first start Yama downloads Scryfall card data (about 2 minutes), then refreshes prices daily.
 4. In Cloudflare Zero Trust, open the `novalyst` tunnel and add a public hostname (for example `yama.saget.org`) pointing at service `http://yama:8787`.
 
 ## Current sign-in setup (2026-10-18)
