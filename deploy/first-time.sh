@@ -7,7 +7,7 @@ CARD_DATA=card-data-eb309108eb0df708.json
 SHA=eb309108eb0df708b6cb5b3c75858149a9fd2864ee0f4ef81195cc75af058b85
 cd "$(dirname "$0")"
 
-ssh "$HOST" "mkdir -p $DIR/data/engine $DIR/backups && chown -R 99:100 $DIR/data"
+ssh "$HOST" "mkdir -p $DIR/data/engine && chown -R 99:100 $DIR/data"
 if ssh "$HOST" "test -f $DIR/yama.env"; then
   echo "yama.env already on the server; leaving it."
 else
