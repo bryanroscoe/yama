@@ -10,6 +10,8 @@ mod play;
 mod playgroups;
 mod routes;
 mod table_rooms;
+#[cfg(test)]
+mod testutil;
 mod util;
 
 use anyhow::Context;

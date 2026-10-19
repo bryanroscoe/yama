@@ -170,6 +170,8 @@ game_events(game_id, seq, actor_seat, kind, payload jsonb, created_at)  -- engin
 game_snapshots(game_id, seq, state bytea)
 ```
 
+A seat's `deck_version_id` must be a version of one of the game creator's decks (lending a deck counts) or of the seated account's own decks; anything else gets 404 when the game is logged (2026-10-18).
+
 Linking a deck to a container is what powers owned/needed: each deck list is checked against the collection, so you see what's in the binder, what's in another deck, and what still has to be bought or printed. That's the job the `commander-decks` scripts do today (`docs/spares.md`, scan checks). Yama could take it over later.
 
 ## 10. Milestones

@@ -425,7 +425,8 @@ async fn delete_invite(
     Ok(())
 }
 
-fn require_admin(user: &User) -> AppResult<()> {
+/// Admin-only routes. The planner uses it for lab approval only; plans have no admin read path.
+pub(crate) fn require_admin(user: &User) -> AppResult<()> {
     if user.is_admin { Ok(()) } else { Err(AppError::Forbidden("admins only".into())) }
 }
 

@@ -163,6 +163,20 @@ async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json
             (None, Some(u)) if *u == user.id => Some(u.clone()),
             _ => None,
         };
+        // A seat's deck version must come from the creator's decks (lending a deck counts) or
+        // the seated account's own. Anyone else's version, or one that doesn't exist, is a 404,
+        // so a game can't point at another user's list.
+        if let Some(version) = &s.deck_version_id {
+            let owner: Option<String> =
+                sqlx::query_scalar("SELECT d.owner_id FROM deck_versions v JOIN decks d ON d.id = v.deck_id WHERE v.id = ?")
+                    .bind(version)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            let allowed = owner.is_some_and(|o| o == user.id || account.as_deref() == Some(o.as_str()));
+            if !allowed {
+                return Err(AppError::NotFound("deck version"));
+            }
+        }
         sqlx::query(
             "INSERT INTO game_seats (game_id, seat, member_id, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name)
              VALUES (?,?,?,?,?,?,?,?,?)",
@@ -373,4 +387,87 @@ async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
         .await?
         .rows_affected();
     if n == 0 { Err(AppError::NotFound("game")) } else { Ok(()) }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::testutil::{app, deck, send, user};
+    use axum::http::{Method, StatusCode};
+    use serde_json::json;
+
+    fn game(id: &str, seats: serde_json::Value) -> serde_json::Value {
+        json!({ "id": id, "seats": seats })
+    }
+
+    async fn games(pool: &sqlx::SqlitePool) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM games").fetch_one(pool).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_seat_cant_use_someone_elses_deck_version() {
+        let (app, pool) = app().await;
+        let (alice, _) = user(&pool, "alice@example.com").await;
+        let (bob, bob_token) = user(&pool, "bob@example.com").await;
+        let (_, alices_version) = deck(&pool, &alice, "Alice's deck").await;
+        let (_, bobs_version) = deck(&pool, &bob, "Bob's deck").await;
+
+        // Alice's list on Bob's game: 404, and nothing is written.
+        let id = uuid::Uuid::new_v4().to_string();
+        let seats = json!([{ "seat": 0, "user_id": bob, "deck_version_id": alices_version }]);
+        let (status, _) = send(&app, Method::POST, "/api/games", Some(&bob_token), Some(game(&id, seats))).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(games(&pool).await, 0);
+
+        // A version that doesn't exist is the same 404 (it used to fail the foreign key with a 500).
+        let seats = json!([{ "seat": 0, "guest_name": "Guest", "deck_version_id": "no-such-version" }]);
+        let (status, _) = send(&app, Method::POST, "/api/games", Some(&bob_token), Some(game(&id, seats))).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(games(&pool).await, 0);
+
+        // His own list works, on his seat or lent to a guest.
+        let seats = json!([
+            { "seat": 0, "user_id": bob, "deck_version_id": bobs_version },
+            { "seat": 1, "guest_name": "Guest", "deck_version_id": bobs_version },
+        ]);
+        let (status, body) = send(&app, Method::POST, "/api/games", Some(&bob_token), Some(game(&id, seats))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let stored: Vec<Option<String>> =
+            sqlx::query_scalar("SELECT deck_version_id FROM game_seats WHERE game_id = ? ORDER BY seat").bind(&id).fetch_all(&pool).await.unwrap();
+        assert_eq!(stored, vec![Some(bobs_version.clone()), Some(bobs_version)]);
+    }
+
+    #[tokio::test]
+    async fn a_seated_playgroup_member_can_bring_their_own_deck() {
+        let (app, pool) = app().await;
+        let (alice, _) = user(&pool, "alice@example.com").await;
+        let (bob, bob_token) = user(&pool, "bob@example.com").await;
+        let (_, alices_version) = deck(&pool, &alice, "Alice's deck").await;
+        sqlx::query("INSERT INTO playgroups (id, name, owner_id, join_code, created_at) VALUES ('pg', 'Friday', ?, 'ABC123', 'now')")
+            .bind(&bob)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO playgroup_members (id, playgroup_id, user_id, created_at) VALUES ('m-alice', 'pg', ?, 'now'), ('m-bob', 'pg', ?, 'now')")
+            .bind(&alice)
+            .bind(&bob)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Alice's list on a guest's seat isn't allowed, even in the playgroup.
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut body = game(&id, json!([{ "seat": 0, "guest_name": "Someone", "deck_version_id": alices_version }]));
+        body["playgroup_id"] = json!("pg");
+        let (status, _) = send(&app, Method::POST, "/api/games", Some(&bob_token), Some(body)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // On Alice's own seat it is.
+        let mut body = game(&id, json!([
+            { "seat": 0, "member_id": "m-bob" },
+            { "seat": 1, "member_id": "m-alice", "deck_version_id": alices_version },
+        ]));
+        body["playgroup_id"] = json!("pg");
+        let (status, body) = send(&app, Method::POST, "/api/games", Some(&bob_token), Some(body)).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
 }

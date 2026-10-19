@@ -213,16 +213,25 @@ async fn lookup_printing(
     _user: CurrentUser,
     Query(p): Query<LookupParams>,
 ) -> AppResult<Json<Printing>> {
-    let printing = sqlx::query_as::<_, Printing>(AssertSqlSafe(format!(
-        "{PRINTING_SELECT} WHERE p.set_code = ? AND p.collector_number = ? ORDER BY (p.lang = ?) DESC LIMIT 1"
-    )))
-    .bind(p.set.to_lowercase())
-    .bind(&p.number)
-    .bind(p.lang.unwrap_or_else(|| "en".into()))
-    .fetch_optional(&st.pool)
-    .await?
-    .ok_or(AppError::NotFound("printing"))?;
+    let printing = printing_by_set_number(&st.pool, &p.set, &p.number, p.lang.as_deref())
+        .await?
+        .ok_or(AppError::NotFound("printing"))?;
     Ok(Json(printing))
+}
+
+/// A printing by set code (any case) and collector number, with its latest price snapshot.
+/// Prefers `lang` (English when `None`) and falls back to another language of the same
+/// printing. `None` when Yama's card data doesn't have it; callers keep the reference rather
+/// than drop it.
+pub async fn printing_by_set_number(pool: &SqlitePool, set: &str, number: &str, lang: Option<&str>) -> AppResult<Option<Printing>> {
+    Ok(sqlx::query_as::<_, Printing>(AssertSqlSafe(format!(
+        "{PRINTING_SELECT} WHERE p.set_code = ? AND p.collector_number = ? ORDER BY (p.lang = ?) DESC, p.scryfall_id LIMIT 1"
+    )))
+    .bind(set.trim().to_lowercase())
+    .bind(number.trim())
+    .bind(lang.unwrap_or("en"))
+    .fetch_optional(pool)
+    .await?)
 }
 
 #[derive(Serialize)]
@@ -350,4 +359,72 @@ async fn price_history(State(st): State<AppState>, _u: CurrentUser, Path(id): Pa
 /// Every set code we have printings for, so the scanner only looks up real sets.
 async fn set_codes(State(st): State<AppState>, _u: CurrentUser) -> AppResult<Json<Vec<String>>> {
     Ok(Json(sqlx::query_scalar("SELECT DISTINCT set_code FROM printings ORDER BY set_code").fetch_all(&st.pool).await?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{app, send, user};
+    use axum::http::{Method, StatusCode};
+
+    async fn seed(pool: &SqlitePool) {
+        sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES ('o1', 'Sol Ring', 'Artifact', 'now')")
+            .execute(pool)
+            .await
+            .unwrap();
+        for (id, set, num, lang) in [("p-en", "cmm", "410", "en"), ("p-ja", "cmm", "410", "ja"), ("p-sta-ja", "sta", "1", "ja")] {
+            sqlx::query(
+                "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, updated_at)
+                 VALUES (?, 'o1', 'Sol Ring', ?, 'Set', ?, ?, '[\"nonfoil\"]', 'now')",
+            )
+            .bind(id)
+            .bind(set)
+            .bind(num)
+            .bind(lang)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        // An older and a newer snapshot; the newer one has no foil price.
+        sqlx::query("INSERT INTO price_snapshots (scryfall_id, date, usd, usd_foil) VALUES ('p-en', '2026-10-17', 1.25, 9.0), ('p-en', '2026-10-18', 1.5, NULL)")
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn finds_a_printing_by_set_and_number() {
+        let pool = crate::db::test_pool().await;
+        seed(&pool).await;
+
+        // Any case and stray spaces; English first; the latest price, with a missing foil price left missing.
+        let p = printing_by_set_number(&pool, "CMM", " 410 ", None).await.unwrap().unwrap();
+        assert_eq!(p.scryfall_id, "p-en");
+        assert_eq!(p.price_date.as_deref(), Some("2026-10-18"));
+        assert_eq!((p.usd, p.usd_foil), (Some(1.5), None));
+
+        // Another language when asked for; no snapshot means no price and no date, never 0.
+        let p = printing_by_set_number(&pool, "cmm", "410", Some("ja")).await.unwrap().unwrap();
+        assert_eq!(p.scryfall_id, "p-ja");
+        assert_eq!((p.price_date, p.usd), (None, None));
+
+        // Falls back to another language of the same printing.
+        let p = printing_by_set_number(&pool, "sta", "1", None).await.unwrap().unwrap();
+        assert_eq!(p.scryfall_id, "p-sta-ja");
+
+        assert!(printing_by_set_number(&pool, "cmm", "999", None).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn the_lookup_route_uses_it() {
+        let (app, pool) = app().await;
+        seed(&pool).await;
+        let (_, token) = user(&pool, "bryan@example.com").await;
+        let (status, body) = send(&app, Method::GET, "/api/printings/lookup?set=CMM&number=410", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["scryfall_id"], "p-en");
+        assert_eq!(body["usd_foil"], serde_json::Value::Null);
+        let (status, _) = send(&app, Method::GET, "/api/printings/lookup?set=cmm&number=999", Some(&token), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
 }
