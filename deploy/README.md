@@ -26,6 +26,7 @@ Ask Bryan before any action that changes the server. Read-only checks (`docker p
   - While the OAuth consent screen is in **Testing** mode, only listed test users can sign in. Either add each friend there, or publish the app (the email and profile scopes need no Google review).
   - Friends also need a Yama invite: `ssh root@<saget-lan-address> docker exec yama yama-server invite friend@gmail.com`. Admins (`YAMA_ADMIN_EMAILS`) can invite from the Group tab instead.
 - **Cloudflare Access:** optional, and not set up yet.
+- **Public route:** `yama.saget.org` → `http://yama:8787` on the `novalyst` tunnel, added by Bryan 2026-10-18 (DNS CNAME to the tunnel). Checked through Cloudflare: HTTPS pages, the API and WebSocket upgrades all reach Yama.
 
 ## Updating
 
