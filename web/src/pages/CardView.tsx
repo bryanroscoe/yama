@@ -147,7 +147,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
         </div>
       )}
       <div className="cp-inner">
-        <button className="cp-back" onClick={onBack} aria-label={backLabel}>
+        <button className="cp-back" onClick={onBack} aria-label={backLabel} autoFocus>
           {close ? <CloseIcon /> : <BackIcon />}
           <span className="cp-back-text">{backLabel}</span>
         </button>

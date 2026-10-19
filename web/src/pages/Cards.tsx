@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { api, priceSource, usd, type Card, type SearchResult } from "../api";
 import { isNetworkError } from "../cardDetail";
@@ -78,106 +78,117 @@ export function CardsPage() {
       setParams(next, { replace: true });
     }
   };
+  // Closing the card page puts focus back on the card it came from.
+  const lastOpen = useRef<string | null>(null);
+  useEffect(() => {
+    if (open) lastOpen.current = open;
+    else if (lastOpen.current) {
+      document.querySelector<HTMLButtonElement>(`.cards-card[data-id="${lastOpen.current}"]`)?.focus();
+      lastOpen.current = null;
+    }
+  }, [open]);
   const pages = results.data ? Math.ceil(results.data.total / results.data.page_size) : 0;
   const chips = queryChips(q);
   const priceDate = results.data?.cards.find((c) => c.price_date)?.price_date;
 
   return (
-    <main className="page cards-page" aria-hidden={open ? true : undefined}>
-      <h1>Cards</h1>
-      <form
-        className="cards-search"
-        role="search"
-        onSubmit={(e) => {
-          e.preventDefault();
-          set({ q: draft, page: "1" });
-        }}
-      >
-        <label className="cards-box">
-          <span className="visually-hidden">Search cards</span>
-          <SearchIcon />
-          <input
-            type="search"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Name, or syntax like t:elf id<=gw"
-            autoCapitalize="off"
-            autoCorrect="off"
-            enterKeyHint="search"
-          />
-        </label>
-        <select className="cards-order" value={order} onChange={(e) => set({ order: e.target.value, page: "1" })} aria-label="Sort by">
-          {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <button className="visually-hidden">Search</button>
-      </form>
+    <>
+      <main className="page cards-page" aria-hidden={open ? true : undefined}>
+        <h1>Cards</h1>
+        <form
+          className="cards-search"
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            set({ q: draft, page: "1" });
+          }}
+        >
+          <label className="cards-box">
+            <span className="visually-hidden">Search cards</span>
+            <SearchIcon />
+            <input
+              type="search"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Name, or syntax like t:elf id<=gw"
+              autoCapitalize="off"
+              autoCorrect="off"
+              enterKeyHint="search"
+            />
+          </label>
+          <select className="cards-order" value={order} onChange={(e) => set({ order: e.target.value, page: "1" })} aria-label="Sort by">
+            {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <button className="visually-hidden">Search</button>
+        </form>
 
-      {!q && (
-        <div className="cards-help">
-          <p className="dim">Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>is:gamechanger</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
-          <div className="cards-chips">
-            {EXAMPLES.map((e) => (
-              <button key={e.q} className="cards-chip" onClick={() => set({ q: e.q, page: "1" })}>{e.label}</button>
-            ))}
-          </div>
-          <ReleaseCalendar />
-        </div>
-      )}
-
-      <ErrorText error={results.error} />
-      {q && results.data && (
-        <>
-          <div className="cards-summary">
-            <span className="cards-count">
-              {results.data.total.toLocaleString()} {results.data.total === 1 ? "card" : "cards"}
-              {results.data.offline ? ", searched on this device while offline" : ""}
-              <span className="cards-narrow">{priceDate ? `. Prices: ${priceSource(priceDate)}.` : ""}</span>
-            </span>
-            <div className="cards-chips-row">
-              {chips.map((c) => (
-                <span key={c.raw} className="cards-chip term">
-                  {c.label}
-                  <button aria-label={`Remove ${c.label}`} onClick={() => set({ q: withoutTerm(q, c.raw), page: "1" })}>×</button>
-                </span>
+        {!q && (
+          <div className="cards-help">
+            <p className="dim">Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>is:gamechanger</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
+            <div className="cards-chips">
+              {EXAMPLES.map((e) => (
+                <button key={e.q} className="cards-chip" onClick={() => set({ q: e.q, page: "1" })}>{e.label}</button>
               ))}
-              {/* Phones: the sort order is the last chip. */}
-              <select className="cards-chip outline cards-order-chip" value={order} onChange={(e) => set({ order: e.target.value, page: "1" })} aria-label="Sort by">
-                {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
             </div>
-            {priceDate && <span className="cards-prices">Prices: {priceSource(priceDate)}</span>}
+            <ReleaseCalendar />
           </div>
-          <ul className="cards-grid">
-            {results.data.cards.map((c) => {
-              const owned = c.owned ?? 0;
-              return (
-                <li key={c.oracle_id}>
-                  <button className="cards-card" onClick={() => openCard(c.oracle_id)} aria-label={c.name}>
-                    <CardImage src={c.image_normal} name={c.name} />
-                  </button>
-                  {!results.data!.offline && (
-                    <span className="cards-meta">
-                      <span className={owned ? "own good" : "own"}>
-                        {owned === 0 ? "Not owned" : c.owned_in ? `In ${c.owned_in}` : `You own ${owned}`}
+        )}
+
+        <ErrorText error={results.error} />
+        {q && results.data && (
+          <>
+            <div className="cards-summary">
+              <span className="cards-count">
+                {results.data.total.toLocaleString()} {results.data.total === 1 ? "card" : "cards"}
+                {results.data.offline ? ", searched on this device while offline" : ""}
+                <span className="cards-narrow">{priceDate ? `. Prices: ${priceSource(priceDate)}.` : ""}</span>
+              </span>
+              <div className="cards-chips-row">
+                {chips.map((c) => (
+                  <span key={c.raw} className="cards-chip term">
+                    {c.label}
+                    <button aria-label={`Remove ${c.label}`} onClick={() => set({ q: withoutTerm(q, c.raw), page: "1" })}>×</button>
+                  </span>
+                ))}
+                {/* Phones: the sort order is the last chip. */}
+                <select className="cards-chip outline cards-order-chip" value={order} onChange={(e) => set({ order: e.target.value, page: "1" })} aria-label="Sort by">
+                  {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              {priceDate && <span className="cards-prices">Prices: {priceSource(priceDate)}</span>}
+            </div>
+            <ul className="cards-grid">
+              {results.data.cards.map((c) => {
+                const owned = c.owned ?? 0;
+                return (
+                  <li key={c.oracle_id}>
+                    <button className="cards-card" data-id={c.oracle_id} onClick={() => openCard(c.oracle_id)} aria-label={c.name}>
+                      <CardImage src={c.image_normal} name={c.name} />
+                    </button>
+                    {!results.data!.offline && (
+                      <span className="cards-meta">
+                        <span className={owned ? "own good" : "own"}>
+                          {owned === 0 ? "Not owned" : c.owned_in ? `In ${c.owned_in}` : `You own ${owned}`}
+                        </span>
+                        <span className="num price">{usd(c.usd)}</span>
                       </span>
-                      <span className="num price">{usd(c.usd)}</span>
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          {pages > 1 && (
-            <nav className="cards-pages" aria-label="Pages">
-              <button disabled={page <= 1} onClick={() => set({ page: String(page - 1) })}>Previous</button>
-              <span className="dim num">Page {page} of {pages}</span>
-              <button disabled={page >= pages} onClick={() => set({ page: String(page + 1) })}>Next</button>
-            </nav>
-          )}
-        </>
-      )}
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {pages > 1 && (
+              <nav className="cards-pages" aria-label="Pages">
+                <button disabled={page <= 1} onClick={() => set({ page: String(page - 1) })}>Previous</button>
+                <span className="dim num">Page {page} of {pages}</span>
+                <button disabled={page >= pages} onClick={() => set({ page: String(page + 1) })}>Next</button>
+              </nav>
+            )}
+          </>
+        )}
+      </main>
       {open && <CardPage oracleId={open} onClose={closeCard} backLabel={q ? "Search results" : "Cards"} />}
-    </main>
+    </>
   );
 }
 

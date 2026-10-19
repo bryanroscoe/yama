@@ -13,6 +13,7 @@ import { localDay, versionOn } from "./versions";
 import { emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, type SeatDraft } from "./seats";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
 import { layout } from "./TablePlay";
+import { panelArt, useShowArt } from "./art";
 import "./seats.css";
 import "./home.css";
 
@@ -64,6 +65,7 @@ export function TableHome() {
   const rejected = useRejected();
   const syncStatus = useSyncStatus();
   const navigate = useNavigate();
+  const showArt = useShowArt();
 
   return (
     <main className="page table-home">
@@ -72,20 +74,28 @@ export function TableHome() {
           <div className="page-head">
             <h1>Game in progress</h1>
           </div>
-          <div className="list">
-            {state.players.map((p) => (
-              <div key={p.seat} className="list-row" style={{ gridTemplateColumns: "auto 1fr auto" }}>
-                <Pips identity={p.colorIdentity} />
-                <span>
-                  <span className="title">{p.name}</span>
-                  {p.commanderName && <span className="dim"> playing {p.commanderName}</span>}
-                </span>
-                <span className="num" style={{ fontFamily: "var(--display)", fontWeight: 800, fontSize: "var(--t-lg)" }}>
-                  {p.eliminated ? "Out" : p.life}
-                </span>
-              </div>
-            ))}
-          </div>
+          <ol className="ip-rows">
+            {state.players.map((p) => {
+              const art = showArt ? panelArt(p) : null;
+              return (
+                <li key={p.seat}>
+                  <ArtPanel className="ip-row" art={art} artist={p.artist} wash="left" credit={false}>
+                    <span className="ip-text">
+                      <span className="ip-name">
+                        {p.name}
+                        {p.colorIdentity && <Pips identity={p.colorIdentity} />}
+                      </span>
+                      {p.commanderName && <span className="ip-cmdr">{p.commanderName}</span>}
+                    </span>
+                    <span className="ip-life num">{p.eliminated ? "Out" : p.life}</span>
+                  </ArtPanel>
+                </li>
+              );
+            })}
+          </ol>
+          {showArt && state.players.some((p) => panelArt(p)) && (
+            <p className="small dim" style={{ margin: 0 }}>{artCredits(state.players.filter((p) => panelArt(p)).map((p) => p.artist))}</p>
+          )}
           <div className="row">
             <button className="primary" onClick={() => navigate("/table/play")}>Back to the table</button>
             <button className="quiet" onClick={() => confirm("Throw this game away? It won't be saved.") && discardGame()}>

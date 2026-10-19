@@ -475,15 +475,6 @@
   border-radius: var(--r-pill);
   margin: 0;
 }
-.qr {
-  width: min(260px, 70vw);
-}
-.qr svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: var(--r-list);
-}
 
 /* ── table menu (design/screens/LifeMenu.dc.html) ───────────────────────── */
 

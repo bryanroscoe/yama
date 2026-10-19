@@ -513,3 +513,75 @@ fieldset.seat.seat-card2 {
     font-size: var(--t-label);
   }
 }
+
+/* ── a game in progress ─────────────────────────────────────────────────── */
+
+.ip-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.ip-row.art-panel {
+  min-height: 84px;
+  border-radius: 16px;
+  display: flex;
+}
+.ip-row > .art-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px;
+}
+.ip-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+.ip-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.75rem;
+  text-shadow: var(--art-shadow);
+}
+.ip-name .pip {
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4);
+}
+.ip-cmdr {
+  font-size: var(--t-label);
+  color: var(--on-art-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ip-life {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 2.75rem;
+  line-height: 1;
+  text-shadow: var(--art-shadow);
+}
+.ip-row:not(.art-has) :is(.ip-name, .ip-life) {
+  text-shadow: none;
+}
+.ip-row:not(.art-has) .ip-cmdr {
+  color: var(--dim);
+}
+
+/* A seat card on a sheet (Log a game, a seat opened from a phone): a hairline keeps it apart
+   from the sheet, and the art strip is shorter. */
+.sheet fieldset.seat.seat-card2 {
+  border: 1px solid var(--line);
+}
+.sheet .seat-head2.art-panel {
+  height: 96px;
+}
