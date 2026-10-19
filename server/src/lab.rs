@@ -7,6 +7,16 @@
 //!
 //! Visibility: the precon catalog and runs without an owner are global (everyone signed in reads
 //! them); a run with an owner is only ever returned to that owner, and anyone else gets a 404.
+//!
+//! "Try a change" (a user's own paired experiments, played by the server) is in [`experiments`],
+//! its games' worker in [`worker`], its schedule in [`pairing`] and its maths in [`stats`].
+
+pub mod experiments;
+pub mod pairing;
+pub mod stats;
+pub mod worker;
+#[cfg(test)]
+mod experiment_tests;
 
 use crate::auth::CurrentUser;
 use crate::cards::{CARD_COLUMNS, Card};
@@ -32,6 +42,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/precons/{id}/deck", post(create_precon_deck))
         .route("/api/lab/runs", get(list_runs))
         .route("/api/lab/runs/{id}", get(get_run))
+        .merge(experiments::router())
 }
 
 /// Folder for decks made from a precon's stock list.
@@ -541,7 +552,7 @@ pub async fn latest_global_ratings_run(pool: &SqlitePool) -> AppResult<Option<Ru
     .await?)
 }
 
-async fn ratings_for(pool: &SqlitePool, run_id: &str) -> AppResult<HashMap<String, Rating>> {
+pub(crate) async fn ratings_for(pool: &SqlitePool, run_id: &str) -> AppResult<HashMap<String, Rating>> {
     let rows: Vec<Rating> = sqlx::query_as(AssertSqlSafe(format!("SELECT {RATING_COLUMNS} FROM lab_ratings r WHERE r.run_id = ?")))
         .bind(run_id)
         .fetch_all(pool)
@@ -550,7 +561,7 @@ async fn ratings_for(pool: &SqlitePool, run_id: &str) -> AppResult<HashMap<Strin
 }
 
 /// The commander's art, to show behind a deck (Scryfall `art_crop`, loaded by the browser).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Art {
     pub url: String,
     pub artist: Option<String>,

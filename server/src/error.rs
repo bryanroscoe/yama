@@ -15,6 +15,12 @@ pub enum AppError {
     BadRequest(String),
     #[error("{0}")]
     Conflict(String),
+    /// 400 with extra fields beside `error`, e.g. the names a list couldn't resolve.
+    #[error("{message}")]
+    Invalid { message: String, details: serde_json::Value },
+    /// 503: the server can't do this right now (a missing or still-loading resource).
+    #[error("{0}")]
+    Unavailable(String),
     #[error(transparent)]
     Db(#[from] sqlx::Error),
     #[error(transparent)]
@@ -35,17 +41,27 @@ impl IntoResponse for AppError {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
-            Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::BadRequest(_) | Self::Invalid { .. } => StatusCode::BAD_REQUEST,
+            Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Db(sqlx::Error::RowNotFound) => StatusCode::NOT_FOUND,
             Self::Db(_) | Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        let message = if status.is_server_error() {
+        // Unexpected failures stay vague; a 503 says what's missing, which is the point of it.
+        let message = if status.is_server_error() && !matches!(self, Self::Unavailable(_)) {
             tracing::error!(error = ?self, "request failed");
             "internal error".to_string()
         } else {
             self.to_string()
         };
-        (status, Json(json!({ "error": message }))).into_response()
+        let mut body = json!({ "error": message });
+        if let (Self::Invalid { details: serde_json::Value::Object(extra), .. }, Some(out)) = (&self, body.as_object_mut()) {
+            for (k, v) in extra {
+                if k != "error" {
+                    out.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        (status, Json(body)).into_response()
     }
 }

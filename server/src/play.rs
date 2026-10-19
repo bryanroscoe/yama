@@ -112,6 +112,16 @@ impl PlayHub {
         }
     }
 
+    /// The loaded engine for the simulation lab, which shares this copy rather than loading a
+    /// second. `Err(None)` while it is still loading; `Err(Some(why))` when it isn't available.
+    pub fn engine_for_lab(&self) -> Result<Arc<Engine>, Option<String>> {
+        match &*self.engine.lock().unwrap() {
+            EngineState::Ready(e) => Ok(e.clone()),
+            EngineState::Loading => Err(None),
+            EngineState::Disabled(why) | EngineState::Failed(why) => Err(Some(why.clone())),
+        }
+    }
+
     /// Restart every game that was live when the server stopped, by replaying its log.
     async fn resume_live(self: &Arc<Self>, pool: &SqlitePool) {
         let rows: Vec<(String, String, Option<String>, Option<String>)> =

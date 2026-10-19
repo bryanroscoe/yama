@@ -103,6 +103,8 @@ CREATE TABLE lab_experiment_games (
     result          TEXT,                           -- JSON result line (lab::GameResult); NULL until played
     end_kind        TEXT,                           -- the result's end, for counting
     finished_at     TEXT,
+    attempts        INTEGER NOT NULL DEFAULT 0,     -- times a server started the game; one started twice with no result is
+                                                    -- written off, so a game that crashes the server can't do it on every restart
     PRIMARY KEY (experiment_id, game)
 );
 CREATE INDEX lab_experiment_games_pending ON lab_experiment_games(experiment_id, ord) WHERE result IS NULL;

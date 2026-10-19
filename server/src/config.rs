@@ -27,6 +27,9 @@ pub struct Config {
     /// tag. With both set, people signed in by Access are signed in to Yama.
     pub cf_access_team: Option<String>,
     pub cf_access_aud: Option<String>,
+    /// Game threads for the simulation lab's experiments (YAMA_LAB_THREADS, default 2). 0 turns
+    /// the lab off: experiments can be read but no new ones start.
+    pub lab_threads: usize,
 }
 
 impl Config {
@@ -76,6 +79,10 @@ impl Config {
             engine_card_data: Some(engine_card_data),
             cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),
             cf_access_aud: std::env::var("YAMA_CF_ACCESS_AUD").ok().filter(|s| !s.is_empty()),
+            lab_threads: match std::env::var("YAMA_LAB_THREADS") {
+                Ok(v) if !v.trim().is_empty() => v.trim().parse().with_context(|| format!("YAMA_LAB_THREADS {v:?} must be a whole number"))?,
+                _ => 2,
+            },
         })
     }
 }
