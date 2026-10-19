@@ -4,7 +4,7 @@
 // by `answerIndex` as orphans; the page shows them in their own section.
 
 import type { Tone } from "./changes";
-import type { PlanBundle, PlanDeck, Quote, Review, Swap } from "./types";
+import type { Mark, PlanBundle, PlanDeck, Quote, Review, Swap } from "./types";
 
 export type ReviewGroupId = "proposed" | "now" | "standins" | "prints" | "optional";
 
@@ -121,5 +121,14 @@ export function answerState(r: Review | undefined, opts: AnswerStateOptions): { 
   if (r.origin === "import") return { label: `From ${opts.app}`, tone: "plain" };
   if (opts.source === "yama") return { label: "Saved", tone: "good" };
   if (r.seq != null && r.seq <= opts.pulledThrough) return { label: `Picked up by ${opts.app}`, tone: "good" };
+  return { label: `Saved in Yama, waiting for ${opts.app} to pick it up`, tone: "plain" };
+}
+
+/** Where an installed tick or bought mark stands on its way to the planner. Null with no mark. */
+export function markState(m: Mark | undefined, opts: AnswerStateOptions): { label: string; tone: Tone } | null {
+  if (!m) return null;
+  if (m.local === "pending") return { label: "Saved on this phone, waiting to sync", tone: "warn" };
+  if (opts.source === "yama") return { label: "Saved", tone: "good" };
+  if (m.seq != null && m.seq <= opts.pulledThrough) return { label: `Picked up by ${opts.app}`, tone: "good" };
   return { label: `Saved in Yama, waiting for ${opts.app} to pick it up`, tone: "plain" };
 }

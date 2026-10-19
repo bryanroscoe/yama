@@ -322,13 +322,35 @@ export interface GameChangers {
   names: string[];
 }
 
+/** One bought copy as the export's library matched it with the newest collection scan. */
+export interface LibraryBought {
+  order: string;
+  line: number;
+  card: string;
+  deck: string | null;
+  replaces: string | null;
+  set: string | null;
+  num: string | null;
+  arrived: boolean | null;
+  /** "ok": scanned as listed; "diff": scanned as another printing; null: not in the scan. */
+  scan: "ok" | "diff" | null;
+  scanned: { set: string; num: string } | null;
+}
+
+/** What the export knows about the owner's cards beyond the plan (commander-decks' library.py). */
+export interface PlanLibrary {
+  bought?: LibraryBought[];
+  scan?: { date?: string | null; file?: string | null } | null;
+  precon_lists_fetched?: string | null;
+}
+
 export interface PlanBundle {
   rev: string;
   revision: number;
   head: PlanHead | null;
   notes: PlanNote[];
   game_changers: GameChangers | null;
-  library: unknown;
+  library: PlanLibrary | null;
   settings: { effective_from: string; rules: Record<string, unknown>; note: string | null; origin: string }[];
   stores: Store[];
   decks: PlanDeck[];

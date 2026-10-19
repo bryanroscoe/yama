@@ -1,11 +1,14 @@
 // Lookups the plan pages share, built once per bundle and outbox state.
 import {
   answerIndex,
+  localDate,
+  markIndex,
   overlayMarks,
   overlayReviews,
   sourceContext,
   type LocalOp,
   type Mark,
+  type MarkPair,
   type PlanBundle,
   type PlanCard,
   type PlanDeck,
@@ -23,6 +26,12 @@ export interface PlanView {
   /** Each live swap's current answer (aliases followed, tombstones dropped, taps included). */
   answers: Map<string, Review>;
   orphans: [string, Review][];
+  /** Each live swap's installed tick and bought mark (aliases followed, taps included). */
+  markBy: Map<string, MarkPair>;
+  /** Marks whose swap is no longer in the plan. */
+  markOrphans: [string, MarkPair][];
+  /** Today on this device, YYYY-MM-DD: picks the rule set for prices checked today. */
+  today: string;
   oracleId: (name: string | null | undefined) => string | undefined;
   card: (name: string | null | undefined) => PlanCard | undefined;
   deck: (key: string) => PlanDeck | undefined;
@@ -39,6 +48,8 @@ export function planView(b: PlanBundle, local: LocalOp[] = []): PlanView {
   const live = b.swaps.filter((s) => !s.retired).map((s) => s.key);
   const reviews = overlayReviews(b.reviews, local);
   const { answers, orphans } = answerIndex(reviews, b.aliases, live);
+  const marks = overlayMarks(b.marks ?? {}, local);
+  const { marks: markBy, orphans: markOrphans } = markIndex(marks, b.aliases, live);
   const oracleId = (name: string | null | undefined) => (name ? b.names[name.trim()] : undefined);
   const card = (name: string | null | undefined) => {
     const id = oracleId(name);
@@ -50,9 +61,12 @@ export function planView(b: PlanBundle, local: LocalOp[] = []): PlanView {
     b,
     ctx,
     reviews,
-    marks: overlayMarks(b.marks ?? {}, local),
+    marks,
     answers,
     orphans,
+    markBy,
+    markOrphans,
+    today: localDate(),
     oracleId,
     card,
     deck: (key) => ctx.decks.get(key),

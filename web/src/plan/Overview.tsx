@@ -1,10 +1,10 @@
 import { identityName } from "@yama/core";
-import { deckCounts, deckWarnings, fmtDate, type PlanDeck } from "@yama/core/plan";
-import { useState } from "react";
+import { daysBetween, deckCounts, deckWarnings, fmtDate, opTime, overviewCounts, STALE_DAYS, usd, type PlanDeck } from "@yama/core/plan";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { Pips } from "../components/ui";
 import { ImportSheet } from "./ImportSheet";
-import { useOutbox } from "./outbox";
+import { deviceId, outbox, useOutbox } from "./outbox";
 import { headSentence, usePlanOutlet } from "./PlanLayout";
 import { ArtPanel } from "./parts";
 import type { PlanView } from "./view";
@@ -17,8 +17,11 @@ export function Overview() {
   const [importing, setImporting] = useState(false);
   const live = b.decks.filter((d) => d.status !== "archived");
   const archived = b.decks.filter((d) => d.status === "archived");
-  const counts = live.map((d) => deckCounts(d, view.swapsOf(d.key), view.answers));
+  const counts = live.map((d) => deckCounts(d, view.swapsOf(d.key), view.answers, view.ctx.orders));
   const sum = (f: (c: (typeof counts)[number]) => number) => counts.reduce((n, c) => n + f(c), 0);
+  const totals = useMemo(() => overviewCounts(b, { answers: view.answers, marks: view.markBy, today: view.today }), [b, view]);
+  const priceAge = daysBetween(b.prices_as_of, view.today);
+  const installedGone = view.markOrphans.filter(([, m]) => m.installed?.value);
   const questions = b.notes.filter((n) => n.kind === "open_question");
   const otherNotes = b.notes.filter((n) => n.kind !== "open_question");
 
@@ -48,6 +51,7 @@ export function Overview() {
               <p className="small dim">
                 Lists, swaps and prices come from that export and are read-only here.
                 {b.prices_as_of ? ` Market prices are TCGplayer market via Scryfall, as of ${fmtDate(b.prices_as_of)}.` : " No market prices yet."}
+                {priceAge != null && priceAge > STALE_DAYS ? ` Yama's prices haven't updated for ${priceAge} days.` : ""}
                 {` What you do here goes to its inbox`}
                 {b.inputs.pending_pull > 0
                   ? `: ${b.inputs.pending_pull === 1 ? "1 item is" : `${b.inputs.pending_pull} items are`} waiting to be picked up.`
@@ -61,8 +65,29 @@ export function Overview() {
 
           <div className="figures">
             <Link className="figure" to="/decks/plan/review?show=proposed">
-              <b className="num">{sum((c) => c.undecided)}</b>
+              <b className="num">{totals.toReview}</b>
               <span>proposals to review</span>
+            </Link>
+            <Link className="figure" to="/decks/plan/buy">
+              <b className="num">{totals.toBuy}</b>
+              <span>
+                to buy, {usd(totals.buyTotal)} listed{totals.buyUnpriced ? `, ${totals.buyUnpriced} without a listed price` : ""}
+              </span>
+            </Link>
+            <Link className="figure" to="/decks/plan/prints">
+              <b className="num">{totals.printsOnOrder}</b>
+              <span>
+                prints on order{totals.printsNext ? `, ${totals.printsNext} for the next order` : ""}
+                {totals.printsArrived ? `, ${totals.printsArrived} arrived` : ""}
+              </span>
+            </Link>
+            <div className="figure">
+              <b className="num">{totals.waitingToInstall}</b>
+              <span>in hand, not ticked as installed</span>
+            </div>
+            <Link className="figure" to="/decks/plan/spares">
+              <b className="num">{totals.sparesNow}</b>
+              <span>spares free now{totals.sparesLater ? `, ${totals.sparesLater} more when prints arrive` : ""}</span>
             </Link>
             <div className="figure">
               <b className="num">
@@ -70,15 +95,33 @@ export function Overview() {
               </b>
               <span>planned swaps in hand now</span>
             </div>
-            <div className="figure">
-              <b className="num">{sum((c) => c.standins)}</b>
-              <span>stand-ins holding a print's slot</span>
-            </div>
-            <div className="figure">
-              <b className="num">{sum((c) => c.printsOnOrder)}</b>
-              <span>prints on order{sum((c) => c.printsNext) ? `, ${sum((c) => c.printsNext)} for the next order` : ""}</span>
-            </div>
           </div>
+
+          {installedGone.length > 0 && (
+            <section className="plan-notes">
+              <h3>Installed, but no longer in the plan</h3>
+              <p className="small dim">You ticked these as in the deck, and the latest import doesn't have the swap. Settle them with your planner, or clear the tick.</p>
+              <ul className="small">
+                {installedGone.map(([key]) => {
+                  const [, deck, inn, out] = key.split("|");
+                  return (
+                    <li key={key}>
+                      {inn ? `${inn}${out ? ` for ${out}` : ""}` : key}
+                      {deck ? <span className="dim"> ({deck})</span> : null}{" "}
+                      <button
+                        className="quiet small"
+                        onClick={() =>
+                          outbox.enqueue(userId, { kind: "installed", op_id: crypto.randomUUID(), device_id: deviceId(), at: opTime(), swap_key: key, deck_key: null, value: false })
+                        }
+                      >
+                        Clear the tick
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
 
           {questions.length > 0 && (
             <details className="plan-notes plan-notes-fold">
@@ -116,7 +159,7 @@ export function Overview() {
               <p className="dim small">The latest import didn't include these decks. Yama keeps them so their answers aren't lost.</p>
               <div className="plan-deck-grid">
                 {archived.map((d) => (
-                  <DeckCard key={d.key} deck={d} view={view} counts={deckCounts(d, view.swapsOf(d.key), view.answers)} />
+                  <DeckCard key={d.key} deck={d} view={view} counts={deckCounts(d, view.swapsOf(d.key), view.answers, view.ctx.orders)} />
                 ))}
               </div>
             </section>

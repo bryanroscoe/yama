@@ -1,5 +1,6 @@
 // List text for copying, list differences, review answers and the proposed build.
 
+import { newestChecks } from "./quotes";
 import type { PlanGroup, Quote, Review, Slot, Store, Swap } from "./types";
 
 /** Basic lands as commander-decks' library.py counts them: they sort last in copied lists. */
@@ -205,6 +206,9 @@ export function cardCount(cards: Slot[]): number {
  */
 export function ownedOrStockedLocally(quotes: Quote[], stores: Store[]): (s: Swap) => boolean {
   const local = new Set(stores.filter((st) => st.kind === "local").map((st) => st.key));
-  const stocked = new Set(quotes.filter((q) => q.kind === "stock_check" && q.in_stock === true && q.store && local.has(q.store) && q.swap).map((q) => q.swap!));
+  const bySwap = new Map<string, Quote[]>();
+  for (const q of quotes) if (q.swap && q.store && local.has(q.store)) bySwap.set(q.swap, [...(bySwap.get(q.swap) ?? []), q]);
+  // Only each store's newest check counts: a newer "sold out" replaces an older "in stock".
+  const stocked = new Set([...bySwap].filter(([, qs]) => newestChecks(qs).some((q) => q.in_stock === true)).map(([k]) => k));
   return (s) => s.src === "owned" || (s.src === "buy" && stocked.has(s.key));
 }

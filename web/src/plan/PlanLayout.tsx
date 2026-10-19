@@ -19,10 +19,13 @@ export function usePlanOutlet(): PlanOutlet {
   return useOutletContext<PlanOutlet>();
 }
 
-/** The Plans pages, in order. Buy, Prints and Spares come in the next slice. */
+/** The Plans pages, in order. */
 const PLAN_PAGES: { to: string; label: string; end?: boolean }[] = [
   { to: "/decks/plan", label: "Overview", end: true },
   { to: "/decks/plan/review", label: "Review" },
+  { to: "/decks/plan/buy", label: "Buy" },
+  { to: "/decks/plan/prints", label: "Prints" },
+  { to: "/decks/plan/spares", label: "Spares" },
   { to: "/decks/plan/settings", label: "Settings" },
 ];
 

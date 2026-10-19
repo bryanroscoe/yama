@@ -1,5 +1,6 @@
 import {
   answerState,
+  cheapestMarket,
   filterItems,
   fmtDate,
   isAnswer,
@@ -25,6 +26,7 @@ import { memo, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { deviceId, outbox, useOutbox, useOutboxState } from "./outbox";
 import { usePlanOutlet } from "./PlanLayout";
+import { marketSentence } from "./marks";
 import { StatusTag, Thumb } from "./parts";
 import type { PlanView } from "./view";
 
@@ -159,13 +161,12 @@ const ReviewRow = memo(function ReviewRow({ item, deck, view, userId }: { item: 
   const s = item.swap;
   const a = item.answer;
   const state = answerState(a, { source: deck.source, pulledThrough: view.b.inputs.pulled_through ?? 0, app: view.app });
-  const status = swapStatus(s, deckLogs(deck), view.deckName);
+  const status = swapStatus(s, deckLogs(deck), view.deckName, view.ctx.orders);
   const send = (change: Partial<ReviewRecord>) => sendAnswer(userId, s.key, s.deck, a, change);
   const bench = item.quotes.filter((q) => q.kind === "market_benchmark");
   const stock = item.quotes.filter((q) => q.kind === "stock_check");
   const priced = s.src !== "owned";
   const id = view.oracleId(s.in);
-  const market = priced && id ? view.b.market[id] : undefined;
   return (
     <div className={`swap-row review-row${a?.decision ? ` answered-${a.decision}` : ""}`}>
       <div className="swap-thumbs">
@@ -203,11 +204,7 @@ const ReviewRow = memo(function ReviewRow({ item, deck, view, userId }: { item: 
             {q.printing ? ` for ${q.printing}` : ""}, checked {fmtDate(q.checked)}.
           </p>
         ))}
-        {priced && id && (
-          <p className="small dim">
-            {market ? `Yama's market price: ${usd(market.usd)} for ${market.printing}, ${fmtDate(market.date)} (${market.source}).` : "Yama's market price: no price in Yama's price data."}
-          </p>
-        )}
+        {priced && id && <p className="small dim">{marketSentence(cheapestMarket(s.in, view.b), true, "Yama's market price")}</p>}
         {stock.length > 0 && (
           <ul className="small plan-stock">
             {stock.map((q, i) => (

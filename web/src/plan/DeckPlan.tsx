@@ -3,6 +3,7 @@ import {
   bagSource,
   bracketBuilds,
   cardCount,
+  cheapestMarket,
   deckChanges,
   deckDiff,
   deckLogs,
@@ -36,6 +37,7 @@ import { ErrorText, Pips } from "../components/ui";
 import { linkDeck, makeYamaDeck } from "./api";
 import { deviceId, outbox, useOutbox } from "./outbox";
 import { usePlanOutlet } from "./PlanLayout";
+import { BoughtLine, InstalledTick, marketSentence } from "./marks";
 import { ArtPanel, CopyButton, StatusTag, Thumb } from "./parts";
 import type { PlanView } from "./view";
 
@@ -142,10 +144,11 @@ export function DeckPlan() {
 // ── Changes ─────────────────────────────────────────────────────────────────
 
 function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
+  const { userId } = usePlanOutlet();
   const swaps = view.swapsOf(deck.key);
   const c = useMemo(() => deckChanges(deck.key, deck.groups, swaps), [deck, swaps]);
   const logs = useMemo(() => deckLogs(deck), [deck]);
-  const row = (s: Swap) => <SwapRow key={s.key} s={s} view={view} logs={logs} standins={c.standins.get(s.key) ?? []} />;
+  const row = (s: Swap) => <SwapRow key={s.key} s={s} view={view} userId={userId} logs={logs} standins={c.standins.get(s.key) ?? []} />;
   const nothing = !c.now.length && !c.prints.length && !c.optional.length && !c.proposed.length && !c.loose.length;
   return (
     <div className="stack">
@@ -204,11 +207,10 @@ function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
   );
 }
 
-function SwapRow({ s, view, logs, standins }: { s: Swap; view: PlanView; logs: ReturnType<typeof deckLogs>; standins: Swap[] }) {
-  const status = swapStatus(s, logs, view.deckName);
+function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView; userId: string; logs: ReturnType<typeof deckLogs>; standins: Swap[] }) {
+  const status = swapStatus(s, logs, view.deckName, view.ctx.orders);
   const answer = view.answers.get(s.key);
-  const market = s.stage === "proposed" && s.src !== "owned" ? view.b.market[view.oracleId(s.in) ?? ""] : undefined;
-  const marketKnown = s.stage === "proposed" && s.src !== "owned" && !!view.oracleId(s.in);
+  const priced = s.stage === "proposed" && s.src !== "owned";
   return (
     <div className="swap-row">
       <div className="swap-thumbs">
@@ -234,11 +236,7 @@ function SwapRow({ s, view, logs, standins }: { s: Swap; view: PlanView; logs: R
         <p className="small dim">{swapSource(s, view.ctx)}</p>
         {s.when && <p className="small">{/^when\b/i.test(s.when) ? s.when : `When: ${s.when}`}</p>}
         {s.advice && <p className="small">{s.advice}</p>}
-        {marketKnown && (
-          <p className="small dim">
-            {market ? `Market ${usd(market.usd)} for ${market.printing}, ${fmtDate(market.date)} (${market.source}).` : "Market: no price in Yama's price data."}
-          </p>
-        )}
+        {priced && <p className="small dim">{marketSentence(cheapestMarket(s.in, view.b), !!view.oracleId(s.in))}</p>}
         {s.later_out && <p className="small">Later cut (suggested, not in the plan): {s.later_out}</p>}
         {answer && <AnswerLine s={s} answer={answer} view={view} />}
         {(s.why || s.why_out || s.note) && (
@@ -249,10 +247,13 @@ function SwapRow({ s, view, logs, standins }: { s: Swap; view: PlanView; logs: R
             {s.note && <p className="dim">Note: {s.note}</p>}
           </details>
         )}
+        {s.stage === "planned" && <BoughtLine swap={s} view={view} />}
+        {s.stage === "planned" && (s.role !== "optional" || s.out) && <InstalledTick swap={s} view={view} userId={userId} />}
         {standins.map((st) => (
           <div key={st.key} className="swap-standin small">
-            <span className="tag">Stand-in</span> <b>{st.in}</b> holds the slot until the print arrives. {swapSource(st, view.ctx)}
-            {st.later_out && <> Later cut (suggested, not in the plan): {st.later_out}.</>}
+            <span className="tag">Stand-in</span> <b>{st.in}</b> holds the slot until the print arrives, then becomes a spare. {swapSource(st, view.ctx)}
+            {st.later_out && <> Later cut (suggested, not in the plan): {st.later_out}. If you follow it, {st.in} stays and {st.later_out} is the spare instead.</>}
+            <InstalledTick swap={st} view={view} userId={userId} compact />
           </div>
         ))}
       </div>
