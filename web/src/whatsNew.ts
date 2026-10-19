@@ -1,0 +1,93 @@
+// What's new in Yama, newest first. Add an entry when something people will notice ships; the
+// app shows a notice until each person opens the page (remembered per device).
+
+export interface NewsEntry {
+  /** Stable id; the notice compares it with the newest one this device has seen. */
+  id: string;
+  /** YYYY-MM-DD */
+  date: string;
+  title: string;
+  items: string[];
+  /** Where to try it. */
+  link?: { to: string; label: string };
+}
+
+export const NEWS: NewsEntry[] = [
+  {
+    id: "2026-10-19-calendar",
+    date: "2026-10-19",
+    title: "Release calendar",
+    items: [
+      "The Cards page lists upcoming sets, with release dates and how many cards Scryfall has so far.",
+      "Tap Watch on a set to follow its Commander precons. Star Trek Commander is on the list.",
+      "When a watched set's precon lists are published, the Cards page names each deck and its commander.",
+      "Start a deck from any of them. Yama fills in the stock list for you to check and save.",
+      "Yama checks Scryfall and MTGJSON for new sets and lists once a day.",
+    ],
+    link: { to: "/cards", label: "Open Cards" },
+  },
+  {
+    id: "2026-10-19-table-stats",
+    date: "2026-10-19",
+    title: "Game night and group stats",
+    items: [
+      "Each player's commander art sits behind their life total. The table menu switches back to mana colors.",
+      "Roll for first or pick who goes first. Yama remembers it and counts rounds from that player.",
+      "Knocking someone out asks who did it.",
+      "The finish sheet asks how the game was won and how fun it was. Both are optional.",
+      "The Group page shows rivalries: head to head, archnemesis, first and last out, and streaks.",
+      "Win rate by turn order sits beside playgroup.gg's figures until your group has 20 four-player games.",
+      "Every rate shows its count, and anything under 5 games is marked provisional.",
+      "Deck pages show results for each version, like “This version: 2-4, 6 games”.",
+      "Export your games as JSON or CSV from the Group page.",
+    ],
+    link: { to: "/group", label: "Open Group" },
+  },
+  {
+    id: "2026-10-19-fixes",
+    date: "2026-10-19",
+    title: "Fixes",
+    items: [
+      "Guest players' names show in stats and recent games again, instead of Unknown.",
+      "Log a game no longer records the wrong winner when a seat is left blank.",
+      "Pressing Save twice no longer logs the same game twice.",
+      "A game you only watched isn't put on your record.",
+    ],
+  },
+  {
+    id: "2026-10-19-decks",
+    date: "2026-10-19",
+    title: "Deck brackets, stats and exports",
+    items: [
+      "Declare a bracket from 1 to 5 in Edit deck. It shows on the deck list, at the table and in the online lobby.",
+      "Commander Spellbook estimates each saved version's bracket and lists its Game Changers, mass land denial, extra turns and combos.",
+      "Deck pages show the mana curve, average mana value, land count, and colored pips against land sources.",
+      "Export a deck for EDHbots, Moxfield or MTG Arena.",
+      "History lists every saved version and shows what changed between any two.",
+    ],
+    link: { to: "/decks", label: "Open Decks" },
+  },
+  {
+    id: "2026-10-19-cards",
+    date: "2026-10-19",
+    title: "Card details",
+    items: [
+      "The card sheet shows rulings, with their dates and sources.",
+      "Game Changers are tagged on the card sheet and counted on deck pages. Search for them with is:gamechanger.",
+      "Deck pages say how many cards online play supports, and name the ones it doesn't.",
+      "In an online game on a computer, Read card opens the selected card with its rulings.",
+      "Card images use Scryfall's new WebP files.",
+    ],
+    link: { to: "/cards", label: "Open Cards" },
+  },
+];
+
+export const SEEN_KEY = "yama.whatsNew.seen";
+
+/** Entries newer than the one this device last saw: all of them if it saw none, or saw one
+ *  that's no longer listed. */
+export function unseen(entries: NewsEntry[], seenId: string | null): NewsEntry[] {
+  if (!seenId) return entries;
+  const i = entries.findIndex((e) => e.id === seenId);
+  return i < 0 ? entries : entries.slice(0, i);
+}

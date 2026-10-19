@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { ErrorText, Pips } from "../components/ui";
+import { BracketChips } from "../components/Bracket";
 import { useCardArt } from "../components/useCardArt";
 import { Board } from "./Board";
 import type { OnlineGame } from "./types";
@@ -51,6 +52,11 @@ function Lobby({ game }: { game: OnlineGame }) {
                 <span className="seat-cmdr">{s.deck_name ?? "Needs the code"}</span>
                 {taken && <Pips identity={s.color_identity} label={false} />}
               </span>
+              {(s.bracket != null || s.estimate) && (
+                <span className="seat-bracket">
+                  <BracketChips declared={s.bracket} estimate={s.estimate} />
+                </span>
+              )}
               <span className={`seat-state ${taken ? "good" : "warn"}`}>{taken ? "Ready" : "Waiting"}</span>
             </ArtPanel>
           );

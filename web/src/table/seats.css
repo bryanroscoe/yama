@@ -1,0 +1,29 @@
+/* Seat setup in New game and Log a game: the "This is me" box and the winner radios.
+
+   Semantic tokens as the new design names them, falling back to today's playmat variables.
+   This block is the only place the old names appear here. */
+.check-row {
+  --sc-text: var(--text, var(--paper));
+  --sc-accent: var(--accent, var(--paper));
+}
+
+.check-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-weight: 400;
+  color: var(--sc-text);
+  /* A comfortable tap target for the whole line, not just the box. */
+  min-height: 44px;
+}
+.check-row input {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--sc-accent);
+}
+/* Sits beside the player's name in the seat's row. */
+.seat-me {
+  flex: 0 0 auto;
+  align-self: end;
+}

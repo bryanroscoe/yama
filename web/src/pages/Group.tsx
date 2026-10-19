@@ -1,13 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, type PlaygroupStats, type Playgroup } from "../api";
+import { Link } from "react-router";
+import { api, API_BASE, type PlaygroupStats, type Playgroup } from "../api";
 import { useLogout, useMe } from "../auth";
 import { ErrorText } from "../components/ui";
+import { GroupStats } from "../components/GroupStats";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
-
-/** Below these, a win rate says little: those rows are greyed out. */
-const FEW_PLAYER_GAMES = 10;
-const FEW_COMMANDER_GAMES = 5;
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
@@ -27,6 +25,7 @@ export function GroupPage() {
       <ErrorText error={groups.error} />
       {groups.data?.length === 0 && <p className="empty">You're not in a playgroup yet. Start one for your table, or join with a friend's code.</p>}
       {group && <GroupDetail group={group} />}
+      <ExportGames group={group} />
       <GroupActions />
       <Account />
     </main>
@@ -47,53 +46,11 @@ function GroupDetail({ group }: { group: Playgroup }) {
   const s = stats.data;
   return (
     <div className="stack" style={{ marginBottom: "2.5rem" }}>
+      <ErrorText error={stats.error} />
       {s && s.games > 0 ? (
-        <>
-          <div className="figures">
-            <div className="figure"><b className="num">{s.games}</b><span>games recorded</span></div>
-            {s.average_turns != null && <div className="figure"><b className="num">{s.average_turns.toFixed(1)}</b><span>turns on average</span></div>}
-            {s.average_minutes != null && <div className="figure"><b className="num">{Math.round(s.average_minutes)}</b><span>minutes on average</span></div>}
-          </div>
-          <section>
-            <h2>Players</h2>
-            <table className="plain">
-              <thead><tr><th>Player</th><th className="r">Games</th><th className="r">Wins</th><th className="r">Win rate</th></tr></thead>
-              <tbody>
-                {s.players.map((p) => (
-                  <tr key={p.name} className={p.games < FEW_PLAYER_GAMES ? "few" : undefined}>
-                    <td>{p.name}</td>
-                    <td className="r num">{p.games}</td>
-                    <td className="r num">{p.wins}</td>
-                    <td className="r num">{Math.round((100 * p.wins) / p.games)}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {s.players.some((p) => p.games < FEW_PLAYER_GAMES) && (
-              <p className="small dim">Greyed out: fewer than {FEW_PLAYER_GAMES} games, too few to read much into.</p>
-            )}
-          </section>
-          <section>
-            <h2>Commanders</h2>
-            <table className="plain">
-              <thead><tr><th>Commander</th><th className="r">Games</th><th className="r">Wins</th></tr></thead>
-              <tbody>
-                {s.commanders.map((c) => (
-                  <tr key={c.commander} className={c.games < FEW_COMMANDER_GAMES ? "few" : undefined}>
-                    <td>{c.commander}</td>
-                    <td className="r num">{c.games}</td>
-                    <td className="r num">{c.wins}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {s.commanders.some((c) => c.games < FEW_COMMANDER_GAMES) && (
-              <p className="small dim">Greyed out: fewer than {FEW_COMMANDER_GAMES} games.</p>
-            )}
-          </section>
-        </>
+        <GroupStats s={s} />
       ) : (
-        <p className="dim">No finished games yet. Play one from the Table tab with this playgroup chosen, and the stats start here.</p>
+        s && <p className="dim">No finished games yet. Play one from the Table tab with this playgroup chosen, and the stats start here.</p>
       )}
 
       <section>
@@ -114,6 +71,37 @@ function GroupDetail({ group }: { group: Playgroup }) {
         <ErrorText error={addGuest.error} />
       </section>
     </div>
+  );
+}
+
+/** Game history as JSON (shaped for commander-decks' data/games.json) or CSV, one row per seat. */
+function ExportGames({ group }: { group?: Playgroup }) {
+  // The browser's time zone, so each game's date is the local day it was played, with daylight
+  // saving as it was that day. The offset is the fallback if the server doesn't know the zone.
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const offset = -new Date().getTimezoneOffset();
+  const link = (ext: "json" | "csv", playgroup?: string) =>
+    `${API_BASE}/api/games/export.${ext}?offset=${offset}${tz ? `&tz=${encodeURIComponent(tz)}` : ""}${playgroup ? `&playgroup=${encodeURIComponent(playgroup)}` : ""}`;
+  return (
+    <section className="stack" style={{ marginBottom: "2.5rem", gap: "0.6rem" }}>
+      <h2 style={{ margin: 0 }}>Export games</h2>
+      <p className="dim small" style={{ margin: 0 }}>
+        Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings. The JSON
+        fits commander-decks' data/games.json; the CSV has one row per seat.
+      </p>
+      {group && (
+        <div className="row">
+          <span style={{ minWidth: "9rem" }}>{group.name}</span>
+          <a className="button" href={link("json", group.id)} download>JSON</a>
+          <a className="button" href={link("csv", group.id)} download>CSV</a>
+        </div>
+      )}
+      <div className="row">
+        <span style={{ minWidth: "9rem" }}>Every game you played or recorded</span>
+        <a className="button" href={link("json")} download>JSON</a>
+        <a className="button" href={link("csv")} download>CSV</a>
+      </div>
+    </section>
   );
 }
 
@@ -176,6 +164,7 @@ function Account() {
         </div>
       )}
       <OfflineCardsSetting />
+      <p style={{ margin: 0 }}><Link to="/new">What's new in Yama</Link></p>
       <div><button onClick={() => void logout()}>Sign out</button></div>
     </section>
   );

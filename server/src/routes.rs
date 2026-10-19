@@ -27,10 +27,12 @@ pub fn app(state: AppState) -> Router {
         .route("/api/health", get(|| async { "ok" }))
         .merge(crate::auth::router())
         .merge(crate::cards::router())
+        .merge(crate::calendar::router())
         .merge(crate::collection::router())
         .merge(crate::decks::router())
         .merge(crate::playgroups::router())
         .merge(crate::games::router())
+        .merge(crate::game_export::router())
         .merge(crate::table_rooms::router())
         .merge(crate::play::router())
         // Unknown API paths are errors, not the web app.
@@ -68,6 +70,10 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     }
     if cfg.auto_import {
         crate::cards::import::spawn_scheduler(pool.clone(), cfg.data_dir.clone());
+        crate::calendar::spawn_scheduler(pool.clone(), http_client());
+    }
+    if cfg.deck_checks {
+        crate::deck_checks::spawn_worker(pool.clone(), http_client(), crate::deck_checks::SPELLBOOK_ESTIMATE_URL.into());
     }
     let play = crate::play::PlayHub::start(cfg.engine_card_data.clone(), pool.clone());
     let bind = cfg.bind.clone();

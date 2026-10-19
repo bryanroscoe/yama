@@ -33,7 +33,20 @@ export interface OfflineCard {
   img: string | null;
   /** EDHREC rank */
   e: number | null;
+  /** On the Commander Game Changers list. The server only sends it when true. */
+  g?: boolean;
 }
+
+export interface SearchOptions {
+  /**
+   * Whether the card list carries Game Changer flags. When false, `is:gamechanger` throws
+   * instead of matching nothing, because a missing flag then means unknown, not false.
+   * Defaults to true.
+   */
+  gameChangers?: boolean;
+}
+
+export const GAME_CHANGERS_NOT_LOADED = "The Game Changer list isn't loaded yet, so is:gamechanger can't be searched.";
 
 type Pred = (c: OfflineCard) => boolean;
 
@@ -172,7 +185,7 @@ function numPred(get: (c: OfflineCard) => number | null, op: string, value: stri
 const num = (s: string | null) => (s === null ? null : Number.parseFloat(s));
 const has = (hay: string, needle: string) => hay.toLowerCase().includes(needle.toLowerCase());
 
-function term(key: string | null, op: string, value: string, exact: boolean): Pred {
+function term(key: string | null, op: string, value: string, exact: boolean, opts: SearchOptions): Pred {
   if (!key) {
     if (exact) {
       const v = value.toLowerCase();
@@ -250,6 +263,10 @@ function term(key: string | null, op: string, value: string, exact: boolean): Pr
         case "multicolor":
         case "multicolored":
           return (c) => c.c.length >= 2;
+        case "gamechanger":
+        case "gc":
+          if (opts.gameChangers === false) throw new Error(GAME_CHANGERS_NOT_LOADED);
+          return (c) => c.g === true;
         default:
           throw new Error(`unsupported is:${value}`);
       }
@@ -258,7 +275,7 @@ function term(key: string | null, op: string, value: string, exact: boolean): Pr
   }
 }
 
-export function compileSearch(query: string): Pred {
+export function compileSearch(query: string, opts: SearchOptions = {}): Pred {
   const toks = lex(query);
   let pos = 0;
   const peek = () => toks[pos];
@@ -293,7 +310,7 @@ export function compileSearch(query: string): Pred {
       if (toks[pos++]?.k !== ")") throw new Error("missing ')'");
       return inner;
     }
-    if (t.k === "term") return term(t.key, t.op, t.value, t.exact);
+    if (t.k === "term") return term(t.key, t.op, t.value, t.exact, opts);
     throw new Error("unexpected token");
   };
 
@@ -305,8 +322,13 @@ export function compileSearch(query: string): Pred {
 
 const EXTRA_LAYOUTS = new Set(["token", "double_faced_token", "emblem", "vanguard", "scheme", "planar"]);
 
-export function searchOffline(cards: OfflineCard[], query: string, order: "name" | "edhrec" | "mv" | "color" = "name"): OfflineCard[] {
-  const pred = compileSearch(query);
+export function searchOffline(
+  cards: OfflineCard[],
+  query: string,
+  order: "name" | "edhrec" | "mv" | "color" = "name",
+  opts: SearchOptions = {},
+): OfflineCard[] {
+  const pred = compileSearch(query, opts);
   const q = query.toLowerCase();
   const extras = q.includes("t:token") || q.includes("type:token") || q.includes("t:emblem") || q.includes("include:extras");
   const hits = cards.filter((c) => (extras || !EXTRA_LAYOUTS.has(c.y ?? "")) && pred(c));

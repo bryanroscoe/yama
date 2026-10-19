@@ -8,6 +8,7 @@ import { Link } from "react-router";
 import { api, API_BASE } from "../api";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
 import { Pips, Sheet } from "../components/ui";
+import { CardRulings } from "../components/Rulings";
 import { useCardArt } from "../components/useCardArt";
 import { promptText, shortName } from "./text";
 import type { CardMeta, CardView, Decision, OptionView, PlayerView, SeatInfo, ServerMessage, View } from "./types";
@@ -662,10 +663,17 @@ function DecisionPanel(props: {
 }) {
   const { decision, compact } = props;
   const last = compact && props.lastEvent ? <p className="last-event small">{props.lastEvent}</p> : null;
+  // With a mouse, a click selects a card and hover shows it; this opens the full card with its
+  // rulings. (On a phone, a tap opens it directly.)
+  const picked = !compact && props.selected ? props.cardById.get(props.selected[0]!) : undefined;
+  const readPicked = picked && (
+    <button className="quiet small" onClick={() => props.onRead(picked)}>Read card</button>
+  );
   if (props.over) {
     return (
       <section className={`decision done${compact ? " compact" : ""}`}>
         <h2>{props.winner === null ? "The game is a draw" : props.youWon ? "You won" : `${props.winner} won`}</h2>
+        {picked && <p className="small"><b>{picked.name}</b> {readPicked}</p>}
       </section>
     );
   }
@@ -674,6 +682,7 @@ function DecisionPanel(props: {
       <section className={`decision waiting${compact ? " compact" : ""}`}>
         {last}
         <p className="dim">{props.spectator ? "Watching." : `Waiting for ${props.waitingFor.join(" and ") || "the game"}…`}</p>
+        {picked && <p className="small"><b>{picked.name}</b> {readPicked}</p>}
       </section>
     );
   }
@@ -736,6 +745,7 @@ function DecisionPanel(props: {
         <div className="selected-card">
           <p className="small">
             <b>{selectedCard.name}</b>{" "}
+            {readPicked}
             <button className="quiet small" onClick={props.onClear}>Show every option</button>
           </p>
           {forSelected.length ? (
@@ -811,6 +821,7 @@ function Inspector({ card, meta, options, onChoose, onClose }: {
         {counters.map(([k, v]) => <span key={k} className="tag">{v} {k.replace(/_/g, " ")}</span>)}
       </div>
       {meta?.oracle_text && <p className="oracle">{meta.oracle_text}</p>}
+      {meta?.oracle_id && <CardRulings oracleId={meta.oracle_id} />}
     </div>
   );
 }

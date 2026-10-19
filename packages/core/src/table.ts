@@ -21,9 +21,9 @@ export interface PlayerSetup {
   partnerName?: string;
   /** WUBRG subset, e.g. "UG". Drives the panel colors. */
   colorIdentity: string;
-  /** Small art crop of the commander, if known. */
+  /** The commander's art crop (a Scryfall image URL), if known. Drawn behind the panel. */
   art?: string;
-  /** Who painted that art crop, for the credit on the panel. */
+  /** Who painted `art`. Scryfall asks for the artist's credit wherever an art crop shows. */
   artist?: string;
 }
 
@@ -36,6 +36,35 @@ export interface TableSetup {
   players: PlayerSetup[];
 }
 
+/** How a game was won, as the table tells it. Optional at the end of every game. */
+export const WIN_CONDITIONS = [
+  { key: "combat", label: "Combat" },
+  { key: "commander_damage", label: "Commander damage" },
+  { key: "combo", label: "Combo" },
+  { key: "alternate", label: "Alternate win" },
+  { key: "mill", label: "Mill" },
+  { key: "poison", label: "Poison" },
+  { key: "concession", label: "Concession" },
+  { key: "other", label: "Other" },
+] as const;
+
+export type WinCondition = (typeof WIN_CONDITIONS)[number]["key"];
+
+export function winConditionLabel(key: string | null | undefined): string | null {
+  return WIN_CONDITIONS.find((w) => w.key === key)?.label ?? null;
+}
+
+/** One player's fun rating for the game, 1 to 5. */
+export interface FunRating {
+  seat: Seat;
+  rating: number;
+}
+
+export interface FinishDetails {
+  winCondition?: WinCondition;
+  fun?: FunRating[];
+}
+
 export type TableEvent =
   | { type: "life"; seat: Seat; delta: number }
   | { type: "poison"; seat: Seat; delta: number }
@@ -46,9 +75,11 @@ export type TableEvent =
   | { type: "initiative"; seat: Seat | null }
   | { type: "day_night"; value: "day" | "night" | null }
   | { type: "pass_turn" }
+  /** Who takes (or took) the first turn: chosen, or picked by "Roll for first". */
+  | { type: "set_first"; seat: Seat; rolled?: boolean }
   | { type: "eliminate"; seat: Seat; bySeat?: Seat }
   | { type: "revive"; seat: Seat }
-  | { type: "finish"; winnerSeat: Seat | null; endedAt: string };
+  | ({ type: "finish"; winnerSeat: Seat | null; endedAt: string } & FinishDetails);
 
 export interface LoggedEvent {
   seq: number;
@@ -72,10 +103,24 @@ export interface TableState {
   players: PlayerState[];
   turn: number;
   activeSeat: Seat;
+  /**
+   * The seat that took the first turn, set only by a set_first event (Roll for first, "goes
+   * first", or the finish sheet). null = nobody said. Passing the turn never fills it in: the
+   * app can't tell who pressed the button, and a table that rolled dice may just be moving the
+   * marker to the winner of the roll.
+   */
+  firstSeat: Seat | null;
+  /**
+   * Where rounds start for the turn counter: the first player if someone said, else whoever
+   * held the turn at the first pass. A guess, so it's never sent as the first player.
+   */
+  roundStart?: Seat;
+  /** Times the turn has been passed. Before the first pass, set_first also moves the turn. */
+  passes: number;
   monarch: Seat | null;
   initiative: Seat | null;
   dayNight: "day" | "night" | null;
-  finished?: { winnerSeat: Seat | null; endedAt: string };
+  finished?: { winnerSeat: Seat | null; endedAt: string } & FinishDetails;
 }
 
 export function initialState(setup: TableSetup): TableState {
@@ -92,6 +137,8 @@ export function initialState(setup: TableSetup): TableState {
     })),
     turn: 1,
     activeSeat: setup.players[0]?.seat ?? 0,
+    firstSeat: null,
+    passes: 0,
     monarch: null,
     initiative: null,
     dayNight: null,
@@ -146,10 +193,15 @@ export function apply(state: TableState, e: TableEvent): TableState {
           break;
         }
       }
-      // A new round starts when play wraps back past the first seat.
-      const wrapped = order.indexOf(next) <= order.indexOf(state.activeSeat);
-      return { ...state, activeSeat: next, turn: wrapped ? state.turn + 1 : state.turn };
+      const roundStart = state.firstSeat ?? state.roundStart ?? state.activeSeat;
+      // A new round starts when play wraps back past the seat rounds start from.
+      const wrapped = turnPosition(order, roundStart, next)! <= turnPosition(order, roundStart, state.activeSeat)!;
+      return { ...state, activeSeat: next, roundStart, passes: state.passes + 1, turn: wrapped ? state.turn + 1 : state.turn };
     }
+    case "set_first":
+      if (!state.players.some((p) => p.seat === e.seat)) return state;
+      // Before anyone has passed, it's also their turn now. Later it only corrects the record.
+      return { ...state, firstSeat: e.seat, activeSeat: state.passes === 0 ? e.seat : state.activeSeat };
     case "eliminate":
       return updatePlayer(state, e.seat, (p) => ({ ...p, eliminated: { turn: state.turn, bySeat: e.bySeat } }));
     case "revive":
@@ -157,8 +209,10 @@ export function apply(state: TableState, e: TableEvent): TableState {
         const { eliminated: _, ...rest } = p;
         return rest;
       });
-    case "finish":
-      return { ...state, finished: { winnerSeat: e.winnerSeat, endedAt: e.endedAt } };
+    case "finish": {
+      const { type: _, ...finished } = e;
+      return { ...state, finished };
+    }
   }
 }
 
@@ -224,6 +278,42 @@ export function commanderTax(p: PlayerState, partner = false): number {
 /** Seats still in the game. One left means they've won. */
 export function remaining(state: TableState): PlayerState[] {
   return state.players.filter((p) => !p.eliminated);
+}
+
+/**
+ * Place in turn order, 1 for the first player, counting clockwise (the order of `seats`).
+ * null when the first seat or this seat isn't in the list.
+ */
+export function turnPosition(seats: Seat[], firstSeat: Seat | null, seat: Seat): number | null {
+  if (firstSeat === null) return null;
+  const f = seats.indexOf(firstSeat);
+  const s = seats.indexOf(seat);
+  if (f < 0 || s < 0) return null;
+  return ((s - f + seats.length) % seats.length) + 1;
+}
+
+/** The finish body POST /api/games/:id/finish expects, from a log that ends in "finish". */
+export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
+  const last = log[log.length - 1];
+  if (!last || last.event.type !== "finish") return null;
+  const f = last.event;
+  const state = replay(setup, log);
+  const ratings = new Map((f.fun ?? []).filter((r) => r.rating >= 1 && r.rating <= 5).map((r) => [r.seat, Math.round(r.rating)]));
+  return {
+    winner_seat: f.winnerSeat,
+    turns: state.turn,
+    ended_at: f.endedAt,
+    first_seat: state.firstSeat,
+    // A draw has no way it was won.
+    win_condition: f.winnerSeat === null ? null : (f.winCondition ?? null),
+    seats: state.players.map((p) => ({
+      seat: p.seat,
+      final_life: p.life,
+      eliminated_turn: p.eliminated?.turn ?? null,
+      eliminated_by_seat: p.eliminated?.bySeat ?? null,
+      fun: ratings.get(p.seat) ?? null,
+    })),
+  };
 }
 
 /** Shape the server's /api/games endpoints expect. */

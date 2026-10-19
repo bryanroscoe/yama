@@ -18,6 +18,9 @@ pub fn router() -> Router<AppState> {
         .route("/api/decks/parse", post(parse_preview))
         .route("/api/decks/{id}", get(get_deck).put(save_version).patch(update_deck).delete(archive_deck))
         .route("/api/decks/{id}/versions", get(list_versions))
+        .route("/api/decks/{id}/versions/{version}", get(get_version))
+        .route("/api/decks/{id}/check", get(get_check).post(recheck))
+        .route("/api/decks/{id}/results", get(results))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -158,6 +161,11 @@ struct DeckSummary {
     container_id: Option<String>,
     current_version_id: Option<String>,
     updated_at: String,
+    /// The bracket the owner declares (1-5), or none.
+    bracket: Option<i64>,
+    /// Commander Spellbook's estimate for the current version, once it has answered.
+    #[sqlx(skip)]
+    estimate: Option<crate::deck_checks::Estimated>,
     #[sqlx(skip)]
     commanders: Vec<String>,
     #[sqlx(skip)]
@@ -166,7 +174,7 @@ struct DeckSummary {
     card_count: i64,
     #[sqlx(skip)]
     commander_image: Option<String>,
-    /// The artist of that art crop, so the deck tile can credit it.
+    /// Who painted `commander_image` (credit it wherever the art shows).
     #[sqlx(skip)]
     commander_artist: Option<String>,
     /// Real (non-proxy) copies you own of the main deck and commanders, out of `card_count`.
@@ -183,7 +191,7 @@ struct DeckSummary {
 
 async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<DeckSummary>>> {
     let mut decks: Vec<DeckSummary> = sqlx::query_as(
-        "SELECT id, name, folder, format, container_id, current_version_id, updated_at FROM decks
+        "SELECT id, name, folder, format, container_id, current_version_id, updated_at, bracket FROM decks
          WHERE owner_id = ? AND archived = 0 ORDER BY folder, name",
     )
     .bind(&user.id)
@@ -196,13 +204,19 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
             *owned_by_oracle.entry(o.as_str()).or_insert(0) += i.qty;
         }
     }
+    let versions: Vec<String> = decks.iter().filter_map(|d| d.current_version_id.clone()).collect();
+    let mut estimates = crate::deck_checks::estimates(&st.pool, &versions).await?;
     for d in &mut decks {
+        d.estimate = d.current_version_id.as_ref().and_then(|v| estimates.remove(v));
+        // Same rule as the deck page's results (stats::results_by_version): only seats where the
+        // owner played the deck themselves, so the computer piloting it online doesn't count.
         let (games, wins, draws): (i64, i64, i64) = sqlx::query_as(
             "SELECT COUNT(*), IFNULL(SUM(g.winner_seat = s.seat), 0), IFNULL(SUM(g.winner_seat IS NULL), 0)
              FROM game_seats s JOIN games g ON g.id = s.game_id JOIN deck_versions v ON v.id = s.deck_version_id
-             WHERE v.deck_id = ? AND g.status = 'finished'",
+             WHERE v.deck_id = ? AND g.status = 'finished' AND s.ai_kind IS NULL AND s.user_id = ?",
         )
         .bind(&d.id)
+        .bind(&user.id)
         .fetch_one(&st.pool)
         .await?;
         (d.games, d.wins, d.draws) = (games, wins, draws);
@@ -293,23 +307,29 @@ pub async fn create_deck_with_cards(
     Ok(id)
 }
 
-async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
+/// Save a new version and make it current. Also queues the version's outside check
+/// (deck_checks), which a background worker runs later, so this never waits on the network.
+pub(crate) async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
     let vid = new_id();
     let stamp = now();
+    let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at) VALUES (?,?,?,?,?)")
         .bind(&vid)
         .bind(deck_id)
         .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
         .bind(note)
         .bind(&stamp)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     sqlx::query("UPDATE decks SET current_version_id = ?, updated_at = ? WHERE id = ?")
         .bind(&vid)
         .bind(&stamp)
         .bind(deck_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+    crate::deck_checks::queue(&mut *tx, &vid).await?;
+    tx.commit().await?;
+    crate::deck_checks::wake();
     Ok(vid)
 }
 
@@ -333,9 +353,16 @@ struct DeckView {
     name: String,
     container_id: Option<String>,
     version_id: Option<String>,
+    /// The bracket the owner declares (1-5), or none. Estimates come from `/check`.
+    bracket: Option<i64>,
     cards: Vec<DeckEntry>,
     validation: Validation,
     ownership: OwnershipTotals,
+    /// Names of the cards on the Commander Game Changers list (commander and main deck).
+    /// `None` while any of those cards has no flag loaded yet.
+    game_changers: Option<Vec<String>>,
+    /// Date of the Scryfall data the flags come from (YYYY-MM-DD), if loaded.
+    game_changers_as_of: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -353,6 +380,100 @@ struct DeckEntry {
     needed: i64,
     /// Cheapest current USD market price across printings. `None` = no price data.
     cheapest_usd: Option<f64>,
+    /// The printing to name in exports: your own copy (real before proxy, the one in this deck's
+    /// container first), else a paper printing (see [`paper_printing`]). `None` if neither is
+    /// known, so the export names the card alone.
+    printing: Option<PrintRef>,
+    /// Colors of mana the card makes (Scryfall's produced_mana, "WUBRGC" order); "" for none,
+    /// `None` until the card data import that reads it has run.
+    produced_mana: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq)]
+struct PrintRef {
+    set_code: String,
+    collector_number: String,
+    /// nonfoil | foil | etched
+    finish: String,
+    /// "owned" or "default"
+    from: &'static str,
+}
+
+/// The printing an export should name for a card: a real copy (the one in the deck's container
+/// first), then a proxy the same way (it still names a printing), else `None` so the caller can
+/// fall back to [`paper_printing`].
+fn owned_printing(mine: &[&crate::collection::Item], container_id: Option<&str>) -> Option<PrintRef> {
+    let rank = |i: &crate::collection::Item| {
+        let here = container_id.is_some() && i.container_id.as_deref() == container_id;
+        (i.proxy, !here)
+    };
+    let best = mine.iter().filter(|i| i.set_code.is_some() && i.collector_number.is_some()).min_by_key(|i| rank(i))?;
+    Some(PrintRef {
+        set_code: best.set_code.clone()?,
+        collector_number: best.collector_number.clone()?,
+        finish: best.finish.clone(),
+        from: "owned",
+    })
+}
+
+/// One printing of a card, as [`paper_printing`] weighs it.
+#[derive(sqlx::FromRow, Debug, Clone)]
+struct PrintingChoice {
+    set_code: String,
+    collector_number: String,
+    /// JSON array: nonfoil | foil | etched
+    finishes: String,
+    lang: String,
+    released_at: Option<String>,
+    /// Scryfall's `digital` (only released in a video game); `None` until the printings import
+    /// that reads it has run.
+    digital: Option<bool>,
+    set_type: Option<String>,
+    is_default: bool,
+}
+
+/// Kinds of set (Scryfall's `set_type`) whose printings are a last resort for an export:
+/// collectibles that aren't tournament cards, promos, Secret Lair-style boxes, Un-sets.
+const SIDE_SET_TYPES: [&str; 8] = ["memorabilia", "funny", "promo", "token", "minigame", "alchemy", "treasure_chest", "box"];
+
+/// Sets Scryfall files as regular ones whose cards hardly anyone has: Summer Magic, a 1994 run
+/// of Revised that was mostly destroyed. Weighed like [`SIDE_SET_TYPES`], so an old dual land
+/// names Revised rather than Summer Magic.
+const RARE_RUN_SETS: [&str; 1] = ["sum"];
+
+/// The printing an export names for a card you don't own: one that exists on paper, so Moxfield
+/// doesn't import an MTGO or Arena printing into a paper deck. In order: a printing with a
+/// nonfoil finish, Scryfall's default printing, a regular set (not [`SIDE_SET_TYPES`] or
+/// [`RARE_RUN_SETS`]), English, the newest. The finish is the printing's own: nonfoil if it has
+/// one, else foil or etched. Until the printings import has read Scryfall's `digital` flag
+/// nothing is known to be on paper, so it names the default printing as before (with that
+/// printing's finish).
+fn paper_printing(printings: &[PrintingChoice]) -> Option<PrintRef> {
+    let has = |p: &PrintingChoice, finish: &str| {
+        serde_json::from_str::<Vec<String>>(&p.finishes).is_ok_and(|f| f.iter().any(|x| x == finish))
+    };
+    let best = if printings.iter().any(|p| p.digital.is_some()) {
+        printings.iter().filter(|p| p.digital == Some(false)).min_by_key(|p| {
+            (
+                !has(p, "nonfoil"),
+                !p.is_default,
+                p.set_type.as_deref().is_some_and(|t| SIDE_SET_TYPES.contains(&t)) || RARE_RUN_SETS.contains(&p.set_code.as_str()),
+                p.lang != "en",
+                std::cmp::Reverse(p.released_at.clone()),
+                p.collector_number.len(),
+                p.collector_number.clone(),
+            )
+        })?
+    } else {
+        printings.iter().find(|p| p.is_default)?
+    };
+    let finish = ["nonfoil", "foil", "etched"].into_iter().find(|f| has(best, f)).unwrap_or("nonfoil");
+    Some(PrintRef {
+        set_code: best.set_code.clone(),
+        collector_number: best.collector_number.clone(),
+        finish: finish.into(),
+        from: "default",
+    })
 }
 
 #[derive(Serialize, Default)]
@@ -384,6 +505,9 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         }
     }
     let validation = validate(&cards, &card_info);
+    let game_changers = game_changers(&cards, &card_info);
+    let game_changers_as_of = crate::cards::import::game_changers_date(&st.pool).await?;
+    let bracket: Option<i64> = sqlx::query_scalar("SELECT bracket FROM decks WHERE id = ?").bind(&id).fetch_one(&st.pool).await?;
 
     // Ownership, by oracle ID, across the whole collection.
     let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
@@ -436,10 +560,39 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             }
         }
         let card = card_info.get(&c.oracle_id).cloned();
-        entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd });
+        let printing = match owned_printing(&mine, container_id.as_deref()) {
+            Some(p) => Some(p),
+            None => paper_printing(
+                &sqlx::query_as::<_, PrintingChoice>(
+                    "SELECT p.set_code, p.collector_number, p.finishes, p.lang, p.released_at, p.digital, p.set_type,
+                            (p.scryfall_id IS c.default_printing) AS is_default
+                     FROM printings p JOIN cards c ON c.oracle_id = p.oracle_id WHERE p.oracle_id = ?",
+                )
+                .bind(&c.oracle_id)
+                .fetch_all(&st.pool)
+                .await?,
+            ),
+        };
+        let produced_mana: Option<String> = sqlx::query_scalar("SELECT produced_mana FROM cards WHERE oracle_id = ?")
+            .bind(&c.oracle_id)
+            .fetch_optional(&st.pool)
+            .await?
+            .flatten();
+        entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd, printing, produced_mana });
     }
     totals.needed_cost_usd = (totals.needed_cost_usd * 100.0).round() / 100.0;
-    Ok(Json(DeckView { id, name, container_id, version_id, cards: entries, validation, ownership: totals }))
+    Ok(Json(DeckView {
+        id,
+        name,
+        container_id,
+        version_id,
+        bracket,
+        cards: entries,
+        validation,
+        ownership: totals,
+        game_changers,
+        game_changers_as_of,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -466,6 +619,9 @@ struct UpdateDeck {
     folder: Option<Option<String>>,
     #[serde(default, deserialize_with = "crate::util::double_option")]
     container_id: Option<Option<String>>,
+    /// The declared bracket, 1-5; null clears it.
+    #[serde(default, deserialize_with = "crate::util::double_option")]
+    bracket: Option<Option<i64>>,
 }
 
 async fn update_deck(
@@ -483,11 +639,18 @@ async fn update_deck(
             .await?;
         mine.ok_or(AppError::NotFound("container"))?;
     }
-    let folder: Option<String> = sqlx::query_scalar("SELECT folder FROM decks WHERE id = ?").bind(&id).fetch_one(&st.pool).await?;
-    sqlx::query("UPDATE decks SET name = ?, folder = ?, container_id = ?, updated_at = ? WHERE id = ?")
+    if let Some(Some(b)) = body.bracket
+        && !(1..=5).contains(&b)
+    {
+        return Err(AppError::bad("brackets go from 1 to 5"));
+    }
+    let (folder, bracket): (Option<String>, Option<i64>) =
+        sqlx::query_as("SELECT folder, bracket FROM decks WHERE id = ?").bind(&id).fetch_one(&st.pool).await?;
+    sqlx::query("UPDATE decks SET name = ?, folder = ?, container_id = ?, bracket = ?, updated_at = ? WHERE id = ?")
         .bind(body.name.unwrap_or(name))
         .bind(body.folder.unwrap_or(folder))
         .bind(body.container_id.unwrap_or(container))
+        .bind(body.bracket.unwrap_or(bracket))
         .bind(now())
         .bind(&id)
         .execute(&st.pool)
@@ -511,11 +674,125 @@ struct VersionRow {
 async fn list_versions(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Vec<VersionRow>>> {
     owned_deck(&st.pool, &user.id, &id).await?;
     Ok(Json(
-        sqlx::query_as("SELECT id, note, created_at FROM deck_versions WHERE deck_id = ? ORDER BY created_at DESC")
+        // rowid breaks ties between versions saved in the same second.
+        sqlx::query_as("SELECT id, note, created_at FROM deck_versions WHERE deck_id = ? ORDER BY created_at DESC, rowid DESC")
             .bind(&id)
             .fetch_all(&st.pool)
             .await?,
     ))
+}
+
+#[derive(Serialize)]
+struct VersionResult {
+    id: String,
+    /// 1 for the first save, counting up.
+    number: i64,
+    note: Option<String>,
+    created_at: String,
+    current: bool,
+    #[serde(flatten)]
+    record: crate::stats::Record,
+}
+
+#[derive(Serialize)]
+struct DeckResults {
+    /// Newest version first; versions without games are left out except the current one.
+    versions: Vec<VersionResult>,
+    provisional_under: i64,
+    computed_at: String,
+}
+
+/// Finished games played with each version of the deck: wins, losses and draws.
+async fn results(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<DeckResults>> {
+    let (_, current, _) = owned_deck(&st.pool, &user.id, &id).await?;
+    let games = crate::stats::finished_games(&st.pool, crate::stats::Scope::Deck(&id)).await?;
+    let mut by_version = crate::stats::results_by_version(&games);
+    let rows: Vec<VersionRow> =
+        sqlx::query_as("SELECT id, note, created_at FROM deck_versions WHERE deck_id = ? ORDER BY created_at, rowid").bind(&id).fetch_all(&st.pool).await?;
+    let mut versions: Vec<VersionResult> = rows
+        .into_iter()
+        .enumerate()
+        .map(|(i, v)| VersionResult {
+            current: current.as_deref() == Some(v.id.as_str()),
+            record: by_version.remove(&v.id).unwrap_or_default(),
+            number: i as i64 + 1,
+            id: v.id,
+            note: v.note,
+            created_at: v.created_at,
+        })
+        .filter(|v| v.current || v.record.games > 0)
+        .collect();
+    versions.reverse();
+    Ok(Json(DeckResults { versions, provisional_under: crate::stats::PROVISIONAL_UNDER, computed_at: now() }))
+}
+
+#[derive(Serialize)]
+struct VersionCards {
+    id: String,
+    note: Option<String>,
+    created_at: String,
+    cards: Vec<DeckCard>,
+}
+
+/// One saved version's cards, for the history and its diffs.
+async fn get_version(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path((id, version)): Path<(String, String)>,
+) -> AppResult<Json<VersionCards>> {
+    owned_deck(&st.pool, &user.id, &id).await?;
+    let (note, created_at): (Option<String>, String) =
+        sqlx::query_as("SELECT note, created_at FROM deck_versions WHERE id = ? AND deck_id = ?")
+            .bind(&version)
+            .bind(&id)
+            .fetch_optional(&st.pool)
+            .await?
+            .ok_or(AppError::NotFound("version"))?;
+    let cards = load_version_cards(&st.pool, &version).await?;
+    Ok(Json(VersionCards { id: version, note, created_at, cards }))
+}
+
+/// Commander Spellbook's check of the deck's current version: estimated bracket, flagged
+/// cards and combos, or that it's still pending.
+async fn get_check(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<crate::deck_checks::CheckView>> {
+    let (_, version, _) = owned_deck(&st.pool, &user.id, &id).await?;
+    Ok(Json(crate::deck_checks::view(&st.pool, version.as_deref(), st.cfg.deck_checks).await?))
+}
+
+/// Ask Commander Spellbook again about the current version (refused within ten minutes of
+/// its last answer).
+async fn recheck(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<crate::deck_checks::CheckView>> {
+    if !st.cfg.deck_checks {
+        return Err(AppError::Conflict("deck checks are off on this server".into()));
+    }
+    let (_, version, _) = owned_deck(&st.pool, &user.id, &id).await?;
+    let version = version.ok_or_else(|| AppError::bad("the deck has no cards yet"))?;
+    crate::deck_checks::request_again(&st.pool, &version).await?;
+    Ok(Json(crate::deck_checks::view(&st.pool, Some(&version), true).await?))
+}
+
+/// Game Changers in the deck (not the sideboard), by name, sorted. Uses Scryfall's flag, so
+/// it's only as fresh as the last card import. `None` when any of those cards has no flag yet
+/// (before the first import that reads it): a count then would be a guess.
+pub fn game_changers(cards: &[DeckCard], info: &HashMap<String, Card>) -> Option<Vec<String>> {
+    let mut names = Vec::new();
+    for c in cards.iter().filter(|c| c.board != Board::Side) {
+        let Some(card) = info.get(&c.oracle_id) else { continue };
+        if card.game_changer? {
+            names.push(c.name.clone());
+        }
+    }
+    names.sort();
+    names.dedup();
+    Some(names)
 }
 
 // ── validation ─────────────────────────────────────────────────────────────
@@ -655,7 +932,142 @@ mod tests {
             artist: None,
             default_printing: None,
             edhrec_rank: None,
+            game_changer: Some(false),
         }
+    }
+
+    #[test]
+    fn game_changers_skip_the_sideboard() {
+        let mut rhystic = card("Rhystic Study", "Enchantment", "U", "", "legal");
+        rhystic.game_changer = Some(true);
+        let mut sol = card("Sol Ring", "Artifact", "", "", "legal");
+        sol.game_changer = Some(false);
+        let mut cyclonic = card("Cyclonic Rift", "Instant", "U", "", "legal");
+        cyclonic.game_changer = Some(true);
+        let info: HashMap<String, Card> = [rhystic, sol, cyclonic].into_iter().map(|c| (c.oracle_id.clone(), c)).collect();
+        let dc = |name: &str, board| DeckCard { oracle_id: name.into(), name: name.into(), qty: 1, board };
+        let cards = vec![
+            dc("Sol Ring", Board::Main),
+            dc("Rhystic Study", Board::Main),
+            dc("Cyclonic Rift", Board::Side),
+            dc("Unknown card", Board::Main),
+        ];
+        assert_eq!(game_changers(&cards, &info), Some(vec!["Rhystic Study".to_string()]));
+
+        // One card without a loaded flag makes the count unknown, not lower.
+        let mut info = info;
+        info.get_mut("Sol Ring").unwrap().game_changer = None;
+        assert_eq!(game_changers(&cards, &info), None);
+        // Unless it's only in the sideboard.
+        info.get_mut("Sol Ring").unwrap().game_changer = Some(false);
+        info.get_mut("Cyclonic Rift").unwrap().game_changer = None;
+        assert_eq!(game_changers(&cards, &info), Some(vec!["Rhystic Study".to_string()]));
+    }
+
+    fn item(set: &str, number: &str, container: Option<&str>, proxy: bool, finish: &str) -> crate::collection::Item {
+        crate::collection::Item {
+            id: format!("{set}-{number}"),
+            scryfall_id: format!("{set}-{number}"),
+            qty: 1,
+            condition: "NM".into(),
+            finish: finish.into(),
+            lang: "en".into(),
+            altered: false,
+            signed: false,
+            misprint: false,
+            proxy,
+            container_id: container.map(str::to_string),
+            container_name: None,
+            container_kind: None,
+            purchase_price: None,
+            purchase_currency: None,
+            note: None,
+            updated_at: String::new(),
+            oracle_id: Some("o".into()),
+            name: Some("Sol Ring".into()),
+            set_code: Some(set.into()),
+            set_name: None,
+            collector_number: Some(number.into()),
+            rarity: None,
+            image_small: None,
+            image_normal: None,
+            type_line: None,
+            color_identity: None,
+            unit_price_usd: None,
+            price_date: None,
+        }
+    }
+
+    #[test]
+    fn exports_name_the_copy_in_the_deck_first() {
+        let binder = item("cmm", "410", Some("binder"), false, "nonfoil");
+        let deck = item("c21", "263", Some("deck"), false, "foil");
+        let proxy = item("pip", "1", Some("deck"), true, "nonfoil");
+        let pick = |items: &[&crate::collection::Item], c| owned_printing(items, c).map(|p| (p.set_code, p.finish));
+        assert_eq!(pick(&[&binder, &proxy, &deck], Some("deck")), Some(("c21".into(), "foil".into())));
+        // Real copies before proxies, wherever they are.
+        assert_eq!(pick(&[&proxy, &binder], Some("deck")), Some(("cmm".into(), "nonfoil".into())));
+        assert_eq!(pick(&[&proxy], None), Some(("pip".into(), "nonfoil".into())));
+        assert_eq!(pick(&[], None), None);
+    }
+
+    fn printing(set: &str, number: &str, finishes: &str, released: &str, digital: Option<bool>, set_type: &str, is_default: bool) -> PrintingChoice {
+        PrintingChoice {
+            set_code: set.into(),
+            collector_number: number.into(),
+            finishes: finishes.into(),
+            lang: "en".into(),
+            released_at: Some(released.into()),
+            digital,
+            set_type: Some(set_type.into()),
+            is_default,
+        }
+    }
+
+    #[test]
+    fn exports_of_unowned_cards_name_a_paper_printing() {
+        let pick = |ps: &[PrintingChoice]| paper_printing(ps).map(|p| format!("{} {} {}", p.set_code, p.collector_number, p.finish));
+        let both = r#"["nonfoil","foil"]"#;
+        // Plateau: Scryfall's default is Vintage Masters, which is MTGO only. Skip it, the
+        // Masters Editions (also MTGO), the 30th Anniversary collectible and Summer Magic for
+        // Revised.
+        let plateau = [
+            printing("30a", "572", r#"["nonfoil"]"#, "2022-11-28", Some(false), "memorabilia", false),
+            printing("vma", "308", both, "2014-06-16", Some(true), "masters", true),
+            printing("me4", "249", both, "2011-01-10", Some(true), "masters", false),
+            printing("sum", "284", r#"["nonfoil"]"#, "1994-06-21", Some(false), "core", false),
+            printing("3ed", "284", r#"["nonfoil"]"#, "1994-04-11", Some(false), "core", false),
+            printing("leb", "280", r#"["nonfoil"]"#, "1993-10-04", Some(false), "core", false),
+        ];
+        assert_eq!(pick(&plateau).as_deref(), Some("3ed 284 nonfoil"));
+
+        // A default printing on paper wins, even over newer printings.
+        let sol_ring = [
+            printing("cmm", "410", both, "2023-08-04", Some(false), "masters", true),
+            printing("sld", "1512", r#"["foil"]"#, "2024-01-01", Some(false), "box", false),
+            printing("frc", "21", r#"["nonfoil"]"#, "2026-10-02", Some(false), "commander", false),
+        ];
+        assert_eq!(pick(&sol_ring).as_deref(), Some("cmm 410 nonfoil"));
+
+        // A foil-only default gives way to a nonfoil printing; foil-only everywhere is marked foil.
+        let sauron = [
+            printing("ltr", "288", r#"["foil"]"#, "2023-06-23", Some(false), "expansion", true),
+            printing("ltr", "224", both, "2023-06-23", Some(false), "expansion", false),
+        ];
+        assert_eq!(pick(&sauron).as_deref(), Some("ltr 224 nonfoil"));
+        assert_eq!(pick(&sauron[..1]).as_deref(), Some("ltr 288 foil"));
+        let etched = [printing("cmr", "600", r#"["etched"]"#, "2020-11-20", Some(false), "draft_innovation", true)];
+        assert_eq!(pick(&etched).as_deref(), Some("cmr 600 etched"));
+
+        // Only on Arena or MTGO: no printing, so the export names the card alone.
+        assert_eq!(pick(&[printing("ymid", "1", both, "2021-12-09", Some(true), "alchemy", true)]), None);
+
+        // Before the import that reads `digital`: the default printing, with its own finish.
+        let unknown = [
+            printing("vma", "308", r#"["foil"]"#, "2014-06-16", None, "masters", true),
+            printing("3ed", "284", r#"["nonfoil"]"#, "1994-04-11", None, "core", false),
+        ];
+        assert_eq!(pick(&unknown).as_deref(), Some("vma 308 foil"));
     }
 
     #[test]

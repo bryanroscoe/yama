@@ -1170,6 +1170,18 @@ fieldset.seat.seat-card:has(> .seat-head.art-empty) :is(input, select) {
 .seat-state.warn {
   color: var(--warn);
 }
+/* Bracket chips on a seat's art: small text on art sits on a near-solid chip. */
+.seat-bracket {
+  display: block;
+  margin-top: 4px;
+}
+.art-has .seat-bracket .bracket-chip {
+  background: var(--art-chip);
+  color: var(--on-art-dim);
+}
+.art-has .seat-bracket .bracket-chip b {
+  color: var(--on-art);
+}
 
 /* A seat in a new-game form: a surface card with its caption inside. */
 fieldset.seat {
@@ -1393,6 +1405,14 @@ fieldset.seat > legend + * {
 .deck-tile .art-none .deck-tile-foot,
 .deck-tile .art-empty .deck-tile-foot {
   color: var(--dim);
+}
+/* Bracket chips on the art: small text on art sits on a near-solid chip. */
+.deck-tile .bracket-chip {
+  background: var(--art-chip);
+  color: var(--on-art-dim);
+}
+.deck-tile .bracket-chip b {
+  color: var(--on-art);
 }
 .deck-tile:hover .art-panel {
   box-shadow: 0 0 0 2px var(--text);

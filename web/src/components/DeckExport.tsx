@@ -1,0 +1,92 @@
+import { EXPORT_FORMATS, exportDeck, exportFileName, type ExportFormat } from "@yama/core";
+import { useMemo, useState } from "react";
+import type { DeckView } from "../api";
+import { Sheet } from "./ui";
+import "./decks.css";
+
+const LAST_FORMAT = "yama.deck.exportFormat";
+
+/** Copy or download the deck as text in one of the common formats. */
+export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
+  const [format, setFormat] = useState<ExportFormat>(() => {
+    const saved = localStorage.getItem(LAST_FORMAT);
+    return EXPORT_FORMATS.some((f) => f.value === saved) ? (saved as ExportFormat) : "names";
+  });
+  const [copied, setCopied] = useState<string | null>(null);
+  const text = useMemo(
+    () =>
+      exportDeck(
+        deck.cards.map((e) => ({
+          name: e.name,
+          qty: e.qty,
+          board: e.board,
+          layout: e.card?.layout ?? null,
+          setCode: e.printing?.set_code ?? null,
+          collectorNumber: e.printing?.collector_number ?? null,
+          finish: e.printing?.finish ?? null,
+        })),
+        format,
+      ),
+    [deck, format],
+  );
+  const fromDefault = deck.cards.filter((e) => e.board !== "side" && e.printing?.from === "default").length;
+  const noPrinting = deck.cards.filter((e) => !e.printing).length;
+
+  const pick = (f: ExportFormat) => {
+    setFormat(f);
+    setCopied(null);
+    localStorage.setItem(LAST_FORMAT, f);
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied("Copied.");
+    } catch {
+      setCopied("Couldn't copy here; select the text and copy it instead.");
+    }
+  };
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = exportFileName(deck.name, format);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  return (
+    <Sheet label="Export deck" onClose={onClose}>
+      <div className="stack deck-export">
+        <div className="sheet-head">
+          <h2>Export deck</h2>
+          <button className="quiet" onClick={onClose}>Close</button>
+        </div>
+        <fieldset className="formats" style={{ border: 0, padding: 0, margin: 0 }}>
+          <legend className="small dim" style={{ marginBottom: "0.4rem" }}>Format</legend>
+          {EXPORT_FORMATS.map((f) => (
+            <label key={f.value}>
+              <input type="radio" name="export-format" checked={format === f.value} onChange={() => pick(f.value)} />
+              {f.label}
+              <span className="hint">{f.hint}</span>
+            </label>
+          ))}
+        </fieldset>
+        {format === "moxfield" && (fromDefault > 0 || noPrinting > 0) && (
+          <p className="small dim" style={{ margin: 0 }}>
+            {fromDefault > 0 && `${fromDefault} ${fromDefault === 1 ? "card isn't" : "cards aren't"} in your collection, so ${fromDefault === 1 ? "it names a paper printing" : "they name paper printings"}, Scryfall's default where that is one. `}
+            {noPrinting > 0 && `${noPrinting} ${noPrinting === 1 ? "card has" : "cards have"} no paper printing on file and ${noPrinting === 1 ? "goes" : "go"} by name only.`}
+          </p>
+        )}
+        <label>
+          List
+          <textarea readOnly value={text} onFocus={(e) => e.currentTarget.select()} aria-label="Deck list to copy" />
+        </label>
+        <div className="row">
+          <button className="primary" onClick={() => void copy()}>Copy</button>
+          <button onClick={download}>Download .txt</button>
+          {copied && <span className="small dim" role="status">{copied}</span>}
+        </div>
+      </div>
+    </Sheet>
+  );
+}

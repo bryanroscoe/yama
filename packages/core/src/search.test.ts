@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileSearch, searchOffline, type OfflineCard } from "./search";
+import { compileSearch, GAME_CHANGERS_NOT_LOADED, searchOffline, type OfflineCard } from "./search";
 
 const card = (o: Partial<OfflineCard> & { n: string }): OfflineCard => ({
   i: o.n, m: null, v: 0, t: "", o: "", c: "", ci: "", p: null, th: null, l: null, r: "common", k: [],
@@ -9,7 +9,7 @@ const card = (o: Partial<OfflineCard> & { n: string }): OfflineCard => ({
 const cards = [
   card({ n: "Omo, Queen of Vesuva", t: "Legendary Creature — Shapeshifter", c: "UG", ci: "UG", v: 3, p: "1", th: "5" }),
   card({ n: "Lightning Bolt", t: "Instant", o: "Lightning Bolt deals 3 damage to any target.", c: "R", ci: "R", v: 1 }),
-  card({ n: "Sol Ring", t: "Artifact", o: "{T}: Add {C}{C}.", v: 1 }),
+  card({ n: "Sol Ring", t: "Artifact", o: "{T}: Add {C}{C}.", v: 1, g: true }),
   card({ n: "Llanowar Elves", t: "Creature — Elf Druid", c: "G", ci: "G", v: 1, p: "1", th: "1" }),
   card({ n: "Jeweled Lotus", t: "Artifact", v: 0, f: { commander: "banned" } }),
   card({ n: "Goblin Token", t: "Token Creature — Goblin", c: "R", ci: "R", y: "token" }),
@@ -26,6 +26,16 @@ describe("offline search", () => {
     expect(names("banned:commander")).toEqual(["Jeweled Lotus"]);
     expect(names("t:artifact -f:commander")).toEqual(["Jeweled Lotus"]);
     expect(names("pow>=1 tou>1")).toEqual(["Omo, Queen of Vesuva"]);
+    expect(names("is:gamechanger")).toEqual(["Sol Ring"]);
+    expect(names("is:gc")).toEqual(["Sol Ring"]);
+    expect(names("t:artifact -is:GameChanger")).toEqual(["Jeweled Lotus"]);
+  });
+
+  it("won't answer is:gamechanger from a card list without the flags", () => {
+    // An older saved list (or one made before the server loaded the flags) has no "g" at all.
+    expect(() => searchOffline(cards, "is:gc", "name", { gameChangers: false })).toThrow(GAME_CHANGERS_NOT_LOADED);
+    expect(() => searchOffline(cards, "t:artifact -is:gamechanger", "name", { gameChangers: false })).toThrow();
+    expect(searchOffline(cards, "t:artifact", "name", { gameChangers: false }).map((c) => c.n)).toEqual(["Jeweled Lotus", "Sol Ring"]);
   });
 
   it("hides tokens unless asked", () => {

@@ -67,7 +67,10 @@ export async function ensureFixtures(imageUrl: (f: Fixture) => string | null): P
     if (existsSync(path)) continue;
     const normal = imageUrl(f);
     if (!normal) throw new Error(`no image for ${f.set} ${f.number}`);
-    const url = normal.replace("/normal/", "/large/");
+    // image_normal is Scryfall's WebP "grid" image since the 2026-10-14 change (older imports
+    // hold the "normal" JPEG). The decoder here reads JPEG, so ask for the "large" JPEG, which
+    // Scryfall serves until 2027-01-01; after that this needs "display" (WebP) and a WebP decoder.
+    const url = normal.replace(/\/(normal|grid)\//, "/large/").replace(/\.webp(\?|$)/, ".jpg$1");
     const res = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "image/jpeg" } });
     if (!res.ok) throw new Error(`${res.status} for ${url}`);
     writeFileSync(path, new Uint8Array(await res.arrayBuffer()));

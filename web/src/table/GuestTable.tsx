@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { Pips, Sheet } from "../components/ui";
 import { wsUrl } from "./share";
-import { DispatchContext, Panel, PlayerSheet, pendingDelta, useTableArt } from "./TablePlay";
+import { DispatchContext, KnockOut, Panel, PlayerSheet, pendingDelta, useTableArt } from "./TablePlay";
 import "./table.css";
 
 interface Snapshot {
@@ -23,6 +23,7 @@ export function GuestTable() {
     return saved === null ? null : Number(saved);
   });
   const [sheet, setSheet] = useState(false);
+  const [knocking, setKnocking] = useState(false);
   const socket = useRef<WebSocket | null>(null);
   // The share key comes in the link's #fragment; keep it so a reload can reconnect.
   const [key] = useState(() => {
@@ -135,6 +136,7 @@ export function GuestTable() {
             fill={fills[state.players.indexOf(me)]!}
             artFor={artFor}
             onOpen={() => setSheet(true)}
+            onKnockOut={() => setKnocking(true)}
           />
         </div>
         {(hostOnline === false || !connected) && (
@@ -144,7 +146,12 @@ export function GuestTable() {
         )}
         {sheet && (
           <Sheet label="Your seat" onClose={() => setSheet(false)}>
-            <PlayerSheet state={state} seat={me.seat} onClose={() => setSheet(false)} />
+            <PlayerSheet state={state} seat={me.seat} onClose={() => setSheet(false)} artFor={artFor} />
+          </Sheet>
+        )}
+        {knocking && (
+          <Sheet label="Knock out" onClose={() => setKnocking(false)}>
+            <KnockOut state={state} seat={me.seat} onDone={() => setKnocking(false)} />
           </Sheet>
         )}
       </div>

@@ -1,0 +1,13 @@
+/* Commander art behind a life panel. The panel itself is the shared ArtPanel
+   (components/ArtPanel.tsx, components/art-panel.css) with the centered wash, laid out in
+   table.css; this file only sets how dark that wash is on the life counter.
+
+   The wash is a legibility scrim, not decoration: darkest behind the number, lighter toward the
+   edges so the art still shows. Measured 2026-10-19 on very bright art (Elesh Norn, Grand
+   Cenobite; Avacyn, Angel of Hope), the brightest pixel behind the digits still gives the life
+   total 5.8:1 against it, past the 4.5:1 bar for body text and far past 3:1 for text this big.
+   Knocked-out panels keep their art's colors under table.css's dark veil (Scryfall's rules
+   forbid desaturating or color-shifting its images). */
+.panel.has-art .panel-art.wash-center > .art-wash {
+  background: radial-gradient(ellipse 75% 65% at 50% 50%, rgb(0 0 0 / 0.74), rgb(0 0 0 / 0.6) 60%, rgb(0 0 0 / 0.42));
+}

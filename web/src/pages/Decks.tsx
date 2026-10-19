@@ -1,10 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, identityName, newHand, rng, type Goldfish } from "@yama/core";
-import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
-import { api, priceSource, usd, type Container, type DeckCard, type DeckEntry, type DeckSummary, type DeckView } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { api, priceSource, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView, type PreconList } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
+import { NameList, OnlineSupport } from "../components/OnlineSupport";
+import { day } from "../components/Rulings";
+import { BRACKETS, BracketChips, BracketPanel } from "../components/Bracket";
+import { SENDS_LIST } from "../components/deckCheck";
+import { DeckStatsPanel } from "../components/DeckStats";
+import { DeckExport } from "../components/DeckExport";
+import { DeckHistory } from "../components/DeckHistory";
+import { DeckResults } from "../components/DeckResults";
 import { CardSheet } from "./Cards";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good). */
@@ -28,6 +36,17 @@ function record(d: Pick<DeckSummary, "games" | "wins" | "draws">): string | null
 export function DecksPage() {
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const [adding, setAdding] = useState(false);
+  // "Start a deck" on a precon (Cards page, release calendar) opens Add a deck with its stock list.
+  const [params, setParams] = useSearchParams();
+  const precon = params.get("precon");
+  const closeAdd = () => {
+    setAdding(false);
+    if (precon) {
+      const next = new URLSearchParams(params);
+      next.delete("precon");
+      setParams(next, { replace: true });
+    }
+  };
   return (
     <main className="page">
       <div className="page-head">
@@ -50,6 +69,11 @@ export function DecksPage() {
                   <Pips identity={d.color_identity} />
                   <span className="deck-tile-name">{d.name}</span>
                   <span className="deck-tile-meta deck-tile-cmdr">{d.commanders.join(" and ") || "No commander set"}</span>
+                  {(d.bracket != null || d.estimate) && (
+                    <span className="deck-tile-meta deck-tile-bracket">
+                      <BracketChips declared={d.bracket} estimate={d.estimate} />
+                    </span>
+                  )}
                   <span className="deck-tile-foot num">
                     {own ? <span className={`deck-own ${own.tone}`}>{own.text}</span> : <span>{d.card_count} cards</span>}
                     {played && <span className="deck-record">{played}</span>}
@@ -63,17 +87,31 @@ export function DecksPage() {
       {!!decks.data?.some((d) => d.commander_image) && (
         <p className="small dim art-credits">{artCredits(decks.data.filter((d) => d.commander_image).map((d) => d.commander_artist))}</p>
       )}
-      {adding && <AddDeck onClose={() => setAdding(false)} />}
+      {(adding || precon) && <AddDeck key={precon ?? "blank"} precon={precon} onClose={closeAdd} />}
     </main>
   );
 }
 
-function AddDeck({ onClose }: { onClose: () => void }) {
+function AddDeck({ onClose, precon }: { onClose: () => void; precon?: string | null }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [text, setText] = useState("");
   const [firstIsCommander, setFirst] = useState(true);
+  const stock = useQuery({
+    queryKey: ["precon", precon],
+    queryFn: () => api<PreconList>(`/api/precons/${encodeURIComponent(precon!)}`),
+    enabled: !!precon,
+    retry: false,
+    staleTime: Infinity,
+  });
+  // Paste the stock list in once it arrives, without overwriting anything already typed.
+  useEffect(() => {
+    if (!stock.data) return;
+    setName((n) => n || stock.data.name);
+    setText((t) => t || stock.data.text);
+  }, [stock.data]);
+  const fetched = stock.data?.fetched_at ? day(stock.data.fetched_at.slice(0, 10)) : null;
   const create = useMutation({
     mutationFn: () => api<{ id: string; unknown: string[] }>("/api/decks", { method: "POST", json: { name, text, first_is_commander: firstIsCommander } }),
     onSuccess: (r) => {
@@ -92,9 +130,35 @@ function AddDeck({ onClose }: { onClose: () => void }) {
         }}
       >
         <div className="sheet-head">
-          <h2>Add a deck</h2>
+          <h2>{precon ? "Start a deck from a precon" : "Add a deck"}</h2>
           <button type="button" className="quiet" onClick={onClose}>Close</button>
         </div>
+        {precon && stock.isPending && <p className="dim">Getting the stock list from MTGJSON…</p>}
+        <ErrorText error={stock.error} />
+        {stock.data && (
+          <div className="stack" style={{ gap: "0.4rem" }}>
+            <p className="dim small" style={{ margin: 0 }}>
+              The stock list of {stock.data.name}
+              {stock.data.commanders.length ? `, led by ${stock.data.commanders.join(" and ")}` : ""}
+              {stock.data.cards != null ? `, ${stock.data.cards} cards` : ""}. From{" "}
+              <a href="https://mtgjson.com" target="_blank" rel="noreferrer">MTGJSON</a>
+              {fetched ? `, downloaded ${fetched}` : ""}
+              {stock.data.source_url && (
+                <>
+                  {" "}(<a href={stock.data.source_url} target="_blank" rel="noreferrer">its source</a>)
+                </>
+              )}
+              . Check it, then add the deck.
+            </p>
+            {stock.data.unknown.length > 0 && (
+              <p className="small" style={{ margin: 0, color: "var(--warn)" }} role="note">
+                {stock.data.unknown.length === 1 ? "1 card isn't" : `${stock.data.unknown.length} cards aren't`} in Yama's card data yet,
+                so the deck would leave {stock.data.unknown.length === 1 ? "it" : "them"} out: {stock.data.unknown.join(", ")}. New cards
+                arrive with the weekly card import. Add the deck after that, or add it now and paste the missing cards in later.
+              </p>
+            )}
+          </div>
+        )}
         <label>
           Name
           <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Omo lands" />
@@ -104,10 +168,12 @@ function AddDeck({ onClose }: { onClose: () => void }) {
           <span className="hint">One card per line, like "1 Sol Ring". Sections such as "Commander" and set codes are fine.</span>
           <textarea value={text} onChange={(e) => setText(e.target.value)} required />
         </label>
-        <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
-          <input type="checkbox" checked={firstIsCommander} onChange={(e) => setFirst(e.target.checked)} style={{ width: "auto", minHeight: 0 }} />
-          With no Commander section, the first card is the commander
-        </label>
+        {!precon && (
+          <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
+            <input type="checkbox" checked={firstIsCommander} onChange={(e) => setFirst(e.target.checked)} style={{ width: "auto", minHeight: 0 }} />
+            With no Commander section, the first card is the commander
+          </label>
+        )}
         <ErrorText error={create.error} />
         <div className="row">
           <button className="primary" disabled={create.isPending}>Add the deck</button>
@@ -160,6 +226,8 @@ export function DeckPage() {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [editing, setEditing] = useState(false);
   const [goldfish, setGoldfish] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [history, setHistory] = useState(false);
 
   const groups = useMemo(() => {
     const order = ["Commander", ...GROUPS.map(([g]) => g), "Other", "Sideboard"];
@@ -183,6 +251,10 @@ export function DeckPage() {
   const played = summary ? record(summary) : null;
   const priced = priceSource(o.price_date);
   const shown = preview ?? commanderEntries[0] ?? d.cards[0] ?? null;
+  const openByName = (name: string) => {
+    const hit = d.cards.find((c) => c.name === name);
+    if (hit) setOpen(hit.oracle_id);
+  };
 
   const stats = (
     <>
@@ -208,7 +280,9 @@ export function DeckPage() {
   const actions = (
     <>
       <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
-      <button className="on-art" onClick={() => setEditing(true)}>Edit list</button>
+      <button className="on-art" onClick={() => setEditing(true)}>Edit deck</button>
+      <button className="on-art" onClick={() => setExporting(true)}>Export</button>
+      <button className="on-art" onClick={() => setHistory(true)}>History</button>
       <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
     </>
   );
@@ -246,6 +320,8 @@ export function DeckPage() {
         <div className="row deck-actions-phone">{actions}</div>
         {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
         {goldfish && <SampleHand deck={d} onClose={() => setGoldfish(false)} />}
+        {exporting && <DeckExport deck={d} onClose={() => setExporting(false)} />}
+        {history && <DeckHistory deckId={d.id} currentVersionId={d.version_id} onClose={() => setHistory(false)} />}
 
         <div className="deck-legal">
           {v.ok ? (
@@ -258,6 +334,37 @@ export function DeckPage() {
           )}
           {v.warnings.length > 0 && <ul className="small dim">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
         </div>
+
+        <div className="deck-facts">
+          {d.game_changers ? (
+            <div>
+              <p>
+                <b>Game Changers: {d.game_changers.length}</b>
+                {d.game_changers_as_of && <span className="as-of"> Scryfall's list as of {day(d.game_changers_as_of)}</span>}
+              </p>
+              {d.game_changers.length > 0 && (
+                <p className="names"><NameList names={d.game_changers} onCard={openByName} /></p>
+              )}
+            </div>
+          ) : (
+            <div>
+              <p><b>Game Changers: not checked yet</b></p>
+              <p className="card-note">The Game Changer list isn't loaded on this server yet. It comes with the next card data import.</p>
+            </div>
+          )}
+          <OnlineSupport deckId={d.id} versionId={d.version_id} onCard={openByName} />
+        </div>
+
+        <BracketPanel
+          deckId={d.id}
+          versionId={d.version_id}
+          declared={d.bracket}
+          gameChangers={d.game_changers}
+          onCard={openByName}
+          onDeclare={() => setEditing(true)}
+        />
+        <DeckResults deckId={d.id} versionId={d.version_id} />
+        <DeckStatsPanel cards={d.cards} />
 
         <div className="deck-toolbar">
           <div className="segmented" role="tablist" aria-label="Show">
@@ -391,8 +498,11 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const containers = useQuery({ queryKey: ["containers"], queryFn: () => api<Container[]>("/api/containers") });
+  // The bracket panel has already asked whether this server sends lists to Spellbook.
+  const checksOn = qc.getQueryData<DeckCheck>(["deck-check", deck.id, deck.version_id])?.enabled === true;
   const [name, setName] = useState(deck.name);
   const [container, setContainer] = useState(deck.container_id ?? "");
+  const [bracket, setBracket] = useState(deck.bracket == null ? "" : String(deck.bracket));
   const [text, setText] = useState(() => listText(deck.cards));
   const [note, setNote] = useState("");
   const [unknown, setUnknown] = useState<string[]>([]);
@@ -407,7 +517,7 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         setUnknown(parsed.unknown);
         throw new Error("Some lines didn't match a card. Fix them, then save again.");
       }
-      await api(`/api/decks/${deck.id}`, { method: "PATCH", json: { name, container_id: container || null } });
+      await api(`/api/decks/${deck.id}`, { method: "PATCH", json: { name, container_id: container || null, bracket: bracket ? Number(bracket) : null } });
       if (listText(parsed.cards) !== listText(deck.cards)) {
         await api(`/api/decks/${deck.id}`, { method: "PUT", json: { cards: parsed.cards, note: note || null } });
       }
@@ -415,6 +525,7 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["deck", deck.id] });
       void qc.invalidateQueries({ queryKey: ["decks"] });
+      void qc.invalidateQueries({ queryKey: ["deck-versions", deck.id] });
       onClose();
     },
   });
@@ -436,6 +547,17 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         <label>
           Name
           <input value={name} onChange={(e) => setName(e.target.value)} required />
+        </label>
+        <label>
+          Bracket
+          <span className="hint">
+            The bracket you'd tell the table before a game. Commander Spellbook's estimate is shown beside it and never changes it.
+            {checksOn && ` ${SENDS_LIST}`}
+          </span>
+          <select value={bracket} onChange={(e) => setBracket(e.target.value)}>
+            <option value="">Not declared</option>
+            {BRACKETS.map((b) => <option key={b.value} value={b.value}>{b.value}, {b.name}</option>)}
+          </select>
         </label>
         <label>
           Physical deck

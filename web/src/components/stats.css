@@ -1,0 +1,191 @@
+/* Game results: end-of-game capture (first player, how it was won, fun), the Group page's
+   stats and rivalries, and results per deck version.
+
+   These rules use the semantic token names the new design will define (ground, surface,
+   raised, line, text, text-dim, accent, good, warn, bad). Until it lands, each one falls back
+   to today's playmat variable. This block is the only place the old names appear here. */
+:where(.capture, .group-stats, .deck-results) {
+  --st-ground: var(--ground, var(--felt));
+  --st-surface: var(--surface, var(--felt-2));
+  --st-raised: var(--raised, var(--felt-3));
+  --st-line: var(--line);
+  --st-text: var(--text, var(--paper));
+  --st-text-dim: var(--text-dim, var(--paper-dim));
+  --st-accent: var(--accent, var(--paper));
+  --st-good: var(--good);
+  --st-warn: var(--warn);
+}
+
+/* ── capture: chips and fun ratings ─────────────────────────────────────── */
+
+.capture .choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.capture .choice {
+  min-height: 40px;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid var(--st-line);
+  color: var(--st-text);
+}
+.capture .choice[aria-pressed="true"] {
+  background: var(--st-accent);
+  border-color: var(--st-accent);
+  color: var(--st-ground);
+}
+.capture .question {
+  display: grid;
+  gap: 0.45rem;
+}
+.capture .question > p {
+  margin: 0;
+  font-weight: 700;
+}
+.capture .question > p .optional {
+  font-weight: 400;
+  color: var(--st-text-dim);
+}
+.capture .fun-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--st-line);
+}
+.capture .fun-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.capture .fun-scale {
+  display: flex;
+  gap: 0.25rem;
+}
+.capture .fun-scale button {
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--st-line);
+  color: var(--st-text);
+  font-variant-numeric: tabular-nums;
+}
+.capture .fun-scale button[aria-pressed="true"] {
+  background: var(--st-accent);
+  border-color: var(--st-accent);
+  color: var(--st-ground);
+}
+.capture .first-said {
+  margin: 0;
+  color: var(--st-text-dim);
+}
+
+/* ── group stats ────────────────────────────────────────────────────────── */
+
+.group-stats .computed {
+  margin: 0;
+  color: var(--st-text-dim);
+  font-size: var(--t-sm);
+}
+.group-stats section > .lede {
+  margin: -0.25rem 0 0.6rem;
+  color: var(--st-text-dim);
+  font-size: var(--t-sm);
+}
+/* A rate and what it's out of, stacked so narrow tables stay readable. */
+.group-stats .rate b {
+  display: block;
+  font-weight: 700;
+}
+.group-stats .rate span {
+  display: block;
+  color: var(--st-text-dim);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+}
+.group-stats tr.provisional > td,
+.group-stats li.provisional,
+.deck-results .provisional {
+  opacity: 0.55;
+}
+.group-stats .prov,
+.deck-results .prov {
+  color: var(--st-warn);
+  font-size: var(--t-sm);
+  font-weight: 400;
+  white-space: nowrap;
+}
+/* Full-width tables spread a name and its numbers too far apart on a desktop screen. */
+.group-stats table.plain {
+  max-width: 44rem;
+}
+.group-stats .reference {
+  color: var(--st-text-dim);
+}
+.group-stats .plain-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid var(--st-line);
+}
+.group-stats .plain-list > li {
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px solid var(--st-line);
+}
+.group-stats .h2h {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: baseline;
+}
+.group-stats .h2h .score {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-md);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.group-stats .h2h > :last-child {
+  text-align: right;
+}
+.group-stats .export {
+  display: grid;
+  gap: 0.5rem;
+}
+
+/* ── results per deck version ───────────────────────────────────────────── */
+
+.deck-results {
+  margin: 1.25rem 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.deck-results h2 {
+  margin: 0;
+  font-size: var(--t-lg);
+}
+.deck-results .this-version {
+  margin: 0;
+  font-size: var(--t-md);
+}
+.deck-results .this-version b {
+  font-family: var(--display);
+  font-weight: 800;
+}
+.deck-results ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.deck-results li .when {
+  color: var(--st-text-dim);
+  font-size: var(--t-sm);
+}

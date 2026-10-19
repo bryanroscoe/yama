@@ -2,6 +2,13 @@
 //!
 //! - `oracle_cards`: one object per card (rules text, legality) → `cards`, `card_names`.
 //! - `default_cards`: every printing in English, or its only language → `printings`, `price_snapshots`.
+//! - `rulings`: Wizards' and Scryfall's rulings by oracle ID → `rulings` (replaced as a whole).
+//!
+//! Images: Scryfall added WebP sizes on 2026-10-14 and drops the `small`, `large`, `border_crop`
+//! and `art_crop` JPEGs on 2027-01-01 (<https://scryfall.com/blog/new-webp-images-jpeg-deprecations-237>).
+//! We read `thumb`, `grid` and `art`, falling back to the JPEG keys for older files. Column
+//! names stay as they were (`image_small` holds the thumb, `image_normal` the grid image, and
+//! `image_art_crop` the art). Only URLs are stored; images load from Scryfall at runtime.
 //!
 //! The files are large (hundreds of MB), so they're parsed as a stream on a blocking thread and
 //! handed to the async writer in batches. Scryfall regenerates bulk files every 12 hours; weekly
@@ -27,44 +34,107 @@ const BATCH: usize = 500;
 /// Layouts that aren't cards anyone plays.
 const SKIP_LAYOUTS: [&str; 1] = ["art_series"];
 
-pub async fn run(pool: &SqlitePool, cfg: &Config, oracle: Option<PathBuf>, default: Option<PathBuf>) -> anyhow::Result<()> {
+pub async fn run(
+    pool: &SqlitePool,
+    cfg: &Config,
+    oracle: Option<PathBuf>,
+    default: Option<PathBuf>,
+    rulings: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    run_from(pool, &cfg.data_dir, BULK_INDEX, oracle, default, rulings).await
+}
+
+/// [`run`] against any bulk index, so tests can serve one locally.
+///
+/// Each downloaded file is deleted as soon as its import is done, and also when anything fails
+/// (see [`BulkFile`]): the disk is small. Files given on the command line are never deleted.
+async fn run_from(
+    pool: &SqlitePool,
+    data_dir: &Path,
+    index_url: &str,
+    oracle: Option<PathBuf>,
+    default: Option<PathBuf>,
+    rulings: Option<PathBuf>,
+) -> anyhow::Result<()> {
     let http = crate::routes::http_client();
-    let index = if oracle.is_none() || default.is_none() { Some(bulk_index(&http).await?) } else { None };
+    // Given both card files, stay offline: rulings come only from --rulings then.
+    let offline = oracle.is_some() && default.is_some();
+    let index = if !offline { Some(bulk_index(&http, index_url).await?) } else { None };
 
-    let (oracle_path, oracle_meta) = match oracle {
-        Some(p) => (p, None),
-        None => {
-            let item = index.as_ref().unwrap().find("oracle_cards")?;
-            (download(&http, item, &cfg.data_dir).await?, Some(item.clone()))
-        }
+    let file = match oracle {
+        Some(p) => BulkFile::given(p),
+        None => download(&http, index.as_ref().unwrap().find("oracle_cards")?, data_dir).await?,
     };
-    let n = import_oracle(pool, &oracle_path, oracle_meta.as_ref()).await?;
+    let n = import_oracle(pool, &file.path, file.meta.as_ref()).await?;
     println!("oracle cards: {n}");
+    drop(file);
 
-    let (default_path, default_meta) = match default {
-        Some(p) => (p, None),
-        None => {
-            let item = index.as_ref().unwrap().find("default_cards")?;
-            (download(&http, item, &cfg.data_dir).await?, Some(item.clone()))
-        }
+    let file = match default {
+        Some(p) => BulkFile::given(p),
+        None => download(&http, index.as_ref().unwrap().find("default_cards")?, data_dir).await?,
     };
-    let n = import_default(pool, &default_path, default_meta.as_ref()).await?;
+    let n = import_default(pool, &file.path, file.meta.as_ref()).await?;
     println!("printings: {n}");
+    drop(file);
 
-    // Downloaded files are only needed during import, and the disk is small.
-    for (path, meta) in [(&oracle_path, &oracle_meta), (&default_path, &default_meta)] {
-        if meta.is_some() {
-            let _ = std::fs::remove_file(path);
-        }
-    }
+    let file = match (rulings, &index) {
+        (Some(p), _) => BulkFile::given(p),
+        (None, Some(index)) => download(&http, index.find("rulings")?, data_dir).await?,
+        (None, None) => return Ok(()),
+    };
+    let n = import_rulings(pool, &file.path, file.meta.as_ref()).await?;
+    println!("rulings: {n}");
     Ok(())
 }
 
-/// Download and import the latest file of one kind, unless we already have that exact file.
-/// Returns whether anything was imported.
-pub async fn refresh(pool: &SqlitePool, data_dir: &Path, kind: &str) -> anyhow::Result<bool> {
+/// Version of the import for one kind of bulk file, stored with each run
+/// (`import_runs.importer_version`; runs from before it existed count as 1). Raise a kind's
+/// number when its import starts reading a field it didn't before: a running server then
+/// re-imports that kind on its next pass, even if Scryfall's file hasn't changed.
+pub fn importer_version(kind: &str) -> i64 {
+    match kind {
+        "oracle_cards" => 3, // 2: game_changer; 3: produced_mana (both migration 0008)
+        "default_cards" => 2, // 2: digital, set_type (migration 0008)
+        _ => 1,
+    }
+}
+
+/// The oracle importer version that first read Scryfall's Game Changer flag.
+const GAME_CHANGER_VERSION: i64 = 2;
+
+/// The newest successful import of `kind` made by the current importer version, as a date
+/// (YYYY-MM-DD): when Scryfall generated the file, or for a file given on the command line,
+/// when it was imported. `None` means data that import brings isn't loaded yet (for example
+/// rulings, or Game Changer flags right after migration 0008).
+pub async fn current_import_date(pool: &SqlitePool, kind: &str) -> sqlx::Result<Option<String>> {
+    import_date_since(pool, kind, importer_version(kind)).await
+}
+
+/// Date of the Scryfall data behind the Game Changer flags (YYYY-MM-DD), or `None` before an
+/// oracle import that reads them. Unlike [`current_import_date`] it doesn't wait for later
+/// importer versions, which read other fields.
+pub async fn game_changers_date(pool: &SqlitePool) -> sqlx::Result<Option<String>> {
+    import_date_since(pool, "oracle_cards", GAME_CHANGER_VERSION).await
+}
+
+async fn import_date_since(pool: &SqlitePool, kind: &str, min_version: i64) -> sqlx::Result<Option<String>> {
+    Ok(sqlx::query_scalar(
+        "SELECT substr(COALESCE(source_updated_at, finished_at), 1, 10) FROM import_runs
+         WHERE kind = ? AND error IS NULL AND finished_at IS NOT NULL AND IFNULL(importer_version, 1) >= ?
+         ORDER BY started_at DESC LIMIT 1",
+    )
+    .bind(kind)
+    .bind(min_version)
+    .fetch_optional(pool)
+    .await?
+    .flatten())
+}
+
+/// Download and import the latest file of one kind, unless we already have that exact file
+/// (`force` imports it anyway). Returns whether anything was imported.
+pub async fn refresh(pool: &SqlitePool, data_dir: &Path, kind: &str, force: bool) -> anyhow::Result<bool> {
     let http = crate::routes::http_client();
-    let index = bulk_index(&http).await?;
+    let index = bulk_index(&http, BULK_INDEX).await?;
     let item = index.find(kind)?;
     let have: Option<String> = sqlx::query_scalar(
         "SELECT source_updated_at FROM import_runs WHERE kind = ? AND error IS NULL AND finished_at IS NOT NULL
@@ -74,23 +144,25 @@ pub async fn refresh(pool: &SqlitePool, data_dir: &Path, kind: &str) -> anyhow::
     .fetch_optional(pool)
     .await?
     .flatten();
-    if have.as_deref() == Some(item.updated_at.as_str()) {
+    if !force && have.as_deref() == Some(item.updated_at.as_str()) {
         return Ok(false);
     }
-    let path = download(&http, item, data_dir).await?;
-    let result = match kind {
-        "oracle_cards" => import_oracle(pool, &path, Some(item)).await,
-        _ => import_default(pool, &path, Some(item)).await,
+    let file = download(&http, item, data_dir).await?;
+    match kind {
+        "oracle_cards" => import_oracle(pool, &file.path, Some(item)).await?,
+        "rulings" => import_rulings(pool, &file.path, Some(item)).await?,
+        _ => import_default(pool, &file.path, Some(item)).await?,
     };
-    let _ = std::fs::remove_file(&path);
-    result.map(|_| true)
+    Ok(true)
 }
 
-/// Background refresh for a running server: prices daily, rules text weekly.
+/// Background refresh for a running server: prices daily, rules text and rulings weekly. A kind
+/// whose last successful import came from an older importer version (see [`importer_version`])
+/// is imported on the first pass, which runs at startup.
 pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
     tokio::spawn(async move {
         loop {
-            for (kind, max_age_hours) in [("default_cards", 20), ("oracle_cards", 24 * 6)] {
+            for (kind, max_age_hours) in [("default_cards", 20), ("oracle_cards", 24 * 6), ("rulings", 24 * 6)] {
                 let last: Option<String> = sqlx::query_scalar(
                     "SELECT MAX(finished_at) FROM import_runs WHERE kind = ? AND error IS NULL",
                 )
@@ -101,8 +173,11 @@ pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
                 let age = last
                     .and_then(|t| chrono::DateTime::parse_from_rfc3339(&t).ok())
                     .map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_hours());
-                if age.is_none_or(|h| h >= max_age_hours) {
-                    match refresh(&pool, &data_dir, kind).await {
+                // On a database error, assume the current import is there rather than
+                // downloading every hour.
+                let behind = matches!(current_import_date(&pool, kind).await, Ok(None));
+                if behind || age.is_none_or(|h| h >= max_age_hours) {
+                    match refresh(&pool, &data_dir, kind, behind).await {
                         Ok(true) => tracing::info!(kind, "imported fresh Scryfall data"),
                         Ok(false) => tracing::debug!(kind, "Scryfall data unchanged"),
                         Err(e) => tracing::warn!(kind, error = %format!("{e:#}"), "Scryfall import failed"),
@@ -112,6 +187,30 @@ pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
             tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         }
     });
+}
+
+/// A bulk file to import: one given on the command line, or one we downloaded. A download is
+/// deleted when this is dropped, so it goes away after its import, and also when the import, a
+/// later download or the download itself fails partway.
+struct BulkFile {
+    path: PathBuf,
+    /// Scryfall's index entry, for downloads.
+    meta: Option<BulkItem>,
+    downloaded: bool,
+}
+
+impl BulkFile {
+    fn given(path: PathBuf) -> Self {
+        Self { path, meta: None, downloaded: false }
+    }
+}
+
+impl Drop for BulkFile {
+    fn drop(&mut self) {
+        if self.downloaded {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 #[derive(Deserialize, Clone)]
@@ -146,9 +245,9 @@ impl BulkIndex {
     }
 }
 
-async fn bulk_index(http: &reqwest::Client) -> anyhow::Result<BulkIndex> {
+async fn bulk_index(http: &reqwest::Client, url: &str) -> anyhow::Result<BulkIndex> {
     Ok(http
-        .get(BULK_INDEX)
+        .get(url)
         .header("Accept", "application/json")
         .send()
         .await?
@@ -157,19 +256,21 @@ async fn bulk_index(http: &reqwest::Client) -> anyhow::Result<BulkIndex> {
         .await?)
 }
 
-async fn download(http: &reqwest::Client, item: &BulkItem, dir: &Path) -> anyhow::Result<PathBuf> {
+/// Download one bulk file into `dir`. A partly written file is deleted if the download fails.
+async fn download(http: &reqwest::Client, item: &BulkItem, dir: &Path) -> anyhow::Result<BulkFile> {
     let url = item.url()?;
     let path = dir.join(url.rsplit('/').next().unwrap_or("scryfall-bulk"));
     let mb = item.compressed_size.or(item.size).unwrap_or(0) / 1_000_000;
     println!("downloading {} ({mb} MB)…", item.kind);
     let resp = http.get(url).send().await?.error_for_status()?;
-    let mut file = tokio::fs::File::create(&path).await?;
+    let bulk = BulkFile { path, meta: Some(item.clone()), downloaded: true };
+    let mut file = tokio::fs::File::create(&bulk.path).await?;
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
         file.write_all(&chunk?).await?;
     }
     file.flush().await?;
-    Ok(path)
+    Ok(bulk)
 }
 
 /// Open a bulk file, gzipped or not.
@@ -255,11 +356,34 @@ impl<'de, T: DeserializeOwned> Visitor<'de> for Each<T> {
 
 // ── Scryfall card shape (only the fields we keep) ──────────────────────────
 
+/// Scryfall's image links. The WebP keys (`thumb`, `grid`, `art`) arrived on 2026-10-14; the
+/// old JPEG keys are read only as a fallback. `jpeg` is the old `normal` under its new name.
 #[derive(Deserialize, Default, Clone)]
 struct ImageUris {
+    thumb: Option<String>,
+    grid: Option<String>,
+    art: Option<String>,
+    jpeg: Option<String>,
     small: Option<String>,
     normal: Option<String>,
     art_crop: Option<String>,
+}
+
+impl ImageUris {
+    /// 146 × 204, for lists (`image_small`).
+    fn small(&self) -> Option<&String> {
+        self.thumb.as_ref().or(self.small.as_ref())
+    }
+
+    /// 488 × 680, the everyday card image (`image_normal`).
+    fn normal(&self) -> Option<&String> {
+        self.grid.as_ref().or(self.jpeg.as_ref()).or(self.normal.as_ref())
+    }
+
+    /// The illustration alone (`image_art_crop`). Credit the artist wherever it's shown.
+    fn art(&self) -> Option<&String> {
+        self.art.as_ref().or(self.art_crop.as_ref())
+    }
 }
 
 #[derive(Deserialize, Clone, serde::Serialize)]
@@ -309,6 +433,13 @@ struct ScryCard {
     legalities: BTreeMap<String, String>,
     rarity: Option<String>,
     edhrec_rank: Option<i64>,
+    /// On the Commander Game Changers list (oracle_cards). Scryfall sends true or false for
+    /// every card; absent or null stays unknown (NULL), never false.
+    #[serde(default)]
+    game_changer: Option<bool>,
+    /// Colors of mana the card can make. Scryfall leaves it out for cards that make none.
+    #[serde(default)]
+    produced_mana: Option<Vec<String>>,
     image_uris: Option<ImageUris>,
     card_faces: Option<Vec<Face>>,
     artist: Option<String>,
@@ -324,6 +455,12 @@ struct ScryCard {
     #[serde(default)]
     finishes: Vec<String>,
     released_at: Option<String>,
+    /// Only released in a video game (MTGO, Arena). Absent stays unknown (NULL), never false.
+    #[serde(default)]
+    digital: Option<bool>,
+    /// Scryfall's kind of set: expansion, core, masters, commander, memorabilia, promo, ...
+    #[serde(default)]
+    set_type: Option<String>,
     #[serde(default)]
     prices: Prices,
 }
@@ -357,7 +494,7 @@ impl ScryCard {
         if self.image_uris.is_some() {
             return None; // single image (split, adventure, flip…)
         }
-        self.card_faces.as_ref()?.get(1)?.image_uris.as_ref()?.normal.clone()
+        self.card_faces.as_ref()?.get(1)?.image_uris.as_ref()?.normal().cloned()
     }
 
     fn front(&self, get: fn(&Face) -> Option<&String>) -> Option<&String> {
@@ -389,20 +526,29 @@ pub fn wubrg(colors: &[String]) -> String {
     "WUBRG".chars().filter(|c| colors.iter().any(|x| x.starts_with(*c))).collect()
 }
 
+/// Scryfall's produced_mana (["G","W","C"]) as "WGC": WUBRG order, colorless last. Empty for
+/// a card that makes no mana.
+fn produced_mana(colors: &[String]) -> String {
+    "WUBRGC".chars().filter(|c| colors.iter().any(|x| x.len() == 1 && x.starts_with(*c))).collect()
+}
+
 fn price(s: &Option<String>) -> Option<f64> {
     s.as_deref().and_then(|v| v.parse().ok())
 }
 
 async fn start_run(pool: &SqlitePool, kind: &str, meta: Option<&BulkItem>) -> anyhow::Result<String> {
     let id = new_id();
-    sqlx::query("INSERT INTO import_runs (id, kind, source_url, source_updated_at, started_at) VALUES (?, ?, ?, ?, ?)")
-        .bind(&id)
-        .bind(kind)
-        .bind(meta.and_then(|m| m.url().ok().map(str::to_string)))
-        .bind(meta.map(|m| m.updated_at.clone()))
-        .bind(now())
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO import_runs (id, kind, source_url, source_updated_at, started_at, importer_version) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(kind)
+    .bind(meta.and_then(|m| m.url().ok().map(str::to_string)))
+    .bind(meta.map(|m| m.updated_at.clone()))
+    .bind(now())
+    .bind(importer_version(kind))
+    .execute(pool)
+    .await?;
     Ok(id)
 }
 
@@ -444,8 +590,9 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
             sqlx::query(
                 "INSERT INTO cards (oracle_id, name, mana_cost, cmc, type_line, oracle_text, colors, color_identity,
                     power, toughness, loyalty, keywords, legalities, rarity, layout, edhrec_rank, default_printing,
-                    image_small, image_normal, image_art_crop, back_image_normal, artist, faces, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    image_small, image_normal, image_art_crop, back_image_normal, artist, faces, game_changer,
+                    produced_mana, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                  ON CONFLICT(oracle_id) DO UPDATE SET name=excluded.name, mana_cost=excluded.mana_cost,
                     cmc=excluded.cmc, type_line=excluded.type_line, oracle_text=excluded.oracle_text,
                     colors=excluded.colors, color_identity=excluded.color_identity, power=excluded.power,
@@ -454,7 +601,8 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
                     edhrec_rank=excluded.edhrec_rank, default_printing=excluded.default_printing,
                     image_small=excluded.image_small, image_normal=excluded.image_normal,
                     image_art_crop=excluded.image_art_crop, back_image_normal=excluded.back_image_normal,
-                    artist=excluded.artist, faces=excluded.faces, updated_at=excluded.updated_at",
+                    artist=excluded.artist, faces=excluded.faces, game_changer=excluded.game_changer,
+                    produced_mana=excluded.produced_mana, updated_at=excluded.updated_at",
             )
             .bind(&oracle_id)
             .bind(&c.name)
@@ -473,12 +621,14 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
             .bind(&c.layout)
             .bind(c.edhrec_rank)
             .bind(&c.id)
-            .bind(&images.small)
-            .bind(&images.normal)
-            .bind(&images.art_crop)
+            .bind(images.small())
+            .bind(images.normal())
+            .bind(images.art())
             .bind(c.back_image())
             .bind(&c.artist)
             .bind(faces)
+            .bind(c.game_changer)
+            .bind(produced_mana(c.produced_mana.as_deref().unwrap_or_default()))
             .bind(&stamp)
             .execute(&mut *tx)
             .await?;
@@ -529,15 +679,16 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
             sqlx::query(
                 "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang,
                     rarity, finishes, released_at, image_normal, image_small, image_art_crop, back_image_normal,
-                    artist, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    artist, digital, set_type, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                  ON CONFLICT(scryfall_id) DO UPDATE SET oracle_id=excluded.oracle_id, name=excluded.name,
                     set_code=excluded.set_code, set_name=excluded.set_name,
                     collector_number=excluded.collector_number, lang=excluded.lang, rarity=excluded.rarity,
                     finishes=excluded.finishes, released_at=excluded.released_at,
                     image_normal=excluded.image_normal, image_small=excluded.image_small,
                     image_art_crop=excluded.image_art_crop, back_image_normal=excluded.back_image_normal,
-                    artist=excluded.artist, updated_at=excluded.updated_at",
+                    artist=excluded.artist, digital=excluded.digital, set_type=excluded.set_type,
+                    updated_at=excluded.updated_at",
             )
             .bind(&c.id)
             .bind(&oracle_id)
@@ -549,11 +700,13 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
             .bind(&c.rarity)
             .bind(serde_json::to_string(&c.finishes)?)
             .bind(&c.released_at)
-            .bind(&images.normal)
-            .bind(&images.small)
-            .bind(&images.art_crop)
+            .bind(images.normal())
+            .bind(images.small())
+            .bind(images.art())
             .bind(c.back_image())
             .bind(&c.artist)
+            .bind(c.digital)
+            .bind(&c.set_type)
             .bind(&stamp)
             .execute(&mut *tx)
             .await?;
@@ -586,6 +739,54 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
     Ok(count)
 }
 
+#[derive(Deserialize)]
+struct ScryRuling {
+    oracle_id: Option<String>,
+    #[serde(default)]
+    source: String,
+    #[serde(default)]
+    published_at: String,
+    #[serde(default)]
+    comment: String,
+}
+
+pub async fn import_rulings(pool: &SqlitePool, path: &Path, meta: Option<&BulkItem>) -> anyhow::Result<usize> {
+    let run = start_run(pool, "rulings", meta).await?;
+    let result = import_rulings_inner(pool, path).await;
+    finish_run(pool, &run, &result).await?;
+    result
+}
+
+/// Replace every ruling in one transaction, so a failed import leaves the old set in place
+/// and running it twice gives the same table.
+async fn import_rulings_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<usize> {
+    let mut rx = stream_cards::<ScryRuling>(path.to_path_buf());
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM rulings").execute(&mut *tx).await?;
+    let mut count = 0;
+    while let Some(batch) = rx.recv().await {
+        for r in batch? {
+            let Some(oracle_id) = r.oracle_id.filter(|id| !id.is_empty()) else { continue };
+            if r.comment.trim().is_empty() {
+                continue;
+            }
+            sqlx::query("INSERT INTO rulings (oracle_id, source, published_at, comment) VALUES (?,?,?,?)")
+                .bind(oracle_id)
+                .bind(&r.source)
+                .bind(&r.published_at)
+                .bind(&r.comment)
+                .execute(&mut *tx)
+                .await?;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        bail!("no rulings found in {}", path.display());
+    }
+    tx.commit().await?;
+    Ok(count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -593,9 +794,9 @@ mod tests {
     const SAMPLE: &str = r#"[
       {"id":"p1","oracle_id":"o1","name":"Sol Ring","layout":"normal","mana_cost":"{1}","cmc":1.0,
        "type_line":"Artifact","oracle_text":"{T}: Add {C}{C}.","colors":[],"color_identity":[],
-       "keywords":[],"legalities":{"commander":"legal","vintage":"restricted"},"rarity":"uncommon",
+       "produced_mana":["C"],"keywords":[],"legalities":{"commander":"legal","vintage":"restricted"},"rarity":"uncommon",
        "image_uris":{"small":"s","normal":"n","art_crop":"a"},"set":"cmm","set_name":"Commander Masters",
-       "collector_number":"410","lang":"en","finishes":["nonfoil","foil"],
+       "collector_number":"410","lang":"en","finishes":["nonfoil","foil"],"digital":false,"set_type":"masters",
        "prices":{"usd":"1.50","usd_foil":null,"eur":"1.20","tix":null}},
       {"id":"p2","oracle_id":"o2","name":"Fable of the Mirror-Breaker // Reflection of Kiki-Jiki",
        "layout":"transform","cmc":3.0,"type_line":"Enchantment — Saga // Enchantment Creature — Goblin Shaman",
@@ -634,6 +835,17 @@ mod tests {
             .unwrap();
         assert_eq!(face.0, "o2");
 
+        // Mana a card makes; a card that makes none (Scryfall omits the field) is '', not unknown.
+        let made: Vec<(String, Option<String>)> =
+            sqlx::query_as("SELECT oracle_id, produced_mana FROM cards ORDER BY oracle_id").fetch_all(&pool).await.unwrap();
+        assert_eq!(made, vec![("o1".into(), Some("C".into())), ("o2".into(), Some(String::new()))]);
+        assert_eq!(produced_mana(&["G".into(), "W".into(), "C".into(), "U".into()]), "WUGC");
+
+        // Paper or digital-only, and the kind of set; a file without them leaves them unknown.
+        let kinds: Vec<(String, Option<bool>, Option<String>)> =
+            sqlx::query_as("SELECT scryfall_id, digital, set_type FROM printings ORDER BY scryfall_id").fetch_all(&pool).await.unwrap();
+        assert_eq!(kinds, vec![("p1".into(), Some(false), Some("masters".into())), ("p2".into(), None, None)]);
+
         // Missing prices stay missing; a printing with no prices at all gets no row.
         let prices: Vec<(String, Option<f64>, Option<f64>)> =
             sqlx::query_as("SELECT scryfall_id, usd, usd_foil FROM price_snapshots").fetch_all(&pool).await.unwrap();
@@ -653,5 +865,239 @@ mod tests {
         }
         gz.finish().unwrap();
         assert_eq!(import_oracle(&pool, &path, None).await.unwrap(), 2);
+    }
+
+    /// Shape of Scryfall's image_uris since 2026-10-14 (Sol Ring, checked 2026-10-18): the old
+    /// JPEG keys and the new WebP ones side by side.
+    const WEBP: &str = r#"[
+      {"id":"p1","oracle_id":"o1","name":"Sol Ring","layout":"normal","cmc":1.0,"type_line":"Artifact",
+       "color_identity":[],"legalities":{"commander":"legal"},"game_changer":true,
+       "image_uris":{"small":"https://cards.scryfall.io/small/front/s.jpg","normal":"https://cards.scryfall.io/normal/front/s.jpg",
+         "large":"https://cards.scryfall.io/large/front/s.jpg","art_crop":"https://cards.scryfall.io/art_crop/front/s.jpg",
+         "thumb":"https://cards.scryfall.io/thumb/front/s.webp","grid":"https://cards.scryfall.io/grid/front/s.webp",
+         "display":"https://cards.scryfall.io/display/front/s.webp","art":"https://cards.scryfall.io/art/front/s.webp",
+         "crop":"https://cards.scryfall.io/crop/front/s.webp","jpeg":"https://cards.scryfall.io/normal/front/s.jpg"},
+       "set":"cmm","set_name":"Commander Masters","collector_number":"410","lang":"en","finishes":["nonfoil"]},
+      {"id":"p2","oracle_id":"o2","name":"Front // Back","layout":"transform","cmc":2.0,"type_line":"Creature // Creature",
+       "color_identity":["G"],"legalities":{"commander":"legal"},"game_changer":null,
+       "card_faces":[{"name":"Front","image_uris":{"normal":"old-front","grid":"front.webp"}},
+                     {"name":"Back","image_uris":{"jpeg":"back.jpg"}}],
+       "set":"x","set_name":"X","collector_number":"2","lang":"en","finishes":["nonfoil"]}
+    ]"#;
+
+    #[tokio::test]
+    async fn prefers_webp_image_keys_and_reads_game_changer() {
+        let pool = crate::db::test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bulk.json");
+        std::fs::write(&path, WEBP).unwrap();
+        import_oracle(&pool, &path, None).await.unwrap();
+        import_default(&pool, &path, None).await.unwrap();
+
+        type Images = (Option<String>, Option<String>, Option<String>, Option<String>, Option<bool>);
+        let sol: Images = sqlx::query_as(
+            "SELECT image_small, image_normal, image_art_crop, back_image_normal, game_changer FROM cards WHERE oracle_id='o1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(sol.0.as_deref(), Some("https://cards.scryfall.io/thumb/front/s.webp"));
+        assert_eq!(sol.1.as_deref(), Some("https://cards.scryfall.io/grid/front/s.webp"));
+        assert_eq!(sol.2.as_deref(), Some("https://cards.scryfall.io/art/front/s.webp"));
+        assert_eq!(sol.3, None);
+        assert_eq!(sol.4, Some(true));
+
+        let dfc: Images = sqlx::query_as(
+            "SELECT image_small, image_normal, image_art_crop, back_image_normal, game_changer FROM cards WHERE oracle_id='o2'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(dfc.1.as_deref(), Some("front.webp"));
+        assert_eq!(dfc.3.as_deref(), Some("back.jpg"), "the renamed jpeg key is a fallback for grid");
+        assert_eq!(dfc.4, None, "a null game_changer stays unknown");
+
+        let printing: (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT image_small, image_normal FROM printings WHERE scryfall_id='p1'").fetch_one(&pool).await.unwrap();
+        assert_eq!(printing.0.as_deref(), Some("https://cards.scryfall.io/thumb/front/s.webp"));
+        assert_eq!(printing.1.as_deref(), Some("https://cards.scryfall.io/grid/front/s.webp"));
+
+        // Files from before the change only have the JPEG keys.
+        let old = dir.path().join("old.json");
+        std::fs::write(&old, SAMPLE).unwrap();
+        import_oracle(&pool, &old, None).await.unwrap();
+        let (small, normal, art): (Option<String>, Option<String>, Option<String>) =
+            sqlx::query_as("SELECT image_small, image_normal, image_art_crop FROM cards WHERE oracle_id='o1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!((small.as_deref(), normal.as_deref(), art.as_deref()), (Some("s"), Some("n"), Some("a")));
+    }
+
+    #[tokio::test]
+    async fn imports_rulings_replacing_the_old_set() {
+        use std::io::Write;
+        let pool = crate::db::test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rulings.jsonl.gz");
+        let lines = [
+            r#"{"object":"ruling","oracle_id":"o1","source":"wotc","published_at":"2004-10-04","comment":"First."}"#,
+            r#"{"object":"ruling","oracle_id":"o1","source":"scryfall","published_at":"2021-03-19","comment":"Second."}"#,
+            r#"{"object":"ruling","oracle_id":"o2","source":"wotc","published_at":"2019-05-03","comment":"Other card."}"#,
+            r#"{"object":"ruling","oracle_id":null,"source":"wotc","published_at":"2019-05-03","comment":"No card."}"#,
+        ];
+        let mut gz = flate2::write::GzEncoder::new(std::fs::File::create(&path).unwrap(), flate2::Compression::fast());
+        for l in lines {
+            writeln!(gz, "{l}").unwrap();
+        }
+        gz.finish().unwrap();
+
+        assert_eq!(import_rulings(&pool, &path, None).await.unwrap(), 3);
+        // Running it again replaces rather than duplicates.
+        assert_eq!(import_rulings(&pool, &path, None).await.unwrap(), 3);
+        let rows: Vec<(String, String, String)> =
+            sqlx::query_as("SELECT source, published_at, comment FROM rulings WHERE oracle_id='o1' ORDER BY published_at")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("wotc".into(), "2004-10-04".into(), "First.".into()),
+                ("scryfall".into(), "2021-03-19".into(), "Second.".into())
+            ]
+        );
+        // What GET /api/cards/:id returns: oldest first.
+        let served = crate::cards::rulings_for(&pool, "o1").await.unwrap();
+        assert_eq!(served.iter().map(|r| r.comment.as_str()).collect::<Vec<_>>(), ["First.", "Second."]);
+        assert!(crate::cards::rulings_for(&pool, "o9").await.unwrap().is_empty());
+
+        let runs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM import_runs WHERE kind='rulings' AND error IS NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(runs, 2);
+
+        // An empty file is an error and leaves the rulings we had.
+        let empty = dir.path().join("empty.json");
+        std::fs::write(&empty, "[]").unwrap();
+        assert!(import_rulings(&pool, &empty, None).await.is_err());
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rulings").fetch_one(&pool).await.unwrap();
+        assert_eq!(total, 3);
+    }
+
+    /// A local stand-in for Scryfall's bulk index whose rulings file breaks off after its first
+    /// bytes, the way a dropped connection would. Returns the index URL.
+    async fn bulk_server_with_broken_rulings() -> String {
+        use axum::{Router, body::Body, routing::get};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let item = |kind: &str| {
+            serde_json::json!({"type": kind, "jsonl_download_uri": format!("{base}/files/{kind}-20261018.json"),
+                               "updated_at": "2026-10-18T21:00:00.000+00:00"})
+        };
+        let index = serde_json::json!({"data": [item("oracle_cards"), item("default_cards"), item("rulings")]}).to_string();
+        let app = Router::new()
+            .route("/bulk-data", get(move || async move { index }))
+            .route("/files/oracle_cards-20261018.json", get(|| async { SAMPLE }))
+            .route("/files/default_cards-20261018.json", get(|| async { SAMPLE }))
+            .route(
+                "/files/rulings-20261018.json",
+                get(|| async {
+                    // The pause lets the first bytes reach the client (and the file) before the break.
+                    let chunks = futures_util::stream::iter([false, true]).then(|broken| async move {
+                        if broken {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                            Err(std::io::Error::other("connection lost"))
+                        } else {
+                            Ok(r#"{"object":"ruling","oracle_id":"o1""#)
+                        }
+                    });
+                    Body::from_stream(chunks)
+                }),
+            );
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        format!("{base}/bulk-data")
+    }
+
+    #[tokio::test]
+    async fn a_failed_rulings_download_still_deletes_the_card_files() {
+        let pool = crate::db::test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let index = bulk_server_with_broken_rulings().await;
+
+        assert!(run_from(&pool, dir.path(), &index, None, None, None).await.is_err());
+        // Both card files were downloaded and imported…
+        let cards: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM cards").fetch_one(&pool).await.unwrap();
+        let printings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM printings").fetch_one(&pool).await.unwrap();
+        assert_eq!((cards, printings), (2, 2));
+        // …and nothing is left on disk, not even the partial rulings file.
+        let left: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert!(left.is_empty(), "left behind: {left:?}");
+    }
+
+    #[tokio::test]
+    async fn files_given_on_the_command_line_are_kept() {
+        let pool = crate::db::test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let cards = dir.path().join("cards.json");
+        std::fs::write(&cards, SAMPLE).unwrap();
+        let rulings = dir.path().join("rulings.json");
+        std::fs::write(&rulings, r#"[{"oracle_id":"o1","source":"wotc","published_at":"2004-10-04","comment":"First."}]"#).unwrap();
+
+        // Both card files given: no network at all (the index URL is never fetched).
+        run_from(&pool, dir.path(), "http://127.0.0.1:9/unused", Some(cards.clone()), Some(cards.clone()), Some(rulings.clone()))
+            .await
+            .unwrap();
+        assert!(cards.exists() && rulings.exists());
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rulings").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[tokio::test]
+    async fn data_from_older_importers_counts_as_not_loaded() {
+        let pool = crate::db::test_pool().await;
+        // Runs made before migration 0008 have no importer version: they count as version 1.
+        sqlx::query(
+            "INSERT INTO import_runs (id, kind, source_updated_at, started_at, finished_at, rows) VALUES
+             ('o', 'oracle_cards', '2026-10-17T09:01:55.818+00:00', '2026-10-17T20:08:18Z', '2026-10-17T20:08:30Z', 2),
+             ('d', 'default_cards', '2026-10-17T09:06:08.225+00:00', '2026-10-17T20:08:31Z', '2026-10-17T20:09:10Z', 2)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Nothing these importers added is loaded: printings' digital flags (default_cards
+        // version 2), Game Changer flags (oracle_cards version 2) and rulings.
+        assert_eq!(current_import_date(&pool, "default_cards").await.unwrap(), None);
+        assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), None);
+        assert_eq!(game_changers_date(&pool).await.unwrap(), None);
+        assert_eq!(current_import_date(&pool, "rulings").await.unwrap(), None);
+
+        // A failed import doesn't load anything.
+        let dir = tempfile::tempdir().unwrap();
+        let empty = dir.path().join("empty.json");
+        std::fs::write(&empty, "[]").unwrap();
+        assert!(import_oracle(&pool, &empty, None).await.is_err());
+        assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), None);
+
+        // An import by today's code does; a file given by hand is dated by when it was imported.
+        let path = dir.path().join("bulk.json");
+        std::fs::write(&path, SAMPLE).unwrap();
+        import_oracle(&pool, &path, None).await.unwrap();
+        assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), Some(now()[..10].to_string()));
+        assert_eq!(game_changers_date(&pool).await.unwrap(), Some(now()[..10].to_string()));
+
+        // A version-2 run (Game Changers, no produced_mana) still dates the Game Changer flags,
+        // while the oracle data as a whole counts as behind, so the scheduler re-imports it.
+        sqlx::query("DELETE FROM import_runs").execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO import_runs (id, kind, source_updated_at, started_at, finished_at, rows, importer_version) VALUES
+             ('o2', 'oracle_cards', '2026-10-18T09:01:55.818+00:00', '2026-10-18T20:08:18Z', '2026-10-18T20:08:30Z', 2, 2)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), None);
+        assert_eq!(game_changers_date(&pool).await.unwrap().as_deref(), Some("2026-10-18"));
     }
 }

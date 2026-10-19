@@ -7,6 +7,7 @@ import { CardsPage } from "./pages/Cards";
 import { CollectionPage } from "./pages/Collection";
 import { DeckPage, DecksPage } from "./pages/Decks";
 import { GroupPage } from "./pages/Group";
+import { NewsNotice, WhatsNewPage } from "./pages/WhatsNew";
 import { GuestTable } from "./table/GuestTable";
 import { TableHome } from "./table/TableHome";
 import { TablePlay } from "./table/TablePlay";
@@ -34,6 +35,7 @@ function Shell() {
         ))}
         <RailMe />
       </nav>
+      <NewsNotice />
       <Outlet />
     </div>
   );
@@ -68,6 +70,7 @@ export function App() {
         <Route path="decks" element={<DecksPage />} />
         <Route path="decks/:id" element={<DeckPage />} />
         <Route path="group" element={<GroupPage />} />
+        <Route path="new" element={<WhatsNewPage />} />
       </Route>
     </Routes>
   );

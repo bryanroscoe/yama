@@ -14,6 +14,8 @@ use std::sync::Arc;
 use anyhow::{Context, bail};
 use engine::ai_support::{AiDecisionContract, AiProposalApplication, apply_ai_action_proposal};
 use engine::database::CardDatabase;
+use engine::game::coverage::{card_face_gaps, card_face_has_unimplemented_parts};
+use engine::types::card::PrintedCardRef;
 use engine::game::deck_loading::{DeckList, PlayerDeckList};
 use engine::game::engine::{apply_interaction, apply_verified_ai_priority_pass, verified_ai_stack_pass_player};
 use engine::game::filter_state_for_viewer;
@@ -71,6 +73,32 @@ pub struct DeckReport {
     pub missing: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CardSupport {
+    /// None of the engine's checks found a problem with this card.
+    Full,
+    /// No ability is marked unimplemented, but the parser left warnings on the card's text
+    /// (for example a clause it swallowed) or phase's coverage check found a gap (an unknown
+    /// keyword, an unsupported trigger mode…). It may not work fully.
+    Uncertain,
+    /// The engine loads the card, but some of its abilities aren't implemented.
+    Partial,
+    /// The engine doesn't know the card; it's left out of the game.
+    Missing,
+}
+
+/// Engine support for one deck. Counts are copies; names are distinct. `supported` counts only
+/// [`CardSupport::Full`] cards.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DeckSupport {
+    pub total: u32,
+    pub supported: u32,
+    pub missing: Vec<String>,
+    pub partial: Vec<String>,
+    pub uncertain: Vec<String>,
+}
+
 impl Engine {
     pub fn load(card_data: &Path) -> anyhow::Result<Self> {
         let db = CardDatabase::from_export(card_data).map_err(|e| anyhow::anyhow!("loading {}: {e}", card_data.display()))?;
@@ -97,6 +125,54 @@ impl Engine {
             }
         }
         (deck, DeckReport { missing })
+    }
+
+    /// How well the engine can play one card: by oracle ID first, then by name (as
+    /// [`Engine::resolve_deck`] does), looking at every face it loaded for the card.
+    ///
+    /// - Partial: a face has an unimplemented part in its parsed abilities
+    ///   (`card_face_has_unimplemented_parts`, the test behind phase's `is_card_playable`).
+    /// - Uncertain: otherwise, a face has parse warnings or a gap in phase's per-face coverage
+    ///   check (`card_face_gaps`).
+    ///
+    /// phase's coverage dashboard (`analyze_coverage`) also runs resolver, dropped-text and
+    /// subtype checks that aren't public per card; on 2026-10-19 they flagged 128 more of its
+    /// 35,925 faces, none in Bryan's decks. Passing every check still isn't proof a card plays
+    /// correctly.
+    pub fn card_support(&self, oracle_id: &str, name: &str) -> CardSupport {
+        let Some(face) = self.db.get_face_by_oracle_id(oracle_id).or_else(|| self.db.get_face_by_name(name)) else {
+            return CardSupport::Missing;
+        };
+        let other = face.scryfall_oracle_id.as_ref().and_then(|id| {
+            self.db.get_other_face_by_printed_ref(&PrintedCardRef { oracle_id: id.clone(), face_name: face.name.clone() })
+        });
+        let faces = || std::iter::once(face).chain(other);
+        if faces().any(card_face_has_unimplemented_parts) {
+            CardSupport::Partial
+        } else if faces().any(|f| !f.parse_warnings.is_empty() || !card_face_gaps(f).is_empty()) {
+            CardSupport::Uncertain
+        } else {
+            CardSupport::Full
+        }
+    }
+
+    /// Which cards in a deck (commander and main deck) the engine can't fully play.
+    pub fn deck_support(&self, lines: &[DeckLine]) -> DeckSupport {
+        let mut out = DeckSupport { total: 0, supported: 0, missing: vec![], partial: vec![], uncertain: vec![] };
+        for l in lines {
+            out.total += l.qty;
+            match self.card_support(l.oracle_id, l.name) {
+                CardSupport::Full => out.supported += l.qty,
+                CardSupport::Uncertain => out.uncertain.push(l.name.to_string()),
+                CardSupport::Partial => out.partial.push(l.name.to_string()),
+                CardSupport::Missing => out.missing.push(l.name.to_string()),
+            }
+        }
+        for names in [&mut out.missing, &mut out.partial, &mut out.uncertain] {
+            names.sort();
+            names.dedup();
+        }
+        out
     }
 
     /// Start a Commander game. Seat order is the order of `decks`.
@@ -257,6 +333,11 @@ impl Match {
 
     pub fn turn(&self) -> u32 {
         self.state.turn_number
+    }
+
+    /// The seat that took the first turn (the engine picks it when the game starts).
+    pub fn starting_seat(&self) -> u8 {
+        self.state.current_starting_player.0
     }
 
     /// Options for `seat`, or `None` if it isn't that seat's decision.
