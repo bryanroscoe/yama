@@ -198,6 +198,8 @@ export interface DeckSummary {
   color_identity: string;
   card_count: number;
   commander_image: string | null;
+  /** Who painted commander_image; credit them wherever the art shows. */
+  commander_artist: string | null;
   /** The bracket the owner declares (1-5). */
   bracket: number | null;
   /** Commander Spellbook's estimate for the current version, once it has answered. */
@@ -352,12 +354,63 @@ export interface Playgroup {
   members: Member[];
 }
 
+/** A count with what it's out of: every rate on the Group page travels with its n. */
+export interface Average {
+  value: number;
+  games: number;
+}
+
+export interface PlayerStat {
+  key: string;
+  name: string;
+  member_id: string | null;
+  games: number;
+  wins: number;
+  draws: number;
+  /** The share they'd win by chance: 1/N averaged over their pods (0 to 1). */
+  expected: number;
+  streak: { kind: "win" | "no_win"; games: number } | null;
+  /** Out of the group's knockout_games. */
+  first_out: number;
+  last_out: number;
+  knockouts: number;
+  archnemesis: { names: string[]; knockouts: number; of: number } | null;
+  fun: number | null;
+  fun_ratings: number;
+}
+
+export interface PodSeats {
+  players: number;
+  /** Games of this size with a known first player and a winner. */
+  games: number;
+  positions: { position: number; wins: number }[];
+}
+
 export interface PlaygroupStats {
   games: number;
-  players: { name: string; member_id: string | null; games: number; wins: number }[];
-  commanders: { commander: string; games: number; wins: number }[];
-  average_turns: number | null;
-  average_minutes: number | null;
+  players: PlayerStat[];
+  commanders: { commander: string; games: number; wins: number; expected: number }[];
+  average_turns: Average | null;
+  average_minutes: Average | null;
+  seats: PodSeats[];
+  /** Games with a winner but no recorded first player. */
+  seats_unknown: number;
+  seat_reference: {
+    players: number;
+    /** Percent, first player first. */
+    rates: number[];
+    games: number;
+    source: string;
+    url: string;
+    computed: string;
+    show_until_games: number;
+  };
+  win_conditions: { decided: number; recorded: { condition: string; games: number }[]; not_recorded: number };
+  head_to_head: { a: string; a_name: string; b: string; b_name: string; a_over_b: number; b_over_a: number }[];
+  /** Games with at least one recorded knockout. */
+  knockout_games: number;
+  provisional_under: number;
+  computed_at: string;
 }
 
 export interface GameSeat {
@@ -369,6 +422,8 @@ export interface GameSeat {
   commander_name: string | null;
   final_life: number | null;
   eliminated_turn: number | null;
+  eliminated_by_seat: number | null;
+  fun: number | null;
   display_name: string | null;
 }
 
@@ -381,7 +436,26 @@ export interface GameRow {
   ended_at: string | null;
   turns: number | null;
   winner_seat: number | null;
+  first_seat: number | null;
+  win_condition: string | null;
   seats: GameSeat[];
+}
+
+/** GET /api/decks/:id/results: finished games per deck version, newest version first. */
+export interface DeckResults {
+  versions: {
+    id: string;
+    number: number;
+    note: string | null;
+    created_at: string;
+    current: boolean;
+    games: number;
+    wins: number;
+    losses: number;
+    draws: number;
+  }[];
+  provisional_under: number;
+  computed_at: string;
 }
 
 export const usd = (v: number | null | undefined) => (v == null ? "no price" : `$${v.toFixed(2)}`);

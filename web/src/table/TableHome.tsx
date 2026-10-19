@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { identityName, type PlayerSetup, type TableSetup } from "@yama/core";
+import { identityName, winConditionLabel, type FunRating, type PlayerSetup, type TableSetup, type WinCondition } from "@yama/core";
 import { useEffect, useId, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { api, type DeckSummary, type GameRow, type Playgroup, type SearchResult } from "../api";
+import { api, type DeckSummary, type DeckVersionRow, type GameRow, type Playgroup, type SearchResult } from "../api";
 import { useMe } from "../auth";
 import { ErrorText, Pips, Sheet } from "../components/ui";
 import { BracketChips } from "../components/Bracket";
+import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
+import { versionOn } from "./versions";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
 
 interface SeatDraft {
@@ -17,6 +19,7 @@ interface SeatDraft {
   commanderName: string;
   colorIdentity: string;
   art?: string;
+  artist?: string;
 }
 
 const LAST_SETUP = "yama.table.lastSetup";
@@ -125,6 +128,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
       commanderName: s.commanderName || undefined,
       colorIdentity: s.colorIdentity,
       art: s.art,
+      artist: s.artist,
     }));
     const setup: TableSetup = {
       id: crypto.randomUUID(),
@@ -195,7 +199,7 @@ function SeatEditor({ index, seat, onChange, group, decks }: { index: number; se
     try {
       const r = await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(`!"${name}"`)}`);
       const card = r.cards[0];
-      if (card) onChange({ commanderName: card.name, colorIdentity: card.color_identity, art: card.image_art_crop ?? undefined });
+      if (card) onChange({ commanderName: card.name, colorIdentity: card.color_identity, art: card.image_art_crop ?? undefined, artist: card.artist ?? undefined });
       setError(null);
     } catch (e) {
       setError(e);
@@ -240,7 +244,13 @@ function SeatEditor({ index, seat, onChange, group, decks }: { index: number; se
               onChange={(e) => {
                 const d = decks.find((x) => x.id === e.target.value);
                 if (!d) return onChange({ deckId: undefined, deckVersionId: undefined });
-                onChange({ deckId: d.id, deckVersionId: d.current_version_id ?? undefined, colorIdentity: d.color_identity, art: d.commander_image ?? undefined });
+                onChange({
+                  deckId: d.id,
+                  deckVersionId: d.current_version_id ?? undefined,
+                  colorIdentity: d.color_identity,
+                  art: d.commander_image ?? undefined,
+                  artist: d.commander_artist ?? undefined,
+                });
                 if (d.commanders[0]) void pickCommander(d.commanders[0]);
               }}
             >
@@ -256,7 +266,7 @@ function SeatEditor({ index, seat, onChange, group, decks }: { index: number; se
             value={seat.commanderName}
             onChange={(e) => {
               const v = e.target.value;
-              onChange({ commanderName: v, colorIdentity: "" });
+              onChange({ commanderName: v, colorIdentity: "", art: undefined, artist: undefined });
               if (suggestions.data?.includes(v)) void pickCommander(v);
             }}
             onBlur={() => seat.commanderName && !seat.colorIdentity && void pickCommander(seat.commanderName)}
@@ -297,6 +307,9 @@ function RecentGames() {
               <span>
                 <span className="title">
                   {g.status === "finished" ? (winner ? `${winner.display_name} won` : "Draw") : "In progress"}
+                  {g.status === "finished" && winner && winConditionLabel(g.win_condition) && (
+                    <span className="dim" style={{ fontWeight: 400 }}> by {winConditionLabel(g.win_condition)!.toLowerCase()}</span>
+                  )}
                 </span>
                 <span className="dim small">
                   {" "}
@@ -318,37 +331,61 @@ function RecentGames() {
 
 function LogGame({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
+  const me = useMe();
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const [groupId, setGroupId] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [turns, setTurns] = useState("");
   const [winner, setWinner] = useState<number | null>(null);
-  const [seats, setSeats] = useState<SeatDraft[]>(() =>
-    Array.from({ length: 4 }, () => ({ name: "", commanderName: "", colorIdentity: "" })),
-  );
+  const [first, setFirst] = useState<number | null>(null);
+  const [condition, setCondition] = useState<WinCondition | null>(null);
+  const [fun, setFun] = useState<FunRating[]>([]);
+  // One id per form, so pressing Save again after a failed or slow upload can't log it twice.
+  const [gameId] = useState(() => crypto.randomUUID());
+  const [seats, setSeats] = useState<SeatDraft[]>(() => [
+    { name: me.data?.display_name ?? "", userId: me.data?.id, commanderName: "", colorIdentity: "" },
+    ...Array.from({ length: 3 }, () => ({ name: "", commanderName: "", colorIdentity: "" })),
+  ]);
   const group = groups.data?.find((g) => g.id === groupId);
   const update = (i: number, patch: Partial<SeatDraft>) => setSeats((s) => s.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  // Seats left blank are dropped; the rest are numbered in order, and picks follow them.
+  const filled = seats.map((s, i) => ({ s, i })).filter(({ s }) => s.name.trim() || s.memberId);
+  const seatOf = (i: number | null) => (i === null ? null : filled.findIndex((f) => f.i === i));
+  const named = filled.map(({ s, i }) => ({ seat: i, name: s.name.trim() || `Player ${i + 1}` }));
 
   const save = useMutation({
-    mutationFn: () => {
-      const players = seats.filter((s) => s.name.trim() || s.memberId);
-      if (players.length < 1) throw new Error("Add at least one player.");
+    mutationFn: async () => {
+      if (filled.length < 1) throw new Error("Add at least one player.");
       const at = new Date(`${date}T20:00:00`).toISOString();
+      // The deck version that was current on the day played, not whatever it is now.
+      const versions = await Promise.all(
+        filled.map(async ({ s }) => (s.deckId ? versionOn(await api<DeckVersionRow[]>(`/api/decks/${s.deckId}/versions`), date) : null)),
+      );
+      const winnerSeat = seatOf(winner);
       return api("/api/games", {
         method: "POST",
         json: {
-          id: crypto.randomUUID(),
+          id: gameId,
           playgroup_id: groupId || null,
           started_at: at,
-          seats: players.map((s, i) => ({
-            seat: i,
+          seats: filled.map(({ s }, n) => ({
+            seat: n,
             member_id: s.memberId ?? null,
             user_id: s.userId ?? null,
             guest_name: s.memberId ? null : s.name.trim(),
+            deck_version_id: versions[n],
             commander_name: s.commanderName || null,
             deck_label: s.commanderName || null,
           })),
-          finish: { winner_seat: winner, turns: turns ? Number(turns) : null, ended_at: at, seats: [] },
+          finish: {
+            winner_seat: winnerSeat !== null && winnerSeat >= 0 ? winnerSeat : null,
+            turns: turns ? Number(turns) : null,
+            ended_at: at,
+            first_seat: seatOf(first) !== null && seatOf(first)! >= 0 ? seatOf(first) : null,
+            win_condition: winnerSeat !== null && winnerSeat >= 0 ? condition : null,
+            seats: fun.map((r) => ({ seat: seatOf(r.seat), fun: r.rating })).filter((r) => r.seat !== null && r.seat >= 0),
+          },
           note: "Logged after the game",
         },
       });
@@ -356,13 +393,14 @@ function LogGame({ onClose }: { onClose: () => void }) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["games"] });
       void qc.invalidateQueries({ queryKey: ["stats"] });
+      void qc.invalidateQueries({ queryKey: ["deck-results"] });
       onClose();
     },
   });
 
   return (
     <Sheet label="Log a game" onClose={onClose}>
-      <form className="stack" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+      <form className="stack capture" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
         <div className="sheet-head">
           <h2>Log a game</h2>
           <button type="button" className="quiet" onClick={onClose}>Close</button>
@@ -384,9 +422,10 @@ function LogGame({ onClose }: { onClose: () => void }) {
             <input inputMode="numeric" value={turns} onChange={(e) => setTurns(e.target.value.replace(/\D/g, ""))} />
           </label>
         </div>
+        <p className="small dim" style={{ margin: 0 }}>List the players clockwise, so turn order counts from whoever went first.</p>
         {seats.map((s, i) => (
           <div key={i} className="stack" style={{ gap: "0.4rem" }}>
-            <SeatEditor index={i} seat={s} onChange={(p) => update(i, p)} group={group} />
+            <SeatEditor index={i} seat={s} onChange={(p) => update(i, p)} group={group} decks={s.userId && s.userId === me.data?.id ? decks.data : undefined} />
             <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
               <input type="radio" name="winner" checked={winner === i} onChange={() => setWinner(i)} style={{ width: "auto", minHeight: 0 }} />
               Won this game
@@ -395,8 +434,15 @@ function LogGame({ onClose }: { onClose: () => void }) {
         ))}
         <div className="row">
           <button type="button" onClick={() => setSeats((s) => [...s, { name: "", commanderName: "", colorIdentity: "" }])}>Add a player</button>
-          <button type="button" className="quiet" onClick={() => setWinner(null)}>It was a draw</button>
+          <button type="button" className="quiet" onClick={() => { setWinner(null); setCondition(null); }}>It was a draw</button>
         </div>
+        {named.length > 0 && (
+          <>
+            {winner !== null && <WinConditionPicker value={condition} onChange={setCondition} winner={named.find((n) => n.seat === winner)?.name} />}
+            <FirstPlayerPicker seats={named} value={first} onChange={setFirst} />
+            <FunPicker seats={named} value={fun.filter((r) => named.some((n) => n.seat === r.seat))} onChange={setFun} />
+          </>
+        )}
         <ErrorText error={save.error} />
         <div className="row">
           <button className="primary" disabled={save.isPending}>Save the game</button>

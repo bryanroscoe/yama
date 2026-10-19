@@ -11,6 +11,7 @@ import { SENDS_LIST } from "../components/deckCheck";
 import { DeckStatsPanel } from "../components/DeckStats";
 import { DeckExport } from "../components/DeckExport";
 import { DeckHistory } from "../components/DeckHistory";
+import { DeckResults } from "../components/DeckResults";
 import { CardSheet } from "./Cards";
 
 export function DecksPage() {
@@ -232,6 +233,7 @@ export function DeckPage() {
         onCard={openByName}
         onDeclare={() => setEditing(true)}
       />
+      <DeckResults deckId={d.id} versionId={d.version_id} />
       <DeckStatsPanel cards={d.cards} />
 
       <div className="row" role="tablist" style={{ margin: "1rem 0" }}>

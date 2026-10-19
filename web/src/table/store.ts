@@ -5,6 +5,8 @@ import {
   record,
   replay,
   toServerEvents,
+  toServerFinish,
+  type FinishDetails,
   type LoggedEvent,
   type TableEvent,
   type TableSetup,
@@ -126,10 +128,21 @@ export function redo() {
   setCurrent({ ...current, log: [...current.log, { ...next, seq }], redo: current.redo.slice(0, -1) });
 }
 
-/** End the game and queue it for upload. */
-export function finishGame(winnerSeat: number | null) {
+/**
+ * End the game and queue it for upload. `details` (how it was won, fun ratings) ride on the
+ * finish event and `firstSeat`, if the table only says at the end, goes in as a set_first event
+ * just before it, so the log stays the one record the server copies.
+ */
+export function finishGame(winnerSeat: number | null, details: FinishDetails = {}, firstSeat: number | null = null) {
   if (!current) return;
-  const log = record(current.log, { type: "finish", winnerSeat, endedAt: new Date().toISOString() }, new Date(), Infinity);
+  const now = new Date();
+  let log = current.log;
+  if (firstSeat !== null && replay(current.setup, log).firstSeat !== firstSeat) {
+    log = record(log, { type: "set_first", seat: firstSeat }, now, Infinity);
+  }
+  const fun = details.fun?.length ? details.fun : undefined;
+  const winCondition = winnerSeat === null ? undefined : details.winCondition;
+  log = record(log, { type: "finish", winnerSeat, endedAt: now.toISOString(), ...(winCondition ? { winCondition } : {}), ...(fun ? { fun } : {}) }, now, Infinity);
   // A finished game uploads whole: drop the in-flight mark so nothing is held back.
   outbox = [...outbox, { ...current, log, frozenThrough: undefined }];
   setCurrent(null);
@@ -138,11 +151,6 @@ export function finishGame(winnerSeat: number | null) {
 
 export function discardGame() {
   setCurrent(null);
-}
-
-function finishOf(g: LocalGame) {
-  const last = g.log[g.log.length - 1];
-  return last?.event.type === "finish" ? last.event : null;
 }
 
 async function pushGame(g: LocalGame): Promise<number> {
@@ -169,24 +177,9 @@ async function pushGame(g: LocalGame): Promise<number> {
   const upTo = g.frozenThrough ?? Infinity;
   const fresh = g.log.filter((l) => l.seq > g.syncedThrough && l.seq <= upTo);
   if (fresh.length) await api(`/api/games/${s.id}/events`, { method: "POST", json: toServerEvents(fresh) });
-  const finish = finishOf(g);
-  if (finish) {
-    const state = replay(s, g.log);
-    await api(`/api/games/${s.id}/finish`, {
-      method: "POST",
-      json: {
-        winner_seat: finish.winnerSeat,
-        turns: state.turn,
-        ended_at: finish.endedAt,
-        seats: state.players.map((p) => ({
-          seat: p.seat,
-          final_life: p.life,
-          eliminated_turn: p.eliminated?.turn ?? null,
-          eliminated_by_seat: p.eliminated?.bySeat ?? null,
-        })),
-      },
-    });
-  }
+  // Built from the log alone, so a retry sends exactly the same finish.
+  const finish = toServerFinish(s, g.log);
+  if (finish) await api(`/api/games/${s.id}/finish`, { method: "POST", json: finish });
   return upTo === Infinity ? (g.log[g.log.length - 1]?.seq ?? 0) : upTo;
 }
 

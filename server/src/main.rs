@@ -6,10 +6,12 @@ mod db;
 mod deck_checks;
 mod decks;
 mod error;
+mod game_export;
 mod games;
 mod play;
 mod playgroups;
 mod routes;
+mod stats;
 mod table_rooms;
 mod util;
 

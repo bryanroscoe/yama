@@ -31,6 +31,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::decks::router())
         .merge(crate::playgroups::router())
         .merge(crate::games::router())
+        .merge(crate::game_export::router())
         .merge(crate::table_rooms::router())
         .merge(crate::play::router())
         // Unknown API paths are errors, not the web app.

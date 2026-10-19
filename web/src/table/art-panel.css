@@ -1,0 +1,69 @@
+/* Commander art behind a life panel (the "art-panel" pattern): the art crop covers the
+   player's own rotated panel, a dark wash sits behind the life total, and the mana colors
+   shrink to a thin strip along the player's edge. No box around the number.
+
+   Semantic tokens as the new design names them, falling back to today's playmat variables.
+   This block is the only place the old names appear here. */
+.panel.has-art {
+  --ap-ground: var(--ground, var(--felt));
+  --ap-text: var(--text, var(--paper));
+  --ap-accent: var(--accent, var(--paper));
+}
+
+.panel.has-art {
+  color: var(--ap-text);
+  /* Shows until the art loads (or with no signal): the player's color, darkened. */
+  background: color-mix(in srgb, var(--fill) 35%, var(--ap-ground));
+}
+
+.panel-art {
+  position: absolute;
+  inset: 0;
+  /* Under everything in the panel: .panel-inner's transform makes it the stacking context. */
+  z-index: -1;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+/* The wash is a legibility scrim, not decoration: darkest behind the number, lighter toward the
+   edges so the art still shows. Measured 2026-10-19 on very bright art (Elesh Norn, Grand
+   Cenobite; Avacyn, Angel of Hope), the brightest pixel behind the digits still gives the life
+   total 5.8:1 against it, past the 4.5:1 bar for body text and far past 3:1 for text this big. */
+.panel-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 75% 65% at 50% 50%, rgb(0 0 0 / 0.74), rgb(0 0 0 / 0.6) 60%, rgb(0 0 0 / 0.42));
+}
+
+.panel.has-art .bands {
+  height: 5px;
+  box-shadow: none;
+}
+.panel.has-art .life {
+  text-shadow: 0 0.02em 0.12em rgb(0 0 0 / 0.7);
+}
+.panel.has-art .tap {
+  opacity: 0.85;
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.8);
+}
+.panel.has-art .tap:active {
+  background: rgb(255 255 255 / 0.08);
+}
+.panel.has-art .who {
+  background: rgb(0 0 0 / 0.55);
+}
+.panel.has-art .badge {
+  background: rgb(0 0 0 / 0.6);
+}
+/* The art covers the panel's own inset ring, so whose turn it is draws on top. */
+.panel.has-art.active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 4px var(--ap-accent);
+  pointer-events: none;
+  z-index: 2;
+}

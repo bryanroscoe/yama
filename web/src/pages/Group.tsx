@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, type PlaygroupStats, type Playgroup } from "../api";
+import { api, API_BASE, type PlaygroupStats, type Playgroup } from "../api";
 import { useLogout, useMe } from "../auth";
 import { ErrorText } from "../components/ui";
+import { GroupStats } from "../components/GroupStats";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 
 export function GroupPage() {
@@ -23,6 +24,7 @@ export function GroupPage() {
       <ErrorText error={groups.error} />
       {groups.data?.length === 0 && <p className="empty">You're not in a playgroup yet. Start one for your table, or join with a friend's code.</p>}
       {group && <GroupDetail group={group} />}
+      <ExportGames group={group} />
       <GroupActions />
       <Account />
     </main>
@@ -43,47 +45,11 @@ function GroupDetail({ group }: { group: Playgroup }) {
   const s = stats.data;
   return (
     <div className="stack" style={{ marginBottom: "2.5rem" }}>
+      <ErrorText error={stats.error} />
       {s && s.games > 0 ? (
-        <>
-          <div className="figures">
-            <div className="figure"><b className="num">{s.games}</b><span>games recorded</span></div>
-            {s.average_turns != null && <div className="figure"><b className="num">{s.average_turns.toFixed(1)}</b><span>turns on average</span></div>}
-            {s.average_minutes != null && <div className="figure"><b className="num">{Math.round(s.average_minutes)}</b><span>minutes on average</span></div>}
-          </div>
-          <section>
-            <h2>Players</h2>
-            <table className="plain">
-              <thead><tr><th>Player</th><th className="r">Games</th><th className="r">Wins</th><th className="r">Win rate</th></tr></thead>
-              <tbody>
-                {s.players.map((p) => (
-                  <tr key={p.name}>
-                    <td>{p.name}</td>
-                    <td className="r num">{p.games}</td>
-                    <td className="r num">{p.wins}</td>
-                    <td className="r num">{Math.round((100 * p.wins) / p.games)}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-          <section>
-            <h2>Commanders</h2>
-            <table className="plain">
-              <thead><tr><th>Commander</th><th className="r">Games</th><th className="r">Wins</th></tr></thead>
-              <tbody>
-                {s.commanders.map((c) => (
-                  <tr key={c.commander}>
-                    <td>{c.commander}</td>
-                    <td className="r num">{c.games}</td>
-                    <td className="r num">{c.wins}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-        </>
+        <GroupStats s={s} />
       ) : (
-        <p className="dim">No finished games yet. Play one from the Table tab with this playgroup chosen, and the stats start here.</p>
+        s && <p className="dim">No finished games yet. Play one from the Table tab with this playgroup chosen, and the stats start here.</p>
       )}
 
       <section>
@@ -104,6 +70,35 @@ function GroupDetail({ group }: { group: Playgroup }) {
         <ErrorText error={addGuest.error} />
       </section>
     </div>
+  );
+}
+
+/** Game history as JSON (shaped for commander-decks' data/games.json) or CSV, one row per seat. */
+function ExportGames({ group }: { group?: Playgroup }) {
+  // The browser's offset, so each game's date is the local day it was played.
+  const offset = -new Date().getTimezoneOffset();
+  const link = (ext: "json" | "csv", playgroup?: string) =>
+    `${API_BASE}/api/games/export.${ext}?offset=${offset}${playgroup ? `&playgroup=${encodeURIComponent(playgroup)}` : ""}`;
+  return (
+    <section className="stack" style={{ marginBottom: "2.5rem", gap: "0.6rem" }}>
+      <h2 style={{ margin: 0 }}>Export games</h2>
+      <p className="dim small" style={{ margin: 0 }}>
+        Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings. The JSON
+        fits commander-decks' data/games.json; the CSV has one row per seat.
+      </p>
+      {group && (
+        <div className="row">
+          <span style={{ minWidth: "9rem" }}>{group.name}</span>
+          <a className="button" href={link("json", group.id)} download>JSON</a>
+          <a className="button" href={link("csv", group.id)} download>CSV</a>
+        </div>
+      )}
+      <div className="row">
+        <span style={{ minWidth: "9rem" }}>Every game you played or recorded</span>
+        <a className="button" href={link("json")} download>JSON</a>
+        <a className="button" href={link("csv")} download>CSV</a>
+      </div>
+    </section>
   );
 }
 

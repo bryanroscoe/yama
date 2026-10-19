@@ -253,10 +253,11 @@ async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<
     if m.is_over() {
         let view = m.view(None);
         let mut tx = pool.begin().await?;
-        sqlx::query("UPDATE games SET status = 'finished', winner_seat = ?, turns = ?, ended_at = ? WHERE id = ?")
+        sqlx::query("UPDATE games SET status = 'finished', winner_seat = ?, turns = ?, ended_at = ?, first_seat = ? WHERE id = ?")
             .bind(m.winner().map(i64::from))
             .bind(i64::from(m.turn()))
             .bind(now())
+            .bind(i64::from(m.starting_seat()))
             .bind(game_id)
             .execute(&mut *tx)
             .await?;

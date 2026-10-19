@@ -137,7 +137,7 @@ AI seats run on the server and go through the same legal-action path as humans.
 - **State:** a pure reducer in `packages/core`: `apply(tableState, event)`. Events: life ±n, poison, commander damage (source commander → player), counters, monarch and initiative, turn pass, timer ticks.
 - **One device:** works fully offline. The event log goes into the sync queue as an in-person game.
 - **Shared table:** one phone hosts and shows a QR code; the others join a room over the same WebSocket infrastructure. Each player updates their own totals, and everyone sees the shared state. If the server drops, the host phone keeps going and syncs later.
-- **Ending a game** records the winner, the decks (from the user's deck list), turn count and length. In-person games use the same `games` table as online ones (`mode = in_person`), so stats cover both. Results can be exported to `commander-decks/data/games.json`.
+- **Ending a game** records the winner, the decks (from the user's deck list), turn count and length, and optionally who went first, how it was won and each player's fun rating. In-person games use the same `games` table as online ones (`mode = in_person`), so stats cover both. Results can be exported to `commander-decks/data/games.json`.
 
 ## 9. Data model (first cut)
 
@@ -166,9 +166,9 @@ deck_version_checks(version_id, source, requested_at, checked_at, bracket_tag, g
 
 -- games (online and in-person)
 games(id, mode[online|in_person], playgroup_id, status, format, engine_version NULL, seed NULL,
-      started_at, ended_at, result jsonb)
-game_seats(game_id, seat, user_id NULL, guest_name NULL, ai_kind NULL, deck_version_id NULL,
-           final_life, eliminated_at, eliminated_by)
+      started_at, ended_at, turns, winner_seat, first_seat NULL, win_condition NULL)
+game_seats(game_id, seat, user_id NULL, member_id NULL, guest_name NULL, ai_kind NULL,
+           deck_version_id NULL, final_life, eliminated_turn, eliminated_by_seat, fun NULL)  -- fun 1-5
 game_events(game_id, seq, actor_seat, kind, payload jsonb, created_at)  -- engine actions or table events
 game_snapshots(game_id, seq, state bytea)
 ```
@@ -229,6 +229,15 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 - **Exports** (`packages/core/src/deckExport.ts`): names only under Commander and Deck headings (the commander-decks EDHbots lists), Moxfield with the set and number of your own copy (the one in the deck's container first, real before proxy), else a paper printing with its own finish (Scryfall's default if it's on paper and nonfoil, then regular sets, English, newest; `printings.digital` and `set_type` from default_cards importer version 2), so MTGO and Arena printings such as Vintage Masters never land in a paper deck, and MTG Arena (names only, front faces for double-faced cards).
 - **Version history** lists every saved version; any two can be compared (added, removed and count changes, per board).
 
+### Table and playgroup stats (2026-10-19)
+
+- **Art behind each life panel.** The panel draws the commander's art crop (`PlayerSetup.art`, a Scryfall URL loaded at runtime) inside the player's own rotated box, under a dark radial wash that is darkest behind the number, with the mana colors kept as a 5 px strip. Art is drawn only from `cards.scryfall.io` and only when the artist is known, because Scryfall asks for the artist's credit wherever an art crop shows; the credit is in the player sheet ("Art by …"). A per-device switch in the table menu (`yama.table.art`) falls back to the mana colors. Measured on very bright art, the brightest pixel behind the digits still leaves the life total at 5.8:1 contrast.
+- **First player.** A `set_first` table event (Roll for first, "X goes first" in the table menu, or the finish sheet if nobody said earlier) records who took the first turn; before anyone has passed it also makes it their turn. Without one, the first "Pass the turn" records the seat that passed. Rounds count from the first player. The finish body carries `first_seat` from the replayed log, so a retry sends the same value. Online games store the engine's starting player (`Match::starting_seat`, phase's `current_starting_player`) when they finish. Log a game asks too.
+- **End-of-game capture.** The finish event carries an optional `winCondition` (combat, commander damage, combo, alternate win, mill, poison, concession, other) and optional fun ratings 1-5 per seat; Log a game asks the same. Both are optional and missing means not recorded, never a default. "Knock out" asks who did it, which fills `eliminated_by_seat`. The server checks a finish against the game's seats and the allowed values, and setting the same values again changes nothing.
+- **Stats are computed on request** from finished games (`server/src/stats.rs`: one load, then pure functions with unit tests). A player is their account if they have one, else their playgroup member, else the typed name. Rules: every rate carries its count; under 5 games it's faded and marked provisional; win rates sit beside the share a player would win by chance (1/N averaged over their pods); turn order uses only games with a known first player and a winner, per pod size, with playgroup.gg's 4-player figures (29.2, 25.7, 23.6, 21.5%, 284,950 games, computed 2026-10-19) shown until the group has 20 4-player games of its own; win-condition shares are of the games that say how, with the rest counted as not recorded; first out is the earliest recorded knockout turn and last out the losers still standing at the end (else the last knocked out), ties counting for everyone, out of games with at least one recorded knockout; streaks are wins in a row or games without a win (draws aren't wins); average minutes skip logged games, whose start and end are the same. The page says when it was computed.
+- **Results per deck version** (`GET /api/decks/{id}/results`) count finished games where a seat played that version. A seat keeps a deck version only if it belongs to a deck owned by the seat's own account (otherwise it's dropped, not refused, so offline games still upload). Log a game credits the version that was current on the day played.
+- **Game export** (`GET /api/games/export.json` and `.csv`, optional `playgroup` and the browser's `offset` in minutes for local dates). JSON format `yama-games/1`: a top-level `games` list as commander-decks' `data/games.json` expects, each game leading with that README's fields (date, deck, version, player_count, result, notes) from the exporting player's seat, then the whole game with every seat. CSV: one row per seat, with spreadsheet formulas in names and notes defused.
+
 ## 11. Risks
 
 - **Legal and IP:**
@@ -266,6 +275,7 @@ Still open:
 - CollectorVision: <https://github.com/HanClinto/CollectorVision>; catalog <https://github.com/HanClinto/CollectorVisionCatalog>
 - Other scanners reviewed: <https://github.com/matteot11/open-card-collector> (MIT), <https://github.com/cfbender/oracle> (MPL-2.0), <https://github.com/GrimbiXcode/mtgscan> (GPL-3.0), <https://github.com/fortierq/mtgscan> (MIT)
 - Scryfall API and bulk data: <https://scryfall.com/docs/api>, <https://scryfall.com/docs/api/bulk-data>
+- playgroup.gg turn order (read 2026-10-19; "Computed 19 Oct 2026 from 577,284 finished multiplayer games", 4-player figures from 284,950 single-winner games): <https://playgroup.gg/commander/turn-order>
 - Commander Spellbook API guidelines and bracket tags (read 2026-10-19): <https://github.com/SpaceCowMedia/commander-spellbook-backend/blob/master/docs/api.md>, `backend/spellbook/models/variant.py` (BracketTag, estimate_bracket); schema <https://backend.commanderspellbook.com/schema/>
 - Scryfall, "New WebP images + JPEG Deprecations" (2026-10-14; read 2026-10-18): <https://scryfall.com/blog/new-webp-images-jpeg-deprecations-237>
 - Wizards Fan Content Policy: <https://company.wizards.com/en/legal/fancontentpolicy>

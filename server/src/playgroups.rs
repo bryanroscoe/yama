@@ -186,7 +186,12 @@ async fn remove_member(
         return Err(AppError::Forbidden("only the playgroup owner can remove other members".into()));
     }
     // Past games keep the seat's name; only the membership goes.
-    sqlx::query("UPDATE game_seats SET guest_name = COALESCE(guest_name, (SELECT display_name FROM users WHERE id = game_seats.user_id)), member_id = NULL WHERE member_id = ?")
+    sqlx::query(
+        "UPDATE game_seats SET guest_name = COALESCE(guest_name, (SELECT display_name FROM users WHERE id = game_seats.user_id),
+                                                    (SELECT guest_name FROM playgroup_members WHERE id = game_seats.member_id)),
+                               member_id = NULL
+         WHERE member_id = ?",
+    )
         .bind(&member_id)
         .execute(&st.pool)
         .await?;
@@ -196,63 +201,43 @@ async fn remove_member(
 
 // ── stats ──────────────────────────────────────────────────────────────────
 
-#[derive(Serialize, sqlx::FromRow)]
-pub struct PlayerStat {
-    pub name: String,
-    pub member_id: Option<String>,
-    pub games: i64,
-    pub wins: i64,
-}
-
-#[derive(Serialize, sqlx::FromRow)]
-pub struct CommanderStat {
-    pub commander: String,
-    pub games: i64,
-    pub wins: i64,
-}
-
+/// Everything the Group page shows, computed from the playgroup's finished games on request.
 #[derive(Serialize)]
 struct Stats {
     games: i64,
-    players: Vec<PlayerStat>,
-    commanders: Vec<CommanderStat>,
-    average_turns: Option<f64>,
-    average_minutes: Option<f64>,
+    players: Vec<crate::stats::PlayerStat>,
+    commanders: Vec<crate::stats::CommanderStat>,
+    average_turns: Option<crate::stats::Average>,
+    average_minutes: Option<crate::stats::Average>,
+    seats: Vec<crate::stats::PodSeats>,
+    seats_unknown: i64,
+    seat_reference: crate::stats::SeatReference,
+    win_conditions: crate::stats::WinConditions,
+    head_to_head: Vec<crate::stats::HeadToHead>,
+    knockout_games: i64,
+    provisional_under: i64,
+    computed_at: String,
 }
 
 async fn stats(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Stats>> {
+    use crate::stats as s;
     if !is_member(&st.pool, &id, &user.id).await? {
         return Err(AppError::NotFound("playgroup"));
     }
-    let games: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games WHERE playgroup_id = ? AND status = 'finished'")
-        .bind(&id)
-        .fetch_one(&st.pool)
-        .await?;
-    let players = sqlx::query_as(
-        "SELECT COALESCE(u.display_name, s.guest_name, s.ai_kind, 'Unknown') AS name, s.member_id,
-                COUNT(*) AS games, SUM(g.winner_seat = s.seat) AS wins
-         FROM games g JOIN game_seats s ON s.game_id = g.id LEFT JOIN users u ON u.id = s.user_id
-         WHERE g.playgroup_id = ? AND g.status = 'finished'
-         GROUP BY COALESCE(s.member_id, s.user_id, s.guest_name) ORDER BY wins DESC, games DESC",
-    )
-    .bind(&id)
-    .fetch_all(&st.pool)
-    .await?;
-    let commanders = sqlx::query_as(
-        "SELECT COALESCE(s.commander_name, s.deck_label, 'Unknown') AS commander, COUNT(*) AS games, SUM(g.winner_seat = s.seat) AS wins
-         FROM games g JOIN game_seats s ON s.game_id = g.id
-         WHERE g.playgroup_id = ? AND g.status = 'finished'
-         GROUP BY commander ORDER BY wins DESC, games DESC",
-    )
-    .bind(&id)
-    .fetch_all(&st.pool)
-    .await?;
-    let (average_turns, average_minutes): (Option<f64>, Option<f64>) = sqlx::query_as(
-        "SELECT AVG(turns), AVG((julianday(ended_at) - julianday(started_at)) * 1440)
-         FROM games WHERE playgroup_id = ? AND status = 'finished'",
-    )
-    .bind(&id)
-    .fetch_one(&st.pool)
-    .await?;
-    Ok(Json(Stats { games, players, commanders, average_turns, average_minutes }))
+    let games = s::finished_games(&st.pool, s::Scope::Playgroup(&id)).await?;
+    Ok(Json(Stats {
+        games: games.len() as i64,
+        players: s::players(&games),
+        commanders: s::commanders(&games),
+        average_turns: s::average_turns(&games),
+        average_minutes: s::average_minutes(&games),
+        seats: s::seats(&games),
+        seats_unknown: s::seats_unknown(&games),
+        seat_reference: s::SEAT_REFERENCE,
+        win_conditions: s::win_conditions(&games),
+        head_to_head: s::head_to_head(&games),
+        knockout_games: s::knockout_games(&games),
+        provisional_under: s::PROVISIONAL_UNDER,
+        computed_at: now(),
+    }))
 }

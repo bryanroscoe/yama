@@ -9,20 +9,25 @@ import {
   COALESCE_MS,
   type CommanderKey,
   type CounterKind,
+  type FunRating,
   type LoggedEvent,
   type PlayerState,
   type TableEvent,
   type TableState,
+  type WinCondition,
 } from "@yama/core";
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { Sheet } from "../components/ui";
+import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
+import { panelArt, setShowArt, useShowArt } from "./art";
 import { ShareSheet } from "./share";
 import { canUndo, discardGame, dispatch, finishGame, redo, undo, useSyncStatus, useTable } from "./store";
 
 /** Where panel taps go: this device's game, or the host's game for a guest phone. */
 export const DispatchContext = createContext<(e: TableEvent) => void>(dispatch);
 import "./table.css";
+import "./art-panel.css";
 
 /** Rotation for each seat so every player reads their own panel. Seats go clockwise. */
 function layout(n: number): { cols: number; rows: number; cells: { seat: number; rot: number; area: string }[] } {
@@ -58,6 +63,9 @@ export function TablePlay() {
   const { game, state } = useTable();
   const [menu, setMenu] = useState(false);
   const [sheetSeat, setSheetSeat] = useState<number | null>(null);
+  const [knockSeat, setKnockSeat] = useState<number | null>(null);
+  /** The winner being recorded (null = a draw), while the finish questions are open. */
+  const [finishing, setFinishing] = useState<{ winner: number | null } | null>(null);
   const navigate = useNavigate();
 
   // Keep the screen on during a game where supported.
@@ -89,6 +97,7 @@ export function TablePlay() {
             pending={pendingDelta(game.log, seat)}
             fill={fills[state.players.indexOf(p)]!}
             onOpen={() => setSheetSeat(seat)}
+            onKnockOut={() => setKnockSeat(seat)}
           />
         );
       })}
@@ -102,6 +111,10 @@ export function TablePlay() {
             state={state}
             onClose={() => setMenu(false)}
             onLeave={() => navigate("/")}
+            onFinish={(winner) => {
+              setMenu(false);
+              setFinishing({ winner });
+            }}
             aliveCount={alive.length}
           />
         </Sheet>
@@ -111,11 +124,29 @@ export function TablePlay() {
           <PlayerSheet state={state} seat={sheetSeat} onClose={() => setSheetSeat(null)} />
         </Sheet>
       )}
-      {alive.length === 1 && state.players.length > 1 && !menu && (
+      {knockSeat !== null && (
+        <Sheet label="Knock out" onClose={() => setKnockSeat(null)}>
+          <KnockOut state={state} seat={knockSeat} onDone={() => setKnockSeat(null)} />
+        </Sheet>
+      )}
+      {finishing && (
+        <Sheet label="End the game" onClose={() => setFinishing(null)}>
+          <FinishSheet
+            state={state}
+            winner={finishing.winner}
+            onBack={() => setFinishing(null)}
+            onSave={(details, first) => {
+              finishGame(finishing.winner, details, first);
+              navigate("/");
+            }}
+          />
+        </Sheet>
+      )}
+      {alive.length === 1 && state.players.length > 1 && !menu && !finishing && (
         <div className="winner-banner" role="status">
           <p>{alive[0]!.name} is the last one standing.</p>
           <div className="row">
-            <button className="primary" onClick={() => finishGame(alive[0]!.seat)}>
+            <button className="primary" onClick={() => setFinishing({ winner: alive[0]!.seat })}>
               Record the win
             </button>
           </div>
@@ -151,10 +182,14 @@ export function Panel(props: {
   pending: number | null;
   fill: ManaKey;
   onOpen: () => void;
+  /** Ask who did it before knocking this player out. */
+  onKnockOut: () => void;
 }) {
-  const { p, rot, area, active, pending, onOpen, state, fill } = props;
-  const dispatch = useContext(DispatchContext);
+  const { p, rot, area, active, pending, onOpen, onKnockOut, state, fill } = props;
   useTick(pending !== null); // clear the bubble once the burst ends
+  const dispatch = useContext(DispatchContext);
+  const showArt = useShowArt();
+  const art = showArt ? panelArt(p) : null;
   const keys = identityKeys(p.colorIdentity);
   const base = MANA[fill];
   const out = !!p.eliminated;
@@ -169,8 +204,9 @@ export function Panel(props: {
   const cmdTotal = Math.max(0, ...Object.values(p.commanderDamage).map((v) => v ?? 0));
 
   return (
-    <section className={`panel${active ? " active" : ""}${out ? " out" : ""}`} style={style} aria-label={`${p.name}, ${p.life} life`}>
+    <section className={`panel${active ? " active" : ""}${out ? " out" : ""}${art ? " has-art" : ""}`} style={style} aria-label={`${p.name}, ${p.life} life`}>
       <div className={`panel-inner${sideways ? " sideways" : ""}`} style={{ transform: `translate(-50%, -50%) rotate(${rot}deg)` }}>
+        {art && <div className="panel-art" style={{ backgroundImage: `url("${art}")` }} aria-hidden="true" />}
         <div className="bands" />
         <Hold onStep={(n) => dispatch({ type: "life", seat: p.seat, delta: -n })} className="tap minus" label={`${p.name} loses 1 life`}>
           <span aria-hidden="true">−</span>
@@ -194,7 +230,7 @@ export function Panel(props: {
           {p.commanderCasts > 0 && <span className="badge">tax {commanderTax(p)}</span>}
         </div>
         {reason && (
-          <button className="out-prompt" onClick={() => dispatch({ type: "eliminate", seat: p.seat })}>
+          <button className="out-prompt" onClick={onKnockOut}>
             Out? {reason}
           </button>
         )}
@@ -270,15 +306,19 @@ function Stepper({ label, value, onChange, hint }: { label: string; value: numbe
 
 export function PlayerSheet({ state, seat, onClose }: { state: TableState; seat: number; onClose: () => void }) {
   const dispatch = useContext(DispatchContext);
+  const showArt = useShowArt();
+  const [knocking, setKnocking] = useState(false);
   const p = state.players.find((x) => x.seat === seat)!;
   const opponents = state.players.filter((x) => x.seat !== seat);
   const counters: CounterKind[] = ["energy", "experience", "rad"];
+  if (knocking) return <KnockOut state={state} seat={seat} onDone={onClose} onCancel={() => setKnocking(false)} />;
   return (
     <div className="stack">
       <div className="sheet-head">
         <div>
           <h2>{p.name}</h2>
-          {p.commanderName && <p className="dim">{p.commanderName}{p.partnerName ? ` and ${p.partnerName}` : ""}</p>}
+          {p.commanderName && <p className="dim" style={{ margin: 0 }}>{p.commanderName}{p.partnerName ? ` and ${p.partnerName}` : ""}</p>}
+          {showArt && panelArt(p) && <p className="small dim" style={{ margin: 0 }}>Art by {p.artist}</p>}
         </div>
         <button className="quiet" onClick={onClose}>Done</button>
       </div>
@@ -329,24 +369,96 @@ export function PlayerSheet({ state, seat, onClose }: { state: TableState; seat:
         {p.eliminated ? (
           <button onClick={() => dispatch({ type: "revive", seat })}>Put back in the game</button>
         ) : (
-          <button onClick={() => { dispatch({ type: "eliminate", seat }); onClose(); }}>Knock out</button>
+          <button onClick={() => setKnocking(true)}>Knock out</button>
         )}
       </div>
     </div>
   );
 }
 
-function TableMenu({ state, onClose, onLeave, aliveCount }: { state: TableState; onClose: () => void; onLeave: () => void; aliveCount: number }) {
+/** Who knocked a player out, for the playgroup's rivalries. Suggests the commander that dealt 21. */
+export function KnockOut({ state, seat, onDone, onCancel }: { state: TableState; seat: number; onDone: () => void; onCancel?: () => void }) {
+  const dispatch = useContext(DispatchContext);
+  const p = state.players.find((x) => x.seat === seat)!;
+  const others = state.players.filter((x) => x.seat !== seat && !x.eliminated);
+  const lethal = Object.entries(p.commanderDamage).find(([, d]) => (d ?? 0) >= 21)?.[0];
+  const suggested = lethal === undefined ? null : Number.parseInt(lethal, 10);
+  const out = (bySeat?: number) => {
+    dispatch(bySeat === undefined ? { type: "eliminate", seat } : { type: "eliminate", seat, bySeat });
+    onDone();
+  };
+  return (
+    <div className="stack">
+      <div className="sheet-head">
+        <h2>Knock out {p.name}</h2>
+        <button className="quiet" onClick={onCancel ?? onDone}>Cancel</button>
+      </div>
+      <p className="dim" style={{ margin: 0 }}>Who knocked {p.name} out? It counts toward the playgroup's rivalries.</p>
+      <div className="row">
+        {others.map((o) => (
+          <button key={o.seat} className={o.seat === suggested ? "primary" : ""} onClick={() => out(o.seat)}>
+            {o.name}
+          </button>
+        ))}
+        <button className="quiet" onClick={() => out()}>No one, or not sure</button>
+      </div>
+    </div>
+  );
+}
+
+/** The end-of-game questions. All optional; "Save the game" with nothing picked is fine. */
+function FinishSheet({ state, winner, onBack, onSave }: {
+  state: TableState;
+  winner: number | null;
+  onBack: () => void;
+  onSave: (details: { winCondition?: WinCondition; fun?: FunRating[] }, firstSeat: number | null) => void;
+}) {
+  const [condition, setCondition] = useState<WinCondition | null>(null);
+  const [fun, setFun] = useState<FunRating[]>([]);
+  const [first, setFirst] = useState<number | null>(null);
+  const winnerName = state.players.find((p) => p.seat === winner)?.name;
+  const seats = state.players.map((p) => ({ seat: p.seat, name: p.name }));
+  const firstName = state.players.find((p) => p.seat === state.firstSeat)?.name;
+  return (
+    <div className="stack capture">
+      <div className="sheet-head">
+        <h2>{winnerName ? `${winnerName} wins` : "A draw"}</h2>
+        <button className="quiet" onClick={onBack}>Back</button>
+      </div>
+      {winnerName && <WinConditionPicker value={condition} onChange={setCondition} winner={winnerName} />}
+      {state.firstSeat === null ? (
+        <FirstPlayerPicker seats={seats} value={first} onChange={setFirst} />
+      ) : (
+        <p className="first-said small">{firstName} went first.</p>
+      )}
+      <FunPicker seats={seats} value={fun} onChange={setFun} />
+      <div className="row">
+        <button className="primary" onClick={() => onSave({ winCondition: condition ?? undefined, fun }, first)}>Save the game</button>
+      </div>
+    </div>
+  );
+}
+
+function TableMenu({ state, onClose, onLeave, onFinish, aliveCount }: {
+  state: TableState;
+  onClose: () => void;
+  onLeave: () => void;
+  onFinish: (winner: number | null) => void;
+  aliveCount: number;
+}) {
   const sync = useSyncStatus();
+  const showArt = useShowArt();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [sharing, setSharing] = useState(false);
   const active = state.players.find((p) => p.seat === state.activeSeat);
+  const first = state.players.find((p) => p.seat === state.firstSeat);
+  const anyArt = state.players.some((p) => panelArt(p));
   return (
     <div className="stack">
       <div className="sheet-head">
         <div>
           <h2>Turn {state.turn}</h2>
-          <p className="dim">{active?.name}'s turn</p>
+          <p className="dim" style={{ margin: 0 }}>{active?.name}'s turn</p>
         </div>
         <button className="quiet" onClick={onClose}>Back to the game</button>
       </div>
@@ -357,18 +469,32 @@ function TableMenu({ state, onClose, onLeave, aliveCount }: { state: TableState;
         <button onClick={undo} disabled={!canUndo()}>Undo</button>
         <button onClick={redo}>Redo</button>
       </div>
+
+      <h3 style={{ margin: 0 }}>{state.passes === 0 ? "Who goes first?" : "Who went first?"}</h3>
+      <p className="small dim" style={{ margin: 0 }}>
+        {first ? `${first.name} ${state.passes === 0 ? "goes" : "went"} first.` : "Not decided yet."} It's saved with the game for the playgroup's turn-order stats.
+      </p>
+      <div className="row">
+        <RollButton state={state} />
+        {state.players.map((p) => (
+          <button key={p.seat} aria-pressed={state.firstSeat === p.seat} className={state.firstSeat === p.seat ? "primary" : ""} onClick={() => dispatch({ type: "set_first", seat: p.seat })}>
+            {p.name} {state.passes === 0 ? "goes" : "went"} first
+          </button>
+        ))}
+      </div>
+
       <div className="row">
         <button onClick={() => dispatch({ type: "day_night", value: state.dayNight === "day" ? "night" : "day" })}>
           {state.dayNight === null ? "Start day/night" : state.dayNight === "day" ? "It's day. Make it night" : "It's night. Make it day"}
         </button>
-        <RollButton players={state.players.map((p) => p.name)} />
-      </div>
-      <div className="row">
         <button onClick={() => setSharing(true)}>Share with the table</button>
+        {anyArt && (
+          <button onClick={() => setShowArt(!showArt)}>{showArt ? "Use mana colors instead of art" : "Show commander art"}</button>
+        )}
       </div>
       {sharing && <ShareSheet gameId={state.setup.id} onClose={() => setSharing(false)} />}
 
-      <h3>End the game</h3>
+      <h3 style={{ margin: 0 }}>End the game</h3>
       {!confirmEnd ? (
         <div className="row">
           <button onClick={() => setConfirmEnd(true)}>Record a winner</button>
@@ -376,12 +502,12 @@ function TableMenu({ state, onClose, onLeave, aliveCount }: { state: TableState;
         </div>
       ) : (
         <div className="stack">
-          <p className="dim">Who won? {aliveCount > 1 ? `${aliveCount} players are still in.` : ""}</p>
+          <p className="dim" style={{ margin: 0 }}>Who won? {aliveCount > 1 ? `${aliveCount} players are still in.` : ""}</p>
           <div className="row">
             {state.players.map((p) => (
-              <button key={p.seat} onClick={() => { finishGame(p.seat); onLeave(); }}>{p.name}</button>
+              <button key={p.seat} onClick={() => onFinish(p.seat)}>{p.name}</button>
             ))}
-            <button onClick={() => { finishGame(null); onLeave(); }}>Draw</button>
+            <button onClick={() => onFinish(null)}>Draw</button>
             <button
               className="quiet error"
               onClick={() => {
@@ -403,12 +529,15 @@ function TableMenu({ state, onClose, onLeave, aliveCount }: { state: TableState;
   );
 }
 
-function RollButton({ players }: { players: string[] }) {
+/** Picks a random player to go first and records it, so the turn and the stats both know. */
+function RollButton({ state }: { state: TableState }) {
   const [result, setResult] = useState<string | null>(null);
   const roll = () => {
-    const r = new Uint32Array(2);
+    const r = new Uint32Array(1);
     crypto.getRandomValues(r);
-    setResult(`d20: ${(r[0]! % 20) + 1}. ${players[r[1]! % players.length]} goes first.`);
+    const p = state.players[r[0]! % state.players.length]!;
+    dispatch({ type: "set_first", seat: p.seat, rolled: true });
+    setResult(`The roll picked ${p.name}.`);
   };
   return (
     <>

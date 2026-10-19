@@ -62,3 +62,18 @@ CREATE TABLE deck_version_checks (
 -- (default_cards importer version 2).
 ALTER TABLE printings ADD COLUMN digital INTEGER;
 ALTER TABLE printings ADD COLUMN set_type TEXT;
+
+-- ── batch "table-stats" ────────────────────────────────────────────────────
+
+-- The seat that took the first turn; turn order runs clockwise (up the seat numbers) from it.
+-- NULL = nobody said. In-person games get it from the table's set_first event (Roll for first,
+-- "X goes first", or whoever passed the turn first) or from Log a game; online games from the
+-- rules engine's starting player.
+ALTER TABLE games ADD COLUMN first_seat INTEGER;
+
+-- How the winner won, if the table said. NULL = not recorded, and always NULL for a draw.
+ALTER TABLE games ADD COLUMN win_condition TEXT CHECK (win_condition IN
+    ('combat', 'commander_damage', 'combo', 'alternate', 'mill', 'poison', 'concession', 'other'));
+
+-- How much fun each player had, 1 to 5, if they said. NULL = skipped.
+ALTER TABLE game_seats ADD COLUMN fun INTEGER CHECK (fun BETWEEN 1 AND 5);

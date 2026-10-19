@@ -20,6 +20,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/decks/{id}/versions", get(list_versions))
         .route("/api/decks/{id}/versions/{version}", get(get_version))
         .route("/api/decks/{id}/check", get(get_check).post(recheck))
+        .route("/api/decks/{id}/results", get(results))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -173,6 +174,9 @@ struct DeckSummary {
     card_count: i64,
     #[sqlx(skip)]
     commander_image: Option<String>,
+    /// Who painted `commander_image` (credit it wherever the art shows).
+    #[sqlx(skip)]
+    commander_artist: Option<String>,
 }
 
 async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<DeckSummary>>> {
@@ -194,14 +198,17 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
             d.commanders = commanders.iter().map(|c| c.name.clone()).collect();
             let mut identity = String::new();
             for c in &commanders {
-                let row: Option<(String, Option<String>)> =
-                    sqlx::query_as("SELECT color_identity, image_art_crop FROM cards WHERE oracle_id = ?")
+                let row: Option<(String, Option<String>, Option<String>)> =
+                    sqlx::query_as("SELECT color_identity, image_art_crop, artist FROM cards WHERE oracle_id = ?")
                         .bind(&c.oracle_id)
                         .fetch_optional(&st.pool)
                         .await?;
-                if let Some((ci, art)) = row {
+                if let Some((ci, art, artist)) = row {
                     identity.push_str(&ci);
-                    d.commander_image = d.commander_image.take().or(art);
+                    if d.commander_image.is_none() && art.is_some() {
+                        d.commander_image = art;
+                        d.commander_artist = artist;
+                    }
                 }
             }
             d.color_identity = "WUBRG".chars().filter(|c| identity.contains(*c)).collect();
@@ -634,6 +641,50 @@ async fn list_versions(State(st): State<AppState>, CurrentUser(user): CurrentUse
             .fetch_all(&st.pool)
             .await?,
     ))
+}
+
+#[derive(Serialize)]
+struct VersionResult {
+    id: String,
+    /// 1 for the first save, counting up.
+    number: i64,
+    note: Option<String>,
+    created_at: String,
+    current: bool,
+    #[serde(flatten)]
+    record: crate::stats::Record,
+}
+
+#[derive(Serialize)]
+struct DeckResults {
+    /// Newest version first; versions without games are left out except the current one.
+    versions: Vec<VersionResult>,
+    provisional_under: i64,
+    computed_at: String,
+}
+
+/// Finished games played with each version of the deck: wins, losses and draws.
+async fn results(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<DeckResults>> {
+    let (_, current, _) = owned_deck(&st.pool, &user.id, &id).await?;
+    let games = crate::stats::finished_games(&st.pool, crate::stats::Scope::Deck(&id)).await?;
+    let mut by_version = crate::stats::results_by_version(&games);
+    let rows: Vec<VersionRow> =
+        sqlx::query_as("SELECT id, note, created_at FROM deck_versions WHERE deck_id = ? ORDER BY created_at, rowid").bind(&id).fetch_all(&st.pool).await?;
+    let mut versions: Vec<VersionResult> = rows
+        .into_iter()
+        .enumerate()
+        .map(|(i, v)| VersionResult {
+            current: current.as_deref() == Some(v.id.as_str()),
+            record: by_version.remove(&v.id).unwrap_or_default(),
+            number: i as i64 + 1,
+            id: v.id,
+            note: v.note,
+            created_at: v.created_at,
+        })
+        .filter(|v| v.current || v.record.games > 0)
+        .collect();
+    versions.reverse();
+    Ok(Json(DeckResults { versions, provisional_under: crate::stats::PROVISIONAL_UNDER, computed_at: now() }))
 }
 
 #[derive(Serialize)]

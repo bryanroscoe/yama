@@ -335,6 +335,11 @@ impl Match {
         self.state.turn_number
     }
 
+    /// The seat that took the first turn (the engine picks it when the game starts).
+    pub fn starting_seat(&self) -> u8 {
+        self.state.current_starting_player.0
+    }
+
     /// Options for `seat`, or `None` if it isn't that seat's decision.
     pub fn decision(&self, seat: u8) -> Option<Decision> {
         let me = PlayerId(seat);
