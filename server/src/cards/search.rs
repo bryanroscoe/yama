@@ -18,6 +18,8 @@ pub enum Bind {
 pub struct Compiled {
     pub sql: String,
     pub binds: Vec<Bind>,
+    /// The query reads the Game Changer flag (`is:gamechanger`), which may not be loaded yet.
+    pub uses_game_changer: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,15 +33,15 @@ enum Tok {
 
 pub fn compile(query: &str) -> Result<Compiled, String> {
     let toks = lex(query)?;
-    let mut p = Parser { toks, pos: 0, binds: Vec::new() };
+    let mut p = Parser { toks, pos: 0, binds: Vec::new(), uses_game_changer: false };
     if p.toks.is_empty() {
-        return Ok(Compiled { sql: "1".into(), binds: vec![] });
+        return Ok(Compiled { sql: "1".into(), binds: vec![], uses_game_changer: false });
     }
     let sql = p.expr()?;
     if p.pos < p.toks.len() {
         return Err("unexpected ')'".into());
     }
-    Ok(Compiled { sql, binds: p.binds })
+    Ok(Compiled { sql, binds: p.binds, uses_game_changer: p.uses_game_changer })
 }
 
 /// Whether the query asks for tokens or other non-deck cards explicitly.
@@ -136,6 +138,7 @@ struct Parser {
     toks: Vec<Tok>,
     pos: usize,
     binds: Vec<Bind>,
+    uses_game_changer: bool,
 }
 
 impl Parser {
@@ -267,7 +270,10 @@ impl Parser {
                 "permanent" => Ok("(cards.type_line NOT LIKE '%Instant%' AND cards.type_line NOT LIKE '%Sorcery%')".into()),
                 "spell" => Ok("cards.type_line NOT LIKE '%Land%'".into()),
                 "multicolor" | "multicolored" => Ok("length(cards.colors) >= 2".into()),
-                "gamechanger" | "gc" => Ok("cards.game_changer = 1".into()),
+                "gamechanger" | "gc" => {
+                    self.uses_game_changer = true;
+                    Ok("cards.game_changer = 1".into())
+                }
                 other => Err(format!("unsupported is:{other}")),
             },
             "name" => Ok(self.like("cards.name", value)),
@@ -401,6 +407,9 @@ mod tests {
         assert_eq!(compile("is:gamechanger").unwrap().sql, "cards.game_changer = 1");
         assert_eq!(compile("is:gc").unwrap().sql, "cards.game_changer = 1");
         assert_eq!(compile("-is:GameChanger t:artifact").unwrap().sql, "(NOT cards.game_changer = 1 AND cards.type_line LIKE ? ESCAPE '\\')");
+        // The route checks the flags are loaded before running these.
+        assert!(compile("t:artifact (is:gc or mv<1)").unwrap().uses_game_changer);
+        assert!(!compile("t:artifact").unwrap().uses_game_changer);
     }
 
     #[test]

@@ -71,8 +71,9 @@ export interface Card {
   artist: string | null;
   default_printing: string | null;
   edhrec_rank: number | null;
-  /** On the Commander Game Changers list, per Scryfall. */
-  game_changer: boolean;
+  /** On the Commander Game Changers list, per Scryfall. null until the server has loaded the
+   *  flags (or the saved offline list lacks them): unknown, not false. */
+  game_changer: boolean | null;
 }
 
 /** A ruling from Scryfall's rulings file. */
@@ -87,8 +88,9 @@ export interface Ruling {
 export interface CardDetail {
   card: Card;
   printings: Printing[];
-  /** Missing when the card came from the offline copy on this device. */
-  rulings?: Ruling[];
+  /** null when the server hasn't loaded rulings yet; missing when the card came from the
+   *  offline copy on this device. */
+  rulings?: Ruling[] | null;
 }
 
 export interface Printing {
@@ -216,8 +218,11 @@ export interface DeckView {
   cards: DeckEntry[];
   validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[] };
   ownership: { cards: number; owned: number; needed: number; needed_cost_usd: number; needed_without_price: number };
-  /** Game Changers in the commander and main deck, by name. */
-  game_changers: string[];
+  /** Game Changers in the commander and main deck, by name. null while any of those cards has
+   *  no flag loaded yet. */
+  game_changers: string[] | null;
+  /** Date of the Scryfall data behind the flags (YYYY-MM-DD). */
+  game_changers_as_of: string | null;
 }
 
 /** GET /api/decks/:id/online-support: what the rules engine can play of a deck. */
@@ -235,6 +240,8 @@ export interface OnlineSupport {
     missing: string[];
     /** Loaded, but some abilities aren't implemented. */
     partial: string[];
+    /** Nothing marked unimplemented, but the engine had trouble reading part of the text. */
+    uncertain: string[];
   } | null;
 }
 

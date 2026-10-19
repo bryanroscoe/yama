@@ -5,8 +5,15 @@ import { searchOffline, type OfflineCard } from "@yama/core";
 import { useSyncExternalStore } from "react";
 import { api, type Card } from "../api";
 
+/** Bundle shape this app reads (the server's OFFLINE_FORMAT). A saved copy in another
+ *  format, or none (saved before formats existed), is downloaded again. */
+const FORMAT = 2;
+
 interface Bundle {
+  format?: number;
   version: string;
+  /** Whether the server had loaded the Game Changer flags when the bundle was made. */
+  game_changers?: boolean;
   savedAt: string;
   cards: OfflineCard[];
 }
@@ -69,7 +76,7 @@ export async function downloadOfflineCards(): Promise<void> {
   if (status.downloading) return;
   set({ downloading: true, error: null });
   try {
-    const b = await api<{ version: string; cards: OfflineCard[] }>("/api/cards/offline");
+    const b = await api<Omit<Bundle, "savedAt">>("/api/cards/offline");
     const saved: Bundle = { ...b, savedAt: new Date().toISOString() };
     await idbPut(KEY, saved);
     bundle = saved;
@@ -80,13 +87,17 @@ export async function downloadOfflineCards(): Promise<void> {
   }
 }
 
-/** Fetch the bundle in the background if this device has none, or it's more than a week old. */
+/** Fetch the bundle in the background if this device has none, it's in an older format, or
+ *  it's more than a week old. */
 export async function refreshOfflineCardsIfStale() {
   if (!navigator.onLine) return;
   const b = await loadOfflineCards();
   const week = 7 * 24 * 3600 * 1000;
-  if (!b || Date.now() - Date.parse(b.savedAt) > week) await downloadOfflineCards();
+  if (!b || b.format !== FORMAT || Date.now() - Date.parse(b.savedAt) > week) await downloadOfflineCards();
 }
+
+/** A saved bundle's Game Changer flags mean something only if the server had loaded them. */
+const hasGameChangers = (b: Bundle) => b.format === FORMAT && b.game_changers === true;
 
 export function useOfflineCards() {
   return useSyncExternalStore(
@@ -99,8 +110,9 @@ export function useOfflineCards() {
   );
 }
 
-/** Shape an offline card like the server's, for the shared card views. */
-export function toCard(c: OfflineCard): Card {
+/** Shape an offline card like the server's, for the shared card views. `gameChangers` says
+ *  whether the bundle carries the flags; without them a card's flag is unknown (null). */
+export function toCard(c: OfflineCard, gameChangers: boolean): Card {
   return {
     oracle_id: c.i,
     name: c.n,
@@ -123,19 +135,21 @@ export function toCard(c: OfflineCard): Card {
     artist: null,
     default_printing: null,
     edhrec_rank: c.e,
-    game_changer: c.g === true,
+    game_changer: gameChangers ? c.g === true : null,
   };
 }
 
 export async function offlineSearch(q: string, order: string, page: number, pageSize = 60) {
   const b = await loadOfflineCards();
   if (!b) throw new Error("You're offline and this device hasn't saved the card list yet.");
-  const hits = searchOffline(b.cards, q, order as "name");
-  return { total: hits.length, page, page_size: pageSize, cards: hits.slice((page - 1) * pageSize, page * pageSize).map(toCard), offline: true };
+  const gameChangers = hasGameChangers(b);
+  const hits = searchOffline(b.cards, q, order as "name", { gameChangers });
+  const cards = hits.slice((page - 1) * pageSize, page * pageSize).map((c) => toCard(c, gameChangers));
+  return { total: hits.length, page, page_size: pageSize, cards, offline: true };
 }
 
 export async function offlineCard(oracleId: string): Promise<Card | null> {
   const b = await loadOfflineCards();
   const c = b?.cards.find((x) => x.i === oracleId);
-  return c ? toCard(c) : null;
+  return b && c ? toCard(c, hasGameChangers(b)) : null;
 }

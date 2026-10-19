@@ -41,62 +41,85 @@ pub async fn run(
     default: Option<PathBuf>,
     rulings: Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    run_from(pool, &cfg.data_dir, BULK_INDEX, oracle, default, rulings).await
+}
+
+/// [`run`] against any bulk index, so tests can serve one locally.
+///
+/// Each downloaded file is deleted as soon as its import is done, and also when anything fails
+/// (see [`BulkFile`]): the disk is small. Files given on the command line are never deleted.
+async fn run_from(
+    pool: &SqlitePool,
+    data_dir: &Path,
+    index_url: &str,
+    oracle: Option<PathBuf>,
+    default: Option<PathBuf>,
+    rulings: Option<PathBuf>,
+) -> anyhow::Result<()> {
     let http = crate::routes::http_client();
     // Given both card files, stay offline: rulings come only from --rulings then.
     let offline = oracle.is_some() && default.is_some();
-    let index = if !offline { Some(bulk_index(&http).await?) } else { None };
+    let index = if !offline { Some(bulk_index(&http, index_url).await?) } else { None };
 
-    let (oracle_path, oracle_meta) = match oracle {
-        Some(p) => (p, None),
-        None => {
-            let item = index.as_ref().unwrap().find("oracle_cards")?;
-            (download(&http, item, &cfg.data_dir).await?, Some(item.clone()))
-        }
+    let file = match oracle {
+        Some(p) => BulkFile::given(p),
+        None => download(&http, index.as_ref().unwrap().find("oracle_cards")?, data_dir).await?,
     };
-    let n = import_oracle(pool, &oracle_path, oracle_meta.as_ref()).await?;
+    let n = import_oracle(pool, &file.path, file.meta.as_ref()).await?;
     println!("oracle cards: {n}");
+    drop(file);
 
-    let (default_path, default_meta) = match default {
-        Some(p) => (p, None),
-        None => {
-            let item = index.as_ref().unwrap().find("default_cards")?;
-            (download(&http, item, &cfg.data_dir).await?, Some(item.clone()))
-        }
+    let file = match default {
+        Some(p) => BulkFile::given(p),
+        None => download(&http, index.as_ref().unwrap().find("default_cards")?, data_dir).await?,
     };
-    let n = import_default(pool, &default_path, default_meta.as_ref()).await?;
+    let n = import_default(pool, &file.path, file.meta.as_ref()).await?;
     println!("printings: {n}");
+    drop(file);
 
-    let rulings = match (rulings, &index) {
-        (Some(p), _) => Some((p, None)),
-        (None, Some(index)) => {
-            let item = index.find("rulings")?;
-            Some((download(&http, item, &cfg.data_dir).await?, Some(item.clone())))
-        }
-        (None, None) => None,
+    let file = match (rulings, &index) {
+        (Some(p), _) => BulkFile::given(p),
+        (None, Some(index)) => download(&http, index.find("rulings")?, data_dir).await?,
+        (None, None) => return Ok(()),
     };
-    let rulings_result = match &rulings {
-        Some((path, meta)) => import_rulings(pool, path, meta.as_ref()).await.map(|n| println!("rulings: {n}")),
-        None => Ok(()),
-    };
-
-    // Downloaded files are only needed during import, and the disk is small.
-    let mut downloaded = vec![(oracle_path, oracle_meta.is_some()), (default_path, default_meta.is_some())];
-    if let Some((path, meta)) = rulings {
-        downloaded.push((path, meta.is_some()));
-    }
-    for (path, was_downloaded) in downloaded {
-        if was_downloaded {
-            let _ = std::fs::remove_file(path);
-        }
-    }
-    rulings_result
+    let n = import_rulings(pool, &file.path, file.meta.as_ref()).await?;
+    println!("rulings: {n}");
+    Ok(())
 }
 
-/// Download and import the latest file of one kind, unless we already have that exact file.
-/// Returns whether anything was imported.
-pub async fn refresh(pool: &SqlitePool, data_dir: &Path, kind: &str) -> anyhow::Result<bool> {
+/// Version of the import for one kind of bulk file, stored with each run
+/// (`import_runs.importer_version`; runs from before it existed count as 1). Raise a kind's
+/// number when its import starts reading a field it didn't before: a running server then
+/// re-imports that kind on its next pass, even if Scryfall's file hasn't changed.
+pub fn importer_version(kind: &str) -> i64 {
+    match kind {
+        "oracle_cards" => 2, // 2: game_changer (migration 0008)
+        _ => 1,
+    }
+}
+
+/// The newest successful import of `kind` made by the current importer version, as a date
+/// (YYYY-MM-DD): when Scryfall generated the file, or for a file given on the command line,
+/// when it was imported. `None` means data that import brings isn't loaded yet (for example
+/// rulings, or Game Changer flags right after migration 0008).
+pub async fn current_import_date(pool: &SqlitePool, kind: &str) -> sqlx::Result<Option<String>> {
+    Ok(sqlx::query_scalar(
+        "SELECT substr(COALESCE(source_updated_at, finished_at), 1, 10) FROM import_runs
+         WHERE kind = ? AND error IS NULL AND finished_at IS NOT NULL AND IFNULL(importer_version, 1) >= ?
+         ORDER BY started_at DESC LIMIT 1",
+    )
+    .bind(kind)
+    .bind(importer_version(kind))
+    .fetch_optional(pool)
+    .await?
+    .flatten())
+}
+
+/// Download and import the latest file of one kind, unless we already have that exact file
+/// (`force` imports it anyway). Returns whether anything was imported.
+pub async fn refresh(pool: &SqlitePool, data_dir: &Path, kind: &str, force: bool) -> anyhow::Result<bool> {
     let http = crate::routes::http_client();
-    let index = bulk_index(&http).await?;
+    let index = bulk_index(&http, BULK_INDEX).await?;
     let item = index.find(kind)?;
     let have: Option<String> = sqlx::query_scalar(
         "SELECT source_updated_at FROM import_runs WHERE kind = ? AND error IS NULL AND finished_at IS NOT NULL
@@ -106,20 +129,21 @@ pub async fn refresh(pool: &SqlitePool, data_dir: &Path, kind: &str) -> anyhow::
     .fetch_optional(pool)
     .await?
     .flatten();
-    if have.as_deref() == Some(item.updated_at.as_str()) {
+    if !force && have.as_deref() == Some(item.updated_at.as_str()) {
         return Ok(false);
     }
-    let path = download(&http, item, data_dir).await?;
-    let result = match kind {
-        "oracle_cards" => import_oracle(pool, &path, Some(item)).await,
-        "rulings" => import_rulings(pool, &path, Some(item)).await,
-        _ => import_default(pool, &path, Some(item)).await,
+    let file = download(&http, item, data_dir).await?;
+    match kind {
+        "oracle_cards" => import_oracle(pool, &file.path, Some(item)).await?,
+        "rulings" => import_rulings(pool, &file.path, Some(item)).await?,
+        _ => import_default(pool, &file.path, Some(item)).await?,
     };
-    let _ = std::fs::remove_file(&path);
-    result.map(|_| true)
+    Ok(true)
 }
 
-/// Background refresh for a running server: prices daily, rules text and rulings weekly.
+/// Background refresh for a running server: prices daily, rules text and rulings weekly. A kind
+/// whose last successful import came from an older importer version (see [`importer_version`])
+/// is imported on the first pass, which runs at startup.
 pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
     tokio::spawn(async move {
         loop {
@@ -134,8 +158,11 @@ pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
                 let age = last
                     .and_then(|t| chrono::DateTime::parse_from_rfc3339(&t).ok())
                     .map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_hours());
-                if age.is_none_or(|h| h >= max_age_hours) {
-                    match refresh(&pool, &data_dir, kind).await {
+                // On a database error, assume the current import is there rather than
+                // downloading every hour.
+                let behind = matches!(current_import_date(&pool, kind).await, Ok(None));
+                if behind || age.is_none_or(|h| h >= max_age_hours) {
+                    match refresh(&pool, &data_dir, kind, behind).await {
                         Ok(true) => tracing::info!(kind, "imported fresh Scryfall data"),
                         Ok(false) => tracing::debug!(kind, "Scryfall data unchanged"),
                         Err(e) => tracing::warn!(kind, error = %format!("{e:#}"), "Scryfall import failed"),
@@ -145,6 +172,30 @@ pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
             tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         }
     });
+}
+
+/// A bulk file to import: one given on the command line, or one we downloaded. A download is
+/// deleted when this is dropped, so it goes away after its import, and also when the import, a
+/// later download or the download itself fails partway.
+struct BulkFile {
+    path: PathBuf,
+    /// Scryfall's index entry, for downloads.
+    meta: Option<BulkItem>,
+    downloaded: bool,
+}
+
+impl BulkFile {
+    fn given(path: PathBuf) -> Self {
+        Self { path, meta: None, downloaded: false }
+    }
+}
+
+impl Drop for BulkFile {
+    fn drop(&mut self) {
+        if self.downloaded {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 #[derive(Deserialize, Clone)]
@@ -179,9 +230,9 @@ impl BulkIndex {
     }
 }
 
-async fn bulk_index(http: &reqwest::Client) -> anyhow::Result<BulkIndex> {
+async fn bulk_index(http: &reqwest::Client, url: &str) -> anyhow::Result<BulkIndex> {
     Ok(http
-        .get(BULK_INDEX)
+        .get(url)
         .header("Accept", "application/json")
         .send()
         .await?
@@ -190,19 +241,21 @@ async fn bulk_index(http: &reqwest::Client) -> anyhow::Result<BulkIndex> {
         .await?)
 }
 
-async fn download(http: &reqwest::Client, item: &BulkItem, dir: &Path) -> anyhow::Result<PathBuf> {
+/// Download one bulk file into `dir`. A partly written file is deleted if the download fails.
+async fn download(http: &reqwest::Client, item: &BulkItem, dir: &Path) -> anyhow::Result<BulkFile> {
     let url = item.url()?;
     let path = dir.join(url.rsplit('/').next().unwrap_or("scryfall-bulk"));
     let mb = item.compressed_size.or(item.size).unwrap_or(0) / 1_000_000;
     println!("downloading {} ({mb} MB)…", item.kind);
     let resp = http.get(url).send().await?.error_for_status()?;
-    let mut file = tokio::fs::File::create(&path).await?;
+    let bulk = BulkFile { path, meta: Some(item.clone()), downloaded: true };
+    let mut file = tokio::fs::File::create(&bulk.path).await?;
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
         file.write_all(&chunk?).await?;
     }
     file.flush().await?;
-    Ok(path)
+    Ok(bulk)
 }
 
 /// Open a bulk file, gzipped or not.
@@ -365,7 +418,8 @@ struct ScryCard {
     legalities: BTreeMap<String, String>,
     rarity: Option<String>,
     edhrec_rank: Option<i64>,
-    /// On the Commander Game Changers list (oracle_cards). Absent or null reads as false.
+    /// On the Commander Game Changers list (oracle_cards). Scryfall sends true or false for
+    /// every card; absent or null stays unknown (NULL), never false.
     #[serde(default)]
     game_changer: Option<bool>,
     image_uris: Option<ImageUris>,
@@ -454,14 +508,17 @@ fn price(s: &Option<String>) -> Option<f64> {
 
 async fn start_run(pool: &SqlitePool, kind: &str, meta: Option<&BulkItem>) -> anyhow::Result<String> {
     let id = new_id();
-    sqlx::query("INSERT INTO import_runs (id, kind, source_url, source_updated_at, started_at) VALUES (?, ?, ?, ?, ?)")
-        .bind(&id)
-        .bind(kind)
-        .bind(meta.and_then(|m| m.url().ok().map(str::to_string)))
-        .bind(meta.map(|m| m.updated_at.clone()))
-        .bind(now())
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO import_runs (id, kind, source_url, source_updated_at, started_at, importer_version) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(kind)
+    .bind(meta.and_then(|m| m.url().ok().map(str::to_string)))
+    .bind(meta.map(|m| m.updated_at.clone()))
+    .bind(now())
+    .bind(importer_version(kind))
+    .execute(pool)
+    .await?;
     Ok(id)
 }
 
@@ -539,7 +596,7 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
             .bind(c.back_image())
             .bind(&c.artist)
             .bind(faces)
-            .bind(c.game_changer.unwrap_or(false))
+            .bind(c.game_changer)
             .bind(&stamp)
             .execute(&mut *tx)
             .await?;
@@ -791,7 +848,7 @@ mod tests {
         import_oracle(&pool, &path, None).await.unwrap();
         import_default(&pool, &path, None).await.unwrap();
 
-        type Images = (Option<String>, Option<String>, Option<String>, Option<String>, bool);
+        type Images = (Option<String>, Option<String>, Option<String>, Option<String>, Option<bool>);
         let sol: Images = sqlx::query_as(
             "SELECT image_small, image_normal, image_art_crop, back_image_normal, game_changer FROM cards WHERE oracle_id='o1'",
         )
@@ -802,7 +859,7 @@ mod tests {
         assert_eq!(sol.1.as_deref(), Some("https://cards.scryfall.io/grid/front/s.webp"));
         assert_eq!(sol.2.as_deref(), Some("https://cards.scryfall.io/art/front/s.webp"));
         assert_eq!(sol.3, None);
-        assert!(sol.4);
+        assert_eq!(sol.4, Some(true));
 
         let dfc: Images = sqlx::query_as(
             "SELECT image_small, image_normal, image_art_crop, back_image_normal, game_changer FROM cards WHERE oracle_id='o2'",
@@ -812,7 +869,7 @@ mod tests {
         .unwrap();
         assert_eq!(dfc.1.as_deref(), Some("front.webp"));
         assert_eq!(dfc.3.as_deref(), Some("back.jpg"), "the renamed jpeg key is a fallback for grid");
-        assert!(!dfc.4, "a null game_changer reads as false");
+        assert_eq!(dfc.4, None, "a null game_changer stays unknown");
 
         let printing: (Option<String>, Option<String>) =
             sqlx::query_as("SELECT image_small, image_normal FROM printings WHERE scryfall_id='p1'").fetch_one(&pool).await.unwrap();
@@ -881,5 +938,104 @@ mod tests {
         assert!(import_rulings(&pool, &empty, None).await.is_err());
         let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rulings").fetch_one(&pool).await.unwrap();
         assert_eq!(total, 3);
+    }
+
+    /// A local stand-in for Scryfall's bulk index whose rulings file breaks off after its first
+    /// bytes, the way a dropped connection would. Returns the index URL.
+    async fn bulk_server_with_broken_rulings() -> String {
+        use axum::{Router, body::Body, routing::get};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let item = |kind: &str| {
+            serde_json::json!({"type": kind, "jsonl_download_uri": format!("{base}/files/{kind}-20261018.json"),
+                               "updated_at": "2026-10-18T21:00:00.000+00:00"})
+        };
+        let index = serde_json::json!({"data": [item("oracle_cards"), item("default_cards"), item("rulings")]}).to_string();
+        let app = Router::new()
+            .route("/bulk-data", get(move || async move { index }))
+            .route("/files/oracle_cards-20261018.json", get(|| async { SAMPLE }))
+            .route("/files/default_cards-20261018.json", get(|| async { SAMPLE }))
+            .route(
+                "/files/rulings-20261018.json",
+                get(|| async {
+                    // The pause lets the first bytes reach the client (and the file) before the break.
+                    let chunks = futures_util::stream::iter([false, true]).then(|broken| async move {
+                        if broken {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                            Err(std::io::Error::other("connection lost"))
+                        } else {
+                            Ok(r#"{"object":"ruling","oracle_id":"o1""#)
+                        }
+                    });
+                    Body::from_stream(chunks)
+                }),
+            );
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        format!("{base}/bulk-data")
+    }
+
+    #[tokio::test]
+    async fn a_failed_rulings_download_still_deletes_the_card_files() {
+        let pool = crate::db::test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let index = bulk_server_with_broken_rulings().await;
+
+        assert!(run_from(&pool, dir.path(), &index, None, None, None).await.is_err());
+        // Both card files were downloaded and imported…
+        let cards: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM cards").fetch_one(&pool).await.unwrap();
+        let printings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM printings").fetch_one(&pool).await.unwrap();
+        assert_eq!((cards, printings), (2, 2));
+        // …and nothing is left on disk, not even the partial rulings file.
+        let left: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert!(left.is_empty(), "left behind: {left:?}");
+    }
+
+    #[tokio::test]
+    async fn files_given_on_the_command_line_are_kept() {
+        let pool = crate::db::test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let cards = dir.path().join("cards.json");
+        std::fs::write(&cards, SAMPLE).unwrap();
+        let rulings = dir.path().join("rulings.json");
+        std::fs::write(&rulings, r#"[{"oracle_id":"o1","source":"wotc","published_at":"2004-10-04","comment":"First."}]"#).unwrap();
+
+        // Both card files given: no network at all (the index URL is never fetched).
+        run_from(&pool, dir.path(), "http://127.0.0.1:9/unused", Some(cards.clone()), Some(cards.clone()), Some(rulings.clone()))
+            .await
+            .unwrap();
+        assert!(cards.exists() && rulings.exists());
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rulings").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[tokio::test]
+    async fn data_from_older_importers_counts_as_not_loaded() {
+        let pool = crate::db::test_pool().await;
+        // Runs made before migration 0008 have no importer version: they count as version 1.
+        sqlx::query(
+            "INSERT INTO import_runs (id, kind, source_updated_at, started_at, finished_at, rows) VALUES
+             ('o', 'oracle_cards', '2026-10-17T09:01:55.818+00:00', '2026-10-17T20:08:18Z', '2026-10-17T20:08:30Z', 2),
+             ('d', 'default_cards', '2026-10-17T09:06:08.225+00:00', '2026-10-17T20:08:31Z', '2026-10-17T20:09:10Z', 2)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Prices are current; Game Changer flags (oracle_cards version 2) and rulings aren't loaded.
+        assert_eq!(current_import_date(&pool, "default_cards").await.unwrap().as_deref(), Some("2026-10-17"));
+        assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), None);
+        assert_eq!(current_import_date(&pool, "rulings").await.unwrap(), None);
+
+        // A failed import doesn't load anything.
+        let dir = tempfile::tempdir().unwrap();
+        let empty = dir.path().join("empty.json");
+        std::fs::write(&empty, "[]").unwrap();
+        assert!(import_oracle(&pool, &empty, None).await.is_err());
+        assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), None);
+
+        // An import by today's code does; a file given by hand is dated by when it was imported.
+        let path = dir.path().join("bulk.json");
+        std::fs::write(&path, SAMPLE).unwrap();
+        import_oracle(&pool, &path, None).await.unwrap();
+        assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), Some(now()[..10].to_string()));
     }
 }

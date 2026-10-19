@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileSearch, searchOffline, type OfflineCard } from "./search";
+import { compileSearch, GAME_CHANGERS_NOT_LOADED, searchOffline, type OfflineCard } from "./search";
 
 const card = (o: Partial<OfflineCard> & { n: string }): OfflineCard => ({
   i: o.n, m: null, v: 0, t: "", o: "", c: "", ci: "", p: null, th: null, l: null, r: "common", k: [],
@@ -29,6 +29,13 @@ describe("offline search", () => {
     expect(names("is:gamechanger")).toEqual(["Sol Ring"]);
     expect(names("is:gc")).toEqual(["Sol Ring"]);
     expect(names("t:artifact -is:GameChanger")).toEqual(["Jeweled Lotus"]);
+  });
+
+  it("won't answer is:gamechanger from a card list without the flags", () => {
+    // An older saved list (or one made before the server loaded the flags) has no "g" at all.
+    expect(() => searchOffline(cards, "is:gc", "name", { gameChangers: false })).toThrow(GAME_CHANGERS_NOT_LOADED);
+    expect(() => searchOffline(cards, "t:artifact -is:gamechanger", "name", { gameChangers: false })).toThrow();
+    expect(searchOffline(cards, "t:artifact", "name", { gameChangers: false }).map((c) => c.n)).toEqual(["Jeweled Lotus", "Sol Ring"]);
   });
 
   it("hides tokens unless asked", () => {

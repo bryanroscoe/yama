@@ -33,8 +33,9 @@ export function useOnlineSupport(deckId: string | undefined, versionId?: string 
 }
 
 /**
- * "Online play: 97/100 cards supported", with the cards the rules engine leaves out or only
- * partly implements. Counts are copies in the commander and main deck.
+ * "Online play: 97/100 cards supported", with the cards the rules engine leaves out, only
+ * partly implements, or had trouble reading. Counts are copies in the commander and main deck;
+ * "supported" means none of the engine's checks found a problem.
  */
 export function OnlineSupport({ deckId, versionId, onCard }: {
   deckId: string;
@@ -48,7 +49,7 @@ export function OnlineSupport({ deckId, versionId, onCard }: {
   if (d.state !== "ready" || !d.support) {
     return (
       <div className="online-support">
-        <p className="small faint">
+        <p className="card-note">
           {d.state === "starting" ? "Online play: checking once the rules engine has started." : "Online play is off on this server, so cards aren't checked."}
         </p>
       </div>
@@ -70,6 +71,11 @@ export function OnlineSupport({ deckId, versionId, onCard }: {
       {s.partial.length > 0 && (
         <p className="names">
           Some abilities don't work online yet: <NameList names={s.partial} onCard={onCard} />
+        </p>
+      )}
+      {s.uncertain.length > 0 && (
+        <p className="names">
+          May not work fully online (the engine had trouble reading part of the text): <NameList names={s.uncertain} onCard={onCard} />
         </p>
       )}
     </div>

@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { api, usd, type Container, type DeckCard, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
+import { day } from "../components/Rulings";
 import { CardSheet } from "./Cards";
 
 export function DecksPage() {
@@ -187,12 +188,22 @@ export function DeckPage() {
       {v.warnings.length > 0 && <ul className="small dim">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
 
       <div className="deck-facts">
-        <div>
-          <p><b>Game Changers: {d.game_changers.length}</b></p>
-          {d.game_changers.length > 0 && (
-            <p className="names"><NameList names={d.game_changers} onCard={openByName} /></p>
-          )}
-        </div>
+        {d.game_changers ? (
+          <div>
+            <p>
+              <b>Game Changers: {d.game_changers.length}</b>
+              {d.game_changers_as_of && <span className="as-of"> Scryfall's list as of {day(d.game_changers_as_of)}</span>}
+            </p>
+            {d.game_changers.length > 0 && (
+              <p className="names"><NameList names={d.game_changers} onCard={openByName} /></p>
+            )}
+          </div>
+        ) : (
+          <div>
+            <p><b>Game Changers: not checked yet</b></p>
+            <p className="card-note">The Game Changer list isn't loaded on this server yet. It comes with the next card data import.</p>
+          </div>
+        )}
         <OnlineSupport deckId={d.id} versionId={d.version_id} onCard={openByName} />
       </div>
 

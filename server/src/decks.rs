@@ -300,7 +300,10 @@ struct DeckView {
     validation: Validation,
     ownership: OwnershipTotals,
     /// Names of the cards on the Commander Game Changers list (commander and main deck).
-    game_changers: Vec<String>,
+    /// `None` while any of those cards has no flag loaded yet.
+    game_changers: Option<Vec<String>>,
+    /// Date of the Scryfall data the flags come from (YYYY-MM-DD), if loaded.
+    game_changers_as_of: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -348,6 +351,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
     }
     let validation = validate(&cards, &card_info);
     let game_changers = game_changers(&cards, &card_info);
+    let game_changers_as_of = crate::cards::import::current_import_date(&st.pool, "oracle_cards").await?;
 
     // Ownership, by oracle ID, across the whole collection.
     let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
@@ -400,7 +404,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd });
     }
     totals.needed_cost_usd = (totals.needed_cost_usd * 100.0).round() / 100.0;
-    Ok(Json(DeckView { id, name, container_id, version_id, cards: entries, validation, ownership: totals, game_changers }))
+    Ok(Json(DeckView { id, name, container_id, version_id, cards: entries, validation, ownership: totals, game_changers, game_changers_as_of }))
 }
 
 #[derive(Deserialize)]
@@ -480,16 +484,19 @@ async fn list_versions(State(st): State<AppState>, CurrentUser(user): CurrentUse
 }
 
 /// Game Changers in the deck (not the sideboard), by name, sorted. Uses Scryfall's flag, so
-/// it's only as fresh as the last card import.
-pub fn game_changers(cards: &[DeckCard], info: &HashMap<String, Card>) -> Vec<String> {
-    let mut names: Vec<String> = cards
-        .iter()
-        .filter(|c| c.board != Board::Side && info.get(&c.oracle_id).is_some_and(|card| card.game_changer))
-        .map(|c| c.name.clone())
-        .collect();
+/// it's only as fresh as the last card import. `None` when any of those cards has no flag yet
+/// (before the first import that reads it): a count then would be a guess.
+pub fn game_changers(cards: &[DeckCard], info: &HashMap<String, Card>) -> Option<Vec<String>> {
+    let mut names = Vec::new();
+    for c in cards.iter().filter(|c| c.board != Board::Side) {
+        let Some(card) = info.get(&c.oracle_id) else { continue };
+        if card.game_changer? {
+            names.push(c.name.clone());
+        }
+    }
     names.sort();
     names.dedup();
-    names
+    Some(names)
 }
 
 // ── validation ─────────────────────────────────────────────────────────────
@@ -629,18 +636,18 @@ mod tests {
             artist: None,
             default_printing: None,
             edhrec_rank: None,
-            game_changer: false,
+            game_changer: Some(false),
         }
     }
 
     #[test]
     fn game_changers_skip_the_sideboard() {
         let mut rhystic = card("Rhystic Study", "Enchantment", "U", "", "legal");
-        rhystic.game_changer = true;
+        rhystic.game_changer = Some(true);
         let mut sol = card("Sol Ring", "Artifact", "", "", "legal");
-        sol.game_changer = false;
+        sol.game_changer = Some(false);
         let mut cyclonic = card("Cyclonic Rift", "Instant", "U", "", "legal");
-        cyclonic.game_changer = true;
+        cyclonic.game_changer = Some(true);
         let info: HashMap<String, Card> = [rhystic, sol, cyclonic].into_iter().map(|c| (c.oracle_id.clone(), c)).collect();
         let dc = |name: &str, board| DeckCard { oracle_id: name.into(), name: name.into(), qty: 1, board };
         let cards = vec![
@@ -649,7 +656,16 @@ mod tests {
             dc("Cyclonic Rift", Board::Side),
             dc("Unknown card", Board::Main),
         ];
-        assert_eq!(game_changers(&cards, &info), vec!["Rhystic Study".to_string()]);
+        assert_eq!(game_changers(&cards, &info), Some(vec!["Rhystic Study".to_string()]));
+
+        // One card without a loaded flag makes the count unknown, not lower.
+        let mut info = info;
+        info.get_mut("Sol Ring").unwrap().game_changer = None;
+        assert_eq!(game_changers(&cards, &info), None);
+        // Unless it's only in the sideboard.
+        info.get_mut("Sol Ring").unwrap().game_changer = Some(false);
+        info.get_mut("Cyclonic Rift").unwrap().game_changer = None;
+        assert_eq!(game_changers(&cards, &info), Some(vec!["Rhystic Study".to_string()]));
     }
 
     #[test]

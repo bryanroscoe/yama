@@ -52,8 +52,9 @@ pub struct Card {
     pub artist: Option<String>,
     pub default_printing: Option<String>,
     pub edhrec_rank: Option<i64>,
-    /// On the Commander Game Changers list, per Scryfall.
-    pub game_changer: bool,
+    /// On the Commander Game Changers list, per Scryfall. `None` until an oracle import that
+    /// reads the flag has run (see `import::importer_version`); never read it as false.
+    pub game_changer: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -74,6 +75,8 @@ struct SearchResult {
 }
 
 const PAGE_SIZE: u32 = 60;
+const GAME_CHANGERS_NOT_LOADED: &str =
+    "The Game Changer list isn't loaded on this server yet, so is:gamechanger can't be searched. It comes with the next card data import.";
 const EXTRA_LAYOUTS: &str = "('token','double_faced_token','emblem','vanguard','scheme','planar')";
 
 async fn search_cards(
@@ -82,6 +85,11 @@ async fn search_cards(
     Query(p): Query<SearchParams>,
 ) -> AppResult<Json<SearchResult>> {
     let compiled = search::compile(&p.q).map_err(AppError::BadRequest)?;
+    // Before the flags are loaded every card's flag is NULL, so is:gamechanger would quietly
+    // find nothing. Say why instead.
+    if compiled.uses_game_changer && import::current_import_date(&st.pool, "oracle_cards").await?.is_none() {
+        return Err(AppError::Conflict(GAME_CHANGERS_NOT_LOADED.into()));
+    }
     let mut filter = compiled.sql;
     if !search::wants_extras(&p.q) {
         filter = format!("({filter}) AND IFNULL(cards.layout, '') NOT IN {EXTRA_LAYOUTS}");
@@ -182,8 +190,9 @@ pub const PRINTING_SELECT: &str = "SELECT p.scryfall_id, p.oracle_id, p.name, p.
 struct CardDetail {
     card: Card,
     printings: Vec<Printing>,
-    /// Oldest first, as Scryfall lists them.
-    rulings: Vec<Ruling>,
+    /// Oldest first, as Scryfall lists them. `None` (null) when no rulings import has
+    /// succeeded yet, so an empty list really means the card has no rulings.
+    rulings: Option<Vec<Ruling>>,
 }
 
 /// One ruling from Scryfall's rulings file. `source` is "wotc" (Wizards) or "scryfall".
@@ -219,7 +228,10 @@ async fn card_detail(
     .bind(&oracle_id)
     .fetch_all(&st.pool)
     .await?;
-    let rulings = rulings_for(&st.pool, &oracle_id).await?;
+    let rulings = match import::current_import_date(&st.pool, "rulings").await? {
+        Some(_) => Some(rulings_for(&st.pool, &oracle_id).await?),
+        None => None,
+    };
     Ok(Json(CardDetail { card, printings, rulings }))
 }
 
@@ -319,15 +331,28 @@ struct OfflineCard {
     y: Option<String>,
     img: Option<String>,
     e: Option<i64>,
-    /// Game Changer. Sent only when true, to keep the bundle small.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    g: bool,
+    /// Game Changer. Sent only when true, to keep the bundle small; `game_changers` on the
+    /// bundle says whether a missing value means false or not loaded.
+    #[serde(skip_serializing_if = "not_true")]
+    g: Option<bool>,
 }
+
+fn not_true(v: &Option<bool>) -> bool {
+    *v != Some(true)
+}
+
+/// Shape of the offline bundle. The app downloads again when its saved copy has another
+/// format. 2: `game_changers` and `g`.
+const OFFLINE_FORMAT: u32 = 2;
 
 #[derive(Serialize)]
 struct OfflineBundle {
-    /// Changes whenever the card data is re-imported; the app refetches when it differs.
+    format: u32,
+    /// Changes whenever the card data is re-imported.
     version: String,
+    /// Whether the Game Changer flags were loaded when this bundle was made. If not, the app
+    /// treats every card's flag as unknown.
+    game_changers: bool,
     cards: Vec<OfflineCard>,
 }
 
@@ -350,7 +375,8 @@ async fn offline_cards(State(st): State<AppState>, _user: CurrentUser) -> AppRes
     )
     .fetch_all(&st.pool)
     .await?;
-    Ok(Json(OfflineBundle { version: version.unwrap_or_default(), cards }))
+    let game_changers = import::current_import_date(&st.pool, "oracle_cards").await?.is_some();
+    Ok(Json(OfflineBundle { format: OFFLINE_FORMAT, version: version.unwrap_or_default(), game_changers, cards }))
 }
 
 #[derive(Serialize, sqlx::FromRow)]

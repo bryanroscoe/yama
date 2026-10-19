@@ -166,9 +166,9 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
           </div>
           <p className="row" style={{ gap: "0.4rem" }}>
             Commander: <Legality status={card.legalities.commander} />
-            {card.game_changer && <span className="tag gc" title="On the Commander Game Changers list, per Scryfall">Game Changer</span>}
+            {card.game_changer === true && <span className="tag gc" title="On the Commander Game Changers list, per Scryfall">Game Changer</span>}
           </p>
-          {detail.data!.rulings && <Rulings rulings={detail.data!.rulings} />}
+          {detail.data!.rulings !== undefined && <Rulings rulings={detail.data!.rulings} />}
           {detail.data!.printings.length > 0 && (
             <div>
               <h3>Printings and market prices</h3>

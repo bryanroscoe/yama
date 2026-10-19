@@ -1,6 +1,6 @@
-//! Engine support for deck cards, on a five-card slice of phase's card data
+//! Engine support for deck cards, on a six-card slice of phase's card data
 //! (tests/fixtures/support-cards.json, taken from card-data-eb309108eb0df708.json with the
-//! printing lists and diagnostics removed).
+//! printing lists, legalities and metadata removed; parse warnings kept).
 
 use std::path::Path;
 use yama_play::{CardSupport, DeckLine, DeckSupport, Engine};
@@ -13,6 +13,7 @@ const SOL_RING: &str = "6ad8011d-3471-4369-9d68-b264cc027487";
 const PORTAL: &str = "8430ae03-2d4c-4031-aa29-4d53815ded78";
 const BALLISTA: &str = "b6811c31-fcd3-4d00-89d5-cf974575a87c";
 const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
+const CELEBRANT: &str = "5e15ff93-99a0-4000-918e-4bd2c257188d";
 
 #[test]
 fn card_support_finds_unimplemented_parts_on_either_face() {
@@ -26,6 +27,9 @@ fn card_support_finds_unimplemented_parts_on_either_face() {
     // Unknown oracle ID: falls back to the name.
     assert_eq!(e.card_support("no-such-id", "Sol Ring"), CardSupport::Full);
     assert_eq!(e.card_support("no-such-id", "Not a Card"), CardSupport::Missing);
+    // Combat Celebrant has no unimplemented node, but the parser swallowed its exert clause
+    // (a SwallowedClause parse warning), so it may not work fully.
+    assert_eq!(e.card_support(CELEBRANT, "Combat Celebrant"), CardSupport::Uncertain);
 }
 
 #[test]
@@ -38,14 +42,16 @@ fn deck_support_counts_copies_and_lists_names_once() {
         line(PORTAL, "Negative Zone Portal", 1, false),
         line("x", "Not a Card", 1, false),
         line(FOREST, "Forest", 30, false),
+        line(CELEBRANT, "Combat Celebrant", 1, false),
     ];
     assert_eq!(
         e.deck_support(&lines),
         DeckSupport {
-            total: 34,
+            total: 35,
             supported: 31,
             missing: vec!["Not a Card".into()],
             partial: vec!["Ballista Watcher // Ballista Wielder".into(), "Negative Zone Portal".into()],
+            uncertain: vec!["Combat Celebrant".into()],
         }
     );
 }

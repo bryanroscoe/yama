@@ -4,7 +4,7 @@
    These rules use the semantic token names the new design will define (ground, surface,
    raised, line, text, text-dim, accent, good, warn, bad). Until it lands, each one falls back
    to today's playmat variable. This block is the only place the old names appear here. */
-:where(.rulings, .tag.gc, .deck-facts, .online-support, .name-link) {
+:where(.rulings, .tag.gc, .deck-facts, .online-support, .name-link, .card-note) {
   --cf-surface: var(--surface, var(--felt-2));
   --cf-raised: var(--raised, var(--felt-3));
   --cf-line: var(--line);
@@ -12,6 +12,14 @@
   --cf-text-dim: var(--text-dim, var(--paper-dim));
   --cf-good: var(--good);
   --cf-warn: var(--warn);
+}
+
+/* Small status lines ("No rulings for this card."). Dim text, not the faint token, which is
+   under 4.5:1 contrast at this size. */
+.card-note {
+  margin: 0;
+  color: var(--cf-text-dim);
+  font-size: var(--t-sm);
 }
 
 /* ── Game Changer tag ───────────────────────────────────────────────────── */
@@ -95,7 +103,8 @@
   color: var(--cf-good);
 }
 .online-support .names,
-.deck-facts .names {
+.deck-facts .names,
+.deck-facts .as-of {
   color: var(--cf-text-dim);
   font-size: var(--t-sm);
 }

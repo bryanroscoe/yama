@@ -208,7 +208,12 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 
   A full-control switch turns this off.
 - **Runtime:** one OS thread per live game with a 32 MiB stack, because the AI search recurses deeply. Views go out over a `watch` channel and WebSocket. The replay log and public log lines are saved after every change, and live games resume after a restart by replaying the log.
-- **Card support:** the deck page and the new-game form say how many of a deck's cards the engine supports ("Online play: 97/100 cards supported") and name the rest: cards it doesn't know (left out of the game) and cards with an unimplemented part on any face. The test is phase's own `card_face_has_unimplemented_parts` (the same one behind its `is_card_playable`), computed on request (`GET /api/decks/{id}/online-support`) rather than stored per version, so it follows engine upgrades. phase's coverage dashboard is stricter (it also counts parse warnings and text the parser dropped), so a card it lists, such as Combat Celebrant above, can still pass here; on 2026-10-18 the Fantastic Four list showed 99/100 (Negative Zone Portal) and Riders of Rohan 100/100.
+- **Card support:** the deck page and the new-game form say how many of a deck's cards the engine supports ("Online play: 97/100 cards supported") and name the rest in three groups, checking every face:
+  - cards it doesn't know (left out of the game);
+  - cards with an unimplemented part (phase's `card_face_has_unimplemented_parts`, the test behind its `is_card_playable`);
+  - cards that "may not work fully": nothing is marked unimplemented, but the parser left warnings on the text (Combat Celebrant's swallowed exert clause) or phase's per-face coverage check (`card_face_gaps`) found a gap.
+
+  Only cards in none of the groups count as supported. It's computed on request (`GET /api/decks/{id}/online-support`) rather than stored per version, so it follows engine upgrades. phase's coverage dashboard also runs resolver, dropped-text and subtype checks that aren't public per card; on 2026-10-19 those flagged 128 more of its 35,925 faces, none of them in Bryan's decks. On 2026-10-19 both full lists showed 99/100: Fantastic Four (Negative Zone Portal, unimplemented) and Riders of Rohan (Combat Celebrant, may not work fully).
 - **Hidden information:** Yama's own view type never includes libraries or opponents' hands. phase's filtered state still names opponents' library cards internally, so never send the raw engine state to a client.
 
 ## 11. Risks

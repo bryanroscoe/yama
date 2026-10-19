@@ -6,15 +6,17 @@ import "./cards.css";
 const SOURCES: Record<string, string> = { wotc: "Wizards of the Coast", scryfall: "Scryfall" };
 
 /** "2004-10-04" → "Oct 4, 2004" in the reader's locale. The date is a calendar day, so UTC. */
-function day(iso: string): string {
+export function day(iso: string): string {
   const d = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-/** Collapsible rulings list, oldest first as Scryfall lists them. */
-export function Rulings({ rulings }: { rulings: Ruling[] }) {
-  if (!rulings.length) return <p className="small faint">No rulings for this card.</p>;
+/** Collapsible rulings list, oldest first as Scryfall lists them. `null` means the server
+ *  hasn't loaded rulings yet, which is different from a card with none. */
+export function Rulings({ rulings }: { rulings: Ruling[] | null }) {
+  if (rulings === null) return <p className="card-note">Rulings aren't loaded on this server yet.</p>;
+  if (!rulings.length) return <p className="card-note">No rulings for this card.</p>;
   return (
     <details className="rulings">
       <summary>Rulings ({rulings.length})</summary>
@@ -36,5 +38,6 @@ export function Rulings({ rulings }: { rulings: Ruling[] }) {
 export function CardRulings({ oracleId }: { oracleId: string }) {
   const detail = useQuery(cardDetailQuery(oracleId));
   const rulings = detail.data?.rulings;
-  return rulings ? <Rulings rulings={rulings} /> : null;
+  // undefined: still loading, or read from this device's offline copy, which has no rulings.
+  return rulings === undefined ? null : <Rulings rulings={rulings} />;
 }
