@@ -1,6 +1,12 @@
 # Phone apps
 
-Yama's phone apps are the web app wrapped with [Capacitor](https://capacitorjs.com). Until they exist, the web app installs to a phone's home screen (Safari: Share → Add to Home Screen; Chrome: Install app) and works offline for the life counter.
+**Decided 2026-10-18: Android only, no Apple developer account.** On Android the installable web app is the app:
+
+- **Install:** Chrome → Install app.
+- **What works:** full screen, home-screen icon, offline life counter and card search, and the camera for the scanner (needs HTTPS, which the saget deployment has).
+- **What's not needed:** a store listing or an APK.
+
+The Capacitor notes below matter only if a real APK is ever wanted, for example for native OCR or background notifications. They need the Android SDK and a JDK, neither of which is on the Mac right now. Anything about iOS is shelved.
 
 ## Status (2026-10-18)
 

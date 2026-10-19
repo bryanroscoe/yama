@@ -23,6 +23,10 @@ pub struct Config {
     pub auto_import: bool,
     /// The rules engine's card data (phase card-data.json). Online play is off without it.
     pub engine_card_data: Option<PathBuf>,
+    /// Cloudflare Access team name (`<team>.cloudflareaccess.com`) and application audience
+    /// tag. With both set, people signed in by Access are signed in to Yama.
+    pub cf_access_team: Option<String>,
+    pub cf_access_aud: Option<String>,
 }
 
 impl Config {
@@ -61,6 +65,8 @@ impl Config {
             cors_origins: list("YAMA_CORS_ORIGINS"),
             auto_import: flag("YAMA_AUTO_IMPORT"),
             engine_card_data: Some(engine_card_data),
+            cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),
+            cf_access_aud: std::env::var("YAMA_CF_ACCESS_AUD").ok().filter(|s| !s.is_empty()),
         })
     }
 }

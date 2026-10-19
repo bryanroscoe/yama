@@ -64,9 +64,13 @@ impl FromRequestParts<AppState> for CurrentUser {
             .map(str::to_string);
         let token = bearer
             .or(ws_token)
-            .or_else(|| CookieJar::from_headers(&parts.headers).get(SESSION_COOKIE).map(|c| c.value().to_string()))
-            .ok_or(AppError::Unauthorized)?;
-        user_for_token(&state.pool, &token).await?.map(CurrentUser).ok_or(AppError::Unauthorized)
+            .or_else(|| CookieJar::from_headers(&parts.headers).get(SESSION_COOKIE).map(|c| c.value().to_string()));
+        if let Some(token) = token
+            && let Some(user) = user_for_token(&state.pool, &token).await?
+        {
+            return Ok(CurrentUser(user));
+        }
+        access_user(parts, state).await?.map(CurrentUser).ok_or(AppError::Unauthorized)
     }
 }
 
@@ -92,10 +96,16 @@ struct LoginResponse {
 struct AuthConfig {
     google_client_id: Option<String>,
     dev_login: bool,
+    /// Signed in by Cloudflare Access before the app loads; sign-out goes through Cloudflare too.
+    cf_access: bool,
 }
 
 async fn auth_config(State(st): State<AppState>) -> Json<AuthConfig> {
-    Json(AuthConfig { google_client_id: st.cfg.google_client_ids.first().cloned(), dev_login: st.cfg.dev_login })
+    Json(AuthConfig {
+        google_client_id: st.cfg.google_client_ids.first().cloned(),
+        dev_login: st.cfg.dev_login,
+        cf_access: st.cf_keys.is_some(),
+    })
 }
 
 #[derive(Deserialize)]
@@ -120,7 +130,7 @@ async fn google_login(
     if st.cfg.google_client_ids.is_empty() {
         return Err(AppError::bad("Google sign-in is not configured (YAMA_GOOGLE_CLIENT_IDS)"));
     }
-    let claims = st.google_keys.verify(&st.http, &body.credential, &st.cfg.google_client_ids).await?;
+    let claims: GoogleClaims = st.google_keys.verify(&st.http, &body.credential, &st.cfg.google_client_ids, &GOOGLE_ISSUERS).await?;
     if !claims.email_verified {
         return Err(AppError::Forbidden("Google account email is not verified".into()));
     }
@@ -177,7 +187,7 @@ async fn ensure_allowed(st: &AppState, email: &str) -> AppResult<()> {
     }
 }
 
-async fn upsert_user(st: &AppState, google_sub: Option<&str>, email: &str, name: &str) -> AppResult<User> {
+pub async fn upsert_user(st: &AppState, google_sub: Option<&str>, email: &str, name: &str) -> AppResult<User> {
     let is_admin = st.cfg.admin_emails.contains(&email.to_lowercase());
     sqlx::query(
         "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -296,44 +306,96 @@ struct JwkSet {
     keys: Vec<Jwk>,
 }
 
-/// Google rotates its keys every few days; refetch hourly or on an unknown `kid`.
-#[derive(Default)]
-pub struct GoogleKeys {
+/// Signing keys for an identity provider (Google, Cloudflare Access). Providers rotate keys
+/// every few days; refetch hourly or on an unknown `kid`.
+pub struct JwkCache {
+    url: String,
     cache: RwLock<Option<(Instant, Vec<Jwk>)>>,
 }
 
-impl GoogleKeys {
+pub type GoogleKeys = JwkCache;
+
+impl Default for JwkCache {
+    fn default() -> Self {
+        Self::new(GOOGLE_CERTS)
+    }
+}
+
+impl JwkCache {
+    pub fn new(url: &str) -> Self {
+        Self { url: url.to_string(), cache: RwLock::new(None) }
+    }
+
     async fn keys(&self, http: &reqwest::Client, force: bool) -> AppResult<Vec<Jwk>> {
         if !force && let Some((at, keys)) = &*self.cache.read().await && at.elapsed().as_secs() < 3600 {
             return Ok(keys.clone());
         }
         let set: JwkSet = http
-            .get(GOOGLE_CERTS)
+            .get(&self.url)
             .send()
             .await
             .and_then(|r| r.error_for_status())
-            .map_err(|e| anyhow::anyhow!("fetching Google keys: {e}"))?
+            .map_err(|e| anyhow::anyhow!("fetching signing keys from {}: {e}", self.url))?
             .json()
             .await
-            .map_err(|e| anyhow::anyhow!("parsing Google keys: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("parsing signing keys from {}: {e}", self.url))?;
         *self.cache.write().await = Some((Instant::now(), set.keys.clone()));
         Ok(set.keys)
     }
 
-    async fn verify(&self, http: &reqwest::Client, token: &str, audiences: &[String]) -> AppResult<GoogleClaims> {
-        let header = jsonwebtoken::decode_header(token).map_err(|_| AppError::bad("malformed Google credential"))?;
-        let kid = header.kid.ok_or_else(|| AppError::bad("Google credential has no key id"))?;
+    async fn verify<T: serde::de::DeserializeOwned>(
+        &self,
+        http: &reqwest::Client,
+        token: &str,
+        audiences: &[String],
+        issuers: &[&str],
+    ) -> AppResult<T> {
+        let header = jsonwebtoken::decode_header(token).map_err(|_| AppError::bad("malformed sign-in token"))?;
+        let kid = header.kid.ok_or_else(|| AppError::bad("sign-in token has no key id"))?;
         let mut jwk = self.keys(http, false).await?.into_iter().find(|k| k.kid == kid);
         if jwk.is_none() {
             jwk = self.keys(http, true).await?.into_iter().find(|k| k.kid == kid);
         }
-        let jwk = jwk.ok_or_else(|| AppError::bad("Google credential signed with an unknown key"))?;
-        let key = DecodingKey::from_rsa_components(&jwk.n, &jwk.e).map_err(|e| anyhow::anyhow!("bad Google key: {e}"))?;
+        let jwk = jwk.ok_or_else(|| AppError::bad("sign-in token signed with an unknown key"))?;
+        let key = DecodingKey::from_rsa_components(&jwk.n, &jwk.e).map_err(|e| anyhow::anyhow!("bad signing key: {e}"))?;
         let mut validation = Validation::new(jsonwebtoken::Algorithm::RS256);
         validation.set_audience(audiences);
-        validation.set_issuer(&GOOGLE_ISSUERS);
-        jsonwebtoken::decode::<GoogleClaims>(token, &key, &validation)
+        validation.set_issuer(issuers);
+        jsonwebtoken::decode::<T>(token, &key, &validation)
             .map(|d| d.claims)
-            .map_err(|e| AppError::Forbidden(format!("Google credential rejected: {e}")))
+            .map_err(|e| AppError::Forbidden(format!("sign-in token rejected: {e}")))
     }
+}
+
+// ── Cloudflare Access ──────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct AccessClaims {
+    email: String,
+}
+
+/// When Yama sits behind a Cloudflare Access application, Cloudflare has already checked who
+/// this is (against its allow policy) and forwards a signed token. Verify it and sign the person
+/// in; the Access policy is the invite list.
+async fn access_user(parts: &Parts, state: &AppState) -> AppResult<Option<User>> {
+    let (Some(team), Some(aud), Some(keys)) = (&state.cfg.cf_access_team, &state.cfg.cf_access_aud, &state.cf_keys) else {
+        return Ok(None);
+    };
+    let token = parts
+        .headers
+        .get("cf-access-jwt-assertion")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| CookieJar::from_headers(&parts.headers).get("CF_Authorization").map(|c| c.value().to_string()));
+    let Some(token) = token else { return Ok(None) };
+    let issuer = format!("https://{team}.cloudflareaccess.com");
+    let claims: AccessClaims = keys.verify(&state.http, &token, std::slice::from_ref(aud), &[issuer.as_str()]).await?;
+    let email = claims.email.to_lowercase();
+    if let Some(user) =
+        sqlx::query_as::<_, User>("SELECT id, email, display_name, is_admin FROM users WHERE email = ?").bind(&email).fetch_optional(&state.pool).await?
+    {
+        return Ok(Some(user));
+    }
+    let name = email.split('@').next().unwrap_or("player").to_string();
+    Ok(Some(upsert_user(state, None, &email, &name).await?))
 }

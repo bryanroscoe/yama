@@ -32,6 +32,13 @@ export function useLogout() {
   const qc = useQueryClient();
   return async () => {
     await api("/api/auth/logout", { method: "POST" });
+    const config = qc.getQueryData<AuthConfig>(["auth-config"]) ?? (await api<AuthConfig>("/api/auth/config").catch(() => null));
+    if (config?.cf_access) {
+      // Cloudflare Access holds the real session; end it there.
+      localStorage.removeItem(ME_KEY);
+      location.href = "/cdn-cgi/access/logout";
+      return;
+    }
     setToken(null);
     localStorage.removeItem(ME_KEY);
     qc.clear();
@@ -42,6 +49,7 @@ export function useLogout() {
 interface AuthConfig {
   google_client_id: string | null;
   dev_login: boolean;
+  cf_access: boolean;
 }
 
 declare global {
@@ -120,7 +128,13 @@ export function Login() {
           <p className="dim">Life totals, cards, collection and decks for our playgroup.</p>
         </div>
         {clientId && <div ref={googleRef} />}
-        {config.data && !clientId && !config.data.dev_login && (
+        {config.data?.cf_access && (
+          <div className="stack">
+            <p className="dim">Yama signs you in with the email your host invited.</p>
+            <button className="primary" onClick={() => location.reload()}>Sign in</button>
+          </div>
+        )}
+        {config.data && !clientId && !config.data.dev_login && !config.data.cf_access && (
           <p className="dim">Sign-in isn't set up on this server yet. Set YAMA_GOOGLE_CLIENT_IDS, or YAMA_DEV_LOGIN=1 for local use.</p>
         )}
         {config.data?.dev_login && (

@@ -10,3 +10,8 @@ incremental = false # saves ~750 MB of cache
 [profile.dev.package."*"]
 debug = false
 opt-level = 1
+
+# Server builds. Unwinding (the default) keeps one game's panic from taking the server down.
+[profile.release]
+opt-level = 2
+strip = true

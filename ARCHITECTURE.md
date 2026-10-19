@@ -225,15 +225,18 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 
 ## 12. Questions for Bryan
 
-Answered 2026-10-18 ("do all those things"): phase is the engine. Defaults taken until Bryan says otherwise: private repo with local git only, no hosting or paid accounts yet.
+Answered 2026-10-18:
+
+- **Engine:** phase.
+- **Repo:** private, with local git only.
+- **Hosting:** Bryan's Unraid server, saget. The public route uses the existing Cloudflare tunnel; see deploy/README.md.
+- **Phones:** Android only, with no Apple account. The installable web app is the phone app; Capacitor stays optional.
 
 Still open:
 
-1. Hosting: where, and on what budget? Online play needs about 1 GB of RAM because the engine's card data is big.
-2. Is the $99/yr Apple developer account OK for TestFlight?
-3. Which Mythic Tools features do your friends actually use?
-4. Should Yama eventually replace the `commander-decks` scripts, or stay separate and only export?
-5. Google sign-in needs an OAuth client ID from your Google Cloud account.
+1. Which Mythic Tools features do your friends actually use?
+2. Should Yama eventually replace the `commander-decks` scripts, or stay separate and only export?
+3. Sign-in: Cloudflare Access (recommended) or Google sign-in. Either one needs a few minutes of setup in Cloudflare Zero Trust or Google Cloud.
 
 ## Sources
 

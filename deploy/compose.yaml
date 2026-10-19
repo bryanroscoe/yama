@@ -1,0 +1,25 @@
+# Yama on saget (Unraid). Lives at /mnt/user/appdata/yama with this file, a server-local
+# yama.env (not in git) and data/. See deploy/README.md.
+services:
+  yama:
+    image: yama:latest
+    container_name: yama
+    restart: unless-stopped
+    user: "99:100"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    env_file: yama.env
+    volumes:
+      - ./data:/data
+    ports:
+      # LAN access; the public route goes through the existing Cloudflare tunnel.
+      - "<saget-lan-address>:8099:8787"
+    networks: [tunnel]
+    mem_limit: 3g
+networks:
+  tunnel:
+    external: true
+    name: novalyst_default

@@ -16,6 +16,8 @@ pub struct AppState {
     pub cfg: Arc<Config>,
     pub http: reqwest::Client,
     pub google_keys: Arc<GoogleKeys>,
+    /// Cloudflare Access signing keys, when Access fronts this server.
+    pub cf_keys: Option<Arc<crate::auth::JwkCache>>,
     pub rooms: Arc<crate::table_rooms::Rooms>,
     pub play: Arc<crate::play::PlayHub>,
 }
@@ -69,7 +71,14 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     }
     let play = crate::play::PlayHub::start(cfg.engine_card_data.clone(), pool.clone());
     let bind = cfg.bind.clone();
-    let state = AppState { pool, cfg: Arc::new(cfg), http: http_client(), google_keys: Arc::default(), rooms: Arc::default(), play };
+    let cf_keys = match (&cfg.cf_access_team, &cfg.cf_access_aud) {
+        (Some(team), Some(_)) => {
+            tracing::info!(team, "signing people in through Cloudflare Access");
+            Some(Arc::new(crate::auth::JwkCache::new(&format!("https://{team}.cloudflareaccess.com/cdn-cgi/access/certs"))))
+        }
+        _ => None,
+    };
+    let state = AppState { pool, cfg: Arc::new(cfg), http: http_client(), google_keys: Arc::default(), cf_keys, rooms: Arc::default(), play };
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!("listening on http://{bind}");
     axum::serve(listener, app(state)).await?;
