@@ -272,6 +272,7 @@ A **slot** is one card in a list:
 - `decision`: `want`, `unsure`, `no` or `null`. `cut`: the owner's chosen cut, or `null`.
 - `at` is UTC. commander-decks converts the review site's local, timezone-less times with the Mac's time zone. An offset such as `-05:00` is accepted and stored as UTC; a time with no zone is a 400.
 - An entry with `decision`, `note` and `cut` all empty is a **tombstone**: the owner cleared the answer at `at`.
+- A key missing from the file is not a clear: Yama keeps whatever answer it has. A writer whose owner clears an answer keeps the key as a tombstone (commander-decks' review site does since 2026-10-19).
 - Yama merges answers by key, and the later `at` wins on either side. A tombstone beats any older answer, so a stale file can't bring a cleared answer back. Ties go to the answer made in Yama. Nothing is deleted.
 - `deck` and `card` are kept as text so an orphaned answer stays readable.
 

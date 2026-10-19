@@ -538,12 +538,23 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     // the card's newest price, so a printing that dropped out of the price data months ago can't
     // pose as today's market. `cur` is materialized once from the id list; inlined twice, SQLite
     // scanned every printing for `fresh` (1.3 s on the real card data, 0.2 s this way).
+    //
+    // Only real, tournament-legal paper copies count, as in commander-decks' benchmarks (Counterspell
+    // is $2.15 for FDC #61 there, not $1.34 for a gold-bordered World Championship Decks copy). The
+    // printings table has no border, oversized or set-type column, so the sets that aren't real cards
+    // are listed here: World Championship Decks and Pro Tour Collector Set (gold borders), Collectors'
+    // Edition and Intl. Collectors' Edition (square corners), 30th Anniversary Edition, and the
+    // oversized sets (by name, plus the Legacy and Vintage Championship cards). Planes, schemes and
+    // Vanguard cards have their own oracle ids, so they never share a market with a real card.
     let market_rows: Vec<MarketRow> = sqlx::query_as(
         "WITH ids AS (SELECT DISTINCT value AS oracle_id FROM json_each(?1)),
          cur AS MATERIALIZED (
            SELECT p.oracle_id, p.scryfall_id, p.set_code, p.collector_number, p.set_name, ps.date, ps.usd
            FROM ids
            JOIN printings p ON p.oracle_id = ids.oracle_id
+            AND p.set_code NOT IN ('wc97', 'wc98', 'wc99', 'wc00', 'wc01', 'wc02', 'wc03', 'wc04', 'ptc',
+                                   'ced', 'cei', '30a', 'olgc', 'ovnt')
+            AND p.set_name NOT LIKE '%Oversized%' AND p.set_name NOT LIKE '%Display Commanders%'
            JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
             AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id)
          ),

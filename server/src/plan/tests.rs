@@ -632,6 +632,39 @@ async fn reviews_merge_newest_wins_and_aliases_carry_answers() {
     assert_eq!(b["aliases"]["plan|Alpha Deck|Print Card|Old Card"], "plan|Alpha Renamed|Print Card|Old Card");
 }
 
+/// An answer cleared on commander-decks' review site arrives as a tombstone, which replaces the older
+/// imported "want". A later file without the key, or with the old "want", doesn't bring it back.
+#[tokio::test]
+async fn an_imported_tombstone_replaces_an_older_imported_answer() {
+    let (app, pool, owner, token) = setup().await;
+    let key = "plan|Alpha Deck|Bought Card|Cut Card";
+    let want = json!({"decision": "want", "note": "", "cut": null, "deck": "Alpha Deck", "card": "Bought Card", "at": "2026-10-19T01:00:00Z"});
+    let mut d = doc();
+    d["plan"]["reviews"] = json!({key: want});
+    import(&app, &token, &d).await;
+    assert_eq!(answer(&pool, &owner, key).await, (Some("want".into()), "2026-10-19T01:00:00Z".into(), "import".into()));
+
+    d["plan"]["reviews"] = json!({key: {"decision": null, "note": null, "cut": null, "deck": "Alpha Deck", "card": "Bought Card",
+                                        "at": "2026-10-19T02:00:00Z"}});
+    let r = import(&app, &token, &d).await;
+    assert_eq!(r["reviews"], json!({"from_document_applied": 1, "yama_newer_kept": 0}));
+    assert_eq!(answer(&pool, &owner, key).await, (None, "2026-10-19T02:00:00Z".into(), "import".into()));
+    let (note, cut): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT note, cut FROM plan_reviews WHERE owner_id = ? AND swap_key = ?").bind(&owner).bind(key).fetch_one(&pool).await.unwrap();
+    assert_eq!((note, cut), (None, None));
+    let b = bundle(&app, &token).await;
+    assert_eq!(b["reviews"][key]["decision"], Value::Null);
+    assert!(r["orphan_answers"].as_array().unwrap().is_empty(), "a tombstone isn't an answer: {}", r["orphan_answers"]);
+
+    // A file without the key leaves the tombstone; a stale file with the old "want" can't undo it.
+    d["plan"]["reviews"] = json!({});
+    import(&app, &token, &d).await;
+    d["plan"]["reviews"] = json!({key: want});
+    let r = import(&app, &token, &d).await;
+    assert_eq!(r["reviews"]["from_document_applied"], 0);
+    assert_eq!(answer(&pool, &owner, key).await.0, None);
+}
+
 #[tokio::test]
 async fn a_renamed_swap_without_an_alias_is_an_orphan_and_is_kept() {
     let (app, pool, owner, token) = setup().await;
@@ -999,6 +1032,62 @@ async fn missing_prices_stay_null_and_nothing_writes_price_snapshots() {
     assert_eq!(m["printing"], "Test Set (TST) #3");
     assert_eq!(m["source"], "TCGplayer market via Scryfall, cheapest non-foil");
     assert_eq!(b["prices_as_of"], "2026-10-18");
+}
+
+/// "Cheapest non-foil" is a real card's price, as in commander-decks' benchmarks: Counterspell is
+/// $2.15 for Foundations Commander #61 on 2026-10-18, not a cheaper gold-bordered, square-cornered,
+/// 30th Anniversary or oversized copy. A card priced only in such printings has no market price.
+#[tokio::test]
+async fn the_market_price_counts_only_real_paper_cards() {
+    let (app, pool, _owner, token) = setup().await;
+    for (oid, name) in [("o-cs", "Counterspell"), ("o-gold", "Gold Only")] {
+        sqlx::query("INSERT INTO cards (oracle_id, name, type_line, color_identity, updated_at) VALUES (?, ?, 'Instant', 'U', 'now')")
+            .bind(oid)
+            .bind(name)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES (?, ?)").bind(name).bind(oid).execute(&pool).await.unwrap();
+    }
+    for (sid, oid, set, set_name, num, usd) in [
+        ("p-cs-fdc", "o-cs", "fdc", "Foundations Commander", "61", 2.15),
+        ("p-cs-wc", "o-cs", "wc00", "World Championship Decks 2000", "tvdl61b", 1.34),
+        ("p-cs-ptc", "o-cs", "ptc", "Pro Tour Collector Set", "bl61", 1.2),
+        ("p-cs-ced", "o-cs", "ced", "Collectors' Edition", "55", 1.0),
+        ("p-cs-cei", "o-cs", "cei", "Intl. Collectors' Edition", "55", 0.95),
+        ("p-cs-30a", "o-cs", "30a", "30th Anniversary Edition", "55", 0.9),
+        ("p-cs-big", "o-cs", "oc13", "Commander 2013 Oversized", "5", 0.5),
+        ("p-cs-disp", "o-cs", "oc21", "Commander 2021 Display Commanders", "2", 0.4),
+        ("p-cs-vnt", "o-cs", "ovnt", "Vintage Championship", "2003", 0.3),
+        ("p-gold", "o-gold", "wc99", "World Championship Decks 1999", "kb1", 3.0),
+    ] {
+        sqlx::query(
+            "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at)
+             VALUES (?, ?, 'x', ?, ?, ?, 'en', 'now')",
+        )
+        .bind(sid)
+        .bind(oid)
+        .bind(set)
+        .bind(set_name)
+        .bind(num)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO price_snapshots (scryfall_id, date, usd) VALUES (?, '2026-10-18', ?)").bind(sid).bind(usd).execute(&pool).await.unwrap();
+    }
+
+    let mut d = doc();
+    swap_mut(&mut d, "alpha-idea")["in"] = json!("Counterspell");
+    import(&app, &token, &d).await;
+    let b = bundle(&app, &token).await;
+    let m = &b["market"]["o-cs"];
+    assert_eq!((m["usd"].clone(), m["set"].clone(), m["date"].clone()), (json!(2.15), json!("fdc"), json!("2026-10-18")), "{m}");
+    assert_eq!(m["printing"], "Foundations Commander (FDC) #61");
+
+    swap_mut(&mut d, "alpha-idea")["in"] = json!("Gold Only");
+    import(&app, &token, &d).await;
+    let b = bundle(&app, &token).await;
+    assert_eq!(b["market"]["o-gold"], Value::Null, "{}", b["market"]["o-gold"]);
 }
 
 #[tokio::test]
