@@ -71,7 +71,22 @@ struct SearchResult {
     total: i64,
     page: u32,
     page_size: u32,
-    cards: Vec<Card>,
+    cards: Vec<SearchCard>,
+}
+
+/// A search hit, with what the results grid shows under each card.
+#[derive(Serialize)]
+struct SearchCard {
+    #[serde(flatten)]
+    card: Card,
+    /// Market price of the default printing from the latest snapshot: regular, else foil, else
+    /// etched. `None` means Scryfall had no price; it is never 0 for "unknown".
+    usd: Option<f64>,
+    price_date: Option<String>,
+    /// Copies of this card (any printing) in the caller's collection.
+    owned: i64,
+    /// The one binder, box or deck holding every copy, when they're all in the same place.
+    owned_in: Option<String>,
 }
 
 const PAGE_SIZE: u32 = 60;
@@ -81,7 +96,7 @@ const EXTRA_LAYOUTS: &str = "('token','double_faced_token','emblem','vanguard','
 
 async fn search_cards(
     State(st): State<AppState>,
-    _user: CurrentUser,
+    CurrentUser(user): CurrentUser,
     Query(p): Query<SearchParams>,
 ) -> AppResult<Json<SearchResult>> {
     let compiled = search::compile(&p.q).map_err(AppError::BadRequest)?;
@@ -121,7 +136,63 @@ async fn search_cards(
         };
     }
     let cards = q.bind(((page - 1) * PAGE_SIZE) as i64).fetch_all(&st.pool).await?;
+    let cards = with_price_and_ownership(&st.pool, &user.id, cards).await?;
     Ok(Json(SearchResult { total, page, page_size: PAGE_SIZE, cards }))
+}
+
+/// Adds each card's default-printing price and how many copies the user owns, in two queries.
+async fn with_price_and_ownership(pool: &SqlitePool, owner: &str, cards: Vec<Card>) -> AppResult<Vec<SearchCard>> {
+    if cards.is_empty() {
+        return Ok(vec![]);
+    }
+    let printings: Vec<&str> = cards.iter().filter_map(|c| c.default_printing.as_deref()).collect();
+    let mut prices: HashMap<String, (Option<f64>, String)> = HashMap::new();
+    if !printings.is_empty() {
+        let marks = vec!["?"; printings.len()].join(",");
+        let sql = format!(
+            "SELECT ps.scryfall_id, COALESCE(ps.usd, ps.usd_foil, ps.usd_etched), ps.date FROM price_snapshots ps
+             WHERE ps.scryfall_id IN ({marks})
+               AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = ps.scryfall_id)"
+        );
+        let mut q = sqlx::query_as::<_, (String, Option<f64>, String)>(AssertSqlSafe(sql));
+        for id in &printings {
+            q = q.bind(*id);
+        }
+        for (id, usd, date) in q.fetch_all(pool).await? {
+            prices.insert(id, (usd, date));
+        }
+    }
+    let marks = vec!["?"; cards.len()].join(",");
+    let sql = format!(
+        "SELECT p.oracle_id, SUM(i.qty), COUNT(DISTINCT IFNULL(i.container_id, '')), MIN(ct.name), MIN(i.container_id IS NULL)
+         FROM collection_items i
+         JOIN printings p ON p.scryfall_id = i.scryfall_id
+         LEFT JOIN containers ct ON ct.id = i.container_id
+         WHERE i.owner_id = ? AND i.qty > 0 AND p.oracle_id IN ({marks})
+         GROUP BY p.oracle_id"
+    );
+    let mut q = sqlx::query_as::<_, (String, i64, i64, Option<String>, bool)>(AssertSqlSafe(sql)).bind(owner);
+    for c in &cards {
+        q = q.bind(&c.oracle_id);
+    }
+    let mut owned: HashMap<String, (i64, Option<String>)> = HashMap::new();
+    for (oracle_id, qty, places, name, any_loose) in q.fetch_all(pool).await? {
+        let place = if places == 1 && !any_loose { name } else { None };
+        owned.insert(oracle_id, (qty, place));
+    }
+    Ok(cards
+        .into_iter()
+        .map(|card| {
+            let (usd, price_date) = card
+                .default_printing
+                .as_deref()
+                .and_then(|id| prices.get(id))
+                .map(|(usd, date)| (*usd, Some(date.clone())))
+                .unwrap_or((None, None));
+            let (owned, owned_in) = owned.remove(&card.oracle_id).unwrap_or((0, None));
+            SearchCard { card, usd, price_date, owned, owned_in }
+        })
+        .collect())
 }
 
 #[derive(Deserialize)]
@@ -464,6 +535,59 @@ mod tests {
         assert_eq!(p.scryfall_id, "p-sta-ja");
 
         assert!(printing_by_set_number(&pool, "cmm", "999", None).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn search_hits_carry_price_and_ownership() {
+        let (app, pool) = app().await;
+        seed(&pool).await;
+        sqlx::query("UPDATE cards SET default_printing = 'p-en'").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO cards (oracle_id, name, type_line, default_printing, updated_at) VALUES ('o2', 'Sol Talisman', 'Artifact', 'p-none', 'now')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (me, token) = user(&pool, "bryan@example.com").await;
+        let (other, _) = user(&pool, "sam@example.com").await;
+        sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES ('box', ?, 'deck', 'Riders of Rohan', 'now')")
+            .bind(&me)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for (id, owner, printing, qty, container) in
+            [("i1", &me, "p-en", 1, Some("box")), ("i2", &me, "p-ja", 2, Some("box")), ("i3", &other, "p-en", 5, None)]
+        {
+            sqlx::query(
+                "INSERT INTO collection_items (id, owner_id, scryfall_id, qty, container_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'now', 'now')",
+            )
+            .bind(id)
+            .bind(owner)
+            .bind(printing)
+            .bind(qty)
+            .bind(container)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let (status, body) = send(&app, Method::GET, "/api/cards/search?q=sol", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK);
+        let ring = &body["cards"][0];
+        assert_eq!(ring["name"], "Sol Ring");
+        // The latest snapshot's price and date; only the caller's copies, and the one place they're all in.
+        assert_eq!((ring["usd"].as_f64(), ring["price_date"].as_str()), (Some(1.5), Some("2026-10-18")));
+        assert_eq!((ring["owned"].as_i64(), ring["owned_in"].as_str()), (Some(3), Some("Riders of Rohan")));
+        // No snapshot: no price and no date, never 0; none owned.
+        let talisman = &body["cards"][1];
+        assert_eq!((talisman["usd"].clone(), talisman["price_date"].clone()), (serde_json::Value::Null, serde_json::Value::Null));
+        assert_eq!((talisman["owned"].as_i64(), talisman["owned_in"].clone()), (Some(0), serde_json::Value::Null));
+
+        // A loose copy as well: the copies are no longer all in one place.
+        sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, created_at, updated_at) VALUES ('i4', ?, 'p-en', 1, 'now', 'now')")
+            .bind(&me)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (_, body) = send(&app, Method::GET, "/api/cards/search?q=sol", Some(&token), None).await;
+        assert_eq!((body["cards"][0]["owned"].as_i64(), body["cards"][0]["owned_in"].clone()), (Some(4), serde_json::Value::Null));
     }
 
     #[tokio::test]

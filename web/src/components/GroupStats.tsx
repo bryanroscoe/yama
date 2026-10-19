@@ -4,10 +4,9 @@
 
 import { winConditionLabel } from "@yama/core";
 import type { PlaygroupStats, PodSeats } from "../api";
-import { streakText } from "./statsText";
 import "./stats.css";
 
-const pct = (x: number) => `${Math.round(100 * x)}%`;
+export const pct = (x: number) => `${Math.round(100 * x)}%`;
 const PLACES = ["Went first", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"];
 const names = (list: string[]) => (list.length <= 1 ? (list[0] ?? "") : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`);
 
@@ -26,60 +25,22 @@ function Provisional({ games, under }: { games: number; under: number }) {
   return games < under ? <span className="prov"> provisional</span> : null;
 }
 
+/**
+ * The Group page's deeper numbers: turn order, how games were won, knockouts and fun. The page
+ * itself draws the headline figures, the player cards and the commanders (pages/Group.tsx).
+ */
 export function GroupStats({ s }: { s: PlaygroupStats }) {
   const under = s.provisional_under;
   return (
     <div className="stack group-stats">
-      <div>
-        <div className="figures" style={{ marginBottom: "0.5rem" }}>
-          <div className="figure"><b className="num">{s.games}</b><span>games recorded</span></div>
-          {s.average_turns && (
-            <div className="figure">
-              <b className="num">{s.average_turns.value.toFixed(1)}</b>
-              <span>turns on average, from {s.average_turns.games} {s.average_turns.games === 1 ? "game" : "games"}</span>
-            </div>
-          )}
-          {s.average_minutes && (
-            <div className="figure">
-              <b className="num">{Math.round(s.average_minutes.value)}</b>
-              <span>minutes on average, from {s.average_minutes.games} timed {s.average_minutes.games === 1 ? "game" : "games"}</span>
-            </div>
-          )}
-        </div>
-        <p className="computed">
-          Computed {computedAt(s.computed_at)} from finished games. Rates from fewer than {under} games are faded and marked provisional.
-        </p>
-      </div>
-
-      <Players s={s} />
+      <p className="computed">
+        Computed {computedAt(s.computed_at)} from finished games. Rates from fewer than {under} games are faded and marked provisional.
+      </p>
       <TurnOrder s={s} />
       <WinConditions s={s} />
       <Rivalries s={s} />
       <Fun s={s} />
-      <Commanders s={s} />
     </div>
-  );
-}
-
-function Players({ s }: { s: PlaygroupStats }) {
-  return (
-    <section>
-      <h2>Players</h2>
-      <p className="lede">"By chance" is the share each player would win if every seat were equal: one in four in a 4-player game, averaged over their games.</p>
-      <table className="plain">
-        <thead><tr><th>Player</th><th className="r">Win rate</th><th className="r">By chance</th><th>Streak</th></tr></thead>
-        <tbody>
-          {s.players.map((p) => (
-            <tr key={p.key} className={p.games < s.provisional_under ? "provisional" : undefined}>
-              <td>{p.name}<Provisional games={p.games} under={s.provisional_under} /></td>
-              <td className="r"><Rate wins={p.wins} games={p.games} extra={p.draws ? `${p.draws} ${p.draws === 1 ? "draw" : "draws"}` : undefined} /></td>
-              <td className="r num">{pct(p.expected)}</td>
-              <td className="small">{streakText(p.streak)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
   );
 }
 
@@ -190,7 +151,7 @@ function Rivalries({ s }: { s: PlaygroupStats }) {
   const faded = kg < s.provisional_under;
   return (
     <section>
-      <h2>Rivalries</h2>
+      <h2>Knockouts</h2>
       {kg === 0 ? (
         <p className="dim">No knockouts recorded yet. On the table, "Knock out" asks who did it, and that's where rivalries come from.</p>
       ) : (
@@ -268,26 +229,6 @@ function Fun({ s }: { s: PlaygroupStats }) {
               <td>{p.name}<Provisional games={p.fun_ratings} under={s.provisional_under} /></td>
               <td className="r num">{p.fun!.toFixed(1)}</td>
               <td className="r num">{p.fun_ratings}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
-  );
-}
-
-function Commanders({ s }: { s: PlaygroupStats }) {
-  return (
-    <section>
-      <h2>Commanders</h2>
-      <table className="plain">
-        <thead><tr><th>Commander</th><th className="r">Win rate</th><th className="r">By chance</th></tr></thead>
-        <tbody>
-          {s.commanders.map((c) => (
-            <tr key={c.commander} className={c.games < s.provisional_under ? "provisional" : undefined}>
-              <td>{c.commander}<Provisional games={c.games} under={s.provisional_under} /></td>
-              <td className="r"><Rate wins={c.wins} games={c.games} /></td>
-              <td className="r num">{pct(c.expected)}</td>
             </tr>
           ))}
         </tbody>

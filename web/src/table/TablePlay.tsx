@@ -23,7 +23,7 @@ import { Pips, Sheet } from "../components/ui";
 import { useCardArt, type CardArt } from "../components/useCardArt";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { panelArt, setShowArt, useShowArt } from "./art";
-import { ShareSheet } from "./share";
+import { ShareCard } from "./share";
 import { canUndo, discardGame, dispatch, finishGame, redo, undo, useSyncStatus, useTable } from "./store";
 
 /** Where panel taps go: this device's game, or the host's game for a guest phone. */
@@ -32,7 +32,7 @@ import "./table.css";
 import "./art-panel.css";
 
 /** Rotation for each seat so every player reads their own panel. Seats go clockwise. */
-function layout(n: number): { cols: number; rows: number; cells: { seat: number; rot: number; area: string }[] } {
+export function layout(n: number): { cols: number; rows: number; cells: { seat: number; rot: number; area: string }[] } {
   switch (n) {
     case 1:
       return { cols: 1, rows: 1, cells: [{ seat: 0, rot: 0, area: "1 / 1" }] };
@@ -122,6 +122,7 @@ export function TablePlay() {
             }}
             aliveCount={alive.length}
             artFor={artFor}
+            turnSince={[...game.log].reverse().find((e) => e.event.type === "pass_turn")?.at ?? game.setup.startedAt}
           />
         </Sheet>
       )}
@@ -220,12 +221,18 @@ export function Panel(props: {
   onOpen: () => void;
   /** Ask who did it before knocking this player out. */
   onKnockOut: () => void;
+  /** A guest's own tall panel: + on the top half, − on the bottom half. */
+  vertical?: boolean;
 }) {
-  const { p, rot, area, active, pending, onOpen, onKnockOut, state, fill, artFor } = props;
+  const { p, rot, area, active, pending, onOpen, onKnockOut, state, fill, artFor, vertical = false } = props;
   useTick(pending !== null); // clear the bubble once the burst ends
   const dispatch = useContext(DispatchContext);
+  const showArt = useShowArt();
   // useTableArt already honours the per-device "mana colors instead of art" switch.
   const art = artFor?.(p.seat) ?? null;
+  // With art on, a seat whose art is missing is a raised block, not a mana fill; the identity
+  // band along its top still says whose it is. Plain colors are the per-device choice.
+  const noArt = showArt && !art;
   const keys = identityKeys(p.colorIdentity);
   const base = MANA[fill];
   const out = !!p.eliminated;
@@ -264,8 +271,12 @@ export function Panel(props: {
   }, [pending, p.life]);
 
   return (
-    <section className={`panel${active ? " active" : ""}${out ? " out" : ""}${art ? " has-art" : ""}`} style={style} aria-label={`${p.name}, ${p.life} life`}>
-      <div className={`panel-inner${sideways ? " sideways" : ""}`} style={{ transform: `translate(-50%, -50%) rotate(${rot}deg)` }}>
+    <section
+      className={`panel${active ? " active" : ""}${out ? " out" : ""}${art ? " has-art" : ""}${noArt ? " no-art" : ""}${!p.colorIdentity ? " no-identity" : ""}`}
+      style={style}
+      aria-label={`${p.name}, ${p.life} life`}
+    >
+      <div className={`panel-inner${sideways ? " sideways" : ""}${vertical ? " vertical" : ""}`} style={{ transform: `translate(-50%, -50%) rotate(${rot}deg)` }}>
         {art && <ArtPanel className="panel-art" art={art.art} artist={art.artist} wash="center" credit={false} />}
         <div className="bands" />
         <Hold onStep={(n) => dispatch({ type: "life", seat: p.seat, delta: -n })} className="tap minus" label={`${p.name} loses 1 life`}>
@@ -299,7 +310,7 @@ export function Panel(props: {
         <button className="who" onClick={onOpen}>
           <span className="name">
             {p.name}
-            <Pips identity={p.colorIdentity} label={false} />
+            {p.colorIdentity && <Pips identity={p.colorIdentity} label={false} />}
           </span>
           {p.commanderName && <span className="cmdr">{p.commanderName}</span>}
         </button>
@@ -364,19 +375,14 @@ function Hold({ onStep, className, label, children }: { onStep: (n: number) => v
   );
 }
 
-function Stepper({ label, value, onChange, hint }: { label: string; value: number; onChange: (d: number) => void; hint?: string }) {
+/** − value +, the steppers on the player sheet. Round buttons in rows, square ones on tiles. */
+function Steps({ label, value, onChange, shape = "round", warn = false }: { label: string; value: number; onChange: (d: number) => void; shape?: "round" | "square"; warn?: boolean }) {
   return (
-    <div className="stepper">
-      <div>
-        <div className="stepper-label">{label}</div>
-        {hint && <div className="small dim">{hint}</div>}
-      </div>
-      <div className="row">
-        <button onClick={() => onChange(-1)} aria-label={`${label} minus one`}>−</button>
-        <span className="stepper-value num">{value}</span>
-        <button onClick={() => onChange(1)} aria-label={`${label} plus one`}>+</button>
-      </div>
-    </div>
+    <span className={`ps-steps ${shape}`}>
+      <button onClick={() => onChange(-1)} aria-label={`${label} minus one`}>−</button>
+      {shape === "round" && <span className={`ps-value num${warn ? " warn" : ""}`}>{value}</span>}
+      <button onClick={() => onChange(1)} aria-label={`${label} plus one`}>+</button>
+    </span>
   );
 }
 
@@ -388,69 +394,110 @@ export function PlayerSheet({ state, seat, onClose, artFor }: { state: TableStat
   const opponents = state.players.filter((x) => x.seat !== seat);
   const counters: CounterKind[] = ["energy", "experience", "rad"];
   if (knocking) return <KnockOut state={state} seat={seat} onDone={onClose} onCancel={() => setKnocking(false)} />;
+  const art = artFor ? artFor(seat) : showArt && panelArt(p) ? { art: p.art!, artist: p.artist ?? null } : null;
+  const partnerArt = artFor?.(seat, true) ?? null;
+  const tax = (partner: boolean) => {
+    const name = partner ? p.partnerName! : (p.commanderName ?? "Commander");
+    const casts = partner ? p.partnerCasts : p.commanderCasts;
+    const a = partner ? partnerArt : art;
+    return (
+      <section className="ps-tax" aria-label={`Commander tax for ${name}`}>
+        {a?.art ? <img src={a.art} alt="" /> : <span className="ps-tax-none" />}
+        <span className="ps-tax-text">
+          <span className="ps-tax-title">Commander tax +{commanderTax(p, partner)}</span>
+          <span className="small dim">
+            {p.partnerName ? `${name}. ` : ""}Cast {casts} {casts === 1 ? "time" : "times"} from the command zone
+          </span>
+        </span>
+        <Steps label={partner ? `${name} casts` : "Casts"} value={casts} shape="square" onChange={(d) => dispatch({ type: "commander_cast", seat, partner: partner || undefined, delta: d })} />
+      </section>
+    );
+  };
   return (
-    <div className="stack">
-      <div className="sheet-head">
-        <div>
-          <h2>{p.name}</h2>
-          {p.commanderName && <p className="dim" style={{ margin: 0 }}>{p.commanderName}{p.partnerName ? ` and ${p.partnerName}` : ""}</p>}
-          {(() => {
-            const art = artFor ? artFor(seat) : showArt && panelArt(p) ? { art: p.art!, artist: p.artist ?? null } : null;
-            return art && <p className="small dim" style={{ margin: 0 }}>Art by {art.artist}, © Wizards of the Coast</p>;
-          })()}
+    <div className="player-sheet">
+      <ArtPanel className="ps-hero" art={art?.art} artist={art?.artist} wash="bottom" toGround credit={false}>
+        {art && <span className="ps-credit">{artCredit(art.artist)}</span>}
+        <button className="ps-done" onClick={onClose}>Done</button>
+        <span className="ps-who">
+          <span className="ps-name">
+            <span className="art-big">{p.name}</span>
+            {p.commanderName && <span className="ps-cmdr">{p.commanderName}{p.partnerName ? ` and ${p.partnerName}` : ""}</span>}
+          </span>
+          <span className="ps-life art-big num" aria-label={`${p.life} life`}>{p.life}</span>
+        </span>
+      </ArtPanel>
+
+      <section className="ps-section" aria-labelledby="ps-dmg">
+        <div className="ps-section-head">
+          <h2 id="ps-dmg">Commander damage taken</h2>
+          <span className="small dim">21 from one knocks you out</span>
         </div>
-        <button className="quiet" onClick={onClose}>Done</button>
-      </div>
+        <div className="ps-rows">
+          {opponents.map((o) => {
+            const keys: CommanderKey[] = o.partnerName ? [`${o.seat}`, `${o.seat}b`] : [`${o.seat}`];
+            return keys.map((k) => {
+              const partner = k.endsWith("b");
+              const name = partner ? `${o.partnerName}` : (o.commanderName ?? "Their commander");
+              const value = p.commanderDamage[k] ?? 0;
+              const a = artFor?.(o.seat, partner) ?? null;
+              return (
+                <div key={k} className="ps-row">
+                  <SeatDot art={a} colorIdentity={o.colorIdentity} className="ps-row-art" />
+                  <span className="ps-row-text">
+                    <span className="ps-row-name">{name}</span>
+                    <span className="small dim">{o.name}</span>
+                  </span>
+                  <Steps label={`${name} damage`} value={value} warn={value >= 15} onChange={(d) => dispatch({ type: "commander_damage", seat, source: k, delta: d })} />
+                </div>
+              );
+            });
+          })}
+        </div>
+        <p className="small dim ps-note">Commander damage also comes off your life.</p>
+      </section>
 
-      <h3>Commander damage taken</h3>
-      {opponents.map((o) => {
-        const keys: CommanderKey[] = o.partnerName ? [`${o.seat}`, `${o.seat}b`] : [`${o.seat}`];
-        return keys.map((k) => (
-          <Stepper
-            key={k}
-            label={k.endsWith("b") ? `${o.partnerName}` : `${o.commanderName ?? o.name}`}
-            hint={`${o.name}. Also changes life.`}
-            value={p.commanderDamage[k] ?? 0}
-            onChange={(d) => dispatch({ type: "commander_damage", seat, source: k, delta: d })}
-          />
-        ));
-      })}
+      <section className="ps-section" aria-labelledby="ps-counters">
+        <h2 id="ps-counters">Counters</h2>
+        <div className="ps-counters">
+          <div className="ps-counter">
+            <span className="ps-counter-text">
+              <span className="small dim">Poison</span>
+              <b className="num">{p.poison}</b>
+            </span>
+            <Steps label="Poison" value={p.poison} shape="square" onChange={(d) => dispatch({ type: "poison", seat, delta: d })} />
+          </div>
+          {counters.map((c) => {
+            const label = c[0]!.toUpperCase() + c.slice(1);
+            const v = p.counters[c] ?? 0;
+            return (
+              <div key={c} className="ps-counter">
+                <span className="ps-counter-text">
+                  <span className="small dim">{label}</span>
+                  <b className="num">{v}</b>
+                </span>
+                <Steps label={label} value={v} shape="square" onChange={(d) => dispatch({ type: "counter", seat, counter: c, delta: d })} />
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
-      <h3>Counters</h3>
-      <Stepper label="Poison" value={p.poison} onChange={(d) => dispatch({ type: "poison", seat, delta: d })} />
-      {counters.map((c) => (
-        <Stepper key={c} label={c[0]!.toUpperCase() + c.slice(1)} value={p.counters[c] ?? 0} onChange={(d) => dispatch({ type: "counter", seat, counter: c, delta: d })} />
-      ))}
+      {tax(false)}
+      {p.partnerName && tax(true)}
 
-      <h3>Commander tax</h3>
-      <Stepper
-        label={p.commanderName ?? "Commander"}
-        hint={`Cast ${p.commanderCasts} times from the command zone. Next cast costs ${commanderTax(p)} more.`}
-        value={p.commanderCasts}
-        onChange={(d) => dispatch({ type: "commander_cast", seat, delta: d })}
-      />
-      {p.partnerName && (
-        <Stepper
-          label={p.partnerName}
-          hint={`Next cast costs ${commanderTax(p, true)} more.`}
-          value={p.partnerCasts}
-          onChange={(d) => dispatch({ type: "commander_cast", seat, partner: true, delta: d })}
-        />
-      )}
-
-      <div className="row">
-        <button onClick={() => dispatch({ type: "monarch", seat: state.monarch === seat ? null : seat })}>
+      <div className="ps-marks">
+        <button className="outline" aria-pressed={state.monarch === seat} onClick={() => dispatch({ type: "monarch", seat: state.monarch === seat ? null : seat })}>
           {state.monarch === seat ? "Remove monarch" : "Make monarch"}
         </button>
-        <button onClick={() => dispatch({ type: "initiative", seat: state.initiative === seat ? null : seat })}>
+        <button className="outline" aria-pressed={state.initiative === seat} onClick={() => dispatch({ type: "initiative", seat: state.initiative === seat ? null : seat })}>
           {state.initiative === seat ? "Remove initiative" : "Take the initiative"}
         </button>
-        {p.eliminated ? (
-          <button onClick={() => dispatch({ type: "revive", seat })}>Put back in the game</button>
-        ) : (
-          <button onClick={() => setKnocking(true)}>Knock out</button>
-        )}
       </div>
+      {p.eliminated ? (
+        <button className="outline ps-out" onClick={() => dispatch({ type: "revive", seat })}>Put {p.name} back in the game</button>
+      ) : (
+        <button className="outline ps-out bad" onClick={() => setKnocking(true)}>Knock {p.name} out</button>
+      )}
     </div>
   );
 }
@@ -518,79 +565,171 @@ function FinishSheet({ state, winner, onBack, onSave }: {
   );
 }
 
-function TableMenu({ state, onClose, onLeave, onFinish, aliveCount, artFor }: {
+/** Who gets the turn next: the next seat clockwise still in the game, as pass_turn does it. */
+function nextPlayer(state: TableState): PlayerState | undefined {
+  const order = state.players;
+  const i = order.findIndex((p) => p.seat === state.activeSeat);
+  for (let step = 1; step <= order.length; step++) {
+    const c = order[(i + step) % order.length];
+    if (c && !c.eliminated) return c;
+  }
+  return undefined;
+}
+
+/** A player's commander art in a circle, or a raised circle with their first identity color. */
+function SeatDot({ art, colorIdentity, className }: { art: CardArt | null; colorIdentity: string; className: string }) {
+  if (art?.art) return <img className={className} src={art.art} alt="" />;
+  return <span className={`${className} seat-dot-none`} style={{ "--dot": MANA[identityKeys(colorIdentity)[0]!].fill } as CSSProperties} />;
+}
+
+const UndoIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+  </svg>
+);
+const RedoIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m15 14 5-5-5-5" />
+    <path d="M20 9H10a6 6 0 0 0 0 12h3" />
+  </svg>
+);
+export const CloseIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M6 6l12 12M18 6 6 18" />
+  </svg>
+);
+
+type Marker = "monarch" | "initiative" | "first";
+
+function TableMenu({ state, onClose, onLeave, onFinish, aliveCount, artFor, turnSince }: {
   state: TableState;
   onClose: () => void;
   onLeave: () => void;
   onFinish: (winner: number | null) => void;
   aliveCount: number;
   artFor: ArtFor;
+  /** When the current turn started: the last pass, or the start of the game. */
+  turnSince: string;
 }) {
   const artists = state.players.map((p) => artFor(p.seat)).filter((a): a is CardArt => !!a).map((a) => a.artist);
   const sync = useSyncStatus();
   const showArt = useShowArt();
   const [confirmEnd, setConfirmEnd] = useState(false);
-  const [sharing, setSharing] = useState(false);
+  const [picking, setPicking] = useState<Marker | null>(null);
   const active = state.players.find((p) => p.seat === state.activeSeat);
+  const next = nextPlayer(state);
   const first = state.players.find((p) => p.seat === state.firstSeat);
+  const minutes = Math.floor((Date.now() - Date.parse(turnSince)) / 60_000);
+  const holder = (m: Marker) => state.players.find((p) => p.seat === (m === "monarch" ? state.monarch : m === "initiative" ? state.initiative : state.firstSeat));
+  const give = (m: Marker, seat: number | null) => {
+    if (m === "monarch") dispatch({ type: "monarch", seat });
+    else if (m === "initiative") dispatch({ type: "initiative", seat });
+    else if (seat !== null) dispatch({ type: "set_first", seat });
+    setPicking(null);
+  };
+  const firstLabel = state.passes === 0 ? "Goes first" : "Went first";
+  const tile = (m: Marker, label: string) => {
+    const h = holder(m);
+    return (
+      <button className="tm-marker" aria-pressed={picking === m || !!h} aria-expanded={picking === m} onClick={() => setPicking(picking === m ? null : m)}>
+        <span className="tm-marker-name">{label}</span>
+        <span className="tm-marker-who">
+          {h && <SeatDot art={artFor(h.seat)} colorIdentity={h.colorIdentity} className="tm-marker-dot" />}
+          {h ? h.name : m === "first" ? "Not decided" : "Nobody"}
+        </span>
+      </button>
+    );
+  };
   return (
-    <div className="stack">
-      <div className="sheet-head">
-        <div>
-          <h2>Turn {state.turn}</h2>
-          <p className="dim" style={{ margin: 0 }}>{active?.name}'s turn</p>
+    <div className="table-menu">
+      <span className="sheet-grip" aria-hidden="true" />
+      <div className="tm-head">
+        <div className="tm-turn">
+          {active && <SeatDot art={artFor(active.seat)} colorIdentity={active.colorIdentity} className="tm-avatar" />}
+          <span className="tm-turn-text">
+            <h2>Turn {state.turn}</h2>
+            <span className="dim">
+              {active?.name}'s turn, {minutes < 1 ? "just started" : `${minutes} min`}
+            </span>
+          </span>
         </div>
-        <button className="quiet" onClick={onClose}>Back to the game</button>
+        <button className="tm-round" aria-label="Back to the game" onClick={onClose}>
+          <CloseIcon />
+        </button>
       </div>
-      <div className="row">
+
+      <div className="tm-pass">
         <button className="primary" onClick={() => { dispatch({ type: "pass_turn" }); onClose(); }}>
-          Pass the turn
+          {next && <SeatDot art={artFor(next.seat)} colorIdentity={next.colorIdentity} className="tm-pass-dot" />}
+          {next ? `Pass to ${next.name}` : "Pass the turn"}
         </button>
-        <button onClick={undo} disabled={!canUndo()}>Undo</button>
-        <button onClick={redo}>Redo</button>
+        <button className="tm-icon" onClick={undo} disabled={!canUndo()} aria-label="Undo">
+          <UndoIcon />
+        </button>
+        <button className="tm-icon" onClick={redo} aria-label="Redo">
+          <RedoIcon />
+        </button>
       </div>
 
-      <h3 style={{ margin: 0 }}>{state.passes === 0 ? "Who goes first?" : "Who went first?"}</h3>
-      <p className="small dim" style={{ margin: 0 }}>
-        {first ? `${first.name} ${state.passes === 0 ? "goes" : "went"} first.` : "Not decided yet."} It's saved with the game for the playgroup's turn-order stats.
-      </p>
-      <div className="row">
-        <RollButton state={state} />
-        {state.players.map((p) => (
-          <button key={p.seat} aria-pressed={state.firstSeat === p.seat} className={state.firstSeat === p.seat ? "primary" : ""} onClick={() => dispatch({ type: "set_first", seat: p.seat })}>
-            {p.name} {state.passes === 0 ? "goes" : "went"} first
+      <section className="tm-section" aria-labelledby="tm-on-table">
+        <h3 id="tm-on-table">On the table</h3>
+        <div className="tm-markers">
+          {tile("monarch", "Monarch")}
+          {tile("initiative", "Initiative")}
+          {tile("first", firstLabel)}
+          <button
+            className="tm-marker"
+            aria-pressed={state.dayNight !== null}
+            onClick={() => dispatch({ type: "day_night", value: state.dayNight === "day" ? "night" : "day" })}
+          >
+            <span className="tm-marker-name">{state.dayNight === null ? "Day and night" : state.dayNight === "day" ? "Day" : "Night"}</span>
+            <span className="tm-marker-who">{state.dayNight === null ? "Tap to start day" : state.dayNight === "day" ? "Tap for night" : "Tap for day"}</span>
           </button>
-        ))}
-      </div>
-
-      <div className="row">
-        <button onClick={() => dispatch({ type: "day_night", value: state.dayNight === "day" ? "night" : "day" })}>
-          {state.dayNight === null ? "Start day/night" : state.dayNight === "day" ? "It's day. Make it night" : "It's night. Make it day"}
-        </button>
-        <button onClick={() => setSharing(true)}>Share with the table</button>
-        {/* Offered while art is showing, and always once it's switched off, so it can come back. */}
-        {(artists.length > 0 || !showArt) && (
-          <button onClick={() => setShowArt(!showArt)}>{showArt ? "Use mana colors instead of art" : "Show commander art"}</button>
-        )}
-      </div>
-      {sharing && <ShareSheet gameId={state.setup.id} onClose={() => setSharing(false)} />}
-
-      <h3 style={{ margin: 0 }}>End the game</h3>
-      {!confirmEnd ? (
-        <div className="row">
-          <button onClick={() => setConfirmEnd(true)}>Record a winner</button>
-          <button onClick={onLeave}>Leave it running</button>
         </div>
-      ) : (
-        <div className="stack">
-          <p className="dim" style={{ margin: 0 }}>Who won? {aliveCount > 1 ? `${aliveCount} players are still in.` : ""}</p>
-          <div className="row">
+        {picking ? (
+          <div className="tm-pick">
+            <p className="small dim">
+              {picking === "monarch" ? "Who's the monarch?" : picking === "initiative" ? "Who has the initiative?" : state.passes === 0 ? "Who goes first?" : "Who went first?"}
+              {picking === "first" && " It's saved with the game for the playgroup's turn-order stats."}
+            </p>
+            <div className="tm-pick-row">
+              {state.players.map((p) => (
+                <button key={p.seat} aria-pressed={holder(picking)?.seat === p.seat} onClick={() => give(picking, p.seat)}>
+                  <SeatDot art={artFor(p.seat)} colorIdentity={p.colorIdentity} className="tm-marker-dot" />
+                  {p.name}
+                </button>
+              ))}
+              {picking !== "first" && <button className="outline" onClick={() => give(picking, null)}>Nobody</button>}
+            </div>
+          </div>
+        ) : (
+          <p className="small dim">
+            Tap a marker, then tap whoever takes it.
+            {picking === null && first ? ` ${first.name} ${state.passes === 0 ? "goes" : "went"} first.` : ""}
+          </p>
+        )}
+      </section>
+
+      <ShareCard gameId={state.setup.id} />
+
+      <div className="tm-actions">
+        <RollButton state={state} />
+        <button onClick={() => setConfirmEnd((c) => !c)} aria-expanded={confirmEnd}>Record a winner</button>
+      </div>
+      {confirmEnd && (
+        <div className="tm-pick">
+          <p className="small dim">Who won? {aliveCount > 1 ? `${aliveCount} players are still in.` : ""}</p>
+          <div className="tm-pick-row">
             {state.players.map((p) => (
-              <button key={p.seat} onClick={() => onFinish(p.seat)}>{p.name}</button>
+              <button key={p.seat} onClick={() => onFinish(p.seat)}>
+                <SeatDot art={artFor(p.seat)} colorIdentity={p.colorIdentity} className="tm-marker-dot" />
+                {p.name}
+              </button>
             ))}
-            <button onClick={() => onFinish(null)}>Draw</button>
+            <button className="outline" onClick={() => onFinish(null)}>Draw</button>
             <button
-              className="quiet error"
+              className="outline tm-discard"
               onClick={() => {
                 if (confirm("Throw this game away? It won't be saved.")) {
                   discardGame();
@@ -603,10 +742,19 @@ function TableMenu({ state, onClose, onLeave, onFinish, aliveCount, artFor }: {
           </div>
         </div>
       )}
-      <p className="small faint">
-        {sync.syncing ? "Saving to Yama…" : sync.error ? `Not saved to Yama yet (${sync.error}). It's safe on this device.` : sync.lastSyncedAt ? "Saved to Yama." : "Saved on this device."}
-      </p>
-      {artists.length > 0 && <p className="small faint">Commander art on the panels: {artCredits(artists)}</p>}
+      {/* Offered while art is showing, and always once it's switched off, so it can come back. */}
+      {(artists.length > 0 || !showArt) && (
+        <button className="quiet small tm-art-toggle" onClick={() => setShowArt(!showArt)}>
+          {showArt ? "Use mana colors instead of art" : "Show commander art"}
+        </button>
+      )}
+      <div className="tm-foot">
+        <span>
+          {sync.syncing ? "Saving to Yama…" : sync.error ? `Not saved to Yama yet (${sync.error}). It's safe on this device.` : sync.lastSyncedAt ? "Saved to Yama" : "Saved on this device"}
+        </span>
+        <button className="tm-link" onClick={onLeave}>Leave it running</button>
+      </div>
+      {artists.length > 0 && <p className="tm-credit">Commander art: {artCredits(artists)}</p>}
     </div>
   );
 }
@@ -622,9 +770,9 @@ function RollButton({ state }: { state: TableState }) {
     setResult(`The roll picked ${p.name}.`);
   };
   return (
-    <>
-      <button onClick={roll}>Roll for first</button>
-      {result && <span className="dim" role="status">{result}</span>}
-    </>
+    <button onClick={roll}>
+      <span aria-hidden={!!result}>{result ? result.replace("The roll picked ", "").replace(/\.$/, "") + " goes first" : "Roll for first"}</span>
+      <span className="visually-hidden" role="status">{result}</span>
+    </button>
   );
 }

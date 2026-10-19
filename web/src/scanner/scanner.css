@@ -1,12 +1,22 @@
-/* Scanner: the camera fills the screen, the ground color veils everything outside a card-shaped window. */
+/* Scanner (design/screens/Scan.dc.html): the camera above, a card-shaped window with the rest
+   veiled, and a sheet below with what was found and where it goes. */
 
 .scan {
   position: fixed;
   inset: 0;
-  background: var(--ground);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: #000;
   color: var(--text);
   overflow: hidden;
-  z-index: 20;
+}
+.scan-camera {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: #1a1b1d;
 }
 .scan-video {
   position: absolute;
@@ -15,78 +25,176 @@
   height: 100%;
   object-fit: cover;
 }
+/* The window sits in the middle of what the sheet leaves showing. */
 .scan-frame {
   position: absolute;
-  inset: 0 0 9rem;
+  inset: 0 0 20px;
   display: grid;
   place-items: center;
   pointer-events: none;
 }
 .scan-guide {
-  width: min(80vw, calc((100dvh - 11rem) * 63 / 88));
+  height: min(78%, calc(62vw * 88 / 63));
   aspect-ratio: 63 / 88;
-  border-radius: var(--card-radius);
-  border: 2px solid var(--text);
-  /* the veil around the window */
-  box-shadow: 0 0 0 100vmax rgb(11 12 14 / 0.72);
-  transition: border-color 0.15s;
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 2px var(--text),
+    0 0 0 100vmax rgb(0 0 0 / 0.45);
+  transition: box-shadow 0.15s;
 }
 .scan-guide.is-locked {
-  border-color: var(--good);
+  box-shadow:
+    0 0 0 3px var(--good),
+    0 0 0 100vmax rgb(0 0 0 / 0.45);
 }
-.scan-top {
+.scan .scan-close {
   position: absolute;
-  top: env(safe-area-inset-top);
-  right: 0.5rem;
-  display: flex;
-  gap: 0.5rem;
+  top: max(14px, env(safe-area-inset-top));
+  left: 14px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+}
+.scan .scan-close:hover {
+  background: rgb(0 0 0 / 0.8);
+}
+.scan-count,
+.scan-chip {
+  position: absolute;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  background: rgb(0 0 0 / 0.6);
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: #fff;
+}
+.scan-count {
+  top: calc(max(14px, env(safe-area-inset-top)) + 8px);
+  right: 14px;
+}
+.scan-chip {
+  left: 50%;
+  bottom: 36px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 6px 14px;
+  background: rgb(0 0 0 / 0.65);
+  font-size: var(--t-label);
+  text-align: center;
+}
+.scan-chip.found {
+  color: var(--good);
 }
 .scan-panel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
-  background: var(--surface);
-  border-top: 1px solid var(--line);
+  position: relative;
+  flex: 0 0 auto;
+  max-height: 62dvh;
+  overflow-y: auto;
+  margin-top: -20px;
+  padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
   border-radius: var(--r-sheet) var(--r-sheet) 0 0;
-  min-height: 9rem;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
-.scan-status {
-  font-family: var(--display);
-  font-size: var(--t-md);
-  font-weight: 700;
-  margin: 0 0 0.5rem;
-}
-.scan-photo {
-  display: inline-flex;
-  font-weight: 700;
-  padding-left: 0;
-}
-.scan-photo input {
-  display: none;
+.scan-panel .error,
+.scan-panel p {
+  margin: 0;
 }
 .scan-result {
   display: grid;
-  grid-template-columns: 7.5rem 1fr;
-  gap: 1rem;
-  align-items: start;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
 }
 .scan-thumb {
   width: 100%;
   aspect-ratio: 488 / 680;
-  border-radius: var(--card-radius);
+  border-radius: 4px;
   background: var(--raised);
   object-fit: cover;
 }
-.scan-info h3 {
-  margin: 0 0 0.2rem;
+.scan-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  font-size: var(--t-label);
+  min-width: 0;
 }
-.scan-info p {
-  margin: 0 0 0.4rem;
+.scan-info h3 {
+  margin: 0;
+  font-weight: 800;
+  font-size: 1.75rem;
+  line-height: 1.1;
+}
+.scan-method {
+  margin-top: 2px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+/* Finish and where it goes, side by side. Fields on the sheet drop to the ground color. */
+.scan-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.scan-choices label {
+  gap: 4px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.scan-choices select {
+  background: var(--ground);
+  color: var(--text);
+}
+.scan-choices .error {
+  grid-column: 1 / -1;
+}
+.scan-buttons {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.scan-buttons button {
+  min-height: 54px;
+}
+.scan-buttons .primary {
+  font-size: 1.0625rem;
+}
+.scan-note {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.scan .scan-alt {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.scan .scan-photo {
+  align-self: start;
+  background: var(--raised);
+}
+.scan-photo input {
+  display: none;
 }
 .scan-raw {
   white-space: pre-wrap;
   font-size: var(--t-sm);
   margin: 0.3rem 0 0;
+}
+@media (min-width: 900px) {
+  .scan-panel {
+    width: min(560px, 100%);
+    margin: -20px auto 0;
+  }
 }

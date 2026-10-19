@@ -5,11 +5,12 @@
 // Needs a secure context for the camera (https or localhost; a phone on the LAN dev server over
 // plain http gets no camera, so "Use a photo" is offered as a fallback).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
 import { scanFrame, SURE } from "./pipeline";
-import { api } from "../api";
+import { api, shortDate, usd, type Printing } from "../api";
 import { createServerCatalog } from "./serverCatalog";
 import { createTesseractOcr, type TesseractOcr } from "./tesseract";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
@@ -25,6 +26,16 @@ export interface ScannerViewProps {
   /** Pause between reads. */
   intervalMs?: number;
   onClose?: () => void;
+  /** Copies added since the scanner opened, for the "Added 3 so far" chip. */
+  addedCount?: number;
+  /** Names of the last few cards added, newest first. */
+  recent?: string[];
+  /** The finish being added, so the found card shows that finish's price. */
+  finish?: "nonfoil" | "foil";
+  /** Choices shown in the panel (finish, where to put the card). */
+  controls?: ReactNode;
+  /** The accept button's words. */
+  acceptLabel?: string;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
@@ -47,7 +58,7 @@ function grab(source: CanvasImageSource, sx: number, sy: number, sw: number, sh:
   return { image: ctx.getImageData(0, 0, canvas.width, canvas.height), scale };
 }
 
-export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, intervalMs = 250, onClose }: ScannerViewProps) {
+export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, intervalMs = 250, onClose, addedCount = 0, recent = [], finish = "nonfoil", controls, acceptLabel = "Add" }: ScannerViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const guideRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -222,66 +233,103 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
   };
 
   const best = result?.candidates[0];
+  // The printing's set name and market price, once the collector line has been read.
+  const printing = useQuery({
+    queryKey: ["scan-printing", best?.set, best?.number, best?.lang],
+    queryFn: () => api<Printing>(`/api/printings/lookup?${new URLSearchParams({ set: best!.set!, number: best!.number!, lang: best!.lang ?? "en" })}`),
+    enabled: phase === "found" && !!best?.set && !!best?.number,
+    retry: false,
+    staleTime: Infinity,
+  });
+  const p = printing.data;
+  const price = p ? (finish === "foil" ? p.usd_foil : p.usd) : undefined;
+  const found = phase === "found" && !!best;
   return (
     <div className="scan">
-      <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
-      <div className="scan-frame" aria-hidden="true">
-        <div ref={guideRef} className={`scan-guide${phase === "found" ? " is-locked" : ""}`} />
-      </div>
-
-      <div className="scan-top">
+      <div className="scan-camera">
+        <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
+        <div className="scan-frame" aria-hidden="true">
+          <div ref={guideRef} className={`scan-guide${phase === "found" ? " is-locked" : ""}`} />
+        </div>
         {onClose && (
-          <button className="quiet" onClick={onClose}>
-            Close
+          <button className="scan-close" onClick={onClose} aria-label="Close the scanner">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
           </button>
         )}
+        {addedCount > 0 && <span className="scan-count">Added {addedCount} so far</span>}
+        <span className={`scan-chip${found ? " found" : ""}`} role="status">
+          {found ? "Found it" : ready ? status : "Getting the reader ready"}
+        </span>
       </div>
 
       <div className="scan-panel" aria-live="polite">
-        {phase !== "found" && (
+        {!found && (
           <>
-            <p className="scan-status">{ready ? status : "Getting the reader ready"}</p>
             {error && <p className="error">{error}</p>}
-            <label className="scan-photo button quiet">
+            {controls}
+            <label className="scan-photo button">
               Use a photo instead
               <input type="file" accept="image/*" capture="environment" onChange={(ev) => ev.target.files?.[0] && void fromPhoto(ev.target.files[0])} />
             </label>
+            {recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
           </>
         )}
-        {phase === "found" && best && (
-          <div className="scan-result">
-            {best.image ? <img className="scan-thumb" src={best.image} alt={best.name} /> : <div className="scan-thumb card-fallback">{best.name}</div>}
-            <div className="scan-info">
-              <h3>{best.name}</h3>
-              <p className="dim small">
-                {best.set ? `${best.set.toUpperCase()} ${best.number}` : "Printing not read"}
-                {best.lang && best.lang !== "en" ? `, ${best.lang}` : ""}
-              </p>
-              <p className="faint small">{describe(best)}</p>
-              <div className="row">
-                {onAccept && (
-                  <button className="primary" onClick={() => { onAccept(best); again(); }}>
-                    Add
-                  </button>
+        {found && best && (
+          <>
+            <div className="scan-result">
+              {best.image ? <img className="scan-thumb" src={best.image} alt={best.name} /> : <div className="scan-thumb card-fallback">{best.name}</div>}
+              <div className="scan-info">
+                <h3>{best.name}</h3>
+                <span className="dim">
+                  {best.set ? `${p?.set_name ?? best.set.toUpperCase()} #${best.number}` : "Printing not read"}
+                  {best.lang && best.lang !== "en" ? `, ${best.lang}` : ""}
+                  {`, ${finish === "foil" ? "foil" : "regular"}`}
+                </span>
+                {best.set && !printing.isPending && (
+                  <span>
+                    {usd(price)}
+                    {price != null && <span className="dim"> market, {shortDate(p?.price_date) ?? "date unknown"}</span>}
+                  </span>
                 )}
-                <button onClick={again}>Scan next</button>
+                <span className="scan-method">{describe(best)}</span>
               </div>
-              {result.candidates.length > 1 && (
-                <p className="small dim">
-                  Or:{" "}
-                  {result.candidates.slice(1).map((c) => (
-                    <button key={`${c.name}${c.set ?? ""}${c.number ?? ""}`} className="quiet small" onClick={() => { onAccept?.(c); again(); }}>
-                      {c.name}
-                    </button>
-                  ))}
-                </p>
-              )}
-              <details className="small faint">
-                <summary>What the camera read</summary>
-                <pre className="scan-raw">{`${result.raw.collector}\n${result.raw.name}\n${Math.round(result.timings.totalMs)} ms`}</pre>
-              </details>
             </div>
-          </div>
+            {controls}
+            <div className="scan-buttons">
+              {onAccept && (
+                <button className="primary" onClick={() => { onAccept(best); again(); }}>
+                  {acceptLabel}
+                </button>
+              )}
+              <button onClick={again}>{onAccept ? "Not this" : "Scan next"}</button>
+            </div>
+            {(result.candidates.length > 1 || recent.length > 0) && (
+              <p className="scan-note">
+                {result.candidates.length > 1 && (
+                  <>
+                    Not this one? {onAccept ? "Add" : "It might be"}{" "}
+                    {result.candidates.slice(1).map((c, i) => (
+                      <span key={`${c.name}${c.set ?? ""}${c.number ?? ""}`}>
+                        {i > 0 && " or "}
+                        <button className="scan-alt" onClick={() => { onAccept?.(c); again(); }}>
+                          {c.name}
+                          {c.set ? ` (${c.set.toUpperCase()} ${c.number})` : ""}
+                        </button>
+                      </span>
+                    ))}
+                    {onAccept ? " instead" : ""}.{" "}
+                  </>
+                )}
+                {recent.length > 0 && `Recent: ${recent.slice(0, 3).join(", ")}.`}
+              </p>
+            )}
+            <details className="small dim">
+              <summary>What the camera read</summary>
+              <pre className="scan-raw">{`${result.raw.collector}\n${result.raw.name}\n${Math.round(result.timings.totalMs)} ms`}</pre>
+            </details>
+          </>
         )}
       </div>
     </div>

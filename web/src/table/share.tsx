@@ -113,30 +113,55 @@ export function useHosting() {
   );
 }
 
-/** Shown inside the table menu: the code to scan, and the link for anyone who'd rather tap. */
-export function ShareSheet({ gameId }: { gameId: string; onClose: () => void }) {
+/**
+ * "Everyone's phone", in the table menu: the code to scan, and the link for anyone who'd rather
+ * tap. Sharing starts when someone asks for the code, not whenever the menu opens.
+ */
+export function ShareCard({ gameId }: { gameId: string }) {
   const hosting = useHosting();
+  const sharing = hosting.gameId === gameId;
   const [svg, setSvg] = useState("");
   const url = `${publicOrigin()}/table/join/${gameId}#k=${shareKey(gameId)}`;
   useEffect(() => {
-    startHosting(gameId);
+    if (!sharing) return;
     QRCode.toString(url, { type: "svg", margin: 1, color: { dark: "#0b0c0e", light: "#f2efe8" } }).then(setSvg);
-  }, [gameId, url]);
+  }, [sharing, url]);
   return (
-    <div className="stack">
-      <h3>Share with the table</h3>
-      <p className="dim small">
-        Everyone scans this with their phone camera, picks their seat, and keeps their own life total. This phone keeps the
-        game, so it works even if the signal drops.
-      </p>
-      <div className="qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" />
-      <div className="row">
-        {"share" in navigator && (
-          <button onClick={() => void navigator.share({ title: "Join our game on Yama", url })}>Send the link</button>
+    <section className="tm-share" aria-labelledby="tm-share-title">
+      {sharing && svg ? (
+        <div className="tm-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" />
+      ) : (
+        <button className="tm-qr tm-qr-off" onClick={() => startHosting(gameId)} aria-label="Show the join code">
+          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" />
+            <path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3" />
+          </svg>
+        </button>
+      )}
+      <div className="tm-share-text">
+        <h3 id="tm-share-title">Everyone's phone</h3>
+        <p>Friends scan this, pick their seat and keep their own total.{sharing ? " This phone keeps the game, so it works even if the signal drops." : ""}</p>
+        {sharing ? (
+          <>
+            <p role="status" className="tm-status">
+              <span className={`status-dot ${hosting.connected ? "good" : "warn"}`} aria-hidden="true" />
+              {hosting.connected ? "Live: phones that join follow along" : "Connecting to Yama…"}
+            </p>
+            <div className="tm-share-actions">
+              {"share" in navigator && (
+                <button className="small" onClick={() => void navigator.share({ title: "Join our game on Yama", url })}>Send the link</button>
+              )}
+              <button className="quiet small" onClick={stopHosting}>Stop sharing</button>
+            </div>
+          </>
+        ) : (
+          <div className="tm-share-actions">
+            <button className="small" onClick={() => startHosting(gameId)}>Show the code</button>
+          </div>
         )}
-        <button className="quiet" onClick={stopHosting}>Stop sharing</button>
       </div>
-      <p className="small faint">{hosting.connected ? "Live: phones that join will follow along." : "Connecting to Yama…"}</p>
-    </div>
+    </section>
   );
 }

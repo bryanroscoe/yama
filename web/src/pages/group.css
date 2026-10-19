@@ -1,0 +1,584 @@
+/* Group (design/screens/Group.dc.html, GroupPhone): the group's figures and join code, player
+   cards with each player's usual commander, the commanders, your rivalries, members and you.
+   styles.css loads after this file, so these rules carry .group-page to outrank it. */
+
+.group-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.grp-wide {
+  display: none;
+}
+.grp-head {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.grp-title {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.grp-name {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.group-page .grp-name h1 {
+  margin: 0;
+  font-size: 2.75rem;
+}
+.group-page .grp-switch {
+  width: auto;
+}
+.grp-figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.grp-figure {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--surface);
+  min-width: 0;
+}
+.grp-figure b {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.875rem;
+}
+.grp-figure > span {
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+/* Phones: the code sits under the title as a quiet line; laptops: a card at the top right. */
+.grp-code {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 16px;
+  background: var(--surface);
+}
+.grp-code-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+  gap: 2px;
+}
+.grp-code-text > span {
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+.grp-code-text b {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.625rem;
+  letter-spacing: 0.12em;
+}
+.grp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.group-page .grp-section h2 {
+  margin: 0;
+  font-weight: 800;
+  font-size: 1.75rem;
+}
+.grp-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.group-page .grp-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+
+/* Players. Phones: a row each, the usual commander's art in a circle. */
+.grp-players {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.grp-player {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px 8px 8px;
+  border-radius: 16px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.group-page .grp-player-art {
+  display: none;
+}
+.grp-player-dot {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--raised);
+}
+.grp-player-dot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.grp-player-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.grp-player-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--t-label);
+}
+.grp-player-top span {
+  color: var(--dim);
+}
+.grp-player-meta,
+.grp-streak {
+  display: none;
+}
+.grp-bar {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+}
+.grp-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--r-pill);
+  background: var(--text);
+}
+/* The even share: a --warn line, 25% at a 4-player table. */
+.grp-bar-even {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--warn);
+}
+.grp-player-rate-narrow {
+  min-width: 52px;
+  text-align: right;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.5rem;
+}
+/* Too few games to say: dim text and a dim bar. The art is never faded. */
+.grp-player.few :is(.grp-player-rate-narrow, .grp-player-top b, .grp-player-name, .grp-player-rate) {
+  color: var(--dim);
+  text-shadow: none;
+}
+.grp-player.few .grp-bar-fill {
+  background: var(--dim);
+}
+
+/* Commanders. Phones: rows with the art, who played it and the win rate. */
+.grp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+.grp-table thead,
+.grp-table td:nth-child(2),
+.grp-table td:nth-child(3),
+.grp-table td:nth-child(4) {
+  display: none;
+}
+.grp-table tr {
+  border-top: 1px solid var(--line);
+}
+.grp-table td {
+  padding: 8px 0;
+}
+.grp-table td.r {
+  text-align: right;
+}
+.grp-table tr.few {
+  color: var(--dim);
+}
+.grp-cmdr {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.grp-cmdr-art {
+  flex: none;
+  width: 52px;
+  height: 38px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--raised);
+}
+.grp-cmdr-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.grp-cmdr-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
+}
+.grp-cmdr-text b {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.grp-cmdr-text > span {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.grp-cmdr-rate {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.375rem;
+  white-space: nowrap;
+  padding-left: 12px !important;
+}
+
+/* Rivalries */
+.grp-rival-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.grp-rival {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px 10px 10px;
+  border-radius: 16px;
+  background: var(--surface);
+}
+.grp-rival-art {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--raised);
+}
+.grp-rival-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.grp-rival-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.grp-rival-text > span {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.group-page .grp-credit {
+  margin: -8px 0 0;
+}
+.grp-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 28px;
+  align-items: start;
+}
+.grp-pair > * {
+  flex: 1 1 360px;
+}
+.grp-pair > .grp-commanders {
+  flex: 999 1 520px;
+}
+.grp-pair > .grp-rivals {
+  flex: 1 1 300px;
+}
+
+/* Members and you */
+.grp-guest {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.group-page .grp-guest label {
+  display: block;
+}
+.group-page .grp-guest input {
+  min-height: 46px;
+  border-radius: var(--r-pill);
+  padding: 8px 16px;
+}
+.grp-you {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.grp-you-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 12px 10px 16px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+.grp-you-stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+.grp-you-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.grp-you-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+.grp-you-text > span {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.grp-you button {
+  flex: none;
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: var(--t-label);
+}
+.grp-you-actions {
+  justify-content: flex-start;
+}
+.group-page .grp-new {
+  font-size: var(--t-label);
+  color: var(--dim);
+}
+.grp-invites {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+@media (min-width: 900px) {
+  .group-page {
+    gap: 36px;
+  }
+  .grp-wide {
+    display: inline;
+  }
+  .grp-narrow {
+    display: none;
+  }
+  .grp-head {
+    flex-direction: row;
+    align-items: end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .grp-title {
+    gap: 10px;
+  }
+  .group-page .grp-name h1 {
+    font-size: var(--t-title);
+  }
+  .grp-figures {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+  .grp-figure {
+    padding: 0;
+    background: none;
+  }
+  .grp-figure b {
+    font-size: 2.5rem;
+  }
+  .grp-figure > span {
+    font-size: var(--t-label);
+  }
+  .grp-code {
+    padding: 10px 10px 10px 20px;
+    border-radius: 18px;
+  }
+  .grp-code-text b {
+    font-size: 2.25rem;
+  }
+  .grp-section {
+    gap: 12px;
+  }
+  .group-page .grp-section h2 {
+    font-size: 2rem;
+  }
+  .group-page .grp-section-head h2 {
+    font-size: 2.25rem;
+  }
+  .group-page .grp-hint {
+    font-size: var(--t-sm);
+  }
+  .grp-players {
+    grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr));
+    gap: 12px;
+  }
+  .grp-player {
+    display: block;
+    padding: 0;
+    border-radius: 20px;
+  }
+  .group-page .grp-player-art {
+    display: flex;
+    align-items: end;
+    height: 110px;
+    border-radius: 0;
+  }
+  .grp-player-art.wash-bottom > .art-wash {
+    background: linear-gradient(180deg, rgb(21 23 26 / 0) 20%, rgb(21 23 26 / 0.9) 100%);
+  }
+  .grp-player-art > .art-body {
+    flex: 1;
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+  .grp-player-name,
+  .grp-player-rate {
+    font-family: var(--display);
+    font-size: 1.875rem;
+    line-height: 1;
+    text-shadow: var(--art-shadow);
+  }
+  .grp-player-name {
+    font-weight: 800;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .grp-player-rate {
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .grp-player-art.art-none :is(.grp-player-name, .grp-player-rate) {
+    text-shadow: none;
+  }
+  .grp-player-dot,
+  .grp-player-top,
+  .grp-player-rate-narrow {
+    display: none;
+  }
+  .grp-player-body {
+    padding: 12px 16px 16px;
+    gap: 8px;
+  }
+  .grp-bar {
+    height: 8px;
+  }
+  .grp-bar-even {
+    top: -4px;
+    bottom: -4px;
+  }
+  .grp-player-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: var(--t-sm);
+    color: var(--dim);
+    white-space: nowrap;
+  }
+  .grp-fav {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .grp-streak {
+    display: block;
+    margin-top: -4px;
+    font-size: var(--t-sm);
+    color: var(--dim);
+  }
+  .grp-table thead {
+    display: table-header-group;
+  }
+  .grp-table td:nth-child(2),
+  .grp-table td:nth-child(3),
+  .grp-table td:nth-child(4) {
+    display: table-cell;
+  }
+  .grp-table th {
+    padding: 8px 4px;
+    font-size: var(--t-sm);
+    font-weight: 700;
+    color: var(--dim);
+    text-align: left;
+  }
+  .grp-table th.r {
+    text-align: right;
+  }
+  .grp-table thead tr {
+    border-top: none;
+  }
+  .grp-table td {
+    padding: 8px 4px;
+  }
+  .grp-cmdr-rate {
+    font-family: var(--body);
+    font-weight: 400;
+    font-size: 0.9375rem;
+  }
+  .grp-rival-list {
+    gap: 12px;
+    padding: 16px;
+    border-radius: 18px;
+    background: var(--surface);
+  }
+  .grp-rival {
+    padding: 0;
+    background: none;
+  }
+  .grp-you {
+    gap: 12px;
+    padding: 16px;
+    border-radius: 18px;
+    background: var(--surface);
+  }
+  .grp-you-row {
+    min-height: 0;
+    padding: 0;
+    background: none;
+  }
+}
+/* Phones: your rivalries come before the commanders. */
+@media (max-width: 899px) {
+  .grp-pair > .grp-rivals {
+    order: -1;
+  }
+}

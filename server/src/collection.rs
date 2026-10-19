@@ -433,10 +433,21 @@ pub struct Item {
     pub price_date: Option<String>,
 }
 
+/// A row of the collection list: the item, plus its printing's art crop and artist for the
+/// list's art thumbnails (credited wherever they show).
+#[derive(Serialize, sqlx::FromRow)]
+pub struct ListedItem {
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub item: Item,
+    pub image_art_crop: Option<String>,
+    pub artist: Option<String>,
+}
+
 const ITEM_SELECT: &str = "SELECT i.id, i.scryfall_id, i.qty, i.condition, i.finish, i.lang, i.altered, i.signed,
     i.misprint, i.proxy, i.container_id, ct.name AS container_name, ct.kind AS container_kind, i.purchase_price,
     i.purchase_currency, i.note, i.updated_at, p.oracle_id, p.name, p.set_code, p.set_name, p.collector_number,
-    p.rarity, p.image_small, p.image_normal, c.type_line, c.color_identity,
+    p.rarity, p.image_small, p.image_normal, p.image_art_crop, p.artist, c.type_line, c.color_identity,
     CASE i.finish WHEN 'foil' THEN ps.usd_foil WHEN 'etched' THEN ps.usd_etched ELSE ps.usd END AS unit_price_usd,
     ps.date AS price_date
     FROM collection_items i
@@ -456,7 +467,7 @@ async fn list_items(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
     Query(p): Query<ListParams>,
-) -> AppResult<Json<Vec<Item>>> {
+) -> AppResult<Json<Vec<ListedItem>>> {
     let mut sql = format!("{ITEM_SELECT} WHERE i.owner_id = ?");
     if p.container.as_deref() == Some("none") {
         sql.push_str(" AND i.container_id IS NULL");
@@ -467,7 +478,7 @@ async fn list_items(
         sql.push_str(" AND p.name LIKE ?");
     }
     sql.push_str(" ORDER BY p.name, p.set_code, p.collector_number");
-    let mut q = sqlx::query_as::<_, Item>(sqlx::AssertSqlSafe(sql)).bind(&user.id);
+    let mut q = sqlx::query_as::<_, ListedItem>(sqlx::AssertSqlSafe(sql)).bind(&user.id);
     if let Some(c) = p.container.as_deref().filter(|c| *c != "none") {
         q = q.bind(c);
     }
