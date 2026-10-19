@@ -1157,7 +1157,7 @@
   box-shadow: 0 24px 50px rgb(0 0 0 / 0.55);
 }
 .review-card.is-wide .review-cut {
-  right: -24px;
+  right: -4px;
   bottom: -14px;
   width: 130px;
   font-size: var(--t-sm);
