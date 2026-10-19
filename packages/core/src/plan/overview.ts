@@ -3,7 +3,7 @@
 
 import { buyList, type BuyData } from "./buy";
 import { deckLogs, type DeckLogs } from "./changes";
-import type { MarkPair } from "./marks";
+import { installedState, type MarkPair } from "./marks";
 import { printPlan, type PrintData } from "./prints";
 import { spares, type SpareData } from "./spares";
 import type { PlanDeck, Review, Swap } from "./types";
@@ -23,17 +23,21 @@ export function inHand(s: Swap, logs: DeckLogs): boolean {
 export interface OverviewCounts {
   /** Proposals with no answer yet. */
   toReview: number;
-  /** Buy list rows (not marked bought), their listed total, and how many have no price. */
+  /** Buy list rows (not marked bought), their listed total (null when none has a price), and how many have no price. */
   toBuy: number;
-  buyTotal: number;
+  buyTotal: number | null;
   buyUnpriced: number;
   /** Marked bought, waiting for the plan to record an order. */
   markedBought: number;
   printsOnOrder: number;
   printsArrived: number;
   printsNext: number;
-  /** Planned swaps in hand now with no installed tick. */
+  /**
+   * Planned swaps in hand now that aren't in the deck yet: no installed tick and no install record
+   * from the planner, and not recorded as skipped.
+   */
   waitingToInstall: number;
+  /** Ticked as installed here, or recorded as installed by the planner (a newer tick wins). */
   installed: number;
   /** Spares free now (not taken by another deck's plan), and those that come free when prints arrive. */
   sparesNow: number;
@@ -56,9 +60,9 @@ export function overviewCounts(b: BuyData & PrintData & SpareData, opts: Overvie
   let waiting = 0;
   let installed = 0;
   for (const s of live) {
-    const ticked = !!opts.marks.get(s.key)?.installed?.value;
-    if (ticked) installed += 1;
-    else if (inHand(s, logs.get(s.deck)!)) waiting += 1;
+    const st = installedState(s, opts.marks.get(s.key)?.installed);
+    if (st.on) installed += 1;
+    else if (!st.skipped && inHand(s, logs.get(s.deck)!)) waiting += 1;
   }
   return {
     toReview: live.filter((s) => s.stage === "proposed" && !opts.answers.get(s.key)?.decision).length,

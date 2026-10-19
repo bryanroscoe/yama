@@ -214,7 +214,7 @@ A **slot** is one card in a list:
 | `when`, `advice`, `why`, `why_out` | Text for the owner. |
 | `was` | Old keys of this row, which become aliases. |
 | `from_candidate` | The proposal id this swap was promoted from, which also becomes an alias, so the owner's "want" follows it. |
-| `upgrade` | commander-decks only: the matching row in `data/upgrades.json`, matched on deck, card in and card out, as `{"id", "status"}` with status `planned`, `ordered`, `installed` or `skipped`; `null` when no row matches. Which record holds installs (that file or Yama's ticks) is an open question for Bryan. Until he answers, Yama shows this status read-only beside its own tick and doesn't merge the two. |
+| `upgrade` | commander-decks only: the matching row in `data/upgrades.json`, matched on deck, card in and card out, as `{"id", "status"}` with status `planned`, `ordered`, `installed` or `skipped`; `null` when no row matches. Which record holds installs (that file or Yama's ticks) is an open question for Bryan. Until he answers, Yama starts from this status: `installed` shows the tick as on and counts as installed, `skipped` isn't counted as waiting to go in, and the tick says the state comes from the planner. A Yama tick newer than the swap's last import (its `updated_at`) wins. Ticks still go only to the inbox; Yama never changes this field. |
 
 ### `aliases`
 

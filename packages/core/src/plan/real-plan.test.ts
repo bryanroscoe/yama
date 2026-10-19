@@ -2,7 +2,8 @@
 // Local only: compares the buy list, print plan and spares with Bryan's real commander-decks guides.
 // Reads ../commander-decks (next to this repo) or YAMA_COMMANDER_DECKS, and is skipped when the
 // files aren't there, so his data never enters this repo or CI. The deliberate differences from the
-// guides are spelled out in each test.
+// guides are spelled out in each test: no $0 totals, price flags, and for spares only the extras Yama
+// shows that the guide has no section for.
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -103,13 +104,15 @@ describe.skipIf(!present)("Bryan's real plan (local only)", () => {
       const want = sec!.rows.map((r) => [r[0], r[1], r[2], r[4]]).sort();
       const got = g.rows.map((r) => [r.swap.in, deckName(r.swap.deck), r.replaces ?? "", r.price == null ? "no price" : `$${r.price.toFixed(2)}`]).sort();
       expect(got).toEqual(want);
-      // Totals: every row here has a price, so the guide's total (which counts a missing price as $0) agrees.
-      expect(g.unpriced).toBe(0);
+      // Totals: every row in a store group has a price (Yama keeps unpriced listings out of carts), so
+      // the guide's total (which counts a missing price as $0) agrees.
       expect(sec!.head).toContain(`${g.rows.length} cards, $${g.total.toFixed(2)} before tax`);
       const cart = read("docs/buy-list.md").match(new RegExp(`\\[Fill the cart\\]\\((https://${new URL(g.store.homepage!).host}/cart/[^)]+)\\)`))?.[1];
       expect(new Set(g.cartUrl!.split("/cart/")[1]!.split(","))).toEqual(new Set(cart!.split("/cart/")[1]!.split(",")));
     }
     expect(md.filter((s) => / cards, \$/.test(s.head))).toHaveLength(list.stores.length);
+    // Every real listing with a variant has a price, so nothing waits in "In stock, no listed price".
+    expect(list.noPrice).toEqual([]);
     const elsewhere = md.find((s) => s.head.startsWith("Not in stock at"))!;
     expect(list.elsewhere.map((r) => [r.swap.in, deckName(r.swap.deck)]).sort()).toEqual(elsewhere.rows.map((r) => [r[0], r[1]]).sort());
     // Deliberate difference: Yama flags prices by the rules in force on the check date. Ashen Rider at
@@ -119,7 +122,7 @@ describe.skipIf(!present)("Bryan's real plan (local only)", () => {
     expect(ashen?.check?.flags.map((f) => f.id)).toContain("over-market");
   });
 
-  it("spares follow the library model: lists the differences from docs/spares.md", () => {
+  it("spares match docs/spares.md (both follow library.build()), apart from the explained extras", () => {
     const sp = spares(b, answers);
     const md = mdSections(read("docs/spares.md"));
     const guide = (prefix: string) => new Set(md.find((s) => s.head.startsWith(prefix))!.rows.map((r) => `${r[0]} (${r[1]})`));
@@ -141,16 +144,17 @@ describe.skipIf(!present)("Bryan's real plan (local only)", () => {
     console.log("Spares: Yama (library model) vs docs/spares.md\n" + JSON.stringify(report, null, 2));
     const all = [...sp.now, ...sp.after, ...sp.extras];
     const find = (label: string) => all.find((s) => `${s.card} (${s.from.name})` === label)!;
-    // Every difference is one of the deliberate kinds. Nothing the guide lists is missing.
+    // Since guide v7 spares.py reads library.build()'s now list too, so now and later agree card for
+    // card. Nothing the guide lists is missing, and nothing is out now in one and later in the other.
+    expect(report["Out now in Yama, later in the guide"]).toEqual([]);
+    expect(report["Later in Yama, out now in the guide"]).toEqual([]);
     expect(report["Only in the guide (now)"]).toEqual([]);
     expect(report["Only in the guide (later)"]).toEqual([]);
     expect(report["Only in Yama (later)"]).toEqual([]);
-    // Out now in Yama only: bought for the deck with no slot (library.py keeps these as spares).
+    // The explained extras: Yama also lists a card bought for a deck with no slot (library.py keeps it
+    // as a spare; the guide has no section for it), and the cards your own change took out before the plans.
+    expect(report["Only in Yama (now)"]).toEqual(["Ride the Shoopuf (World Shaper)"]);
     for (const x of report["Only in Yama (now)"]) expect(find(x).when).toBe("extra");
-    // Out now in Yama, later in the guide: a basic holds the slot until the print (library.py NOW_FILL).
-    for (const x of report["Out now in Yama, later in the guide"]) expect(find(x).why).toMatch(/^A basic land holds the slot/);
-    // Later in Yama, out now in the guide: the move waits until the giving deck frees the card.
-    for (const x of report["Later in Yama, out now in the guide"]) expect(find(x).why).toMatch(/moves in from .*once your prints arrive/);
     // "Now used in": the same decks as the guide, for every spare both list.
     const onOneCopy = new Set<string>();
     const guideUse = new Map(md.slice(0, 2).flatMap((sec) => sec.rows.map((r) => [`${r[0]} (${r[1]})`, r[3] ?? ""] as const)));
@@ -170,10 +174,12 @@ describe.skipIf(!present)("Bryan's real plan (local only)", () => {
       }
     }
     console.log("Proposal marks on one copy only:\n" + [...onOneCopy].join("\n"));
-    // The two the critique names: a move that waits for the giving deck keeps the card in now, and a
-    // fill takes the card out now.
-    expect(report["Later in Yama, out now in the guide"]).toContain("Sepulchral Primordial (Revival Trance)");
-    expect(report["Out now in Yama, later in the guide"]).toContain("Mount Doom (Riders of Rohan)");
+    // The two the critique named, now the same in both: a move that waits for the giving deck keeps
+    // the card until prints arrive, and a fill takes the card out now.
+    expect(gLater.has("Sepulchral Primordial (Revival Trance)")).toBe(true);
+    expect(find("Sepulchral Primordial (Revival Trance)").why).toMatch(/moves in from Lorehold Spirit, once your prints arrive/);
+    expect(gNow.has("Mount Doom (Riders of Rohan)")).toBe(true);
+    expect(find("Mount Doom (Riders of Rohan)").why).toMatch(/^A basic land holds the slot until the Volcanic Island print arrives/);
     const sepulchral = sp.after.find((s) => s.card === "Sepulchral Primordial")!;
     expect(sepulchral.proposedFor.map((u) => u.deck?.name)).toContain("Multiverse Reforged");
     // Stand-ins leave when their prints arrive; a later cut is shown as a suggestion only.

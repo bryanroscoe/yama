@@ -61,12 +61,19 @@ export function Buy() {
           <b className="num">{list.count}</b>
           <span>cards to buy</span>
         </div>
-        <div className="figure">
-          <b className="num">{usd(list.total)}</b>
-          <span>
-            listed, before tax{list.unpriced ? `; ${list.unpriced} without a listed price` : ""}
-          </span>
-        </div>
+        {list.total != null ? (
+          <div className="figure">
+            <b className="num">{usd(list.total)}</b>
+            <span>
+              listed, before tax{list.unpriced ? `; ${list.unpriced} without a listed price` : ""}
+            </span>
+          </div>
+        ) : list.unpriced > 0 ? (
+          <div className="figure">
+            <b className="num">{list.unpriced}</b>
+            <span>without a listed price, so no total</span>
+          </div>
+        ) : null}
         {list.marked.length > 0 && (
           <div className="figure">
             <b className="num">{list.marked.length}</b>
@@ -80,7 +87,7 @@ export function Buy() {
       {list.stores.map((g) => (
         <section key={g.store.key} className="stack plan-store">
           <h3>
-            {g.store.name} <span className="dim small num">{g.rows.length === 1 ? "1 card" : `${g.rows.length} cards`}, {usd(g.total)} before tax at listed prices{g.unpriced ? `, ${g.unpriced} without a listed price` : ""}</span>
+            {g.store.name} <span className="dim small num">{g.rows.length === 1 ? "1 card" : `${g.rows.length} cards`}, {usd(g.total)} before tax at listed prices</span>
           </h3>
           {g.store.location && <p className="dim small">{g.store.location}{g.store.note ? `. ${g.store.note}` : ""}</p>}
           {g.cartUrl && (
@@ -94,6 +101,16 @@ export function Buy() {
           <div className="list">{g.rows.map(row)}</div>
         </section>
       ))}
+
+      {list.noPrice.length > 0 && (
+        <section className="stack plan-store">
+          <h3>
+            In stock, no listed price <span className="dim num">{list.noPrice.length}</span>
+          </h3>
+          <p className="dim small">A store lists these, but the check didn't record a price, so they aren't in a cart link or the totals. Ask the store for the price first.</p>
+          <div className="list">{list.noPrice.map(row)}</div>
+        </section>
+      )}
 
       {list.elsewhere.length > 0 && (
         <section className="stack plan-store">

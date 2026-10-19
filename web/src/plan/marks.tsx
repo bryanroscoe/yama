@@ -6,6 +6,7 @@ import {
   boughtInfo,
   cheapestMarket,
   fmtDate,
+  installedState,
   markState,
   opTime,
   usd,
@@ -25,11 +26,23 @@ function stateOf(view: PlanView, s: Swap, m: Mark | undefined) {
   return markState(m, { source: deck?.source ?? "import", pulledThrough: view.b.inputs.pulled_through ?? 0, app: view.app });
 }
 
-/** "I've put this in the deck": a tick for a planned swap, with where the tick is on its way. */
+/**
+ * "I've put this in the deck": a tick for a planned swap, starting from the planner's install record
+ * (a newer tick here wins), with where the tick is on its way and when the state is the planner's.
+ */
 export function InstalledTick({ swap, view, userId, compact = false }: { swap: Swap; view: PlanView; userId: string; compact?: boolean }) {
   const m = view.markBy.get(swap.key)?.installed;
-  const on = !!m?.value;
-  const state = m ? stateOf(view, swap, m) : null;
+  const st = installedState(swap, m);
+  const on = st.on;
+  const state = m && st.from === "yama" ? stateOf(view, swap, m) : null;
+  const agrees = st.on === (st.planStatus === "installed");
+  const plan = !st.planStatus
+    ? null
+    : st.from === "yama" && !agrees
+      ? `Recorded as ${st.planStatus} in ${view.app}; your newer tick here wins.`
+      : st.planStatus === "skipped"
+        ? `Recorded as skipped in ${view.app}, so it isn't waiting to go in.`
+        : `Recorded as installed in ${view.app}.`;
   const toggle = () => {
     const op: InstalledOp = { kind: "installed", op_id: crypto.randomUUID(), device_id: deviceId(), at: opTime(), swap_key: swap.key, deck_key: swap.deck, value: !on };
     outbox.enqueue(userId, op);
@@ -40,6 +53,7 @@ export function InstalledTick({ swap, view, userId, compact = false }: { swap: S
         <input type="checkbox" checked={on} onChange={toggle} />
         {swap.role === "standin" ? `I've put ${swap.in} in the deck` : "I've put this in the deck"}
       </label>
+      {plan && <span className="faint small">{plan}</span>}
       {state && (on || state.tone === "warn") && <span className="faint small">{state.label}.</span>}
     </div>
   );

@@ -211,6 +211,7 @@ function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView;
   const status = swapStatus(s, logs, view.deckName, view.ctx.orders);
   const answer = view.answers.get(s.key);
   const priced = s.stage === "proposed" && s.src !== "owned";
+  const tick = s.stage === "planned" && (s.role !== "optional" || !!s.out);
   return (
     <div className="swap-row">
       <div className="swap-thumbs">
@@ -229,7 +230,7 @@ function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView;
           {status && <StatusTag {...status} />}
           {s.game_changer && <span className="tag">Game Changer</span>}
           {s.plan_card && s.plan_card !== s.in && <span className="tag">Budget pick for {s.plan_card}</span>}
-          {s.upgrade && (s.upgrade.status === "installed" || s.upgrade.status === "skipped") && (
+          {!tick && s.upgrade && (s.upgrade.status === "installed" || s.upgrade.status === "skipped") && (
             <span className="tag">Planner says {s.upgrade.status}</span>
           )}
         </div>
@@ -248,7 +249,7 @@ function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView;
           </details>
         )}
         {s.stage === "planned" && <BoughtLine swap={s} view={view} />}
-        {s.stage === "planned" && (s.role !== "optional" || s.out) && <InstalledTick swap={s} view={view} userId={userId} />}
+        {tick && <InstalledTick swap={s} view={view} userId={userId} />}
         {standins.map((st) => (
           <div key={st.key} className="swap-standin small">
             <span className="tag">Stand-in</span> <b>{st.in}</b> holds the slot until the print arrives, then becomes a spare. {swapSource(st, view.ctx)}

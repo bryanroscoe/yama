@@ -71,7 +71,12 @@ export function Overview() {
             <Link className="figure" to="/decks/plan/buy">
               <b className="num">{totals.toBuy}</b>
               <span>
-                to buy, {usd(totals.buyTotal)} listed{totals.buyUnpriced ? `, ${totals.buyUnpriced} without a listed price` : ""}
+                to buy
+                {totals.buyTotal != null
+                  ? `, ${usd(totals.buyTotal)} listed${totals.buyUnpriced ? `, ${totals.buyUnpriced} without a listed price` : ""}`
+                  : totals.buyUnpriced
+                    ? ", no listed prices"
+                    : ""}
               </span>
             </Link>
             <Link className="figure" to="/decks/plan/prints">
@@ -83,7 +88,7 @@ export function Overview() {
             </Link>
             <div className="figure">
               <b className="num">{totals.waitingToInstall}</b>
-              <span>in hand, not ticked as installed</span>
+              <span>in hand, not installed yet</span>
             </div>
             <Link className="figure" to="/decks/plan/spares">
               <b className="num">{totals.sparesNow}</b>

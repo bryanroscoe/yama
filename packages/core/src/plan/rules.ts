@@ -81,6 +81,8 @@ export interface MarketBasis {
   kind: "printing" | "cheapest" | "recorded";
   /** "2X2 #173" or "Forgotten Realms Commander (AFC) #175". */
   printing: string | null;
+  /** Which printing the price is for, when known: to tell whether two prices are for the same copy. */
+  ref: PrintingRef | null;
   /** Older than Yama's other prices by more than STALE_DAYS: shown as "last priced". */
   stale: boolean;
 }
@@ -105,7 +107,15 @@ export function cheapestMarket(card: string | null | undefined, p: PriceData): M
   const id = card ? p.names[card.trim()] : undefined;
   const m = id ? p.market[id] : null;
   if (!m) return null;
-  return { usd: m.usd, date: m.date, source: m.source, kind: "cheapest", printing: m.printing, stale: isStale(m.date, p.prices_as_of) };
+  return {
+    usd: m.usd,
+    date: m.date,
+    source: m.source,
+    kind: "cheapest",
+    printing: m.printing,
+    ref: { scryfall_id: m.scryfall_id, set: m.set, num: m.num },
+    stale: isStale(m.date, p.prices_as_of),
+  };
 }
 
 export interface PrintingRef {
@@ -127,15 +137,30 @@ export function printingMarket(ref: PrintingRef | null | undefined, p: PriceData
     source: m.source,
     kind: "printing",
     printing: `${m.set.toUpperCase()} #${m.num}${foil ? " foil" : ""}`,
+    ref: { scryfall_id: id, set: m.set, num: m.num },
     stale: isStale(m.date, p.prices_as_of),
   };
+}
+
+/**
+ * Whether two references name the same printing: by Scryfall id when both have one, else by set
+ * and collector number. False when either side doesn't say.
+ */
+export function samePrinting(a: PrintingRef | null | undefined, b: PrintingRef | null | undefined, p?: Pick<PriceData, "printing_ids">): boolean {
+  if (!a || !b) return false;
+  const id = (r: PrintingRef) => r.scryfall_id || (p && r.set && r.num ? p.printing_ids[`${r.set.toLowerCase()}/${r.num}`] : undefined) || null;
+  const x = id(a);
+  const y = id(b);
+  if (x && y) return x === y;
+  return !!(a.set && a.num && b.set && b.num) && a.set.toLowerCase() === b.set.toLowerCase() && a.num === b.num;
 }
 
 /** The newest recorded benchmark among these quotes, as a basis. */
 export function recordedMarket(quotes: Quote[] | undefined, asOf: string | null | undefined): MarketBasis | null {
   const q = (quotes ?? []).filter((x) => x.kind === "market_benchmark" && x.price != null).sort((a, b) => (a.checked < b.checked ? 1 : -1))[0];
   if (!q || q.price == null) return null;
-  return { usd: q.price, date: q.checked, source: q.source, kind: "recorded", printing: q.printing, stale: isStale(q.checked, asOf) };
+  const ref = q.scryfall_id || (q.set && q.num) ? { scryfall_id: q.scryfall_id, set: q.set, num: q.num } : null;
+  return { usd: q.price, date: q.checked, source: q.source, kind: "recorded", printing: q.printing, ref, stale: isStale(q.checked, asOf) };
 }
 
 // ── what a listing says about itself ───────────────────────────────────────
@@ -227,10 +252,17 @@ export function priceFlag(input: PriceCheckInput, prices: PriceData, settings: R
       flags.push({ id: "pricey-printing", text: `A pricier printing: the cheapest copy is ${basisText(cheapest)}.${old(cheapest)}`, tone: "warn" });
     }
   }
-  if (compare && r.shiny_only_if_no_plain && special && cheapest && price > cheapest.usd) {
+  // Yama's price data doesn't say which printings are borderless, showcase or extended art, so the
+  // cheapest non-foil copy is never called a plain one. A foil or etched listing is a special finish
+  // of its printing, so a cheaper non-foil copy of any printing (its own included) counts. A special
+  // frame is the printing itself: the flag needs a cheaper copy of a different printing, and stays
+  // quiet when the cheapest copy is the listing's own printing (Agent of Treachery, TLE #9 borderless).
+  const finishOnly = special === "foil" || special === "etched";
+  if (compare && r.shiny_only_if_no_plain && special && cheapest && price > cheapest.usd && (finishOnly || !samePrinting(input.printing, cheapest.ref, prices))) {
+    const unsure = finishOnly ? "" : " Yama can't tell whether that printing is a plain one.";
     flags.push({
       id: "special",
-      text: `A ${special} version, while a plain copy is ${basisText(cheapest)}. Your rule: pay extra for a foil or special version only when there's no plain one.`,
+      text: `A ${special} version, while the cheapest non-foil copy is ${basisText(cheapest)}.${unsure} Your rule: pay extra for a foil or special version only when there's no plain one.`,
       tone: "plain",
     });
   }

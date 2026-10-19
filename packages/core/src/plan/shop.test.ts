@@ -8,6 +8,7 @@ import {
   cartUrl,
   deckCounts,
   inHand,
+  installedState,
   deckLogs,
   isStale,
   laterOutText,
@@ -22,6 +23,7 @@ import {
   spares,
   specialVersion,
   swapStatus,
+  usd,
   type Mark,
   type Order,
   type PlanBundle,
@@ -260,7 +262,48 @@ describe("rules and price flags", () => {
     const c = priceFlag({ card: "Rider", price: 1, date: "2026-10-18", text: "2X2 #173 foil", printing: { set: "2x2", num: "173" } }, bundle, settings);
     expect(c.basis?.usd).toBe(1.2);
     expect(c.flags.map((f) => f.id)).toEqual(["pricey-printing", "special"]);
+    expect(c.flags[1]!.text).toBe(
+      "A foil version, while the cheapest non-foil copy is $0.51 for Forgotten Realms Commander (AFC) #175, 18 Oct 2026. Your rule: pay extra for a foil or special version only when there's no plain one.",
+    );
     expect(priceFlag({ card: "X", price: 1, date: "2026-10-18", store: stores[2], compareMarket: false }, bundle, settings).flags.map((f) => f.id)).toEqual(["not-local"]);
+  });
+
+  // Agent of Treachery at Pat's: TLE #9 borderless for $3.50. Yama's cheapest non-foil copy is that
+  // same printing ($3.44); the plain M20 #43 costs more ($6.13), so nothing extra is paid for the frame.
+  const agent: PlanBundle = {
+    ...bundle,
+    names: { "Agent of Treachery": "o-agent" },
+    market: { "o-agent": { usd: 3.44, printing: "Avatar: The Last Airbender Eternal (TLE) #9", set: "tle", num: "9", scryfall_id: "s-tle9", date: "2026-10-18", source: "TCGplayer market via Scryfall, cheapest non-foil" } },
+    market_by_printing: {
+      "s-tle9": { usd: 3.44, usd_foil: 5.4, date: "2026-10-18", set: "tle", num: "9", source: "TCGplayer market via Scryfall" },
+      "s-m20": { usd: 6.13, usd_foil: 9, date: "2026-10-18", set: "m20", num: "43", source: "TCGplayer market via Scryfall" },
+    },
+    printing_ids: { "tle/9": "s-tle9", "m20/43": "s-m20" },
+  };
+  const text = "In stock: TLE #9 borderless Near Mint $3.50 (4)";
+
+  it("never calls the listing's own special printing a plain copy", () => {
+    const c = priceFlag({ card: "Agent of Treachery", price: 3.5, date: "2026-10-18", text, printing: { set: "TLE", num: "9" } }, agent, settings);
+    expect(c.basis?.kind).toBe("printing");
+    expect(c.flags.map((f) => f.id)).not.toContain("special");
+    // By Scryfall id too.
+    expect(priceFlag({ card: "Agent of Treachery", price: 3.5, date: "2026-10-18", text, printing: { scryfall_id: "s-tle9" } }, agent, settings).flags.map((f) => f.id)).not.toContain("special");
+  });
+
+  it("a special printing with a cheaper copy of another printing is flagged, without calling that copy plain", () => {
+    const cheaper = { ...agent, market: { "o-agent": { ...agent.market["o-agent"]!, usd: 2.1, printing: "Core Set 2020 (M20) #43", set: "m20", num: "43", scryfall_id: "s-m20" } } };
+    const c = priceFlag({ card: "Agent of Treachery", price: 3.5, date: "2026-10-18", text, printing: { set: "tle", num: "9" } }, cheaper, settings);
+    const flag = c.flags.find((f) => f.id === "special")!;
+    expect(flag.text).toBe(
+      "A borderless version, while the cheapest non-foil copy is $2.10 for Core Set 2020 (M20) #43, 18 Oct 2026. Yama can't tell whether that printing is a plain one. Your rule: pay extra for a foil or special version only when there's no plain one.",
+    );
+    expect(flag.text).not.toMatch(/plain copy/);
+  });
+
+  it("a foil listing still counts its own printing's non-foil copy", () => {
+    const foil = priceFlag({ card: "Agent of Treachery", price: 5.4, date: "2026-10-18", text: "TLE #9 foil", printing: { set: "tle", num: "9" } }, agent, settings);
+    expect(foil.basis?.usd).toBe(5.4);
+    expect(foil.flags.find((f) => f.id === "special")?.text).toContain("while the cheapest non-foil copy is $3.44 for Avatar: The Last Airbender Eternal (TLE) #9");
   });
 });
 
@@ -301,17 +344,43 @@ describe("buyList", () => {
     expect(rider.check?.flags.map((f) => f.id)).toContain("over-market");
   });
 
-  it("totals only known prices, counts missing ones apart, and builds cart links", () => {
+  it("totals only known prices, keeps unpriced listings out of carts, and builds cart links", () => {
     const shop = list.stores.find((g) => g.store.key === "shop")!;
-    expect(shop.rows.map((r) => r.swap.in)).toEqual(["Counter", "Unpriced"]);
+    // Unpriced is in stock at Example with a variant but no price: not in the cart or its heading.
+    expect(shop.rows.map((r) => r.swap.in)).toEqual(["Counter"]);
     expect(shop.total).toBe(2.25);
-    expect(shop.unpriced).toBe(1);
-    expect(shop.cartUrl).toBe("https://shop.example/cart/11:1,66:1");
+    expect(shop.cartUrl).toBe("https://shop.example/cart/11:1");
+    expect(list.noPrice.map((r) => [r.swap.in, r.store?.key, r.listing?.variant, r.price])).toEqual([["Unpriced", "shop", "66", null]]);
+    expect(list.noPrice[0]!.check?.flags.map((f) => f.id)).toEqual(["no-price"]);
     expect(list.total).toBe(3);
+    expect(list.priced).toBe(2);
     expect(list.unpriced).toBe(3); // Unpriced, plus Nowhere and Pending with no listing
     expect(list.count).toBe(5);
     expect(cartUrl(stores[0]!, [])).toBeNull();
     expect(cartUrl({ ...stores[0]!, cart_url_template: "http://shop.example/cart/{items}" }, ["1"])).toBeNull();
+  });
+
+  it("a priced listing beats a cheaper-looking one with no price", () => {
+    const qs = [
+      quote({ swap: "p-counter", card: "Counter", store: "shop", variant: "11", price: null, result: "In stock" }),
+      quote({ swap: "p-counter", card: "Counter", store: "mother", variant: "33", price: 2.5 }),
+    ];
+    const l = buyList({ ...bundle, quotes: qs }, { answers });
+    const row = l.stores.flatMap((g) => g.rows).find((r) => r.swap.in === "Counter")!;
+    expect([row.store?.key, row.price]).toEqual(["mother", 2.5]);
+    expect(row.others.map((q) => q.store)).toEqual(["shop"]);
+  });
+
+  it("with no listed price anywhere the total is unknown, never $0.00", () => {
+    const qs = quotes.filter((q) => q.swap === "p-unpriced" || q.swap === "p-nowhere");
+    const l = buyList({ ...bundle, quotes: qs, swaps: swaps.filter((s) => ["p-unpriced", "p-nowhere"].includes(s.key)) }, { answers });
+    expect(l.stores).toEqual([]);
+    expect(l.total).toBeNull();
+    expect(usd(l.total)).toBe("no price");
+    expect([l.priced, l.unpriced, l.count]).toEqual([0, 2, 2]);
+    const c = overviewCounts({ ...bundle, quotes: qs, swaps: swaps.filter((s) => ["p-unpriced", "p-nowhere"].includes(s.key)) }, { answers, marks: new Map(), today: "2026-10-19" });
+    expect(c.buyTotal).toBeNull();
+    expect(c.buyUnpriced).toBe(2);
   });
 
   it("a card marked bought (through an alias) leaves the totals and carts until the plan records an order", () => {
@@ -449,5 +518,37 @@ describe("marks and counts", () => {
     const c = overviewCounts(bundle, { answers, marks, today: "2026-10-19" });
     expect(c).toMatchObject({ toReview: 7, toBuy: 6, buyTotal: 4, buyUnpriced: 3, printsOnOrder: 4, printsNext: 1, waitingToInstall: 1, installed: 1 });
     expect(c.sparesNow).toBeGreaterThan(0);
+  });
+
+  // The planner's install record (data/upgrades.json in commander-decks) comes in as swap.upgrade.
+  const imported = "2026-10-19T03:00:00Z";
+  const withStatus = (status: string) =>
+    swaps.map((s) => (s.key === "plan|Alpha|New A|Old A" || s.key === "standin|Alpha|Stand B" ? { ...s, upgrade: { id: `upgrade-${s.in}`, status }, updated_at: imported } : s));
+
+  it("starts from the planner's install record: installed is ticked, skipped isn't waiting", () => {
+    const none = new Map();
+    const installed = overviewCounts({ ...bundle, swaps: withStatus("installed") }, { answers, marks: none, today: "2026-10-19" });
+    expect([installed.waitingToInstall, installed.installed]).toEqual([0, 2]);
+    const skipped = overviewCounts({ ...bundle, swaps: withStatus("skipped") }, { answers, marks: none, today: "2026-10-19" });
+    expect([skipped.waitingToInstall, skipped.installed]).toEqual([0, 0]);
+    // planned or ordered says nothing about the deck
+    const ordered = overviewCounts({ ...bundle, swaps: withStatus("ordered") }, { answers, marks: none, today: "2026-10-19" });
+    expect([ordered.waitingToInstall, ordered.installed]).toEqual([2, 0]);
+    const s = withStatus("installed")[0]!;
+    expect(installedState(s, undefined)).toEqual({ on: true, skipped: false, from: "plan", planStatus: "installed" });
+  });
+
+  it("a tick here newer than the import wins over the planner's record; an older one doesn't", () => {
+    const s = withStatus("installed")[0]!;
+    expect(installedState(s, mark(false, "2026-10-19T04:00:00Z"))).toEqual({ on: false, skipped: false, from: "yama", planStatus: "installed" });
+    expect(installedState(s, mark(false, "2026-10-19T02:00:00Z"))).toEqual({ on: true, skipped: false, from: "plan", planStatus: "installed" });
+    const skipped = withStatus("skipped")[0]!;
+    expect(installedState(skipped, mark(true, "2026-10-19T04:00:00Z")).on).toBe(true);
+    expect(installedState(skipped, mark(true, "2026-10-19T02:00:00Z"))).toMatchObject({ on: false, skipped: true, from: "plan" });
+    // No record from the planner: the tick is all there is.
+    expect(installedState(swaps[0]!, mark(true, "2026-01-01T00:00:00Z"))).toMatchObject({ on: true, from: "yama", planStatus: null });
+    const marks = markIndex({ "plan|Alpha|New A|Old A": { installed: mark(false, "2026-10-19T04:00:00Z") } }, {}, live).marks;
+    const c = overviewCounts({ ...bundle, swaps: withStatus("installed") }, { answers, marks, today: "2026-10-19" });
+    expect([c.waitingToInstall, c.installed]).toEqual([1, 1]);
   });
 });

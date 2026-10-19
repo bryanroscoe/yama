@@ -4,7 +4,7 @@
 
 import { wins } from "./overlay";
 import { resolveKey } from "./text";
-import type { Mark } from "./types";
+import type { Mark, Swap } from "./types";
 
 export type MarkPair = { installed?: Mark; bought?: Mark };
 
@@ -55,4 +55,29 @@ export function markIndex(
     out.set(to, next);
   }
   return { marks: out, orphans };
+}
+
+/** Whether a planned swap is in the deck, and who says so. */
+export interface InstalledState {
+  /** In the deck: ticked here, or recorded as installed by the planner. */
+  on: boolean;
+  /** The planner records it as skipped (and no newer tick here says otherwise): not waiting to go in. */
+  skipped: boolean;
+  /** Where `on` comes from: your tick in Yama, the planner's own install record, or nothing yet. */
+  from: "yama" | "plan" | null;
+  /** The planner's record ("installed" or "skipped") when it has one, even when a newer tick wins. */
+  planStatus: "installed" | "skipped" | null;
+}
+
+/**
+ * Start from the planner's install record (commander-decks' data/upgrades.json, carried as
+ * `swap.upgrade`), and let a Yama tick win when it is newer than the swap as last imported. A
+ * status of planned or ordered says nothing about the deck, so any tick wins over it.
+ */
+export function installedState(s: Swap, m: Mark | undefined): InstalledState {
+  const st = s.upgrade?.status;
+  const planStatus = st === "installed" || st === "skipped" ? st : null;
+  if (m && (!planStatus || !s.updated_at || m.at > s.updated_at)) return { on: !!m.value, skipped: false, from: "yama", planStatus };
+  if (planStatus) return { on: planStatus === "installed", skipped: planStatus === "skipped", from: "plan", planStatus };
+  return { on: false, skipped: false, from: null, planStatus: null };
 }
