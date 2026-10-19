@@ -19,13 +19,17 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 pub const MARKET_SOURCE: &str = "TCGplayer market via Scryfall, cheapest non-foil";
 pub const PRINTING_SOURCE: &str = "TCGplayer market via Scryfall";
 
-/// The cache key: plan revision plus the finish time of the latest card or price import.
+/// The cache key: plan revision, the finish time of the latest card or price import, and a tag
+/// for the owner. Revisions count per owner, so without the tag two people with one import each
+/// would share a key, and a phone that kept the last person's bundle after a sign-out could be
+/// told it was still current.
 pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let revision: Option<i64> = sqlx::query_scalar("SELECT revision FROM plan_meta WHERE owner_id = ?").bind(owner).fetch_optional(pool).await?;
     let cards_at: Option<String> =
         sqlx::query_scalar("SELECT MAX(finished_at) FROM import_runs WHERE error IS NULL AND finished_at IS NOT NULL").fetch_one(pool).await?;
     let digits: String = cards_at.unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
-    Ok(format!("{}-{}", revision.unwrap_or(0), if digits.is_empty() { "0" } else { digits.as_str() }))
+    let tag = &crate::util::sha256_hex(owner)[..8];
+    Ok(format!("{}-{}-{tag}", revision.unwrap_or(0), if digits.is_empty() { "0" } else { digits.as_str() }))
 }
 
 fn parse(s: Option<&str>) -> Value {

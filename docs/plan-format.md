@@ -53,6 +53,8 @@ Writers should make `plan` byte-deterministic so that unchanged content hashes t
 - New fields are optional, and a missing optional field means what it meant before the field existed.
 - Removing a field, renaming one or changing what a value means needs `yama-plan/2`.
 
+commander-decks' exporter also writes fields this format doesn't define. Yama accepts and ignores them; they are listed here so nobody reads them as part of the contract: a top-level `upgrades` array (every `data/upgrades.json` row with its matched swap key, the source of each swap's `upgrade`); `got_text` and `standin` on swaps; `stock_source` on decks; `game_changers` and `game_changers_checked` inside `bracket`; `aliases` on stores; `source` on settings; `item_count` on orders and a per-copy `scan` array on order items; and inside `library`, `scanned` and `arrived` on `bought` entries, `finish` on `extra` entries, and `precon_lists_fetched`. The first integration (2026-10-19) lined the exporter up with this file: slots write `swap` (not `swap_key`) and no `oracle_id`, `got.deck` is a deck key plus `deck_name`, and the collection views arrive as `library`.
+
 ## Conventions
 
 - **Dates** are `YYYY-MM-DD`. **Times** are RFC 3339 in UTC, whole seconds (`2026-10-19T01:00:00Z`).
@@ -238,7 +240,7 @@ A **slot** is one card in a list:
 - Money fields and `unit_price` are `null` when not recorded. `tax: null` means unknown, not "no tax".
 - `card_stock`: print orders only (`"S30"`, `"S33"`), `null` when not recorded.
 - `evidence` is a pointer ("Receipt kept privately"), never the receipt itself.
-- Items: `received` is `{set, num, note}` when the store sent a different printing, else `null`. `arrived` is `false` for a card that never arrived and `null` when unknown. `deck` is the deck key the card was bought for, and `role` is `plan card`, `budget substitute for X` or `temporary stand-in for X`. `unit_price` is the price paid, or for a print order the cost per card.
+- Items: `set` and `num` are the printing listed; `scryfall_id` is set when the writer pinned the printing (commander-decks does this when every scanned copy of the line matches the listing, and not when the store sent another printing). A store's own numbering is not a collector number: Pat's lists The List as `[LIST - 20]`, so commander-decks writes `plst` with the scanned number, or no number. `received` is `{set, num, note}` when the store sent a different printing, else `null`. `arrived` is `false` for a card that never arrived and `null` when unknown. `deck` is the deck key the card was bought for, and `role` is `plan card`, `budget substitute for X` or `temporary stand-in for X`. `unit_price` is the price paid, or for a print order the cost per card.
 - **A print order's items are the exact list that was ordered.** A print swap counts as on that order only if the order's items include its card (counted as a multiset). Counting rows alone isn't enough, because a one-for-one print swap would keep the count and silently label the new card as already ordered. commander-decks freezes the placed MakePlayingCards list in a dated file for this.
 
 ### `quotes`: dated price evidence that isn't Scryfall history

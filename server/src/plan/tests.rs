@@ -892,6 +892,14 @@ async fn plans_are_per_user() {
     let bb = bundle(&app, &token_b).await;
     assert_ne!(ba["decks"][0]["states"]["now"]["id"], bb["decks"][0]["states"]["now"]["id"]);
 
+    // Both are at revision 1 with the same card data, but A's cache key is never current for B,
+    // so a phone still holding A's bundle after a sign-out gets B's.
+    assert_eq!(bb["revision"], 1);
+    assert_ne!(ba["rev"], bb["rev"]);
+    let (_, with_a_rev) = send(&app, Method::GET, &format!("/api/plan/bundle?rev={}", ba["rev"].as_str().unwrap()), Some(&token_b), None).await;
+    assert_eq!(with_a_rev["rev"], bb["rev"]);
+    assert_eq!(with_a_rev["decks"][0]["states"]["now"]["id"], bb["decks"][0]["states"]["now"]["id"]);
+
     // The database itself refuses a link from B's row to A's deck.
     let a_deck: String = sqlx::query_scalar("SELECT id FROM plan_decks WHERE owner_id = ? AND key = 'alpha'").bind(&a).fetch_one(&pool).await.unwrap();
     let cross = sqlx::query(
@@ -909,6 +917,55 @@ async fn plans_are_per_user() {
         let (status, _) = send(&app, method.clone(), path, None, None).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {path}");
     }
+}
+
+/// The fields commander-decks' exporter writes beyond the format (checked against the real file on
+/// 2026-10-19): accepted, ignored where Yama has no use for them, and the format's own fields kept.
+#[tokio::test]
+async fn the_commander_decks_exporters_extra_fields_import_cleanly() {
+    let (app, _pool, _owner, token) = setup().await;
+    let mut d = doc();
+    let p = &mut d["plan"];
+    p["upgrades"] = json!([{"id": "upgrade-001", "deck": "alpha", "deck_name": "Alpha Deck", "add": "Bought Card",
+                            "cut": "Cut Card", "status": "ordered", "acquisition": null, "swap": "plan|Alpha Deck|Bought Card|Cut Card"}]);
+    p["library"] = json!({"bought": [{"order": "shop-1", "line": 1, "card": "Bought Card", "deck": "alpha", "replaces": "Cut Card",
+                                      "set": "tst", "num": "2", "scan": "ok", "scanned": {"set": "tst", "num": "2"}, "arrived": true}],
+                          "scan": {"file": "data/collection/mythic-tools-export-2026-10-18.csv", "date": "2026-10-18",
+                                   "to_check": [], "missing": [], "fine": []},
+                          "extra": [{"card": "Forest", "set": "tst", "num": "9", "finish": "nonfoil", "container": "bulk", "qty": 2}],
+                          "precon_lists_fetched": "2026-10-18"});
+    p["settings"][0]["source"] = json!("notes/decisions.md");
+    p["stores"][0]["aliases"] = json!(["Example Games (Austin)"]);
+    p["decks"][0]["stock_source"] = json!("https://example.com/list");
+    p["decks"][0]["groups"] = json!([{"label": "Core", "bracket": null, "note": null}]);
+    p["decks"][0]["bracket"]["game_changers"] = json!({"4": ["Sol Ring"], "3": [], "2": []});
+    p["decks"][0]["bracket"]["game_changers_checked"] = json!("2026-10-09");
+    p["decks"][0]["states"]["now"]["cards"][3] = json!({
+        "name": "Bought Card", "qty": 1, "board": "main", "kind": "bought", "set": "tst", "num": "2", "scryfall_id": null,
+        "replaces": "Cut Card", "swap": "plan|Alpha Deck|Bought Card|Cut Card", "got": null, "from_deck": null,
+        "order_item": {"order": "shop-1", "line": 1}, "print_order": null, "note": null, "source": "Bought at Example Games"});
+    let s = swap_mut(&mut d, "alpha-owned");
+    s["got_text"] = json!("From Beta Deck (came in that precon).");
+    s["standin"] = Value::Null;
+    let o = &mut d["plan"]["orders"][0];
+    o["item_count"] = json!(2);
+    o["items"][0]["scan"] = json!([{"set": "tst", "num": "2", "finish": "nonfoil", "scryfall_id": "p-bought", "box": "bulk",
+                                    "matches_listing": true, "difference": null}]);
+    o["items"][1]["scan"] = json!([]);
+
+    let r = import(&app, &token, &d).await;
+    assert_eq!(r["counts"]["swaps"]["added"], 5);
+    assert_eq!(r["unknown_cards"].as_array().unwrap().len(), 1, "only Beta's future card: {r}");
+    let b = bundle(&app, &token).await;
+    let alpha = find(&b["decks"], "key", "alpha");
+    assert_eq!(alpha["groups"], json!([{"label": "Core", "bracket": null, "note": null}]));
+    let bought = find(&alpha["states"]["now"]["cards"], "name", "Bought Card");
+    assert_eq!(bought["swap"], "plan|Alpha Deck|Bought Card|Cut Card");
+    assert_eq!(bought["order_item"], json!({"order": "shop-1", "line": 1}));
+    assert_eq!(b["library"]["scan"]["date"], "2026-10-18");
+    assert_eq!(b["library"]["bought"][0]["scan"], "ok");
+    assert_eq!(find(&b["swaps"], "key", "alpha-owned")["got"]["deck"], "beta");
+    assert_eq!(b["game_changers"]["checked_on"], "2026-10-09");
 }
 
 #[tokio::test]
@@ -950,7 +1007,7 @@ async fn the_bundle_cache_key_follows_price_imports() {
     import(&app, &token, &doc()).await;
     let b = bundle(&app, &token).await;
     let rev = b["rev"].as_str().unwrap().to_string();
-    assert_eq!(rev, "1-20261018200910");
+    assert!(rev.starts_with("1-20261018200910-"), "{rev}");
     let (_, same) = send(&app, Method::GET, &format!("/api/plan/bundle?rev={rev}"), Some(&token), None).await;
     assert_eq!(same, json!({"unchanged": true, "rev": rev}));
 
