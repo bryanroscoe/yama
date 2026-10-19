@@ -26,7 +26,7 @@ fi
 echo "Backing up the database, then restarting…"
 scp -q deploy/compose.yaml "$HOST:$DIR/compose.yaml"
 STAMP=$(date +%Y%m%d-%H%M%S)
-ssh "$HOST" "cd $DIR && mkdir -p data/backups && \
+ssh "$HOST" "cd $DIR && mkdir -p data/backups && chown 99:100 data/backups && \
   (docker exec yama yama-server backup /data/backups/yama-$STAMP.db || echo 'no running yama to back up') && \
   docker compose up -d && sleep 5 && docker ps --filter name=^yama\$ --format '{{.Names}}: {{.Status}}'"
 echo "Done: yama:$REV. LAN http://<saget-lan-address>:8099"

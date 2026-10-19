@@ -153,6 +153,8 @@ export interface ImportReport {
   containers: string[];
   unknown_printings: string[];
   errors: string[];
+  decks_created: string[];
+  decks_updated: string[];
 }
 
 export type Board = "commander" | "main" | "side";

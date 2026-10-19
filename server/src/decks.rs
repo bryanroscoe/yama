@@ -675,3 +675,66 @@ pub async fn import_dir(pool: &SqlitePool, dir: &std::path::Path, owner_email: &
     }
     Ok(())
 }
+
+/// Keep a Yama deck in step with a collection container of kind "deck" (from a Mythic Tools
+/// import): create it the first time, add a version when the cards change. Mythic Tools doesn't
+/// say which card is the commander, so cards go in the main deck; a lone legendary creature or
+/// a card that says it can be your commander is promoted. Returns (deck id, created?).
+pub async fn sync_deck_from_container(pool: &SqlitePool, owner: &str, container_id: &str, name: &str) -> AppResult<(String, bool, bool)> {
+    let rows: Vec<(String, String, i64, String, String)> = sqlx::query_as(
+        "SELECT c.oracle_id, c.name, SUM(i.qty), c.type_line, c.oracle_text FROM collection_items i
+         JOIN printings p ON p.scryfall_id = i.scryfall_id JOIN cards c ON c.oracle_id = p.oracle_id
+         WHERE i.owner_id = ? AND i.container_id = ?
+         GROUP BY c.oracle_id ORDER BY c.name",
+    )
+    .bind(owner)
+    .bind(container_id)
+    .fetch_all(pool)
+    .await?;
+    let eligible: Vec<&String> = rows
+        .iter()
+        .filter(|(_, _, _, t, o)| (t.contains("Legendary") && t.contains("Creature")) || o.to_lowercase().contains("can be your commander"))
+        .map(|(id, ..)| id)
+        .collect();
+    let commander = (eligible.len() == 1).then(|| eligible[0].clone());
+    let cards: Vec<DeckCard> = rows
+        .iter()
+        .map(|(oracle_id, name, qty, ..)| DeckCard {
+            oracle_id: oracle_id.clone(),
+            name: name.clone(),
+            qty: *qty,
+            board: if Some(oracle_id) == commander.as_ref() { Board::Commander } else { Board::Main },
+        })
+        .collect();
+    let existing: Option<(String, Option<String>)> =
+        sqlx::query_as("SELECT id, current_version_id FROM decks WHERE owner_id = ? AND container_id = ? AND archived = 0 LIMIT 1")
+            .bind(owner)
+            .bind(container_id)
+            .fetch_optional(pool)
+            .await?;
+    match existing {
+        None => {
+            let id = create_deck_with_cards(pool, owner, name, Some("Mythic Tools"), cards).await?;
+            sqlx::query("UPDATE decks SET container_id = ? WHERE id = ?").bind(container_id).bind(&id).execute(pool).await?;
+            Ok((id, true, true))
+        }
+        Some((id, version)) => {
+            let same = match &version {
+                Some(v) => {
+                    let old = load_version_cards(pool, v).await?;
+                    let key = |c: &[DeckCard]| {
+                        let mut k: Vec<(String, i64)> = c.iter().map(|x| (x.oracle_id.clone(), x.qty)).collect();
+                        k.sort();
+                        k
+                    };
+                    key(&old) == key(&cards)
+                }
+                None => false,
+            };
+            if !same {
+                insert_version(pool, &id, &cards, Some("updated from a Mythic Tools import")).await?;
+            }
+            Ok((id, false, !same))
+        }
+    }
+}

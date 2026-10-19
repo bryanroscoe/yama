@@ -688,6 +688,9 @@ pub struct ImportReport {
     /// Rows whose Scryfall ID isn't in our card data (yet). They're imported anyway.
     unknown_printings: Vec<String>,
     errors: Vec<String>,
+    /// Decks built from the file's deck containers.
+    decks_created: Vec<String>,
+    decks_updated: Vec<String>,
 }
 
 async fn import_mythic(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: String) -> AppResult<Json<ImportReport>> {
@@ -708,6 +711,8 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str) -> Ap
         containers: vec![],
         unknown_printings: vec![],
         errors: vec![],
+        decks_created: vec![],
+        decks_updated: vec![],
     };
     let mut containers: HashMap<(String, String), String> = HashMap::new();
     let mut rows = Vec::new();
@@ -802,6 +807,17 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str) -> Ap
         }
     }
     tx.commit().await?;
+    // Mythic Tools keeps decks as containers of kind "deck": make each one a real Yama deck too.
+    for ((kind, name), container_id) in &containers {
+        if kind == "deck" {
+            let (_, created, changed) = crate::decks::sync_deck_from_container(pool, owner, container_id, name).await?;
+            if created {
+                report.decks_created.push(name.clone());
+            } else if changed {
+                report.decks_updated.push(name.clone());
+            }
+        }
+    }
     Ok(report)
 }
 
@@ -991,5 +1007,27 @@ mod tests {
         let r1 = import_mythic_csv(&pool, &a, CSV).await.unwrap();
         let r2 = import_mythic_csv(&pool, "u2", CSV).await.unwrap();
         assert_eq!((r1.added_rows, r2.added_rows), (2, 2));
+    }
+
+    #[tokio::test]
+    async fn deck_containers_become_decks() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        for (oid, name, tl, sid) in [("o1", "Omo, Queen of Vesuva", "Legendary Creature — Shapeshifter", "p1"), ("o2", "Sol Ring", "Artifact", "p2")] {
+            sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES (?,?,?, 'now')").bind(oid).bind(name).bind(tl).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES (?,?,?,'x','X','1','en','now')")
+                .bind(sid).bind(oid).bind(name).execute(&pool).await.unwrap();
+        }
+        let csv = "Card Name,Set Code,Collector Number,Language,Quantity,Condition,Finish,Scryfall ID,Container Type,Container Name\n\
+Omo,x,1,en,1,NM,nonfoil,p1,deck,Tricky Terrain\n\
+Sol Ring,x,1,en,1,NM,nonfoil,p2,deck,Tricky Terrain\n";
+        let r = import_mythic_csv(&pool, &owner, csv).await.unwrap();
+        assert_eq!(r.decks_created, vec!["Tricky Terrain".to_string()]);
+        let v: String = sqlx::query_scalar("SELECT v.cards FROM decks d JOIN deck_versions v ON v.id = d.current_version_id").fetch_one(&pool).await.unwrap();
+        let cards: Vec<crate::decks::DeckCard> = serde_json::from_str(&v).unwrap();
+        assert!(cards.iter().any(|c| c.name.starts_with("Omo") && c.board == crate::decks::Board::Commander));
+        // Importing the same file again changes nothing.
+        let again = import_mythic_csv(&pool, &owner, csv).await.unwrap();
+        assert!(again.decks_created.is_empty() && again.decks_updated.is_empty());
     }
 }

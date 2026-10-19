@@ -199,6 +199,10 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
           <button className="quiet" onClick={onClose}>Close</button>
         </div>
         <p className="dim">In Mythic Tools, export your collection as CSV, then choose the file here. Importing the same file again won't add anything twice.</p>
+        <p className="dim small">
+          Mythic Tools' collection export leaves your decks out. To bring a deck over, export that deck from Mythic Tools (as
+          CSV, or as a text list to paste on the Decks tab). Cards in a deck become a Yama deck, linked to those cards.
+        </p>
         <label>
           CSV file
           <input type="file" accept=".csv,text/csv" onChange={(e) => e.target.files?.[0] && upload.mutate(e.target.files[0])} />
@@ -212,6 +216,8 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
               {report.already_imported_rows > 0 && ` ${report.already_imported_rows} rows were already imported.`}
             </p>
             {report.containers.length > 0 && <p className="dim">Containers: {report.containers.join(", ")}</p>}
+            {report.decks_created.length > 0 && <p>New decks: {report.decks_created.join(", ")}. Check each one's commander on the Decks tab.</p>}
+            {report.decks_updated.length > 0 && <p className="dim">Updated decks: {report.decks_updated.join(", ")}</p>}
             {report.unknown_printings.length > 0 && (
               <p className="dim">Not in our card data yet (kept anyway): {report.unknown_printings.join(", ")}</p>
             )}
