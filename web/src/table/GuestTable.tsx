@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { Pips, Sheet } from "../components/ui";
 import { wsUrl } from "./share";
-import { DispatchContext, Panel, PlayerSheet, pendingDelta } from "./TablePlay";
+import { DispatchContext, Panel, PlayerSheet, pendingDelta, useTableArt } from "./TablePlay";
 import "./table.css";
 
 interface Snapshot {
@@ -61,6 +61,7 @@ export function GuestTable() {
   }, [gameId, key]);
 
   const state = useMemo(() => (snapshot ? replay(snapshot.setup, snapshot.log) : null), [snapshot]);
+  const artFor = useTableArt(state?.players ?? []);
   const send = (event: TableEvent) => {
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify({ type: "event", event }));
   };
@@ -119,7 +120,7 @@ export function GuestTable() {
           {others.map((p) => (
             <div key={p.seat} className={`guest-other${p.eliminated ? " out" : ""}${state.activeSeat === p.seat ? " active" : ""}`}>
               <span className="small">{p.name}</span>
-              <b className="num">{p.eliminated ? "out" : p.life}</b>
+              <b className="num">{p.eliminated ? "Out" : p.life}</b>
             </div>
           ))}
         </div>
@@ -132,6 +133,7 @@ export function GuestTable() {
             state={state}
             pending={pendingDelta(snapshot!.log, me.seat)}
             fill={fills[state.players.indexOf(me)]!}
+            artFor={artFor}
             onOpen={() => setSheet(true)}
           />
         </div>

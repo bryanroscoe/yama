@@ -3,7 +3,12 @@
    and a full-size preview of whatever card the mouse is over. */
 
 .board {
-  --field-w: 78px;
+  /* Square battlefield tiles: your creatures and other permanents, your lands, and the same two
+     rows smaller for each opponent. */
+  --field-w: 72px;
+  --land-w: 52px;
+  --opp-w: 52px;
+  --opp-land-w: 40px;
   --hand-w: 108px;
   --card-ratio: 680 / 488;
   min-height: 100dvh;
@@ -59,9 +64,14 @@
   padding: 0;
 }
 .phases li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
   font-size: var(--t-sm);
-  padding: 0.15rem 0.6rem;
-  border-radius: var(--r-pill);
+  line-height: 1.3;
+  padding: 3px 8px;
+  border-radius: 8px;
   color: var(--dim);
   white-space: nowrap;
 }
@@ -69,10 +79,54 @@
   background: var(--raised);
   color: var(--text);
   font-weight: 700;
-  box-shadow: inset 0 0 0 1px var(--dim);
 }
 .phases .step {
   font-weight: 400;
+}
+/* The stop ladder under each phase: where the game stops for you. The two kinds differ in hue
+   and in shape: a filled dot for your turns, an outlined square for opponents' turns. Off is a
+   hairline of the same shape. */
+.stops {
+  display: flex;
+  gap: 3px;
+  height: 6px;
+}
+.stop-mine,
+.stop-opp {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex: none;
+}
+.stop-mine {
+  border-radius: 50%;
+  background: var(--line);
+}
+.stop-mine.on {
+  background: var(--stop-mine);
+}
+.stop-opp {
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1.5px var(--line);
+}
+.stop-opp.on {
+  box-shadow: inset 0 0 0 1.5px var(--stop-opp);
+}
+.stops-note {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  color: var(--dim);
+}
+.stops-note button {
+  padding-inline: 10px;
+}
+.stops-note .stop-mine,
+.stops-note .stop-opp {
+  width: 8px;
+  height: 8px;
 }
 
 /* Opponents */
@@ -158,6 +212,7 @@
   color: var(--dim);
 }
 .thinking {
+  color: var(--warn);
   animation: pulse 1.2s ease-in-out infinite;
 }
 @keyframes pulse {
@@ -176,9 +231,6 @@
 }
 .opponents .tiles {
   flex-wrap: nowrap;
-}
-.opponents .tiles.lands .tile.field {
-  width: calc(var(--opp-w, var(--field-w)) * 0.75);
 }
 
 /* Your side */
@@ -218,8 +270,8 @@
   margin: 0.25rem 0;
 }
 
-/* Cards on the table are full card images. Highlights are rings drawn around the tile, so the
-   image itself is never dimmed or filtered. */
+/* Cards in your hand are full card images; cards on the battlefield are square art crops (below).
+   Highlights are rings drawn around the tile, so the image itself is never dimmed or filtered. */
 .tile {
   position: relative;
   padding: 0;
@@ -267,6 +319,75 @@
   transform: rotate(90deg);
   margin-inline: calc(var(--field-w) * 0.2);
 }
+
+/* Battlefield tiles: the card's art crop in a square, its name on a near-solid bar along the top,
+   P/T bottom-right. A square takes the same room tapped, so it just turns. */
+.tile.square {
+  --tile: var(--field-w);
+  width: var(--tile);
+  height: var(--tile);
+  border-radius: var(--r-tile);
+  background: var(--raised);
+}
+.mine .tiles.lands .tile.square {
+  --tile: var(--land-w);
+}
+.opponents .tile.square {
+  --tile: var(--opp-w);
+}
+.opponents .tiles.lands .tile.square {
+  --tile: var(--opp-land-w);
+  border-radius: 8px;
+}
+/* Opponents' tiles are small: the commander shows by its inner ring alone, and how many of a
+   stack are tapped is in the label and the preview. */
+.opponents .tile.square .zone-tag,
+.opponents .tile.square .tapped-n {
+  display: none;
+}
+.tile.square.tapped {
+  margin-inline: 0;
+}
+.tile.square > .tile-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: inherit;
+  object-fit: cover;
+  display: block;
+}
+.tile-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 1px 5px;
+  border-radius: var(--r-tile) var(--r-tile) 0 0;
+  background: var(--art-chip);
+  color: var(--on-art);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile.square.no-art .tile-bar {
+  white-space: normal;
+  bottom: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--text);
+}
+@media (min-width: 1000px) {
+  .mine .tiles:not(.lands) .tile-bar {
+    font-size: 12px;
+    padding: 2px 6px;
+  }
+}
 /* Your commander: an inner text-colored ring, plus its tag. */
 .tile.command::after {
   content: "";
@@ -276,17 +397,48 @@
   box-shadow: inset 0 0 0 2px var(--text);
   pointer-events: none;
 }
-.zone-tag {
+.zone-tag,
+.tile-badge {
   position: absolute;
-  top: 4px;
+  bottom: 4px;
   left: 4px;
-  right: 4px;
-  text-align: center;
-  font-size: 0.65rem;
+  max-width: calc(100% - 8px);
+  padding: 0 5px;
+  font-size: 11px;
   font-weight: 700;
+  line-height: 1.45;
+  border-radius: 4px;
   background: var(--art-chip);
   color: var(--on-art);
-  border-radius: var(--r-pill);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A commander tile with P/T: the tag moves above the P/T box. */
+.tile.square:has(.stat) .zone-tag {
+  bottom: 24px;
+}
+/* Attacking: a bad-colored ring and the badge, lifted a little toward the opponents. */
+.tile.attacking {
+  transform: translateY(-6px);
+}
+.tile.attacking.tapped {
+  transform: translateY(-6px) rotate(90deg);
+}
+/* The badge runs along the bottom edge so "Attacking" fits even on a small opponent's tile; the
+   P/T box steps up above it. */
+.tile-badge.attacking-badge {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-width: none;
+  border-radius: 0 0 var(--r-tile) var(--r-tile);
+  text-align: center;
+  background: var(--bad);
+  color: var(--ground);
+}
+.tile.attacking .stat {
+  bottom: 20px;
 }
 /* Has options: a good-colored ring (and the dot, for anyone who can't tell the color). */
 .tile.playable {
@@ -297,6 +449,13 @@
 }
 .tile.playable.selected {
   box-shadow: 0 0 0 2px var(--good), 0 0 0 4px var(--text);
+}
+.tile.attacking,
+.tile.attacking.playable {
+  box-shadow: 0 0 0 3px var(--bad);
+}
+.tile.attacking.selected {
+  box-shadow: 0 0 0 3px var(--bad), 0 0 0 5px var(--text);
 }
 .tile.hand.selected {
   transform: translateY(-6px);
@@ -332,6 +491,11 @@
   color: var(--ground);
   border-radius: 4px;
 }
+@media (min-width: 1000px) {
+  .mine .tiles:not(.lands) .stat {
+    font-size: 0.875rem;
+  }
+}
 .stat.hurt {
   background: var(--bad);
   color: var(--ground);
@@ -341,8 +505,10 @@
   left: 4px;
   background: var(--art-chip);
   color: var(--on-art);
-  border-radius: var(--r-pill);
-  padding: 1px 7px;
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 1.45;
 }
 .count {
   white-space: nowrap;
@@ -350,16 +516,16 @@
 .tapped-n {
   display: block;
   font-weight: 400;
-  font-size: 0.65rem;
+  font-size: 11px;
 }
 .counters {
   position: absolute;
-  top: 18%;
+  top: 24px;
   left: 4px;
   right: 4px;
   background: var(--art-chip);
   color: var(--on-art);
-  font-size: 0.7rem;
+  font-size: 11px;
   font-weight: 700;
   padding: 1px 4px;
   border-radius: 6px;
@@ -411,7 +577,7 @@
   border-radius: 3px;
 }
 .decision {
-  border: 1px solid var(--dim);
+  border: 1px solid var(--line);
   border-radius: var(--r-list);
   padding: 0.75rem;
   background: var(--ground);
@@ -531,8 +697,8 @@
   margin: 0 0 0.35rem;
 }
 .decision.compact .prompt button {
-  min-height: 32px;
-  padding: 0 6px;
+  min-height: var(--target);
+  padding: 0 10px;
 }
 .last-event {
   margin: 0 0 0.2rem;
@@ -622,26 +788,11 @@
   .board-top button {
     white-space: nowrap;
   }
-  .board {
-    --opp-w: 60px;
-  }
-  .opponents .tile.field {
-    width: var(--opp-w);
-  }
-  .opponents .tile.tapped {
-    margin-inline: 10px;
-  }
-  .opponents .tiles.lands .tile.tapped {
-    margin-inline: 8px;
-  }
   .opponents .tapped-n {
     display: none;
   }
-  .opponents .zone-tag {
-    font-size: 0.55rem;
-  }
   .opponents .stat {
-    font-size: 0.7rem;
+    font-size: 11px;
   }
   .opp-life {
     font-size: 1.75rem;
@@ -664,14 +815,20 @@
 
 @media (min-width: 640px) {
   .board {
-    --field-w: 92px;
+    --field-w: 84px;
+    --land-w: 56px;
+    --opp-w: 60px;
+    --opp-land-w: 44px;
     --hand-w: 128px;
   }
 }
 
 @media (min-width: 1000px) {
   .board {
-    --field-w: 104px;
+    --field-w: 96px;
+    --land-w: 60px;
+    --opp-w: 64px;
+    --opp-land-w: 44px;
     --hand-w: 150px;
     height: 100dvh;
     grid-template-columns: minmax(0, 1fr) 360px;
@@ -690,15 +847,6 @@
     align-content: start;
   }
   /* Opponents' cards are smaller: the preview shows any of them full size. */
-  .board {
-    --opp-w: 76px;
-  }
-  .opponents .tile.field {
-    width: var(--opp-w);
-  }
-  .opponents .tile.tapped {
-    margin-inline: calc(var(--opp-w) * 0.2);
-  }
   .mine {
     overflow-y: auto;
   }

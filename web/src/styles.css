@@ -167,6 +167,16 @@ table {
   outline-offset: 2px;
 }
 
+/* For screen readers only. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -236,6 +246,14 @@ button:disabled:hover {
   opacity: 0.5;
   cursor: default;
 }
+/* A primary that can't be used yet reads as waiting: raised, with dim text, not a faded pill. */
+button.primary:disabled,
+button.primary:disabled:hover {
+  opacity: 1;
+  background: var(--raised);
+  border-color: var(--raised);
+  color: var(--dim);
+}
 
 input,
 select,
@@ -269,10 +287,15 @@ input[type="checkbox"],
 input[type="radio"] {
   accent-color: var(--text);
 }
-/* The card search box is the one place the mono face appears. */
+/* The card search box is the one place the mono face appears: what you type is mono, the
+   placeholder stays in the body face so its example fits on a phone. */
 form[role="search"] input[type="search"],
 input.search-box {
   font-family: var(--mono);
+}
+form[role="search"] input[type="search"]::placeholder,
+input.search-box::placeholder {
+  font-family: var(--body);
 }
 textarea {
   min-height: 10rem;
@@ -339,12 +362,27 @@ label > span.hint {
   color: var(--text);
 }
 .segmented > [aria-selected="true"],
+.segmented > [aria-pressed="true"],
 .segmented > [aria-current="page"],
 .segmented > .active,
 .segmented > [aria-selected="true"]:hover,
+.segmented > [aria-pressed="true"]:hover,
 .segmented > .active:hover {
   background: var(--text);
   color: var(--ground);
+}
+/* The track scrolls sideways when it's too narrow, which would clip a ring drawn outside the
+   segment, so the ring sits inside it: light on the dark track, dark on the chosen pill. */
+.segmented > :focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+}
+.segmented > [aria-selected="true"]:focus-visible,
+.segmented > [aria-pressed="true"]:focus-visible,
+.segmented > [aria-current="page"]:focus-visible,
+.segmented > .active:focus-visible {
+  outline-color: var(--ground);
+  outline-offset: -4px;
 }
 
 /* ── app shell ──────────────────────────────────────────────────────────── */
@@ -574,6 +612,11 @@ label > span.hint {
 .list > :last-child {
   border-bottom: none;
 }
+/* The list clips to its rounded corners, so a row's focus ring is drawn inside the row. */
+.list > :focus-visible,
+.list > * > .list-row:focus-visible {
+  outline-offset: -3px;
+}
 .list + p {
   margin-top: 12px;
 }
@@ -728,6 +771,61 @@ button.list-row:hover {
   max-width: 60ch;
 }
 
+/* The card sheet's hero: the art crop across the top, fading into the sheet, with the whole card
+   standing on it. */
+.sheet .card-hero.art-panel {
+  --art-fade: var(--surface);
+  height: 240px;
+  margin: -20px -16px 0;
+  border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+}
+.card-sheet > .card-hero + .card-figure {
+  margin-top: calc(-240px + 64px);
+}
+.card-hero > .art-body {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px;
+}
+.hero-close {
+  background: rgb(11 12 14 / 0.6);
+  color: var(--on-art);
+}
+.hero-close:hover {
+  background: rgb(11 12 14 / 0.8);
+}
+.card-hero.art-none .hero-close {
+  background: var(--surface);
+  color: var(--text);
+}
+.card-figure {
+  position: relative;
+  z-index: 1;
+  width: min(260px, 72%);
+  margin: 0 auto;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  text-align: center;
+}
+.card-figure .card-img,
+.card-figure .card-fallback {
+  box-shadow: 0 24px 50px rgb(0 0 0 / 0.6);
+}
+.card-figure figcaption {
+  font-size: var(--t-xs);
+}
+@media (min-width: 900px) {
+  .sheet .card-hero.art-panel {
+    height: 260px;
+    margin: -28px -28px 0;
+    border-radius: var(--r-sheet) 0 0 0;
+  }
+  .card-sheet > .card-hero + .card-figure {
+    margin-top: calc(-260px + 72px);
+  }
+}
+
 .tag {
   display: inline-block;
   font-size: var(--t-sm);
@@ -802,6 +900,276 @@ table.plain tr.few td {
   width: 14px;
   height: 14px;
 }
+/* Sign in: commander art with the wordmark on one side, the form on the other (stacked on phones). */
+.login.login-split {
+  display: flex;
+  flex-wrap: wrap;
+  place-items: initial;
+  padding: 0;
+}
+.login-hero.art-panel {
+  flex: 999 1 560px;
+  min-height: 360px;
+  border-radius: 0;
+  display: grid;
+}
+.login-hero > .art-body {
+  align-self: end;
+  display: grid;
+  gap: 14px;
+  padding: clamp(28px, 5vw, 72px);
+  max-width: 720px;
+}
+.login .login-hero h1 {
+  font-size: clamp(112px, 14vw, 200px);
+  line-height: 0.8;
+  letter-spacing: -0.02em;
+  margin: 0;
+  text-shadow: var(--art-shadow);
+}
+.login-tag {
+  margin: 0;
+  font-size: clamp(1.125rem, 2vw, 1.375rem);
+  line-height: 1.35;
+  max-width: 32ch;
+  text-wrap: pretty;
+}
+.login-credit {
+  margin: 14px 0 0;
+  font-size: 0.75rem;
+  color: var(--on-art-dim);
+}
+.login-hero.art-none .login-credit {
+  color: var(--dim);
+}
+.login-side {
+  flex: 1 1 400px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(28px, 5vw, 72px) clamp(16px, 5vw, 72px);
+}
+.login-side .login-inner {
+  width: min(380px, 100%);
+  margin: 0 auto;
+}
+.login-title {
+  font-size: 2.75rem;
+  font-weight: 800;
+  margin: 0 0 8px;
+}
+.login-notice {
+  margin: 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+/* New game: on phones the start button follows the seats; on laptops it sits beside the title. */
+.setup-start button {
+  flex: 1 1 auto;
+  min-height: 56px;
+}
+@media (min-width: 900px) {
+  .new-game {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "head start"
+      "controls controls"
+      "seats seats"
+      "note note";
+  }
+  .new-game > .page-head {
+    grid-area: head;
+    margin-bottom: 0;
+  }
+  .new-game > .setup-start {
+    grid-area: start;
+    align-self: end;
+  }
+  .setup-start button {
+    min-height: var(--target-primary);
+  }
+  .new-game > .setup-controls {
+    grid-area: controls;
+  }
+  .new-game > .seats {
+    grid-area: seats;
+  }
+  .new-game > .setup-note {
+    grid-area: note;
+  }
+}
+
+/* New game controls: playgroup, then players and starting life as segmented controls. */
+.setup-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+  align-items: end;
+}
+.setup-group {
+  flex: 1 1 15rem;
+}
+.field-label {
+  font-weight: 700;
+  font-size: var(--t-label);
+}
+.setup-choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 1 1 100%;
+}
+.setup-choice .segmented > button {
+  min-width: 44px;
+  padding: 0 0.6rem;
+  justify-content: center;
+}
+@media (min-width: 900px) {
+  .setup-choice {
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}
+
+/* Seats: commander art (washed from the left, where the text sits) above each seat's fields. */
+.seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 16px;
+}
+fieldset.seat.seat-card {
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--r-panel);
+}
+fieldset.seat.seat-card:has(> .seat-head.art-empty) {
+  border: 2px dashed var(--line);
+}
+.seat-head.art-panel {
+  border-radius: 0;
+  min-height: 104px;
+  display: grid;
+}
+.seat-head.art-empty {
+  border: none;
+  background: transparent;
+}
+/* The text sits bottom-left, so the credit goes top-right. */
+.seat-head > .art-credit {
+  top: 8px;
+  bottom: auto;
+}
+.seat-head > .art-body {
+  align-self: end;
+  display: grid;
+  gap: 2px;
+  padding: 12px 16px;
+  line-height: 1.15;
+}
+.seat-n {
+  font-size: var(--t-sm);
+  color: var(--on-art-dim);
+}
+.seat-name {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 2rem;
+  line-height: 1;
+  text-shadow: var(--art-shadow);
+}
+.seat-what {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--on-art-dim);
+  font-size: var(--t-label);
+}
+.seat-cmdr {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.seat-head:not(.art-has) .seat-n,
+.seat-head:not(.art-has) .seat-what {
+  color: var(--dim);
+}
+.seat-head:not(.art-has) .seat-name {
+  text-shadow: none;
+}
+.seat-fields {
+  padding: 16px;
+}
+/* A seat with no commander yet: its fields sit on the page color inside the dashed outline. */
+fieldset.seat.seat-card:has(> .seat-head.art-empty) {
+  background: transparent;
+}
+fieldset.seat.seat-card:has(> .seat-head.art-empty) :is(input, select) {
+  background: var(--surface);
+}
+
+/* Lobby seats: art tiles washed from the bottom, an open seat as a dashed empty slot. */
+.lobby-seats {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (min-width: 900px) {
+  .lobby-seats {
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+    gap: 12px;
+  }
+}
+.lobby-seat.art-panel {
+  min-height: 180px;
+  display: grid;
+}
+.lobby-seat > .art-body {
+  align-self: end;
+  display: grid;
+  gap: 2px;
+  padding: 12px;
+  line-height: 1.2;
+}
+.lobby-seat .seat-name {
+  font-size: 1.625rem;
+}
+.lobby-seat:not(.art-has) .seat-n,
+.lobby-seat:not(.art-has) .seat-what {
+  color: var(--dim);
+}
+.lobby-seat:not(.art-has) .seat-name {
+  text-shadow: none;
+}
+.seat-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: var(--t-sm);
+  font-weight: 700;
+}
+.seat-state::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.seat-state.good {
+  color: var(--good);
+}
+.seat-state.warn {
+  color: var(--warn);
+}
 
 /* A seat in a new-game form: a surface card with its caption inside. */
 fieldset.seat {
@@ -849,13 +1217,116 @@ fieldset.seat > legend + * {
   gap: 0.5rem;
 }
 
+/* ── collection ─────────────────────────────────────────────────────────── */
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 8px 0 12px;
+}
+.section-head h2 {
+  margin: 0;
+}
+.containers {
+  margin-bottom: 32px;
+}
+/* Binders, boxes and decks: art tiles that filter the list below. */
+.container-tiles {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (min-width: 900px) {
+  .container-tiles {
+    grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
+    gap: 12px;
+  }
+}
+.container-tile {
+  display: block;
+  width: 100%;
+  padding: 0;
+  min-height: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font-weight: 400;
+  border-radius: var(--r-panel);
+}
+.container-tile:hover {
+  background: none;
+}
+.container-tile .art-panel {
+  height: 108px;
+  display: grid;
+  border-radius: var(--r-panel);
+}
+.container-tile .art-body {
+  align-self: end;
+  display: grid;
+  line-height: 1.2;
+  padding: 10px 12px;
+}
+.container-tile:hover .art-panel,
+.container-tile[aria-pressed="true"] .art-panel {
+  box-shadow: 0 0 0 2px var(--text);
+}
+.ct-kind,
+.ct-meta {
+  font-size: 0.75rem;
+  color: var(--on-art-dim);
+}
+.ct-name {
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+.container-tile .art-none .ct-kind,
+.container-tile .art-none .ct-meta,
+.container-tile .art-empty .ct-kind,
+.container-tile .art-empty .ct-meta {
+  color: var(--dim);
+}
+.container-tile .art-empty .ct-name {
+  color: var(--text);
+}
+@media (min-width: 900px) {
+  .container-tile .art-panel {
+    height: 130px;
+  }
+  .container-tile .art-body {
+    padding: 14px;
+  }
+  .ct-name {
+    font-size: 1.0625rem;
+  }
+  .ct-meta {
+    font-size: var(--t-sm);
+  }
+}
+
 /* ── decks ──────────────────────────────────────────────────────────────── */
 
-/* Deck tiles: the commander's art with the deck's name along the bottom. */
+/* Deck tiles: the commander's art with the deck's name, commander, ownership and record along
+   the bottom. Two columns of 200 px tiles on phones, 300 px tiles on laptops. */
 .deck-tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (min-width: 900px) {
+  .deck-tiles {
+    grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr));
+    gap: 14px;
+  }
 }
 .deck-tile {
   display: block;
@@ -864,19 +1335,24 @@ fieldset.seat > legend + * {
   border-radius: var(--r-panel);
 }
 .deck-tile .art-panel {
-  aspect-ratio: 16 / 10;
+  height: 200px;
   display: grid;
 }
 .deck-tile .art-body {
   align-self: end;
   display: grid;
   gap: 4px;
-  padding: 16px 18px;
+  padding: 12px;
+}
+.deck-tile .pips .pip {
+  width: 8px;
+  height: 8px;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4);
 }
 .deck-tile-name {
   font-family: var(--display);
   font-weight: 800;
-  font-size: 2rem;
+  font-size: 1.5rem;
   line-height: 0.95;
   text-shadow: var(--art-shadow);
   text-wrap: balance;
@@ -889,47 +1365,409 @@ fieldset.seat > legend + * {
   font-size: var(--t-sm);
   color: var(--on-art-dim);
 }
+.deck-tile-cmdr {
+  display: none;
+}
+.deck-tile-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: var(--on-art-dim);
+}
+.deck-record {
+  display: none;
+}
+.deck-own {
+  font-weight: 700;
+}
+.deck-own.good {
+  color: var(--good);
+}
+.deck-own.warn {
+  color: var(--warn);
+}
 .deck-tile .art-none .deck-tile-meta,
-.deck-tile .art-empty .deck-tile-meta {
+.deck-tile .art-empty .deck-tile-meta,
+.deck-tile .art-none .deck-tile-foot,
+.deck-tile .art-empty .deck-tile-foot {
   color: var(--dim);
 }
 .deck-tile:hover .art-panel {
   box-shadow: 0 0 0 2px var(--text);
 }
+@media (min-width: 900px) {
+  .deck-tile .art-panel {
+    height: 300px;
+  }
+  .deck-tile .art-body {
+    gap: 6px;
+    padding: 16px;
+  }
+  .deck-tile-name {
+    font-size: 2rem;
+  }
+  .deck-tile-cmdr {
+    display: flex;
+    font-size: var(--t-label);
+  }
+  .deck-tile-foot {
+    font-size: var(--t-sm);
+    margin-top: 4px;
+  }
+  .deck-record {
+    display: inline;
+  }
+}
+.art-credits {
+  margin-top: 16px;
+}
 
-/* The deck page's hero: the commander's art with the deck's name on it. */
-.deck-hero {
-  margin: 4px 0 16px;
-  min-height: 260px;
+/* The deck page's hero: the commander's art, full bleed, with the deck's name, its figures and
+   the page's actions on it. */
+.deck-page {
+  padding-bottom: 48px;
+}
+.deck-hero.art-panel {
+  border-radius: 0;
+  min-height: 340px;
   display: grid;
 }
-.deck-hero .art-body {
-  align-self: end;
-  padding: 72px 20px 20px;
+.deck-hero > .art-body {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 72px var(--page-pad) 20px;
+}
+.hero-inner {
+  width: 100%;
+}
+.hero-inner {
+  max-width: var(--content-w);
+  margin: 0 auto;
+  display: grid;
+  gap: 10px;
+}
+.hero-back {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-pill);
+  background: rgb(11 12 14 / 0.6);
+  color: var(--on-art);
+  font-weight: 700;
+  text-decoration: none;
+}
+.hero-back-text {
+  display: none;
+}
+.hero-credit {
+  position: absolute;
+  z-index: 3;
+  top: 26px;
+  right: 14px;
+  max-width: calc(100% - 90px);
+  font-size: var(--t-xs);
+  color: rgb(255 255 255 / 0.85);
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.7);
+  text-align: right;
+}
+.hero-credit-card {
+  display: none;
+}
+.hero-sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: var(--t-label);
+  color: var(--on-art);
 }
 .deck-hero .hero-title {
   font-size: var(--t-hero);
-  line-height: 0.9;
-  margin: 0 0 10px;
+  line-height: 0.85;
+  margin: 0;
   text-shadow: var(--art-shadow);
 }
-.deck-hero .hero-sub {
-  margin: 0;
-  color: var(--on-art-dim);
+.deck-hero.art-none .hero-sub,
+.deck-hero.art-none .hero-credit {
+  color: var(--text);
 }
-.deck-hero.art-none .hero-sub {
+.hero-row {
+  display: none;
+}
+.deck-stat {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+.deck-stat b {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.75rem;
+}
+.deck-stat span {
+  font-size: 0.75rem;
   color: var(--dim);
 }
-@media (min-width: 900px) {
-  .deck-hero {
-    min-height: 380px;
-  }
-  .deck-hero .art-body {
-    padding: 120px 32px 28px;
-  }
+/* Phones: the figures as three tiles and the actions in a row under the art. */
+.deck-stats-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+/* The price, with its source and date, takes the full row. */
+.deck-stats-tiles .deck-stat:nth-child(2) {
+  grid-column: 1 / -1;
+  order: 1;
+}
+.deck-stats-tiles .deck-stat {
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+.deck-actions-phone {
+  margin-bottom: 16px;
+}
+.deck-actions-phone button {
+  flex: 1 1 auto;
+}
+/* Secondary buttons on art: a dark glass pill with a light hairline. Off the art, ordinary. */
+.deck-actions-phone button.on-art {
+  background: var(--raised);
 }
 @media (min-width: 900px) {
-  .deck-actions {
-    justify-content: flex-end;
+  .deck-hero.art-panel {
+    min-height: 420px;
+  }
+  .deck-hero > .art-body {
+    padding: 120px var(--page-pad) 32px;
+  }
+  .hero-back {
+    top: 24px;
+    left: var(--page-pad);
+    width: auto;
+    height: 40px;
+    padding: 0 14px 0 10px;
+  }
+  .hero-back-text {
+    display: inline;
+  }
+  .hero-credit {
+    top: 34px;
+    right: var(--page-pad);
+    font-size: 0.75rem;
+  }
+  .hero-credit-card {
+    display: inline;
+  }
+  .hero-inner {
+    gap: 14px;
+  }
+  .hero-sub {
+    font-size: var(--t-base);
+  }
+  .hero-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 40px;
+    align-items: end;
+  }
+  .hero-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 40px;
+    align-items: end;
+  }
+  .hero-stats .deck-stat b {
+    font-size: 2.5rem;
+    text-shadow: var(--art-shadow);
+  }
+  .hero-stats .deck-stat span {
+    max-width: 30ch;
+    font-size: var(--t-label);
+    color: var(--on-art-dim);
+  }
+  .deck-hero.art-none .hero-stats .deck-stat span {
+    color: var(--dim);
+  }
+  .hero-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .hero-actions .on-art {
+    background: rgb(11 12 14 / 0.4);
+    border-color: rgb(255 255 255 / 0.3);
+    color: var(--on-art);
+    min-height: 48px;
+  }
+  .hero-actions .on-art:hover {
+    background: rgb(11 12 14 / 0.6);
+  }
+  .hero-actions .primary {
+    min-height: 48px;
+  }
+  .deck-stats-tiles,
+  .deck-actions-phone {
+    display: none;
+  }
+}
+.deck-body {
+  padding-top: 8px;
+}
+.deck-legal p {
+  margin-bottom: 8px;
+}
+.deck-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.deck-group {
+  margin-bottom: 24px;
+}
+.not-owned {
+  color: var(--warn);
+  font-weight: 700;
+}
+
+/* Visual stacks: each card overlaps the one before it so about 15% of it shows (its name line). */
+.deck-stacks-wrap {
+  display: flex;
+  gap: 24px;
+  align-items: start;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+.deck-stacks {
+  flex: 999 1 560px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr));
+  gap: 24px 16px;
+  align-items: start;
+}
+@media (max-width: 899px) {
+  .deck-stacks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 12px;
+  }
+}
+.deck-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.deck-stack h2 {
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 1.375rem;
+}
+.deck-stack-meta {
+  font-family: var(--body);
+  font-size: var(--t-sm);
+  font-weight: 400;
+  color: var(--dim);
+}
+.stack-cards {
+  display: flex;
+  flex-direction: column;
+}
+.stack-card {
+  position: relative;
+  display: block;
+  padding: 0;
+  min-height: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--card-radius);
+  box-shadow: 0 -2px 8px rgb(0 0 0 / 0.4);
+}
+.stack-card + .stack-card {
+  margin-top: -118%;
+}
+.stack-card:hover {
+  background: transparent;
+}
+.stack-card:focus-visible {
+  z-index: 1;
+}
+.stack-card .card-img,
+.stack-card .card-fallback {
+  display: block;
+}
+.need-badge,
+.qty-badge {
+  position: absolute;
+  top: 6px;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.need-badge {
+  right: 6px;
+  background: var(--warn);
+  color: var(--ground);
+}
+.qty-badge {
+  left: 6px;
+  background: var(--art-chip);
+  color: var(--on-art);
+}
+.stack-more {
+  min-height: var(--target);
+  background: var(--surface);
+}
+.deck-preview {
+  display: none;
+}
+@media (min-width: 900px) {
+  .deck-preview {
+    flex: 1 1 240px;
+    max-width: 300px;
+    position: sticky;
+    top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .deck-preview .card-img {
+    box-shadow: 0 20px 40px rgb(0 0 0 / 0.5);
+  }
+  .deck-preview-facts {
+    padding: 14px;
+    border-radius: var(--r-list);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: var(--t-label);
+  }
+  .deck-preview-facts b {
+    font-size: var(--t-base);
   }
 }

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, type DeckSummary, type Playgroup } from "../api";
+import { ArtPanel } from "../components/ArtPanel";
 import { ErrorText, Pips } from "../components/ui";
 import type { OnlineGame } from "./types";
 
@@ -106,10 +107,23 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
           </select>
         </label>
       )}
-      {seats.map((s, i) => (
-        <fieldset key={i} className="seat">
-          <legend className="small dim">Seat {i + 1}</legend>
-          <div className="row" style={{ alignItems: "end" }}>
+      <div className="seats">
+      {seats.map((s, i) => {
+        const deck = s.kind === "friend" ? undefined : decks.find((d) => d.id === deckOf(s));
+        const who = i === 0 ? "You" : s.kind === "friend" ? "A friend" : `Computer, ${s.difficulty.toLowerCase()}`;
+        return (
+        <fieldset key={i} className="seat seat-card">
+          <legend className="visually-hidden">Seat {i + 1}</legend>
+          {/* The deck's commander art; a friend's seat stays an empty slot until they join. */}
+          <ArtPanel className="seat-head" art={deck?.commander_image} artist={deck?.commander_artist} wash="left" empty={!deck}>
+            <span className="seat-n">Seat {i + 1}</span>
+            <span className="seat-name">{who}</span>
+            <span className="seat-what">
+              <span className="seat-cmdr">{deck ? deck.name : "Joins with the code"}</span>
+              {deck && <Pips identity={deck.color_identity} label={false} />}
+            </span>
+          </ArtPanel>
+          <div className="row seat-fields" style={{ alignItems: "end" }}>
             {i > 0 && (
               <label style={{ flex: "0 1 10rem" }}>
                 Who
@@ -135,14 +149,11 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
                 </select>
               </label>
             )}
-            {s.kind !== "friend" && (
-              <span style={{ paddingBottom: "0.7rem" }}>
-                <Pips identity={decks.find((d) => d.id === deckOf(s))?.color_identity ?? ""} />
-              </span>
-            )}
           </div>
         </fieldset>
-      ))}
+        );
+      })}
+      </div>
       <div className="row">
         {seats.length < 6 && <button onClick={() => setSeats((a) => [...a, { kind: "ai", deckId: "", difficulty: "Medium" }])}>Add a seat</button>}
         {seats.length > 2 && <button className="quiet" onClick={() => setSeats((a) => a.slice(0, -1))}>Remove the last seat</button>}

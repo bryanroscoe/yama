@@ -534,19 +534,52 @@ struct Container {
     kind: String,
     name: String,
     copies: i64,
+    /// Market value of the copies that have a price; the rest are counted in `copies_without_price`.
+    #[sqlx(skip)]
+    market_value_usd: f64,
+    #[sqlx(skip)]
+    copies_without_price: i64,
+    /// Art crop of the most valuable card inside, for the container's tile, and its artist.
+    #[sqlx(skip)]
+    art: Option<String>,
+    #[sqlx(skip)]
+    artist: Option<String>,
 }
 
 async fn list_containers(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<Container>>> {
-    Ok(Json(
-        sqlx::query_as(
-            "SELECT ct.id, ct.kind, ct.name, IFNULL(SUM(i.qty), 0) AS copies FROM containers ct
-             LEFT JOIN collection_items i ON i.container_id = ct.id
-             WHERE ct.owner_id = ? GROUP BY ct.id ORDER BY ct.kind, ct.name",
-        )
-        .bind(&user.id)
-        .fetch_all(&st.pool)
-        .await?,
-    ))
+    let mut containers: Vec<Container> = sqlx::query_as(
+        "SELECT ct.id, ct.kind, ct.name, IFNULL(SUM(i.qty), 0) AS copies FROM containers ct
+         LEFT JOIN collection_items i ON i.container_id = ct.id
+         WHERE ct.owner_id = ? GROUP BY ct.id ORDER BY ct.kind, ct.name",
+    )
+    .bind(&user.id)
+    .fetch_all(&st.pool)
+    .await?;
+    let items = items_for_owner(&st.pool, &user.id).await?;
+    for ct in &mut containers {
+        let inside: Vec<&Item> = items.iter().filter(|i| i.container_id.as_deref() == Some(ct.id.as_str())).collect();
+        for i in &inside {
+            match i.unit_price_usd {
+                Some(p) => ct.market_value_usd += p * i.qty as f64,
+                None => ct.copies_without_price += i.qty,
+            }
+        }
+        ct.market_value_usd = (ct.market_value_usd * 100.0).round() / 100.0;
+        let top = inside.iter().filter(|i| i.oracle_id.is_some()).max_by(|a, b| {
+            a.unit_price_usd.unwrap_or(-1.0).partial_cmp(&b.unit_price_usd.unwrap_or(-1.0)).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        if let Some(top) = top {
+            let row: Option<(Option<String>, Option<String>)> =
+                sqlx::query_as("SELECT image_art_crop, artist FROM printings WHERE scryfall_id = ?")
+                    .bind(&top.scryfall_id)
+                    .fetch_optional(&st.pool)
+                    .await?;
+            if let Some((art, artist)) = row {
+                (ct.art, ct.artist) = (art, artist);
+            }
+        }
+    }
+    Ok(Json(containers))
 }
 
 #[derive(Deserialize)]

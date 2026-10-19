@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { api } from "../api";
 import { useMe } from "../auth";
+import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { ErrorText, Pips } from "../components/ui";
+import { useCardArt } from "../components/useCardArt";
 import { Board } from "./Board";
 import type { OnlineGame } from "./types";
 
@@ -28,6 +30,8 @@ function Lobby({ game }: { game: OnlineGame }) {
   });
   const isHost = game.host === me.data?.id;
   const open = game.seats.filter((s) => !s.ai && !s.deck_name).length;
+  const arts = useCardArt(game.seats.map((s) => s.commander));
+  const shownArt = game.seats.map((s) => (s.commander ? arts.get(s.commander) : undefined)).filter((a) => a?.art);
   return (
     <main className="page">
       <p className="small"><Link to="/play">Play online</Link></p>
@@ -35,20 +39,24 @@ function Lobby({ game }: { game: OnlineGame }) {
       <p>
         Friends join from Play online with the code <b className="num" style={{ letterSpacing: "0.08em", fontSize: "var(--t-lg)" }}>{game.code}</b>.
       </p>
-      <div className="list">
-        {game.seats.map((s) => (
-          <div key={s.seat} className="list-row" style={{ gridTemplateColumns: "auto 1fr auto" }}>
-            <Pips identity={s.color_identity} />
-            <span>
-              <span className="title">{s.deck_name ? s.name : "Open seat"}</span>
-              {s.ai && <span className="dim"> (computer, {s.ai.toLowerCase()})</span>}
-              <br />
-              <span className="dim small">{s.deck_name ?? "Waiting for someone to join"}</span>
-            </span>
-            <span className="small dim">Seat {s.seat + 1}</span>
-          </div>
-        ))}
-      </div>
+      <ol className="lobby-seats" aria-label="Seats">
+        {game.seats.map((s) => {
+          const taken = !!s.deck_name;
+          const art = s.commander ? arts.get(s.commander) : undefined;
+          return (
+            <ArtPanel as="li" key={s.seat} className="lobby-seat" art={art?.art} artist={art?.artist} wash="bottom" empty={!taken} credit={false}>
+              <span className="seat-n">Seat {s.seat + 1}</span>
+              <span className="seat-name">{taken ? (s.ai ? `Computer, ${s.ai.toLowerCase()}` : s.name) : "Open seat"}</span>
+              <span className="seat-what">
+                <span className="seat-cmdr">{s.deck_name ?? "Needs the code"}</span>
+                {taken && <Pips identity={s.color_identity} label={false} />}
+              </span>
+              <span className={`seat-state ${taken ? "good" : "warn"}`}>{taken ? "Ready" : "Waiting"}</span>
+            </ArtPanel>
+          );
+        })}
+      </ol>
+      {shownArt.length > 0 && <p className="small dim">{artCredits(shownArt.map((a) => a!.artist))}</p>}
       {Object.entries(game.missing_cards).map(([deck, cards]) => (
         <p key={deck} className="small dim">
           {deck}: {cards.length} {cards.length === 1 ? "card isn't" : "cards aren't"} supported by the rules engine yet and will be left out ({cards.join(", ")}).

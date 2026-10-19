@@ -14,9 +14,11 @@ import {
   type TableEvent,
   type TableState,
 } from "@yama/core";
-import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Navigate, useNavigate } from "react-router";
-import { Sheet } from "../components/ui";
+import { ArtPanel, artCredits } from "../components/ArtPanel";
+import { Pips, Sheet } from "../components/ui";
+import { useCardArt, type CardArt } from "../components/useCardArt";
 import { ShareSheet } from "./share";
 import { canUndo, discardGame, dispatch, finishGame, redo, undo, useSyncStatus, useTable } from "./store";
 
@@ -68,6 +70,8 @@ export function TablePlay() {
     return () => void lock?.release();
   }, []);
 
+  const artFor = useTableArt(state?.players ?? []);
+
   if (!game || !state) return <Navigate to="/" replace />;
   const { cols, rows, cells } = layout(state.players.length);
   const alive = remaining(state);
@@ -88,6 +92,7 @@ export function TablePlay() {
             state={state}
             pending={pendingDelta(game.log, seat)}
             fill={fills[state.players.indexOf(p)]!}
+            artFor={artFor}
             onOpen={() => setSheetSeat(seat)}
           />
         );
@@ -103,6 +108,7 @@ export function TablePlay() {
             onClose={() => setMenu(false)}
             onLeave={() => navigate("/")}
             aliveCount={alive.length}
+            artFor={artFor}
           />
         </Sheet>
       )}
@@ -123,6 +129,25 @@ export function TablePlay() {
       )}
     </div>
   );
+}
+
+/** Who to ask for a seat's art: its commander (or, with `partner`, its partner). */
+export type ArtFor = (seat: number, partner?: boolean) => CardArt | null;
+
+/**
+ * Each seat's commander art. The art crop picked at setup travels with the game (so it shows
+ * offline and on guests' phones); anything missing is looked up by name, like the online board.
+ */
+export function useTableArt(players: PlayerState[]): ArtFor {
+  const looked = useCardArt(players.flatMap((p) => [p.art && p.artist ? null : p.commanderName, p.partnerName]));
+  return (seat, partner = false) => {
+    const p = players.find((x) => x.seat === seat);
+    if (!p) return null;
+    if (partner) return (p.partnerName && looked.get(p.partnerName)) || null;
+    const found = p.commanderName ? looked.get(p.commanderName) : undefined;
+    const art = p.art ?? found?.art ?? null;
+    return art ? { art, artist: p.artist ?? found?.artist ?? null } : null;
+  };
 }
 
 /** The running total of the current tap burst, for the little "−3" next to the number. */
@@ -150,15 +175,18 @@ export function Panel(props: {
   state: TableState;
   pending: number | null;
   fill: ManaKey;
+  /** Commander art by seat; without it (or with no art found) the panel keeps its mana color. */
+  artFor?: ArtFor;
   onOpen: () => void;
 }) {
-  const { p, rot, area, active, pending, onOpen, state, fill } = props;
+  const { p, rot, area, active, pending, onOpen, state, fill, artFor } = props;
   const dispatch = useContext(DispatchContext);
   useTick(pending !== null); // clear the bubble once the burst ends
   const keys = identityKeys(p.colorIdentity);
   const base = MANA[fill];
   const out = !!p.eliminated;
   const reason = out ? null : lossReason(p);
+  const art = artFor?.(p.seat) ?? null;
   const style = {
     gridArea: area,
     "--fill": base.fill,
@@ -166,11 +194,36 @@ export function Panel(props: {
     "--bands": `linear-gradient(90deg, ${keys.map((k, i) => `${MANA[k].fill} ${(i / keys.length) * 100}% ${((i + 1) / keys.length) * 100}%`).join(", ")})`,
   } as CSSProperties;
   const sideways = rot === 90 || rot === 270;
-  const cmdTotal = Math.max(0, ...Object.values(p.commanderDamage).map((v) => v ?? 0));
+  // Commander damage taken, one pill per commander that has dealt some, biggest first.
+  const damage = (Object.entries(p.commanderDamage) as [CommanderKey, number | undefined][])
+    .filter(([, v]) => (v ?? 0) > 0)
+    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+    .map(([key, v]) => {
+      const partner = key.endsWith("b");
+      const seat = Number(key.replace("b", ""));
+      const from = state.players.find((x) => x.seat === seat);
+      const name = (partner ? from?.partnerName : from?.commanderName) ?? from?.name ?? "a commander";
+      return { key, amount: v ?? 0, name, art: artFor?.(seat, partner)?.art ?? null, fill: MANA[identityKeys(from?.colorIdentity ?? "")[0]!].fill };
+    });
+  // Wider totals get a smaller face so the number stays clear of the − and + at the ends.
+  const digits = String(p.life).length;
+  // The running delta sits beside the number unless that would run past the panel's edge.
+  const lifeRef = useRef<HTMLDivElement>(null);
+  const [pendingAbove, setPendingAbove] = useState(false);
+  useLayoutEffect(() => {
+    const life = lifeRef.current;
+    const pill = life?.querySelector<HTMLElement>(".pending");
+    const frame = life?.parentElement;
+    if (!life || !pill || !frame) return;
+    const gap = (parseFloat(getComputedStyle(pill).fontSize) || 16) * 0.45; // the pill's margin beside the number
+    // Layout sizes, before the panel's rotation, so this works the same for every seat.
+    setPendingAbove(life.offsetLeft + life.offsetWidth + gap + pill.offsetWidth > frame.clientWidth - 10);
+  }, [pending, p.life]);
 
   return (
     <section className={`panel${active ? " active" : ""}${out ? " out" : ""}`} style={style} aria-label={`${p.name}, ${p.life} life`}>
       <div className={`panel-inner${sideways ? " sideways" : ""}`} style={{ transform: `translate(-50%, -50%) rotate(${rot}deg)` }}>
+        {art && <ArtPanel className="panel-art" art={art.art} artist={art.artist} wash="center" credit={false} />}
         <div className="bands" />
         <Hold onStep={(n) => dispatch({ type: "life", seat: p.seat, delta: -n })} className="tap minus" label={`${p.name} loses 1 life`}>
           <span aria-hidden="true">−</span>
@@ -178,21 +231,36 @@ export function Panel(props: {
         <Hold onStep={(n) => dispatch({ type: "life", seat: p.seat, delta: n })} className="tap plus" label={`${p.name} gains 1 life`}>
           <span aria-hidden="true">+</span>
         </Hold>
-        <div className="life num" aria-live="polite">
+        <div ref={lifeRef} className={`life num${pendingAbove ? " pending-above" : ""}`} aria-live="polite" data-digits={digits > 3 ? "4" : String(digits)}>
           {p.life}
           {pending !== null && <span className="pending">{pending > 0 ? `+${pending}` : `−${-pending}`}</span>}
         </div>
+        <div className="panel-top">
+          <div className="badges">
+            {state.monarch === p.seat && <span className="badge">Monarch</span>}
+            {state.initiative === p.seat && <span className="badge">Initiative</span>}
+            {p.poison > 0 && <span className="badge">{p.poison} poison</span>}
+            {p.commanderCasts > 0 && <span className="badge">Tax +{commanderTax(p)}</span>}
+          </div>
+          {damage.length > 0 && (
+            <div className="cmdr-pills">
+              {damage.map((d) => (
+                <span key={d.key} className="badge cmdr-pill" aria-label={`${d.amount} commander damage from ${d.name}`} title={`From ${d.name}`}>
+                  {d.art ? <img src={d.art} alt="" /> : <span className="cmdr-dot" style={{ background: d.fill }} />}
+                  <span aria-hidden="true">{d.amount}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
         <button className="who" onClick={onOpen}>
-          <span className="name">{p.name}</span>
+          <span className="name">
+            {p.name}
+            <Pips identity={p.colorIdentity} label={false} />
+          </span>
           {p.commanderName && <span className="cmdr">{p.commanderName}</span>}
         </button>
-        <div className="badges">
-          {state.monarch === p.seat && <span className="badge">Monarch</span>}
-          {state.initiative === p.seat && <span className="badge">Initiative</span>}
-          {p.poison > 0 && <span className="badge">{p.poison} poison</span>}
-          {cmdTotal > 0 && <span className="badge">{cmdTotal} cmdr</span>}
-          {p.commanderCasts > 0 && <span className="badge">tax {commanderTax(p)}</span>}
-        </div>
+        {art && <span className="panel-credit">Art: {art.artist ?? "© Wizards of the Coast"}</span>}
         {reason && (
           <button className="out-prompt" onClick={() => dispatch({ type: "eliminate", seat: p.seat })}>
             Out? {reason}
@@ -336,7 +404,8 @@ export function PlayerSheet({ state, seat, onClose }: { state: TableState; seat:
   );
 }
 
-function TableMenu({ state, onClose, onLeave, aliveCount }: { state: TableState; onClose: () => void; onLeave: () => void; aliveCount: number }) {
+function TableMenu({ state, onClose, onLeave, aliveCount, artFor }: { state: TableState; onClose: () => void; onLeave: () => void; aliveCount: number; artFor: ArtFor }) {
+  const artists = state.players.map((p) => artFor(p.seat)).filter((a): a is CardArt => !!a).map((a) => a.artist);
   const sync = useSyncStatus();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -399,6 +468,7 @@ function TableMenu({ state, onClose, onLeave, aliveCount }: { state: TableState;
       <p className="small faint">
         {sync.syncing ? "Saving to Yama…" : sync.error ? `Not saved to Yama yet (${sync.error}). It's safe on this device.` : sync.lastSyncedAt ? "Saved to Yama." : "Saved on this device."}
       </p>
+      {artists.length > 0 && <p className="small faint">Commander art on the panels: {artCredits(artists)}</p>}
     </div>
   );
 }

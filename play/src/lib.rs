@@ -578,6 +578,7 @@ impl Match {
                 counters: o.counters.iter().map(|(k, v)| (format!("{k:?}").to_lowercase(), *v)).collect(),
                 types: o.card_types.core_types.iter().map(|t| format!("{t:?}")).collect(),
                 attached_to: o.attached_to.as_ref().and_then(|a| serde_json::to_value(a).ok()),
+                attacking: state.combat.as_ref().is_some_and(|c| c.attackers.iter().any(|a| a.object_id == *id)),
             })
         };
         let players = state
@@ -698,6 +699,8 @@ pub struct CardView {
     pub counters: BTreeMap<String, u32>,
     pub types: Vec<String>,
     pub attached_to: Option<serde_json::Value>,
+    /// Declared as an attacker in the current combat.
+    pub attacking: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

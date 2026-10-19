@@ -9,9 +9,9 @@ interface Point {
   usd_etched: number | null;
 }
 
-// One series, so no legend: the heading names it. Gold validated against --surface
-// (in the dark lightness band, chroma above the floor, 3:1+ contrast).
-const LINE = "#b8862e";
+// One series, so no legend: the heading names it. White is the night table's only accent, so the
+// line and its current-point dot are drawn in the text color.
+const LINE = "var(--text)";
 const W = 300;
 const H = 72;
 const PAD = { top: 8, right: 8, bottom: 8, left: 8 };
