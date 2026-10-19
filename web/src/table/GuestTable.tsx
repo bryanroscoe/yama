@@ -3,6 +3,7 @@
 import { panelFills, replay, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
+import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { Pips, Sheet } from "../components/ui";
 import { wsUrl } from "./share";
 import { DispatchContext, KnockOut, Panel, PlayerSheet, pendingDelta, useTableArt } from "./TablePlay";
@@ -114,17 +115,35 @@ export function GuestTable() {
 
   const fills = panelFills(state.players.map((p) => p.colorIdentity));
   const others = state.players.filter((p) => p.seat !== me.seat);
+  const host = state.players[0];
+  const otherArtists = others.map((p) => artFor(p.seat)).filter((a) => !!a).map((a) => a!.artist);
+  const live = connected && hostOnline !== false;
   return (
     <DispatchContext.Provider value={send}>
       <div className="guest">
-        <div className="guest-others">
-          {others.map((p) => (
-            <div key={p.seat} className={`guest-other${p.eliminated ? " out" : ""}${state.activeSeat === p.seat ? " active" : ""}`}>
-              <span className="small">{p.name}</span>
-              <b className="num">{p.eliminated ? "Out" : p.life}</b>
-            </div>
-          ))}
-        </div>
+        <ul className="guest-others" aria-label="Everyone else">
+          {others.map((p) => {
+            const a = artFor(p.seat);
+            const note = p.eliminated ? `Out on turn ${p.eliminated.turn}` : state.activeSeat === p.seat ? "Their turn" : p.poison > 0 ? `${p.poison} poison` : "";
+            return (
+              <ArtPanel
+                key={p.seat}
+                as="li"
+                className={`guest-tile${p.eliminated ? " out" : ""}${state.activeSeat === p.seat ? " active" : ""}`}
+                art={a?.art}
+                artist={a?.artist}
+                wash="bottom"
+                credit={false}
+              >
+                <span className="guest-tile-who">
+                  <span className="guest-tile-note">{note}</span>
+                  <span className="guest-tile-name">{p.name}</span>
+                </span>
+                <b className="num">{p.eliminated ? "Out" : p.life}</b>
+              </ArtPanel>
+            );
+          })}
+        </ul>
         <div className="table guest-table" style={{ position: "relative", inset: "auto" }}>
           <Panel
             p={me}
@@ -137,13 +156,20 @@ export function GuestTable() {
             artFor={artFor}
             onOpen={() => setSheet(true)}
             onKnockOut={() => setKnocking(true)}
+            vertical
           />
         </div>
-        {(hostOnline === false || !connected) && (
-          <p className="guest-status small" role="status">
-            {connected ? "The host's phone is offline. Changes will wait until it's back." : "Reconnecting…"}
+        <div className="guest-status">
+          <p className="guest-status-line" role="status" style={{ margin: 0 }}>
+            <span className={`status-dot ${live ? "good" : "warn"}`} aria-hidden="true" />
+            {live
+              ? `Following ${host && host.seat !== me.seat ? `${host.name}'s` : "the host's"} phone. Your taps go to the table.`
+              : connected
+                ? "The host's phone is offline. Changes will wait until it's back."
+                : "Reconnecting…"}
           </p>
-        )}
+          {otherArtists.length > 0 && <span className="guest-credit">{artCredits(otherArtists)}</span>}
+        </div>
         {sheet && (
           <Sheet label="Your seat" onClose={() => setSheet(false)}>
             <PlayerSheet state={state} seat={me.seat} onClose={() => setSheet(false)} artFor={artFor} />

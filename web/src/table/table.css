@@ -7,11 +7,11 @@
   position: fixed;
   inset: 0;
   display: grid;
-  gap: 4px;
-  padding: 4px;
-  padding: max(4px, env(safe-area-inset-top)) max(4px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom))
-    max(4px, env(safe-area-inset-left));
-  background: var(--ground);
+  gap: 8px;
+  padding: 8px;
+  padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom))
+    max(8px, env(safe-area-inset-left));
+  background: #000;
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
@@ -26,6 +26,27 @@
   color: var(--ink);
   container-type: size;
 }
+/* No art for this seat (art is on, but none was found): a raised block with ordinary text, and the
+   identity band along the player's edge still says whose panel it is. */
+.panel.no-art {
+  background: var(--raised);
+  color: var(--text);
+}
+.panel.no-identity .bands {
+  display: none;
+}
+.panel.no-art .who {
+  background: var(--surface);
+  color: var(--text);
+}
+.panel.no-art .who .cmdr {
+  color: var(--dim);
+}
+.panel.no-art .badge {
+  background: var(--surface);
+  color: var(--text);
+}
+
 /* The active player: a 3 px text-colored ring inside the panel, drawn on top of everything, with
    a dark line inside it so it still shows on a white or colorless fill and on bright art. */
 .panel.active::after {
@@ -155,6 +176,47 @@
   right: 0;
   justify-content: flex-end;
 }
+/* A guest's tall panel: + across the top half, − across the bottom half, and the credit on its own
+   line under the name chip. */
+.panel-inner.vertical {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 1fr auto auto;
+  grid-template-areas:
+    "life"
+    "who"
+    "credit";
+}
+.panel-inner.vertical .who {
+  margin-bottom: 6px;
+}
+.panel-inner.vertical .panel-credit {
+  margin: 0 14px 8px;
+  padding: 0;
+  background: none;
+  color: rgb(255 255 255 / 0.75);
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.7);
+}
+.panel-inner.vertical .tap {
+  left: 0;
+  right: 0;
+  width: auto;
+  height: 50%;
+  padding: 0;
+  justify-content: center;
+  font-size: 3rem;
+}
+.panel-inner.vertical .tap.plus {
+  top: 0;
+  bottom: auto;
+  align-items: flex-start;
+  padding-top: 70px;
+}
+.panel-inner.vertical .tap.minus {
+  top: auto;
+  bottom: 0;
+  align-items: flex-end;
+  padding-bottom: 86px;
+}
 
 /* 132 px on a 4-player phone, up to 220 px for a guest's own panel. Three- and four-digit totals
    step down, so they and their running delta stay inside the panel. */
@@ -163,10 +225,10 @@
   position: relative;
   pointer-events: none;
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: clamp(3.5rem, 70cqmin, 220px);
-  line-height: 0.9;
-  letter-spacing: -0.01em;
+  line-height: 0.85;
+  letter-spacing: -0.02em;
 }
 .life[data-digits="3"] {
   font-size: min(clamp(3.5rem, 70cqmin, 220px), calc(var(--frame-w) * 0.5));
@@ -330,9 +392,11 @@
   background: var(--ground);
   color: var(--text);
   border: 2px solid var(--text);
+  box-shadow: 0 0 0 6px #000;
   font-family: var(--display);
   font-weight: 800;
-  font-size: var(--t-lg);
+  font-size: 1.75rem;
+  line-height: 1;
   z-index: 5;
   padding: 0;
 }
@@ -381,12 +445,12 @@
   font-size: var(--t-md);
 }
 
-/* Guest phone: your own panel, with everyone else's life along the top. */
+/* Guest phone: your own panel, with everyone else's life along the top and the link's state below. */
 .guest {
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   background: var(--ground);
   padding-top: env(safe-area-inset-top);
 }
@@ -395,28 +459,6 @@
   gap: 4px;
   padding: 4px;
   overflow-x: auto;
-}
-.guest-other {
-  flex: 1 0 auto;
-  display: grid;
-  justify-items: center;
-  padding: 0.3rem 0.75rem;
-  border-radius: var(--r-list);
-  background: var(--surface);
-  border: 1px solid var(--line);
-}
-.guest-other b {
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: var(--t-xl);
-  line-height: 1;
-}
-.guest-other.active {
-  border-color: var(--text);
-  box-shadow: inset 0 0 0 2px var(--text);
-}
-.guest-other.out {
-  opacity: 0.45;
 }
 .guest-table {
   position: relative !important;
@@ -441,4 +483,641 @@
   width: 100%;
   height: auto;
   border-radius: var(--r-list);
+}
+
+/* ── table menu (design/screens/LifeMenu.dc.html) ───────────────────────── */
+
+.table-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.sheet-grip {
+  align-self: center;
+  width: 40px;
+  height: 5px;
+  margin-top: -10px;
+  border-radius: 3px;
+  background: var(--line);
+}
+@media (min-width: 900px) {
+  .sheet-grip {
+    display: none;
+  }
+}
+.tm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tm-turn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.tm-avatar {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 2px var(--text);
+}
+.tm-turn-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  min-width: 0;
+}
+.table-menu .tm-turn-text h2 {
+  margin: 0;
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.tm-turn-text .dim {
+  font-size: var(--t-label);
+}
+.table-menu .tm-round {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+}
+/* A seat with no art: a raised circle ringed in its first identity color. */
+.seat-dot-none {
+  display: inline-block;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 4px var(--dot);
+}
+.tm-avatar.seat-dot-none {
+  box-shadow: inset 0 0 0 6px var(--dot), 0 0 0 2px var(--text);
+}
+.tm-pass {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px 52px;
+  gap: 8px;
+}
+.table-menu .tm-pass .primary {
+  min-height: 56px;
+  gap: 10px;
+}
+.tm-pass-dot {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.table-menu .tm-icon {
+  min-height: 56px;
+  padding: 0;
+}
+.tm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.table-menu h3 {
+  margin: 0;
+  font-size: 1.375rem;
+  line-height: 1;
+}
+.table-menu p {
+  margin: 0;
+}
+.tm-markers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (min-width: 420px) {
+  .tm-markers {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.table-menu .tm-marker {
+  min-height: 76px;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  justify-content: space-between;
+  gap: 6px;
+  text-align: left;
+}
+.table-menu .tm-marker[aria-pressed="true"] {
+  border-color: var(--text);
+  background: var(--raised);
+}
+.tm-marker-name {
+  font-weight: 700;
+  line-height: 1.2;
+}
+.tm-marker-who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--t-sm);
+  font-weight: 400;
+  color: var(--dim);
+}
+.tm-marker-dot {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.tm-marker-dot.seat-dot-none {
+  box-shadow: inset 0 0 0 3px var(--dot);
+}
+.tm-pick {
+  display: grid;
+  gap: 8px;
+}
+.tm-pick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tm-pick-row > button[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--ground);
+}
+.table-menu .tm-discard {
+  color: var(--bad);
+}
+
+/* Everyone's phone: the join code on a raised card. */
+.tm-share {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--raised);
+}
+.tm-qr {
+  flex: none;
+  width: 104px;
+  height: 104px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--text);
+}
+.tm-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.table-menu .tm-qr-off {
+  padding: 0;
+  min-height: 0;
+  border: 1px dashed var(--line);
+  background: var(--surface);
+  color: var(--dim);
+}
+.tm-share-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.tm-share-text p {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  line-height: 1.4;
+}
+.table-menu .tm-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+.table-menu .status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.table-menu .status-dot.good {
+  background: var(--good);
+}
+.table-menu .status-dot.warn {
+  background: var(--warn);
+}
+.tm-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tm-share-actions button {
+  min-height: 40px;
+  font-size: var(--t-sm);
+}
+.tm-share-actions button:not(.quiet) {
+  background: var(--surface);
+}
+.tm-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.tm-actions button {
+  min-height: 50px;
+}
+.table-menu .tm-art-toggle {
+  align-self: start;
+  color: var(--dim);
+}
+.tm-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.table-menu .tm-link {
+  min-height: var(--target);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--dim);
+  font-size: var(--t-sm);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.table-menu .tm-link:hover {
+  color: var(--text);
+}
+.table-menu .tm-credit {
+  margin-top: -10px;
+  font-size: var(--t-xs);
+  color: var(--dim);
+}
+
+/* ── player sheet (design/screens/LifePlayer.dc.html) ───────────────────── */
+
+.player-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+/* The commander's art across the top of the sheet, fading into it, with the name and life on it. */
+.sheet .ps-hero.art-panel {
+  --art-fade: var(--surface);
+  height: 196px;
+  margin: -20px -16px 0;
+  border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  display: grid;
+}
+.sheet .ps-hero.wash-bottom.to-ground > .art-wash {
+  background: linear-gradient(180deg, rgb(21 23 26 / 0.1) 0%, rgb(21 23 26 / 0.45) 50%, var(--surface) 100%);
+}
+.ps-hero > .art-img {
+  object-position: 50% 25%;
+}
+/* The body is static so the credit and Done pin to the hero's corners; the name row sits over the wash. */
+.ps-hero > .art-body {
+  position: static;
+  align-self: end;
+  padding: 16px 18px;
+}
+.ps-credit {
+  position: absolute;
+  z-index: 3;
+  top: 18px;
+  left: 18px;
+  max-width: calc(100% - 120px);
+  font-size: var(--t-xs);
+  color: rgb(255 255 255 / 0.85);
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.7);
+}
+.player-sheet .ps-done {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  right: 14px;
+  min-height: 40px;
+  padding: 0 16px;
+  background: var(--text);
+  color: var(--ground);
+}
+.player-sheet .ps-done:hover {
+  background: #fff;
+}
+.ps-who {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ps-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  min-width: 0;
+}
+.ps-name .art-big {
+  font-size: 2.75rem;
+  line-height: 1;
+}
+.ps-cmdr {
+  font-size: var(--t-label);
+  color: var(--on-art-dim);
+}
+.ps-hero.art-none .ps-cmdr {
+  color: var(--dim);
+}
+.player-sheet .ps-life {
+  font-weight: 700;
+  font-size: 72px;
+  line-height: 0.8;
+}
+.ps-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ps-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+.player-sheet h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.15;
+}
+.ps-rows {
+  display: flex;
+  flex-direction: column;
+}
+.ps-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 64px;
+  border-bottom: 1px solid var(--line);
+}
+.ps-row-art {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.ps-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.ps-row-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.player-sheet .ps-note {
+  margin: 0;
+}
+.ps-steps {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ps-steps.round button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.375rem;
+  font-weight: 400;
+}
+.ps-value {
+  width: 46px;
+  text-align: center;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 2.125rem;
+  line-height: 1;
+}
+.ps-value.warn {
+  color: var(--warn);
+}
+.ps-steps.square {
+  gap: 4px;
+}
+.ps-steps.square button {
+  width: 40px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 1.25rem;
+  font-weight: 400;
+}
+.ps-counters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.ps-counter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 8px 8px 14px;
+  border-radius: 16px;
+  background: var(--raised);
+}
+.ps-counter-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+  min-width: 0;
+}
+.ps-counter-text b {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.875rem;
+}
+.ps-tax {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 10px 10px 12px;
+  border-radius: 16px;
+  background: var(--raised);
+}
+.ps-tax img,
+.ps-tax-none {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  object-fit: cover;
+  background: var(--surface);
+}
+.ps-tax-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+.ps-tax-title {
+  font-weight: 700;
+}
+.ps-marks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.player-sheet .ps-out {
+  min-height: 50px;
+}
+.player-sheet .ps-out.bad {
+  color: var(--bad);
+}
+@media (min-width: 900px) {
+  .sheet .ps-hero.art-panel {
+    margin: -28px -28px 0;
+    border-radius: var(--r-sheet) 0 0 0;
+  }
+}
+
+/* ── guest phone (design/screens/LifeGuest.dc.html) ─────────────────────── */
+
+.guest {
+  background: #000;
+}
+.guest .guest-others {
+  margin: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-auto-flow: column;
+  gap: 8px;
+  padding: 8px 8px 0;
+  overflow: visible;
+}
+.guest-tile.art-panel {
+  height: 112px;
+  border-radius: 16px;
+  display: grid;
+}
+.guest-tile.wash-bottom > .art-wash {
+  background: linear-gradient(180deg, rgb(0 0 0 / 0.25), rgb(0 0 0 / 0.7));
+}
+.guest-tile > .art-body {
+  align-self: end;
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 4px;
+  padding: 0 10px 8px;
+  line-height: 1;
+}
+.guest-tile-who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.guest-tile-note {
+  font-size: 0.75rem;
+  color: var(--on-art-dim);
+}
+.guest-tile.art-none .guest-tile-note {
+  color: var(--dim);
+}
+.guest-tile-name {
+  font-size: var(--t-label);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.guest-tile b {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 2.375rem;
+  line-height: 0.9;
+}
+.guest-tile.active {
+  box-shadow: inset 0 0 0 3px var(--text);
+}
+.guest-tile.active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 3px var(--text);
+  pointer-events: none;
+}
+/* Out: a dark veil over the tile (an overlay; the art underneath is never filtered). */
+.guest-tile.out::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgb(11 12 14 / 0.62);
+}
+.guest .guest-table {
+  padding: 8px;
+}
+.guest .guest-table .panel {
+  border-radius: 24px;
+}
+.guest .guest-status {
+  position: static;
+  transform: none;
+  margin: 0;
+  padding: 6px 12px max(8px, env(safe-area-inset-bottom));
+  border: none;
+  border-radius: 0;
+  background: none;
+  font-size: var(--t-sm);
+  color: var(--dim);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.guest-status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.guest .status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.guest .status-dot.good {
+  background: var(--good);
+}
+.guest .status-dot.warn {
+  background: var(--warn);
+}
+.guest-credit {
+  font-size: var(--t-xs);
 }

@@ -426,6 +426,9 @@ pub struct Item {
     pub rarity: Option<String>,
     pub image_small: Option<String>,
     pub image_normal: Option<String>,
+    /// The printing's art crop and its artist, for art thumbnails (credited wherever they show).
+    pub image_art_crop: Option<String>,
+    pub artist: Option<String>,
     pub type_line: Option<String>,
     pub color_identity: Option<String>,
     /// Market price for this item's finish from the latest snapshot. `None` = no price, never 0.
@@ -436,7 +439,7 @@ pub struct Item {
 const ITEM_SELECT: &str = "SELECT i.id, i.scryfall_id, i.qty, i.condition, i.finish, i.lang, i.altered, i.signed,
     i.misprint, i.proxy, i.container_id, ct.name AS container_name, ct.kind AS container_kind, i.purchase_price,
     i.purchase_currency, i.note, i.updated_at, p.oracle_id, p.name, p.set_code, p.set_name, p.collector_number,
-    p.rarity, p.image_small, p.image_normal, c.type_line, c.color_identity,
+    p.rarity, p.image_small, p.image_normal, p.image_art_crop, p.artist, c.type_line, c.color_identity,
     CASE i.finish WHEN 'foil' THEN ps.usd_foil WHEN 'etched' THEN ps.usd_etched ELSE ps.usd END AS unit_price_usd,
     ps.date AS price_date
     FROM collection_items i

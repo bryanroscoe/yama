@@ -1,0 +1,57 @@
+/* Sign in (design/screens/SignIn.dc.html): the commander art and wordmark on one side, the ways in
+   on the other, stacked on phones. The base layout is in styles.css; these rules sit under
+   .login-side so they outrank it whatever order the sheets load in. */
+
+.login-side .login-inner {
+  gap: 28px;
+}
+.login-side .login-form {
+  display: grid;
+  gap: 16px;
+}
+.login-side .login-form input {
+  min-height: 48px;
+  border-radius: 10px;
+}
+/* The second way in: a raised pill with a hairline, under Google's primary button. */
+.login-side .login-secondary {
+  min-height: 48px;
+  border-color: var(--line);
+  background: var(--raised);
+}
+.login-side .login-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--dim);
+  font-size: var(--t-sm);
+}
+.login-side .login-or::before,
+.login-side .login-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.login-side .login-title {
+  font-size: 2.75rem;
+  margin: 0 0 8px;
+  line-height: 1;
+}
+.login .login-hero > .art-body {
+  gap: 18px;
+}
+.login .login-hero .login-credit {
+  margin-top: 10px;
+  color: #c9ccd1;
+}
+.login .login-hero.art-none .login-credit {
+  color: var(--dim);
+}
+/* The artboard's wash: light over the top half, nearly solid where the wordmark sits. */
+.login .login-hero.wash-bottom > .art-wash {
+  background: linear-gradient(180deg, rgb(11 12 14 / 0.15) 0%, rgb(11 12 14 / 0.35) 50%, rgb(11 12 14 / 0.94) 100%);
+}
+.login .login-hero > .art-img {
+  object-position: 50% 25%;
+}

@@ -6,6 +6,7 @@ import { ErrorText } from "./components/ui";
 import { outbox } from "./plan/outbox";
 import { discardQuestion, signOut, within } from "./plan/signout";
 import { clearPlanData } from "./plan/store";
+import "./auth.css";
 
 /** The sign-in page's art: Éowyn, Shieldmaiden by Craig Elliott, loaded from Scryfall at runtime. */
 const SIGN_IN_ART = "https://cards.scryfall.io/art_crop/front/d/d/dd4a00ff-2206-4e12-a0ab-61ed82c9e6c5.jpg";
@@ -74,6 +75,15 @@ export function useLogout() {
     });
     return result !== "cancelled";
   };
+}
+
+/** A hairline either side of a few words, between two ways to sign in. */
+function Or({ children }: { children: string }) {
+  return (
+    <div className="login-or" aria-hidden="true">
+      {children}
+    </div>
+  );
 }
 
 interface AuthConfig {
@@ -161,14 +171,14 @@ export function Login() {
     <main className="login login-split">
       <ArtPanel as="section" className="login-hero" art={SIGN_IN_ART} artist="Craig Elliott" wash="bottom" credit={false}>
         <h1>Yama</h1>
-        <p className="login-tag">Life totals, cards, collection and decks for our playgroup.</p>
+        <p className="login-tag">Life totals, decks and the cards behind them, for our table.</p>
         <p className="login-credit">Éowyn, Shieldmaiden. Art by Craig Elliott, ™ &amp; © Wizards of the Coast.</p>
       </ArtPanel>
       <section className="login-side" aria-label="Sign in">
       <div className="login-inner">
         <div>
           <h2 className="login-title">Sign in</h2>
-          <p className="dim" style={{ margin: 0 }}>Yama is invite-only. Use the account your host added.</p>
+          <p className="dim" style={{ margin: 0 }}>Yama is invite-only. Use the {clientId ? "Google account" : "account"} your host added.</p>
         </div>
         {clientId && <div ref={googleRef} />}
         {config.data?.cf_access && (
@@ -184,11 +194,12 @@ export function Login() {
           </p>
         )}
         {config.data?.password_login && (
-          // Accounts made with `yama-server user add`. Tucked away when Google sign-in is the usual way in.
-          <details open={!clientId && !config.data.cf_access && !config.data.dev_login}>
-            <summary className="dim small">Sign in with a password</summary>
+          // Accounts made with `yama-server user add`. Under Google's button when that's the usual
+          // way in, so its own button is the secondary one.
+          <>
+            {(clientId || config.data.cf_access) && <Or>or with a password</Or>}
             <form
-              className="stack"
+              className="login-form"
               onSubmit={(e) => {
                 e.preventDefault();
                 withPassword.mutate();
@@ -202,21 +213,22 @@ export function Login() {
                 Password
                 <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
               </label>
-              <button className="primary" disabled={withPassword.isPending}>
+              <button className={clientId || config.data.cf_access ? "login-secondary" : "primary"} disabled={withPassword.isPending}>
                 {withPassword.isPending ? "Signing in…" : "Sign in"}
               </button>
             </form>
-          </details>
+          </>
         )}
         {config.data?.dev_login && (
           <form
-            className="stack"
+            className="login-form"
             onSubmit={(e) => {
               e.preventDefault();
               dev.mutate();
             }}
           >
-            <p className="dim small">Development sign-in: any email, no password. Only works on a local server.</p>
+            {(clientId || config.data.password_login) && <Or>or for development</Or>}
+            <p className="dim small" style={{ margin: 0 }}>Development sign-in: any email, no password. Only works on a local server.</p>
             <label>
               Email
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
@@ -225,7 +237,7 @@ export function Login() {
               Name
               <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="nickname" />
             </label>
-            <button className="primary" disabled={dev.isPending}>
+            <button className={clientId || config.data.password_login ? "login-secondary" : "primary"} disabled={dev.isPending}>
               Sign in (development)
             </button>
           </form>

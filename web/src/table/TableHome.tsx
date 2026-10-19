@@ -1,19 +1,62 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { identityName, winConditionLabel, type FunRating, type PlayerSetup, type TableSetup, type WinCondition } from "@yama/core";
-import { useEffect, useId, useRef, useState } from "react";
+import { winConditionLabel, type FunRating, type PlayerSetup, type TableSetup, type WinCondition } from "@yama/core";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary, type DeckVersionRow, type GameRow, type Playgroup, type SearchResult } from "../api";
 import { useMe } from "../auth";
-import { ArtPanel } from "../components/ArtPanel";
+import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { ErrorText, Pips, Sheet } from "../components/ui";
 import { BracketChips } from "../components/Bracket";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
+import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
 import { emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, type SeatDraft } from "./seats";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
+import { layout } from "./TablePlay";
 import "./seats.css";
+import "./home.css";
 
 const LAST_SETUP = "yama.table.lastSetup";
+
+/** Laptop layout (the rail and inline seat cards) from 900 px, as in styles.css. */
+function useWide(): boolean {
+  const query = "(min-width: 900px)";
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const on = () => setWide(m.matches);
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
+  return wide;
+}
+
+/** Where a seat sits, going clockwise from the person holding the phone (the life counter's layout). */
+export function seatWhere(i: number, n: number): string {
+  if (i === 0) return "holding the phone";
+  if (n === 2) return "across";
+  if (i === n - 1) return "right";
+  if (i === 1 && n >= 4) return "left";
+  return "across";
+}
+
+/** "Riders of Rohan" or the commander, and the art credit line under a seat's fields. */
+function seatCredit(seat: SeatDraft, deckName?: string): string {
+  if (!seat.commanderName) return "Pick a commander and their art fills this seat.";
+  if (!seat.art) return seat.commanderName;
+  const by = seat.artist ? `Art by ${seat.artist}, © Wizards of the Coast.` : "Art © Wizards of the Coast.";
+  return deckName ? `${seat.commanderName}. ${by}` : by;
+}
+
+/** "Same seats as last Thursday" when the last setup is from this past week, else its date. */
+function sameSeatsLine(at: string | undefined): string {
+  if (!at) return "Same seats as last time. Change anyone who swapped decks.";
+  const then = new Date(at);
+  const days = (Date.now() - then.getTime()) / 86_400_000;
+  const when =
+    days < 1 ? "earlier today" : days < 7 ? `last ${then.toLocaleDateString("en-US", { weekday: "long" })}` : `on ${then.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  return `Same seats as ${when}. Change anyone who swapped decks.`;
+}
 
 export function TableHome() {
   const { game, state } = useTable();
@@ -23,7 +66,7 @@ export function TableHome() {
   const navigate = useNavigate();
 
   return (
-    <main className="page">
+    <main className="page table-home">
       {game && state ? (
         <section className="stack" style={{ marginBottom: "2rem" }}>
           <div className="page-head">
@@ -54,21 +97,25 @@ export function TableHome() {
         <NewGame onStart={() => navigate("/table/play")} />
       )}
 
-      {outbox.length > 0 && (
-        <p className="dim small">
-          {outbox.length} finished {outbox.length === 1 ? "game is" : "games are"} waiting to upload.{" "}
-          <button className="quiet small" onClick={() => void sync()} disabled={syncStatus.syncing}>
-            Upload now
-          </button>
-          {syncStatus.error && <span className="error"> {syncStatus.error}</span>}
-        </p>
-      )}
+      <RecentGames
+        waiting={
+          outbox.length > 0 ? (
+            <span className="rg-waiting" role="status">
+              <span className="status-dot warn" aria-hidden="true" />
+              {outbox.length} {outbox.length === 1 ? "game" : "games"} waiting to upload
+              <button className="quiet small" onClick={() => void sync()} disabled={syncStatus.syncing}>
+                Upload now
+              </button>
+            </span>
+          ) : null
+        }
+      />
+      {syncStatus.error && outbox.length > 0 && <p className="small error">{syncStatus.error}</p>}
       {rejected.length > 0 && (
         <p className="small error">
           {rejected.length} finished {rejected.length === 1 ? "game" : "games"} couldn't be saved to Yama ({rejected[rejected.length - 1]!.error}). They're kept on this phone.
         </p>
       )}
-      <RecentGames />
     </main>
   );
 }
@@ -79,6 +126,17 @@ function NewGame({ onStart }: { onStart: () => void }) {
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const [groupId, setGroupId] = useState<string>("");
   const [life, setLife] = useState(40);
+  const wide = useWide();
+  const [editing, setEditing] = useState<number | null>(null);
+  // When the seats came back from the last game set up on this phone, and when that was.
+  const [restored] = useState<{ at?: string } | null>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
+      return saved?.seats?.length ? { at: saved.at } : null;
+    } catch {
+      return null;
+    }
+  });
   const [seats, setSeats] = useState<SeatDraft[]>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
@@ -162,47 +220,90 @@ function NewGame({ onStart }: { onStart: () => void }) {
       playgroupId: groupId || undefined,
       players,
     };
-    localStorage.setItem(LAST_SETUP, JSON.stringify({ seats, groupId, life }));
+    localStorage.setItem(LAST_SETUP, JSON.stringify({ seats, groupId, life, at: new Date().toISOString() }));
     startGame(setup);
     onStart();
   };
 
+  const groupSelect = (className: string, label: boolean) => (
+    <label className={className}>
+      <span className={label ? undefined : "visually-hidden"}>Playgroup</span>
+      <select value={groupId} onChange={(e) => chooseGroup(e.target.value)}>
+        <option value="">{label ? "None (not counted in group stats)" : "No playgroup"}</option>
+        {groups.data?.map((g) => (
+          <option key={g.id} value={g.id}>{g.name}</option>
+        ))}
+      </select>
+    </label>
+  );
+  const seatProps = (i: number) => {
+    const s = seats[i]!;
+    return {
+      index: i,
+      seat: s,
+      where: seatWhere(i, seats.length),
+      onChange: (p: Partial<SeatDraft>) => update(i, p),
+      group,
+      decks: s.userId && s.userId === me.data?.id ? decks.data : undefined,
+      deckName: decks.data?.find((d) => d.id === s.deckId)?.name,
+    };
+  };
+  const artists = seats.filter((s) => s.art).map((s) => s.artist);
+
   return (
-    <section className="stack new-game">
-      <div className="page-head">
-        <h1>New game</h1>
+    <section className="new-game2">
+      <div className="ng-head">
+        <div className="ng-title">
+          <h1>New game</h1>
+          <p className="dim ng-sub">{restored ? sameSeatsLine(restored.at) : "Pick who's playing and what they brought."}</p>
+        </div>
+        {/* Phones: the playgroup sits beside the title, as a quiet picker. */}
+        {!wide && groupSelect("ng-group-quiet", false)}
+        {wide && (
+          <button className="primary" onClick={start}>Start the game</button>
+        )}
       </div>
       <div className="setup-controls">
-        <label className="setup-group">
-          Playgroup
-          <select value={groupId} onChange={(e) => chooseGroup(e.target.value)}>
-            <option value="">None (not counted in group stats)</option>
-            {groups.data?.map((g) => (
-              <option key={g.id} value={g.id}>{g.name}</option>
-            ))}
-          </select>
-        </label>
+        {wide && groupSelect("setup-group", true)}
         <Choice label="Players" options={[1, 2, 3, 4, 5, 6]} value={seats.length} onChange={setCount} />
         <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
       </div>
-      <div className="seats">
-        {seats.map((s, i) => (
-          <SeatEditor
-            key={i}
-            index={i}
-            seat={s}
-            onChange={(p) => update(i, p)}
-            group={group}
-            decks={s.userId && s.userId === me.data?.id ? decks.data : undefined}
-            deckName={decks.data?.find((d) => d.id === s.deckId)?.name}
-          />
-        ))}
-      </div>
-      <p className="small dim setup-note">Seats go clockwise from the person holding the phone. Each panel faces its player.</p>
-      {/* After the seats on phones; top right, beside the title, on laptops. */}
-      <div className="row setup-start">
-        <button className="primary" onClick={start}>Start the game</button>
-      </div>
+      {wide ? (
+        <div className="ng-body">
+          <div className="ng-seats">
+            {seats.map((_, i) => (
+              <SeatEditor key={i} {...seatProps(i)} />
+            ))}
+          </div>
+          <aside className="ng-phone" aria-label="How the phone sits">
+            <PhoneSketch seats={seats} />
+            <p>Seats go clockwise from whoever holds the phone. Each panel faces its player.</p>
+          </aside>
+        </div>
+      ) : (
+        <>
+          <ol className="ng-rows" aria-label="Seats, clockwise from you">
+            {seats.map((s, i) => (
+              <li key={i}>
+                <SeatRow index={i} seat={s} deckName={seatProps(i).deckName} onOpen={() => setEditing(i)} />
+              </li>
+            ))}
+          </ol>
+          <p className="small dim ng-note">
+            Seats go clockwise from you. Tap a seat to change the player or commander.
+            {artists.length > 0 && ` ${artCredits(artists)}`}
+          </p>
+          <button className="primary ng-start" onClick={start}>Start the game</button>
+          {editing !== null && seats[editing] && (
+            <Sheet label={`Seat ${editing + 1}`} onClose={() => setEditing(null)}>
+              <div className="stack">
+                <SeatEditor {...seatProps(editing)} />
+                <button className="primary" onClick={() => setEditing(null)}>Done</button>
+              </div>
+            </Sheet>
+          )}
+        </>
+      )}
     </section>
   );
 }
@@ -222,7 +323,45 @@ function Choice({ label, options, value, onChange }: { label: string; options: n
   );
 }
 
-function SeatEditor({ index, seat, onChange, group, decks, deckName }: { index: number; seat: SeatDraft; onChange: (p: Partial<SeatDraft>) => void; group?: Playgroup; decks?: DeckSummary[]; deckName?: string }) {
+/** The life counter's panels in miniature, each with its seat's art and number, facing its player. */
+function PhoneSketch({ seats }: { seats: SeatDraft[] }) {
+  const { cols, rows, cells } = layout(seats.length);
+  return (
+    <div className="phone-sketch" aria-hidden="true" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}>
+      {cells.map(({ seat, rot, area }) => {
+        const s = seats[seat];
+        return (
+          <span key={seat} className={`sketch-cell${s?.art ? " has-art" : ""}`} style={{ gridArea: area }}>
+            {s?.art && <img src={s.art} alt="" />}
+            <span className="sketch-n">
+              <span style={{ transform: `rotate(${rot}deg)` }}>{seat + 1}</span>
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A seat on a phone: the commander art washed from the left, name and commander on it. Opens the seat's fields. */
+function SeatRow({ index, seat, deckName, onOpen }: { index: number; seat: SeatDraft; deckName?: string; onOpen: () => void }) {
+  const who = seat.name.trim() || `Player ${index + 1}`;
+  const what = seat.commanderName ? (deckName ? `${deckName}, ${seat.commanderName}` : seat.commanderName) : "Pick a commander";
+  return (
+    <button className="seat-row" onClick={onOpen} aria-label={`Seat ${index + 1}: ${who}, ${what}. Change`}>
+      <ArtPanel as="span" className="seat-row-art" art={seat.art} artist={seat.artist} wash="left" empty={!seat.commanderName} credit={false}>
+        <span className="seat-row-text">
+          <span className="seat-row-n">Seat {index + 1}</span>
+          <span className="seat-row-name">{who}</span>
+          <span className="seat-row-what">{what}</span>
+        </span>
+        {seat.commanderName && <Pips identity={seat.colorIdentity} label={false} />}
+      </ArtPanel>
+    </button>
+  );
+}
+
+function SeatEditor({ index, seat, onChange, group, decks, deckName, where }: { index: number; seat: SeatDraft; onChange: (p: Partial<SeatDraft>) => void; group?: Playgroup; decks?: DeckSummary[]; deckName?: string; where?: string }) {
   const me = useMe().data;
   const listId = useId();
   const [error, setError] = useState<unknown>(null);
@@ -246,144 +385,174 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName }: { index: 
   };
 
   const who = seat.name.trim() || `Player ${index + 1}`;
-  const what = seat.commanderName ? (deckName ? `${deckName}, ${seat.commanderName}` : seat.commanderName) : "Pick a commander";
+  const pips = seat.colorIdentity ? <span className="field-pips"><Pips identity={seat.colorIdentity} /></span> : null;
   return (
-    <fieldset className="seat seat-card">
+    <fieldset className="seat seat-card2">
       <legend className="visually-hidden">Seat {index + 1}</legend>
-      {/* Commander art once a commander is picked; a dashed empty slot until then. */}
-      <ArtPanel className="seat-head" art={seat.art} artist={seat.artist} wash="left" empty={!seat.commanderName}>
-        <span className="seat-n">Seat {index + 1}</span>
+      {/* Commander art once a commander is picked; a raised block until then. The credit is the line under the fields. */}
+      <ArtPanel className="seat-head2" art={seat.art} artist={seat.artist} wash="bottom" credit={false}>
         <span className="seat-name">{who}</span>
-        <span className="seat-what">
-          <span className="seat-cmdr">{what}</span>
-          {seat.commanderName && <Pips identity={seat.colorIdentity} label={false} />}
-        </span>
+        <span className="seat-where">Seat {index + 1}{where ? `, ${where}` : ""}</span>
       </ArtPanel>
-      <div className="row seat-fields" style={{ alignItems: "end" }}>
-        <label style={{ flex: "1 1 10rem" }}>
-          Player
-          {group ? (
-            <select
-              value={seat.memberId ?? ""}
-              onChange={(e) => {
-                const m = group.members.find((x) => x.id === e.target.value);
-                // Your deck stays only on your own seat.
-                if (m) onChange({ ...NOT_AN_ACCOUNT, memberId: m.id, userId: m.user_id ?? undefined, name: m.display_name, ...(m.user_id && m.user_id === seat.userId ? { deckId: seat.deckId, deckVersionId: seat.deckVersionId } : {}) });
-                else onChange({ ...NOT_AN_ACCOUNT, memberId: undefined, name: "" });
-              }}
-            >
-              <option value="">Someone else…</option>
-              {group.members.map((m) => (
-                <option key={m.id} value={m.id}>{m.display_name}</option>
-              ))}
-            </select>
-          ) : (
-            <input value={seat.name} onChange={(e) => onChange(renameSeat(seat, e.target.value, me))} placeholder={`Player ${index + 1}`} />
+      <div className="seat-fields2">
+        <div className="seat-player">
+          <label>
+            Player
+            {group ? (
+              <select
+                value={seat.memberId ?? ""}
+                onChange={(e) => {
+                  const m = group.members.find((x) => x.id === e.target.value);
+                  // Your deck stays only on your own seat.
+                  if (m) onChange({ ...NOT_AN_ACCOUNT, memberId: m.id, userId: m.user_id ?? undefined, name: m.display_name, ...(m.user_id && m.user_id === seat.userId ? { deckId: seat.deckId, deckVersionId: seat.deckVersionId } : {}) });
+                  else onChange({ ...NOT_AN_ACCOUNT, memberId: undefined, name: "" });
+                }}
+              >
+                <option value="">Someone else</option>
+                {group.members.map((m) => (
+                  <option key={m.id} value={m.id}>{m.display_name}{me && m.user_id === me.id ? " (you)" : ""}</option>
+                ))}
+              </select>
+            ) : (
+              <input value={seat.name} onChange={(e) => onChange(renameSeat(seat, e.target.value, me))} placeholder={`Player ${index + 1}`} />
+            )}
+          </label>
+          {!group && me && (
+            <label className="check-row seat-me">
+              <input
+                type="checkbox"
+                checked={seat.userId === me.id}
+                onChange={(e) => onChange(e.target.checked ? { userId: me.id, name: me.display_name } : NOT_AN_ACCOUNT)}
+              />
+              This is me
+            </label>
           )}
-        </label>
+        </div>
         {group && !seat.memberId && (
-          <label style={{ flex: "1 1 10rem" }}>
+          <label>
             Name
             <input value={seat.name} onChange={(e) => onChange(renameSeat(seat, e.target.value, me))} placeholder="Guest" />
           </label>
         )}
-        {!group && me && (
-          <label className="check-row seat-me">
-            <input
-              type="checkbox"
-              checked={seat.userId === me.id}
-              onChange={(e) => onChange(e.target.checked ? { userId: me.id, name: me.display_name } : NOT_AN_ACCOUNT)}
-            />
-            This is me
-          </label>
-        )}
         {decks && decks.length > 0 && (
-          <label style={{ flex: "1 1 12rem" }}>
+          <label>
             Deck
-            <select
-              value={seat.deckId ?? ""}
-              onChange={(e) => {
-                const d = decks.find((x) => x.id === e.target.value);
-                if (!d) return onChange({ deckId: undefined, deckVersionId: undefined });
-                onChange({
-                  deckId: d.id,
-                  deckVersionId: d.current_version_id ?? undefined,
-                  colorIdentity: d.color_identity,
-                  art: d.commander_image ?? undefined,
-                  artist: d.commander_artist ?? undefined,
-                });
-                if (d.commanders[0]) void pickCommander(d.commanders[0]);
-              }}
-            >
-              <option value="">Not one of my decks</option>
-              {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+            <span className="field-wrap">
+              <select
+                value={seat.deckId ?? ""}
+                onChange={(e) => {
+                  const d = decks.find((x) => x.id === e.target.value);
+                  if (!d) return onChange({ deckId: undefined, deckVersionId: undefined });
+                  onChange({
+                    deckId: d.id,
+                    deckVersionId: d.current_version_id ?? undefined,
+                    colorIdentity: d.color_identity,
+                    art: d.commander_image ?? undefined,
+                    artist: d.commander_artist ?? undefined,
+                  });
+                  if (d.commanders[0]) void pickCommander(d.commanders[0]);
+                }}
+              >
+                <option value="">Not one of my decks</option>
+                {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              {chosen && pips}
+            </span>
           </label>
         )}
-        <label style={{ flex: "2 1 14rem" }}>
-          Commander
-          <input
-            list={listId}
-            value={seat.commanderName}
-            onChange={(e) => {
-              const v = e.target.value;
-              onChange({ commanderName: v, colorIdentity: "", art: undefined, artist: undefined });
-              if (suggestions.data?.includes(v)) void pickCommander(v);
-            }}
-            onBlur={() => seat.commanderName && !seat.colorIdentity && void pickCommander(seat.commanderName)}
-            placeholder="Start typing a name"
-          />
-          <datalist id={listId}>{suggestions.data?.map((n) => <option key={n} value={n} />)}</datalist>
-        </label>
-        <span className="visually-hidden">{seat.colorIdentity ? identityName(seat.colorIdentity) : ""}</span>
+        {/* With one of your decks chosen, the deck names the commander. */}
+        {!chosen && (
+          <label>
+            Commander
+            <span className="field-wrap">
+              <input
+                list={listId}
+                value={seat.commanderName}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  onChange({ commanderName: v, colorIdentity: "", art: undefined, artist: undefined });
+                  if (suggestions.data?.includes(v)) void pickCommander(v);
+                }}
+                onBlur={() => seat.commanderName && !seat.colorIdentity && void pickCommander(seat.commanderName)}
+                placeholder="Search for a commander"
+              />
+              {pips}
+            </span>
+            <datalist id={listId}>{suggestions.data?.map((n) => <option key={n} value={n} />)}</datalist>
+          </label>
+        )}
+        <span className="seat-credit">{seatCredit(seat, chosen ? deckName : undefined)}</span>
+        {chosen && (chosen.bracket != null || chosen.estimate) && <BracketChips declared={chosen.bracket} estimate={chosen.estimate} />}
+        <ErrorText error={error} />
       </div>
-      {chosen && (chosen.bracket != null || chosen.estimate) && (
-        <div style={{ marginTop: "0.5rem" }}>
-          <BracketChips declared={chosen.bracket} estimate={chosen.estimate} />
-        </div>
-      )}
-      <ErrorText error={error} />
     </fieldset>
   );
 }
 
-function RecentGames() {
-  const games = useQuery({ queryKey: ["games"], queryFn: () => api<GameRow[]>("/api/games") });
+/** "Terra" from "Terra, Herald of Hope": the name a table calls a commander by. */
+const shortName = (name: string) => name.split(",")[0]!.trim();
+const listNames = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
+function RecentGames({ waiting }: { waiting: ReactNode }) {
+  const games = useQuery({ queryKey: ["games"], queryFn: () => api<(GameRow & { note?: string | null })[]>("/api/games") });
   const [logging, setLogging] = useState(false);
+  const shown = games.data?.slice(0, 10) ?? [];
+  const winnerOf = (g: GameRow) => g.seats.find((s) => s.seat === g.winner_seat);
+  const art = useCardArt(shown.map((g) => winnerOf(g)?.commander_name));
+  const credited = shown.map((g) => art.get(winnerOf(g)?.commander_name ?? "")).filter((a) => !!a);
   return (
-    <section style={{ marginTop: "2.5rem" }}>
-      <div className="page-head" style={{ marginBottom: "0.5rem" }}>
-        <h2 style={{ margin: 0 }}>Recent games</h2>
-        <button onClick={() => setLogging(true)}>Log a game played without Yama</button>
+    <section className="recent-games">
+      <div className="rg-head">
+        <h2>Recent games</h2>
+        <span className="rg-actions">
+          {waiting}
+          <button className="outline rg-log" onClick={() => setLogging(true)}>
+            <span className="rg-log-long">Log a game played without Yama</span>
+            <span className="rg-log-short">Log a game</span>
+          </button>
+        </span>
       </div>
       {logging && <LogGame onClose={() => setLogging(false)} />}
-      {!games.data?.length && <p className="dim">No games yet.</p>}
-      <div className="list">
-        {games.data?.slice(0, 10).map((g) => {
-          const winner = g.seats.find((s) => s.seat === g.winner_seat);
+      {games.data && !games.data.length && <p className="dim">No games yet.</p>}
+      <ol className="rg-list">
+        {shown.map((g) => {
+          const winner = winnerOf(g);
+          const finished = g.status === "finished";
+          const cmdr = winner?.commander_name;
+          const a = cmdr ? art.get(cmdr) : undefined;
+          const title = !finished ? "In progress" : winner ? `${winner.display_name} won` : "Draw";
+          const others = g.seats.filter((s) => s !== winner).map((s) => s.commander_name ?? s.display_name ?? "").filter(Boolean);
+          const how = finished && winner ? winConditionLabel(g.win_condition) : null;
+          const sub = [how, winner ? `Over ${listNames(others)}` : listNames(g.seats.map((s) => shortName(s.commander_name ?? s.display_name ?? "")).filter(Boolean)), g.note]
+            .filter(Boolean)
+            .join(". ");
+          const day = new Date(g.started_at);
           return (
-            <div key={g.id} className="list-row" style={{ gridTemplateColumns: "1fr auto" }}>
-              <span>
-                <span className="title">
-                  {g.status === "finished" ? (winner ? `${winner.display_name} won` : "Draw") : "In progress"}
-                  {g.status === "finished" && winner && winConditionLabel(g.win_condition) && (
-                    <span className="dim" style={{ fontWeight: 400 }}> by {winConditionLabel(g.win_condition)!.toLowerCase()}</span>
-                  )}
+            <li key={g.id} className="rg-row">
+              <span className="rg-art">{a?.art && <img src={a.art} alt="" loading="lazy" />}</span>
+              <span className="rg-text">
+                <span className="rg-title">
+                  {title}
+                  {winner && cmdr && cmdr !== winner.display_name && <span className="rg-with"> with {shortName(cmdr)}</span>}
                 </span>
-                <span className="dim small">
-                  {" "}
-                  {g.seats.map((s) => s.commander_name ?? s.display_name).filter(Boolean).join(", ")}
+                <span className="rg-sub">{sub}</span>
+                <span className="rg-sub-short">
+                  {[cmdr && shortName(cmdr), g.turns ? `${g.turns} turns` : null].filter(Boolean).join(", ") || sub}
                 </span>
               </span>
-              <span className="dim small num">
-                {new Date(g.started_at).toLocaleDateString()}
-                {g.turns ? `, ${g.turns} turns` : ""}
+              <span className="rg-when num">
+                <span>
+                  <span className="rg-weekday">{day.toLocaleDateString("en-US", { weekday: "short" })}, </span>
+                  {day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                </span>
+                {g.turns ? <span className="rg-turns">{g.turns} turns</span> : null}
               </span>
-            </div>
+            </li>
           );
         })}
-      </div>
-      <p className="small"><Link to="/group">Playgroup stats</Link></p>
+      </ol>
+      {credited.length > 0 && <p className="small dim rg-credit">{artCredits(credited.map((c) => c!.artist))}</p>}
+      <p className="rg-more"><Link to="/group">All games and stats</Link></p>
     </section>
   );
 }

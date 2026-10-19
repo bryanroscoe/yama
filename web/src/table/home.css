@@ -1,0 +1,515 @@
+/* The Table tab: New game and Recent games (design/screens/Table.dc.html and TablePhone.dc.html).
+
+   styles.css loads after this file, so rules that meet one of its selectors carry an extra class
+   (.new-game2, .recent-games) to win regardless of order. */
+
+/* ── new game ───────────────────────────────────────────────────────────── */
+
+.new-game2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+.ng-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+.ng-title {
+  flex: 1 1 auto;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.new-game2 .ng-title h1 {
+  margin: 0;
+}
+.new-game2 .ng-sub {
+  margin: 0;
+  display: none;
+}
+.new-game2 .setup-controls {
+  gap: 10px 32px;
+}
+/* Phones: the playgroup is a quiet picker beside the title. */
+.new-game2 .ng-group-quiet {
+  flex: 0 0 auto;
+  display: block;
+}
+.new-game2 .ng-group-quiet select {
+  width: auto;
+  max-width: 11rem;
+  min-height: var(--target);
+  border: none;
+  background-color: transparent;
+  color: var(--dim);
+  font-size: var(--t-sm);
+  padding: 0 4px;
+  text-align: right;
+}
+
+/* Laptops: seat cards beside a sketch of the phone, the start button by the title. */
+.ng-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: start;
+}
+.ng-seats {
+  flex: 999 1 560px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 16px;
+}
+.ng-phone {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  padding: 20px;
+  border-radius: 18px;
+  background: var(--surface);
+}
+.new-game2 .ng-phone p {
+  margin: 0;
+  text-align: center;
+  color: var(--dim);
+  font-size: var(--t-label);
+  max-width: 24ch;
+}
+.new-game2 .ng-head .primary {
+  min-height: var(--target-primary);
+  padding: 0 28px;
+}
+@media (min-width: 900px) {
+  .new-game2 {
+    gap: 32px;
+  }
+  .new-game2 .ng-sub {
+    display: block;
+  }
+  .new-game2 .setup-controls {
+    gap: 16px 32px;
+  }
+}
+
+/* The life counter in miniature: each seat's art (or a raised block) with its number, turned to
+   face its player. A dark veil over the art keeps the number readable; the art is never filtered. */
+.phone-sketch {
+  width: 150px;
+  height: 300px;
+  padding: 5px;
+  border-radius: 24px;
+  background: #000;
+  outline: 1px solid var(--line);
+  outline-offset: 4px;
+  display: grid;
+  gap: 4px;
+}
+.sketch-cell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--raised);
+}
+.sketch-cell img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.sketch-n {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--dim);
+}
+.sketch-n > span {
+  display: block;
+}
+.sketch-cell.has-art .sketch-n {
+  background: rgb(0 0 0 / 0.35);
+  color: var(--on-art);
+}
+
+/* A seat card: the commander art with the name on it, the fields below, the credit last. */
+fieldset.seat.seat-card2 {
+  padding: 0;
+  border: none;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+.seat-head2.art-panel {
+  border-radius: 0;
+  height: 132px;
+  display: grid;
+}
+.seat-head2.wash-bottom > .art-wash {
+  background: linear-gradient(180deg, rgb(11 12 14 / 0) 20%, rgb(11 12 14 / 0.82) 100%);
+}
+.seat-head2 > .art-body {
+  align-self: end;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 18px;
+  min-width: 0;
+}
+.seat-head2 .seat-name {
+  font-size: 34px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seat-head2.art-none .seat-name {
+  text-shadow: none;
+}
+.seat-where {
+  flex: none;
+  font-size: var(--t-sm);
+  color: var(--on-art-dim);
+}
+.seat-head2.art-none .seat-where {
+  color: var(--dim);
+}
+.seat-fields2 {
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.seat-fields2 :is(input, select) {
+  min-height: var(--target);
+  border-radius: 10px;
+}
+.seat-player {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+}
+.seat-player > label:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.seat-fields2 > .error {
+  margin: 0;
+}
+/* Identity pips inside the deck or commander field, at its right end. */
+.field-wrap {
+  position: relative;
+  display: block;
+}
+.field-wrap > input {
+  padding-right: 80px;
+}
+.field-wrap > select:has(+ .field-pips) {
+  padding-right: 96px;
+}
+.field-pips {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  pointer-events: none;
+}
+.field-wrap > select + .field-pips {
+  right: 36px;
+}
+.field-pips .pip {
+  width: 12px;
+  height: 12px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.3);
+}
+.seat-credit {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--dim);
+}
+
+/* Phones: one row per seat, commander art washed from the left. Tapping opens the seat's fields. */
+.ng-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.new-game2 .seat-row {
+  display: block;
+  width: 100%;
+  padding: 0;
+  min-height: 0;
+  border: none;
+  border-radius: 18px;
+  background: none;
+  text-align: left;
+  font-weight: 400;
+}
+.new-game2 .seat-row:hover {
+  background: none;
+}
+.seat-row-art.art-panel {
+  height: 104px;
+  border-radius: 18px;
+  display: flex;
+}
+.seat-row-art.art-panel.art-empty {
+  background: var(--surface);
+}
+.seat-row-art > .art-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px;
+}
+.seat-row-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+.seat-row-n {
+  font-size: 0.75rem;
+  color: var(--on-art-dim);
+}
+.seat-row-name {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 32px;
+  line-height: 1;
+  text-shadow: var(--art-shadow);
+}
+.seat-row-what {
+  font-size: var(--t-label);
+  color: var(--on-art-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.seat-row-art:not(.art-has) :is(.seat-row-n, .seat-row-what) {
+  color: var(--dim);
+}
+.seat-row-art:not(.art-has) .seat-row-name {
+  color: var(--text);
+  text-shadow: none;
+}
+.seat-row-art .pips .pip {
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4);
+}
+.seat-row:hover .seat-row-art,
+.seat-row:focus-visible .seat-row-art {
+  box-shadow: 0 0 0 2px var(--text);
+}
+.new-game2 .ng-note {
+  margin: -8px 0 0;
+}
+.new-game2 .ng-start {
+  width: 100%;
+  min-height: 56px;
+  font-size: 1.125rem;
+}
+
+/* ── recent games ───────────────────────────────────────────────────────── */
+
+.recent-games {
+  margin-top: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rg-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.recent-games .rg-head h2 {
+  margin: 0;
+  font-weight: 800;
+  font-size: 30px;
+}
+.rg-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.rg-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-label);
+  color: var(--dim);
+}
+.recent-games .status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.recent-games .status-dot.warn {
+  background: var(--warn);
+}
+/* Phones: a short raised pill. Laptops: the full label on a hairline pill. */
+.recent-games .rg-log {
+  min-height: 40px;
+  padding: 0 12px;
+  border: none;
+  background: var(--surface);
+  font-size: var(--t-sm);
+}
+.rg-log-long {
+  display: none;
+}
+.rg-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rg-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 12px 6px 6px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+/* The winner's commander art; a raised block for a draw or a game still going. */
+.rg-art {
+  display: block;
+  width: 64px;
+  height: 46px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--raised);
+}
+.rg-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rg-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.rg-title {
+  font-weight: 700;
+}
+.rg-with,
+.rg-sub,
+.rg-weekday,
+.rg-turns {
+  display: none;
+}
+.rg-sub,
+.rg-sub-short {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rg-when {
+  display: flex;
+  flex-direction: column;
+  align-items: end;
+  font-size: var(--t-sm);
+  color: var(--dim);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.recent-games .rg-credit,
+.recent-games .rg-more {
+  margin: 0;
+}
+.rg-more a {
+  font-weight: 700;
+  color: var(--dim);
+}
+.rg-more a:hover {
+  color: var(--text);
+}
+@media (min-width: 900px) {
+  .recent-games {
+    gap: 14px;
+  }
+  .recent-games .rg-head {
+    align-items: end;
+  }
+  .recent-games .rg-head h2 {
+    font-size: 36px;
+    line-height: 1;
+  }
+  .recent-games .rg-log {
+    min-height: var(--target);
+    padding: 0 18px;
+    border: 1px solid var(--line);
+    background: transparent;
+    font-size: var(--t-base);
+  }
+  .rg-log-long {
+    display: inline;
+  }
+  .rg-log-short {
+    display: none;
+  }
+  .rg-row {
+    grid-template-columns: 88px minmax(0, 1fr) auto;
+    gap: 18px;
+    padding: 8px 18px 8px 8px;
+  }
+  .rg-art {
+    width: 88px;
+    height: 60px;
+    border-radius: 10px;
+  }
+  .rg-text {
+    line-height: 1.3;
+  }
+  .rg-with,
+  .rg-weekday {
+    display: inline;
+  }
+  .rg-sub {
+    display: block;
+    font-size: var(--t-label);
+  }
+  .rg-turns {
+    display: block;
+  }
+  .rg-sub-short {
+    display: none;
+  }
+  .rg-when {
+    font-size: var(--t-label);
+  }
+}
