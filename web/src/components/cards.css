@@ -1,0 +1,119 @@
+/* Card facts shared by the card sheet, the deck page, the online board and the play lobby:
+   rulings, the Game Changer tag, and online-play support.
+
+   These rules use the semantic token names the new design will define (ground, surface,
+   raised, line, text, text-dim, accent, good, warn, bad). Until it lands, each one falls back
+   to today's playmat variable. This block is the only place the old names appear here. */
+:where(.rulings, .tag.gc, .deck-facts, .online-support, .name-link) {
+  --cf-surface: var(--surface, var(--felt-2));
+  --cf-raised: var(--raised, var(--felt-3));
+  --cf-line: var(--line);
+  --cf-text: var(--text, var(--paper));
+  --cf-text-dim: var(--text-dim, var(--paper-dim));
+  --cf-good: var(--good);
+  --cf-warn: var(--warn);
+}
+
+/* ── Game Changer tag ───────────────────────────────────────────────────── */
+
+.tag.gc {
+  color: var(--cf-warn);
+  border-color: color-mix(in srgb, var(--cf-warn) 45%, transparent);
+}
+
+/* ── rulings ────────────────────────────────────────────────────────────── */
+
+.rulings {
+  border: 1px solid var(--cf-line);
+  border-radius: var(--radius);
+  background: var(--cf-surface);
+}
+.rulings > summary {
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 44px;
+  padding: 0.6rem 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  list-style: none;
+}
+.rulings > summary::-webkit-details-marker {
+  display: none;
+}
+.rulings > summary::before {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 120ms ease-out;
+  flex: none;
+}
+.rulings[open] > summary::before {
+  transform: rotate(45deg);
+}
+.rulings ol {
+  list-style: none;
+  margin: 0;
+  padding: 0 0.9rem 0.4rem;
+}
+.rulings li {
+  border-top: 1px solid var(--cf-line);
+  padding: 0.6rem 0;
+}
+.rulings li p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.rulings .ruling-meta {
+  color: var(--cf-text-dim);
+  font-size: var(--t-sm);
+  margin-top: 0.2rem;
+}
+
+/* ── deck facts: Game Changers and online-play support ─────────────────── */
+
+.deck-facts {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+}
+.deck-facts p,
+.online-support p {
+  margin: 0;
+}
+.online-support {
+  display: grid;
+  gap: 0.25rem;
+}
+.online-support .label {
+  font-weight: 700;
+}
+.online-support .label.all {
+  color: var(--cf-good);
+}
+.online-support .names,
+.deck-facts .names {
+  color: var(--cf-text-dim);
+  font-size: var(--t-sm);
+}
+/* Card names that open the card sheet read as text, not as buttons. */
+.name-link {
+  font: inherit;
+  font-weight: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  min-height: 0;
+  text-decoration: underline;
+  text-decoration-color: var(--cf-line);
+  text-underline-offset: 0.2em;
+  display: inline;
+}
+.name-link:hover {
+  color: var(--cf-text);
+  text-decoration-color: currentColor;
+}

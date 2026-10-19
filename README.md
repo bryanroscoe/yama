@@ -9,10 +9,11 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Area | Status |
 |---|---|
 | Sign-in | Google ID tokens with an invite list; email-only dev login for local use |
-| Card data | Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date |
-| Card search | Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander`, `-`, `or`, parentheses). Works offline from a 5 MB card bundle kept on the device |
+| Card data | Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date, rulings, the Game Changer flag. Images are Scryfall's WebP sizes (JPEG fallback for older files) |
+| Card search | Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander` `is:gamechanger`, `-`, `or`, parentheses). Works offline from a 5 MB card bundle kept on the device |
+| Card sheet | Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history |
 | Collection | Binders, boxes, decks and lists; add from card search; move, condition, proxy; idempotent offline ops; Mythic Tools CSV import and export |
-| Decks | Paste any common list format; edit as text with versions; Commander validation; owned/needed with cheapest market price; sample hands with mulligans |
+| Decks | Paste any common list format; edit as text with versions; Commander validation; owned/needed with cheapest market price; sample hands with mulligans; Game Changers count; how many cards online play supports |
 | Life counter | 1–6 players, rotated panels, commander damage and tax, poison and counters, monarch, initiative, day/night, undo, works offline and syncs later |
 | Shared table | Every phone joins the game by QR code; the host phone stays in charge and works offline |
 | Playgroups | Join codes, guests without accounts, game history, logging games played without Yama, win rates by player and commander |
@@ -28,7 +29,7 @@ Needs Rust (stable) and Node 22+.
 ```sh
 cp .env.example .env               # set YAMA_ADMIN_EMAILS to your email; YAMA_DEV_LOGIN=1 for local
 cargo build -p yama-server
-./target/debug/yama-server import-cards     # ~2 min: downloads Scryfall bulk data (~105 MB, deleted after)
+./target/debug/yama-server import-cards     # ~2 min: downloads Scryfall bulk data and rulings (~110 MB, deleted after)
 ./target/debug/yama-server serve            # API on http://127.0.0.1:8787
 
 npm install

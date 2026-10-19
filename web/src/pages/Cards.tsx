@@ -1,13 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
-import { api, usd, type Card, type Printing, type SearchResult } from "../api";
+import { api, usd, type Printing, type SearchResult } from "../api";
+import { cardDetailQuery, isNetworkError } from "../cardDetail";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
-import { offlineCard, offlineSearch } from "../offline/cards";
+import { offlineSearch } from "../offline/cards";
 import { PriceHistory } from "../components/PriceHistory";
-
-/** Network trouble (not a bad query): fall back to the copy on this device. */
-const isNetworkError = (e: unknown) => e instanceof TypeError || !navigator.onLine;
+import { Rulings } from "../components/Rulings";
 
 const EXAMPLES = [
   { q: "id<=ug is:commander", label: "Simic commanders" },
@@ -80,7 +79,7 @@ export function CardsPage() {
 
       {!q && (
         <div style={{ marginTop: "1.5rem" }}>
-          <p className="dim">Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
+          <p className="dim">Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>is:gamechanger</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
           <div className="row">
             {EXAMPLES.map((e) => (
               <button key={e.q} onClick={() => set({ q: e.q, page: "1" })}>{e.label}</button>
@@ -118,18 +117,7 @@ export function CardsPage() {
 }
 
 export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: () => void }) {
-  const detail = useQuery({
-    queryKey: ["card", oracleId],
-    queryFn: async () => {
-      try {
-        return await api<{ card: Card; printings: Printing[] }>(`/api/cards/${oracleId}`);
-      } catch (e) {
-        const card = isNetworkError(e) ? await offlineCard(oracleId) : null;
-        if (card) return { card, printings: [] as Printing[] };
-        throw e;
-      }
-    },
-  });
+  const detail = useQuery(cardDetailQuery(oracleId));
   const [flipped, setFlipped] = useState(false);
   const [added, setAdded] = useState<string | null>(null);
   const [allPrintings, setAllPrintings] = useState(false);
@@ -176,9 +164,11 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
               <p className="num"><b>{card.power ? `${card.power}/${card.toughness}` : `Loyalty ${card.loyalty}`}</b></p>
             )}
           </div>
-          <p>
+          <p className="row" style={{ gap: "0.4rem" }}>
             Commander: <Legality status={card.legalities.commander} />
+            {card.game_changer && <span className="tag gc" title="On the Commander Game Changers list, per Scryfall">Game Changer</span>}
           </p>
+          {detail.data!.rulings && <Rulings rulings={detail.data!.rulings} />}
           {detail.data!.printings.length > 0 && (
             <div>
               <h3>Printings and market prices</h3>

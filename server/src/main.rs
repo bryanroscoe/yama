@@ -21,9 +21,10 @@ yama-server — Yama backend
 
 USAGE:
   yama-server serve                          Run the HTTP server
-  yama-server import-cards [--oracle FILE] [--default FILE]
-                                             Import Scryfall bulk data (downloads the
-                                             latest files when no FILE is given)
+  yama-server import-cards [--oracle FILE] [--default FILE] [--rulings FILE]
+                                             Import Scryfall bulk data and rulings
+                                             (downloads the latest files unless both
+                                             card files are given)
   yama-server import-decks DIR --owner EMAIL Import every .txt deck list in DIR
   yama-server invite EMAIL                   Allow EMAIL to sign in
   yama-server user add EMAIL [--name NAME] [--admin] [--password-stdin]
@@ -51,7 +52,8 @@ async fn main() -> anyhow::Result<()> {
         Some("import-cards") => {
             let oracle = flag_value(&args, "--oracle").map(PathBuf::from);
             let default = flag_value(&args, "--default").map(PathBuf::from);
-            cards::import::run(&pool, &cfg, oracle, default).await
+            let rulings = flag_value(&args, "--rulings").map(PathBuf::from);
+            cards::import::run(&pool, &cfg, oracle, default, rulings).await
         }
         Some("import-decks") => {
             let dir = args.get(1).context("usage: yama-server import-decks DIR --owner EMAIL")?;

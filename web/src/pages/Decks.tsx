@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, usd, type Container, type DeckCard, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
+import { NameList, OnlineSupport } from "../components/OnlineSupport";
 import { CardSheet } from "./Cards";
 
 export function DecksPage() {
@@ -134,6 +135,10 @@ export function DeckPage() {
   if (!d) return <main className="page" />;
   const v = d.validation;
   const o = d.ownership;
+  const openByName = (name: string) => {
+    const hit = d.cards.find((c) => c.name === name);
+    if (hit) setOpen(hit.oracle_id);
+  };
 
   return (
     <main className="page">
@@ -180,6 +185,16 @@ export function DeckPage() {
         </div>
       )}
       {v.warnings.length > 0 && <ul className="small dim">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+
+      <div className="deck-facts">
+        <div>
+          <p><b>Game Changers: {d.game_changers.length}</b></p>
+          {d.game_changers.length > 0 && (
+            <p className="names"><NameList names={d.game_changers} onCard={openByName} /></p>
+          )}
+        </div>
+        <OnlineSupport deckId={d.id} versionId={d.version_id} onCard={openByName} />
+      </div>
 
       <div className="row" role="tablist" style={{ margin: "1rem 0" }}>
         <button role="tab" aria-selected={view === "all"} className={view === "all" ? "primary" : ""} onClick={() => setView("all")}>Whole deck</button>

@@ -33,6 +33,8 @@ export interface OfflineCard {
   img: string | null;
   /** EDHREC rank */
   e: number | null;
+  /** On the Commander Game Changers list. The server only sends it when true. */
+  g?: boolean;
 }
 
 type Pred = (c: OfflineCard) => boolean;
@@ -250,6 +252,9 @@ function term(key: string | null, op: string, value: string, exact: boolean): Pr
         case "multicolor":
         case "multicolored":
           return (c) => c.c.length >= 2;
+        case "gamechanger":
+        case "gc":
+          return (c) => c.g === true;
         default:
           throw new Error(`unsupported is:${value}`);
       }

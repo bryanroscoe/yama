@@ -20,7 +20,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, watch};
-use yama_play::{DeckLine, Difficulty, Engine, Match, SeatDeck, View};
+use yama_play::{DeckLine, DeckSupport, Difficulty, Engine, Match, SeatDeck, View};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -31,6 +31,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/play/{id}/start", post(start))
         .route("/api/play/{id}/ws", get(connect))
         .route("/api/play/{id}/view", get(final_view))
+        .route("/api/decks/{id}/online-support", get(online_support))
 }
 
 // ── engine and live games ──────────────────────────────────────────────────
@@ -440,13 +441,61 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
     Ok(Json(summarize(&r, &user.id, missing)))
 }
 
-fn resolve(engine: &Engine, cards: &[DeckCard]) -> (SeatDeck, yama_play::DeckReport) {
-    let lines: Vec<DeckLine> = cards
+fn deck_lines(cards: &[DeckCard]) -> Vec<DeckLine<'_>> {
+    cards
         .iter()
         .filter(|c| c.board != Board::Side)
-        .map(|c| DeckLine { oracle_id: &c.oracle_id, name: &c.name, qty: c.qty as u32, commander: c.board == Board::Commander })
-        .collect();
-    engine.resolve_deck(&lines)
+        .map(|c| DeckLine { oracle_id: &c.oracle_id, name: &c.name, qty: c.qty.max(0) as u32, commander: c.board == Board::Commander })
+        .collect()
+}
+
+fn resolve(engine: &Engine, cards: &[DeckCard]) -> (SeatDeck, yama_play::DeckReport) {
+    engine.resolve_deck(&deck_lines(cards))
+}
+
+#[derive(Serialize)]
+struct OnlineSupport {
+    /// "ready", "starting" (the engine is still loading its card data) or "off".
+    state: &'static str,
+    /// Why it isn't ready.
+    reason: Option<String>,
+    engine_version: &'static str,
+    version_id: Option<String>,
+    support: Option<DeckSupport>,
+}
+
+/// How much of a deck's current version the rules engine can play: cards it doesn't know (left
+/// out of games) and cards with abilities it hasn't implemented.
+async fn online_support(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<OnlineSupport>> {
+    let version: Option<String> = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ? AND owner_id = ?")
+        .bind(&id)
+        .bind(&user.id)
+        .fetch_optional(&st.pool)
+        .await?
+        .ok_or(AppError::NotFound("deck"))?;
+    let engine = match st.play.engine() {
+        Ok(e) => e,
+        Err(e) => {
+            return Ok(Json(OnlineSupport {
+                state: if matches!(e, AppError::Conflict(_)) { "starting" } else { "off" },
+                reason: Some(e.to_string()),
+                engine_version: yama_play::ENGINE_VERSION,
+                version_id: version,
+                support: None,
+            }));
+        }
+    };
+    let cards = match &version {
+        Some(v) => load_version_cards(&st.pool, v).await?,
+        None => vec![],
+    };
+    Ok(Json(OnlineSupport {
+        state: "ready",
+        reason: None,
+        engine_version: yama_play::ENGINE_VERSION,
+        version_id: version,
+        support: Some(engine.deck_support(&deck_lines(&cards))),
+    }))
 }
 
 /// A deck the user owns: its current version, name, commander and color identity.
@@ -729,6 +778,8 @@ async fn connect(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pat
 /// What the board needs to show a card readably: full-size image and rules text, by name.
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 struct CardMeta {
+    /// For loading rulings in the card inspector.
+    oracle_id: String,
     image: Option<String>,
     back_image: Option<String>,
     mana_cost: Option<String>,
@@ -760,7 +811,7 @@ async fn card_meta(pool: &SqlitePool, names: &[String], cache: &mut HashMap<Stri
             continue;
         }
         let meta: Option<CardMeta> = sqlx::query_as(
-            "SELECT c.image_normal AS image, c.back_image_normal AS back_image, c.mana_cost, c.type_line, c.oracle_text
+            "SELECT c.oracle_id, c.image_normal AS image, c.back_image_normal AS back_image, c.mana_cost, c.type_line, c.oracle_text
              FROM card_names n JOIN cards c ON c.oracle_id = n.oracle_id WHERE n.name = ?
              ORDER BY IFNULL(c.layout,'') IN ('token','double_faced_token') LIMIT 1",
         )

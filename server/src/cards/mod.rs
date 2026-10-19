@@ -26,7 +26,7 @@ pub fn router() -> Router<AppState> {
 pub const CARD_COLUMNS: &str = "cards.oracle_id, cards.name, cards.mana_cost, cards.cmc, cards.type_line, \
     cards.oracle_text, cards.colors, cards.color_identity, cards.power, cards.toughness, cards.loyalty, \
     cards.rarity, cards.layout, cards.legalities, cards.image_small, cards.image_normal, cards.image_art_crop, \
-    cards.back_image_normal, cards.artist, cards.default_printing, cards.edhrec_rank";
+    cards.back_image_normal, cards.artist, cards.default_printing, cards.edhrec_rank, cards.game_changer";
 
 #[derive(Debug, Serialize, sqlx::FromRow, Clone)]
 pub struct Card {
@@ -52,6 +52,8 @@ pub struct Card {
     pub artist: Option<String>,
     pub default_printing: Option<String>,
     pub edhrec_rank: Option<i64>,
+    /// On the Commander Game Changers list, per Scryfall.
+    pub game_changer: bool,
 }
 
 #[derive(Deserialize)]
@@ -180,6 +182,25 @@ pub const PRINTING_SELECT: &str = "SELECT p.scryfall_id, p.oracle_id, p.name, p.
 struct CardDetail {
     card: Card,
     printings: Vec<Printing>,
+    /// Oldest first, as Scryfall lists them.
+    rulings: Vec<Ruling>,
+}
+
+/// One ruling from Scryfall's rulings file. `source` is "wotc" (Wizards) or "scryfall".
+#[derive(Debug, Serialize, sqlx::FromRow, PartialEq)]
+pub struct Ruling {
+    pub source: String,
+    pub published_at: String,
+    pub comment: String,
+}
+
+pub async fn rulings_for(pool: &SqlitePool, oracle_id: &str) -> AppResult<Vec<Ruling>> {
+    Ok(sqlx::query_as(
+        "SELECT source, published_at, comment FROM rulings WHERE oracle_id = ? ORDER BY published_at, rowid",
+    )
+    .bind(oracle_id)
+    .fetch_all(pool)
+    .await?)
 }
 
 async fn card_detail(
@@ -198,7 +219,8 @@ async fn card_detail(
     .bind(&oracle_id)
     .fetch_all(&st.pool)
     .await?;
-    Ok(Json(CardDetail { card, printings }))
+    let rulings = rulings_for(&st.pool, &oracle_id).await?;
+    Ok(Json(CardDetail { card, printings, rulings }))
 }
 
 #[derive(Deserialize)]
@@ -297,6 +319,9 @@ struct OfflineCard {
     y: Option<String>,
     img: Option<String>,
     e: Option<i64>,
+    /// Game Changer. Sent only when true, to keep the bundle small.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    g: bool,
 }
 
 #[derive(Serialize)]
@@ -320,7 +345,7 @@ async fn offline_cards(State(st): State<AppState>, _user: CurrentUser) -> AppRes
                             'vintage', json_extract(legalities, '$.vintage'),
                             'pauper', json_extract(legalities, '$.pauper'),
                             'brawl', json_extract(legalities, '$.brawl')) AS f,
-                layout AS y, image_normal AS img, edhrec_rank AS e
+                layout AS y, image_normal AS img, edhrec_rank AS e, game_changer AS g
          FROM cards ORDER BY name",
     )
     .fetch_all(&st.pool)

@@ -123,6 +123,7 @@ export function toCard(c: OfflineCard): Card {
     artist: null,
     default_printing: null,
     edhrec_rank: c.e,
+    game_changer: c.g === true,
   };
 }
 

@@ -71,6 +71,24 @@ export interface Card {
   artist: string | null;
   default_printing: string | null;
   edhrec_rank: number | null;
+  /** On the Commander Game Changers list, per Scryfall. */
+  game_changer: boolean;
+}
+
+/** A ruling from Scryfall's rulings file. */
+export interface Ruling {
+  /** "wotc" (Wizards of the Coast) or "scryfall" */
+  source: string;
+  /** YYYY-MM-DD */
+  published_at: string;
+  comment: string;
+}
+
+export interface CardDetail {
+  card: Card;
+  printings: Printing[];
+  /** Missing when the card came from the offline copy on this device. */
+  rulings?: Ruling[];
 }
 
 export interface Printing {
@@ -198,6 +216,26 @@ export interface DeckView {
   cards: DeckEntry[];
   validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[] };
   ownership: { cards: number; owned: number; needed: number; needed_cost_usd: number; needed_without_price: number };
+  /** Game Changers in the commander and main deck, by name. */
+  game_changers: string[];
+}
+
+/** GET /api/decks/:id/online-support: what the rules engine can play of a deck. */
+export interface OnlineSupport {
+  /** "starting" while the engine loads its card data; "off" when online play is off. */
+  state: "ready" | "starting" | "off";
+  reason: string | null;
+  engine_version: string;
+  version_id: string | null;
+  support: {
+    /** Copies in the commander and main deck. */
+    total: number;
+    supported: number;
+    /** Not in the engine's card data; left out of online games. */
+    missing: string[];
+    /** Loaded, but some abilities aren't implemented. */
+    partial: string[];
+  } | null;
 }
 
 export interface Member {

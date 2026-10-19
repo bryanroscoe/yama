@@ -208,6 +208,7 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 
   A full-control switch turns this off.
 - **Runtime:** one OS thread per live game with a 32 MiB stack, because the AI search recurses deeply. Views go out over a `watch` channel and WebSocket. The replay log and public log lines are saved after every change, and live games resume after a restart by replaying the log.
+- **Card support:** the deck page and the new-game form say how many of a deck's cards the engine supports ("Online play: 97/100 cards supported") and name the rest: cards it doesn't know (left out of the game) and cards with an unimplemented part on any face. The test is phase's own `card_face_has_unimplemented_parts` (the same one behind its `is_card_playable`), computed on request (`GET /api/decks/{id}/online-support`) rather than stored per version, so it follows engine upgrades. phase's coverage dashboard is stricter (it also counts parse warnings and text the parser dropped), so a card it lists, such as Combat Celebrant above, can still pass here; on 2026-10-18 the Fantastic Four list showed 99/100 (Negative Zone Portal) and Riders of Rohan 100/100.
 - **Hidden information:** Yama's own view type never includes libraries or opponents' hands. phase's filtered state still names opponents' library cards internally, so never send the raw engine state to a client.
 
 ## 11. Risks
@@ -220,6 +221,7 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 - **Scanner:**
   - License (AGPL), and accuracy on foils, sleeves and bad lighting, especially when telling printings apart.
   - The eval set and one-tap correction contain this.
+- **Scryfall changes:** Scryfall changed its platform three times in 2026 (JSON Lines bulk files in July, WebP images on 2026-10-14). The `small`, `large`, `border_crop` and `art_crop` JPEGs stop on 2027-01-01, so the import reads `thumb`, `grid` and `art` (falling back to the JPEG keys) and keeps the old column names. Image URLs always come from the card JSON, never from `format=image` redirects.
 - **Prices:** Scryfall prices are market reference prices, not availability or checkout quotes. Label them that way. As far as I know, TCGplayer's own API is closed to new developers (not rechecked), so Scryfall is our price source.
 - **Scope:** this is several apps. The milestones deliver something usable at each step; stop wherever it's good enough.
 
@@ -246,5 +248,6 @@ Still open:
 - CollectorVision: <https://github.com/HanClinto/CollectorVision>; catalog <https://github.com/HanClinto/CollectorVisionCatalog>
 - Other scanners reviewed: <https://github.com/matteot11/open-card-collector> (MIT), <https://github.com/cfbender/oracle> (MPL-2.0), <https://github.com/GrimbiXcode/mtgscan> (GPL-3.0), <https://github.com/fortierq/mtgscan> (MIT)
 - Scryfall API and bulk data: <https://scryfall.com/docs/api>, <https://scryfall.com/docs/api/bulk-data>
+- Scryfall, "New WebP images + JPEG Deprecations" (2026-10-14; read 2026-10-18): <https://scryfall.com/blog/new-webp-images-jpeg-deprecations-237>
 - Wizards Fan Content Policy: <https://company.wizards.com/en/legal/fancontentpolicy>
 - Comprehensive Rules: <https://magic.wizards.com/en/rules> (latest edition found: effective 2026-06-19)

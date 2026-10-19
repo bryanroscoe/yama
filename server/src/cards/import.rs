@@ -2,6 +2,13 @@
 //!
 //! - `oracle_cards`: one object per card (rules text, legality) → `cards`, `card_names`.
 //! - `default_cards`: every printing in English, or its only language → `printings`, `price_snapshots`.
+//! - `rulings`: Wizards' and Scryfall's rulings by oracle ID → `rulings` (replaced as a whole).
+//!
+//! Images: Scryfall added WebP sizes on 2026-10-14 and drops the `small`, `large`, `border_crop`
+//! and `art_crop` JPEGs on 2027-01-01 (<https://scryfall.com/blog/new-webp-images-jpeg-deprecations-237>).
+//! We read `thumb`, `grid` and `art`, falling back to the JPEG keys for older files. Column
+//! names stay as they were (`image_small` holds the thumb, `image_normal` the grid image, and
+//! `image_art_crop` the art). Only URLs are stored; images load from Scryfall at runtime.
 //!
 //! The files are large (hundreds of MB), so they're parsed as a stream on a blocking thread and
 //! handed to the async writer in batches. Scryfall regenerates bulk files every 12 hours; weekly
@@ -27,9 +34,17 @@ const BATCH: usize = 500;
 /// Layouts that aren't cards anyone plays.
 const SKIP_LAYOUTS: [&str; 1] = ["art_series"];
 
-pub async fn run(pool: &SqlitePool, cfg: &Config, oracle: Option<PathBuf>, default: Option<PathBuf>) -> anyhow::Result<()> {
+pub async fn run(
+    pool: &SqlitePool,
+    cfg: &Config,
+    oracle: Option<PathBuf>,
+    default: Option<PathBuf>,
+    rulings: Option<PathBuf>,
+) -> anyhow::Result<()> {
     let http = crate::routes::http_client();
-    let index = if oracle.is_none() || default.is_none() { Some(bulk_index(&http).await?) } else { None };
+    // Given both card files, stay offline: rulings come only from --rulings then.
+    let offline = oracle.is_some() && default.is_some();
+    let index = if !offline { Some(bulk_index(&http).await?) } else { None };
 
     let (oracle_path, oracle_meta) = match oracle {
         Some(p) => (p, None),
@@ -51,13 +66,30 @@ pub async fn run(pool: &SqlitePool, cfg: &Config, oracle: Option<PathBuf>, defau
     let n = import_default(pool, &default_path, default_meta.as_ref()).await?;
     println!("printings: {n}");
 
+    let rulings = match (rulings, &index) {
+        (Some(p), _) => Some((p, None)),
+        (None, Some(index)) => {
+            let item = index.find("rulings")?;
+            Some((download(&http, item, &cfg.data_dir).await?, Some(item.clone())))
+        }
+        (None, None) => None,
+    };
+    let rulings_result = match &rulings {
+        Some((path, meta)) => import_rulings(pool, path, meta.as_ref()).await.map(|n| println!("rulings: {n}")),
+        None => Ok(()),
+    };
+
     // Downloaded files are only needed during import, and the disk is small.
-    for (path, meta) in [(&oracle_path, &oracle_meta), (&default_path, &default_meta)] {
-        if meta.is_some() {
+    let mut downloaded = vec![(oracle_path, oracle_meta.is_some()), (default_path, default_meta.is_some())];
+    if let Some((path, meta)) = rulings {
+        downloaded.push((path, meta.is_some()));
+    }
+    for (path, was_downloaded) in downloaded {
+        if was_downloaded {
             let _ = std::fs::remove_file(path);
         }
     }
-    Ok(())
+    rulings_result
 }
 
 /// Download and import the latest file of one kind, unless we already have that exact file.
@@ -80,17 +112,18 @@ pub async fn refresh(pool: &SqlitePool, data_dir: &Path, kind: &str) -> anyhow::
     let path = download(&http, item, data_dir).await?;
     let result = match kind {
         "oracle_cards" => import_oracle(pool, &path, Some(item)).await,
+        "rulings" => import_rulings(pool, &path, Some(item)).await,
         _ => import_default(pool, &path, Some(item)).await,
     };
     let _ = std::fs::remove_file(&path);
     result.map(|_| true)
 }
 
-/// Background refresh for a running server: prices daily, rules text weekly.
+/// Background refresh for a running server: prices daily, rules text and rulings weekly.
 pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
     tokio::spawn(async move {
         loop {
-            for (kind, max_age_hours) in [("default_cards", 20), ("oracle_cards", 24 * 6)] {
+            for (kind, max_age_hours) in [("default_cards", 20), ("oracle_cards", 24 * 6), ("rulings", 24 * 6)] {
                 let last: Option<String> = sqlx::query_scalar(
                     "SELECT MAX(finished_at) FROM import_runs WHERE kind = ? AND error IS NULL",
                 )
@@ -255,11 +288,34 @@ impl<'de, T: DeserializeOwned> Visitor<'de> for Each<T> {
 
 // ── Scryfall card shape (only the fields we keep) ──────────────────────────
 
+/// Scryfall's image links. The WebP keys (`thumb`, `grid`, `art`) arrived on 2026-10-14; the
+/// old JPEG keys are read only as a fallback. `jpeg` is the old `normal` under its new name.
 #[derive(Deserialize, Default, Clone)]
 struct ImageUris {
+    thumb: Option<String>,
+    grid: Option<String>,
+    art: Option<String>,
+    jpeg: Option<String>,
     small: Option<String>,
     normal: Option<String>,
     art_crop: Option<String>,
+}
+
+impl ImageUris {
+    /// 146 × 204, for lists (`image_small`).
+    fn small(&self) -> Option<&String> {
+        self.thumb.as_ref().or(self.small.as_ref())
+    }
+
+    /// 488 × 680, the everyday card image (`image_normal`).
+    fn normal(&self) -> Option<&String> {
+        self.grid.as_ref().or(self.jpeg.as_ref()).or(self.normal.as_ref())
+    }
+
+    /// The illustration alone (`image_art_crop`). Credit the artist wherever it's shown.
+    fn art(&self) -> Option<&String> {
+        self.art.as_ref().or(self.art_crop.as_ref())
+    }
 }
 
 #[derive(Deserialize, Clone, serde::Serialize)]
@@ -309,6 +365,9 @@ struct ScryCard {
     legalities: BTreeMap<String, String>,
     rarity: Option<String>,
     edhrec_rank: Option<i64>,
+    /// On the Commander Game Changers list (oracle_cards). Absent or null reads as false.
+    #[serde(default)]
+    game_changer: Option<bool>,
     image_uris: Option<ImageUris>,
     card_faces: Option<Vec<Face>>,
     artist: Option<String>,
@@ -357,7 +416,7 @@ impl ScryCard {
         if self.image_uris.is_some() {
             return None; // single image (split, adventure, flip…)
         }
-        self.card_faces.as_ref()?.get(1)?.image_uris.as_ref()?.normal.clone()
+        self.card_faces.as_ref()?.get(1)?.image_uris.as_ref()?.normal().cloned()
     }
 
     fn front(&self, get: fn(&Face) -> Option<&String>) -> Option<&String> {
@@ -444,8 +503,8 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
             sqlx::query(
                 "INSERT INTO cards (oracle_id, name, mana_cost, cmc, type_line, oracle_text, colors, color_identity,
                     power, toughness, loyalty, keywords, legalities, rarity, layout, edhrec_rank, default_printing,
-                    image_small, image_normal, image_art_crop, back_image_normal, artist, faces, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    image_small, image_normal, image_art_crop, back_image_normal, artist, faces, game_changer, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                  ON CONFLICT(oracle_id) DO UPDATE SET name=excluded.name, mana_cost=excluded.mana_cost,
                     cmc=excluded.cmc, type_line=excluded.type_line, oracle_text=excluded.oracle_text,
                     colors=excluded.colors, color_identity=excluded.color_identity, power=excluded.power,
@@ -454,7 +513,8 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
                     edhrec_rank=excluded.edhrec_rank, default_printing=excluded.default_printing,
                     image_small=excluded.image_small, image_normal=excluded.image_normal,
                     image_art_crop=excluded.image_art_crop, back_image_normal=excluded.back_image_normal,
-                    artist=excluded.artist, faces=excluded.faces, updated_at=excluded.updated_at",
+                    artist=excluded.artist, faces=excluded.faces, game_changer=excluded.game_changer,
+                    updated_at=excluded.updated_at",
             )
             .bind(&oracle_id)
             .bind(&c.name)
@@ -473,12 +533,13 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
             .bind(&c.layout)
             .bind(c.edhrec_rank)
             .bind(&c.id)
-            .bind(&images.small)
-            .bind(&images.normal)
-            .bind(&images.art_crop)
+            .bind(images.small())
+            .bind(images.normal())
+            .bind(images.art())
             .bind(c.back_image())
             .bind(&c.artist)
             .bind(faces)
+            .bind(c.game_changer.unwrap_or(false))
             .bind(&stamp)
             .execute(&mut *tx)
             .await?;
@@ -549,9 +610,9 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
             .bind(&c.rarity)
             .bind(serde_json::to_string(&c.finishes)?)
             .bind(&c.released_at)
-            .bind(&images.normal)
-            .bind(&images.small)
-            .bind(&images.art_crop)
+            .bind(images.normal())
+            .bind(images.small())
+            .bind(images.art())
             .bind(c.back_image())
             .bind(&c.artist)
             .bind(&stamp)
@@ -583,6 +644,54 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
     if count == 0 {
         bail!("no printings found in {}", path.display());
     }
+    Ok(count)
+}
+
+#[derive(Deserialize)]
+struct ScryRuling {
+    oracle_id: Option<String>,
+    #[serde(default)]
+    source: String,
+    #[serde(default)]
+    published_at: String,
+    #[serde(default)]
+    comment: String,
+}
+
+pub async fn import_rulings(pool: &SqlitePool, path: &Path, meta: Option<&BulkItem>) -> anyhow::Result<usize> {
+    let run = start_run(pool, "rulings", meta).await?;
+    let result = import_rulings_inner(pool, path).await;
+    finish_run(pool, &run, &result).await?;
+    result
+}
+
+/// Replace every ruling in one transaction, so a failed import leaves the old set in place
+/// and running it twice gives the same table.
+async fn import_rulings_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<usize> {
+    let mut rx = stream_cards::<ScryRuling>(path.to_path_buf());
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM rulings").execute(&mut *tx).await?;
+    let mut count = 0;
+    while let Some(batch) = rx.recv().await {
+        for r in batch? {
+            let Some(oracle_id) = r.oracle_id.filter(|id| !id.is_empty()) else { continue };
+            if r.comment.trim().is_empty() {
+                continue;
+            }
+            sqlx::query("INSERT INTO rulings (oracle_id, source, published_at, comment) VALUES (?,?,?,?)")
+                .bind(oracle_id)
+                .bind(&r.source)
+                .bind(&r.published_at)
+                .bind(&r.comment)
+                .execute(&mut *tx)
+                .await?;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        bail!("no rulings found in {}", path.display());
+    }
+    tx.commit().await?;
     Ok(count)
 }
 
@@ -653,5 +762,124 @@ mod tests {
         }
         gz.finish().unwrap();
         assert_eq!(import_oracle(&pool, &path, None).await.unwrap(), 2);
+    }
+
+    /// Shape of Scryfall's image_uris since 2026-10-14 (Sol Ring, checked 2026-10-18): the old
+    /// JPEG keys and the new WebP ones side by side.
+    const WEBP: &str = r#"[
+      {"id":"p1","oracle_id":"o1","name":"Sol Ring","layout":"normal","cmc":1.0,"type_line":"Artifact",
+       "color_identity":[],"legalities":{"commander":"legal"},"game_changer":true,
+       "image_uris":{"small":"https://cards.scryfall.io/small/front/s.jpg","normal":"https://cards.scryfall.io/normal/front/s.jpg",
+         "large":"https://cards.scryfall.io/large/front/s.jpg","art_crop":"https://cards.scryfall.io/art_crop/front/s.jpg",
+         "thumb":"https://cards.scryfall.io/thumb/front/s.webp","grid":"https://cards.scryfall.io/grid/front/s.webp",
+         "display":"https://cards.scryfall.io/display/front/s.webp","art":"https://cards.scryfall.io/art/front/s.webp",
+         "crop":"https://cards.scryfall.io/crop/front/s.webp","jpeg":"https://cards.scryfall.io/normal/front/s.jpg"},
+       "set":"cmm","set_name":"Commander Masters","collector_number":"410","lang":"en","finishes":["nonfoil"]},
+      {"id":"p2","oracle_id":"o2","name":"Front // Back","layout":"transform","cmc":2.0,"type_line":"Creature // Creature",
+       "color_identity":["G"],"legalities":{"commander":"legal"},"game_changer":null,
+       "card_faces":[{"name":"Front","image_uris":{"normal":"old-front","grid":"front.webp"}},
+                     {"name":"Back","image_uris":{"jpeg":"back.jpg"}}],
+       "set":"x","set_name":"X","collector_number":"2","lang":"en","finishes":["nonfoil"]}
+    ]"#;
+
+    #[tokio::test]
+    async fn prefers_webp_image_keys_and_reads_game_changer() {
+        let pool = crate::db::test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bulk.json");
+        std::fs::write(&path, WEBP).unwrap();
+        import_oracle(&pool, &path, None).await.unwrap();
+        import_default(&pool, &path, None).await.unwrap();
+
+        type Images = (Option<String>, Option<String>, Option<String>, Option<String>, bool);
+        let sol: Images = sqlx::query_as(
+            "SELECT image_small, image_normal, image_art_crop, back_image_normal, game_changer FROM cards WHERE oracle_id='o1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(sol.0.as_deref(), Some("https://cards.scryfall.io/thumb/front/s.webp"));
+        assert_eq!(sol.1.as_deref(), Some("https://cards.scryfall.io/grid/front/s.webp"));
+        assert_eq!(sol.2.as_deref(), Some("https://cards.scryfall.io/art/front/s.webp"));
+        assert_eq!(sol.3, None);
+        assert!(sol.4);
+
+        let dfc: Images = sqlx::query_as(
+            "SELECT image_small, image_normal, image_art_crop, back_image_normal, game_changer FROM cards WHERE oracle_id='o2'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(dfc.1.as_deref(), Some("front.webp"));
+        assert_eq!(dfc.3.as_deref(), Some("back.jpg"), "the renamed jpeg key is a fallback for grid");
+        assert!(!dfc.4, "a null game_changer reads as false");
+
+        let printing: (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT image_small, image_normal FROM printings WHERE scryfall_id='p1'").fetch_one(&pool).await.unwrap();
+        assert_eq!(printing.0.as_deref(), Some("https://cards.scryfall.io/thumb/front/s.webp"));
+        assert_eq!(printing.1.as_deref(), Some("https://cards.scryfall.io/grid/front/s.webp"));
+
+        // Files from before the change only have the JPEG keys.
+        let old = dir.path().join("old.json");
+        std::fs::write(&old, SAMPLE).unwrap();
+        import_oracle(&pool, &old, None).await.unwrap();
+        let (small, normal, art): (Option<String>, Option<String>, Option<String>) =
+            sqlx::query_as("SELECT image_small, image_normal, image_art_crop FROM cards WHERE oracle_id='o1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!((small.as_deref(), normal.as_deref(), art.as_deref()), (Some("s"), Some("n"), Some("a")));
+    }
+
+    #[tokio::test]
+    async fn imports_rulings_replacing_the_old_set() {
+        use std::io::Write;
+        let pool = crate::db::test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rulings.jsonl.gz");
+        let lines = [
+            r#"{"object":"ruling","oracle_id":"o1","source":"wotc","published_at":"2004-10-04","comment":"First."}"#,
+            r#"{"object":"ruling","oracle_id":"o1","source":"scryfall","published_at":"2021-03-19","comment":"Second."}"#,
+            r#"{"object":"ruling","oracle_id":"o2","source":"wotc","published_at":"2019-05-03","comment":"Other card."}"#,
+            r#"{"object":"ruling","oracle_id":null,"source":"wotc","published_at":"2019-05-03","comment":"No card."}"#,
+        ];
+        let mut gz = flate2::write::GzEncoder::new(std::fs::File::create(&path).unwrap(), flate2::Compression::fast());
+        for l in lines {
+            writeln!(gz, "{l}").unwrap();
+        }
+        gz.finish().unwrap();
+
+        assert_eq!(import_rulings(&pool, &path, None).await.unwrap(), 3);
+        // Running it again replaces rather than duplicates.
+        assert_eq!(import_rulings(&pool, &path, None).await.unwrap(), 3);
+        let rows: Vec<(String, String, String)> =
+            sqlx::query_as("SELECT source, published_at, comment FROM rulings WHERE oracle_id='o1' ORDER BY published_at")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("wotc".into(), "2004-10-04".into(), "First.".into()),
+                ("scryfall".into(), "2021-03-19".into(), "Second.".into())
+            ]
+        );
+        // What GET /api/cards/:id returns: oldest first.
+        let served = crate::cards::rulings_for(&pool, "o1").await.unwrap();
+        assert_eq!(served.iter().map(|r| r.comment.as_str()).collect::<Vec<_>>(), ["First.", "Second."]);
+        assert!(crate::cards::rulings_for(&pool, "o9").await.unwrap().is_empty());
+
+        let runs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM import_runs WHERE kind='rulings' AND error IS NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(runs, 2);
+
+        // An empty file is an error and leaves the rulings we had.
+        let empty = dir.path().join("empty.json");
+        std::fs::write(&empty, "[]").unwrap();
+        assert!(import_rulings(&pool, &empty, None).await.is_err());
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rulings").fetch_one(&pool).await.unwrap();
+        assert_eq!(total, 3);
     }
 }

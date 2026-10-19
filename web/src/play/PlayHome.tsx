@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, type DeckSummary, type Playgroup } from "../api";
 import { ErrorText, Pips } from "../components/ui";
+import { OnlineSupport } from "../components/OnlineSupport";
 import type { OnlineGame } from "./types";
 
 const DIFFICULTIES = [
@@ -141,6 +142,11 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
               </span>
             )}
           </div>
+          {s.kind !== "friend" && deckOf(s) && (
+            <div style={{ marginTop: "0.6rem" }}>
+              <OnlineSupport deckId={deckOf(s)} versionId={decks.find((d) => d.id === deckOf(s))?.current_version_id} />
+            </div>
+          )}
         </fieldset>
       ))}
       <div className="row">
@@ -182,6 +188,9 @@ function JoinGame({ decks }: { decks: DeckSummary[] }) {
         </label>
         <button className="primary" disabled={join.isPending}>Join</button>
       </form>
+      {(deckId || decks[0]?.id) && (
+        <OnlineSupport deckId={deckId || decks[0]!.id} versionId={decks.find((d) => d.id === (deckId || decks[0]?.id))?.current_version_id} />
+      )}
       <ErrorText error={join.error} />
     </section>
   );

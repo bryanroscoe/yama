@@ -3,7 +3,8 @@
 //! Supported: bare words and "quoted phrases" (name), `!"exact name"`, `o:` `t:` `kw:`,
 //! `c:` / `id:` with `= != < <= > >=` (colors as letters, names, guilds, shards, wedges,
 //! `c`/colorless, `m`/multicolor), `mv`/`cmc`, `pow`, `tou`, `loy`, `r:`, `f:`/`legal:`,
-//! `banned:`, `is:commander`, `is:legendary`, negation `-`, `or`, and parentheses.
+//! `banned:`, `is:commander`, `is:legendary`, `is:gamechanger` (or `is:gc`), negation `-`, `or`,
+//! and parentheses.
 //! The same grammar runs offline in the app (`packages/core`), so keep them in step.
 
 
@@ -266,6 +267,7 @@ impl Parser {
                 "permanent" => Ok("(cards.type_line NOT LIKE '%Instant%' AND cards.type_line NOT LIKE '%Sorcery%')".into()),
                 "spell" => Ok("cards.type_line NOT LIKE '%Land%'".into()),
                 "multicolor" | "multicolored" => Ok("length(cards.colors) >= 2".into()),
+                "gamechanger" | "gc" => Ok("cards.game_changer = 1".into()),
                 other => Err(format!("unsupported is:{other}")),
             },
             "name" => Ok(self.like("cards.name", value)),
@@ -392,6 +394,13 @@ mod tests {
         assert!(compile("mv>=abc").is_err());
         assert!(compile("(t:elf").is_err());
         assert!(compile("o:\"open").is_err());
+    }
+
+    #[test]
+    fn game_changers() {
+        assert_eq!(compile("is:gamechanger").unwrap().sql, "cards.game_changer = 1");
+        assert_eq!(compile("is:gc").unwrap().sql, "cards.game_changer = 1");
+        assert_eq!(compile("-is:GameChanger t:artifact").unwrap().sql, "(NOT cards.game_changer = 1 AND cards.type_line LIKE ? ESCAPE '\\')");
     }
 
     #[test]

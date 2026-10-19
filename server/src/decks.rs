@@ -299,6 +299,8 @@ struct DeckView {
     cards: Vec<DeckEntry>,
     validation: Validation,
     ownership: OwnershipTotals,
+    /// Names of the cards on the Commander Game Changers list (commander and main deck).
+    game_changers: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -345,6 +347,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         }
     }
     let validation = validate(&cards, &card_info);
+    let game_changers = game_changers(&cards, &card_info);
 
     // Ownership, by oracle ID, across the whole collection.
     let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
@@ -397,7 +400,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd });
     }
     totals.needed_cost_usd = (totals.needed_cost_usd * 100.0).round() / 100.0;
-    Ok(Json(DeckView { id, name, container_id, version_id, cards: entries, validation, ownership: totals }))
+    Ok(Json(DeckView { id, name, container_id, version_id, cards: entries, validation, ownership: totals, game_changers }))
 }
 
 #[derive(Deserialize)]
@@ -474,6 +477,19 @@ async fn list_versions(State(st): State<AppState>, CurrentUser(user): CurrentUse
             .fetch_all(&st.pool)
             .await?,
     ))
+}
+
+/// Game Changers in the deck (not the sideboard), by name, sorted. Uses Scryfall's flag, so
+/// it's only as fresh as the last card import.
+pub fn game_changers(cards: &[DeckCard], info: &HashMap<String, Card>) -> Vec<String> {
+    let mut names: Vec<String> = cards
+        .iter()
+        .filter(|c| c.board != Board::Side && info.get(&c.oracle_id).is_some_and(|card| card.game_changer))
+        .map(|c| c.name.clone())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 // ── validation ─────────────────────────────────────────────────────────────
@@ -613,7 +629,27 @@ mod tests {
             artist: None,
             default_printing: None,
             edhrec_rank: None,
+            game_changer: false,
         }
+    }
+
+    #[test]
+    fn game_changers_skip_the_sideboard() {
+        let mut rhystic = card("Rhystic Study", "Enchantment", "U", "", "legal");
+        rhystic.game_changer = true;
+        let mut sol = card("Sol Ring", "Artifact", "", "", "legal");
+        sol.game_changer = false;
+        let mut cyclonic = card("Cyclonic Rift", "Instant", "U", "", "legal");
+        cyclonic.game_changer = true;
+        let info: HashMap<String, Card> = [rhystic, sol, cyclonic].into_iter().map(|c| (c.oracle_id.clone(), c)).collect();
+        let dc = |name: &str, board| DeckCard { oracle_id: name.into(), name: name.into(), qty: 1, board };
+        let cards = vec![
+            dc("Sol Ring", Board::Main),
+            dc("Rhystic Study", Board::Main),
+            dc("Cyclonic Rift", Board::Side),
+            dc("Unknown card", Board::Main),
+        ];
+        assert_eq!(game_changers(&cards, &info), vec!["Rhystic Study".to_string()]);
     }
 
     #[test]

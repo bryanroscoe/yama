@@ -67,6 +67,7 @@ export interface SeatInfo {
 }
 
 export interface CardMeta {
+  oracle_id: string;
   image: string | null;
   back_image: string | null;
   mana_cost: string | null;
