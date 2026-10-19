@@ -1,0 +1,709 @@
+/* Cards (design/screens/Search.dc.html, SearchPhone) and the card page and sheet (CardPage,
+   CardPhone). styles.css loads after this file, so these rules carry a page class to outrank it. */
+
+/* ── search ─────────────────────────────────────────────────────────────── */
+
+.cards-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.cards-page > h1 {
+  margin: 0;
+}
+.cards-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.cards-page .cards-box {
+  flex: 1 1 380px;
+  position: relative;
+  display: block;
+}
+.cards-box .search-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--dim);
+  pointer-events: none;
+}
+.cards-page .cards-box input {
+  min-height: 52px;
+  padding: 8px 16px 8px 46px;
+  border-radius: var(--r-pill);
+  font-size: 0.9375rem;
+}
+/* Laptops: a pill beside the box. Phones: a chip after the query's chips. */
+.cards-page .cards-order {
+  display: none;
+  width: auto;
+  min-height: 56px;
+  padding: 0 18px;
+  border-radius: var(--r-pill);
+}
+.cards-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* Phones: the query's chips on one line that scrolls sideways, then the count and prices. */
+.cards-chips-row {
+  order: -1;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 -16px;
+  padding: 0 16px;
+}
+.cards-count {
+  font-size: var(--t-label);
+  color: var(--dim);
+}
+.cards-page .cards-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--t-sm);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.cards-chip.term {
+  padding-right: 4px;
+}
+.cards-chip.term button {
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dim);
+  font-weight: 400;
+}
+.cards-chip.term button:hover {
+  color: var(--text);
+}
+.cards-page select.cards-chip {
+  width: auto;
+  border-color: var(--line);
+  background-color: transparent;
+  padding-right: 28px;
+}
+.cards-prices {
+  display: none;
+}
+.cards-help .cards-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.cards-help .cards-chip {
+  min-height: var(--target);
+  font-weight: 700;
+}
+.cards-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 10px;
+}
+.cards-grid li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.cards-page .cards-card {
+  display: block;
+  padding: 0;
+  min-height: 0;
+  border: none;
+  background: none;
+  border-radius: var(--card-radius);
+}
+.cards-page .cards-card:hover {
+  background: none;
+}
+.cards-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--t-sm);
+}
+.cards-meta .own {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 700;
+  color: var(--dim);
+}
+.cards-meta .own.good {
+  color: var(--good);
+}
+.cards-meta .price {
+  flex: none;
+  color: var(--dim);
+}
+.cards-pages {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.cards-pages button:disabled {
+  opacity: 1;
+  background: var(--surface);
+  color: var(--dim);
+}
+@media (min-width: 900px) {
+  .cards-page {
+    gap: 22px;
+  }
+  .cards-page .cards-box input {
+    min-height: 56px;
+    padding: 10px 18px 10px 50px;
+    font-size: 1.0625rem;
+  }
+  .cards-box .search-icon {
+    left: 18px;
+  }
+  .cards-page .cards-order {
+    display: block;
+  }
+  .cards-summary {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .cards-chips-row {
+    order: 0;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+  }
+  .cards-count {
+    font-size: var(--t-base);
+  }
+  .cards-narrow {
+    display: none;
+  }
+  .cards-page select.cards-order-chip {
+    display: none;
+  }
+  .cards-page .cards-chip {
+    min-height: 32px;
+    padding: 4px 12px;
+    font-size: var(--t-label);
+  }
+  .cards-chip.term {
+    padding: 2px 4px 2px 12px;
+  }
+  .cards-chip.term button {
+    width: 24px;
+    height: 24px;
+  }
+  .cards-prices {
+    display: inline;
+    margin-left: auto;
+    font-size: var(--t-sm);
+    color: var(--dim);
+  }
+  .cards-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(172px, 100%), 1fr));
+    gap: 22px 16px;
+  }
+  .cards-grid li {
+    gap: 8px;
+  }
+  .cards-page .cards-card .card-img {
+    box-shadow: 0 10px 24px rgb(0 0 0 / 0.4);
+  }
+  .cards-meta {
+    font-size: var(--t-label);
+  }
+}
+
+/* ── the card page and the card sheet ───────────────────────────────────── */
+
+/* The page covers the results (they keep their scroll underneath). Phones: the whole screen;
+   laptops: right of the rail. */
+.card-page {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--ground);
+}
+@media (min-width: 900px) {
+  .card-page {
+    left: var(--rail-w);
+    z-index: 15;
+  }
+}
+/* In a sheet: bleed to the sheet's edges, and fade the art into the sheet's color. */
+.card-sheet2 {
+  margin: -20px -16px calc(-24px - env(safe-area-inset-bottom));
+  --cp-fade: var(--surface);
+}
+@media (min-width: 900px) {
+  .card-sheet2 {
+    margin: -28px;
+  }
+}
+
+.cp {
+  container: cp / inline-size;
+  position: relative;
+  min-height: 100%;
+}
+.cp-hero {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 300px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.cp-hero img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 30%;
+}
+.cp-hero-wash {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(11 12 14 / 0.3) 0%, rgb(11 12 14 / 0.7) 60%, var(--cp-fade, var(--ground)) 100%);
+}
+.card-sheet2 .cp-hero-wash {
+  background: linear-gradient(180deg, rgb(21 23 26 / 0.3) 0%, rgb(21 23 26 / 0.7) 60%, var(--surface) 100%);
+}
+.cp-inner {
+  position: relative;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 14px 16px calc(32px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.cp .cp-back {
+  align-self: start;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgb(11 12 14 / 0.6);
+  color: var(--on-art);
+}
+.cp .cp-back:hover {
+  background: rgb(11 12 14 / 0.8);
+}
+.cp-back-text {
+  display: none;
+}
+.cp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.cp-figure {
+  margin: 40px auto 0;
+  width: min(250px, 72%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.cp-figure .card-img,
+.cp-figure .card-fallback {
+  box-shadow: 0 24px 50px rgb(0 0 0 / 0.6);
+}
+.cp-figure figcaption {
+  font-size: var(--t-xs);
+  color: var(--dim);
+  text-align: center;
+}
+.cp-main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.cp-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cp .cp-title h1 {
+  margin: 0;
+  font-size: 2.5rem;
+  line-height: 0.95;
+}
+.cp-cost {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  color: var(--on-art-dim);
+}
+.cp-cost .mana-cost {
+  font-size: 1.25rem;
+  color: var(--on-art-dim);
+}
+.cp-cost .pip {
+  width: 12px;
+  height: 12px;
+}
+.cp .cp-type {
+  margin: 0;
+  color: var(--dim);
+}
+.cp .cp-oracle {
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  max-width: 56ch;
+  white-space: pre-wrap;
+}
+.cp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cp-chips .tag,
+.cp-chip {
+  padding: 4px 12px;
+  font-size: var(--t-sm);
+  line-height: 1.4;
+  border-radius: var(--r-pill);
+}
+.cp-chip {
+  background: var(--raised);
+}
+.cp-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.cp-fact {
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.2;
+  min-width: 0;
+}
+.card-sheet2 .cp-fact {
+  background: var(--raised);
+}
+.cp-fact-label {
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+.cp-fact-big {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.75rem;
+  line-height: 1.1;
+}
+.cp-fact-note {
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+.cp-spark {
+  display: block;
+  width: 100%;
+  height: 40px;
+}
+.cp-wide {
+  display: none;
+}
+.cp-actions {
+  display: grid;
+  gap: 8px;
+}
+.cp .cp-actions .primary {
+  min-height: 52px;
+}
+.cp-printings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cp .cp-printings h2 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+/* Phones and sheets: each printing is a row, the number, your copy and the foil price under its set. */
+.cp-table,
+.cp-table tbody {
+  display: block;
+  width: 100%;
+  border-collapse: collapse;
+}
+.cp-table thead {
+  display: none;
+}
+.cp-table tr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.cp-table tr:last-child {
+  border-bottom: 1px solid var(--line);
+}
+.cp-table td {
+  padding: 0;
+  text-align: left;
+}
+.cp-table td.r {
+  text-align: right;
+}
+.cp-table td.dim {
+  color: var(--dim);
+}
+.cp-table .cp-foil,
+.cp-table .cp-yours,
+.cp-set-num {
+  display: none;
+}
+.cp .cp-set {
+  display: inline;
+  padding: 0;
+  min-height: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-weight: 400;
+  text-align: left;
+  border-radius: 4px;
+}
+.cp .cp-set:hover {
+  background: none;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.cp-set-name {
+  font-weight: 700;
+}
+.cp-set-num {
+  color: var(--dim);
+}
+.cp-set-sub {
+  display: block;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.cp-set-sub.good {
+  color: var(--good);
+}
+.cp-add-row {
+  display: inline-flex;
+  gap: 4px;
+}
+.cp .cp-add-row button {
+  min-height: 36px;
+  min-width: 44px;
+  padding: 0 10px;
+  font-size: var(--t-sm);
+}
+.cp .cp-note {
+  margin: 4px 0 0;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+
+@container cp (min-width: 760px) {
+  .cp-hero {
+    height: 420px;
+  }
+  .cp-hero img {
+    object-position: 50% 35%;
+  }
+  .cp-hero-wash {
+    background: linear-gradient(180deg, rgb(11 12 14 / 0.35) 0%, rgb(11 12 14 / 0.75) 55%, var(--cp-fade, var(--ground)) 100%);
+  }
+  .cp-inner {
+    padding: 28px clamp(20px, 4vw, 56px) 64px;
+    gap: 28px;
+  }
+  .cp .cp-back {
+    width: auto;
+    height: 44px;
+    padding: 0 14px 0 10px;
+    gap: 6px;
+    border-radius: var(--r-pill);
+  }
+  .cp-back-text {
+    display: inline;
+  }
+  .cp-body {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 40px;
+    align-items: start;
+    padding-top: 80px;
+  }
+  .cp-figure {
+    flex: 0 1 340px;
+    width: auto;
+    margin: 0;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .cp-figure .card-img {
+    box-shadow: 0 30px 60px rgb(0 0 0 / 0.55);
+  }
+  .cp-figure figcaption {
+    font-size: 0.75rem;
+    text-align: left;
+  }
+  .cp-figure > button {
+    align-self: start;
+  }
+  .cp-main {
+    flex: 1 1 480px;
+    gap: 22px;
+  }
+  .cp-title {
+    gap: 6px;
+  }
+  .cp-cost {
+    display: flex;
+  }
+  .cp-cost-inline {
+    display: none;
+  }
+  .cp .cp-title h1 {
+    font-size: 4.25rem;
+    line-height: 0.9;
+  }
+  .cp .cp-oracle {
+    font-size: 1.125rem;
+    line-height: 1.55;
+  }
+  .cp-chips .tag,
+  .cp-chip {
+    font-size: var(--t-label);
+  }
+  .cp-facts {
+    grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+    gap: 10px;
+  }
+  .cp-fact {
+    padding: 16px;
+    border-radius: 18px;
+    gap: 4px;
+  }
+  .cp-fact-label {
+    font-size: var(--t-sm);
+  }
+  .cp-fact-big {
+    font-size: 2rem;
+    line-height: 1;
+  }
+  .cp-fact-note {
+    font-size: var(--t-label);
+  }
+  .cp-fact .cp-spark + .cp-fact-note {
+    font-size: 0.75rem;
+  }
+  .cp-wide {
+    display: inline;
+  }
+  .cp-narrow {
+    display: none;
+  }
+  .cp-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .cp .cp-actions .primary {
+    min-height: 48px;
+    padding: 0 22px;
+  }
+  .cp .cp-printings h2 {
+    font-size: 1.625rem;
+  }
+  .cp-table {
+    display: table;
+    font-size: 0.9375rem;
+  }
+  .cp-table tbody {
+    display: table-row-group;
+  }
+  .cp-table thead {
+    display: table-header-group;
+  }
+  .cp-table tr {
+    display: table-row;
+    padding: 0;
+    border-bottom: none;
+  }
+  .cp-table tr:last-child {
+    border-bottom: 1px solid var(--line);
+  }
+  .cp-table thead tr {
+    border-top: none;
+  }
+  .cp-table th {
+    padding: 8px 6px;
+    font-size: var(--t-sm);
+    font-weight: 700;
+    color: var(--dim);
+    text-align: left;
+  }
+  .cp-table th.r {
+    text-align: right;
+  }
+  .cp-table td {
+    padding: 10px 6px;
+  }
+  .cp-table td.cp-add {
+    padding: 6px;
+  }
+  .cp-table .cp-foil {
+    display: table-cell;
+  }
+  .cp-table .cp-yours {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 8px;
+    font-size: 0.75rem;
+  }
+  .cp-set-num {
+    display: inline;
+  }
+  .cp-set-sub,
+  .cp-only-foil {
+    display: none;
+  }
+}

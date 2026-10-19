@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
-import { api, API_BASE, priceSource, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary, type ImportReport } from "../api";
+import { api, API_BASE, priceSource, shortDate, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary, type ImportReport } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { CardImage, ErrorText, Sheet } from "../components/ui";
+import "./collection.css";
 
 const KIND_LABEL: Record<string, string> = { binder: "Binder", box: "Box", deck: "Deck box", list: "List" };
 
@@ -18,12 +19,27 @@ import type { ScanCandidate } from "../scanner";
 // The scanner pulls in OCR; load it only when someone opens it.
 const ScannerView = lazy(() => import("../scanner").then((m) => ({ default: m.ScannerView })));
 
+/** A collection row with its printing's art crop and artist, for the art thumbnails. */
+type Item = CollectionItem & { image_art_crop?: string | null; artist?: string | null };
+const CONDITIONS: Record<string, string> = { NM: "near mint", LP: "lightly played", MP: "moderately played", HP: "heavily played", DMG: "damaged" };
+const SHOW = 24;
+
+/** Most valuable first (by the price of one copy); copies with no price go last, by name. */
+function byValue(a: Item, b: Item): number {
+  if (a.unit_price_usd == null && b.unit_price_usd == null) return (a.name ?? "").localeCompare(b.name ?? "");
+  if (a.unit_price_usd == null) return 1;
+  if (b.unit_price_usd == null) return -1;
+  return b.unit_price_usd - a.unit_price_usd;
+}
+
 export function CollectionPage() {
   const qc = useQueryClient();
   const [container, setContainer] = useState("");
   const [filter, setFilter] = useState("");
   const [importing, setImporting] = useState(false);
-  const [open, setOpen] = useState<CollectionItem | null>(null);
+  const [open, setOpen] = useState<Item | null>(null);
+  const [sort, setSort] = useState<"value" | "name">("value");
+  const [all, setAll] = useState(false);
 
   const summary = useQuery({ queryKey: ["collection-summary"], queryFn: () => api<CollectionSummary>("/api/collection/summary") });
   const containers = useQuery({ queryKey: ["containers"], queryFn: () => api<Container[]>("/api/containers") });
@@ -34,7 +50,7 @@ export function CollectionPage() {
       const p = new URLSearchParams();
       if (container) p.set("container", container);
       if (filter.trim()) p.set("q", filter.trim());
-      return api<CollectionItem[]>(`/api/collection?${p}`);
+      return api<Item[]>(`/api/collection?${p}`);
     },
     placeholderData: (prev) => prev,
   });
@@ -46,7 +62,7 @@ export function CollectionPage() {
   const [newContainer, setNewContainer] = useState(false);
   const [scanning, setScanning] = useState(false);
   const adjust = useMutation({
-    mutationFn: (v: { item: CollectionItem; delta: number }) =>
+    mutationFn: (v: { item: Item; delta: number }) =>
       api("/api/collection/ops", {
         method: "POST",
         json: [{ op_id: crypto.randomUUID(), kind: "adjust", item_id: v.item.id, delta: v.delta }],
@@ -64,42 +80,58 @@ export function CollectionPage() {
   const loose = s ? s.copies - filed : 0;
   const chosen = containers.data?.find((c) => c.id === container);
   const priced = priceSource(s?.price_date);
+  const day = shortDate(s?.price_date) ?? "an unknown date";
+  const money = (v: number) => `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const sorted = [...(items.data ?? [])].sort(sort === "value" ? byValue : (a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+  const shown = all || filter ? sorted : sorted.slice(0, SHOW);
+  const heading = chosen ? chosen.name : container === "none" ? "Loose cards" : sort === "value" ? "Most valuable" : "Every card";
+  const thumbArtists = shown.filter((i) => i.image_art_crop).map((i) => i.artist);
   return (
-    <main className="page">
-      <div className="page-head">
-        <h1>Collection</h1>
-        <div className="row">
-          <a className="button" href={`${API_BASE}/api/collection/export.csv`}>Export CSV</a>
-          <button className="primary" onClick={() => setScanning(true)}>Scan cards</button>
-          <button onClick={() => setImporting(true)}>Import from Mythic Tools</button>
+    <main className="page coll-page">
+      <div className="coll-head">
+        <div className="coll-title">
+          <h1>Collection</h1>
+          {s && s.copies > 0 && (
+            <>
+              <span className="coll-value">
+                <b className="num">{money(s.market_value_usd)}</b>
+                <span className="coll-wide">
+                  market value of {s.copies.toLocaleString()} {s.copies === 1 ? "card" : "cards"} on {day}.
+                  {s.copies_without_price > 0 ? ` ${s.copies_without_price.toLocaleString()} ${s.copies_without_price === 1 ? "has" : "have"} no price.` : ""}
+                </span>
+                <span className="coll-narrow">
+                  {s.copies.toLocaleString()} {s.copies === 1 ? "card" : "cards"}, {day}
+                </span>
+              </span>
+              <span className="coll-sub">
+                {s.copies_without_price > 0 && (
+                  <span className="coll-narrow">
+                    {s.copies_without_price.toLocaleString()} {s.copies_without_price === 1 ? "card has no price and isn't" : "cards have no price and aren't"} counted.{" "}
+                  </span>
+                )}
+                {s.purchase_total_usd > 0 && <>You paid {money(s.purchase_total_usd)}, where recorded.</>}
+              </span>
+            </>
+          )}
+        </div>
+        <div className="coll-actions">
+          <button className="outline coll-import" onClick={() => setImporting(true)}>
+            <span className="coll-wide">Import from Mythic Tools</span>
+            <span className="coll-narrow">Import</span>
+          </button>
+          <a className="button outline coll-export" href={`${API_BASE}/api/collection/export.csv`}>Export CSV</a>
+          <button className="primary coll-scan" onClick={() => setScanning(true)}>Scan cards</button>
         </div>
       </div>
-
-      {s && s.copies > 0 && (
-        <div className="figures">
-          <div className="figure">
-            <b className="num">{s.copies.toLocaleString()}</b>
-            <span>cards</span>
-          </div>
-          <div className="figure">
-            <b className="num">${s.market_value_usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}</b>
-            <span>
-              market value, {priced}
-              {s.copies_without_price > 0 ? `. ${s.copies_without_price} ${s.copies_without_price === 1 ? "has no price and isn't" : "have no price and aren't"} counted` : ""}
-            </span>
-          </div>
-          <div className="figure">
-            <b className="num">${s.purchase_total_usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}</b>
-            <span>paid, where recorded</span>
-          </div>
-        </div>
-      )}
 
       {(tiles.length > 0 || loose > 0) && (
         <section className="containers" aria-labelledby="where">
           <div className="section-head">
-            <h2 id="where">Binders, boxes and decks</h2>
-            <button onClick={() => setNewContainer(true)}>New</button>
+            <h2 id="where">
+              <span className="coll-wide">Binders, boxes and decks</span>
+              <span className="coll-narrow">Where they live</span>
+            </h2>
+            <button className="coll-new" onClick={() => setNewContainer(true)}>New</button>
           </div>
           {newContainer && <NewContainer onClose={() => setNewContainer(false)} />}
           <ul className="container-tiles">
@@ -119,14 +151,17 @@ export function CollectionPage() {
                 <button className="container-tile" aria-pressed={container === "none"} onClick={() => setContainer(container === "none" ? "" : "none")}>
                   <ArtPanel as="span" art={null} wash="bottom" empty>
                     <span className="ct-kind">Not filed</span>
-                    <span className="ct-name">Loose cards</span>
+                    <span className="ct-name">
+                      <span className="coll-wide">Loose cards</span>
+                      <span className="coll-narrow">Not filed</span>
+                    </span>
                     <span className="ct-meta num">{tileMeta(loose, undefined, undefined)}</span>
                   </ArtPanel>
                 </button>
               </li>
             )}
           </ul>
-          <p className="small dim">
+          <p className="small dim coll-note">
             Values are {priced}.{" "}
             {tiles.some((t) => t.art) ? artCredits(tiles.filter((t) => t.art).map((t) => t.artist)) : ""}
           </p>
@@ -134,48 +169,69 @@ export function CollectionPage() {
       )}
       {tiles.length === 0 && loose === 0 && newContainer && <NewContainer onClose={() => setNewContainer(false)} />}
 
-      <div className="section-head">
-        <h2>{chosen ? chosen.name : container === "none" ? "Loose cards" : "Every card"}</h2>
-        {container && <button className="quiet small" onClick={() => setContainer("")}>Show everything</button>}
-      </div>
-      <div className="row" style={{ marginBottom: "1rem" }}>
-        <input type="search" placeholder="Filter by name" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ flex: "1 1 12rem" }} aria-label="Filter by name" />
-        {tiles.length === 0 && loose === 0 && <button onClick={() => setNewContainer(true)}>New binder, box or deck</button>}
-      </div>
-
-      <ErrorText error={items.error ?? summary.error} />
-      {items.data && items.data.length === 0 && !filter && !container && (
-        <div className="empty">
-          <p>Your collection is empty. Import your Mythic Tools export to bring everything over, or add cards from the Cards tab.</p>
+      <section className="coll-cards" aria-labelledby="coll-cards-h">
+        <div className="coll-cards-head">
+          <h2 id="coll-cards-h">{heading}</h2>
+          {container && <button className="quiet small" onClick={() => setContainer("")}>Show everything</button>}
+          <div className="segmented coll-sort" role="group" aria-label="Order">
+            <button aria-pressed={sort === "value"} onClick={() => setSort("value")}>By value</button>
+            <button aria-pressed={sort === "name"} onClick={() => setSort("name")}>By name</button>
+          </div>
+          <label className="coll-filter">
+            <span className="visually-hidden">Filter by name</span>
+            <input type="search" placeholder="Filter by name" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          </label>
+          {tiles.length === 0 && loose === 0 && <button onClick={() => setNewContainer(true)}>New binder, box or deck</button>}
         </div>
-      )}
-      <div className="list">
-        {items.data?.map((i) => (
-          <button key={i.id} className="list-row" onClick={() => setOpen(i)}>
-            <CardImage src={i.image_small} name={i.name ?? "?"} className="thumb" />
-            <span>
-              <span className="title">{i.name ?? i.scryfall_id}</span>
-              {i.finish !== "nonfoil" && <span className="tag" style={{ marginLeft: 6 }}>{i.finish[0]!.toUpperCase() + i.finish.slice(1)}</span>}
-              {i.proxy && <span className="tag" style={{ marginLeft: 6 }}>Proxy</span>}
-              <br />
-              <span className="dim small">
-                {i.set_name} #{i.collector_number}, {i.condition}
-                {i.container_name ? `, in ${i.container_name}` : ""}
-              </span>
-            </span>
-            <span className="num" style={{ textAlign: "right" }}>
-              ×{i.qty}
-              <br />
-              <span className="dim small">{usd(i.unit_price_usd)}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-      {!!items.data?.length && (
-        <p className="small dim">
-          Each price is for one copy in that finish, {priced}. A market price isn't a quote from any store.
-        </p>
-      )}
+
+        <ErrorText error={items.error ?? summary.error} />
+        {items.data && items.data.length === 0 && !filter && !container && (
+          <div className="empty">
+            <p>Your collection is empty. Import your Mythic Tools export to bring everything over, or add cards from the Cards tab.</p>
+          </div>
+        )}
+        {items.data && items.data.length === 0 && (filter || container) && <p className="empty">Nothing here{filter ? ` called "${filter}"` : ""}.</p>}
+        <ul className="coll-list">
+          {shown.map((i) => {
+            const place = i.container_name ?? "Not filed";
+            const cond = CONDITIONS[i.condition] ?? i.condition;
+            return (
+              <li key={i.id}>
+                <button className="coll-row" onClick={() => setOpen(i)}>
+                  {i.image_art_crop ? <img className="coll-art" src={i.image_art_crop} alt="" loading="lazy" /> : <CardImage src={i.image_small} name={i.name ?? "?"} className="coll-art coll-thumb" />}
+                  <span className="coll-row-text">
+                    <span className="coll-row-name">
+                      {i.name ?? i.scryfall_id}
+                      {i.finish !== "nonfoil" && <span className="tag">{i.finish[0]!.toUpperCase() + i.finish.slice(1)}</span>}
+                      {i.proxy && <span className="tag">Proxy</span>}
+                    </span>
+                    <span className="coll-row-where coll-wide">
+                      {place}, {i.set_name ?? "unknown set"} #{i.collector_number}, {cond}
+                    </span>
+                    <span className="coll-row-where coll-narrow">
+                      {place}
+                      {i.condition !== "NM" ? `, ${cond}` : ""}
+                      {i.qty > 1 ? `, ${i.qty} copies` : ""}
+                    </span>
+                  </span>
+                  <span className="coll-qty num">×{i.qty}</span>
+                  <span className="coll-price num">{usd(i.unit_price_usd)}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {!all && !filter && sorted.length > SHOW && (
+          <button className="coll-more" onClick={() => setAll(true)}>Show all {sorted.length.toLocaleString()}</button>
+        )}
+        {!!items.data?.length && (
+          <p className="small dim coll-note">
+            Each price is the TCGplayer market price via Scryfall on {day}, for one copy in its finish. It isn't a quote from any store.
+            {thumbArtists.length > 0 ? ` ${artCredits(thumbArtists)}` : ""}
+          </p>
+        )}
+        <a className="button outline coll-export-narrow" href={`${API_BASE}/api/collection/export.csv`}>Export CSV</a>
+      </section>
 
       {open && (
         <Sheet label={open.name ?? "Card"} onClose={() => setOpen(null)}>
@@ -353,36 +409,38 @@ function ScanToCollection({ containers, onClose }: { containers: Container[]; on
     }
   };
 
+  const controls = (
+    <div className="scan-choices">
+      <label>
+        Finish
+        <select value={finish} onChange={(e) => setFinish(e.target.value as "nonfoil" | "foil")}>
+          <option value="nonfoil">Regular</option>
+          <option value="foil">Foil</option>
+        </select>
+      </label>
+      <label>
+        Put in
+        <select value={container} onChange={(e) => setContainer(e.target.value)}>
+          <option value="">Not filed anywhere</option>
+          {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
+        </select>
+      </label>
+      <ErrorText error={error} />
+    </div>
+  );
   return (
     <div className="scan-overlay">
       <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
-        <ScannerView onAccept={(c) => void accept(c)} onClose={onClose} />
+        <ScannerView
+          onAccept={(c) => void accept(c)}
+          onClose={onClose}
+          addedCount={added.length}
+          recent={added.map((a) => a.name)}
+          finish={finish}
+          controls={controls}
+          acceptLabel="Add and scan next"
+        />
       </Suspense>
-      <div className="scan-controls">
-        <div className="row">
-          <label style={{ flex: "1 1 8rem" }}>
-            Finish
-            <select value={finish} onChange={(e) => setFinish(e.target.value as "nonfoil" | "foil")}>
-              <option value="nonfoil">Regular</option>
-              <option value="foil">Foil</option>
-            </select>
-          </label>
-          <label style={{ flex: "2 1 12rem" }}>
-            Put in
-            <select value={container} onChange={(e) => setContainer(e.target.value)}>
-              <option value="">Not filed anywhere</option>
-              {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
-            </select>
-          </label>
-        </div>
-        <ErrorText error={error} />
-        {added.length > 0 && (
-          <p className="small dim" role="status">
-            Added {added.length}: {added.slice(0, 5).map((a) => `${a.name}${a.set ? ` (${a.set})` : ""}`).join(", ")}
-            {added.length > 5 ? "…" : ""}
-          </p>
-        )}
-      </div>
     </div>
   );
 }

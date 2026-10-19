@@ -1,0 +1,307 @@
+/* Collection (design/screens/Collection.dc.html, CollectionPhone). styles.css loads after this
+   file, so these rules carry .coll-page to outrank it. */
+
+.coll-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.coll-wide {
+  display: none;
+}
+.coll-head {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.coll-title {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.coll-page .coll-title h1 {
+  margin: 0;
+}
+.coll-value {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.coll-value b {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 2.75rem;
+  line-height: 1;
+}
+.coll-value span,
+.coll-sub {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.coll-sub:empty {
+  display: none;
+}
+/* Phones: Scan cards takes the row, Import beside it; Export moves under the list. */
+.coll-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.coll-page .coll-scan {
+  order: -1;
+  min-height: var(--target-primary);
+}
+.coll-page .coll-import {
+  min-height: var(--target-primary);
+  border-color: transparent;
+  background: var(--raised);
+}
+.coll-page .coll-export {
+  display: none;
+}
+.coll-page .coll-export-narrow {
+  align-self: start;
+}
+.coll-page .containers {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.coll-page .section-head {
+  margin: 0;
+}
+.coll-page .section-head h2,
+.coll-page .coll-cards-head h2 {
+  font-weight: 800;
+  font-size: 1.75rem;
+}
+.coll-page .coll-new {
+  min-height: 40px;
+  padding: 0 14px;
+  background: var(--surface);
+  font-size: var(--t-label);
+}
+.coll-page .container-tiles {
+  margin: 0;
+}
+.coll-page .container-tile .art-panel {
+  border-radius: 16px;
+}
+.coll-page .container-tile .art-panel.art-empty {
+  border-width: 1px;
+  background: var(--surface);
+}
+.coll-page .container-tile .wash-bottom > .art-wash {
+  background: linear-gradient(180deg, rgb(11 12 14 / 0.1) 20%, rgb(11 12 14 / 0.9) 100%);
+}
+.coll-page .ct-kind {
+  display: none;
+}
+.coll-page .coll-note {
+  margin: 0;
+}
+.coll-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.coll-cards-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.coll-page .coll-cards-head h2 {
+  margin: 0 auto 0 0;
+}
+.coll-page .coll-sort > button {
+  min-height: 36px;
+  padding: 0 0.9rem;
+  font-size: var(--t-sm);
+}
+.coll-page .coll-filter {
+  flex: 1 1 100%;
+  display: block;
+}
+.coll-page .coll-filter input {
+  border-radius: var(--r-pill);
+  padding: 8px 16px;
+  font-size: 0.9375rem;
+}
+.coll-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.coll-list li {
+  border-top: 1px solid var(--line);
+}
+.coll-page .coll-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 64px;
+  padding: 6px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  font-weight: 400;
+}
+.coll-page .coll-row:hover {
+  background: var(--surface);
+}
+.coll-page .coll-row:focus-visible {
+  outline-offset: -3px;
+}
+/* The printing's art crop (credited under the list), or the whole card when there's no crop. */
+.coll-art {
+  display: block;
+  width: 56px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--raised);
+}
+.coll-page .coll-thumb {
+  height: auto;
+  aspect-ratio: 488 / 680;
+  width: 30px;
+  justify-self: center;
+  border-radius: var(--card-radius);
+}
+.coll-row-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+.coll-row-name {
+  font-weight: 700;
+}
+.coll-row-name .tag {
+  margin-left: 6px;
+  font-size: 0.75rem;
+  padding: 0 8px;
+}
+.coll-row-where {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.coll-qty {
+  display: none;
+  font-size: var(--t-label);
+  color: var(--dim);
+}
+.coll-price {
+  font-weight: 700;
+  text-align: right;
+}
+.coll-page .coll-more {
+  align-self: center;
+  margin-top: 8px;
+}
+
+@media (min-width: 900px) {
+  .coll-page {
+    gap: 32px;
+  }
+  .coll-wide {
+    display: inline;
+  }
+  .coll-narrow,
+  .coll-page .coll-export-narrow {
+    display: none;
+  }
+  .coll-head {
+    flex-direction: row;
+    align-items: end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .coll-title {
+    gap: 4px;
+  }
+  .coll-value {
+    gap: 14px;
+    margin-top: 10px;
+  }
+  .coll-value b {
+    font-size: 3.5rem;
+  }
+  .coll-value span,
+  .coll-sub {
+    font-size: var(--t-base);
+  }
+  .coll-sub {
+    font-size: var(--t-sm);
+  }
+  .coll-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .coll-page .coll-scan {
+    order: 0;
+    min-height: 48px;
+    padding: 0 22px;
+  }
+  .coll-page .coll-import,
+  .coll-page .coll-export {
+    display: inline-flex;
+    min-height: 48px;
+    padding: 0 18px;
+    border-color: var(--line);
+    background: transparent;
+  }
+  .coll-page .containers {
+    gap: 12px;
+  }
+  .coll-page .section-head h2,
+  .coll-page .coll-cards-head h2 {
+    font-size: 2rem;
+  }
+  .coll-page .container-tile .art-panel {
+    border-radius: 18px;
+  }
+  .coll-page .ct-kind {
+    display: block;
+  }
+  .coll-page .coll-filter {
+    flex: 0 1 320px;
+  }
+  .coll-cards {
+    gap: 12px;
+  }
+  .coll-page .coll-row {
+    grid-template-columns: 72px minmax(0, 1fr) auto auto;
+    gap: 18px;
+    min-height: 72px;
+    padding: 8px 4px;
+  }
+  .coll-art {
+    width: 72px;
+    height: 52px;
+  }
+  .coll-row-where {
+    font-size: var(--t-label);
+  }
+  .coll-row-where.coll-wide {
+    display: block;
+  }
+  .coll-qty {
+    display: block;
+  }
+  .coll-price {
+    min-width: 80px;
+  }
+}
