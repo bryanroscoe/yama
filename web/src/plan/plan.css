@@ -3,8 +3,8 @@
    merge: --ground, --surface, --raised, --line, --text, --dim, --warn, --good, --bad, --radius,
    --gap, --t-*), so a new token set restyles the planner with no edits.
    Semantic classes, in page order:
-   - .deck-sections: the Decks | Plans control at the top of the Decks tab, drawn as the shared
-     .segmented pill (a third section is one line in DeckTabs.tsx).
+   - The Decks | Plans | Lab control at the top of the Decks tab is the shared .segmented pill
+     (components/DeckTabs.tsx; .deck-sections in styles.css spaces it).
    - .plan-art (+ .plan-hero on a deck page, .plan-deck-card on the overview): the commander's
      Scryfall art crop behind a solid wash of the page colour. The wash is one flat colour, not a
      gradient; .plan-art-body holds the text above it.
@@ -23,13 +23,6 @@
      .plan-print and .plan-spare (rows with tags on the right), .plan-spares-tools (search and filter).
    - .plan-tick: "I've put this in the deck"; .plan-bought: what a "bought it" mark said.
    Touch targets stay at least 44 px. Sentence case; no all-caps; no middle-dot separators. */
-
-/* ── the Decks tab's sections ───────────────────────────────────────────── */
-
-/* The control itself is the shared .segmented pill (styles.css); this only spaces it. */
-.deck-sections {
-  margin-bottom: 1rem;
-}
 
 /* ── tags ───────────────────────────────────────────────────────────────── */
 

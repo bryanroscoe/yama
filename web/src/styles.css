@@ -384,6 +384,10 @@ label > span.hint {
   outline-color: var(--ground);
   outline-offset: -4px;
 }
+/* The Decks | Plans | Lab control at the top of the Decks tab (components/DeckTabs.tsx). */
+.deck-sections {
+  margin-bottom: 1rem;
+}
 
 /* ── app shell ──────────────────────────────────────────────────────────── */
 

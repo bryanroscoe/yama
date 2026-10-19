@@ -1,0 +1,777 @@
+/* The simulation lab's pages (web/src/lab). Every rule uses only the Night table tokens in
+   styles.css (--ground, --surface, --raised, --line, --text, --dim, --good, --warn, --bad,
+   --radius, --gap, --t-*), so a new token set restyles the lab with no edits here.
+
+   Charts follow one rule: a single accent colour (--text, the Night table's only accent) for the
+   thing being measured, --dim for whatever it is compared with, hairline references for
+   "average" and "no change", and every number written beside its mark in text colours (never in
+   the mark's colour), so charts read on any ground the text reads on.
+
+   Semantic classes, in page order:
+   - The Decks | Plans | Lab control at the top of the Decks tab is the shared .segmented pill
+     (components/DeckTabs.tsx).
+   - .lab-subnav: Precons, Try a change, My runs.
+   - .lab-label: the line every simulated number carries (engine, card data, AI level, games, date).
+   - .lab-real: real-game numbers (playgroup.gg), set apart from simulated ones.
+   - .lab-art: commander art (Scryfall art_crop, loaded at runtime) behind a flat wash, with
+     .lab-art-body for the text and .lab-credit for the artist.
+   - .ibar: an interval bar (range, point, reference line); .ibar.dim for the comparison.
+   - .ichart: rows of interval bars on one labelled axis.
+   - .lab-table / .lab-cards: the precon table (desktop) and its compact list (phone).
+   - .lab-chips: pressed-state chips (colours, choices). .lab-choice: a big radio choice.
+   - .lab-cut / .lab-add: cut and added cards in "Try a change".
+   - .lab-progress: a run's progress bar. .lab-verdict: the plain-words verdict.
+   Touch targets stay at least 44 px. Sentence case; no all-caps; no middle-dot separators. */
+
+/* ── lab pages ──────────────────────────────────────────────────────────── */
+
+.lab-subnav {
+  display: flex;
+  gap: 0.25rem 1.25rem;
+  flex-wrap: wrap;
+  margin: -0.25rem 0 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+.lab-subnav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--dim);
+  font-weight: 700;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.lab-subnav a.active {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+.lab h2 {
+  font-size: var(--t-lg);
+}
+.lab section {
+  margin: 0 0 2rem;
+}
+.lab-label {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  margin: 0.25rem 0 0;
+  max-width: 80ch;
+}
+.lab-caveat {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  border-left: 2px solid var(--line);
+  padding: 0.1rem 0 0.1rem 0.75rem;
+  margin: 0.75rem 0 1rem;
+}
+.lab-real {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  background: transparent;
+}
+.lab-real h3 {
+  margin: 0 0 0.25rem;
+}
+.lab-note {
+  color: var(--dim);
+  font-size: var(--t-sm);
+}
+.lab details > summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 700;
+  list-style: none;
+}
+.lab details > summary::-webkit-details-marker {
+  display: none;
+}
+/* A chevron: points right when folded, down when open. */
+.lab details > summary::before {
+  content: "";
+  flex: none;
+  width: 0.45em;
+  height: 0.45em;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 120ms ease-out;
+}
+.lab details[open] > summary::before {
+  transform: rotate(45deg);
+}
+.lab .tag.warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+.lab-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: var(--t-sm);
+}
+
+/* ── commander art behind a flat wash ───────────────────────────────────── */
+
+.lab-art {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  background-size: cover;
+  background-position: center 25%;
+  margin-bottom: 1.25rem;
+}
+.lab-art::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--ground) 70%, transparent);
+}
+.lab-art-body {
+  position: relative;
+  padding: 1.25rem 1rem 0.75rem;
+  display: grid;
+  gap: 0.35rem;
+}
+.lab-art-body h1 {
+  margin: 0;
+}
+.lab-credit {
+  position: relative;
+  display: block;
+  padding: 0 1rem 0.6rem;
+  font-size: 0.72rem;
+  color: var(--dim);
+}
+@media (min-width: 900px) {
+  .lab-art-body {
+    padding: 2.5rem 1.5rem 1rem;
+  }
+  .lab-credit {
+    padding: 0 1.5rem 0.75rem;
+  }
+}
+.art-thumb.lab-thumb {
+  width: 56px;
+  height: 41px;
+}
+
+/* ── interval bars ──────────────────────────────────────────────────────── */
+
+.ibar {
+  position: relative;
+  display: block;
+  height: 18px;
+  min-width: 80px;
+}
+.ibar::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--line);
+}
+.ibar-ref {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 1px;
+  background: var(--dim);
+}
+.ibar-range {
+  position: absolute;
+  top: 6px;
+  height: 6px;
+  min-width: 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text) 38%, transparent);
+}
+.ibar-dot {
+  position: absolute;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.ibar.dim .ibar-range {
+  background: color-mix(in srgb, var(--dim) 32%, transparent);
+}
+.ibar.dim .ibar-dot {
+  background: var(--dim);
+}
+.ibar:hover .ibar-range {
+  background: color-mix(in srgb, var(--text) 55%, transparent);
+}
+
+/* rows of interval bars on one axis */
+.ichart {
+  display: grid;
+  grid-template-columns: minmax(7rem, 14rem) 1fr;
+  gap: 0.25rem 1rem;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+.ichart-label {
+  font-size: var(--t-sm);
+  line-height: 1.3;
+}
+.ichart-label b {
+  display: block;
+}
+.ichart-label span {
+  color: var(--dim);
+}
+.ichart-bar {
+  display: grid;
+  gap: 0.15rem;
+  min-height: 44px;
+  align-content: center;
+}
+.ichart-bar .ibar {
+  height: 22px;
+}
+.ichart-bar .ibar-range {
+  top: 7px;
+  height: 8px;
+  border-radius: 4px;
+}
+.ichart-bar .ibar-dot {
+  top: 5px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+}
+.ichart-value {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.ichart-value b {
+  color: var(--text);
+}
+.ichart-axis {
+  position: relative;
+  height: 1.4rem;
+  font-size: 0.72rem;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid var(--line);
+}
+.ichart-axis span {
+  position: absolute;
+  top: 0.2rem;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.ichart-axis span:first-child {
+  transform: none;
+}
+.ichart-axis span:last-child {
+  transform: translateX(-100%);
+}
+@media (max-width: 560px) {
+  .ichart {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+  .ichart-axis-pad {
+    display: none;
+  }
+}
+
+/* ── the precon table and its phone list ────────────────────────────────── */
+
+.lab-tools {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+}
+.lab-tools .row > input[type="search"] {
+  flex: 1 1 14rem;
+}
+.lab-tools select {
+  width: auto;
+}
+.lab-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.lab-chips button {
+  font-weight: 700;
+  background: transparent;
+  color: var(--dim);
+  padding: 0.4rem 0.8rem;
+}
+.lab-chips button[aria-pressed="true"],
+.lab-chips button[aria-checked="true"] {
+  background: var(--raised);
+  color: var(--text);
+  border-color: var(--dim);
+}
+.lab-chips .pip {
+  width: 0.9em;
+  height: 0.9em;
+}
+.lab-count {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  margin: 0 0 0.5rem;
+}
+
+.lab-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.lab-table th,
+.lab-table td {
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.lab-table thead th {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  font-weight: 700;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+.lab-table thead th button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 32px;
+}
+.lab-table thead th button:focus-visible {
+  outline: 3px solid var(--text);
+}
+.lab-table thead th[aria-sort] button {
+  color: var(--text);
+}
+.lab-table td.num,
+.lab-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.lab-table td.bar {
+  width: 17%;
+  min-width: 8rem;
+}
+.lab-table td.deck {
+  min-width: 14rem;
+}
+.lab-table td.set {
+  font-size: var(--t-sm);
+  max-width: 10rem;
+}
+.lab-table td.real {
+  font-size: var(--t-sm);
+  min-width: 8.5rem;
+}
+.lab-table td.bar .lab-bar-val {
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums;
+}
+.lab-table td.bar .lab-bar-val span {
+  color: var(--dim);
+}
+.lab-table .real {
+  border-left: 1px dashed var(--line);
+}
+.lab-table tbody tr:hover {
+  background: var(--surface);
+}
+.lab-table a {
+  font-weight: 700;
+  text-decoration: none;
+}
+.lab-table a:hover {
+  text-decoration: underline;
+}
+.lab-table .sub {
+  display: block;
+  font-size: var(--t-sm);
+  color: var(--dim);
+  font-weight: 400;
+}
+.lab-cards {
+  display: none;
+}
+@media (max-width: 899px) {
+  .lab-table {
+    display: none;
+  }
+  .lab-cards {
+    display: grid;
+    border-top: 1px solid var(--line);
+  }
+}
+.lab-card {
+  display: grid;
+  grid-template-columns: 2.2rem 1fr minmax(6.5rem, 34%);
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.55rem 0.15rem;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
+  min-height: 56px;
+}
+.lab-card .rank {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-md);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.lab-card .title {
+  font-weight: 700;
+  line-height: 1.25;
+}
+.lab-card .sub {
+  display: block;
+  font-size: var(--t-sm);
+  line-height: 1.35;
+  color: var(--dim);
+  margin-top: 0.15rem;
+}
+.lab-card .metric {
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.lab-card .metric span {
+  color: var(--dim);
+}
+.lab-card .metric .ibar {
+  margin: 0.1rem 0;
+}
+
+/* ── precon detail ──────────────────────────────────────────────────────── */
+
+.lab-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem 1.5rem;
+  margin: 0.5rem 0 0.75rem;
+}
+.lab-figure b {
+  display: block;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-xl);
+  line-height: 1.1;
+}
+.lab-figure > span {
+  display: block;
+  color: var(--dim);
+  font-size: var(--t-sm);
+}
+.lab-figure .ibar {
+  margin-top: 0.3rem;
+  max-width: 16rem;
+}
+.lab-two {
+  display: grid;
+  gap: 1rem 2rem;
+}
+@media (min-width: 760px) {
+  .lab-two {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.lab-match {
+  display: grid;
+  grid-template-columns: 1fr minmax(5rem, 32%) 3rem;
+  gap: 0.6rem;
+  align-items: center;
+  min-height: 44px;
+  border-bottom: 1px solid var(--line);
+  padding: 0.2rem 0;
+}
+.lab-match a {
+  text-decoration: none;
+  font-weight: 700;
+}
+.lab-match a:hover {
+  text-decoration: underline;
+}
+.lab-match .num {
+  text-align: right;
+  font-size: var(--t-sm);
+}
+.lab-decklist {
+  columns: 1;
+  column-gap: 2rem;
+}
+@media (min-width: 900px) {
+  .lab-decklist {
+    columns: 2;
+  }
+}
+.lab-decklist section {
+  break-inside: avoid;
+  margin-bottom: 1rem;
+}
+.lab-decklist h3 {
+  margin-bottom: 0.25rem;
+}
+.lab-line {
+  display: grid;
+  grid-template-columns: 2rem 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.15rem 0.25rem;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  text-align: left;
+  font-weight: 400;
+  color: inherit;
+}
+.lab-line:hover {
+  background: var(--surface);
+}
+.lab-line .thumb {
+  width: 2rem;
+}
+.lab-line .name {
+  line-height: 1.25;
+}
+
+/* ── try a change ───────────────────────────────────────────────────────── */
+
+.lab-step {
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+.lab-step > h2 {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+}
+.lab-step > h2 .n {
+  font-size: var(--t-md);
+  color: var(--dim);
+}
+.lab-choices {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+}
+.lab-choice {
+  display: grid;
+  gap: 0.15rem;
+  align-content: start;
+  justify-content: stretch;
+  text-align: left;
+  font-weight: 400;
+  padding: 0.7rem 0.9rem;
+  background: transparent;
+  min-height: 56px;
+}
+.lab-choice b {
+  font-weight: 700;
+}
+.lab-choice span {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.lab-choice[aria-pressed="true"],
+.lab-choice[aria-checked="true"] {
+  background: var(--raised);
+  border-color: var(--text);
+}
+.lab-pick {
+  display: grid;
+  border-top: 1px solid var(--line);
+  max-height: 22rem;
+  overflow: auto;
+}
+.lab-diff {
+  display: grid;
+  gap: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+}
+@media (min-width: 760px) {
+  .lab-diff {
+    grid-template-columns: auto 1fr 1fr;
+    align-items: start;
+  }
+}
+.lab-diff h3 {
+  font-size: var(--t-base);
+  margin: 0 0 0.25rem;
+}
+.lab-diff ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lab-diff li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 44px;
+  border-bottom: 1px solid var(--line);
+}
+.lab-diff li button {
+  padding: 0.3rem 0.7rem;
+}
+.lab-total b {
+  display: block;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-2xl);
+  line-height: 1;
+}
+.lab-total span {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.lab-line.lab-cut .name {
+  text-decoration: line-through;
+  color: var(--dim);
+}
+.lab-add-mark,
+.lab-cut-mark {
+  font-size: var(--t-sm);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.lab-cut-mark {
+  color: var(--dim);
+}
+/* The summary and Run button: at the end of the page on phones, kept in view on wide screens. */
+.lab-run {
+  background: var(--ground);
+  border-top: 1px solid var(--line);
+  padding: 0.75rem 0;
+  display: grid;
+  gap: 0.4rem;
+  z-index: 5;
+}
+@media (min-width: 900px) {
+  .lab-run {
+    position: sticky;
+    bottom: 0;
+  }
+}
+.lab-problems {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: var(--t-sm);
+}
+
+/* ── a run ──────────────────────────────────────────────────────────────── */
+
+.lab-progress {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--raised);
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+.lab-progress span {
+  display: block;
+  height: 100%;
+  background: var(--text);
+  border-radius: 5px;
+  transition: width 400ms ease-out;
+}
+.lab-verdict {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-xl);
+  line-height: 1.1;
+  margin: 0 0 0.35rem;
+}
+.lab-pods {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+.lab-pods th,
+.lab-pods td {
+  text-align: left;
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.lab-pods th {
+  color: var(--dim);
+}
+.lab-pods .won {
+  font-weight: 700;
+}
+.lab-pods .faint {
+  color: var(--dim);
+}
+.lab-scroll {
+  overflow-x: auto;
+}
+.lab-runrow {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.6rem 0.25rem;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
+  min-height: 56px;
+}
+.lab-runrow:hover {
+  background: var(--surface);
+}
+.lab-runrow .title {
+  font-weight: 700;
+  line-height: 1.25;
+}
+.lab-runrow .sub {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.lab-status {
+  display: inline-block;
+  font-size: var(--t-sm);
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  margin-right: 0.35rem;
+}
+.lab-status.running {
+  color: var(--text);
+  border-color: var(--dim);
+}
+.lab-status.failed {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+}

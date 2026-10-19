@@ -3,6 +3,7 @@ import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, listText,
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { api, priceSource, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView, type PreconList } from "../api";
+import { DeckTabs } from "../components/DeckTabs";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
@@ -14,7 +15,6 @@ import { DeckStatsPanel } from "../components/DeckStats";
 import { DeckExport } from "../components/DeckExport";
 import { DeckHistory } from "../components/DeckHistory";
 import { DeckResults } from "../components/DeckResults";
-import { DeckTabs } from "../plan/DeckTabs";
 import { CardSheet } from "./Cards";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good). */
@@ -105,7 +105,7 @@ function AddDeck({ onClose, precon, deckNames }: { onClose: () => void; precon?:
   const [firstIsCommander, setFirst] = useState(true);
   const stock = useQuery({
     queryKey: ["precon", precon],
-    queryFn: () => api<PreconList>(`/api/precons/${encodeURIComponent(precon!)}`),
+    queryFn: () => api<PreconList>(`/api/calendar/precons/${encodeURIComponent(precon!)}`),
     enabled: !!precon,
     retry: false,
     staleTime: Infinity,

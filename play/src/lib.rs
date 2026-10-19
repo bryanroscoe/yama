@@ -41,6 +41,8 @@ use serde::{Deserialize, Serialize};
 
 pub use phase_ai::config::AiDifficulty as Difficulty;
 
+pub mod lab;
+
 /// Engine build plus the card data it was built against. Stored with every game, because a
 /// replay only reproduces under the same pair.
 pub const ENGINE_VERSION: &str = "phase-v0.113.0+0571ee32-yama1/cards-eb309108";
@@ -109,19 +111,28 @@ impl Engine {
         self.db.card_count()
     }
 
+    /// The loaded card database, for batch runners (the lab) that share one across threads.
+    pub fn database(&self) -> &Arc<CardDatabase> {
+        &self.db
+    }
+
+    /// A deck line's engine card name: by oracle ID first, then by name.
+    fn face_name(&self, l: &DeckLine) -> Option<&str> {
+        self.db.get_face_by_oracle_id(l.oracle_id).or_else(|| self.db.get_face_by_name(l.name)).map(|f| f.name.as_str())
+    }
+
     /// Map Yama's deck lines to engine card names: by oracle ID first, then by name.
     pub fn resolve_deck(&self, lines: &[DeckLine]) -> (SeatDeck, DeckReport) {
         let mut deck = SeatDeck { commander: vec![], main: vec![] };
         let mut missing = vec![];
         for l in lines {
-            let face = self.db.get_face_by_oracle_id(l.oracle_id).or_else(|| self.db.get_face_by_name(l.name));
-            let Some(face) = face else {
+            let Some(name) = self.face_name(l) else {
                 missing.push(l.name.to_string());
                 continue;
             };
             let target = if l.commander { &mut deck.commander } else { &mut deck.main };
             for _ in 0..l.qty {
-                target.push(face.name.clone());
+                target.push(name.to_string());
             }
         }
         (deck, DeckReport { missing })
@@ -173,6 +184,12 @@ impl Engine {
             names.dedup();
         }
         out
+    }
+
+    /// The names in `lines` the engine doesn't know, as [`Engine::resolve_deck`] reports them, but
+    /// without building the deck: one lookup per line, whatever its quantity.
+    pub fn unknown_cards(&self, lines: &[DeckLine]) -> Vec<String> {
+        lines.iter().filter(|l| self.face_name(l).is_none()).map(|l| l.name.to_string()).collect()
     }
 
     /// Start a Commander game. Seat order is the order of `decks`.

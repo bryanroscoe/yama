@@ -9,7 +9,7 @@ use axum::extract::{Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use sqlx::{AssertSqlSafe, SqlitePool};
+use sqlx::{AssertSqlSafe, SqliteConnection, SqlitePool};
 use std::collections::{BTreeMap, HashMap};
 
 pub fn router() -> Router<AppState> {
@@ -302,6 +302,25 @@ pub async fn create_deck_with_note(
     cards: Vec<DeckCard>,
     note: &str,
 ) -> AppResult<String> {
+    let mut tx = pool.begin().await?;
+    let id = create_deck_in(&mut tx, owner, name, folder, &cards, note).await?;
+    tx.commit().await?;
+    crate::deck_checks::wake();
+    Ok(id)
+}
+
+/// As `create_deck_with_note`, inside the caller's transaction, so the deck commits (or rolls
+/// back) together with the caller's own writes (the lab's op record for a precon deck). The
+/// version's outside check is queued in the same transaction; call `deck_checks::wake()` after
+/// committing.
+pub async fn create_deck_in(
+    conn: &mut SqliteConnection,
+    owner: &str,
+    name: &str,
+    folder: Option<&str>,
+    cards: &[DeckCard],
+    note: &str,
+) -> AppResult<String> {
     if name.trim().is_empty() {
         return Err(AppError::bad("deck needs a name"));
     }
@@ -314,35 +333,42 @@ pub async fn create_deck_with_note(
         .bind(folder)
         .bind(&stamp)
         .bind(&stamp)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
-    insert_version(pool, &id, &cards, Some(note)).await?;
+    insert_version_in(conn, &id, cards, Some(note)).await?;
     Ok(id)
 }
 
 /// Save a new version and make it current. Also queues the version's outside check
 /// (deck_checks), which a background worker runs later, so this never waits on the network.
 pub(crate) async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
+    let mut tx = pool.begin().await?;
+    let vid = insert_version_in(&mut tx, deck_id, cards, note).await?;
+    tx.commit().await?;
+    crate::deck_checks::wake();
+    Ok(vid)
+}
+
+/// As `insert_version`, inside the caller's transaction (no wake: the caller wakes the check
+/// worker once it commits).
+async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
     let vid = new_id();
     let stamp = now();
-    let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at) VALUES (?,?,?,?,?)")
         .bind(&vid)
         .bind(deck_id)
         .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
         .bind(note)
         .bind(&stamp)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
     sqlx::query("UPDATE decks SET current_version_id = ?, updated_at = ? WHERE id = ?")
         .bind(&vid)
         .bind(&stamp)
         .bind(deck_id)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
-    crate::deck_checks::queue(&mut *tx, &vid).await?;
-    tx.commit().await?;
-    crate::deck_checks::wake();
+    crate::deck_checks::queue(&mut *conn, &vid).await?;
     Ok(vid)
 }
 

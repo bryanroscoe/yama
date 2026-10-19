@@ -20,6 +20,8 @@ pub struct AppState {
     pub cf_keys: Option<Arc<crate::auth::JwkCache>>,
     pub rooms: Arc<crate::table_rooms::Rooms>,
     pub play: Arc<crate::play::PlayHub>,
+    /// The simulation lab's experiment worker (shares the play hub's engine).
+    pub lab: Arc<crate::lab::worker::LabWorker>,
 }
 
 pub fn app(state: AppState) -> Router {
@@ -36,6 +38,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::table_rooms::router())
         .merge(crate::play::router())
         .merge(crate::plan::router())
+        .merge(crate::lab::router())
         // Unknown API paths are errors, not the web app.
         .route("/api/{*rest}", axum::routing::any(|| async { crate::error::AppError::NotFound("API route") }));
 
@@ -77,6 +80,7 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         crate::deck_checks::spawn_worker(pool.clone(), http_client(), crate::deck_checks::SPELLBOOK_ESTIMATE_URL.into());
     }
     let play = crate::play::PlayHub::start(cfg.engine_card_data.clone(), pool.clone());
+    let lab = crate::lab::worker::LabWorker::start(pool.clone(), cfg.lab_threads, play.clone(), cfg.engine_card_data.clone());
     let bind = cfg.bind.clone();
     let cf_keys = match (&cfg.cf_access_team, &cfg.cf_access_aud) {
         (Some(team), Some(_)) => {
@@ -85,7 +89,7 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         }
         _ => None,
     };
-    let state = AppState { pool, cfg: Arc::new(cfg), http: http_client(), google_keys: Arc::default(), cf_keys, rooms: Arc::default(), play };
+    let state = AppState { pool, cfg: Arc::new(cfg), http: http_client(), google_keys: Arc::default(), cf_keys, rooms: Arc::default(), play, lab };
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!("listening on http://{bind}");
     axum::serve(listener, app(state)).await?;

@@ -83,7 +83,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/calendar", get(calendar))
         .route("/api/calendar/watch/{code}", put(watch).delete(unwatch))
-        .route("/api/precons/{file_name}", get(precon))
+        .route("/api/calendar/precons/{file_name}", get(precon))
 }
 
 // ── Scryfall sets ──────────────────────────────────────────────────────────

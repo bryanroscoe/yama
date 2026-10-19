@@ -27,6 +27,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Online play | Commander on the phase-rs rules engine (`play/`): lobby, friends join by code, AI seats (Easy/Medium/Hard), legal options only, auto-pass, per-seat hidden information, replay log saved after every move, games resume after a restart, final boards rebuilt from replays. Readable board: hover a card for a full-size preview (desktop), tap for the card with its rules text and your options for it (phone); on phones your options and hand sit in a dock at the bottom. Needs the engine card data (below) |
 | Scanner | In progress (docs/scanner.md) |
 | Deck planner | In progress (docs/planner-design.md). Importing a plan file works, from the browser (Decks, then Plans, then "Import a plan file") or with `import-plan` below. The pages are built: an overview and a page per plan deck with its changes, stock, now and after-prints lists, bracket builds, copy buttons, "Make this a Yama deck" and a link to your Yama deck; a Review page for answering every swap (offline too) and "Suggest a change"; Settings with script keys for commander-decks' `publish.py` and `pull.py`; a Buy page (cards by store with cart links, dated prices and rule flags, "Mark bought", each order A to Z for sorting a delivery), Prints (each print order and the next one, with tiers and double-faced backs) and Spares; and "I've put this in the deck" ticks |
+| Simulation lab | Batch runner for all-AI games (`play/src/bin/lab.rs`, core in `play/src/lab.rs`); the Commander precon catalog and analysed rating runs imported from commander-decks, with read APIs; "Try a change" experiments played by the server (`/api/lab/experiments`, YAMA_LAB_THREADS game threads, default 2). Pages under Decks, Lab: the precon table and pages, "Try a change", and your runs, including your imported batch runs. Needs the engine card data |
 
 ## Run it locally
 
@@ -60,6 +61,8 @@ Optional:
 ./target/debug/yama-server import-plan ../commander-decks/data/planner/yama-plan.json --owner you@example.com --dry-run
                                         # prints the import report; drop --dry-run to import
 ./target/debug/yama-server invite friend@gmail.com
+./target/debug/yama-server import-precons ../commander-decks/data/sim/decks/index.json   # precon catalog
+./target/debug/yama-server import-lab ../commander-decks/data/sim/runs/pilot-2/summary.json  # a global rating run
 ```
 
 ### Signing in locally
@@ -88,14 +91,18 @@ npm run typecheck     # core + web
 ## Layout
 
 ```
-server/            Rust (Axum, SQLite via sqlx). One binary: serve, import-cards, import-calendar, import-decks, import-plan, invite.
+server/            Rust (Axum, SQLite via sqlx). One binary: serve, import-cards, import-calendar, import-decks, import-plan,
+                   import-precons, import-lab, invite.
   migrations/      Schema
   src/cards/       Scryfall import and search
   src/plan/        Deck planner: plan file import, the per-user bundle, deck links, inputs and the inbox, script keys
-play/              Online play on the phase-rs engine (local fork at ../yama-phase), soak test.
+  src/lab.rs, src/lab/  Simulation lab: precon catalog, rating runs, "Try a change" experiments and their worker
+play/              Online play on the phase-rs engine (local fork at ../yama-phase), soak test; the lab's game core
+                   (src/lab.rs) and batch runner (src/bin/lab.rs).
 packages/core/     Shared TypeScript: life counter, offline search, sample hands, mana colors, deck lists;
                    src/plan/ is the planner's logic (@yama/core/plan)
-web/               React app (Vite). Also the future Capacitor phone app. Planner pages in src/plan/.
+web/               React app (Vite). Also the future Capacitor phone app. Planner pages in src/plan/, lab pages
+                   in src/lab/.
 data/              SQLite database and downloads (git-ignored)
 docs/              Design notes
 ```

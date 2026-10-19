@@ -29,22 +29,28 @@ pub fn config() -> Config {
         engine_card_data: None,
         cf_access_team: None,
         cf_access_aud: None,
+        // The lab's worker runs, but with no engine card data it starts nothing (503s).
+        lab_threads: 2,
     }
 }
 
-/// An `AppState` on a fresh in-memory database with every migration applied. Online play is
-/// off (no engine card data), which is what the play routes report in that case anyway.
+/// An `AppState` on a fresh in-memory database with every migration applied. Online play and the
+/// lab's experiments are off (no engine card data), which is what their routes report in that case
+/// anyway.
 pub async fn state() -> AppState {
     let pool = crate::db::test_pool().await;
+    let cfg = config();
     let play = crate::play::PlayHub::start(None, pool.clone());
+    let lab = crate::lab::worker::LabWorker::start(pool.clone(), cfg.lab_threads, play.clone(), None);
     AppState {
         pool,
-        cfg: Arc::new(config()),
+        cfg: Arc::new(cfg),
         http: crate::routes::http_client(),
         google_keys: Arc::default(),
         cf_keys: None,
         rooms: Arc::default(),
         play,
+        lab,
     }
 }
 

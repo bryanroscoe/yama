@@ -1,7 +1,8 @@
 // Thin client for the Rust server. Types mirror the server's JSON.
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  /** The JSON error body, when there was one: some 400s add details beside `error`. */
+  constructor(public status: number, message: string, public body?: Record<string, unknown>) {
     super(message);
   }
 }
@@ -29,13 +30,14 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
   const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: "include" });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
+    let data: Record<string, unknown> | undefined;
     try {
-      const data = await res.json();
-      if (data?.error) message = data.error;
+      data = await res.json();
+      if (typeof data?.error === "string") message = data.error;
     } catch {
       /* not JSON */
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, data);
   }
   const type = res.headers.get("content-type") ?? "";
   if (type.includes("application/json")) return (await res.json()) as T;
@@ -537,7 +539,7 @@ export interface CalendarView {
   upcoming: CalendarSet[];
 }
 
-/** GET /api/precons/:file_name: a precon's stock list, ready to paste into a new deck. */
+/** GET /api/calendar/precons/:file_name: an MTGJSON precon's stock list, ready to paste into a new deck. */
 export interface PreconList {
   file_name: string;
   name: string;

@@ -1,0 +1,261 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { identityName } from "@yama/core";
+import { useMemo, useRef, useState } from "react";
+import { Link, useParams } from "react-router";
+import { api } from "../api";
+import { CardImage, ErrorText, ManaCost, Pips } from "../components/ui";
+import { CardSheet } from "../pages/Cards";
+import type { Matchup, PreconDetail, PreconItem, RunLabel } from "./api";
+import { caveat, fmtDate, grouped, linScale, logScale, pct, pctRange, strengthDomain, strengthText } from "./logic";
+import { ArtPanel, IntervalBar } from "./parts";
+import { RunLine, usePrecons } from "./Precons";
+
+interface EngineSupport {
+  fully_supported_share?: number;
+  nonbasic?: number;
+  partly_unimplemented?: string[];
+  other_face_partly_unimplemented?: string[];
+}
+
+export function PreconDetailPage() {
+  const { id } = useParams();
+  // Keyed on the precon, so moving to another one (a matchup link) starts afresh: a new op id for
+  // "Make this a Yama deck", no deck made for the last one, the card sheet and search cleared.
+  return <PreconDetailBody key={id} id={id} />;
+}
+
+function PreconDetailBody({ id }: { id: string | undefined }) {
+  const detail = useQuery({ queryKey: ["lab", "precon", id], queryFn: () => api<PreconDetail>(`/api/precons/${id}`) });
+  const list = usePrecons();
+  const [open, setOpen] = useState<string | null>(null);
+
+  if (detail.error) {
+    return (
+      <>
+        <Link className="lab-back" to="/decks/lab">All precons</Link>
+        <ErrorText error={detail.error} />
+      </>
+    );
+  }
+  const d = detail.data;
+  if (!d) return <p className="dim">Loading…</p>;
+  const p = d.precon;
+  const support = (d.engine_support ?? null) as EngineSupport | null;
+  const partly = new Set([...(support?.partly_unimplemented ?? []), ...(support?.other_face_partly_unimplemented ?? [])]);
+
+  return (
+    <>
+      <Link className="lab-back" to="/decks/lab">All precons</Link>
+      <ArtPanel art={p.art}>
+        <h1>{p.name}</h1>
+        <span>
+          {p.commanders.length > 1 ? "Commanders" : "Commander"}: {p.commanders.join(" and ")}
+        </span>
+        <span className="dim small">
+          <Pips identity={p.color_identity} /> {identityName(p.color_identity)}, {p.set_name ?? p.set_code} ({p.set_code}){p.released ? `, ${fmtDate(p.released)}` : ""}
+        </span>
+      </ArtPanel>
+      <Actions precon={p} />
+
+      <section>
+        <h2>Simulated rating</h2>
+        <Rating detail={d} all={list.data?.precons ?? []} />
+      </section>
+
+      {p.playgroup?.rank != null && (
+        <section className="lab-real">
+          <h3>Real games (playgroup.gg)</h3>
+          <p style={{ margin: 0 }}>
+            Rank {p.playgroup.rank} of {p.playgroup.of}
+            {p.playgroup.tier ? `, tier ${p.playgroup.tier}` : ""}
+            {p.playgroup.win_rate_4p != null ? `, ${p.playgroup.win_rate_4p.toFixed(1)}% wins in 4-player pods` : ""}
+            {p.playgroup.games != null ? ` over ${p.playgroup.games} logged games` : ""}.
+          </p>
+          <p className="lab-note" style={{ margin: "0.25rem 0 0" }}>
+            People's games, not simulations. {p.playgroup.method} Fetched {fmtDate(p.playgroup.fetched)}
+            {p.playgroup.url && (
+              <>
+                {" "}from <a href={p.playgroup.url} target="_blank" rel="noreferrer">playgroup.gg</a>
+              </>
+            )}
+            .
+          </p>
+        </section>
+      )}
+
+      {d.matchups && d.matchups.rows.length > 0 && d.run && <Matchups rows={d.matchups.rows} run={d.run} />}
+
+      <section>
+        <h2>Decklist</h2>
+        {support?.fully_supported_share != null && (
+          <p className="lab-note">
+            The rules engine fully supports {pct(support.fully_supported_share)} of the {support.nonbasic} non-basic cards.
+            {partly.size > 0 ? ` Partly implemented, so the AI may play them oddly: ${[...partly].join(", ")}.` : ""}
+          </p>
+        )}
+        {d.notes.length > 0 && <ul className="lab-note">{d.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
+        <div className="lab-decklist">
+          {grouped(d.cards).map(([group, cards]) => (
+            <section key={group}>
+              <h3>
+                {group} <span className="dim num">{cards.reduce((n, c) => n + c.qty, 0)}</span>
+              </h3>
+              {cards.map((c) => (
+                <button key={`${c.name}-${c.board}`} className="lab-line" onClick={() => c.oracle_id && setOpen(c.oracle_id)} disabled={!c.oracle_id} style={{ opacity: 1 }}>
+                  <CardImage src={c.image_small} name={c.name} className="thumb" />
+                  <span className="name">
+                    {c.qty > 1 ? `${c.qty} ` : ""}
+                    {c.name} {partly.has(c.name) && <span className="tag warn">partly in the engine</span>}
+                    {!c.oracle_id && <span className="tag">unknown to Yama</span>}
+                  </span>
+                  <ManaCost cost={c.mana_cost} />
+                </button>
+              ))}
+            </section>
+          ))}
+        </div>
+        <p className="lab-note">List from {d.source}. Imported {fmtDate(d.imported_at)}.</p>
+      </section>
+      {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
+    </>
+  );
+}
+
+function Actions({ precon }: { precon: PreconItem }) {
+  const qc = useQueryClient();
+  // One op id per visit: a retried tap makes one deck.
+  const opId = useRef(crypto.randomUUID());
+  const make = useMutation({
+    mutationFn: () =>
+      api<{ id: string; name: string; unknown: string[]; validation: { ok: boolean; errors: string[] } }>(`/api/precons/${precon.id}/deck`, {
+        method: "POST",
+        json: { op_id: opId.current },
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["decks"] }),
+  });
+  return (
+    <div className="stack" style={{ gap: "0.5rem", marginBottom: "1.5rem" }}>
+      <div className="row">
+        {make.data ? (
+          <Link className="button primary" to={`/decks/${make.data.id}`}>Open {make.data.name}</Link>
+        ) : (
+          <button className="primary" onClick={() => make.mutate()} disabled={make.isPending}>
+            {make.isPending ? "Making the deck…" : "Make this a Yama deck"}
+          </button>
+        )}
+        <Link className="button" to={`/decks/lab/try?precon=${encodeURIComponent(precon.id)}`}>Try a change</Link>
+      </div>
+      {make.data && (
+        <p className="small dim" role="status" style={{ margin: 0 }}>
+          Added to your decks, in the Precons folder.
+          {make.data.unknown.length > 0 ? ` Yama didn't know ${make.data.unknown.join(", ")}, so they're left out.` : ""}
+          {!make.data.validation.ok ? ` Deck check: ${make.data.validation.errors.join("; ")}.` : ""}
+        </p>
+      )}
+      <ErrorText error={make.error} />
+    </div>
+  );
+}
+
+function Rating({ detail, all }: { detail: PreconDetail; all: PreconItem[] }) {
+  const r = detail.precon.rating;
+  const run = detail.run;
+  const strengthScale = useMemo(() => {
+    const [lo, hi] = strengthDomain(all.length ? all.map((p) => p.rating ?? { strength: null, lo: null, hi: null }) : [r ?? { strength: null, lo: null, hi: null }]);
+    return logScale(lo, hi);
+  }, [all, r]);
+  if (!run) return <p className="dim">No rating run is imported on this server yet.</p>;
+  if (!r) return (
+    <>
+      <p className="dim">Not rated in run {run.name}.</p>
+      <RunLine run={run} />
+    </>
+  );
+  // A rank is among every deck the run ranked, which can be more than the catalogue's precons.
+  const of = run.ranked >= (r.rank ?? 0) && run.ranked > 0 ? run.ranked : null;
+  const wins = r.win_rate != null ? Math.round(r.win_rate * r.games) : null;
+  return (
+    <>
+      <div className="lab-figures">
+        <div className="lab-figure">
+          <b>{r.rank != null ? `${r.rank}${of ? ` of ${of}` : ""}` : "no rank"}</b>
+          <span>
+            simulated rank{of ? ` among the ${of} decks in run ${run.name}` : ""}
+            {r.rank_lo != null && r.rank_hi != null ? `; could be anywhere from ${r.rank_lo} to ${r.rank_hi}` : ""}
+          </span>
+        </div>
+        <div className="lab-figure">
+          <b>{strengthText(r.strength)}</b>
+          <span>strength, where 1 is an average precon{r.lo != null && r.hi != null ? `; interval ${strengthText(r.lo)} to ${strengthText(r.hi)}` : ""}</span>
+          <IntervalBar value={r.strength} lo={r.lo} hi={r.hi} scale={strengthScale} reference={1} label={`Strength ${strengthText(r.strength)}; the line is average`} />
+        </div>
+        {r.p4_field != null && (
+          <div className="lab-figure">
+            <b>{pct(r.p4_field)}</b>
+            <span>
+              of 4-player pods won against random precons, by the model{r.p4_lo != null && r.p4_hi != null ? `; interval ${pctRange(r.p4_lo, r.p4_hi)}` : ""}. A quarter is
+              average.
+            </span>
+            <IntervalBar value={r.p4_field} lo={r.p4_lo} hi={r.p4_hi} scale={linScale(0, 1)} reference={0.25} label={`Wins ${pct(r.p4_field)} of 4-player pods; the line is a quarter`} />
+          </div>
+        )}
+        <div className="lab-figure">
+          <b>{r.games}</b>
+          <span>
+            {r.games === 1 ? "game" : "games"} played{wins != null ? `, ${wins} won` : ""}
+            {r.wr_lo != null && r.wr_hi != null ? ` (raw win rate ${pct(r.win_rate)}, interval ${pctRange(r.wr_lo, r.wr_hi)})` : ""}
+            {r.avg_place != null ? `, average place ${r.avg_place.toFixed(2)}` : ""}
+          </span>
+        </div>
+      </div>
+      {r.flags.length > 0 && (
+        <p className="row" style={{ gap: "0.35rem" }}>
+          {r.flags.map((f) => <span key={f} className="tag warn">{f}</span>)}
+        </p>
+      )}
+      <RunLine run={run} />
+      <p className="lab-caveat">{caveat(run.engine)}</p>
+    </>
+  );
+}
+
+function Matchups({ rows, run }: { rows: Matchup[]; run: RunLabel }) {
+  const [q, setQ] = useState("");
+  const scale = linScale(0, 1);
+  const best = rows.slice(0, 5);
+  const worst = rows.slice(-5).reverse();
+  const shown = rows.filter((m) => m.name.toLowerCase().includes(q.trim().toLowerCase()));
+  const row = (m: Matchup) => (
+    <div key={m.id} className="lab-match">
+      <Link to={`/decks/lab/p/${m.id}`}>{m.name}</Link>
+      <IntervalBar value={m.p} scale={scale} reference={0.5} label={`${pct(m.p)} to beat ${m.name} one on one; the line is even odds`} />
+      <span className="num">{pct(m.p)}</span>
+    </div>
+  );
+  return (
+    <section>
+      <h2>One-on-one odds</h2>
+      <p className="lab-note">
+        The chance of beating each precon in a game of two, implied by the model from the 4-player games of run {run.name}. They aren't head-to-head
+        games, and with few games per precon they lean towards even.
+      </p>
+      <div className="lab-two">
+        <div>
+          <h3>Best matchups</h3>
+          {best.map(row)}
+        </div>
+        <div>
+          <h3>Worst matchups</h3>
+          {worst.map(row)}
+        </div>
+      </div>
+      <details style={{ marginTop: "1rem" }}>
+        <summary>All {rows.length} matchups</summary>
+        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a precon" aria-label="Find a matchup" style={{ margin: "0.5rem 0" }} />
+        {shown.map(row)}
+        {shown.length === 0 && <p className="dim small">No precon matches.</p>}
+      </details>
+    </section>
+  );
+}
+

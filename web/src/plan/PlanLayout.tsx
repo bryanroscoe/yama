@@ -4,7 +4,7 @@ import { useEffect, useMemo } from "react";
 import { NavLink, Outlet, useOutletContext } from "react-router";
 import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
-import { DeckTabs } from "./DeckTabs";
+import { DeckTabs } from "../components/DeckTabs";
 import { outbox, useOutbox } from "./outbox";
 import { usePlan } from "./store";
 import { planView, type PlanView } from "./view";

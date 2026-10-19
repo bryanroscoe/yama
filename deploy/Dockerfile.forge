@@ -1,0 +1,69 @@
+# syntax=docker/dockerfile:1.7
+# Forge (https://github.com/Card-Forge/forge, GPL-3.0) as the deck lab's second engine, for batch runs on saget.
+# Forge is downloaded and run as a separate program; none of its code is in Yama or commander-decks. Private use.
+# The runner is commander-decks scripts/sim/forge_runner.py (results contract: play/src/bin/lab.rs; Forge notes:
+# commander-decks docs/lab/forge.md). deploy/forge-lab.sh builds this on saget with a context holding
+#   Dockerfile.forge, scripts/sim/forge_runner.py, scripts/sim/common.py
+#
+# Java 17, not 21: when one of Forge's AI decisions overruns its 5 s limit and ignores the interrupt, Forge calls
+# Thread.stop() (AiController.chooseSpellAbilityToPlayFromList). Java 20+ refuses that, so the stuck thread keeps
+# running beside the game: a wasted core, and a thread that can still touch game state. The Mac pilot ran 17 too.
+# The runner warns at start on 20+. --build-arg JAVA_IMAGE=eclipse-temurin:21-jre to try it anyway.
+#
+# Read-only friendly: the runner writes only to /work (tmpfs: its cache, deck conversions and one Forge user dir
+# per worker; /opt/lab/data/sim/cache points there), /tmp (tmpfs, for the JVMs) and the run volume (results, log,
+# kept game logs). Runs as 99:100 (Unraid's nobody:users).
+ARG JAVA_IMAGE=eclipse-temurin:17-jre
+
+FROM ${JAVA_IMAGE} AS forge
+ARG FORGE_VERSION=2.0.15
+ARG FORGE_SHA256=4468f182b60f6ca62d89697baa208981085af744f116781af751c611826db600
+RUN apt-get update && apt-get install -y --no-install-recommends bzip2 && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL --retry 3 -o /tmp/forge.tar.bz2 \
+      "https://github.com/Card-Forge/forge/releases/download/forge-${FORGE_VERSION}/forge-installer-${FORGE_VERSION}.tar.bz2" \
+ && echo "${FORGE_SHA256}  /tmp/forge.tar.bz2" | sha256sum -c - \
+ && mkdir -p "/opt/forge/forge-${FORGE_VERSION}" \
+ && tar -xjf /tmp/forge.tar.bz2 -C "/opt/forge/forge-${FORGE_VERSION}" --no-same-owner --no-same-permissions \
+ && rm /tmp/forge.tar.bz2 \
+ && cd "/opt/forge/forge-${FORGE_VERSION}" \
+ && rm -rf docs ./*.exe ./*.cmd ./*.command adventure-editor* forge-gui-mobile-dev-*.jar gdx-particle-editor.jar \
+ && test -f "forge-gui-desktop-${FORGE_VERSION}-jar-with-dependencies.jar" \
+ && test -f res/cardsfolder/cardsfolder.zip \
+ && chmod -R a+rX /opt/forge
+
+FROM ${JAVA_IMAGE}
+ARG FORGE_VERSION=2.0.15
+# A passwd entry for uid 99 gives the JVM a real user.home (/work) instead of "?".
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/* \
+ && useradd -u 99 -g 100 -M -d /work -s /usr/sbin/nologin forge
+COPY --from=forge /opt/forge /opt/forge
+COPY scripts/sim/common.py scripts/sim/forge_runner.py /opt/lab/scripts/sim/
+# common.py puts the runner's cache at <repo>/data/sim/cache, here /opt/lab/data/sim/cache: point it at the tmpfs.
+RUN mkdir -p /opt/lab/data/sim && ln -s /work/cache /opt/lab/data/sim/cache \
+ && python3 -m compileall -q /opt/lab/scripts/sim
+COPY --chmod=755 <<'EOF' /usr/local/bin/forge-lab
+#!/bin/sh
+# Entrypoint: the runner with this image's Forge and Java ($FORGE_DIR, $FORGE_JAVA). With $FORGE_LOG set, its
+# progress lines are appended there (on the run volume) instead of going to docker logs.
+set -eu
+mkdir -p /work/cache
+if [ -n "${FORGE_LOG:-}" ]; then
+  echo "forge-lab: container start $(date -u +%Y-%m-%dT%H:%M:%SZ): $*" >> "$FORGE_LOG"
+  exec python3 /opt/lab/scripts/sim/forge_runner.py "$@" >> "$FORGE_LOG" 2>&1
+fi
+exec python3 /opt/lab/scripts/sim/forge_runner.py "$@"
+EOF
+# The runner stamp: there is no .git here, so deploy/forge-lab.sh passes commander-decks' commit and whether
+# forge_runner.py differs from it (the runner adds its own hash).
+ARG FORGE_RUNNER_GIT_SHA=
+ARG FORGE_RUNNER_GIT_DIRTY=
+ENV FORGE_DIR=/opt/forge/forge-${FORGE_VERSION} \
+    FORGE_JAVA=/opt/java/openjdk/bin/java \
+    FORGE_RUNNER_GIT_SHA=${FORGE_RUNNER_GIT_SHA} \
+    FORGE_RUNNER_GIT_DIRTY=${FORGE_RUNNER_GIT_DIRTY} \
+    HOME=/work \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+USER 99:100
+WORKDIR /work
+ENTRYPOINT ["forge-lab"]
