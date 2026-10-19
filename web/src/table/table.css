@@ -97,8 +97,10 @@
 .panel-inner:not(:has(> .panel-art.art-has)) > .panel-credit {
   display: none;
 }
-/* "Art: Name", 11 px on a dark chip in the corner beside the name chip. The table menu repeats
-   every artist with the Wizards of the Coast notice. */
+/* "Art: Name, © Wizards of the Coast", 11 px on a dark chip in the corner beside the name chip.
+   It wraps rather than cutting off: Scryfall asks for the artist and the copyright wherever an
+   art crop shows, and a phone's sideways panel leaves the corner about 120 px wide. The table
+   menu repeats every artist too. */
 .panel-credit {
   grid-area: credit;
   justify-self: end;
@@ -106,15 +108,12 @@
   z-index: 1;
   max-width: calc(100% - 16px);
   margin: 0 10px 8px 6px;
-  padding: 1px 7px;
-  border-radius: var(--r-pill);
+  padding: 2px 8px;
+  border-radius: var(--r-tile);
   background: rgb(0 0 0 / 0.55);
   color: var(--on-art-dim);
   font-size: var(--t-xs);
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
   pointer-events: none;
 }
 

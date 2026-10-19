@@ -1105,6 +1105,14 @@ fieldset.seat.seat-card:has(> .seat-head.art-empty) {
 .seat-fields {
   padding: 16px;
 }
+/* What follows a seat's fields (bracket chips, online support, errors) lines up with them, since
+   the seat card itself has no padding. */
+fieldset.seat.seat-card > :not(.seat-head, .seat-fields, legend) {
+  margin-inline: 16px;
+}
+fieldset.seat.seat-card > :not(.seat-head, .seat-fields, legend):last-child {
+  margin-bottom: 16px;
+}
 /* A seat with no commander yet: its fields sit on the page color inside the dashed outline. */
 fieldset.seat.seat-card:has(> .seat-head.art-empty) {
   background: transparent;
@@ -1192,12 +1200,15 @@ fieldset.seat {
   margin: 0;
   min-width: 0;
 }
-fieldset.seat > legend {
+/* A visible caption only: on a visually hidden legend, width: 100% (it outranks .visually-hidden)
+   made an absolutely positioned box as wide as the page, so New game and Play online scrolled
+   sideways (18 px on a phone, about 1000 px on a laptop). */
+fieldset.seat > legend:not(.visually-hidden) {
   float: left;
   width: 100%;
   padding: 10px 0 6px;
 }
-fieldset.seat > legend + * {
+fieldset.seat > legend:not(.visually-hidden) + * {
   clear: both;
 }
 
