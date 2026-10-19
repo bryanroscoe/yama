@@ -487,7 +487,7 @@ pub struct Validation {
     pub warnings: Vec<String>,
 }
 
-const BASICS: [&str; 11] = [
+pub(crate) const BASICS: [&str; 11] = [
     "Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes",
     "Snow-Covered Plains", "Snow-Covered Island", "Snow-Covered Swamp", "Snow-Covered Mountain", "Snow-Covered Forest",
 ];

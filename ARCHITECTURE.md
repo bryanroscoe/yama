@@ -172,6 +172,23 @@ game_snapshots(game_id, seq, state bytea)
 
 A seat's `deck_version_id` must be a version of one of the game creator's decks (lending a deck counts) or of the seated account's own decks; anything else gets 404 when the game is logged (2026-10-18).
 
+**Deck planner** (migration `0006_planner.sql`, `server/src/plan/`; design in `docs/planner-design.md`, file format in `docs/plan-format.md`). Every user gets the same tables on their own rows:
+
+```
+plan_meta(owner_id, revision, head_import_id, head_hash, ...)    -- head; revision is part of the bundle cache key
+plan_imports(id, owner_id, content_hash, meta, via, report, document_gz)   -- the newest 10 keep their upload
+plan_settings, plan_stores, plan_decks(key, source import|yama, status, commander, bracket, groups, notes)
+plan_states(plan_deck_id, state, content_hash, cards, log, current)        -- lists, kept once per distinct list
+plan_orders, plan_order_items, plan_swaps(ext_key, stage, role, src, got, ...), plan_key_aliases, plan_quotes
+plan_inputs, plan_reviews, plan_marks, api_tokens                          -- used from slice 4
+```
+
+- An import is idempotent against the head only. The key is the SHA-256 of the exact bytes of the file's `plan` value. The same hash writes nothing; any other hash applies, even an older file.
+- Rows keep their ids across imports by key. A row missing from a newer file is retired (decks are archived) and restored if it comes back. Answers and ticks are keyed by text and follow renamed keys through aliases.
+- Planner rows store card names, never oracle ids. Names are resolved when the bundle is built, so a card Scryfall adds later resolves without a new import. A list's identity is its `[board, name, qty]` set.
+- `GET /api/plan/bundle?rev=` returns everything the plan pages need. `rev` combines the plan revision with the finish time of the latest card or price import, so a daily price import makes phones fetch again. The planner never writes `price_snapshots`. Its market price is the cheapest non-foil price among printings priced within three days of the card's newest price, given with its date and source.
+- Every query binds the caller's id. Cascading links use composite `(id, owner_id)` foreign keys, so the database refuses cross-owner links. `SET NULL` links are owner-checked in code.
+
 Linking a deck to a container is what powers owned/needed: each deck list is checked against the collection, so you see what's in the binder, what's in another deck, and what still has to be bought or printed. That's the job the `commander-decks` scripts do today (`docs/spares.md`, scan checks). Yama could take it over later.
 
 ## 10. Milestones

@@ -20,6 +20,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Prices | Daily Scryfall snapshots kept by date (`YAMA_AUTO_IMPORT=1`) |
 | Online play | Commander on the phase-rs rules engine (`play/`): lobby, friends join by code, AI seats (Easy/Medium/Hard), legal options only, auto-pass, per-seat hidden information, replay log saved after every move, games resume after a restart, final boards rebuilt from replays. Readable board: hover a card for a full-size preview (desktop), tap for the card with its rules text and your options for it (phone); on phones your options and hand sit in a dock at the bottom. Needs the engine card data (below) |
 | Scanner | In progress (docs/scanner.md) |
+| Deck planner | In progress (docs/planner-design.md). The server side of importing a plan file is done: the `yama-plan/1` import (`POST /api/plan/import`, or `import-plan` below) and the bundle the pages will read (`GET /api/plan/bundle`). There are no pages yet |
 
 ## Run it locally
 
@@ -49,6 +50,8 @@ Optional:
 
 ```sh
 ./target/debug/yama-server import-decks ../commander-decks/decks --owner you@example.com
+./target/debug/yama-server import-plan ../commander-decks/data/planner/yama-plan.json --owner you@example.com --dry-run
+                                        # prints the import report; drop --dry-run to import
 ./target/debug/yama-server invite friend@gmail.com
 ```
 
@@ -78,9 +81,10 @@ npm run typecheck     # core + web
 ## Layout
 
 ```
-server/            Rust (Axum, SQLite via sqlx). One binary: serve, import-cards, import-decks, invite.
+server/            Rust (Axum, SQLite via sqlx). One binary: serve, import-cards, import-decks, import-plan, invite.
   migrations/      Schema
   src/cards/       Scryfall import and search
+  src/plan/        Deck planner: plan file import and the per-user bundle
 play/              Online play on the phase-rs engine (local fork at ../yama-phase), soak test.
 packages/core/     Shared TypeScript: life counter, offline search, sample hands, mana colors
 web/               React app (Vite). Also the future Capacitor phone app.

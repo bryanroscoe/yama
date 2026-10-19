@@ -7,7 +7,7 @@ A plan file carries one person's deck plans into Yama: their plan decks and the 
 
 Yama reads it at `POST /api/plan/import` (signed in from the browser, and from slice 4 with a script key) and with `yama-server import-plan FILE --owner EMAIL` for local development. The owner always comes from who is signed in. The file has no owner field, and Yama never looks a user up by email from it.
 
-This is the contract between the exporter and the importer. The reasoning is in `docs/planner-design.md` (sections 2, 3 and 6) and `docs/planner-design-critique.md`. Written 2026-10-18 for slice 0; slices 1 and 2 implement it.
+This is the contract between the exporter and the importer. The reasoning is in `docs/planner-design.md` (sections 2, 3 and 6) and `docs/planner-design-critique.md`. Written 2026-10-18 for slice 0. Slice 1 (the importer, 2026-10-19) filled in the checks, warnings and report it settled.
 
 ## The file
 
@@ -91,7 +91,7 @@ Some fields can name stores, order dates or prices paid. A shared view (slice 10
 {
   "settings": [...], "stores": [...], "decks": [...], "swaps": [...], "aliases": [...],
   "orders": [...], "quotes": [...], "reviews": {...}, "inbox_resolved": [...],
-  "game_changers": {...}, "library": {...}
+  "game_changers": {...}, "library": {...}, "notes": [...], "warnings": [...]
 }
 ```
 
@@ -143,6 +143,7 @@ Every section is optional; a missing section is empty. For an imported plan, a m
 | `notes` | `open_question`, `warning` or `note`. commander-decks takes these from a hand-kept structured file, never by parsing markdown. Open questions show first on the deck page. |
 | `bracket` | Optional. `{target, keep_note, callouts: [text], bags: {"3": [Bag], "2": [Bag]}}`, where a bag entry is `{out, in, from}` and `from` says where the swapped-back card comes from. Bags are swaps applied to the after list, so basic counts survive. |
 | `groups` | Optional. Proposal groups in order, `[{label, bracket, note}]`, where `bracket` is a number or `null`. Groups are cumulative: the proposed build for a group includes every group before it. That lets a deck whose proposals go **up** in bracket (adding Game Changers) show each step. |
+| `computed_by` | Optional. Who computed the lists, when they all share it: `"commander-decks library.py, guide v6"`. A state's own `computed_by` wins; without either, Yama writes `"<meta.app>, guide v<meta.guide_version>"`. |
 | `states` | The lists. See below. |
 
 #### States and slots
@@ -153,7 +154,7 @@ Every section is optional; a missing section is empty. For an imported plan, a m
 - `now`: every swap whose card is in hand. It is the plan, not a record of what's in the deck box.
 - `after`: the full plan once prints arrive.
 
-A state is `{"cards": [Slot], "log": [{"swap": <key>, "status": ...}]}`. Log status is one of `done`, `standin`, `fill`, `waiting`, `print`, `moved`, `waiting-move` or `spare`.
+A state is `{"cards": [Slot], "log": [{"swap": <key>, "status": ...}], "computed_by": ...}` (`computed_by` optional). Log status is one of `done`, `standin`, `fill`, `waiting`, `print`, `moved`, `waiting-move` or `spare`.
 
 A **slot** is one card in a list:
 
@@ -169,13 +170,13 @@ A **slot** is one card in a list:
 | `kind` | `stock`, `owner`, `bought`, `standin`, `fill`, `print`, `moved` or `optional`. |
 | `set`, `num`, `scryfall_id` | The printing, when known (from a scan, the listing bought, or the precon). |
 | `replaces` | The card this slot took the place of. |
-| `swap` | The key of the swap that put it here. |
+| `swap` | The key of the swap that put it here. Yama also reads `swap_key`, which commander-decks' first exporter wrote. |
 | `from_deck` | For `moved`: the deck key it came from. |
 | `got`, `order_item`, `print_order` | Structured source, as on swaps. Pages build "where it came from" sentences from these. |
 | `note` | Private free text. |
 | `source` | Private. The writer's own sentence ("Bought at Example Games, ordered 8 Oct 2026, $0.50"). A fallback for owner-only pages; shared pages never show it. |
 
-**A list's identity** is the SHA-256 of its cards reduced to `[board, name, qty]`, sorted, as compact JSON. Printings, sources and card ids are not part of it. So a list with the same 100 names is the same list, even after Yama learns a card's id or a scan changes a printing. A changed list is stored as a new row, and old rows are kept for the lab and for Yama decks made from them.
+**A list's identity** is the SHA-256 of its cards reduced to `[board, name, qty]`, with repeated names summed, sorted, as compact JSON. Printings, sources and card ids are not part of it. So a list with the same 100 names is the same list, even after Yama learns a card's id or a scan changes a printing. A list with different cards is stored as a new row, and old rows are kept for the lab and for Yama decks made from them. A newer file with the same cards refreshes the stored list's printings, sources and log in place.
 
 ### `swaps`: plan swaps, stand-ins, optional extras and proposals
 
@@ -204,7 +205,7 @@ A **slot** is one card in a list:
 | `after_print` | The move waits for prints to arrive. |
 | `tier`, `band`, `group`, `sort` | The owner's gameplay priority label (`T1`, `Core`), the bracket band (`B2`, `B3`, `B4`) where the plan has one, the proposal group label, and the order within the deck. Tiers are gameplay priority, not price or bracket. |
 | `game_changer` | Whether `in` is on the Game Changer list, as the writer recorded it. |
-| `got` | Where an owned card comes from: `{"how": "bought", "order": <order key>}`, `{"how": "pulled", "product": "...", "date": "YYYY-MM-DD" or null}`, or `{"how": "deck", "deck": <deck key or null>, "deck_name": "...", "origin": "precon" or <order key>}`. Any other shape is a 400. |
+| `got` | Where an owned card comes from: `{"how": "bought", "order": <order key>}`, `{"how": "pulled", "product": "...", "date": "YYYY-MM-DD" or null}`, or `{"how": "deck", "deck": <deck key or null>, "deck_name": "...", "origin": "precon" or <order key>}`. Any other shape is a 400. A deck that isn't in the file (Yama also accepts its display name in `deck`) or an `origin` that is neither `"precon"` nor an order in the file is a warning, because the card can come from a deck outside the plan. |
 | `order_item` | Buy rows, stand-ins and optional extras: `{"order": <order key>, "line": n}`, the copy bought for this use. |
 | `print_order` | Print rows: the key of a proxy order **whose items list this card**. `null` means the print is for the next order. |
 | `listing`, `note` | Private free text: the listing as recorded, and a note. |
@@ -257,7 +258,7 @@ A **slot** is one card in a list:
 - `printing_from_text: true` means the same for `set` and `num`.
 - `variant` is the store's cart line id (a Shopify variant), **always a string**; writers convert numbers. A quote with `variant` and `price` can go in a cart.
 - `store` is a store key when the writer matched one; `store_label` is the store as recorded.
-- `swap` may be `null` for a quote about a card no swap uses yet.
+- `swap` may be `null` for a quote about a card no swap uses yet. When it is set, it must be a swap in the file.
 
 ### `reviews`
 
@@ -267,7 +268,7 @@ A **slot** is one card in a list:
 ```
 
 - `decision`: `want`, `unsure`, `no` or `null`. `cut`: the owner's chosen cut, or `null`.
-- `at` is UTC. commander-decks converts the review site's local, timezone-less times with the Mac's time zone.
+- `at` is UTC. commander-decks converts the review site's local, timezone-less times with the Mac's time zone. An offset such as `-05:00` is accepted and stored as UTC; a time with no zone is a 400.
 - An entry with `decision`, `note` and `cut` all empty is a **tombstone**: the owner cleared the answer at `at`.
 - Yama merges answers by key, and the later `at` wins on either side. A tombstone beats any older answer, so a stale file can't bring a cleared answer back. Ties go to the answer made in Yama. Nothing is deleted.
 - `deck` and `card` are kept as text so an orphaned answer stays readable.
@@ -288,19 +289,28 @@ Optional, read-only, shown as given:
 - `scan`: the latest collection scan check, as `{file, date, to_check: [...], missing: [...], fine: [...]}`. Each entry is `{card, deck, replaces, order, line, listed: {set, num}, scanned: {set, num} or null, note}`. A mismatch is something to check, not proof the scan is wrong.
 - `extra`: scanned cards that match no purchase, as `[{card, set, num, qty, container}]`.
 
+### `notes`: plan-wide notes
+
+`[{"kind": "open_question", "text": "...", "deck": <deck key or null>}]`, with `kind` as for deck notes: questions and warnings that belong to no one deck (where installed status lives, for example). Yama shows them with the plan.
+
+### `warnings`: the writer's own warnings
+
+`[{"deck": <deck key or null>, "swap": <key or null>, "text": "..."}]`. Yama shows them in the import report as given, apart from its own warnings.
+
 ## What the importer checks
 
 **Errors (400, nothing written).** The message starts with the JSON path, for example `plan.swaps[12].got: unknown how "found"`.
 
 - `format` isn't `yama-plan/1`, or the body isn't JSON.
-- Deck, swap, order and store keys aren't unique.
+- Deck, swap, order and store keys aren't unique, or an order repeats a `line`.
 - A swap's `deck` doesn't exist.
 - A stand-in's `parent` isn't a print swap in the same deck with the same `out`.
 - `src: "owned"` without `got`, or `got` isn't one of its three shapes.
-- `order_item`, `print_order`, `got.order` or a quote's `store` points at something that isn't in the file.
+- `order_item`, `print_order`, `got.order`, an order's or a quote's `store`, or a quote's `swap` points at something that isn't in the file.
+- A value outside its list (a `stage`, `role`, `src`, `kind`, `status`, `board`, `band` or decision Yama doesn't know), a state other than the six, or a slot or item `qty` below 1.
 - A cart template isn't `https://` or lacks `{items}`.
 - Money is negative or not a number. A date isn't `YYYY-MM-DD`, or a quote lacks `checked` or `source`.
-- Settings dates repeat.
+- Settings dates repeat, or a review's `at` has no zone.
 - An alias `old` is a live key, or aliases form a cycle.
 
 **Conflicts (409).** A deck key in the file matches one of the owner's Yama-made decks (`source: "yama"`) while the file would import it.
@@ -311,9 +321,33 @@ Optional, read-only, shown as given:
 - What Yama's deck check finds on the resolved lists: color identity and current Commander legality. The repo's own checker can't check either.
 - Card names and printings Yama doesn't know yet (kept).
 - `src_declared` conversions.
-- Two rows in one deck naming the same `later_out` or the same move target.
-- Answers and ticks that match no live swap.
+- Two planned rows in one deck naming the same card as their cut (`out`, or a stand-in's `later_out`).
+- More print swaps naming a print order for a card than the order lists copies of it.
+- A `got` naming a deck or origin that isn't in the file.
+- A file whose guide version is lower than the plan Yama already has.
+- Answers and ticks that match no live swap (listed in `orphan_answers`, not as warnings).
 
 ## What an import does
 
-The design's section 6.5 has the steps. In short: it runs entirely as the signed-in owner, and every row it writes carries that owner's id. Rows keep their ids across imports when their keys stay the same. A row missing from the new file is retired (decks archived) rather than deleted, and comes back if a later file brings it back. Lists are stored once per distinct list. Review answers merge newest-wins. With `?dry_run=1` it does all of this, returns the report and rolls back.
+The design's section 6.5 has the steps. In short: it runs entirely as the signed-in owner, and every row it writes carries that owner's id. Rows keep their ids across imports when their keys stay the same, and a row whose content hasn't changed isn't rewritten. A row missing from the new file is retired (decks archived) rather than deleted, and comes back if a later file brings it back. Lists are stored once per distinct list. Review answers merge newest-wins. Aliases are kept when a later file drops them, so an answer never loses its row. With `?dry_run=1` it does all of this, returns the report and rolls back; `?force=1` applies a file even when its hash equals the head.
+
+Rows store card names, not card ids. Yama resolves names when it builds the bundle the pages read, so the report's `unknown_cards` is a snapshot: a card Scryfall adds later shows up resolved without a new import.
+
+### The report
+
+```json
+{"import_id": "...", "unchanged": false, "dry_run": false, "forced": false, "content_hash": "<sha256 of plan>",
+ "app": "commander-decks", "guide_version": 6, "guide_date": "2026-10-18", "git_sha": "...", "dirty": false,
+ "head_before": {"content_hash": "...", "guide_version": 6, "git_sha": "...", "imported_at": "...", "revision": 3},
+ "counts": {"decks": {"added": 0, "changed": 0, "unchanged": 0, "retired": 0, "restored": 0},
+            "swaps": {...}, "orders": {...}, "stores": {...},
+            "settings": 2, "quotes": 100, "aliases": 0, "states_new": 1, "states_refreshed": 0},
+ "unknown_cards": [{"name": "...", "where": ["Example Deck: now list"]}],
+ "unknown_printings": [{"card": "...", "set": "plst", "num": "20", "scryfall_id": null, "where": ["order example-1001 line 10"]}],
+ "orphan_answers": [{"swap_key": "...", "deck": "...", "card": "...", "decision": "want", "marks": ["installed"]}],
+ "reviews": {"from_document_applied": 0, "yama_newer_kept": 0},
+ "existing_decks": [{"id": "...", "name": "...", "folder": "commander-decks"}],
+ "warnings": ["..."], "export_warnings": [{"deck": "...", "swap": null, "text": "..."}]}
+```
+
+`import_id` is `null` for a dry run. An unchanged upload returns the head's own report with `unchanged: true`. `head_before` is what Yama held before the upload, so a page can show the file next to it. `existing_decks` lists the owner's Yama decks in the folder "commander-decks", which an import never touches.
