@@ -20,6 +20,13 @@ Ask Bryan before any action that changes the server. Read-only checks (`docker p
 3. `./deploy/deploy.sh` builds the image on saget's Docker daemon (over the `unraid` docker context) and starts the container. On first start Yama downloads Scryfall card data (about 2 minutes), then refreshes prices daily.
 4. In Cloudflare Zero Trust, open the `novalyst` tunnel and add a public hostname (for example `yama.saget.org`) pointing at service `http://yama:8787`.
 
+## Current sign-in setup (2026-10-18)
+
+- **Google sign-in:** Google Cloud project `yama-512101`, OAuth web client `228285497505-i6ocbd3fndfdrjim4t0p2grsmiglrkfo.apps.googleusercontent.com`, authorized origin `https://yama.saget.org`. The client ID is public and is set in the server's `yama.env`. Yama never needs the client secret; Bryan keeps the downloaded JSON.
+  - While the OAuth consent screen is in **Testing** mode, only listed test users can sign in. Either add each friend there, or publish the app (the email and profile scopes need no Google review).
+  - Friends also need a Yama invite: `ssh root@<saget-lan-address> docker exec yama yama-server invite friend@gmail.com`. Admins (`YAMA_ADMIN_EMAILS`) can invite from the Group tab instead.
+- **Cloudflare Access:** optional, and not set up yet.
+
 ## Updating
 
 `./deploy/deploy.sh`. It backs up the database first (`data/backups/yama-<time>.db`, written with SQLite's `VACUUM INTO`, which is safe while the server runs), rebuilds, and recreates only the `yama` container.
