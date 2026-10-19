@@ -320,6 +320,11 @@ impl LabWorker {
         worker
     }
 
+    /// Games the lab plays at once (YAMA_LAB_THREADS; 0 = the lab is off).
+    pub fn threads(&self) -> usize {
+        self.threads
+    }
+
     /// For reading experiments: refused only when this server has no engine card data.
     pub fn check_available(&self) -> AppResult<()> {
         match &*self.sim.read().unwrap_or_else(|e| e.into_inner()) {

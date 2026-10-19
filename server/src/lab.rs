@@ -817,6 +817,127 @@ pub struct RunListItem {
     #[serde(flatten)]
     pub run: RunLabel,
     pub decks: i64,
+    /// For a paired run: each list's results and the comparisons between them.
+    pub paired: Option<BatchPaired>,
+}
+
+/// One list of a paired batch run (analyze.py's `paired.variants`), with its name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BatchVariant {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub games: i64,
+    #[serde(default)]
+    pub wins: i64,
+    pub win_rate: Option<f64>,
+    pub wilson: Option<[f64; 2]>,
+    pub avg_place: Option<f64>,
+    #[serde(default)]
+    pub unscored: i64,
+    #[serde(default)]
+    pub failed: i64,
+}
+
+/// One comparison of a paired batch run (analyze.py's `paired.comparisons`), with the lists' names
+/// and the verdict in the words "Try a change" uses. Its interval is analyze.py's bootstrap over
+/// templates, not the Agresti-Min interval of an experiment.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BatchComparison {
+    pub base: String,
+    pub base_name: String,
+    pub variant: String,
+    pub variant_name: String,
+    /// Templates (pods) both lists finished.
+    pub pods: i64,
+    pub delta_win_rate: Option<f64>,
+    pub delta_ci: Option<[f64; 2]>,
+    pub delta_avg_place: Option<f64>,
+    pub delta_avg_place_ci: Option<[f64; 2]>,
+    pub variant_only: i64,
+    pub base_only: i64,
+    pub verdict: stats::Verdict,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
+pub struct BatchPaired {
+    pub templates: Option<i64>,
+    pub variants: Vec<BatchVariant>,
+    pub comparisons: Vec<BatchComparison>,
+}
+
+#[derive(Deserialize)]
+struct RawComparison {
+    base: String,
+    variant: String,
+    #[serde(default)]
+    templates: i64,
+    delta_win_rate: Option<f64>,
+    delta_win_rate_ci: Option<[f64; 2]>,
+    delta_avg_place: Option<f64>,
+    delta_avg_place_ci: Option<[f64; 2]>,
+    #[serde(default)]
+    variant_only_wins: i64,
+    #[serde(default)]
+    base_only_wins: i64,
+}
+
+#[derive(Deserialize)]
+struct RawPaired {
+    templates: Option<i64>,
+    #[serde(default)]
+    variants: Vec<BatchVariant>,
+    #[serde(default)]
+    comparisons: Vec<RawComparison>,
+}
+
+/// A paired run's lists and comparisons, named from its ratings; `None` for any other run or a
+/// summary without a readable `paired` part.
+async fn batch_paired(pool: &SqlitePool, run: &RunLabel) -> AppResult<Option<BatchPaired>> {
+    if run.kind != "paired" {
+        return Ok(None);
+    }
+    let text: Option<String> = sqlx::query_scalar("SELECT json_extract(summary, '$.paired') FROM lab_runs WHERE id = ?").bind(&run.id).fetch_one(pool).await?;
+    let Some(raw) = text.and_then(|t| serde_json::from_str::<RawPaired>(&t).ok()) else { return Ok(None) };
+    let names: HashMap<String, String> = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT r.deck_ref, IFNULL(p.name, json_extract(r.extra, '$.name')) FROM lab_ratings r LEFT JOIN precons p ON p.lab_id = r.deck_ref WHERE r.run_id = ?",
+    )
+    .bind(&run.id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .filter_map(|(id, name)| Some((id, name?)))
+    .collect();
+    let name = |id: &str| names.get(id).cloned().unwrap_or_else(|| id.rsplit('/').next().unwrap_or(id).to_string());
+    let variants = raw.variants.into_iter().map(|v| BatchVariant { name: name(&v.id), ..v }).collect();
+    let comparisons = raw
+        .comparisons
+        .into_iter()
+        .map(|c| {
+            let paired = stats::Paired {
+                pods: u32::try_from(c.templates).unwrap_or(0),
+                delta_win_rate: c.delta_win_rate,
+                delta_ci: c.delta_win_rate_ci,
+                ..Default::default()
+            };
+            BatchComparison {
+                base_name: name(&c.base),
+                variant_name: name(&c.variant),
+                verdict: stats::verdict(&paired, true),
+                base: c.base,
+                variant: c.variant,
+                pods: c.templates,
+                delta_win_rate: c.delta_win_rate,
+                delta_ci: c.delta_win_rate_ci,
+                delta_avg_place: c.delta_avg_place,
+                delta_avg_place_ci: c.delta_avg_place_ci,
+                variant_only: c.variant_only_wins,
+                base_only: c.base_only_wins,
+            }
+        })
+        .collect();
+    Ok(Some(BatchPaired { templates: raw.templates, variants, comparisons }))
 }
 
 /// Global runs and the caller's own, newest first.
@@ -830,7 +951,8 @@ pub async fn runs_for(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<RunList
     let mut out = Vec::with_capacity(runs.len());
     for run in runs {
         let decks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_ratings WHERE run_id = ?").bind(&run.id).fetch_one(pool).await?;
-        out.push(RunListItem { run, decks });
+        let paired = batch_paired(pool, &run).await?;
+        out.push(RunListItem { run, decks, paired });
     }
     Ok(out)
 }
@@ -856,6 +978,8 @@ pub struct RunDetail {
     /// The summary without its per-deck entries and matrices: counts, warnings, seat effect,
     /// calibration against real games, paired comparisons, the run's settings.
     pub summary: Value,
+    /// For a paired run: each list's results and the comparisons, named, with verdicts.
+    pub paired: Option<BatchPaired>,
 }
 
 /// One run, if it is global or the caller's own; anyone else's is "not found".
@@ -889,7 +1013,8 @@ pub async fn run_for(pool: &SqlitePool, user_id: &str, run_id: &str) -> AppResul
         .bind(&run.id)
         .fetch_one(pool)
         .await?;
-    Ok(RunDetail { run, ratings, summary: serde_json::from_str(&summary).map_err(anyhow::Error::from)? })
+    let paired = batch_paired(pool, &run).await?;
+    Ok(RunDetail { run, ratings, summary: serde_json::from_str(&summary).map_err(anyhow::Error::from)?, paired })
 }
 
 async fn get_run(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<RunDetail>> {
@@ -1261,6 +1386,62 @@ mod tests {
         assert!(d.cards.iter().any(|c| c.card.name == "Mystery Card" && c.type_line.is_none()));
         assert!(precon_detail(&pool, "spore-tide").await.unwrap().matchups.is_some());
         assert!(matches!(precon_detail(&pool, "nope").await, Err(AppError::NotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn paired_runs_list_their_lists_and_comparisons_with_verdicts() {
+        let pool = crate::db::test_pool().await;
+        let dir = fixture(&pool).await;
+        import_precons(&pool, &dir.path().join("decks/index.json"), None).await.unwrap();
+        let global = dir.path().join("pilot.json");
+        std::fs::write(&global, summary("pilot-2", "2026-10-19T04:15:40Z", 2.5, false)).unwrap();
+        let pilot = import_run(&pool, &global, None, None).await.unwrap();
+        let entry = |id: &str, name: &str| json!({"id": id, "name": name, "games": 57, "strength": 1.0, "main": {"win_rate": 0.5}});
+        let paired = json!({
+            "run": "bryan-ff-1", "generated": "2026-10-19T05:04:42Z",
+            "run_meta": {"created": "2026-10-19T04:51:00Z", "difficulty": "Easy", "pod": 4, "mode": "paired"},
+            "versions": {"engine": {"phase-rs v0.113.0": 180}},
+            "decks": [entry("bryan/ff-stock", "Fantastic Four (Bryan, stock)"), entry("bryan/ff-after", "Fantastic Four (Bryan, after)"),
+                      entry("precons/counterpunch", "Counterpunch")],
+            "paired": {"templates": 60,
+                "variants": [{"id": "bryan/ff-stock", "games": 60, "wins": 29, "win_rate": 0.4833, "wilson": [0.38, 0.588], "avg_place": 1.98},
+                             {"id": "bryan/ff-after", "games": 57, "wins": 35, "win_rate": 0.614, "wilson": [0.505, 0.713], "avg_place": 1.55,
+                              "failed": 2, "unscored": 1},
+                             {"id": "bryan/gone"}],
+                "comparisons": [
+                    {"base": "bryan/ff-stock", "variant": "bryan/ff-after", "templates": 57, "delta_win_rate": 0.1228,
+                     "delta_win_rate_ci": [-0.0175, 0.263], "delta_avg_place": -0.42, "delta_avg_place_ci": [-0.70, -0.14],
+                     "variant_only_wins": 15, "base_only_wins": 8},
+                    {"base": "bryan/ff-stock", "variant": "bryan/ff-after", "templates": 57, "delta_win_rate": 0.15,
+                     "delta_win_rate_ci": [0.02, 0.28], "variant_only_wins": 15, "base_only_wins": 6},
+                    {"base": "bryan/ff-stock", "variant": "bryan/ff-after", "templates": 5, "delta_win_rate": 0.4,
+                     "delta_win_rate_ci": [0.1, 0.7]}]}
+        });
+        let file = dir.path().join("paired.json");
+        std::fs::write(&file, paired.to_string()).unwrap();
+        let mine = import_run(&pool, &file, Some("bryan@example.com"), None).await.unwrap();
+
+        let runs = runs_for(&pool, "bryan").await.unwrap();
+        let listed = runs.iter().find(|r| r.run.id == mine.id).unwrap();
+        let p = listed.paired.as_ref().unwrap();
+        assert_eq!(p.templates, Some(60));
+        let names: Vec<&str> = p.variants.iter().map(|v| v.name.as_str()).collect();
+        // A list the ratings don't name falls back to the last part of its id.
+        assert_eq!(names, vec!["Fantastic Four (Bryan, stock)", "Fantastic Four (Bryan, after)", "gone"]);
+        assert_eq!((p.variants[1].wins, p.variants[1].failed, p.variants[1].wilson), (35, 2, Some([0.505, 0.713])));
+        let c = &p.comparisons;
+        assert_eq!((c[0].base_name.as_str(), c[0].variant_name.as_str(), c[0].pods), ("Fantastic Four (Bryan, stock)", "Fantastic Four (Bryan, after)", 57));
+        assert_eq!((c[0].variant_only, c[0].base_only), (15, 8));
+        // The interval reaches below 0, so it can't tell; above +1 it is better; too few pods can't tell.
+        assert_eq!(c[0].verdict.kind, stats::VerdictKind::Unclear);
+        assert_eq!(c[1].verdict.text, "Probably better (+15 points, 90% interval +2 to +28)");
+        assert_eq!(c[2].verdict.kind, stats::VerdictKind::Unclear);
+        assert!(c.iter().all(|c| c.verdict.is_final));
+        // The same parts on the run's page; a precon-ratings run has none; no one else sees the run.
+        assert_eq!(run_for(&pool, "bryan", &mine.id).await.unwrap().paired.as_ref(), Some(p));
+        assert!(runs.iter().find(|r| r.run.id == pilot.id).unwrap().paired.is_none());
+        assert!(run_for(&pool, "bryan", &pilot.id).await.unwrap().paired.is_none());
+        assert!(runs_for(&pool, "other").await.unwrap().iter().all(|r| r.run.id != mine.id));
     }
 
     #[tokio::test]

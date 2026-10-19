@@ -41,6 +41,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/lab/experiments", get(list_handler).post(create_handler))
         .route("/api/lab/experiments/{id}", get(detail_handler).delete(delete_handler))
         .route("/api/lab/experiments/{id}/cancel", post(cancel_handler))
+        .route("/api/lab/experiments/{id}/pods", get(pods_handler))
+        .route("/api/lab/pace", get(pace_handler))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
 
@@ -1180,26 +1182,7 @@ struct Queue {
 
 async fn queue(pool: &SqlitePool, viewer: &str) -> AppResult<Queue> {
     let admin: bool = sqlx::query_scalar("SELECT is_admin FROM users WHERE id = ?").bind(viewer).fetch_optional(pool).await?.unwrap_or(false);
-    // Only experiments touched in the last hour can have recent games, so the pace never scans the
-    // whole lab's history.
-    let since = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    let times: Vec<String> = sqlx::query_scalar(
-        "SELECT g.finished_at FROM lab_experiment_games g
-         WHERE g.experiment_id IN (SELECT id FROM lab_experiments WHERE updated_at >= ?) AND g.finished_at IS NOT NULL
-         ORDER BY g.finished_at DESC LIMIT 40",
-    )
-    .bind(&since)
-    .fetch_all(pool)
-    .await?;
-    let parsed: Vec<chrono::DateTime<chrono::Utc>> =
-        times.iter().filter_map(|t| chrono::DateTime::parse_from_rfc3339(t).ok().map(|d| d.with_timezone(&chrono::Utc))).collect();
-    let rate = match (parsed.first(), parsed.last()) {
-        (Some(newest), Some(oldest)) if parsed.len() >= 4 && chrono::Utc::now() - *newest < chrono::Duration::hours(1) => {
-            let span = (*newest - *oldest).num_milliseconds() as f64 / 1000.0;
-            (span > 0.0).then(|| (parsed.len() - 1) as f64 / span)
-        }
-        _ => None,
-    };
+    let (rate, _) = recent_rate(pool).await?;
     let pending: Vec<(String, i64)> = sqlx::query_as(
         "SELECT e.id, (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.result IS NULL)
          FROM lab_experiments e WHERE e.status IN ('queued','running') ORDER BY e.created_at, e.rowid",
@@ -1213,6 +1196,33 @@ async fn queue(pool: &SqlitePool, viewer: &str) -> AppResult<Queue> {
         before += own;
     }
     Ok(Queue { rate, ahead, admin })
+}
+
+/// The lab's games per second over its last finished games (all threads together), when at least
+/// four finished and the newest within the last hour; and how many games it was measured on.
+async fn recent_rate(pool: &SqlitePool) -> AppResult<(Option<f64>, usize)> {
+    // Only experiments touched in the last hour can have recent games, so the pace never scans the
+    // whole lab's history. Games they finished earlier (before a restart, say) don't count.
+    let since = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let times: Vec<String> = sqlx::query_scalar(
+        "SELECT g.finished_at FROM lab_experiment_games g
+         WHERE g.experiment_id IN (SELECT id FROM lab_experiments WHERE updated_at >= ?) AND g.finished_at >= ?
+         ORDER BY g.finished_at DESC LIMIT 40",
+    )
+    .bind(&since)
+    .bind(&since)
+    .fetch_all(pool)
+    .await?;
+    let parsed: Vec<chrono::DateTime<chrono::Utc>> =
+        times.iter().filter_map(|t| chrono::DateTime::parse_from_rfc3339(t).ok().map(|d| d.with_timezone(&chrono::Utc))).collect();
+    let rate = match (parsed.first(), parsed.last()) {
+        (Some(newest), Some(oldest)) if parsed.len() >= 4 && chrono::Utc::now() - *newest < chrono::Duration::hours(1) => {
+            let span = (*newest - *oldest).num_milliseconds() as f64 / 1000.0;
+            (span > 0.0).then(|| (parsed.len() - 1) as f64 / span)
+        }
+        _ => None,
+    };
+    Ok((rate, if rate.is_some() { parsed.len() } else { 0 }))
 }
 
 /// Distinct values in order of first use, joined with ", ".
@@ -1345,7 +1355,200 @@ pub async fn delete(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<()> {
     if n == 0 { Err(AppError::NotFound("experiment")) } else { Ok(()) }
 }
 
+// ── games by pod, and the lab's pace ────────────────────────────────────────
+
+/// One played game of a pod, as the run page lists it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct GameView {
+    pub game: String,
+    /// win, draw, turn_cap, action_cap, time_cap, panic or error.
+    pub end: String,
+    /// Whether the game counts in the summary: false for time caps, panics and errors.
+    pub scored: bool,
+    /// Whether the tested list won.
+    pub won: bool,
+    /// The tested list's finishing place in a scored game (1 = first; tied players share the mean
+    /// of their places).
+    pub place: Option<f64>,
+    pub turns: u32,
+    pub seconds: f64,
+    pub error: Option<String>,
+    pub finished_at: Option<String>,
+}
+
+/// One pod: the same opponents, seats and shuffle for both lists.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PodView {
+    /// 1-based, in play order.
+    pub pod: usize,
+    /// The tested list's seat (0 takes the first turn).
+    pub seat: u8,
+    /// Seat by seat: the opponent's label, or null for the tested list's seat.
+    pub seats: Vec<Option<String>>,
+    /// Null until that game is played.
+    pub base: Option<GameView>,
+    pub variant: Option<GameView>,
+}
+
+fn game_view(game: &str, seat: u8, result: &str, finished_at: Option<String>) -> GameView {
+    match serde_json::from_str::<yama_play::lab::GameResult>(result) {
+        Ok(r) => {
+            let scored = matches!(r.end, yama_play::lab::End::Win | yama_play::lab::End::Draw | yama_play::lab::End::TurnCap | yama_play::lab::End::ActionCap);
+            let place = if scored { super::stats::placement_ranks(&r.placements).get(&seat).copied() } else { None };
+            GameView {
+                game: game.into(),
+                end: r.end.as_str().into(),
+                // A scored end without the seat placed is malformed and isn't scored (as in stats).
+                scored: scored && place.is_some(),
+                won: place.is_some() && r.winner == Some(seat),
+                place,
+                turns: r.turns,
+                seconds: r.ms as f64 / 1000.0,
+                error: r.error,
+                finished_at,
+            }
+        }
+        Err(e) => GameView {
+            game: game.into(),
+            end: "error".into(),
+            scored: false,
+            won: false,
+            place: None,
+            turns: 0,
+            seconds: 0.0,
+            error: Some(format!("unreadable result line: {e}")),
+            finished_at,
+        },
+    }
+}
+
+/// The owner's experiment game by game, pod by pod (base and changed list side by side); anyone
+/// else's is "not found".
+pub async fn pods(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Vec<PodView>> {
+    let labels: Vec<(String, String)> = sqlx::query_as(
+        "SELECT json_extract(o.value, '$.id'), json_extract(o.value, '$.label')
+         FROM lab_experiments e, json_each(e.spec, '$.opponents') o WHERE e.id = ? AND e.owner_id = ?",
+    )
+    .bind(id)
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM lab_experiments WHERE id = ? AND owner_id = ?").bind(id).bind(owner).fetch_optional(pool).await?;
+    if exists.is_none() {
+        return Err(AppError::NotFound("experiment"));
+    }
+    let labels: HashMap<String, String> = labels.into_iter().collect();
+    let rows: Vec<(String, i64, String, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT game, ord, spec, result, finished_at FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord")
+            .bind(id)
+            .fetch_all(pool)
+            .await?;
+    let mut out: Vec<PodView> = Vec::new();
+    for (game, ord, spec, result, finished_at) in rows {
+        let Ok(spec) = serde_json::from_str::<GameSpec>(&spec) else { continue };
+        let Some((seat, is_variant)) = spec.decks.iter().enumerate().find_map(|(i, d)| match d.as_str() {
+            BASE_ID => Some((i as u8, false)),
+            VARIANT_ID => Some((i as u8, true)),
+            _ => None,
+        }) else {
+            continue;
+        };
+        let pod = usize::try_from(ord / 2).unwrap_or(0) + 1;
+        if out.last().is_none_or(|p| p.pod != pod) {
+            let seats = spec
+                .decks
+                .iter()
+                .map(|d| if d == BASE_ID || d == VARIANT_ID { None } else { Some(labels.get(d).cloned().unwrap_or_else(|| d.clone())) })
+                .collect();
+            out.push(PodView { pod, seat, seats, base: None, variant: None });
+        }
+        let view = result.map(|r| game_view(&game, seat, &r, finished_at));
+        let p = out.last_mut().expect("pushed above");
+        if is_variant {
+            p.variant = view;
+        } else {
+            p.base = view;
+        }
+    }
+    Ok(out)
+}
+
+/// How fast the lab is playing, for the "expected time" before an experiment is created.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Pace {
+    /// Whether a new experiment can start now; `message` says why not.
+    pub available: bool,
+    pub message: Option<String>,
+    /// Games the lab plays at once.
+    pub threads: usize,
+    /// Seconds of lab time per game, all threads together; null with nothing to go on.
+    pub seconds_per_game: Option<f64>,
+    /// "recent": games finished in the last hour; "average": the mean length of the lab's latest
+    /// stored games, spread over its threads; null: no game stored yet.
+    pub basis: Option<String>,
+    /// Games that measure is based on.
+    pub sample: usize,
+    /// Games your own queued and running experiments still have to play; they go first.
+    pub your_pending: i64,
+}
+
+/// Recent experiments whose games give the average game length.
+const PACE_EXPERIMENTS: i64 = 10;
+const PACE_GAMES: i64 = 400;
+
+pub async fn pace(pool: &SqlitePool, owner: &str, threads: usize, available: Result<(), String>) -> AppResult<Pace> {
+    let (rate, recent) = recent_rate(pool).await?;
+    let (seconds_per_game, basis, sample) = match rate {
+        Some(r) => (Some(1.0 / r), Some("recent"), recent),
+        None => {
+            // Through the primary key of the newest few experiments only, never the whole history.
+            // CASE, because SQLite may test the conditions in any order and json_extract fails on
+            // an unreadable line.
+            let ms: Vec<f64> = sqlx::query_scalar(
+                "SELECT ms FROM (
+                    SELECT CAST(CASE WHEN json_valid(g.result) THEN json_extract(g.result, '$.ms') END AS REAL) AS ms
+                    FROM lab_experiment_games g
+                    WHERE g.experiment_id IN (SELECT id FROM lab_experiments ORDER BY created_at DESC LIMIT ?) AND g.result IS NOT NULL
+                 ) WHERE ms > 0 LIMIT ?",
+            )
+            .bind(PACE_EXPERIMENTS)
+            .bind(PACE_GAMES)
+            .fetch_all(pool)
+            .await?;
+            if ms.is_empty() || threads == 0 {
+                (None, None, 0)
+            } else {
+                let mean = ms.iter().sum::<f64>() / ms.len() as f64 / 1000.0;
+                (Some(mean / threads as f64), Some("average"), ms.len())
+            }
+        }
+    };
+    let your_pending: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM lab_experiment_games g JOIN lab_experiments e ON e.id = g.experiment_id
+         WHERE e.owner_id = ? AND e.status IN ('queued','running') AND g.result IS NULL",
+    )
+    .bind(owner)
+    .fetch_one(pool)
+    .await?;
+    let (available, message) = match available {
+        Ok(()) => (true, None),
+        Err(m) => (false, Some(m)),
+    };
+    Ok(Pace { available, message, threads, seconds_per_game, basis: basis.map(String::from), sample, your_pending })
+}
+
 // ── handlers ────────────────────────────────────────────────────────────────
+
+async fn pods_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Vec<PodView>>> {
+    st.lab.check_available()?;
+    Ok(Json(pods(&st.pool, &user.id, &id).await?))
+}
+
+/// Never a 503: the page shows why experiments can't start instead.
+async fn pace_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Pace>> {
+    let available = st.lab.simulator().map(|_| ()).map_err(|e| e.to_string());
+    Ok(Json(pace(&st.pool, &user.id, st.lab.threads(), available).await?))
+}
 
 async fn list_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<ExperimentItem>>> {
     st.lab.check_available()?;

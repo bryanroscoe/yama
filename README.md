@@ -20,7 +20,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Prices | Daily Scryfall snapshots kept by date (`YAMA_AUTO_IMPORT=1`) |
 | Online play | Commander on the phase-rs rules engine (`play/`): lobby, friends join by code, AI seats (Easy/Medium/Hard), legal options only, auto-pass, per-seat hidden information, replay log saved after every move, games resume after a restart, final boards rebuilt from replays. Readable board: hover a card for a full-size preview (desktop), tap for the card with its rules text and your options for it (phone); on phones your options and hand sit in a dock at the bottom. Needs the engine card data (below) |
 | Scanner | In progress (docs/scanner.md) |
-| Simulation lab | Batch runner for all-AI games (`play/src/bin/lab.rs`, core in `play/src/lab.rs`); the Commander precon catalog and analysed rating runs imported from commander-decks, with read APIs; "Try a change" experiments played by the server (`/api/lab/experiments`, YAMA_LAB_THREADS game threads, default 2). Needs the engine card data. Pages are in progress |
+| Simulation lab | Batch runner for all-AI games (`play/src/bin/lab.rs`, core in `play/src/lab.rs`); the Commander precon catalog and analysed rating runs imported from commander-decks, with read APIs; "Try a change" experiments played by the server (`/api/lab/experiments`, YAMA_LAB_THREADS game threads, default 2). Pages under Decks, Lab: the precon table and pages, "Try a change", and your runs, including your imported batch runs. Needs the engine card data |
 
 ## Run it locally
 

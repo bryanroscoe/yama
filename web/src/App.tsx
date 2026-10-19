@@ -6,6 +6,12 @@ import { CardsPage } from "./pages/Cards";
 import { CollectionPage } from "./pages/Collection";
 import { DeckPage, DecksPage } from "./pages/Decks";
 import { GroupPage } from "./pages/Group";
+import { LabLayout } from "./lab/LabLayout";
+import { PreconDetailPage } from "./lab/PreconDetail";
+import { PreconsPage } from "./lab/Precons";
+import { RunPage } from "./lab/Run";
+import { BatchPage, RunsPage } from "./lab/Runs";
+import { TryPage } from "./lab/Try";
 import { GuestTable } from "./table/GuestTable";
 import { TableHome } from "./table/TableHome";
 import { TablePlay } from "./table/TablePlay";
@@ -64,6 +70,15 @@ export function App() {
         <Route path="cards" element={<CardsPage />} />
         <Route path="collection" element={<CollectionPage />} />
         <Route path="decks" element={<DecksPage />} />
+        {/* Static "lab" outranks ":id", so lab pages never reach DeckPage. */}
+        <Route path="decks/lab" element={<LabLayout />}>
+          <Route index element={<PreconsPage />} />
+          <Route path="p/:id" element={<PreconDetailPage />} />
+          <Route path="try" element={<TryPage />} />
+          <Route path="runs" element={<RunsPage />} />
+          <Route path="runs/batch/:id" element={<BatchPage />} />
+          <Route path="runs/:id" element={<RunPage />} />
+        </Route>
         <Route path="decks/:id" element={<DeckPage />} />
         <Route path="group" element={<GroupPage />} />
       </Route>

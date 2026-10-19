@@ -1066,3 +1066,86 @@ async fn the_queue_ahead_is_shown_to_admins_only() {
     let admins = create(&pool, &user("admin", true), swap_req(100), sim.as_ref()).await.unwrap();
     assert_eq!(admins.item.progress.games_ahead, Some(500));
 }
+
+#[tokio::test]
+async fn pods_list_both_lists_games_side_by_side_for_the_owner_only() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    // Before any game: every pod, with its seats, and nothing played.
+    let before = pods(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!(before.len(), 50);
+    assert!(before.iter().all(|p| p.base.is_none() && p.variant.is_none()));
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    let after = pods(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!(after.iter().map(|p| p.pod).collect::<Vec<_>>(), (1..=50).collect::<Vec<_>>());
+    for p in &after {
+        // The open seat cycles, the other three seats name precons from the field.
+        assert_eq!(usize::from(p.seat), (p.pod - 1) % 4);
+        assert_eq!(p.seats.len(), 4);
+        assert!(p.seats[usize::from(p.seat)].is_none());
+        assert!(p.seats.iter().enumerate().all(|(i, s)| i == usize::from(p.seat) || s.as_deref().is_some_and(|l| l.starts_with("Precon p"))));
+        let (b, v) = (p.base.as_ref().unwrap(), p.variant.as_ref().unwrap());
+        assert!(b.game.ends_with("-base") && v.game.ends_with("-variant"));
+        assert!(b.scored && b.end == "win" && b.turns == 9 && b.finished_at.is_some());
+        assert_eq!(b.place == Some(1.0), b.won);
+        // The fake simulator: whenever the base wins, so does the changed list.
+        assert!(!b.won || v.won);
+    }
+    let s = detail(&pool, "bryan", &d.item.id).await.unwrap().item.summary.unwrap();
+    assert_eq!(after.iter().filter(|p| p.base.as_ref().unwrap().won).count() as u32, s.base.wins);
+    assert_eq!(after.iter().filter(|p| p.variant.as_ref().unwrap().won).count() as u32, s.variant.wins);
+    // A loser shares the places below the winner.
+    let lost = after.iter().find(|p| !p.base.as_ref().unwrap().won).unwrap();
+    assert_eq!(lost.base.as_ref().unwrap().place, Some(3.0));
+    assert!(matches!(pods(&pool, "other", &d.item.id).await, Err(AppError::NotFound(_))));
+    assert!(matches!(pods(&pool, "bryan", "no-such-experiment").await, Err(AppError::NotFound(_))));
+
+    // An unreadable result line shows as an unscored error, not a crash.
+    sqlx::query("UPDATE lab_experiment_games SET result = 'not json' WHERE experiment_id = ? AND ord = 0").bind(&d.item.id).execute(&pool).await.unwrap();
+    let first = pods(&pool, "bryan", &d.item.id).await.unwrap().remove(0);
+    let b = first.base.unwrap();
+    assert_eq!((b.end.as_str(), b.scored, b.won), ("error", false, false));
+    assert!(b.error.unwrap().starts_with("unreadable result line"));
+}
+
+#[tokio::test]
+async fn the_pace_comes_from_recent_games_then_from_game_lengths() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let ok = || Ok(());
+    // Nothing played yet: nothing to go on.
+    let p = pace(&pool, "bryan", 2, ok()).await.unwrap();
+    assert_eq!((p.available, p.seconds_per_game, p.basis.as_deref(), p.your_pending), (true, None, None, 0));
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    assert_eq!(pace(&pool, "bryan", 2, ok()).await.unwrap().your_pending, 100);
+    assert_eq!(pace(&pool, "other", 2, ok()).await.unwrap().your_pending, 0);
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+
+    // Games from long ago: the mean game length (30 s) over two threads.
+    sqlx::query("UPDATE lab_experiment_games SET result = json_set(result, '$.ms', 30000), finished_at = '2026-01-01T00:00:00Z'").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE lab_experiments SET updated_at = '2026-01-01T00:00:00Z'").execute(&pool).await.unwrap();
+    let p = pace(&pool, "bryan", 2, ok()).await.unwrap();
+    assert_eq!((p.seconds_per_game, p.basis.as_deref(), p.sample, p.your_pending), (Some(15.0), Some("average"), 100, 0));
+    // An unreadable result line is skipped, not an error.
+    sqlx::query("UPDATE lab_experiment_games SET result = 'not json' WHERE experiment_id = ? AND ord = 99").bind(&d.item.id).execute(&pool).await.unwrap();
+    let p = pace(&pool, "bryan", 2, ok()).await.unwrap();
+    assert_eq!((p.seconds_per_game, p.sample), (Some(15.0), 99));
+    assert_eq!(pace(&pool, "bryan", 0, ok()).await.unwrap().seconds_per_game, None);
+
+    // Five games finished over the last 40 seconds: one every 10 seconds.
+    let at = |s: i64| (chrono::Utc::now() - chrono::Duration::seconds(s)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    for (i, s) in [40, 30, 20, 10, 0].into_iter().enumerate() {
+        sqlx::query("UPDATE lab_experiment_games SET finished_at = ? WHERE experiment_id = ? AND ord = ?").bind(at(s)).bind(&d.item.id).bind(i as i64).execute(&pool).await.unwrap();
+    }
+    sqlx::query("UPDATE lab_experiments SET updated_at = ?").bind(at(0)).execute(&pool).await.unwrap();
+    let p = pace(&pool, "bryan", 2, ok()).await.unwrap();
+    assert_eq!((p.basis.as_deref(), p.sample), (Some("recent"), 5));
+    assert!((p.seconds_per_game.unwrap() - 10.0).abs() < 1e-9);
+
+    // Why a new experiment can't start, when it can't.
+    let off = pace(&pool, "bryan", 0, Err("Simulations are turned off".into())).await.unwrap();
+    assert_eq!((off.available, off.message.as_deref(), off.threads), (false, Some("Simulations are turned off"), 0));
+}

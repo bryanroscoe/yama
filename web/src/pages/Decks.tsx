@@ -3,6 +3,7 @@ import { bottom, draw, expandDeck, identityName, newHand, rng, type Goldfish } f
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, usd, type Container, type DeckCard, type DeckEntry, type DeckSummary, type DeckView } from "../api";
+import { DeckTabs } from "../components/DeckTabs";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { CardSheet } from "./Cards";
 
@@ -11,6 +12,7 @@ export function DecksPage() {
   const [adding, setAdding] = useState(false);
   return (
     <main className="page">
+      <DeckTabs />
       <div className="page-head">
         <h1>Decks</h1>
         <button className="primary" onClick={() => setAdding(true)}>Add a deck</button>
