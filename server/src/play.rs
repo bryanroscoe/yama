@@ -5,6 +5,7 @@
 //! OS thread with a 32 MiB stack (as phase does) and talks to the async side over channels.
 
 use crate::auth::CurrentUser;
+use crate::deck_checks::Estimated;
 use crate::decks::{Board, DeckCard, load_version_cards};
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
@@ -287,6 +288,9 @@ struct SeatCfg {
     color_identity: String,
     commander: Option<String>,
     difficulty: Option<String>,
+    /// The deck's declared bracket when it took the seat. Older lobbies lack it.
+    #[serde(default)]
+    bracket: Option<i64>,
 }
 
 fn ai_seats(seats: &[SeatCfg]) -> Vec<(u8, Difficulty)> {
@@ -305,9 +309,13 @@ struct SeatInfo {
     deck_name: Option<String>,
     color_identity: String,
     ready: bool,
+    /// The bracket the deck's owner declared.
+    bracket: Option<i64>,
+    /// Commander Spellbook's estimate for the deck version in this seat, if it has answered.
+    estimate: Option<Estimated>,
 }
 
-fn seat_infos(seats: &[SeatCfg]) -> Vec<SeatInfo> {
+fn seat_infos(seats: &[SeatCfg], estimates: &HashMap<String, Estimated>) -> Vec<SeatInfo> {
     seats
         .iter()
         .map(|s| SeatInfo {
@@ -317,8 +325,18 @@ fn seat_infos(seats: &[SeatCfg]) -> Vec<SeatInfo> {
             deck_name: s.deck_name.clone(),
             color_identity: s.color_identity.clone(),
             ready: s.deck_version_id.is_some(),
+            bracket: s.bracket,
+            estimate: s.deck_version_id.as_ref().and_then(|v| estimates.get(v)).cloned(),
         })
         .collect()
+}
+
+/// Spellbook estimates for the deck versions seated in these games.
+async fn seat_estimates(pool: &SqlitePool, rows: &[&Row]) -> sqlx::Result<HashMap<String, Estimated>> {
+    let mut versions: Vec<String> = rows.iter().flat_map(|r| r.seats()).filter_map(|s| s.deck_version_id).collect();
+    versions.sort();
+    versions.dedup();
+    crate::deck_checks::estimates(pool, &versions).await
 }
 
 #[derive(Serialize)]
@@ -406,10 +424,11 @@ async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> App
     .bind(format!("%\"user_id\":\"{}\"%", user.id))
     .fetch_all(&st.pool)
     .await?;
-    Ok(Json(rows.iter().map(|r| summarize(r, &user.id, HashMap::new())).collect()))
+    let estimates = seat_estimates(&st.pool, &rows.iter().collect::<Vec<_>>()).await?;
+    Ok(Json(rows.iter().map(|r| summarize(r, &user.id, HashMap::new(), &estimates)).collect()))
 }
 
-fn summarize(r: &Row, user: &str, missing_cards: HashMap<String, Vec<String>>) -> OnlineGame {
+fn summarize(r: &Row, user: &str, missing_cards: HashMap<String, Vec<String>>, estimates: &HashMap<String, Estimated>) -> OnlineGame {
     let seats = r.seats();
     let participant = r.host_id == user || seats.iter().any(|s| s.user_id.as_deref() == Some(user));
     OnlineGame {
@@ -419,7 +438,7 @@ fn summarize(r: &Row, user: &str, missing_cards: HashMap<String, Vec<String>>) -
         status: r.status(),
         host: r.host_id.clone(),
         you: seats.iter().find(|s| s.user_id.as_deref() == Some(user)).map(|s| s.seat),
-        seats: seat_infos(&seats),
+        seats: seat_infos(&seats, estimates),
         created_at: r.created_at.clone(),
         missing_cards,
     }
@@ -438,7 +457,8 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
             }
         }
     }
-    Ok(Json(summarize(&r, &user.id, missing)))
+    let estimates = seat_estimates(&st.pool, &[&r]).await?;
+    Ok(Json(summarize(&r, &user.id, missing, &estimates)))
 }
 
 fn deck_lines(cards: &[DeckCard]) -> Vec<DeckLine<'_>> {
@@ -498,10 +518,19 @@ async fn online_support(State(st): State<AppState>, CurrentUser(user): CurrentUs
     }))
 }
 
-/// A deck the user owns: its current version, name, commander and color identity.
-async fn deck_for_seat(pool: &SqlitePool, owner: &str, deck_id: &str) -> AppResult<(String, String, Option<String>, String)> {
-    let (name, version): (String, Option<String>) =
-        sqlx::query_as("SELECT name, current_version_id FROM decks WHERE id = ? AND owner_id = ? AND archived = 0")
+/// A deck the user owns, as it takes a seat.
+struct SeatDeckInfo {
+    version: String,
+    name: String,
+    commander: Option<String>,
+    identity: String,
+    bracket: Option<i64>,
+}
+
+/// A deck the user owns: its current version, name, commander, color identity and declared bracket.
+async fn deck_for_seat(pool: &SqlitePool, owner: &str, deck_id: &str) -> AppResult<SeatDeckInfo> {
+    let (name, version, bracket): (String, Option<String>, Option<i64>) =
+        sqlx::query_as("SELECT name, current_version_id, bracket FROM decks WHERE id = ? AND owner_id = ? AND archived = 0")
             .bind(deck_id)
             .bind(owner)
             .fetch_optional(pool)
@@ -520,7 +549,7 @@ async fn deck_for_seat(pool: &SqlitePool, owner: &str, deck_id: &str) -> AppResu
     }
     let identity = "WUBRG".chars().filter(|c| identity.contains(*c)).collect();
     let commander = (!commanders.is_empty()).then(|| commanders.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(" and "));
-    Ok((version, name, commander, identity))
+    Ok(SeatDeckInfo { version, name, commander, identity, bracket })
 }
 
 #[derive(Deserialize)]
@@ -570,22 +599,24 @@ async fn create(
                 color_identity: String::new(),
                 commander: None,
                 difficulty: None,
+                bracket: None,
             },
             "me" | "ai" => {
                 let deck_id = s.deck_id.as_deref().ok_or_else(|| AppError::bad(format!("seat {} needs a deck", i + 1)))?;
-                let (version, deck_name, commander, identity) = deck_for_seat(&st.pool, &user.id, deck_id).await?;
+                let d = deck_for_seat(&st.pool, &user.id, deck_id).await?;
                 let ai = s.kind == "ai";
                 SeatCfg {
                     seat,
                     kind: if ai { "ai" } else { "human" }.into(),
                     user_id: (!ai).then(|| user.id.clone()),
-                    name: if ai { commander.clone().unwrap_or_else(|| "Computer".into()) } else { user.display_name.clone() },
+                    name: if ai { d.commander.clone().unwrap_or_else(|| "Computer".into()) } else { user.display_name.clone() },
                     deck_id: Some(deck_id.into()),
-                    deck_version_id: Some(version),
-                    deck_name: Some(deck_name),
-                    color_identity: identity,
-                    commander,
+                    deck_version_id: Some(d.version),
+                    deck_name: Some(d.name),
+                    color_identity: d.identity,
+                    commander: d.commander,
                     difficulty: ai.then(|| s.difficulty.clone().unwrap_or_else(|| "Medium".into())),
+                    bracket: d.bracket,
                 }
             }
             other => return Err(AppError::bad(format!("unknown seat kind {other}"))),
@@ -632,7 +663,7 @@ async fn join(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(b
         .fetch_optional(&st.pool)
         .await?
         .ok_or(AppError::NotFound("game with that code"))?;
-    let (version, deck_name, commander, identity) = deck_for_seat(&st.pool, &user.id, &body.deck_id).await?;
+    let d = deck_for_seat(&st.pool, &user.id, &body.deck_id).await?;
     // Seats are one JSON value: take a seat with compare-and-set, retrying if someone else
     // joined at the same moment, so two joins can't overwrite each other.
     for _ in 0..5 {
@@ -651,10 +682,11 @@ async fn join(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(b
         seat.user_id = Some(user.id.clone());
         seat.name = user.display_name.clone();
         seat.deck_id = Some(body.deck_id.clone());
-        seat.deck_version_id = Some(version.clone());
-        seat.deck_name = Some(deck_name.clone());
-        seat.commander = commander.clone();
-        seat.color_identity = identity.clone();
+        seat.deck_version_id = Some(d.version.clone());
+        seat.deck_name = Some(d.name.clone());
+        seat.commander = d.commander.clone();
+        seat.color_identity = d.identity.clone();
+        seat.bracket = d.bracket;
         let updated = sqlx::query("UPDATE online_games SET seats = ?, updated_at = ? WHERE game_id = ? AND stage = 'lobby' AND seats = ?")
             .bind(serde_json::to_string(&seats).map_err(anyhow::Error::from)?)
             .bind(now())
@@ -829,7 +861,7 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
     let (mut sink, mut stream) = socket.split();
     let mut views = live.views.clone();
     let mut meta_cache: HashMap<String, Option<CardMeta>> = HashMap::new();
-    let infos = serde_json::to_value(seat_infos(&seats)).unwrap_or_default();
+    let infos = serde_json::to_value(seat_infos(&seats, &HashMap::new())).unwrap_or_default();
     let (err_tx, mut err_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
     // Incoming choices go to the game thread; refusals come back as error messages.
@@ -919,5 +951,5 @@ async fn final_view(State(st): State<AppState>, CurrentUser(user): CurrentUser, 
         view
     };
     let cards = card_meta(&st.pool, &view_names(&view), &mut HashMap::new()).await;
-    Ok(Json(serde_json::json!({ "type": "view", "you": you, "seats": seat_infos(&seats), "cards": cards, "view": view })))
+    Ok(Json(serde_json::json!({ "type": "view", "you": you, "seats": seat_infos(&seats, &HashMap::new()), "cards": cards, "view": view })))
 }

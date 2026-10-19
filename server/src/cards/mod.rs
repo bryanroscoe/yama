@@ -87,7 +87,7 @@ async fn search_cards(
     let compiled = search::compile(&p.q).map_err(AppError::BadRequest)?;
     // Before the flags are loaded every card's flag is NULL, so is:gamechanger would quietly
     // find nothing. Say why instead.
-    if compiled.uses_game_changer && import::current_import_date(&st.pool, "oracle_cards").await?.is_none() {
+    if compiled.uses_game_changer && import::game_changers_date(&st.pool).await?.is_none() {
         return Err(AppError::Conflict(GAME_CHANGERS_NOT_LOADED.into()));
     }
     let mut filter = compiled.sql;
@@ -375,7 +375,7 @@ async fn offline_cards(State(st): State<AppState>, _user: CurrentUser) -> AppRes
     )
     .fetch_all(&st.pool)
     .await?;
-    let game_changers = import::current_import_date(&st.pool, "oracle_cards").await?.is_some();
+    let game_changers = import::game_changers_date(&st.pool).await?.is_some();
     Ok(Json(OfflineBundle { format: OFFLINE_FORMAT, version: version.unwrap_or_default(), game_changers, cards }))
 }
 

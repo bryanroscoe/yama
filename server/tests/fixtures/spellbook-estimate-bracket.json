@@ -1,0 +1,190 @@
+{
+ "bracketTag": "R",
+ "cards": [
+  {
+   "card": {
+    "id": 4364,
+    "name": "Aurelia, the Warleader",
+    "oracleId": "0f5a3a09-2f07-4774-9e0f-e99d9a444166",
+    "spoiler": false,
+    "faces": 1,
+    "typeLine": "Legendary Creature — Angel",
+    "imageUriFrontNormal": "https://cards.scryfall.io/grid/front/b/c/bc6ffc1c-575b-4116-83c9-d13b29886c35.webp?1783908915"
+   },
+   "quantity": 1,
+   "banned": false,
+   "gameChanger": false,
+   "massLandDenial": false,
+   "extraTurn": false
+  },
+  {
+   "card": {
+    "id": 847,
+    "name": "Gilraen, Dúnedain Protector",
+    "oracleId": "27e83bae-0ffe-4cc7-a6c0-cbca25f2ba4e",
+    "spoiler": false,
+    "faces": 1,
+    "typeLine": "Legendary Creature — Human Noble",
+    "imageUriFrontNormal": "https://cards.scryfall.io/grid/front/0/7/07efe592-5851-4577-b73f-0bb232feb68b.webp?1783916036"
+   },
+   "quantity": 1,
+   "banned": false,
+   "gameChanger": false,
+   "massLandDenial": false,
+   "extraTurn": false
+  },
+  {
+   "card": {
+    "id": 7586,
+    "name": "Rhystic Study",
+    "oracleId": "53236dd7-845a-444c-96d5-f41ed7325d8f",
+    "spoiler": false,
+    "faces": 1,
+    "typeLine": "Enchantment",
+    "imageUriFrontNormal": "https://cards.scryfall.io/grid/front/9/f/9f37c5b6-a59c-45cd-9a99-e9357fe9ea1b.webp?1783919146"
+   },
+   "quantity": 1,
+   "banned": false,
+   "gameChanger": true,
+   "massLandDenial": false,
+   "extraTurn": false
+  },
+  {
+   "card": {
+    "id": 5034,
+    "name": "Sol Ring",
+    "oracleId": "6ad8011d-3471-4369-9d68-b264cc027487",
+    "spoiler": false,
+    "faces": 1,
+    "typeLine": "Artifact",
+    "imageUriFrontNormal": "https://cards.scryfall.io/grid/front/8/e/8ee443cc-e17a-493b-9c93-1f9e141a30e4.webp?1789644446"
+   },
+   "quantity": 1,
+   "banned": false,
+   "gameChanger": false,
+   "massLandDenial": false,
+   "extraTurn": false
+  },
+  {
+   "card": {
+    "id": 3363,
+    "name": "The One Ring",
+    "oracleId": "3aa83ed2-f48b-4ce6-a614-2c54ddf50538",
+    "spoiler": false,
+    "faces": 1,
+    "typeLine": "Legendary Artifact",
+    "imageUriFrontNormal": "https://cards.scryfall.io/grid/front/d/5/d5806e68-1054-458e-866d-1f2470f682b2.webp?1790212038"
+   },
+   "quantity": 1,
+   "banned": false,
+   "gameChanger": true,
+   "massLandDenial": false,
+   "extraTurn": false
+  },
+  {
+   "card": {
+    "id": 355,
+    "name": "Éowyn, Shieldmaiden",
+    "oracleId": "98a2a642-a30a-43e7-b47f-4776c22d1cb0",
+    "spoiler": false,
+    "faces": 1,
+    "typeLine": "Legendary Creature — Human Knight",
+    "imageUriFrontNormal": "https://cards.scryfall.io/grid/front/d/d/dd4a00ff-2206-4e12-a0ab-61ed82c9e6c5.webp?1783916039"
+   },
+   "quantity": 1,
+   "banned": false,
+   "gameChanger": false,
+   "massLandDenial": false,
+   "extraTurn": false
+  }
+ ],
+ "combos": [
+  {
+   "combo": {
+    "id": "847-4364",
+    "status": "OK",
+    "identity": "RW",
+    "manaNeeded": "",
+    "manaValueNeeded": 0,
+    "easyPrerequisites": "",
+    "notablePrerequisites": "Creatues you control can tap to produce at least {2}.\nGilraen does not have summoning sickness.",
+    "popularity": 1044,
+    "bracketTag": "S",
+    "variantCount": 1,
+    "requires": [],
+    "uses": [
+     {
+      "card": {
+       "id": 4364,
+       "name": "Aurelia, the Warleader",
+       "oracleId": "0f5a3a09-2f07-4774-9e0f-e99d9a444166"
+      },
+      "zoneLocations": [
+       "B"
+      ],
+      "quantity": 1
+     },
+     {
+      "card": {
+       "id": 847,
+       "name": "Gilraen, Dúnedain Protector",
+       "oracleId": "27e83bae-0ffe-4cc7-a6c0-cbca25f2ba4e"
+      },
+      "zoneLocations": [
+       "B"
+      ],
+      "quantity": 1
+     }
+    ],
+    "produces": [
+     {
+      "feature": {
+       "id": 3,
+       "name": "Infinite creature LTB"
+      },
+      "quantity": 1
+     },
+     {
+      "feature": {
+       "id": 4,
+       "name": "Infinite creature ETB"
+      },
+      "quantity": 1
+     },
+     {
+      "feature": {
+       "id": 19,
+       "name": "Infinite combat phases"
+      },
+      "quantity": 1
+     },
+     {
+      "feature": {
+       "id": 57,
+       "name": "Infinite untap of creatures you control"
+      },
+      "quantity": 1
+     },
+     {
+      "feature": {
+       "id": 205,
+       "name": "Infinite combat damage"
+      },
+      "quantity": 1
+     }
+    ]
+   },
+   "relevant": true,
+   "borderlineRelevant": true,
+   "arguablyTwoCard": true,
+   "definitelyTwoCard": false,
+   "speed": 5,
+   "massLandDenial": false,
+   "extraTurn": false,
+   "lock": false,
+   "skipTurns": false,
+   "controlAllOpponents": false,
+   "controlSomeOpponents": false
+  }
+ ]
+}

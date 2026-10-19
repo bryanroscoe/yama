@@ -3,6 +3,7 @@ mod cards;
 mod collection;
 mod config;
 mod db;
+mod deck_checks;
 mod decks;
 mod error;
 mod games;

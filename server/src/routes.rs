@@ -69,6 +69,9 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     if cfg.auto_import {
         crate::cards::import::spawn_scheduler(pool.clone(), cfg.data_dir.clone());
     }
+    if cfg.deck_checks {
+        crate::deck_checks::spawn_worker(pool.clone(), http_client(), crate::deck_checks::SPELLBOOK_ESTIMATE_URL.into());
+    }
     let play = crate::play::PlayHub::start(cfg.engine_card_data.clone(), pool.clone());
     let bind = cfg.bind.clone();
     let cf_keys = match (&cfg.cf_access_team, &cfg.cf_access_aud) {

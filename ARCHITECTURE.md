@@ -158,8 +158,11 @@ collection_items(id, owner_id, scryfall_id, qty, condition, finish, lang, altere
 collection_ops(op_id PK, owner_id, device_id, payload jsonb, applied_at)          -- sync dedupe
 
 -- decks
-decks(id, owner_id, name, folder, commander_oracle_ids, current_version_id, container_id NULL)
+decks(id, owner_id, name, folder, commander_oracle_ids, current_version_id, container_id NULL,
+      bracket NULL)                                      -- declared by the owner, 1-5
 deck_versions(id, deck_id, cards jsonb, created_at, engine_coverage jsonb)
+deck_version_checks(version_id, source, requested_at, checked_at, bracket_tag, game_changers jsonb,
+      mld jsonb, extra_turns jsonb, combos jsonb, unrecognized jsonb, attempts, error)  -- outside estimates
 
 -- games (online and in-person)
 games(id, mode[online|in_person], playgroup_id, status, format, engine_version NULL, seed NULL,
@@ -216,6 +219,16 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
   Only cards in none of the groups count as supported. It's computed on request (`GET /api/decks/{id}/online-support`) rather than stored per version, so it follows engine upgrades. phase's coverage dashboard also runs resolver, dropped-text and subtype checks that aren't public per card; on 2026-10-19 those flagged 128 more of its 35,925 faces, none of them in Bryan's decks. On 2026-10-19 both full lists showed 99/100: Fantastic Four (Negative Zone Portal, unimplemented) and Riders of Rohan (Combat Celebrant, may not work fully).
 - **Hidden information:** Yama's own view type never includes libraries or opponents' hands. phase's filtered state still names opponents' library cards internally, so never send the raw engine state to a client.
 
+### Brackets, deck stats and exports (2026-10-19)
+
+- **Declared and estimated brackets stay apart.** `decks.bracket` is what the owner says at the table (1-5, set in Edit deck). Estimates live in `deck_version_checks`, one row per version and source, and are always labelled "estimate, checked DATE" with their source. Chips show both side by side on the deck list, the table's seat setup and the online lobby (the lobby keeps the declared bracket from when the deck took its seat, and the estimate of the exact version seated).
+- **The estimate comes from Commander Spellbook** (`POST https://backend.commanderspellbook.com/estimate-bracket`, cards by Scryfall oracle id, commander and main deck only). One call returns its bracket tag, the cards it flags (Game Changer, mass land denial, extra turn) and the combos it finds. Its tags map to brackets by Spellbook's own field: Exhibition 1, Core and Oddball 2, Powerful and Spicy 3, Ruthless 4; B means a banned card. Cards Spellbook doesn't know are dropped silently on its side, so Yama lists them.
+- **Saving never waits on Spellbook.** `insert_version` queues a row in the same transaction; one background worker (`server/src/deck_checks.rs`) sends one request at a time, at least 4 s apart (Spellbook's guideline is about 80 a minute), honours `Retry-After` on 429, and retries failures after 1 min, 5 min, 30 min, 2 h and 12 h before stopping until someone presses "Check again" (refused within 10 minutes of an answer). Only a deck's current version is checked; a version replaced before its turn waits. `YAMA_DECK_CHECKS=0` turns it off, since it sends deck lists to a third party. Spellbook asks for credit and a link, which the panel gives.
+- **Offline fallback:** with no estimate, the deck page shows the local Game Changer count and what it implies by the brackets' limits (none in 1 and 2, up to three in 3).
+- **Deck stats** are computed in the browser from the deck view (`packages/core/src/deckStats.ts`). Land sources use Scryfall's `produced_mana` (new `cards.produced_mana`, oracle importer version 3); fetch lands count for the land types they name, and "a basic land card" for the basics in the deck. Hybrid pips count for each color. A color is flagged when it has fewer than one land source per three pips.
+- **Exports** (`packages/core/src/deckExport.ts`): names only under Commander and Deck headings (the commander-decks EDHbots lists), Moxfield with the set and number of your own copy (the one in the deck's container first, real before proxy) or Scryfall's default printing, and MTG Arena (names only, front faces for double-faced cards).
+- **Version history** lists every saved version; any two can be compared (added, removed and count changes, per board).
+
 ## 11. Risks
 
 - **Legal and IP:**
@@ -253,6 +266,7 @@ Still open:
 - CollectorVision: <https://github.com/HanClinto/CollectorVision>; catalog <https://github.com/HanClinto/CollectorVisionCatalog>
 - Other scanners reviewed: <https://github.com/matteot11/open-card-collector> (MIT), <https://github.com/cfbender/oracle> (MPL-2.0), <https://github.com/GrimbiXcode/mtgscan> (GPL-3.0), <https://github.com/fortierq/mtgscan> (MIT)
 - Scryfall API and bulk data: <https://scryfall.com/docs/api>, <https://scryfall.com/docs/api/bulk-data>
+- Commander Spellbook API guidelines and bracket tags (read 2026-10-19): <https://github.com/SpaceCowMedia/commander-spellbook-backend/blob/master/docs/api.md>, `backend/spellbook/models/variant.py` (BracketTag, estimate_bracket); schema <https://backend.commanderspellbook.com/schema/>
 - Scryfall, "New WebP images + JPEG Deprecations" (2026-10-14; read 2026-10-18): <https://scryfall.com/blog/new-webp-images-jpeg-deprecations-237>
 - Wizards Fan Content Policy: <https://company.wizards.com/en/legal/fancontentpolicy>
 - Comprehensive Rules: <https://magic.wizards.com/en/rules> (latest edition found: effective 2026-06-19)

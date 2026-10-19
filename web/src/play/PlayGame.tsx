@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router";
 import { api } from "../api";
 import { useMe } from "../auth";
 import { ErrorText, Pips } from "../components/ui";
+import { BracketChips } from "../components/Bracket";
 import { Board } from "./Board";
 import type { OnlineGame } from "./types";
 
@@ -44,6 +45,12 @@ function Lobby({ game }: { game: OnlineGame }) {
               {s.ai && <span className="dim"> (computer, {s.ai.toLowerCase()})</span>}
               <br />
               <span className="dim small">{s.deck_name ?? "Waiting for someone to join"}</span>
+              {(s.bracket != null || s.estimate) && (
+                <>
+                  <br />
+                  <BracketChips declared={s.bracket} estimate={s.estimate} />
+                </>
+              )}
             </span>
             <span className="small dim">Seat {s.seat + 1}</span>
           </div>

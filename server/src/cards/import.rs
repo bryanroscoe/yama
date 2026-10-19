@@ -93,23 +93,37 @@ async fn run_from(
 /// re-imports that kind on its next pass, even if Scryfall's file hasn't changed.
 pub fn importer_version(kind: &str) -> i64 {
     match kind {
-        "oracle_cards" => 2, // 2: game_changer (migration 0008)
+        "oracle_cards" => 3, // 2: game_changer; 3: produced_mana (both migration 0008)
         _ => 1,
     }
 }
+
+/// The oracle importer version that first read Scryfall's Game Changer flag.
+const GAME_CHANGER_VERSION: i64 = 2;
 
 /// The newest successful import of `kind` made by the current importer version, as a date
 /// (YYYY-MM-DD): when Scryfall generated the file, or for a file given on the command line,
 /// when it was imported. `None` means data that import brings isn't loaded yet (for example
 /// rulings, or Game Changer flags right after migration 0008).
 pub async fn current_import_date(pool: &SqlitePool, kind: &str) -> sqlx::Result<Option<String>> {
+    import_date_since(pool, kind, importer_version(kind)).await
+}
+
+/// Date of the Scryfall data behind the Game Changer flags (YYYY-MM-DD), or `None` before an
+/// oracle import that reads them. Unlike [`current_import_date`] it doesn't wait for later
+/// importer versions, which read other fields.
+pub async fn game_changers_date(pool: &SqlitePool) -> sqlx::Result<Option<String>> {
+    import_date_since(pool, "oracle_cards", GAME_CHANGER_VERSION).await
+}
+
+async fn import_date_since(pool: &SqlitePool, kind: &str, min_version: i64) -> sqlx::Result<Option<String>> {
     Ok(sqlx::query_scalar(
         "SELECT substr(COALESCE(source_updated_at, finished_at), 1, 10) FROM import_runs
          WHERE kind = ? AND error IS NULL AND finished_at IS NOT NULL AND IFNULL(importer_version, 1) >= ?
          ORDER BY started_at DESC LIMIT 1",
     )
     .bind(kind)
-    .bind(importer_version(kind))
+    .bind(min_version)
     .fetch_optional(pool)
     .await?
     .flatten())
@@ -422,6 +436,9 @@ struct ScryCard {
     /// every card; absent or null stays unknown (NULL), never false.
     #[serde(default)]
     game_changer: Option<bool>,
+    /// Colors of mana the card can make. Scryfall leaves it out for cards that make none.
+    #[serde(default)]
+    produced_mana: Option<Vec<String>>,
     image_uris: Option<ImageUris>,
     card_faces: Option<Vec<Face>>,
     artist: Option<String>,
@@ -502,6 +519,12 @@ pub fn wubrg(colors: &[String]) -> String {
     "WUBRG".chars().filter(|c| colors.iter().any(|x| x.starts_with(*c))).collect()
 }
 
+/// Scryfall's produced_mana (["G","W","C"]) as "WGC": WUBRG order, colorless last. Empty for
+/// a card that makes no mana.
+fn produced_mana(colors: &[String]) -> String {
+    "WUBRGC".chars().filter(|c| colors.iter().any(|x| x.len() == 1 && x.starts_with(*c))).collect()
+}
+
 fn price(s: &Option<String>) -> Option<f64> {
     s.as_deref().and_then(|v| v.parse().ok())
 }
@@ -560,8 +583,9 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
             sqlx::query(
                 "INSERT INTO cards (oracle_id, name, mana_cost, cmc, type_line, oracle_text, colors, color_identity,
                     power, toughness, loyalty, keywords, legalities, rarity, layout, edhrec_rank, default_printing,
-                    image_small, image_normal, image_art_crop, back_image_normal, artist, faces, game_changer, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    image_small, image_normal, image_art_crop, back_image_normal, artist, faces, game_changer,
+                    produced_mana, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                  ON CONFLICT(oracle_id) DO UPDATE SET name=excluded.name, mana_cost=excluded.mana_cost,
                     cmc=excluded.cmc, type_line=excluded.type_line, oracle_text=excluded.oracle_text,
                     colors=excluded.colors, color_identity=excluded.color_identity, power=excluded.power,
@@ -571,7 +595,7 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
                     image_small=excluded.image_small, image_normal=excluded.image_normal,
                     image_art_crop=excluded.image_art_crop, back_image_normal=excluded.back_image_normal,
                     artist=excluded.artist, faces=excluded.faces, game_changer=excluded.game_changer,
-                    updated_at=excluded.updated_at",
+                    produced_mana=excluded.produced_mana, updated_at=excluded.updated_at",
             )
             .bind(&oracle_id)
             .bind(&c.name)
@@ -597,6 +621,7 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
             .bind(&c.artist)
             .bind(faces)
             .bind(c.game_changer)
+            .bind(produced_mana(c.produced_mana.as_deref().unwrap_or_default()))
             .bind(&stamp)
             .execute(&mut *tx)
             .await?;
@@ -759,7 +784,7 @@ mod tests {
     const SAMPLE: &str = r#"[
       {"id":"p1","oracle_id":"o1","name":"Sol Ring","layout":"normal","mana_cost":"{1}","cmc":1.0,
        "type_line":"Artifact","oracle_text":"{T}: Add {C}{C}.","colors":[],"color_identity":[],
-       "keywords":[],"legalities":{"commander":"legal","vintage":"restricted"},"rarity":"uncommon",
+       "produced_mana":["C"],"keywords":[],"legalities":{"commander":"legal","vintage":"restricted"},"rarity":"uncommon",
        "image_uris":{"small":"s","normal":"n","art_crop":"a"},"set":"cmm","set_name":"Commander Masters",
        "collector_number":"410","lang":"en","finishes":["nonfoil","foil"],
        "prices":{"usd":"1.50","usd_foil":null,"eur":"1.20","tix":null}},
@@ -799,6 +824,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(face.0, "o2");
+
+        // Mana a card makes; a card that makes none (Scryfall omits the field) is '', not unknown.
+        let made: Vec<(String, Option<String>)> =
+            sqlx::query_as("SELECT oracle_id, produced_mana FROM cards ORDER BY oracle_id").fetch_all(&pool).await.unwrap();
+        assert_eq!(made, vec![("o1".into(), Some("C".into())), ("o2".into(), Some(String::new()))]);
+        assert_eq!(produced_mana(&["G".into(), "W".into(), "C".into(), "U".into()]), "WUGC");
 
         // Missing prices stay missing; a printing with no prices at all gets no row.
         let prices: Vec<(String, Option<f64>, Option<f64>)> =
@@ -1023,6 +1054,7 @@ mod tests {
         // Prices are current; Game Changer flags (oracle_cards version 2) and rulings aren't loaded.
         assert_eq!(current_import_date(&pool, "default_cards").await.unwrap().as_deref(), Some("2026-10-17"));
         assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), None);
+        assert_eq!(game_changers_date(&pool).await.unwrap(), None);
         assert_eq!(current_import_date(&pool, "rulings").await.unwrap(), None);
 
         // A failed import doesn't load anything.
@@ -1037,5 +1069,19 @@ mod tests {
         std::fs::write(&path, SAMPLE).unwrap();
         import_oracle(&pool, &path, None).await.unwrap();
         assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), Some(now()[..10].to_string()));
+        assert_eq!(game_changers_date(&pool).await.unwrap(), Some(now()[..10].to_string()));
+
+        // A version-2 run (Game Changers, no produced_mana) still dates the Game Changer flags,
+        // while the oracle data as a whole counts as behind, so the scheduler re-imports it.
+        sqlx::query("DELETE FROM import_runs").execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO import_runs (id, kind, source_updated_at, started_at, finished_at, rows, importer_version) VALUES
+             ('o2', 'oracle_cards', '2026-10-18T09:01:55.818+00:00', '2026-10-18T20:08:18Z', '2026-10-18T20:08:30Z', 2, 2)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), None);
+        assert_eq!(game_changers_date(&pool).await.unwrap().as_deref(), Some("2026-10-18"));
     }
 }

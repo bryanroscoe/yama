@@ -64,6 +64,10 @@ export interface SeatInfo {
   deck_name: string | null;
   color_identity: string;
   ready: boolean;
+  /** The bracket the deck's owner declared. */
+  bracket?: number | null;
+  /** Commander Spellbook's estimate for the seated deck version. */
+  estimate?: import("../api").Estimated | null;
 }
 
 export interface CardMeta {

@@ -21,6 +21,9 @@ pub struct Config {
     pub cors_origins: Vec<String>,
     /// Refresh Scryfall data in the background (prices daily, rules weekly).
     pub auto_import: bool,
+    /// Check each saved deck version with Commander Spellbook in the background (bracket
+    /// estimate, flagged cards, combos). On unless `YAMA_DECK_CHECKS=0`; sends deck lists there.
+    pub deck_checks: bool,
     /// The rules engine's card data (phase card-data.json). Online play is off without it.
     pub engine_card_data: Option<PathBuf>,
     /// Cloudflare Access team name (`<team>.cloudflareaccess.com`) and application audience
@@ -73,6 +76,7 @@ impl Config {
             secure_cookies: flag("YAMA_SECURE_COOKIES"),
             cors_origins: list("YAMA_CORS_ORIGINS"),
             auto_import: flag("YAMA_AUTO_IMPORT"),
+            deck_checks: !matches!(std::env::var("YAMA_DECK_CHECKS").as_deref(), Ok("0" | "false" | "no")),
             engine_card_data: Some(engine_card_data),
             cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),
             cf_access_aud: std::env::var("YAMA_CF_ACCESS_AUD").ok().filter(|s| !s.is_empty()),

@@ -198,6 +198,29 @@ export interface DeckSummary {
   color_identity: string;
   card_count: number;
   commander_image: string | null;
+  /** The bracket the owner declares (1-5). */
+  bracket: number | null;
+  /** Commander Spellbook's estimate for the current version, once it has answered. */
+  estimate: Estimated | null;
+}
+
+/** An outside bracket estimate, shown beside the declared bracket and never instead of it. */
+export interface Estimated {
+  /** Commander Spellbook's tag: E C O P S R, or B for a banned card. */
+  tag: string;
+  /** "Exhibition", "Core", "Oddball", "Powerful", "Spicy", "Ruthless", "Banned card" */
+  label: string;
+  /** The 1-5 bracket Spellbook gives the tag; null for a banned card. */
+  bracket: number | null;
+  checked_at: string | null;
+}
+
+/** The printing an export names: your copy, else Scryfall's default printing. */
+export interface PrintRef {
+  set_code: string;
+  collector_number: string;
+  finish: string;
+  from: "owned" | "default";
 }
 
 export interface DeckEntry extends DeckCard {
@@ -208,6 +231,9 @@ export interface DeckEntry extends DeckCard {
   locations: Record<string, number>;
   needed: number;
   cheapest_usd: number | null;
+  printing: PrintRef | null;
+  /** Colors of mana the card makes ("WUBRGC" letters), "" for none, null until loaded. */
+  produced_mana: string | null;
 }
 
 export interface DeckView {
@@ -215,6 +241,8 @@ export interface DeckView {
   name: string;
   container_id: string | null;
   version_id: string | null;
+  /** The declared bracket (1-5). */
+  bracket: number | null;
   cards: DeckEntry[];
   validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[] };
   ownership: { cards: number; owned: number; needed: number; needed_cost_usd: number; needed_without_price: number };
@@ -223,6 +251,58 @@ export interface DeckView {
   game_changers: string[] | null;
   /** Date of the Scryfall data behind the flags (YYYY-MM-DD). */
   game_changers_as_of: string | null;
+}
+
+/** GET /api/decks/:id/check: Commander Spellbook's check of the current version. */
+export interface DeckCheck {
+  /** Whether this server runs checks (YAMA_DECK_CHECKS). */
+  enabled: boolean;
+  version_id: string | null;
+  source: string;
+  source_url: string;
+  /** Queued or running. */
+  pending: boolean;
+  /** The last try failed. */
+  error: string | null;
+  /** Tries stopped until someone asks again. */
+  gave_up: boolean;
+  requested_at: string | null;
+  /** The newest answer; can be older than a pending re-check. */
+  result: DeckCheckResult | null;
+}
+
+export interface DeckCheckResult {
+  checked_at: string;
+  bracket_tag: string;
+  bracket_label: string;
+  bracket: number | null;
+  game_changers: string[];
+  mld: string[];
+  extra_turns: string[];
+  combos: Combo[];
+  /** Deck cards Spellbook didn't know. */
+  unrecognized: string[];
+}
+
+export interface Combo {
+  id: string;
+  cards: string[];
+  templates: string[];
+  results: string[];
+  two_card: boolean;
+  mana_needed: string | null;
+  flags: string[];
+  bracket_tag: string | null;
+}
+
+export interface DeckVersionRow {
+  id: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface DeckVersion extends DeckVersionRow {
+  cards: DeckCard[];
 }
 
 /** GET /api/decks/:id/online-support: what the rules engine can play of a deck. */

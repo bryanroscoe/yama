@@ -6,6 +6,10 @@ import { api, usd, type Container, type DeckCard, type DeckEntry, type DeckSumma
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
 import { day } from "../components/Rulings";
+import { BRACKETS, BracketChips, BracketPanel } from "../components/Bracket";
+import { DeckStatsPanel } from "../components/DeckStats";
+import { DeckExport } from "../components/DeckExport";
+import { DeckHistory } from "../components/DeckHistory";
 import { CardSheet } from "./Cards";
 
 export function DecksPage() {
@@ -29,6 +33,12 @@ export function DecksPage() {
               <span className="title">{d.name}</span>
               <br />
               <span className="dim small">{d.commanders.join(" and ") || "No commander set"}</span>
+              {(d.bracket != null || d.estimate) && (
+                <>
+                  <br />
+                  <BracketChips declared={d.bracket} estimate={d.estimate} />
+                </>
+              )}
             </span>
             <span style={{ textAlign: "right" }}>
               <Pips identity={d.color_identity} />
@@ -119,6 +129,8 @@ export function DeckPage() {
   const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [goldfish, setGoldfish] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [history, setHistory] = useState(false);
 
   const groups = useMemo(() => {
     const order = ["Commander", ...GROUPS.map(([g]) => g), "Other", "Sideboard"];
@@ -154,10 +166,14 @@ export function DeckPage() {
         <div className="row">
           <button onClick={() => setGoldfish(true)}>Draw a sample hand</button>
           <button onClick={() => setEditing(true)}>Edit deck</button>
+          <button onClick={() => setExporting(true)}>Export</button>
+          <button onClick={() => setHistory(true)}>History</button>
         </div>
       </div>
       {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
       {goldfish && <SampleHand deck={d} onClose={() => setGoldfish(false)} />}
+      {exporting && <DeckExport deck={d} onClose={() => setExporting(false)} />}
+      {history && <DeckHistory deckId={d.id} currentVersionId={d.version_id} onClose={() => setHistory(false)} />}
 
       <div className="figures">
         <div className="figure">
@@ -206,6 +222,16 @@ export function DeckPage() {
         )}
         <OnlineSupport deckId={d.id} versionId={d.version_id} onCard={openByName} />
       </div>
+
+      <BracketPanel
+        deckId={d.id}
+        versionId={d.version_id}
+        declared={d.bracket}
+        gameChangers={d.game_changers}
+        onCard={openByName}
+        onDeclare={() => setEditing(true)}
+      />
+      <DeckStatsPanel cards={d.cards} />
 
       <div className="row" role="tablist" style={{ margin: "1rem 0" }}>
         <button role="tab" aria-selected={view === "all"} className={view === "all" ? "primary" : ""} onClick={() => setView("all")}>Whole deck</button>
@@ -256,6 +282,7 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   const containers = useQuery({ queryKey: ["containers"], queryFn: () => api<Container[]>("/api/containers") });
   const [name, setName] = useState(deck.name);
   const [container, setContainer] = useState(deck.container_id ?? "");
+  const [bracket, setBracket] = useState(deck.bracket == null ? "" : String(deck.bracket));
   const [text, setText] = useState(() => listText(deck.cards));
   const [note, setNote] = useState("");
   const [unknown, setUnknown] = useState<string[]>([]);
@@ -270,7 +297,7 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         setUnknown(parsed.unknown);
         throw new Error("Some lines didn't match a card. Fix them, then save again.");
       }
-      await api(`/api/decks/${deck.id}`, { method: "PATCH", json: { name, container_id: container || null } });
+      await api(`/api/decks/${deck.id}`, { method: "PATCH", json: { name, container_id: container || null, bracket: bracket ? Number(bracket) : null } });
       if (listText(parsed.cards) !== listText(deck.cards)) {
         await api(`/api/decks/${deck.id}`, { method: "PUT", json: { cards: parsed.cards, note: note || null } });
       }
@@ -278,6 +305,7 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["deck", deck.id] });
       void qc.invalidateQueries({ queryKey: ["decks"] });
+      void qc.invalidateQueries({ queryKey: ["deck-versions", deck.id] });
       onClose();
     },
   });
@@ -299,6 +327,14 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         <label>
           Name
           <input value={name} onChange={(e) => setName(e.target.value)} required />
+        </label>
+        <label>
+          Bracket
+          <span className="hint">The bracket you'd tell the table before a game. Commander Spellbook's estimate is shown beside it and never changes it.</span>
+          <select value={bracket} onChange={(e) => setBracket(e.target.value)}>
+            <option value="">Not declared</option>
+            {BRACKETS.map((b) => <option key={b.value} value={b.value}>{b.value}, {b.name}</option>)}
+          </select>
         </label>
         <label>
           Physical deck

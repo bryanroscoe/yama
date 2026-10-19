@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router";
 import { api, type DeckSummary, type GameRow, type Playgroup, type SearchResult } from "../api";
 import { useMe } from "../auth";
 import { ErrorText, Pips, Sheet } from "../components/ui";
+import { BracketChips } from "../components/Bracket";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
 
 interface SeatDraft {
@@ -182,6 +183,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
 function SeatEditor({ index, seat, onChange, group, decks }: { index: number; seat: SeatDraft; onChange: (p: Partial<SeatDraft>) => void; group?: Playgroup; decks?: DeckSummary[] }) {
   const listId = useId();
   const [error, setError] = useState<unknown>(null);
+  const chosen = decks?.find((d) => d.id === seat.deckId);
   const suggestions = useQuery({
     queryKey: ["autocomplete", seat.commanderName],
     queryFn: () => api<string[]>(`/api/cards/autocomplete?q=${encodeURIComponent(seat.commanderName)}`),
@@ -266,6 +268,11 @@ function SeatEditor({ index, seat, onChange, group, decks }: { index: number; se
           <Pips identity={seat.colorIdentity} />
         </span>
       </div>
+      {chosen && (chosen.bracket != null || chosen.estimate) && (
+        <div style={{ marginTop: "0.5rem" }}>
+          <BracketChips declared={chosen.bracket} estimate={chosen.estimate} />
+        </div>
+      )}
       <ErrorText error={error} />
     </fieldset>
   );

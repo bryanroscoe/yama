@@ -13,7 +13,9 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Card search | Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander` `is:gamechanger`, `-`, `or`, parentheses). Works offline from a 5 MB card bundle kept on the device |
 | Card sheet | Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history |
 | Collection | Binders, boxes, decks and lists; add from card search; move, condition, proxy; idempotent offline ops; Mythic Tools CSV import and export |
-| Decks | Paste any common list format; edit as text with versions; Commander validation; owned/needed with cheapest market price; sample hands with mulligans; Game Changers count; how many cards online play supports |
+| Decks | Paste any common list format; edit as text with versions; version history with a diff between any two versions; Commander validation; owned/needed with cheapest market price; sample hands with mulligans; Game Changers count; how many cards online play supports |
+| Brackets | A declared bracket per deck (chips on the deck list, table setup and online lobby), shown beside Commander Spellbook's estimate for each saved version: its bracket, Game Changers, mass land denial, extra turns and combos. Checked in the background after a save; turn off with `YAMA_DECK_CHECKS=0` |
+| Deck stats and export | Mana curve (creatures and other spells), average mana value with and without lands, land count, colored pips against land sources per color. Export as names only (EDHbots), Moxfield (set and number of your copy) or MTG Arena; copy or download |
 | Life counter | 1–6 players, rotated panels, commander damage and tax, poison and counters, monarch, initiative, day/night, undo, works offline and syncs later |
 | Shared table | Every phone joins the game by QR code; the host phone stays in charge and works offline |
 | Playgroups | Join codes, guests without accounts, game history, logging games played without Yama, win rates by player and commander |

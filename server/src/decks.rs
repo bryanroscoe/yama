@@ -18,6 +18,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/decks/parse", post(parse_preview))
         .route("/api/decks/{id}", get(get_deck).put(save_version).patch(update_deck).delete(archive_deck))
         .route("/api/decks/{id}/versions", get(list_versions))
+        .route("/api/decks/{id}/versions/{version}", get(get_version))
+        .route("/api/decks/{id}/check", get(get_check).post(recheck))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -158,6 +160,11 @@ struct DeckSummary {
     container_id: Option<String>,
     current_version_id: Option<String>,
     updated_at: String,
+    /// The bracket the owner declares (1-5), or none.
+    bracket: Option<i64>,
+    /// Commander Spellbook's estimate for the current version, once it has answered.
+    #[sqlx(skip)]
+    estimate: Option<crate::deck_checks::Estimated>,
     #[sqlx(skip)]
     commanders: Vec<String>,
     #[sqlx(skip)]
@@ -170,13 +177,16 @@ struct DeckSummary {
 
 async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<DeckSummary>>> {
     let mut decks: Vec<DeckSummary> = sqlx::query_as(
-        "SELECT id, name, folder, format, container_id, current_version_id, updated_at FROM decks
+        "SELECT id, name, folder, format, container_id, current_version_id, updated_at, bracket FROM decks
          WHERE owner_id = ? AND archived = 0 ORDER BY folder, name",
     )
     .bind(&user.id)
     .fetch_all(&st.pool)
     .await?;
+    let versions: Vec<String> = decks.iter().filter_map(|d| d.current_version_id.clone()).collect();
+    let mut estimates = crate::deck_checks::estimates(&st.pool, &versions).await?;
     for d in &mut decks {
+        d.estimate = d.current_version_id.as_ref().and_then(|v| estimates.remove(v));
         if let Some(v) = &d.current_version_id {
             let cards = load_version_cards(&st.pool, v).await?;
             d.card_count = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
@@ -256,23 +266,29 @@ pub async fn create_deck_with_cards(
     Ok(id)
 }
 
-async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
+/// Save a new version and make it current. Also queues the version's outside check
+/// (deck_checks), which a background worker runs later, so this never waits on the network.
+pub(crate) async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
     let vid = new_id();
     let stamp = now();
+    let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at) VALUES (?,?,?,?,?)")
         .bind(&vid)
         .bind(deck_id)
         .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
         .bind(note)
         .bind(&stamp)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     sqlx::query("UPDATE decks SET current_version_id = ?, updated_at = ? WHERE id = ?")
         .bind(&vid)
         .bind(&stamp)
         .bind(deck_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+    crate::deck_checks::queue(&mut *tx, &vid).await?;
+    tx.commit().await?;
+    crate::deck_checks::wake();
     Ok(vid)
 }
 
@@ -296,6 +312,8 @@ struct DeckView {
     name: String,
     container_id: Option<String>,
     version_id: Option<String>,
+    /// The bracket the owner declares (1-5), or none. Estimates come from `/check`.
+    bracket: Option<i64>,
     cards: Vec<DeckEntry>,
     validation: Validation,
     ownership: OwnershipTotals,
@@ -321,6 +339,39 @@ struct DeckEntry {
     needed: i64,
     /// Cheapest current USD market price across printings. `None` = no price data.
     cheapest_usd: Option<f64>,
+    /// The printing to name in exports: your own copy (real before proxy, the one in this deck's
+    /// container first), else Scryfall's default printing. `None` if neither is known.
+    printing: Option<PrintRef>,
+    /// Colors of mana the card makes (Scryfall's produced_mana, "WUBRGC" order); "" for none,
+    /// `None` until the card data import that reads it has run.
+    produced_mana: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq)]
+struct PrintRef {
+    set_code: String,
+    collector_number: String,
+    /// nonfoil | foil | etched
+    finish: String,
+    /// "owned" or "default"
+    from: &'static str,
+}
+
+/// The printing an export should name for a card: a real copy (the one in the deck's container
+/// first), then a proxy the same way (it still names a printing), else `None` so the caller can
+/// fall back to the default printing.
+fn owned_printing(mine: &[&crate::collection::Item], container_id: Option<&str>) -> Option<PrintRef> {
+    let rank = |i: &crate::collection::Item| {
+        let here = container_id.is_some() && i.container_id.as_deref() == container_id;
+        (i.proxy, !here)
+    };
+    let best = mine.iter().filter(|i| i.set_code.is_some() && i.collector_number.is_some()).min_by_key(|i| rank(i))?;
+    Some(PrintRef {
+        set_code: best.set_code.clone()?,
+        collector_number: best.collector_number.clone()?,
+        finish: best.finish.clone(),
+        from: "owned",
+    })
 }
 
 #[derive(Serialize, Default)]
@@ -351,7 +402,8 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
     }
     let validation = validate(&cards, &card_info);
     let game_changers = game_changers(&cards, &card_info);
-    let game_changers_as_of = crate::cards::import::current_import_date(&st.pool, "oracle_cards").await?;
+    let game_changers_as_of = crate::cards::import::game_changers_date(&st.pool).await?;
+    let bracket: Option<i64> = sqlx::query_scalar("SELECT bracket FROM decks WHERE id = ?").bind(&id).fetch_one(&st.pool).await?;
 
     // Ownership, by oracle ID, across the whole collection.
     let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
@@ -401,10 +453,37 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             }
         }
         let card = card_info.get(&c.oracle_id).cloned();
-        entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd });
+        let printing = match owned_printing(&mine, container_id.as_deref()) {
+            Some(p) => Some(p),
+            None => sqlx::query_as::<_, (String, String)>(
+                "SELECT p.set_code, p.collector_number FROM cards c JOIN printings p ON p.scryfall_id = c.default_printing
+                 WHERE c.oracle_id = ?",
+            )
+            .bind(&c.oracle_id)
+            .fetch_optional(&st.pool)
+            .await?
+            .map(|(set_code, collector_number)| PrintRef { set_code, collector_number, finish: "nonfoil".into(), from: "default" }),
+        };
+        let produced_mana: Option<String> = sqlx::query_scalar("SELECT produced_mana FROM cards WHERE oracle_id = ?")
+            .bind(&c.oracle_id)
+            .fetch_optional(&st.pool)
+            .await?
+            .flatten();
+        entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd, printing, produced_mana });
     }
     totals.needed_cost_usd = (totals.needed_cost_usd * 100.0).round() / 100.0;
-    Ok(Json(DeckView { id, name, container_id, version_id, cards: entries, validation, ownership: totals, game_changers, game_changers_as_of }))
+    Ok(Json(DeckView {
+        id,
+        name,
+        container_id,
+        version_id,
+        bracket,
+        cards: entries,
+        validation,
+        ownership: totals,
+        game_changers,
+        game_changers_as_of,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -431,6 +510,9 @@ struct UpdateDeck {
     folder: Option<Option<String>>,
     #[serde(default, deserialize_with = "crate::util::double_option")]
     container_id: Option<Option<String>>,
+    /// The declared bracket, 1-5; null clears it.
+    #[serde(default, deserialize_with = "crate::util::double_option")]
+    bracket: Option<Option<i64>>,
 }
 
 async fn update_deck(
@@ -448,11 +530,18 @@ async fn update_deck(
             .await?;
         mine.ok_or(AppError::NotFound("container"))?;
     }
-    let folder: Option<String> = sqlx::query_scalar("SELECT folder FROM decks WHERE id = ?").bind(&id).fetch_one(&st.pool).await?;
-    sqlx::query("UPDATE decks SET name = ?, folder = ?, container_id = ?, updated_at = ? WHERE id = ?")
+    if let Some(Some(b)) = body.bracket
+        && !(1..=5).contains(&b)
+    {
+        return Err(AppError::bad("brackets go from 1 to 5"));
+    }
+    let (folder, bracket): (Option<String>, Option<i64>) =
+        sqlx::query_as("SELECT folder, bracket FROM decks WHERE id = ?").bind(&id).fetch_one(&st.pool).await?;
+    sqlx::query("UPDATE decks SET name = ?, folder = ?, container_id = ?, bracket = ?, updated_at = ? WHERE id = ?")
         .bind(body.name.unwrap_or(name))
         .bind(body.folder.unwrap_or(folder))
         .bind(body.container_id.unwrap_or(container))
+        .bind(body.bracket.unwrap_or(bracket))
         .bind(now())
         .bind(&id)
         .execute(&st.pool)
@@ -476,11 +565,65 @@ struct VersionRow {
 async fn list_versions(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Vec<VersionRow>>> {
     owned_deck(&st.pool, &user.id, &id).await?;
     Ok(Json(
-        sqlx::query_as("SELECT id, note, created_at FROM deck_versions WHERE deck_id = ? ORDER BY created_at DESC")
+        // rowid breaks ties between versions saved in the same second.
+        sqlx::query_as("SELECT id, note, created_at FROM deck_versions WHERE deck_id = ? ORDER BY created_at DESC, rowid DESC")
             .bind(&id)
             .fetch_all(&st.pool)
             .await?,
     ))
+}
+
+#[derive(Serialize)]
+struct VersionCards {
+    id: String,
+    note: Option<String>,
+    created_at: String,
+    cards: Vec<DeckCard>,
+}
+
+/// One saved version's cards, for the history and its diffs.
+async fn get_version(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path((id, version)): Path<(String, String)>,
+) -> AppResult<Json<VersionCards>> {
+    owned_deck(&st.pool, &user.id, &id).await?;
+    let (note, created_at): (Option<String>, String) =
+        sqlx::query_as("SELECT note, created_at FROM deck_versions WHERE id = ? AND deck_id = ?")
+            .bind(&version)
+            .bind(&id)
+            .fetch_optional(&st.pool)
+            .await?
+            .ok_or(AppError::NotFound("version"))?;
+    let cards = load_version_cards(&st.pool, &version).await?;
+    Ok(Json(VersionCards { id: version, note, created_at, cards }))
+}
+
+/// Commander Spellbook's check of the deck's current version: estimated bracket, flagged
+/// cards and combos, or that it's still pending.
+async fn get_check(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<crate::deck_checks::CheckView>> {
+    let (_, version, _) = owned_deck(&st.pool, &user.id, &id).await?;
+    Ok(Json(crate::deck_checks::view(&st.pool, version.as_deref(), st.cfg.deck_checks).await?))
+}
+
+/// Ask Commander Spellbook again about the current version (refused within ten minutes of
+/// its last answer).
+async fn recheck(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<crate::deck_checks::CheckView>> {
+    if !st.cfg.deck_checks {
+        return Err(AppError::Conflict("deck checks are off on this server".into()));
+    }
+    let (_, version, _) = owned_deck(&st.pool, &user.id, &id).await?;
+    let version = version.ok_or_else(|| AppError::bad("the deck has no cards yet"))?;
+    crate::deck_checks::request_again(&st.pool, &version).await?;
+    Ok(Json(crate::deck_checks::view(&st.pool, Some(&version), true).await?))
 }
 
 /// Game Changers in the deck (not the sideboard), by name, sorted. Uses Scryfall's flag, so
@@ -666,6 +809,53 @@ mod tests {
         info.get_mut("Sol Ring").unwrap().game_changer = Some(false);
         info.get_mut("Cyclonic Rift").unwrap().game_changer = None;
         assert_eq!(game_changers(&cards, &info), Some(vec!["Rhystic Study".to_string()]));
+    }
+
+    fn item(set: &str, number: &str, container: Option<&str>, proxy: bool, finish: &str) -> crate::collection::Item {
+        crate::collection::Item {
+            id: format!("{set}-{number}"),
+            scryfall_id: format!("{set}-{number}"),
+            qty: 1,
+            condition: "NM".into(),
+            finish: finish.into(),
+            lang: "en".into(),
+            altered: false,
+            signed: false,
+            misprint: false,
+            proxy,
+            container_id: container.map(str::to_string),
+            container_name: None,
+            container_kind: None,
+            purchase_price: None,
+            purchase_currency: None,
+            note: None,
+            updated_at: String::new(),
+            oracle_id: Some("o".into()),
+            name: Some("Sol Ring".into()),
+            set_code: Some(set.into()),
+            set_name: None,
+            collector_number: Some(number.into()),
+            rarity: None,
+            image_small: None,
+            image_normal: None,
+            type_line: None,
+            color_identity: None,
+            unit_price_usd: None,
+            price_date: None,
+        }
+    }
+
+    #[test]
+    fn exports_name_the_copy_in_the_deck_first() {
+        let binder = item("cmm", "410", Some("binder"), false, "nonfoil");
+        let deck = item("c21", "263", Some("deck"), false, "foil");
+        let proxy = item("pip", "1", Some("deck"), true, "nonfoil");
+        let pick = |items: &[&crate::collection::Item], c| owned_printing(items, c).map(|p| (p.set_code, p.finish));
+        assert_eq!(pick(&[&binder, &proxy, &deck], Some("deck")), Some(("c21".into(), "foil".into())));
+        // Real copies before proxies, wherever they are.
+        assert_eq!(pick(&[&proxy, &binder], Some("deck")), Some(("cmm".into(), "nonfoil".into())));
+        assert_eq!(pick(&[&proxy], None), Some(("pip".into(), "nonfoil".into())));
+        assert_eq!(pick(&[], None), None);
     }
 
     #[test]

@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router";
 import { api, type DeckSummary, type Playgroup } from "../api";
 import { ErrorText, Pips } from "../components/ui";
 import { OnlineSupport } from "../components/OnlineSupport";
+import { BracketChips } from "../components/Bracket";
 import type { OnlineGame } from "./types";
 
 const DIFFICULTIES = [
@@ -142,6 +143,7 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
               </span>
             )}
           </div>
+          {s.kind !== "friend" && <DeckBracket deck={decks.find((d) => d.id === deckOf(s))} />}
           {s.kind !== "friend" && deckOf(s) && (
             <div style={{ marginTop: "0.6rem" }}>
               <OnlineSupport deckId={deckOf(s)} versionId={decks.find((d) => d.id === deckOf(s))?.current_version_id} />
@@ -160,6 +162,15 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
         </button>
       </div>
     </section>
+  );
+}
+
+function DeckBracket({ deck }: { deck: DeckSummary | undefined }) {
+  if (!deck || (deck.bracket == null && !deck.estimate)) return null;
+  return (
+    <div style={{ marginTop: "0.5rem" }}>
+      <BracketChips declared={deck.bracket} estimate={deck.estimate} />
+    </div>
   );
 }
 
@@ -188,6 +199,7 @@ function JoinGame({ decks }: { decks: DeckSummary[] }) {
         </label>
         <button className="primary" disabled={join.isPending}>Join</button>
       </form>
+      <DeckBracket deck={decks.find((d) => d.id === (deckId || decks[0]?.id))} />
       {(deckId || decks[0]?.id) && (
         <OnlineSupport deckId={deckId || decks[0]!.id} versionId={decks.find((d) => d.id === (deckId || decks[0]?.id))?.current_version_id} />
       )}
