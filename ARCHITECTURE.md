@@ -218,9 +218,9 @@ Bryan wants to know how the Commander precons do against each other, and to test
 - **Batch runner:** `play/src/bin/lab.rs` is a thin CLI over the core. It adds threads, resume (`--skip-done`), the hang watchdog with clean restarts, and deck loading. It runs on the Mac and on saget (`deploy/lab.sh`).
 - **Tables** (migration 0007):
   - `precons` is the global catalog, imported from commander-decks' `data/sim/decks/index.json` with `yama-server import-precons`. Precons that repeat an earlier list are left out of that index (Bryan, 2026-10-19), so they're never imported.
-  - `lab_runs` and `lab_ratings` hold analysed runs (`summary.json` from `analyze.py`), imported with `yama-server import-lab`. A run with no owner is global; a run with an owner is visible to that owner only.
+  - `lab_runs` and `lab_ratings` hold analysed runs (`summary.json` from `analyze.py`), imported with `yama-server import-lab`. A run with no owner is global; a run with an owner is visible to that owner only. A global run may only rate precons: the import refuses a summary that names any other deck (in its ratings, matrix or paired comparison) unless it has an owner, and precon matchups only list catalog precons.
   - `lab_experiments` and `lab_experiment_games` are for "Try a change": a user's own paired runs, played by the server on the core, one row per scheduled game so a restart resumes.
-- **APIs:** `GET /api/precons` (the latest global precon-ratings run joined in), `GET /api/precons/{id}` (list, rating, 1v1 matchups from the run's matrix), `POST /api/precons/{id}/deck` (a Yama deck from the stock list, idempotent with `op_id`), `GET /api/lab/runs` and `GET /api/lab/runs/{id}` (global and own; anyone else's is a 404).
+- **APIs:** `GET /api/precons` (the latest global precon-ratings run joined in), `GET /api/precons/{id}` (list, rating, 1v1 matchups from the run's matrix), `POST /api/precons/{id}/deck` (a Yama deck from the stock list, idempotent with `op_id`; the op record and the deck commit in one transaction), `GET /api/lab/runs` and `GET /api/lab/runs/{id}` (global and own; anyone else's is a 404).
 - **Labels:** every simulated number travels with its run's engine, card data, runner, AI level, games and dates. It is shown apart from real-game stats. playgroup.gg numbers carry their own source and fetch date.
 
 ## 11. Risks

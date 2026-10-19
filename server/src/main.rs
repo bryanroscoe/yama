@@ -33,7 +33,9 @@ USAGE:
   yama-server import-lab SUMMARY [--owner EMAIL] [--name NAME]
                                              Import an analysed lab run (summary.json from
                                              commander-decks scripts/sim/analyze.py); global
-                                             unless --owner is given
+                                             unless --owner is given. A global run may rate
+                                             precons only; one with a user's lists needs
+                                             --owner
   yama-server invite EMAIL                   Allow EMAIL to sign in
   yama-server user add EMAIL [--name NAME] [--admin] [--password-stdin]
                                              Give EMAIL a password for password sign-in

@@ -344,9 +344,26 @@ fn f(v: &Value, ptr: &str) -> Option<f64> {
     v.pointer(ptr).and_then(Value::as_f64)
 }
 
+/// Deck ids in a summary that aren't precons (a user's own lists), from everywhere analyze.py
+/// writes deck ids: the ratings, the 1v1 matrix, the paired comparison and the run's settings.
+fn non_precon_ids(summary: &Value) -> BTreeSet<String> {
+    let list = |ptr: &str| summary.pointer(ptr).and_then(Value::as_array).into_iter().flatten();
+    let mut ids: Vec<&Value> = Vec::new();
+    ids.extend(list("/decks").filter_map(|d| d.get("id")));
+    ids.extend(list("/matrix/ids"));
+    ids.extend(list("/paired/variants").filter_map(|v| v.get("id")));
+    ids.extend(list("/paired/comparisons").flat_map(|c| [c.get("base"), c.get("variant")]).flatten());
+    ids.extend(list("/run_meta/paired/variants"));
+    ids.extend(list("/run_meta/filter/ids"));
+    ids.into_iter().filter_map(Value::as_str).filter(|id| !id.starts_with(PRECON_PREFIX)).map(str::to_string).collect()
+}
+
 /// Import an analysed run (`summary.json`). Global when `owner_email` is `None`, else visible to
 /// that user only. Idempotent by name within its scope: importing the same summary again changes
 /// nothing; a newer summary for the same name replaces the run's content and keeps its id.
+///
+/// A global run may only rate precons: everyone signed in reads it, so a run that rates someone's
+/// own lists is refused unless it's imported with that owner.
 pub async fn import_run(pool: &SqlitePool, summary_path: &std::path::Path, owner_email: Option<&str>, name: Option<&str>) -> anyhow::Result<RunImport> {
     let raw = std::fs::read_to_string(summary_path).with_context(|| format!("reading {}", summary_path.display()))?;
     let summary: Value = serde_json::from_str(&without_non_finite(&raw)).with_context(|| format!("reading {}", summary_path.display()))?;
@@ -355,6 +372,17 @@ pub async fn import_run(pool: &SqlitePool, summary_path: &std::path::Path, owner
         .map(str::to_string)
         .or_else(|| summary.get("run").and_then(Value::as_str).map(str::to_string))
         .context("the summary names no run; pass --name")?;
+    if owner_email.is_none() {
+        let private = non_precon_ids(&summary);
+        if !private.is_empty() {
+            let shown: Vec<&str> = private.iter().take(3).map(String::as_str).collect();
+            let more = if private.len() > shown.len() { format!(" and {} more", private.len() - shown.len()) } else { String::new() };
+            anyhow::bail!(
+                "run {name} rates decks that aren't precons ({}{more}); a global run is shown to everyone, so import it with --owner EMAIL",
+                shown.join(", ")
+            );
+        }
+    }
     let owner: Option<String> = match owner_email {
         Some(email) => Some(
             sqlx::query_scalar("SELECT id FROM users WHERE email = ?")
@@ -640,8 +668,8 @@ pub struct PreconCardView {
 
 #[derive(Debug, Serialize)]
 pub struct Matchup {
-    /// The opponent's precon slug, when it is a precon in the catalog.
-    pub id: Option<String>,
+    /// The opponent's precon slug.
+    pub id: String,
     pub lab_id: String,
     pub name: String,
     /// Chance this precon beats that one in a neutral 1v1, implied by the model.
@@ -670,8 +698,6 @@ pub struct PreconDetail {
 #[derive(Deserialize)]
 struct MatrixPart {
     matrix: Option<Matrix>,
-    #[serde(default)]
-    decks: Vec<DeckName>,
 }
 
 #[derive(Deserialize)]
@@ -681,22 +707,16 @@ struct Matrix {
     note: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct DeckName {
-    id: String,
-    name: Option<String>,
-}
-
-/// The precon's row of the run's 1v1 matrix. Precons the catalog no longer has (repeats of an
-/// earlier list, left out of commander-decks' index on 2026-10-19, which older runs still rate
-/// on their own) are skipped; decks that aren't precons (a user's lists) stay.
+/// The precon's row of the global run's 1v1 matrix, against the precons in the catalog only.
+/// Anything else is skipped: precons the catalog no longer has (repeats of an earlier list, left
+/// out of commander-decks' index on 2026-10-19, which older runs still rate on their own) and,
+/// should a global run ever hold one, a user's own list, which no one else may see.
 async fn matchups(pool: &SqlitePool, run_id: &str, lab_id: &str) -> AppResult<Option<Matchups>> {
     let text: String = sqlx::query_scalar("SELECT summary FROM lab_runs WHERE id = ?").bind(run_id).fetch_one(pool).await?;
     let part: MatrixPart = serde_json::from_str(&text).map_err(anyhow::Error::from)?;
     let Some(m) = part.matrix else { return Ok(None) };
     let Some(row) = m.ids.iter().position(|i| i == lab_id) else { return Ok(None) };
     let Some(ps) = m.p.get(row) else { return Ok(None) };
-    let names: HashMap<&str, &str> = part.decks.iter().filter_map(|d| Some((d.id.as_str(), d.name.as_deref()?))).collect();
     let catalog: HashMap<String, (String, String)> = sqlx::query_as::<_, (String, String, String)>("SELECT lab_id, id, name FROM precons")
         .fetch_all(pool)
         .await?
@@ -709,13 +729,8 @@ async fn matchups(pool: &SqlitePool, run_id: &str, lab_id: &str) -> AppResult<Op
         .zip(ps)
         .filter(|(other, _)| *other != lab_id)
         .filter_map(|(other, p)| {
-            let p = (*p)?;
-            let (id, name) = match catalog.get(other) {
-                Some((id, name)) => (Some(id.clone()), name.clone()),
-                None if other.starts_with(PRECON_PREFIX) => return None,
-                None => (None, names.get(other.as_str()).map(|n| n.to_string()).unwrap_or_else(|| other.clone())),
-            };
-            Some(Matchup { id, lab_id: other.clone(), name, p })
+            let (id, name) = catalog.get(other)?;
+            Some(Matchup { id: id.clone(), lab_id: other.clone(), name: name.clone(), p: (*p)? })
         })
         .collect();
     rows.sort_by(|a, b| b.p.total_cmp(&a.p).then_with(|| a.name.cmp(&b.name)));
@@ -891,54 +906,69 @@ pub struct PreconDeckCreated {
 
 /// Make a Yama deck for `owner` from the precon's stock list, through the decks module (same
 /// version creation and Commander validation as any deck). With `op_id`, idempotent per owner.
+///
+/// The op record, the deck, its first version and the op's result are written in one
+/// transaction, as collection ops are, so a request that dies part way leaves nothing behind
+/// and its retry starts over.
 pub async fn create_deck_from_precon(pool: &SqlitePool, owner: &str, precon_id: &str, name: Option<&str>, op_id: Option<&str>) -> AppResult<PreconDeckCreated> {
     let (precon_name, cards_json): (String, String) = sqlx::query_as("SELECT name, cards FROM precons WHERE id = ?")
         .bind(precon_id)
         .fetch_optional(pool)
         .await?
         .ok_or(AppError::NotFound("precon"))?;
+    // Reads first: the test pool has one connection, and the transaction below holds it.
+    let deck = precon_deck_cards(pool, &precon_name, &cards_json, name).await?;
+    let mut tx = pool.begin().await?;
     if let Some(op) = op_id {
+        // Writing first takes SQLite's write lock, so a concurrent request with the same op
+        // waits here until this one commits or rolls back.
         let claimed = sqlx::query("INSERT INTO applied_ops (owner_id, op_id, kind, payload, applied_at) VALUES (?,?,?,'{}',?) ON CONFLICT DO NOTHING")
             .bind(owner)
             .bind(op)
             .bind(PRECON_DECK_OP)
             .bind(now())
-            .execute(pool)
+            .execute(&mut *tx)
             .await?
             .rows_affected();
         if claimed == 0 {
             let (kind, payload): (String, String) = sqlx::query_as("SELECT kind, payload FROM applied_ops WHERE owner_id = ? AND op_id = ?")
                 .bind(owner)
                 .bind(op)
-                .fetch_one(pool)
+                .fetch_one(&mut *tx)
                 .await?;
             if kind != PRECON_DECK_OP {
                 return Err(AppError::Conflict("that op id was used for something else".into()));
             }
-            return serde_json::from_str(&payload).map_err(|_| AppError::Conflict("this deck is still being made; try again".into()));
+            if let Ok(done) = serde_json::from_str::<PreconDeckCreated>(&payload) {
+                return Ok(done);
+            }
+            // A claim with no result can't be in progress (claim and result commit together);
+            // only an earlier build, which wrote them separately, could leave one. Finish it.
         }
     }
-    let made = make_precon_deck(pool, owner, &precon_name, &cards_json, name).await;
+    let id = crate::decks::create_deck_in(&mut tx, owner, &deck.name, Some(PRECON_FOLDER), &deck.cards).await?;
+    let created = PreconDeckCreated { id, name: deck.name, unknown: deck.unknown, validation: deck.validation };
     if let Some(op) = op_id {
-        match &made {
-            Ok(created) => {
-                sqlx::query("UPDATE applied_ops SET payload = ? WHERE owner_id = ? AND op_id = ?")
-                    .bind(serde_json::to_string(created).map_err(anyhow::Error::from)?)
-                    .bind(owner)
-                    .bind(op)
-                    .execute(pool)
-                    .await?;
-            }
-            Err(_) => {
-                // Let a retry try again.
-                sqlx::query("DELETE FROM applied_ops WHERE owner_id = ? AND op_id = ?").bind(owner).bind(op).execute(pool).await?;
-            }
-        }
+        sqlx::query("UPDATE applied_ops SET payload = ? WHERE owner_id = ? AND op_id = ?")
+            .bind(serde_json::to_string(&created).map_err(anyhow::Error::from)?)
+            .bind(owner)
+            .bind(op)
+            .execute(&mut *tx)
+            .await?;
     }
-    made
+    tx.commit().await?;
+    Ok(created)
 }
 
-async fn make_precon_deck(pool: &SqlitePool, owner: &str, precon_name: &str, cards_json: &str, name: Option<&str>) -> AppResult<PreconDeckCreated> {
+/// A precon's stock list as deck cards, with the deck's name and its Commander validation.
+struct PreconDeckCards {
+    name: String,
+    cards: Vec<DeckCard>,
+    unknown: Vec<String>,
+    validation: Value,
+}
+
+async fn precon_deck_cards(pool: &SqlitePool, precon_name: &str, cards_json: &str, name: Option<&str>) -> AppResult<PreconDeckCards> {
     let lines: Vec<PreconCard> = serde_json::from_str(cards_json).map_err(anyhow::Error::from)?;
     let info: HashMap<String, Card> = sqlx::query_as::<_, Card>(AssertSqlSafe(format!(
         "SELECT {CARD_COLUMNS} FROM cards WHERE oracle_id IN (SELECT json_extract(value, '$.oracle_id') FROM json_each(?))"
@@ -964,8 +994,7 @@ async fn make_precon_deck(pool: &SqlitePool, owner: &str, precon_name: &str, car
     }
     let name = name.map(str::trim).filter(|n| !n.is_empty()).unwrap_or(precon_name).to_string();
     let validation: Validation = crate::decks::validate(&cards, &info);
-    let id = crate::decks::create_deck_with_cards(pool, owner, &name, Some(PRECON_FOLDER), cards).await?;
-    Ok(PreconDeckCreated { id, name, unknown, validation: serde_json::to_value(&validation).map_err(anyhow::Error::from)? })
+    Ok(PreconDeckCards { name, cards, unknown, validation: serde_json::to_value(&validation).map_err(anyhow::Error::from)? })
 }
 
 async fn create_precon_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, body: Bytes) -> AppResult<Json<PreconDeckCreated>> {
@@ -1055,7 +1084,30 @@ mod tests {
         dir
     }
 
-    fn summary(run: &str, created: &str, strength: f64) -> String {
+    /// A run's summary. Precons only, as a global run must be; with `mine`, one of Bryan's lists
+    /// is rated too and compared with the precon, as his own runs do.
+    fn summary(run: &str, created: &str, strength: f64, mine: bool) -> String {
+        let mut decks = vec![json!(
+            {"id": "precons/counterpunch", "name": "Counterpunch", "games": 3, "strength": strength, "strength_ci": [0.5, 2.0],
+             "main": {"win_rate": 0.33, "wilson": [0.06, 0.79], "avg_place": 2.1}, "rank": 1, "rank_ci": [1, 2],
+             "p4_field": 0.3, "p4_field_ci": [0.2, 0.4], "flags": ["few games: 3 usable"]}
+        )];
+        // An older run still rates the left-out repeat on its own.
+        let mut matrix = json!({"ids": ["precons/counterpunch", "precons/counterpunch-ce", "precons/spore-tide"],
+                                "p": [[0.5, 0.5, 0.7], [0.5, 0.5, 0.7], [0.3, 0.3, 0.5]],
+                                "note": "P(row beats column)"});
+        let mut paired = Value::Null;
+        if mine {
+            decks.push(json!(
+                {"id": "bryan/mine", "name": "Mine (Bryan)", "games": 3, "strength": 0.8, "strength_ci": [0.4, 1.5],
+                 "main": {"win_rate": 0.0, "wilson": [0.0, 0.56], "avg_place": 3.0}, "rank": 2, "rank_ci": [1, 2]}
+            ));
+            matrix = json!({"ids": ["precons/counterpunch", "bryan/mine", "precons/counterpunch-ce", "precons/spore-tide"],
+                            "p": [[0.5, 0.6, 0.5, 0.7], [0.4, 0.5, 0.4, 0.5], [0.5, 0.6, 0.5, 0.7], [0.3, 0.5, 0.3, 0.5]],
+                            "note": "P(row beats column)"});
+            paired = json!({"variants": [{"id": "precons/counterpunch"}, {"id": "bryan/mine"}],
+                            "comparisons": [{"base": "precons/counterpunch", "variant": "bryan/mine", "delta_win_rate": -0.33}]});
+        }
         // A NaN as Python's json writes it, to check it reads as null.
         json!({
             "run": run, "generated": "2026-10-19T05:04:42Z",
@@ -1064,19 +1116,10 @@ mod tests {
             "analysis": {"model": "Plackett-Luce", "bootstrap": {"level": 0.9}},
             "counts": {"games_in_model": 3},
             "warnings": ["few games"],
-            "decks": [
-                {"id": "precons/counterpunch", "name": "Counterpunch", "games": 3, "strength": strength, "strength_ci": [0.5, 2.0],
-                 "main": {"win_rate": 0.33, "wilson": [0.06, 0.79], "avg_place": 2.1}, "rank": 1, "rank_ci": [1, 2],
-                 "p4_field": 0.3, "p4_field_ci": [0.2, 0.4], "flags": ["few games: 3 usable"]},
-                {"id": "bryan/mine", "name": "Mine (Bryan)", "games": 3, "strength": 0.8, "strength_ci": [0.4, 1.5],
-                 "main": {"win_rate": 0.0, "wilson": [0.0, 0.56], "avg_place": 3.0}, "rank": 2, "rank_ci": [1, 2]}
-            ],
-            // An older run still rates the left-out repeat on its own.
-            "matrix": {"ids": ["precons/counterpunch", "bryan/mine", "precons/counterpunch-ce", "precons/spore-tide"],
-                       "p": [[0.5, 0.6, 0.5, 0.7], [0.4, 0.5, 0.4, 0.5], [0.5, 0.6, 0.5, 0.7], [0.3, 0.5, 0.3, 0.5]],
-                       "note": "P(row beats column)"},
+            "decks": decks,
+            "matrix": matrix,
             "calibration": {"spearman": "NAN_HERE"},
-            "paired": null
+            "paired": paired
         })
         .to_string()
         .replace("\"NAN_HERE\"", "NaN")
@@ -1130,37 +1173,48 @@ mod tests {
         let dir = fixture(&pool).await;
         import_precons(&pool, &dir.path().join("decks/index.json"), None).await.unwrap();
         let global = dir.path().join("pilot.json");
-        std::fs::write(&global, summary("pilot-2", "2026-10-19T04:15:40Z", 2.5)).unwrap();
+        std::fs::write(&global, summary("pilot-2", "2026-10-19T04:15:40Z", 2.5, false)).unwrap();
 
         let a = import_run(&pool, &global, None, None).await.unwrap();
-        assert_eq!((a.outcome, a.kind.as_str(), a.name.as_str(), a.ratings), ("added", "precon-ratings", "pilot-2", 2));
+        assert_eq!((a.outcome, a.kind.as_str(), a.name.as_str(), a.ratings), ("added", "precon-ratings", "pilot-2", 1));
         let b = import_run(&pool, &global, None, None).await.unwrap();
         assert_eq!((b.outcome, b.id.as_str()), ("unchanged", a.id.as_str()));
         // A newer analysis of the same run replaces it in place.
-        std::fs::write(&global, summary("pilot-2", "2026-10-19T04:15:40Z", 3.0)).unwrap();
+        std::fs::write(&global, summary("pilot-2", "2026-10-19T04:15:40Z", 3.0, false)).unwrap();
         let c = import_run(&pool, &global, None, None).await.unwrap();
         assert_eq!((c.outcome, c.id.as_str()), ("updated", a.id.as_str()));
         let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_runs").fetch_one(&pool).await.unwrap();
         assert_eq!(n, 1);
 
-        // Bryan's own run, newer, with the same name: a separate run only he can see.
+        // A run that rates Bryan's list can't be global: everyone would see his list. Refused
+        // before anything is written, saying how to import it.
         let own = dir.path().join("own.json");
-        std::fs::write(&own, summary("pilot-2", "2026-10-20T00:00:00Z", 9.0)).unwrap();
-        let mine = import_run(&pool, &own, Some("bryan@example.com"), Some("bryan-test")).await.unwrap();
+        std::fs::write(&own, summary("bryan-test", "2026-10-20T00:00:00Z", 9.0, true)).unwrap();
+        let refused = import_run(&pool, &own, None, None).await.unwrap_err().to_string();
+        assert!(refused.contains("bryan/mine") && refused.contains("--owner"), "{refused}");
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_runs").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 1);
+
+        // As Bryan's own run (newer, and named like the global one): a separate run only he sees.
+        let mine = import_run(&pool, &own, Some("bryan@example.com"), Some("pilot-2")).await.unwrap();
         assert_ne!(mine.id, a.id);
+        assert_eq!((mine.kind.as_str(), mine.ratings), ("paired", 2));
         assert!(import_run(&pool, &own, Some("nobody@example.com"), None).await.is_err());
 
         let ids = |runs: Vec<RunListItem>| runs.into_iter().map(|r| r.run.id).collect::<Vec<_>>();
         assert_eq!(ids(runs_for(&pool, "bryan").await.unwrap()), vec![mine.id.clone(), a.id.clone()]);
         assert_eq!(ids(runs_for(&pool, "other").await.unwrap()), vec![a.id.clone()]);
-        assert!(run_for(&pool, "bryan", &mine.id).await.is_ok());
+        let own_detail = run_for(&pool, "bryan", &mine.id).await.unwrap();
+        assert!(!own_detail.run.global);
+        assert_eq!(own_detail.ratings.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), vec!["Counterpunch", "Mine (Bryan)"]);
+        assert_eq!(own_detail.summary["paired"]["comparisons"][0]["variant"], "bryan/mine");
         assert!(matches!(run_for(&pool, "other", &mine.id).await, Err(AppError::NotFound(_))));
         let detail = run_for(&pool, "other", &a.id).await.unwrap();
         assert!(detail.run.global);
         assert_eq!(detail.run.warnings, vec!["few games".to_string()]);
         assert_eq!((detail.run.pod, detail.run.level), (Some(4), Some(0.9)));
-        assert_eq!(detail.ratings[0].precon_id.as_deref(), Some("counterpunch"));
-        assert_eq!(detail.ratings[1].name, "Mine (Bryan)");
+        assert_eq!(detail.ratings.iter().map(|r| r.precon_id.as_deref()).collect::<Vec<_>>(), vec![Some("counterpunch")]);
+        assert!(detail.summary["paired"].is_null());
         assert!(detail.summary.get("matrix").is_none() && detail.summary.get("decks").is_none());
         assert!(detail.summary["calibration"]["spearman"].is_null());
 
@@ -1176,11 +1230,21 @@ mod tests {
         assert_eq!(list.precons.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["counterpunch", "spore-tide"]);
         assert!(list.precons[1].rating.is_none());
 
-        // Matchups: best first; Bryan's list stays, the left-out repeat the catalog lacks doesn't.
+        // Matchups: catalog precons only, best first; the left-out repeat the catalog lacks drops out.
         let d = precon_detail(&pool, "counterpunch").await.unwrap();
         let m = d.matchups.unwrap();
-        let rows: Vec<(Option<&str>, &str, f64)> = m.rows.iter().map(|r| (r.id.as_deref(), r.name.as_str(), r.p)).collect();
-        assert_eq!(rows, vec![(Some("spore-tide"), "Spore Tide", 0.7), (None, "Mine (Bryan)", 0.6)]);
+        let rows: Vec<(&str, &str, f64)> = m.rows.iter().map(|r| (r.id.as_str(), r.name.as_str(), r.p)).collect();
+        assert_eq!(rows, vec![("spore-tide", "Spore Tide", 0.7)]);
+        // Even a global run that holds someone's list (imported before that was refused) doesn't
+        // show it as a matchup.
+        sqlx::query("UPDATE lab_runs SET summary = ? WHERE id = ?")
+            .bind(summary("pilot-2", "2026-10-19T04:15:40Z", 3.0, true).replace("NaN", "null"))
+            .bind(&a.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let m = precon_detail(&pool, "counterpunch").await.unwrap().matchups.unwrap();
+        assert_eq!(m.rows.iter().map(|r| r.lab_id.as_str()).collect::<Vec<_>>(), vec!["precons/spore-tide"]);
         assert_eq!(d.cards.len(), 4);
         assert_eq!(d.cards[0].type_line.as_deref(), Some("Legendary Creature — Fungus Shaman"));
         assert!(d.cards.iter().any(|c| c.card.name == "Mystery Card" && c.type_line.is_none()));
@@ -1219,6 +1283,64 @@ mod tests {
         // Without an op id each request is a new deck; an unknown precon is not found.
         create_deck_from_precon(&pool, "bryan", "counterpunch", None, None).await.unwrap();
         assert!(matches!(create_deck_from_precon(&pool, "bryan", "nope", None, Some("op-2")).await, Err(AppError::NotFound(_))));
+        // An op id already used for something else is a conflict.
+        sqlx::query("INSERT INTO applied_ops (owner_id, op_id, kind, payload, applied_at) VALUES ('bryan','op-3','add','{}','now')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(matches!(create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-3")).await, Err(AppError::Conflict(_))));
+    }
+
+    #[tokio::test]
+    async fn a_precon_deck_op_that_fails_part_way_leaves_nothing_and_its_retry_works() {
+        let pool = crate::db::test_pool().await;
+        let dir = fixture(&pool).await;
+        import_precons(&pool, &dir.path().join("decks/index.json"), None).await.unwrap();
+        let count = |sql: &'static str| {
+            let pool = pool.clone();
+            async move { sqlx::query_scalar::<_, i64>(sql).fetch_one(&pool).await.unwrap() }
+        };
+
+        // The deck row is written, then its first version fails: the claim and the deck roll back.
+        sqlx::query("CREATE TRIGGER fail_versions BEFORE INSERT ON deck_versions BEGIN SELECT RAISE(ABORT, 'disk full'); END")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-1")).await.is_err());
+        assert_eq!(count("SELECT COUNT(*) FROM applied_ops").await, 0);
+        assert_eq!(count("SELECT COUNT(*) FROM decks").await, 0);
+        sqlx::query("DROP TRIGGER fail_versions").execute(&pool).await.unwrap();
+        let made = create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-1")).await.unwrap();
+        assert_eq!(create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-1")).await.unwrap().id, made.id);
+        assert_eq!(count("SELECT COUNT(*) FROM decks").await, 1);
+
+        // A claim with no result (only the earlier build, which claimed and finished in separate
+        // writes, could leave one) is finished by the next retry, which then stays the answer.
+        sqlx::query("INSERT INTO applied_ops (owner_id, op_id, kind, payload, applied_at) VALUES ('bryan','op-old','precon_deck','{}','now')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let finished = create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-old")).await.unwrap();
+        assert_eq!(create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-old")).await.unwrap().id, finished.id);
+        assert_eq!(count("SELECT COUNT(*) FROM decks").await, 2);
+    }
+
+    #[test]
+    fn a_users_list_is_found_wherever_a_summary_names_decks() {
+        let only_precons = json!({"decks": [{"id": "precons/a"}], "matrix": {"ids": ["precons/a", "precons/b"]}, "paired": null,
+                                  "run_meta": {"filter": {"ids": []}}});
+        assert!(non_precon_ids(&only_precons).is_empty());
+        for (summary, id) in [
+            (json!({"decks": [{"id": "precons/a"}, {"id": "bryan/x"}]}), "bryan/x"),
+            (json!({"matrix": {"ids": ["precons/a", "bryan/x"]}}), "bryan/x"),
+            (json!({"paired": {"variants": [{"id": "bryan/x"}], "comparisons": []}}), "bryan/x"),
+            (json!({"paired": {"comparisons": [{"base": "precons/a", "variant": "bryan/y"}]}}), "bryan/y"),
+            (json!({"paired": {"comparisons": [{"base": "bryan/z", "variant": "precons/a"}]}}), "bryan/z"),
+            (json!({"run_meta": {"paired": {"variants": ["bryan/x"]}}}), "bryan/x"),
+            (json!({"run_meta": {"filter": {"ids": ["bryan/x"]}}}), "bryan/x"),
+        ] {
+            assert_eq!(non_precon_ids(&summary).into_iter().collect::<Vec<_>>(), vec![id.to_string()], "{summary}");
+        }
     }
 
     #[test]

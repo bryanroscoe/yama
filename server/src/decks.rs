@@ -9,7 +9,7 @@ use axum::extract::{Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use sqlx::{AssertSqlSafe, SqlitePool};
+use sqlx::{AssertSqlSafe, SqliteConnection, SqlitePool};
 use std::collections::{BTreeMap, HashMap};
 
 pub fn router() -> Router<AppState> {
@@ -238,6 +238,15 @@ pub async fn create_deck_with_cards(
     folder: Option<&str>,
     cards: Vec<DeckCard>,
 ) -> AppResult<String> {
+    let mut tx = pool.begin().await?;
+    let id = create_deck_in(&mut tx, owner, name, folder, &cards).await?;
+    tx.commit().await?;
+    Ok(id)
+}
+
+/// As `create_deck_with_cards`, inside the caller's transaction, so the deck commits (or rolls
+/// back) together with the caller's own writes (the lab's op record for a precon deck).
+pub async fn create_deck_in(conn: &mut SqliteConnection, owner: &str, name: &str, folder: Option<&str>, cards: &[DeckCard]) -> AppResult<String> {
     if name.trim().is_empty() {
         return Err(AppError::bad("deck needs a name"));
     }
@@ -250,13 +259,20 @@ pub async fn create_deck_with_cards(
         .bind(folder)
         .bind(&stamp)
         .bind(&stamp)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
-    insert_version(pool, &id, &cards, Some("created")).await?;
+    insert_version_in(conn, &id, cards, Some("created")).await?;
     Ok(id)
 }
 
 async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
+    let mut tx = pool.begin().await?;
+    let vid = insert_version_in(&mut tx, deck_id, cards, note).await?;
+    tx.commit().await?;
+    Ok(vid)
+}
+
+async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
     let vid = new_id();
     let stamp = now();
     sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at) VALUES (?,?,?,?,?)")
@@ -265,13 +281,13 @@ async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[DeckCard], no
         .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
         .bind(note)
         .bind(&stamp)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     sqlx::query("UPDATE decks SET current_version_id = ?, updated_at = ? WHERE id = ?")
         .bind(&vid)
         .bind(&stamp)
         .bind(deck_id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     Ok(vid)
 }
