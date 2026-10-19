@@ -47,6 +47,11 @@
   border-bottom-color: var(--text);
 }
 
+/* A line under a page title. Night table titles sit at line-height 0.9, so the line needs room
+   below the title's descenders. */
+.lab .page-head h1:not(:last-child) {
+  margin-bottom: 0.3em;
+}
 .lab h2 {
   font-size: var(--t-lg);
 }
