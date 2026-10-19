@@ -2,7 +2,7 @@
 // plan pages open with no signal, and refreshed with the cached copy's `rev`: the server answers
 // `{unchanged}` when nothing it depends on (plan, cards, prices) has moved.
 import type { PlanBundle } from "@yama/core/plan";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { idbDelete, idbGet, idbPut } from "../offline/idb";
 import { fetchBundle } from "./api";
 
@@ -19,6 +19,7 @@ export interface PlanData {
 
 /** The signed-in user's plan bundle: the saved copy at once, then the server's when it answers. */
 export function usePlan(userId: string | undefined): PlanData {
+  const qc = useQueryClient();
   const cached = useQuery({
     queryKey: ["plan-cache", userId],
     queryFn: async () => (await idbGet<PlanBundle>(cacheKey(userId!)).catch(() => undefined)) ?? null,
@@ -30,7 +31,8 @@ export function usePlan(userId: string | undefined): PlanData {
     enabled: !!userId && cached.isFetched,
     staleTime: 30_000,
     queryFn: async (): Promise<PlanBundle> => {
-      const prev = cached.data ?? undefined;
+      // The newest copy this page has seen: the last fetch, else the one saved on the device.
+      const prev = qc.getQueryData<PlanBundle>(["plan", userId]) ?? cached.data ?? undefined;
       const reply = await fetchBundle(prev?.rev);
       if ("unchanged" in reply && prev) return prev;
       const bundle = reply as PlanBundle;
