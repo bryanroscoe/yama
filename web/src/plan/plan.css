@@ -1049,7 +1049,7 @@
   border-top: 1px solid var(--line);
 }
 .review-queue {
-  flex: 0 0 300px;
+  flex: 0 0 280px;
   max-height: calc(100dvh - 120px);
   position: sticky;
   top: 0;
@@ -1137,31 +1137,43 @@
 .review-detail {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 24px 0 24px 28px;
+  padding: 24px 0 24px 24px;
 }
+/* Laptops (design: ReviewWide): the two cards side by side, incoming about 240 px and the cut
+   card about 130 px set a little lower, with no overlap. Under 1200 px the text runs under the
+   cards; from 1200 px it sits beside them, the cards shrinking a little (down to about 160 and
+   90 px) so the text column keeps at least about 280 px. Either way the answer buttons stick to
+   the bottom of the window until their place scrolls into view, so they're always on screen. */
 .review-card.is-wide {
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
   padding: 0;
   background: transparent;
   box-shadow: none;
   align-items: start;
 }
-/* Laptops: the two cards side by side, the cut card about 40% of the pair's width and set a
-   little lower, with no overlap at all. */
 .review-card.is-wide .review-fig {
-  flex: 0 1 400px;
+  max-width: 382px;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 .review-card.is-wide .review-stack {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 14px;
+  grid-template-columns: minmax(0, 24fr) minmax(0, 13fr);
+  gap: 12px;
   align-items: start;
   padding-right: 0;
+}
+@media (min-width: 1200px) {
+  .review-card.is-wide {
+    /* The rail, the queue and the gaps take about 860 px of a window this wide. */
+    grid-template-columns: clamp(260px, calc(92vw - 860px), 382px) minmax(0, 1fr);
+  }
+  .review-card.is-wide .review-fig {
+    max-width: none;
+  }
 }
 .review-card.is-wide .review-in {
   box-shadow: 0 24px 50px rgb(0 0 0 / 0.55);
@@ -1177,7 +1189,6 @@
   transform: none;
 }
 .review-card.is-wide .review-body {
-  flex: 1 1 320px;
   gap: 16px;
 }
 .review-card.is-wide .review-name {
@@ -1198,12 +1209,20 @@
   padding: 14px;
   border-radius: 16px;
 }
+.review-card.is-wide .review-decide {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: -12px 0 -16px;
+  padding: 12px 0 16px;
+  background: var(--ground);
+}
 .plan .review-card.is-wide .review-decide button {
   min-height: 54px;
   font-size: 1.0625rem;
 }
 .review-card.is-wide .review-fields {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
 }
 .plan .review-card.is-wide .review-field select,
 .plan .review-card.is-wide .review-field input {
@@ -1328,6 +1347,14 @@
   align-items: center;
   gap: 6px;
   margin-top: 4px;
+}
+/* A row's "More" sits at the end of its action line; open, it takes the full width under it. */
+.buy-row-actions > .buy-more {
+  margin: 0 0 0 auto;
+}
+.buy-row-actions > .buy-more[open] {
+  flex-basis: 100%;
+  margin-left: 0;
 }
 .plan .buy-mark {
   min-height: 36px;

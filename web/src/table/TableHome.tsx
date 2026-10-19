@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { winConditionLabel, type FunRating, type PlayerSetup, type TableSetup, type WinCondition } from "@yama/core";
+import type { FunRating, PlayerSetup, TableSetup, WinCondition } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary, type DeckVersionRow, type GameRow, type Playgroup, type SearchResult } from "../api";
@@ -15,6 +15,7 @@ import { emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, type
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
 import { layout } from "./TablePlay";
 import { panelArt, useShowArt } from "./art";
+import { recentGameText, winningSeat } from "./recent";
 import "./seats.css";
 import "./home.css";
 
@@ -500,10 +501,6 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where }: { 
   );
 }
 
-/** "Terra" from "Terra, Herald of Hope": the name a table calls a commander by. */
-const shortName = (name: string) => name.split(",")[0]!.trim();
-const listNames = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
-
 /** Recent games to show before "All games and stats": four on a laptop, three on a phone. */
 const RECENT_WIDE = 4;
 const RECENT_PHONE = 3;
@@ -513,10 +510,9 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
   const [logging, setLogging] = useState(false);
   const wide = useWide();
   const shown = games.data?.slice(0, wide ? RECENT_WIDE : RECENT_PHONE) ?? [];
-  const winnerOf = (g: GameRow) => g.seats.find((s) => s.seat === g.winner_seat);
   // A game with a winner shows the winner's art; one still going, or a draw, shows up to four
   // seats' art as a mosaic. The credit names exactly the art shown.
-  const winnerShown = (g: GameRow) => (g.status === "finished" ? winnerOf(g) : undefined);
+  const winnerShown = winningSeat;
   const art = useCardArt(shown.flatMap((g) => (winnerShown(g) ? [winnerShown(g)!] : g.seats).map((s) => s.commander_name)));
   const seatArt = (g: GameRow) => g.seats.map((s) => art.get(s.commander_name ?? "")).filter((a) => !!a?.art).slice(0, 4);
   const pictured = (g: GameRow) => (winnerShown(g) ? [art.get(winnerShown(g)!.commander_name ?? "")] : seatArt(g));
@@ -537,16 +533,10 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
       {games.data && !games.data.length && <p className="dim">No games yet.</p>}
       <ol className="rg-list">
         {shown.map((g) => {
-          const finished = g.status === "finished";
           const winner = winnerShown(g);
           const cmdr = winner?.commander_name;
           const a = cmdr ? art.get(cmdr) : undefined;
-          const title = !finished ? "In progress" : winner ? `${winner.display_name} won` : "Draw";
-          const others = g.seats.filter((s) => s !== winner).map((s) => s.commander_name ?? s.display_name ?? "").filter(Boolean);
-          const how = finished && winner ? winConditionLabel(g.win_condition) : null;
-          const sub = [how, winner ? `Over ${listNames(others)}` : listNames(g.seats.map((s) => shortName(s.commander_name ?? s.display_name ?? "")).filter(Boolean)), g.note]
-            .filter(Boolean)
-            .join(". ");
+          const text = recentGameText(g);
           const day = new Date(g.started_at);
           return (
             <li key={g.id} className="rg-row">
@@ -557,13 +547,11 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
               )}
               <span className="rg-text">
                 <span className="rg-title">
-                  {title}
-                  {winner && cmdr && cmdr !== winner.display_name && <span className="rg-with"> with {shortName(cmdr)}</span>}
+                  {text.title}
+                  {text.with && <span className="rg-with"> with {text.with}</span>}
                 </span>
-                <span className="rg-sub">{sub}</span>
-                <span className="rg-sub-short">
-                  {[cmdr && shortName(cmdr), g.turns ? `${g.turns} turns` : null].filter(Boolean).join(", ") || sub}
-                </span>
+                <span className="rg-sub">{text.sub}</span>
+                <span className="rg-sub-short">{text.short}</span>
               </span>
               <span className="rg-when num">
                 <span>

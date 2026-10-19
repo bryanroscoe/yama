@@ -443,6 +443,8 @@ export interface GameSeat {
   member_id: string | null;
   user_id: string | null;
   guest_name: string | null;
+  /** Set for a computer seat in an online game ("phase-ai easy"). */
+  ai_kind?: string | null;
   deck_label: string | null;
   commander_name: string | null;
   final_life: number | null;

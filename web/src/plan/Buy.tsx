@@ -218,6 +218,11 @@ function BuyItem({ r, view, onMark }: { r: BuyRow; view: PlanView; onMark: () =>
   const decided: { label: string; tone: "good" | "warn" | "plain" } =
     (r.decision ? DECIDED[r.decision] : undefined) ?? (s.stage === "planned" ? { label: "In the plan", tone: "good" } : { label: "Not decided", tone: "plain" });
   const q = r.listing;
+  // Always shown: the price, the deck and what it replaces, the stock line with its date, and
+  // any warning. Everything else (market price, rule notes, other stores, advice) goes under More.
+  const warnings = r.check?.flags.filter((f) => f.tone === "warn") ?? [];
+  const notes = r.check?.flags.filter((f) => f.tone !== "warn") ?? [];
+  const more = !!q || notes.length > 0 || (!!r.check?.rules && r.check.flags.length > 0) || r.others.length > 0 || !!s.advice;
   return (
     <div className="buy-row">
       <Crop src={view.card(s.in)?.image_art_crop} />
@@ -233,48 +238,63 @@ function BuyItem({ r, view, onMark }: { r: BuyRow; view: PlanView; onMark: () =>
         {q && (
           <span className="buy-row-meta">
             {q.result ?? "Listed"}
-            {q.price_from_text ? " (price from the stock note)" : ""}, checked {fmtDate(q.checked)}. {marketShort(r, view)}
-            {r.market ? (r.market.kind === "recorded" ? " (recorded in your plan)" : `, ${r.market.date ? fmtDate(r.market.date) : "no date"}`) : ""}
+            {q.price_from_text ? " (price from the stock note)" : ""}, checked {fmtDate(q.checked)}.
           </span>
         )}
         {!q && <span className="buy-row-meta">{marketSentence(r.market, !!view.oracleId(s.in) || r.market?.kind === "recorded")}</span>}
-        {r.check?.flags.map((f) => (
-          <span key={f.id} className={`buy-flag${f.tone === "warn" ? " warn" : ""}`}>
+        {warnings.map((f) => (
+          <span key={f.id} className="buy-flag warn">
             {f.text}
           </span>
         ))}
-        {r.check?.rules && r.check.flags.length > 0 && (
-          <span className="buy-row-meta">
-            Judged by your rules from {fmtDate(r.check.rules.effective_from)}
-            {r.check.rules.note ? ` (${r.check.rules.note})` : ""}.
-          </span>
-        )}
-        {r.others.length > 0 && (
-          <span className="buy-row-meta">
-            Also checked:{" "}
-            {r.others.map((o, i) => (
-              <span key={i}>
-                {i > 0 ? "; " : ""}
-                {o.store_label ?? (o.store ? view.ctx.stores.get(o.store)?.name : null) ?? "a store"}{" "}
-                {o.url ? (
-                  <a href={o.url} target="_blank" rel="noreferrer">
-                    {o.result ?? (o.in_stock === false ? "not in stock" : "checked")}
-                  </a>
-                ) : (
-                  o.result ?? (o.in_stock === false ? "not in stock" : "checked")
-                )}{" "}
-                ({fmtDate(o.checked)})
-              </span>
-            ))}
-          </span>
-        )}
-        {s.advice && <span className="buy-row-meta">{s.advice}</span>}
         {r.decision === "no" && s.stage === "planned" && <span className="buy-row-meta">You said no. Nothing changes until you and your planner decide what to do with this swap.</span>}
         <span className="buy-row-actions">
           <button className="buy-mark" onClick={onMark}>Mark bought</button>
           <span className={`pill${decided.tone === "plain" ? " quiet" : ` ${decided.tone}`}`}>{decided.label}</span>
           {s.stage === "proposed" && <span className="pill quiet">Proposed</span>}
           {s.stage === "planned" && s.role === "standin" && <span className="pill quiet">Stand-in</span>}
+          {/* The reasoning behind the row folds away, so a store's list scans on one screen. */}
+          {more && (
+            <Details label="More" className="buy-more">
+              {q && (
+                <p>
+                  {marketShort(r, view)}
+                  {r.market ? (r.market.kind === "recorded" ? " (recorded in your plan)" : `, ${r.market.date ? fmtDate(r.market.date) : "no date"}`) : ""}.
+                </p>
+              )}
+              {notes.map((f) => (
+                <p key={f.id} className="buy-flag">
+                  {f.text}
+                </p>
+              ))}
+              {r.check?.rules && r.check.flags.length > 0 && (
+                <p>
+                  Judged by your rules from {fmtDate(r.check.rules.effective_from)}
+                  {r.check.rules.note ? ` (${r.check.rules.note})` : ""}.
+                </p>
+              )}
+              {r.others.length > 0 && (
+                <p>
+                  Also checked:{" "}
+                  {r.others.map((o, i) => (
+                    <span key={i}>
+                      {i > 0 ? "; " : ""}
+                      {o.store_label ?? (o.store ? view.ctx.stores.get(o.store)?.name : null) ?? "a store"}{" "}
+                      {o.url ? (
+                        <a href={o.url} target="_blank" rel="noreferrer">
+                          {o.result ?? (o.in_stock === false ? "not in stock" : "checked")}
+                        </a>
+                      ) : (
+                        o.result ?? (o.in_stock === false ? "not in stock" : "checked")
+                      )}{" "}
+                      ({fmtDate(o.checked)})
+                    </span>
+                  ))}
+                </p>
+              )}
+              {s.advice && <p>{s.advice}</p>}
+            </Details>
+          )}
         </span>
       </span>
     </div>
