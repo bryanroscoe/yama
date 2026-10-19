@@ -1,5 +1,6 @@
-import { NavLink, Outlet, useLocation } from "react-router";
-import { DeckTabs } from "../components/DeckTabs";
+import type { ReactNode } from "react";
+import { Outlet, useLocation } from "react-router";
+import { AreaHead, SubNav } from "../components/DeckTabs";
 import "./lab.css";
 
 /** The Lab pages, in order. `also` marks deeper pages that belong to an entry. */
@@ -9,19 +10,32 @@ const LAB_PAGES: { to: string; label: string; end?: boolean; also?: string }[] =
   { to: "/decks/lab/runs", label: "My runs" },
 ];
 
-/** The Lab section of the Decks tab: the segmented control, the lab's sub-nav, then the page. */
-export function LabLayout() {
+/**
+ * The head of a Lab page: its title, Decks | Plans | Lab, and the lab's sub-nav. `index` is the
+ * precon table (the lab's front page); other pages get a back button on phones, to `back`.
+ * `slim` pages (a precon, a run) carry their own heading under it.
+ */
+export function LabHead({
+  title,
+  index = false,
+  slim = false,
+  back = { to: "/decks/lab", label: "Back to the lab" },
+  action,
+}: {
+  title?: ReactNode;
+  index?: boolean;
+  slim?: boolean;
+  back?: { to: string; label: string };
+  action?: ReactNode;
+}) {
   const { pathname } = useLocation();
+  return <AreaHead title={title} index={index} slim={slim} back={back} action={action} nav={<SubNav label="Lab pages" pages={LAB_PAGES} also={pathname} />} />;
+}
+
+/** The Lab section of the Decks tab. Each page draws its own head (LabHead). */
+export function LabLayout() {
   return (
     <main className="page lab">
-      <DeckTabs />
-      <nav className="lab-subnav" aria-label="Lab pages">
-        {LAB_PAGES.map((p) => (
-          <NavLink key={p.to} to={p.to} end={p.end} className={({ isActive }) => (isActive || (p.also && pathname.startsWith(p.also)) ? "active" : "")}>
-            {p.label}
-          </NavLink>
-        ))}
-      </nav>
       <Outlet />
     </main>
   );

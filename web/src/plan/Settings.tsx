@@ -5,7 +5,7 @@ import { useNavigate } from "react-router";
 import { ErrorText } from "../components/ui";
 import { createKey, listImports, listKeys, revokeKey, type ScriptKey } from "./api";
 import { outbox, useOutbox } from "./outbox";
-import { shortHash, usePlanOutlet } from "./PlanLayout";
+import { PlansHead, shortHash, usePlanOutlet } from "./PlanLayout";
 import { CopyButton } from "./parts";
 import { clearPlanData } from "./store";
 
@@ -19,9 +19,7 @@ export function PlanSettings() {
   const stores = b.stores.filter((s) => !s.retired);
   return (
     <div className="plan-settings">
-      <div className="page-head">
-        <h1>Plan settings</h1>
-      </div>
+      <PlansHead title="Plan settings" />
       <Keys />
       <ThisDevice userId={userId} />
       <Imports />

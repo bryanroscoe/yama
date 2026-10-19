@@ -21,6 +21,7 @@ import {
   answerState,
   opTime,
   type IdeaOp,
+  type PlanCard,
   type PlanDeck,
   type PlanGroup,
   type Review,
@@ -33,12 +34,18 @@ import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { api, type DeckSummary } from "../api";
 import { useMe } from "../auth";
+import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
+import { Crop, WinBar, winCeiling } from "../components/Crop";
+import { BackButton } from "../components/DeckTabs";
 import { ErrorText, Pips } from "../components/ui";
+import { pct, pctRange, pointsRange, pointsWord } from "../lab/logic";
+import { pairedFor, simShort, stateLabel, useRuns, variantState, type PlanSim } from "../lab/paired";
+import { CardSheet } from "../pages/Cards";
 import { linkDeck, makeYamaDeck } from "./api";
 import { deviceId, outbox, useOutbox } from "./outbox";
-import { usePlanOutlet } from "./PlanLayout";
+import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { BoughtLine, InstalledTick, marketSentence } from "./marks";
-import { ArtPanel, CopyButton, StatusTag, Thumb } from "./parts";
+import { CopyButton, Thumb } from "./parts";
 import type { PlanView } from "./view";
 
 const TABS = [
@@ -47,6 +54,7 @@ const TABS = [
   { id: "now", label: "Now" },
   { id: "after", label: "After prints" },
   { id: "brackets", label: "Brackets" },
+  { id: "lab", label: "Lab" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -56,88 +64,287 @@ const LIST_ABOUT: Record<"stock" | "now" | "after", string> = {
   after: "The full plan once your prints arrive.",
 };
 
-/** `/decks/plan/d/:key`: one plan deck. */
+/** "Bracket 4, with swap bags for 3 and 2". */
+function bracketLine(deck: PlanDeck): string | null {
+  const b = deck.bracket;
+  if (!b) return null;
+  const bags = Object.keys(b.bags ?? {})
+    .filter((k) => Number.isFinite(Number(k)))
+    .sort((x, y) => Number(y) - Number(x));
+  const list = bags.length <= 1 ? bags.join("") : `${bags.slice(0, -1).join(", ")} and ${bags[bags.length - 1]}`;
+  return `Bracket ${b.target ?? 4}${bags.length ? `, with swap ${bags.length === 1 ? "bag" : "bags"} for ${list}` : ""}`;
+}
+
+/** The plan's cards a question names (longest first), so the question can show the card's art. */
+function namedCard(text: string, names: string[]): string | null {
+  return [...new Set(names)].sort((a, b) => b.length - a.length).find((n) => n.length > 3 && text.includes(n)) ?? null;
+}
+
+/** "Where did this Mount Doom come from?" bold, the rest dim. */
+function splitQuestion(text: string): [string, string] {
+  const m = /^(.+?[?.])\s+(.*)$/s.exec(text);
+  return m ? [m[1]!, m[2]!] : [text, ""];
+}
+
+/** `/decks/plan/d/:key`: one plan deck (design: PlanDeck, PlanDeckWide). */
 export function DeckPlan() {
   const { key = "" } = useParams();
-  const { view } = usePlanOutlet();
+  const { view, banner } = usePlanOutlet();
   const [params, setParams] = useSearchParams();
   const tab = (TABS.find((t) => t.id === params.get("tab"))?.id ?? "changes") as TabId;
   const deck = view.deck(key);
+  const runs = useRuns();
 
   if (!deck) {
     return (
-      <>
-        <p className="small"><Link to="/decks/plan">Plans</Link></p>
+      <div className="page">
+        <PlansHead title="Plans" />
         <p className="empty">There's no plan deck called "{key}" in your plans.</p>
-      </>
+      </div>
     );
   }
   const notes = deck.notes;
   const questions = notes.filter((n) => n.kind === "open_question");
   const warnings = [...notes.filter((n) => n.kind === "warning").map((n) => n.text), ...deckWarnings(deck, view.b.head?.warnings ?? [], view.b.head?.export_warnings ?? [])];
   const other = notes.filter((n) => n.kind === "note");
+  const commander = view.card(deck.commander[0]);
+  const art = view.art(deck);
+  const head = view.b.head;
+  const swapNames = view.swapsOf(deck.key).flatMap((s) => [s.in, s.out ?? ""]);
+  const sim = pairedFor(runs.data, deck.key);
+  const brackets = bracketLine(deck);
 
   return (
     <>
-      <p className="small"><Link to="/decks/plan">Plans</Link></p>
-      <ArtPanel art={view.art(deck)} className="plan-hero">
-        <h1>{deck.name}</h1>
-        <p className="plan-deck-commander">
-          {deck.commander.join(" and ")} <Pips identity={deck.color_identity ?? ""} /> <span className="dim">{identityName(deck.color_identity ?? "")}</span>
-        </p>
-        <p className="small dim">
+      <ArtPanel as="header" className="plan-hero" art={art} artist={commander?.artist} wash="bottom" toGround credit={false}>
+        <BackButton to="/decks/plan" label="Back to plans" className="on-art" />
+        {art && <span className="plan-hero-credit">{artCredit(commander?.artist)}</span>}
+        <div className="plan-hero-inner">
+          <nav className="plan-crumbs" aria-label="Breadcrumb">
+            <Link to="/decks">Decks</Link>
+            <span aria-hidden="true">/</span>
+            <Link to="/decks/plan">Plans</Link>
+          </nav>
+          <span className="plan-hero-cmdr phone-only">
+            <Pips identity={deck.color_identity ?? ""} /> {deck.commander.join(" and ")}
+          </span>
+          <h1 className="plan-hero-title">{deck.name} plan</h1>
+          {brackets && <span className="plan-hero-sub phone-only">{brackets}</span>}
+          <span className="plan-hero-chips wide-only">
+            <span className="plan-hero-cmdr">
+              <Pips identity={deck.color_identity ?? ""} /> {deck.commander.join(" and ")}
+              <span className="visually-hidden">, {identityName(deck.color_identity ?? "")}</span>
+            </span>
+            {brackets && <span className="art-chip plain">{brackets}</span>}
+            {deck.source === "import" && head && (
+              <span className="art-chip plain dim-on-art">
+                Planned in {head.app ?? "an outside planner"}
+                {head.guide_version != null ? `, guide v${head.guide_version}` : ""}, imported {fmtDate(head.imported_at)}
+              </span>
+            )}
+          </span>
+        </div>
+      </ArtPanel>
+
+      <div className="page plan-deck-body">
+        {banner}
+        {questions.map((n) => {
+          const [lead, rest] = splitQuestion(n.text);
+          const card = namedCard(n.text, swapNames);
+          const crop = card ? view.card(card)?.image_art_crop : null;
+          return (
+            <section key={n.text} className="plan-question" aria-label="Open question">
+              {crop && <Crop src={crop} size="md" />}
+              <span className="plan-question-text">
+                <b>{lead}</b>
+                {rest && <span>{rest}</span>}
+                {n.source && <span className="small">From {n.source}. Settle it with your planner, or suggest a change below.</span>}
+              </span>
+            </section>
+          );
+        })}
+        <p className="small dim plan-deck-about">
           {deck.product ? `${deck.product}. ` : ""}
           {deck.source === "import" ? "Planned outside Yama; read-only here." : "Made in Yama."}
           {deck.status === "proposals_only" ? " Proposals only: no swaps are approved yet, so stock, now and after prints are the same list." : ""}
           {deck.status === "archived" ? " The latest import didn't include this deck." : ""}
         </p>
-      </ArtPanel>
-
-      {questions.length > 0 && (
-        <section className="plan-notes">
-          <h3>Open questions</h3>
-          <ul>
-            {questions.map((n) => (
+        {warnings.length > 0 && (
+          <details className="plan-warnings">
+            <summary>
+              <span className="tag warn">{warnings.length === 1 ? "1 warning" : `${warnings.length} warnings`}</span>
+            </summary>
+            <ul className="small">
+              {warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          </details>
+        )}
+        {other.length > 0 && (
+          <ul className="small dim">
+            {other.map((n) => (
               <li key={n.text}>{n.text}</li>
             ))}
           </ul>
-        </section>
-      )}
-      {warnings.length > 0 && (
-        <details className="plan-warnings">
-          <summary>
-            <span className="tag warn">{warnings.length === 1 ? "1 warning" : `${warnings.length} warnings`}</span>
-          </summary>
-          <ul className="small">
-            {warnings.map((w) => (
-              <li key={w}>{w}</li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {other.length > 0 && (
-        <ul className="small dim">
-          {other.map((n) => (
-            <li key={n.text}>{n.text}</li>
+        )}
+
+        <div className="plan-tabs" role="tablist" aria-label="Plan views">
+          {TABS.map((t) => (
+            <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? "active" : ""} onClick={() => setParams({ tab: t.id }, { replace: true })}>
+              {t.label}
+            </button>
           ))}
-        </ul>
-      )}
+        </div>
 
-      <div className="plan-tabs" role="tablist" aria-label="Plan views">
-        {TABS.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? "active" : ""} onClick={() => setParams({ tab: t.id }, { replace: true })}>
-            {t.label}
-          </button>
-        ))}
+        <div className="plan-deck-cols">
+          <div className="plan-deck-main">
+            {tab === "changes" && <ChangesTab deck={deck} view={view} />}
+            {(tab === "stock" || tab === "now" || tab === "after") && <ListTab deck={deck} view={view} state={tab} />}
+            {tab === "brackets" && <BracketsTab deck={deck} view={view} />}
+            {tab === "lab" && <LabTab deck={deck} sim={sim} loading={runs.isPending} error={runs.error} />}
+          </div>
+          <aside className="plan-deck-side" aria-label="About this plan">
+            {tab !== "lab" && sim && <VersionsPanel deck={deck} sim={sim} compact />}
+            <BagsPanel deck={deck} onOpen={() => setParams({ tab: "brackets" }, { replace: true })} />
+            <CopyAfter deck={deck} />
+          </aside>
+        </div>
+
+        <Ideas deck={deck} view={view} />
+        <LinkDeck deck={deck} />
       </div>
-
-      {tab === "changes" && <ChangesTab deck={deck} view={view} />}
-      {(tab === "stock" || tab === "now" || tab === "after") && <ListTab deck={deck} view={view} state={tab} />}
-      {tab === "brackets" && <BracketsTab deck={deck} view={view} />}
-
-      <Ideas deck={deck} view={view} />
-      <LinkDeck deck={deck} />
     </>
+  );
+}
+
+// ── Simulated strength ──────────────────────────────────────────────────────
+
+/** Each list's raw win rate with its interval, the 25% line, and the label every simulated number carries. */
+function VersionsPanel({ deck, sim, compact = false }: { deck: PlanDeck; sim: PlanSim; compact?: boolean }) {
+  const max = winCeiling(sim.versions.map((v) => v.variant.wilson?.[1]));
+  const level = sim.run.level ? `${Math.round(sim.run.level * 100)}%` : "90%";
+  const stockAfter = sim.comparisons.find((c) => variantState(c.base, deck.key) === "stock" && variantState(c.variant, deck.key) === "after");
+  const tryHref = deck.deck_id ? `/decks/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/decks/lab/try";
+  return (
+    <section className="plan-panel plan-versions" aria-labelledby={`versions-${compact ? "c" : "f"}`}>
+      <h2 id={`versions-${compact ? "c" : "f"}`}>{sim.versions.length === 3 ? "Three versions" : "Simulated strength"}</h2>
+      {sim.versions.map((v) => {
+        const w = v.variant.wilson;
+        return (
+          <div key={v.variant.id} className="plan-version">
+            <b className="plan-version-name">{v.label}</b>
+            <b className="plan-version-rate num">{pct(v.variant.win_rate)}</b>
+            <span className="plan-version-note">
+              {v.note}. {v.variant.games} games
+            </span>
+            <span className="plan-version-ci num">{w ? pctRange(w[0], w[1]) : "no interval"}</span>
+            <WinBar
+              value={v.variant.win_rate}
+              lo={w?.[0]}
+              hi={w?.[1]}
+              max={max}
+              few={v.variant.games < 10}
+              label={`${v.label}: won ${pct(v.variant.win_rate, 1)} of ${v.variant.games} games${w ? `, ${level} interval ${pctRange(w[0], w[1])}` : ""}`}
+            />
+          </div>
+        );
+      })}
+      <p className="plan-panel-note">
+        Raw win rate in simulated 4-player games.
+        {stockAfter?.delta_win_rate != null && stockAfter.delta_ci
+          ? ` Stock to after: ${pointsWord(stockAfter.delta_win_rate)}, ${level} interval ${pointsRange(stockAfter.delta_ci)}.`
+          : ""}{" "}
+        {simShort(sim.run, sim.versions)}. Bars show the {level} interval; the line is 25%. Simulated games, not your table.
+      </p>
+      <Link className="button" to={tryHref}>Try a change</Link>
+    </section>
+  );
+}
+
+function LabTab({ deck, sim, loading, error }: { deck: PlanDeck; sim: PlanSim | null; loading: boolean; error: unknown }) {
+  if (loading) return <p className="dim">Loading your runs…</p>;
+  if (error) return <ErrorText error={error} />;
+  if (!sim) {
+    return (
+      <div className="stack">
+        <p className="empty">No simulated runs for this plan yet.</p>
+        <p className="small dim">Paired runs from your planner's batches show here once they're imported. You can also try a change yourself in the lab.</p>
+        <div className="row">
+          <Link className="button" to={deck.deck_id ? `/decks/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/decks/lab/try"}>Try a change</Link>
+        </div>
+      </div>
+    );
+  }
+  const level = sim.run.level ? `${Math.round(sim.run.level * 100)}%` : "90%";
+  return (
+    <div className="stack">
+      <VersionsPanel deck={deck} sim={sim} />
+      <section className="plan-panel">
+        <h2>Comparisons</h2>
+        {sim.comparisons.map((c) => {
+          const a = stateLabel(variantState(c.base, deck.key) ?? c.base)[0];
+          const z = stateLabel(variantState(c.variant, deck.key) ?? c.variant)[0];
+          return (
+            <div key={`${c.base}>${c.variant}`} className="plan-compare">
+              <span className="plan-compare-head">
+                <b>
+                  {z} against {a.toLowerCase()}
+                </b>
+                <span className={`pill ${c.verdict.kind === "better" ? "good" : c.verdict.kind === "worse" ? "bad" : "warn"}`}>
+                  {c.verdict.kind === "better" ? "Probably better" : c.verdict.kind === "worse" ? "Probably worse" : "Can't tell yet"}
+                </span>
+              </span>
+              <span className="small">
+                {c.delta_win_rate != null && c.delta_ci ? `${pointsWord(c.delta_win_rate)}, ${level} interval ${pointsRange(c.delta_ci)}. ` : ""}
+                {c.pods} paired pods: only {z.toLowerCase()} won {c.variant_only}, only {a.toLowerCase()} won {c.base_only}.
+              </span>
+            </div>
+          );
+        })}
+        <p className="plan-panel-note">
+          Run {sim.run.name}, analysed in your planner and imported {fmtDate(sim.run.imported_at)}. {simShort(sim.run)}. The lab's model win rates for these lists are on the{" "}
+          <Link to="/decks/lab">precon table</Link>; these are raw win rates.
+        </p>
+        <div className="row">
+          <Link className="button" to={`/decks/lab/runs/batch/${sim.run.id}`}>Open the run</Link>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** What each bracket bag does, with a link to the Brackets tab. */
+function BagsPanel({ deck, onOpen }: { deck: PlanDeck; onOpen: () => void }) {
+  const builds = useMemo(() => bracketBuilds(deck.states.after?.cards ?? [], deck.bracket), [deck]);
+  if (builds.length < 2) return null;
+  return (
+    <section className="plan-panel" aria-label="Bracket bags">
+      <h2>Bracket bags</h2>
+      <span className="small">
+        <b>Bracket {builds[0]!.bracket}:</b> the full plan, after prints.
+      </span>
+      {builds.slice(1).map((b, i) => (
+        <span key={b.bracket} className="small">
+          <b>Bracket {b.bracket}:</b> swap {b.swaps.length} {b.swaps.length === 1 ? "card" : "cards"} back{i > 0 ? ` on top of Bracket ${builds[i]!.bracket}` : ""}
+          {b.warnings.length ? `, ${b.warnings.length} to check` : ""}.
+        </span>
+      ))}
+      <button className="quiet small plan-panel-link" onClick={onOpen}>See the bags</button>
+    </section>
+  );
+}
+
+/** The after-prints list, ready to paste. */
+function CopyAfter({ deck }: { deck: PlanDeck }) {
+  const after = deck.states.after?.cards;
+  if (!after?.length) return null;
+  return (
+    <div className="plan-copy">
+      <CopyButton text={exportText(after)} label="Copy names" />
+      <CopyButton text={exportText(after, { printings: true })} label="Copy for Moxfield" />
+      <span className="small dim">The after-prints list, {cardCount(after)} cards.</span>
+    </div>
   );
 }
 
@@ -150,59 +357,50 @@ function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
   const logs = useMemo(() => deckLogs(deck), [deck]);
   const row = (s: Swap) => <SwapRow key={s.key} s={s} view={view} userId={userId} logs={logs} standins={c.standins.get(s.key) ?? []} />;
   const nothing = !c.now.length && !c.prints.length && !c.optional.length && !c.proposed.length && !c.loose.length;
+  const shownArtists = [...c.now, ...c.prints, ...c.loose, ...c.optional, ...c.proposed.flatMap((g) => g.swaps)].flatMap((s) => [s.in, s.out]).map((n) => view.card(n)?.artist);
+  const group = (title: string, list: Swap[], about?: string) =>
+    list.length > 0 && (
+      <section className="plan-group" aria-label={title}>
+        <h2 className="plan-group-title">
+          {title} <span className="num">{list.length}</span>
+        </h2>
+        {about && <p className="dim small">{about}</p>}
+        {list.map(row)}
+      </section>
+    );
   return (
-    <div className="stack">
+    <div className="plan-changes">
       {nothing && <p className="empty">No swaps or proposals for this deck yet.</p>}
-      {c.now.length > 0 && (
-        <section>
-          <h3>Swap in now <span className="dim num">{c.now.length}</span></h3>
-          <div className="list">{c.now.map(row)}</div>
-        </section>
-      )}
-      {c.prints.length > 0 && (
-        <section>
-          <h3>When your prints arrive <span className="dim num">{c.prints.length}</span></h3>
-          <div className="list">{c.prints.map(row)}</div>
-        </section>
-      )}
-      {c.loose.length > 0 && (
-        <section>
-          <h3>Stand-ins <span className="dim num">{c.loose.length}</span></h3>
-          <div className="list">{c.loose.map(row)}</div>
-        </section>
-      )}
-      {c.optional.length > 0 && (
-        <section>
-          <h3>Optional extras <span className="dim num">{c.optional.length}</span></h3>
-          <p className="dim small">Cards you have for this deck that the plan doesn't need a slot for.</p>
-          <div className="list">{c.optional.map(row)}</div>
-        </section>
-      )}
+      {group("Swap in now", c.now)}
+      {group("When your prints arrive", c.prints)}
+      {group("Stand-ins", c.loose)}
+      {group("Optional extras", c.optional, "Cards you have for this deck that the plan doesn't need a slot for.")}
       {c.proposed.length > 0 && (
-        <section className="stack">
-          <h3>Proposed, not in the plan <span className="dim num">{c.proposed.reduce((n, g) => n + g.swaps.length, 0)}</span></h3>
+        <section className="plan-group" aria-label="Proposed, not in the plan">
+          <h2 className="plan-group-title">
+            Proposed, not in the plan <span className="num">{c.proposed.reduce((n, g) => n + g.swaps.length, 0)}</span>
+          </h2>
           <p className="small">
             <Link to={`/decks/plan/review?deck=${encodeURIComponent(deck.key)}&show=proposed`}>Answer these in Review</Link>
             {deck.source === "import" && <span className="dim">. Your answers go to your {view.app} inbox; a want joins the plan when the plan is updated there.</span>}
           </p>
-          {c.proposed.length > 1 && deck.groups.length > 1 && (
-            <p className="dim small">Each group builds on the ones before it.</p>
-          )}
+          {c.proposed.length > 1 && deck.groups.length > 1 && <p className="dim small">Each group builds on the ones before it.</p>}
           {c.proposed.map((g) => (
-            <div key={g.group?.label ?? "none"}>
+            <div key={g.group?.label ?? "none"} className="plan-subgroup">
               {(g.group || c.proposed.length > 1) && (
-                <h4 className="plan-group-head">
+                <h3 className="plan-group-head">
                   {g.group ? g.group.label : "Other proposals"}
-                  {g.group?.bracket != null && <span className="tag">Bracket {g.group.bracket}</span>}
-                </h4>
+                  {g.group?.bracket != null && <span className="pill">Bracket {g.group.bracket}</span>}
+                </h3>
               )}
               {g.group?.note && <p className="dim small">{g.group.note}</p>}
-              <div className="list">{g.swaps.map(row)}</div>
+              {g.swaps.map(row)}
             </div>
           ))}
           <ProposedBuild deck={deck} view={view} />
         </section>
       )}
+      {shownArtists.some(Boolean) && <p className="small dim art-credits">{artCredits(shownArtists)}</p>}
     </div>
   );
 }
@@ -212,53 +410,82 @@ function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView;
   const answer = view.answers.get(s.key);
   const priced = s.stage === "proposed" && s.src !== "owned";
   const tick = s.stage === "planned" && (s.role !== "optional" || !!s.out);
+  const inCard = view.card(s.in);
+  const outCard = view.card(s.out);
+  const lead = s.why ?? s.advice ?? s.when;
+  const more = s.why_out || s.note || s.later_out || (s.advice && s.advice !== lead) || (s.when && s.when !== lead);
   return (
-    <div className="swap-row">
-      <div className="swap-thumbs">
-        {s.out ? <Thumb name={s.out} card={view.card(s.out)} oracleId={view.oracleId(s.out)} dim /> : <span className="plan-thumb-empty" aria-hidden />}
-        <span className="swap-arrow" aria-hidden>→</span>
-        <Thumb name={s.in} card={view.card(s.in)} oracleId={view.oracleId(s.in)} />
+    <article className={`swap-card${s.stage === "proposed" ? " is-proposed" : ""}`}>
+      <div className="swap-crops">
+        <span className="swap-crop">
+          <CropButton name={s.out} card={outCard} oracleId={view.oracleId(s.out)} />
+          <span className="swap-crop-label">Out: {s.out ?? "no slot"}</span>
+        </span>
+        <svg className="swap-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M5 12h14M13 6l6 6-6 6" />
+        </svg>
+        <span className="swap-crop is-in">
+          <CropButton name={s.in} card={inCard} oracleId={view.oracleId(s.in)} />
+          <span className="swap-crop-label">In: {s.in}</span>
+        </span>
       </div>
-      <div className="swap-body">
-        <p className="swap-title">
-          <b>{s.in}</b>
-          {s.out ? <span className="dim"> for {s.out}</span> : <span className="dim"> (no slot)</span>}
+      <div className="swap-text">
+        <b className="swap-title">
+          {s.in} <span>{s.out ? `for ${s.out}` : "(no slot)"}</span>
+        </b>
+        {lead && <p className="swap-why">{lead}</p>}
+        <p className="swap-source">
+          {swapSource(s, view.ctx)}
+          {priced ? ` ${marketSentence(cheapestMarket(s.in, view.b), !!view.oracleId(s.in))}` : ""}
         </p>
-        <div className="row swap-tags">
-          {s.role === "standin" && <span className="tag">Stand-in</span>}
-          {s.tier && <span className="tag">{s.tier}</span>}
-          {status && <StatusTag {...status} />}
-          {s.game_changer && <span className="tag">Game Changer</span>}
-          {s.plan_card && s.plan_card !== s.in && <span className="tag">Budget pick for {s.plan_card}</span>}
-          {!tick && s.upgrade && (s.upgrade.status === "installed" || s.upgrade.status === "skipped") && (
-            <span className="tag">Planner says {s.upgrade.status}</span>
-          )}
-        </div>
-        <p className="small dim">{swapSource(s, view.ctx)}</p>
-        {s.when && <p className="small">{/^when\b/i.test(s.when) ? s.when : `When: ${s.when}`}</p>}
-        {s.advice && <p className="small">{s.advice}</p>}
-        {priced && <p className="small dim">{marketSentence(cheapestMarket(s.in, view.b), !!view.oracleId(s.in))}</p>}
-        {s.later_out && <p className="small">Later cut (suggested, not in the plan): {s.later_out}</p>}
-        {answer && <AnswerLine s={s} answer={answer} view={view} />}
-        {(s.why || s.why_out || s.note) && (
-          <details className="small">
-            <summary>Why</summary>
-            {s.why && <p>{s.why}</p>}
-            {s.why_out && <p className="dim">{s.out ? `${s.out}: ` : ""}{s.why_out}</p>}
+        {more && (
+          <details className="swap-more small">
+            <summary>More</summary>
+            {s.when && s.when !== lead && <p>{/^when\b/i.test(s.when) ? s.when : `When: ${s.when}`}</p>}
+            {s.advice && s.advice !== lead && <p>{s.advice}</p>}
+            {s.why_out && <p className="dim">Why cut{s.out ? ` ${s.out}` : ""}: {s.why_out}</p>}
+            {s.later_out && <p>Later cut (suggested, not in the plan): {s.later_out}</p>}
             {s.note && <p className="dim">Note: {s.note}</p>}
           </details>
         )}
+        {answer && <AnswerLine s={s} answer={answer} view={view} />}
         {s.stage === "planned" && <BoughtLine swap={s} view={view} />}
-        {tick && <InstalledTick swap={s} view={view} userId={userId} />}
         {standins.map((st) => (
           <div key={st.key} className="swap-standin small">
-            <span className="tag">Stand-in</span> <b>{st.in}</b> holds the slot until the print arrives, then becomes a spare. {swapSource(st, view.ctx)}
+            <span className="pill">Stand-in</span> <b>{st.in}</b> holds the slot until the print arrives, then becomes a spare. {swapSource(st, view.ctx)}
             {st.later_out && <> Later cut (suggested, not in the plan): {st.later_out}. If you follow it, {st.in} stays and {st.later_out} is the spare instead.</>}
             <InstalledTick swap={st} view={view} userId={userId} compact />
           </div>
         ))}
       </div>
-    </div>
+      <div className="swap-side">
+        <span className="swap-pills">
+          {status ? <span className={`pill${status.tone === "plain" ? "" : ` ${status.tone}`}`}>{status.label}</span> : s.stage === "proposed" ? <span className="pill quiet">Proposed</span> : null}
+          {s.role === "standin" && <span className="pill">Stand-in</span>}
+          {s.tier && <span className="pill quiet">{s.tier}</span>}
+          {s.game_changer && <span className="pill quiet">Game Changer</span>}
+          {s.plan_card && s.plan_card !== s.in && <span className="pill quiet">Budget pick for {s.plan_card}</span>}
+          {!tick && s.upgrade && (s.upgrade.status === "installed" || s.upgrade.status === "skipped") && <span className="pill quiet">Planner says {s.upgrade.status}</span>}
+        </span>
+        {tick && <InstalledTick swap={s} view={view} userId={userId} short />}
+      </div>
+    </article>
+  );
+}
+
+/** A swap card's art crop; tapping it opens the card (read-only) when Yama knows it. */
+function CropButton({ name, card, oracleId }: { name: string | null; card: PlanCard | undefined; oracleId: string | undefined }) {
+  const [open, setOpen] = useState(false);
+  if (!name) return <Crop src={null} empty />;
+  const crop = <Crop src={card?.image_art_crop} />;
+  if (!oracleId) return <span title={`${name} isn't in Yama's card data yet`}>{crop}</span>;
+  return (
+    <>
+      <button type="button" className="swap-crop-btn" onClick={() => setOpen(true)} aria-label={`Show ${name}`}>
+        {crop}
+      </button>
+      {open && <CardSheet oracleId={oracleId} readOnly onClose={() => setOpen(false)} />}
+    </>
   );
 }
 

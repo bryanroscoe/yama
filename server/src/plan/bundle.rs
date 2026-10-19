@@ -22,14 +22,17 @@ pub const PRINTING_SOURCE: &str = "TCGplayer market via Scryfall";
 /// The cache key: plan revision, the finish time of the latest card or price import, and a tag
 /// for the owner. Revisions count per owner, so without the tag two people with one import each
 /// would share a key, and a phone that kept the last person's bundle after a sign-out could be
-/// told it was still current.
+/// told it was still current. `SHAPE` goes up when the bundle gains fields, so saved copies
+/// without them are fetched again.
+const SHAPE: u32 = 2;
+
 pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let revision: Option<i64> = sqlx::query_scalar("SELECT revision FROM plan_meta WHERE owner_id = ?").bind(owner).fetch_optional(pool).await?;
     let cards_at: Option<String> =
         sqlx::query_scalar("SELECT MAX(finished_at) FROM import_runs WHERE error IS NULL AND finished_at IS NOT NULL").fetch_one(pool).await?;
     let digits: String = cards_at.unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
     let tag = &crate::util::sha256_hex(owner)[..8];
-    Ok(format!("{}-{}-{tag}", revision.unwrap_or(0), if digits.is_empty() { "0" } else { digits.as_str() }))
+    Ok(format!("{}-{}-{tag}-s{SHAPE}", revision.unwrap_or(0), if digits.is_empty() { "0" } else { digits.as_str() }))
 }
 
 fn parse(s: Option<&str>) -> Value {
@@ -216,7 +219,9 @@ struct CardRow {
     color_identity: String,
     layout: Option<String>,
     image_small: Option<String>,
+    image_normal: Option<String>,
     image_art_crop: Option<String>,
+    artist: Option<String>,
     faces: Option<String>,
 }
 
@@ -548,7 +553,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     let ids: BTreeSet<&String> = resolved.values().collect();
     let ids_json = serde_json::to_string(&ids).map_err(anyhow::Error::from)?;
     let card_rows: Vec<CardRow> = sqlx::query_as(
-        "SELECT oracle_id, name, type_line, cmc, color_identity, layout, image_small, image_art_crop, faces
+        "SELECT oracle_id, name, type_line, cmc, color_identity, layout, image_small, image_normal, image_art_crop, artist, faces
          FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))",
     )
     .bind(&ids_json)
@@ -560,6 +565,8 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
             let v = json!({
                 "name": c.name, "type_line": c.type_line, "cmc": c.cmc, "color_identity": c.color_identity, "layout": c.layout,
                 "image_small": c.image_small, "image_art_crop": c.image_art_crop, "faces": parse(c.faces.as_deref()),
+                // The full card (Review shows it) and who painted the art crop, for the credit line.
+                "image_normal": c.image_normal, "artist": c.artist,
             });
             (c.oracle_id, v)
         })

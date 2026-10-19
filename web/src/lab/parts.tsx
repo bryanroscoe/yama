@@ -1,19 +1,17 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
+import { ArtPanel as SharedArtPanel } from "../components/ArtPanel";
 import type { Art, ExperimentStatus } from "./api";
 import { linScale, type Scale } from "./logic";
 
-/** Scryfall's art crop behind a flat wash, with the artist credited as Scryfall asks. */
+/**
+ * The commander's art behind a page's title: the shared ArtPanel (Scryfall's art crop, never
+ * filtered, darkened by a wash on top) with the artist credited as Scryfall asks.
+ */
 export function ArtPanel({ art, children }: { art: Art | null | undefined; children: ReactNode }) {
-  const style: CSSProperties | undefined = art ? { backgroundImage: `url("${art.url}")` } : undefined;
   return (
-    <header className="lab-art" style={style}>
-      <div className="lab-art-body">{children}</div>
-      {art && (
-        <span className="lab-credit">
-          {art.card} art{art.artist ? ` by ${art.artist}` : ""}, image from Scryfall
-        </span>
-      )}
-    </header>
+    <SharedArtPanel as="header" className="lab-art" art={art?.url} artist={art?.artist} wash="bottom" toGround>
+      {children}
+    </SharedArtPanel>
   );
 }
 

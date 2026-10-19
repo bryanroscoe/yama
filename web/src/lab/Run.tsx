@@ -24,6 +24,7 @@ import {
   verdictText,
 } from "./logic";
 import { ArtPanel, IntervalChart, SimLine, StatusTag } from "./parts";
+import { LabHead } from "./LabLayout";
 
 const LIVE = new Set(["queued", "running"]);
 
@@ -73,7 +74,7 @@ export function RunPage() {
   if (exp.error) {
     return (
       <>
-        <Link className="lab-back" to="/decks/lab/runs">My runs</Link>
+        <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
         <ErrorText error={exp.error} />
       </>
     );
@@ -86,7 +87,7 @@ export function RunPage() {
 
   return (
     <>
-      <Link className="lab-back" to="/decks/lab/runs">My runs</Link>
+      <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
       <ArtPanel art={e.base?.art}>
         <span>
           <StatusTag status={e.status} />

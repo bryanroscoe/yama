@@ -1,0 +1,339 @@
+/* The Decks tab's shared pieces (components/DeckTabs.tsx): the page head with Decks | Plans | Lab,
+   the section sub-navs, round back buttons, and the art-crop rows the deck, plan and lab pages
+   share. Night table tokens only (styles.css); sentence case; no middle dots. */
+
+/* ── page head ──────────────────────────────────────────────────────────── */
+
+.area-head {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.area-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "back title action" "tabs tabs tabs";
+  align-items: center;
+  gap: 16px 10px;
+}
+.area-top > .area-back {
+  grid-area: back;
+}
+.area-top > .area-title {
+  grid-area: title;
+  margin: 0;
+  min-width: 0;
+}
+.area-top > .area-status {
+  grid-area: action;
+  justify-self: end;
+}
+.area-top > .area-action {
+  grid-area: action;
+  justify-self: end;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.area-top > .deck-sections {
+  grid-area: tabs;
+  margin: 0;
+}
+.area-phone {
+  display: none;
+}
+
+/* Phones: a section's front page puts "Decks" over a full-width control; other pages a back
+   button and the title. */
+@media (max-width: 899px) {
+  .area-top > .deck-sections {
+    display: flex;
+    width: 100%;
+  }
+  .area-top > .deck-sections > a {
+    flex: 1;
+    justify-content: center;
+    min-height: 40px;
+  }
+  .is-index .area-wide {
+    display: none;
+  }
+  .is-index .area-phone {
+    display: inline;
+  }
+  .is-index .area-top {
+    grid-template-areas: "title title action" "tabs tabs tabs";
+  }
+  .is-sub .area-top > .deck-sections,
+  .is-sub > .area-subnav,
+  .is-sub .area-top > .area-action {
+    display: none;
+  }
+  .is-sub .area-top {
+    grid-template-areas: "back title status";
+    align-items: center;
+  }
+  .is-sub .area-title {
+    font-size: 2.75rem;
+  }
+  .is-slim .area-top {
+    grid-template-areas: "back . .";
+  }
+  .is-sub .area-top > .area-status {
+    grid-area: status;
+  }
+  .is-sub .area-top > .area-status:only-of-type {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Laptops: one row, title on the left; no back buttons (the sub-nav is there). */
+@media (min-width: 900px) {
+  .area-top {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "title tabs action";
+    align-items: end;
+  }
+  .area-top > .area-back {
+    display: none;
+  }
+  .area-top > .area-status {
+    grid-area: auto;
+    align-self: center;
+  }
+  .is-slim .area-top {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: ". tabs";
+  }
+}
+
+/* The Plans count on the control: a small warn pill. */
+.deck-tab-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--warn);
+  color: var(--ground);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* Overview, Review, Buy... and Precons, Try a change, My runs: an underlined row. */
+.area-subnav {
+  display: flex;
+  gap: 0 22px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+}
+.area-subnav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+  color: var(--dim);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.area-subnav a:hover {
+  color: var(--text);
+}
+.area-subnav a.active {
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--text);
+}
+@media (max-width: 899px) {
+  .area-subnav {
+    gap: 0 18px;
+    font-size: 0.9375rem;
+  }
+}
+
+/* ── back buttons ───────────────────────────────────────────────────────── */
+
+.area-back {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+.area-back:hover {
+  background: var(--raised);
+}
+.area-back-text {
+  display: none;
+}
+/* On commander art: a dark glass circle. */
+.area-back.on-art {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 14px;
+  background: rgb(11 12 14 / 0.6);
+  color: var(--on-art);
+}
+@media (min-width: 900px) {
+  .area-back.on-art.has-text {
+    top: 24px;
+    left: var(--page-pad);
+    display: inline-flex;
+    width: auto;
+    height: 40px;
+    gap: 6px;
+    padding: 0 14px 0 10px;
+    font-weight: 700;
+  }
+  .area-back.has-text .area-back-text {
+    display: inline;
+  }
+}
+
+/* ── art-crop rows ──────────────────────────────────────────────────────── */
+
+/* A card's art crop as a small landscape tile, never filtered (design/tokens.md). */
+.crop {
+  display: block;
+  flex: none;
+  width: 52px;
+  height: 38px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--raised);
+}
+.crop.crop-empty {
+  background: transparent;
+  border: 2px dashed var(--line);
+}
+.crop-lg {
+  width: 96px;
+  height: 68px;
+  border-radius: 10px;
+}
+.crop-md {
+  width: 64px;
+  height: 46px;
+  border-radius: 8px;
+}
+.crop-sm {
+  width: 48px;
+  height: 36px;
+}
+
+/* Small status pills: "To buy", "Stand-in now", "Proposed". */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.pill.good {
+  background: var(--good-tint);
+  color: var(--good);
+}
+.pill.warn {
+  background: var(--warn-tint);
+  color: var(--warn);
+}
+.pill.bad {
+  background: var(--bad-tint);
+  color: var(--bad);
+}
+.pill.quiet {
+  color: var(--dim);
+}
+
+/* A raised note above a page's content ("Planned in commander-decks..."). */
+.area-note {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--dim);
+  font-size: var(--t-sm);
+  line-height: 1.45;
+  max-width: none;
+}
+.area-note b {
+  color: var(--text);
+}
+.area-note.warn {
+  background: rgb(240 180 90 / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(240 180 90 / 0.35);
+  color: var(--text);
+}
+@media (min-width: 900px) {
+  .area-note {
+    padding: 12px 14px;
+    border-radius: 14px;
+    font-size: var(--t-label);
+  }
+}
+
+/* Interval bars on a 0..x scale with a 25% line, as the plan and lab artboards draw them. */
+.wbar {
+  position: relative;
+  display: block;
+  height: 14px;
+  min-width: 60px;
+}
+.wbar::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 2px;
+  background: var(--raised);
+}
+.wbar-ref {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--warn);
+}
+.wbar-range {
+  position: absolute;
+  top: 4px;
+  height: 6px;
+  min-width: 2px;
+  border-radius: var(--r-pill);
+  background: rgb(242 239 232 / 0.4);
+}
+.wbar.few .wbar-range {
+  background: rgb(242 239 232 / 0.2);
+}
+.wbar-dot {
+  position: absolute;
+  top: 2px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: var(--text);
+}
+
+/* Text that differs between phone and laptop ("Add" and "Add a deck"). */
+@media (max-width: 899px) {
+  .wide-only {
+    display: none !important;
+  }
+}
+@media (min-width: 900px) {
+  .phone-only {
+    display: none !important;
+  }
+}

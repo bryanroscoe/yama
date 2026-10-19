@@ -1,15 +1,15 @@
 import { identityName } from "@yama/core";
-import { daysBetween, deckCounts, deckWarnings, fmtDate, opTime, overviewCounts, STALE_DAYS, usd, type PlanDeck } from "@yama/core/plan";
+import { buyList, daysBetween, deckCounts, deckWarnings, fmtDate, opTime, overviewCounts, STALE_DAYS, usd, type BuyList, type PlanDeck } from "@yama/core/plan";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
+import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { Pips } from "../components/ui";
 import { ImportSheet } from "./ImportSheet";
 import { deviceId, outbox, useOutbox } from "./outbox";
-import { headSentence, usePlanOutlet } from "./PlanLayout";
-import { ArtPanel } from "./parts";
+import { headSentence, PlansHead, usePlanOutlet } from "./PlanLayout";
 import type { PlanView } from "./view";
 
-/** `/decks/plan`: where the plans came from, the totals, and one card per deck. */
+/** `/decks/plan`: where the plans came from, the totals, and one art tile per deck (design: PlanOverview). */
 export function Overview() {
   const { view, userId } = usePlanOutlet();
   const pending = useOutbox(userId).pending.length;
@@ -20,17 +20,26 @@ export function Overview() {
   const counts = live.map((d) => deckCounts(d, view.swapsOf(d.key), view.answers, view.ctx.orders));
   const sum = (f: (c: (typeof counts)[number]) => number) => counts.reduce((n, c) => n + f(c), 0);
   const totals = useMemo(() => overviewCounts(b, { answers: view.answers, marks: view.markBy, today: view.today }), [b, view]);
+  const buy = useMemo(() => buyList(b, { answers: view.answers, marks: view.markBy }), [b, view]);
   const priceAge = daysBetween(b.prices_as_of, view.today);
   const installedGone = view.markOrphans.filter(([, m]) => m.installed?.value);
   const questions = b.notes.filter((n) => n.kind === "open_question");
   const otherNotes = b.notes.filter((n) => n.kind !== "open_question");
+  const artists = live.map((d) => (view.art(d) ? view.card(d.commander[0])?.artist : null));
+  const elsewhere = buy.elsewhere.length;
 
   return (
     <>
-      <div className="page-head">
-        <h1>Plans</h1>
-        <button className={b.decks.length ? "" : "primary"} onClick={() => setImporting(true)}>Import a plan file</button>
-      </div>
+      <PlansHead
+        title="Plans"
+        index
+        action={
+          <button className={b.decks.length ? "" : "primary"} onClick={() => setImporting(true)}>
+            <span className="wide-only">Import a plan file</span>
+            <span className="phone-only">Import</span>
+          </button>
+        }
+      />
       {importing && <ImportSheet view={view} onClose={() => setImporting(false)} />}
 
       {b.decks.length === 0 ? (
@@ -44,57 +53,58 @@ export function Overview() {
       ) : (
         <>
           {b.head && (
-            <div className="plan-banner">
+            <div className="area-note plan-head-note" role="note">
               <p>
-                Planned in {b.head.app ?? "an outside planner"}. {headSentence(b.head)}
+                Planned in {b.head.app ?? "an outside planner"}. {headSentence(b.head)} What you do here goes to its inbox
+                {b.inputs.pending_pull > 0 ? (
+                  <>
+                    : <b>{b.inputs.pending_pull === 1 ? "1 item waiting." : `${b.inputs.pending_pull} items waiting.`}</b>
+                  </>
+                ) : b.inputs.pulled_at ? (
+                  `; it last picked up ${fmtDate(b.inputs.pulled_at)}.`
+                ) : (
+                  "."
+                )}
+                {pending > 0 ? <b> {pending === 1 ? "1 answer is" : `${pending} answers are`} saved on this phone, waiting to sync.</b> : null}
               </p>
-              <p className="small dim">
+              <p>
                 Lists, swaps and prices come from that export and are read-only here.
                 {b.prices_as_of ? ` Market prices are TCGplayer market via Scryfall, as of ${fmtDate(b.prices_as_of)}.` : " No market prices yet."}
                 {priceAge != null && priceAge > STALE_DAYS ? ` Yama's prices haven't updated for ${priceAge} days.` : ""}
-                {` What you do here goes to its inbox`}
-                {b.inputs.pending_pull > 0
-                  ? `: ${b.inputs.pending_pull === 1 ? "1 item is" : `${b.inputs.pending_pull} items are`} waiting to be picked up.`
-                  : b.inputs.pulled_at
-                    ? `; it last picked up ${fmtDate(b.inputs.pulled_at)}.`
-                    : "."}
-                {pending > 0 ? ` ${pending === 1 ? "1 answer is" : `${pending} answers are`} saved on this phone, waiting to sync.` : ""}
               </p>
             </div>
           )}
 
-          <div className="figures">
-            <Link className="figure" to="/decks/plan/review?show=proposed">
-              <b className="num">{totals.toReview}</b>
-              <span>proposals to review</span>
+          <div className="plan-figures">
+            <Link className="plan-figure" to="/decks/plan/review?show=proposed">
+              <b className={`num${totals.toReview ? " warn" : ""}`}>{totals.toReview}</b>
+              <span>to review</span>
             </Link>
-            <Link className="figure" to="/decks/plan/buy">
-              <b className="num">{totals.toBuy}</b>
+            <Link className="plan-figure" to="/decks/plan/buy">
+              <b className="num">{buy.total != null ? usd(buy.total) : buy.count}</b>
               <span>
-                to buy
-                {totals.buyTotal != null
-                  ? `, ${usd(totals.buyTotal)} listed${totals.buyUnpriced ? `, ${totals.buyUnpriced} without a listed price` : ""}`
-                  : totals.buyUnpriced
-                    ? ", no listed prices"
-                    : ""}
+                {buy.total != null ? `${buy.priced} to buy` : "to buy"}
+                {elsewhere ? `, ${elsewhere} not stocked` : ""}
+                {buy.noPrice.length ? `, ${buy.noPrice.length} with no listed price` : ""}
+                {buy.total != null && buy.checkedOn.length ? `. Store prices, ${fmtDate(buy.checkedOn[buy.checkedOn.length - 1])}` : ""}
               </span>
             </Link>
-            <Link className="figure" to="/decks/plan/prints">
+            <Link className="plan-figure" to="/decks/plan/prints">
               <b className="num">{totals.printsOnOrder}</b>
               <span>
                 prints on order{totals.printsNext ? `, ${totals.printsNext} for the next order` : ""}
                 {totals.printsArrived ? `, ${totals.printsArrived} arrived` : ""}
               </span>
             </Link>
-            <div className="figure">
-              <b className="num">{totals.waitingToInstall}</b>
-              <span>in hand, not installed yet</span>
-            </div>
-            <Link className="figure" to="/decks/plan/spares">
+            <Link className="plan-figure" to="/decks/plan/spares">
               <b className="num">{totals.sparesNow}</b>
-              <span>spares free now{totals.sparesLater ? `, ${totals.sparesLater} more when prints arrive` : ""}</span>
+              <span>spares out now{totals.sparesLater ? `, ${totals.sparesLater} more when prints arrive` : ""}</span>
             </Link>
-            <div className="figure">
+            <div className="plan-figure">
+              <b className="num">{totals.waitingToInstall}</b>
+              <span>in hand, not in the deck yet</span>
+            </div>
+            <div className="plan-figure">
               <b className="num">
                 {sum((c) => c.ready)}/{sum((c) => c.planned)}
               </b>
@@ -128,6 +138,16 @@ export function Overview() {
             </section>
           )}
 
+          <section className="plan-section" aria-labelledby="your-plans">
+            <h2 id="your-plans" className="plan-section-head">Your plans</h2>
+            <div className="plan-deck-grid">
+              {live.map((d, i) => (
+                <DeckTile key={d.key} deck={d} view={view} counts={counts[i]!} buy={buy} />
+              ))}
+            </div>
+            {artists.some(Boolean) && <p className="small dim art-credits">{artCredits(artists)}</p>}
+          </section>
+
           {questions.length > 0 && (
             <details className="plan-notes plan-notes-fold">
               <summary>
@@ -152,19 +172,13 @@ export function Overview() {
             </ul>
           )}
 
-          <div className="plan-deck-grid">
-            {live.map((d, i) => (
-              <DeckCard key={d.key} deck={d} view={view} counts={counts[i]!} />
-            ))}
-          </div>
-
           {archived.length > 0 && (
-            <section>
-              <h3>No longer in the plan</h3>
+            <section className="plan-section">
+              <h2 className="plan-section-head">No longer in the plan</h2>
               <p className="dim small">The latest import didn't include these decks. Yama keeps them so their answers aren't lost.</p>
               <div className="plan-deck-grid">
                 {archived.map((d) => (
-                  <DeckCard key={d.key} deck={d} view={view} counts={deckCounts(d, view.swapsOf(d.key), view.answers, view.ctx.orders)} />
+                  <DeckTile key={d.key} deck={d} view={view} counts={deckCounts(d, view.swapsOf(d.key), view.answers, view.ctx.orders)} buy={buy} />
                 ))}
               </div>
             </section>
@@ -175,34 +189,44 @@ export function Overview() {
   );
 }
 
-function DeckCard({ deck, view, counts }: { deck: PlanDeck; view: PlanView; counts: ReturnType<typeof deckCounts> }) {
+/** "Mount Doom: where did it come from?": a question cut down to fit a chip. */
+function shortQuestion(text: string): string {
+  const first = text.split(/(?<=[?.])\s/)[0] ?? text;
+  return first.length > 64 ? `${first.slice(0, 61).trimEnd()}…` : first;
+}
+
+function DeckTile({ deck, view, counts, buy }: { deck: PlanDeck; view: PlanView; counts: ReturnType<typeof deckCounts>; buy: BuyList }) {
   const warnings = deckWarnings(deck, view.b.head?.warnings ?? [], view.b.head?.export_warnings ?? []);
-  const questions = deck.notes.filter((n) => n.kind === "open_question").length;
-  const lines: string[] = [];
-  if (counts.planned) lines.push(`${counts.ready} of ${counts.planned} swaps in hand now`);
-  if (counts.printsOnOrder) lines.push(`${counts.printsOnOrder} prints on order`);
-  if (counts.waitingMoves) lines.push(`${counts.waitingMoves} waiting for another deck`);
-  if (counts.proposals) lines.push(`${counts.proposals} proposals, ${counts.undecided} not decided`);
+  const questions = deck.notes.filter((n) => n.kind === "open_question");
+  const toBuy = [...buy.stores.flatMap((g) => g.rows), ...buy.noPrice, ...buy.elsewhere].filter((r) => r.swap.deck === deck.key).length;
+  const prints = counts.printsOnOrder + counts.printsNext;
+  const parts: string[] = [];
+  if (counts.undecided) parts.push(`${counts.undecided} to review`);
+  if (toBuy) parts.push(`${toBuy} to buy`);
+  if (prints) parts.push(`${prints} wait on prints`);
+  if (counts.waitingMoves) parts.push(`${counts.waitingMoves} waiting for another deck`);
+  const target = deck.bracket?.target;
+  if (target != null && parts.length < 3) parts.push(`bracket ${target}`);
+  const commander = view.card(deck.commander[0]);
   return (
-    <Link to={`/decks/plan/d/${deck.key}`} className="plan-deck-link">
-      <ArtPanel art={view.art(deck)} className="plan-deck-card">
-        <div className="plan-deck-title">
-          <h2>{deck.name}</h2>
-          <span className="plan-deck-commander">
-            {deck.commander.join(" and ")} <Pips identity={deck.color_identity ?? ""} />
+    <Link to={`/decks/plan/d/${deck.key}`} className="plan-tile">
+      <ArtPanel art={view.art(deck)} artist={commander?.artist} wash="left" credit={false} className="plan-tile-art">
+        <span className="plan-tile-name">{deck.name}</span>
+        <span className="plan-tile-cmdr">
+          <Pips identity={deck.color_identity ?? ""} /> {deck.commander.join(" and ")}
+          <span className="visually-hidden">, {identityName(deck.color_identity ?? "")}</span>
+        </span>
+        <span className="plan-tile-counts">{parts.length ? `${parts.join(", ")}.` : "Nothing waiting."}</span>
+        {counts.planned > 0 && (
+          <span className="plan-tile-counts dim-on-art">
+            {counts.ready} of {counts.planned} swaps in hand now
           </span>
-          <span className="small dim">{identityName(deck.color_identity ?? "")}</span>
-        </div>
-        <ul className="plan-deck-counts small">
-          {lines.map((l) => (
-            <li key={l}>{l}</li>
-          ))}
-        </ul>
-        <div className="row plan-deck-tags">
-          {deck.status === "proposals_only" && <span className="tag">Proposals only</span>}
-          {questions > 0 && <span className="tag warn">{questions === 1 ? "1 open question" : `${questions} open questions`}</span>}
-          {warnings.length > 0 && <span className="tag warn">{warnings.length === 1 ? "1 warning" : `${warnings.length} warnings`}</span>}
-        </div>
+        )}
+        <span className="plan-tile-chips">
+          {deck.status === "proposals_only" && <span className="art-chip">Proposals only</span>}
+          {questions.length > 0 && <span className="art-chip warn">{questions.length === 1 ? shortQuestion(questions[0]!.text) : `${questions.length} open questions`}</span>}
+          {warnings.length > 0 && <span className="art-chip warn">{warnings.length === 1 ? "1 warning" : `${warnings.length} warnings`}</span>}
+        </span>
       </ArtPanel>
     </Link>
   );

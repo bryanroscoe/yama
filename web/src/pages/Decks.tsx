@@ -1,10 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, listText, newHand, rng, type Goldfish } from "@yama/core";
-import { useEffect, useMemo, useState } from "react";
+import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { api, priceSource, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView, type PreconList } from "../api";
-import { DeckTabs } from "../components/DeckTabs";
-import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
+import { api, priceSource, shortDate, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView, type PreconList } from "../api";
+import { useMe } from "../auth";
+import { AreaHead } from "../components/DeckTabs";
+import { Crop } from "../components/Crop";
+import { CardImage, ErrorText, Pips, Sheet } from "../components/ui";
+import { pct } from "../lab/logic";
+import { pairedFor, simShort, useRuns } from "../lab/paired";
+import { outbox, useOutbox } from "../plan/outbox";
+import { usePlan } from "../plan/store";
+import { planView, type PlanView } from "../plan/view";
+import "./decks.css";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
 import { day } from "../components/Rulings";
@@ -17,10 +26,13 @@ import { DeckHistory } from "../components/DeckHistory";
 import { DeckResults } from "../components/DeckResults";
 import { CardSheet } from "./Cards";
 
-/** "Own 87 of 100" (still short: warn) or "Own all 100" (good). */
-function ownership(owned: number | undefined, total: number): { text: string; tone: "good" | "warn" } | null {
+/** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
+ *  "Complete". */
+function ownership(owned: number | undefined, total: number): { text: string; short: string; tone: "good" | "warn" } | null {
   if (owned === undefined) return null;
-  return owned >= total ? { text: `Own all ${total}`, tone: "good" } : { text: `Own ${owned} of ${total}`, tone: "warn" };
+  return owned >= total
+    ? { text: `Own all ${total}`, short: "Complete", tone: "good" }
+    : { text: `Own ${owned} of ${total}`, short: `Need ${total - owned}`, tone: "warn" };
 }
 
 /** "6 wins, 3 losses" from finished games with the deck, or "Not played yet". */
@@ -51,11 +63,16 @@ export function DecksPage() {
   };
   return (
     <main className="page">
-      <DeckTabs />
-      <div className="page-head">
-        <h1>Decks</h1>
-        <button className="primary" onClick={() => setAdding(true)}>Add a deck</button>
-      </div>
+      <AreaHead
+        index
+        title="Decks"
+        action={
+          <button className="primary" aria-label="Add a deck" onClick={() => setAdding(true)}>
+            <span className="wide-only">Add a deck</span>
+            <span className="phone-only">Add</span>
+          </button>
+        }
+      />
       <ErrorText error={decks.error} />
       {decks.data?.length === 0 && (
         <p className="empty">No decks yet. Paste a list from Moxfield, Archidekt, Arena or a text file to add one.</p>
@@ -78,7 +95,14 @@ export function DecksPage() {
                     </span>
                   )}
                   <span className="deck-tile-foot num">
-                    {own ? <span className={`deck-own ${own.tone}`}>{own.text}</span> : <span>{d.card_count} cards</span>}
+                    {own ? (
+                      <span className={`deck-own ${own.tone}`}>
+                        <span className="wide-only">{own.text}</span>
+                        <span className="phone-only">{own.short}</span>
+                      </span>
+                    ) : (
+                      <span>{d.card_count} cards</span>
+                    )}
                     {played && <span className="deck-record">{played}</span>}
                   </span>
                 </ArtPanel>
@@ -221,6 +245,7 @@ export function DeckPage() {
   const [goldfish, setGoldfish] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [history, setHistory] = useState(false);
+  const plan = useDeckPlan(deck.data?.id);
 
   const groups = useMemo(() => {
     const map = new Map<string, DeckEntry[]>();
@@ -242,11 +267,14 @@ export function DeckPage() {
   const summary = decks.data?.find((x) => x.id === d.id);
   const played = summary ? record(summary) : null;
   const priced = priceSource(o.price_date);
+  const priceDay = shortDate(o.price_date);
   const shown = preview ?? commanderEntries[0] ?? d.cards[0] ?? null;
   const openByName = (name: string) => {
     const hit = d.cards.find((c) => c.name === name);
     if (hit) setOpen(hit.oracle_id);
   };
+  const losses = summary?.games ? summary.games - (summary.wins ?? 0) - (summary.draws ?? 0) : 0;
+  const listArtists = layout === "list" ? groups.flatMap(([, es]) => es.map((e) => (e.card?.image_art_crop ? e.card.artist : null))) : [];
 
   const stats = (
     <>
@@ -263,7 +291,7 @@ export function DeckPage() {
       </span>
       {played && summary?.games ? (
         <span className="deck-stat">
-          <b className="num">{summary.wins ?? 0}–{summary.games - (summary.wins ?? 0) - (summary.draws ?? 0)}</b>
+          <b className="num">{summary.wins ?? 0}–{losses}</b>
           <span>{played} in Yama games</span>
         </span>
       ) : null}
@@ -277,6 +305,25 @@ export function DeckPage() {
       <button className="on-art" onClick={() => setHistory(true)}>History</button>
       <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
     </>
+  );
+  const legal = v.ok ? <span className="pill good deck-legal-pill">Commander-legal</span> : <span className="pill bad deck-legal-pill">Not legal yet</span>;
+  const planLink = plan && (
+    <Link to={`/decks/plan/d/${plan.deck.key}`} className="deck-plan-link">
+      <span className="deck-plan-text">
+        <b>
+          Plan: {plan.line}
+          {plan.more && <span className="wide-only">, {plan.more}</span>}
+        </b>
+        <span className="phone-only">
+          {d.bracket != null ? `Bracket ${d.bracket}, ` : ""}
+          {v.ok ? "Commander-legal" : "not legal yet"}
+        </span>
+      </span>
+      <span className="deck-plan-open wide-only">Open plan</span>
+      <svg className="phone-only" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="m9 18 6-6-6-6" />
+      </svg>
+    </Link>
   );
 
   return (
@@ -296,7 +343,11 @@ export function DeckPage() {
           <span className="hero-sub">
             <Pips identity={v.color_identity} />
             <span>
-              {commanderEntries.map((e) => e.name).join(" and ") || "No commander set"}. {identityName(v.color_identity)}
+              {commanderEntries.map((e) => e.name).join(" and ") || "No commander set"}
+              <span className="wide-only">
+                . {identityName(v.color_identity)}
+                {d.bracket != null ? `, bracket ${d.bracket}` : ""}
+              </span>
             </span>
           </span>
           <h1 className="hero-title">{d.name}</h1>
@@ -308,62 +359,52 @@ export function DeckPage() {
       </ArtPanel>
 
       <div className="page deck-body">
-        <div className="deck-stats-tiles">{stats}</div>
-        <div className="row deck-actions-phone">{actions}</div>
+        {/* Phones: three figure tiles, the plan, then the other actions. */}
+        <div className="deck-stats-tiles">
+          <span className="deck-stat">
+            <b className="num">{o.owned}</b>
+            <span>of {o.cards} owned</span>
+          </span>
+          <span className="deck-stat">
+            <b className="num">{o.needed ? usd(o.needed_cost_usd) : "Done"}</b>
+            <span>{o.needed ? `to finish${priceDay ? `, ${priceDay}` : ""}` : "nothing to buy"}</span>
+          </span>
+          <span className="deck-stat">
+            <b className="num">{summary?.games ? `${summary.wins ?? 0}–${losses}` : "0"}</b>
+            <span>{summary?.games ? "in Yama games" : "games played"}</span>
+          </span>
+        </div>
+        {o.needed > 0 && (
+          <p className="deck-price-note phone-only">
+            To finish: basics excluded{o.needed_without_price > 0 ? `, ${o.needed_without_price} with no price` : ""}. {priced}.
+          </p>
+        )}
+        {planLink && <div className="phone-only deck-plan-phone">{planLink}</div>}
+        <div className="row deck-actions-phone">
+          <button className="outline" onClick={() => setEditing(true)}>Edit deck</button>
+          <button className="outline" onClick={() => setExporting(true)}>Export</button>
+          <button className="outline" onClick={() => setHistory(true)}>History</button>
+        </div>
+
+        {/* The status row: legality, the plan for this deck, and its simulated strength. */}
+        <div className={`deck-status${plan ? " has-plan" : ""}`}>
+          {legal}
+          {planLink && <span className="wide-only deck-plan-wide">{planLink}</span>}
+          {plan?.sim && <span className="deck-sim">{plan.sim}</span>}
+        </div>
+        {!v.ok && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
+
         {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
-        {goldfish && <SampleHand deck={d} onClose={() => setGoldfish(false)} />}
+        {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
         {exporting && <DeckExport deck={d} onClose={() => setExporting(false)} />}
         {history && <DeckHistory deckId={d.id} currentVersionId={d.version_id} onClose={() => setHistory(false)} />}
 
-        <div className="deck-legal">
-          {v.ok ? (
-            <p><span className="tag good">Commander-legal</span> <span className="dim small">by size, singleton, color identity and the ban list in our card data.</span></p>
-          ) : (
-            <div>
-              <p><span className="tag bad">Not legal yet</span></p>
-              <ul className="small">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>
-            </div>
-          )}
-          {v.warnings.length > 0 && <ul className="small dim">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
-        </div>
-
-        <div className="deck-facts">
-          {d.game_changers ? (
-            <div>
-              <p>
-                <b>Game Changers: {d.game_changers.length}</b>
-                {d.game_changers_as_of && <span className="as-of"> Scryfall's list as of {day(d.game_changers_as_of)}</span>}
-              </p>
-              {d.game_changers.length > 0 && (
-                <p className="names"><NameList names={d.game_changers} onCard={openByName} /></p>
-              )}
-            </div>
-          ) : (
-            <div>
-              <p><b>Game Changers: not checked yet</b></p>
-              <p className="card-note">The Game Changer list isn't loaded on this server yet. It comes with the next card data import.</p>
-            </div>
-          )}
-          <OnlineSupport deckId={d.id} versionId={d.version_id} onCard={openByName} />
-        </div>
-
-        <BracketPanel
-          deckId={d.id}
-          versionId={d.version_id}
-          declared={d.bracket}
-          gameChangers={d.game_changers}
-          onCard={openByName}
-          onDeclare={() => setEditing(true)}
-        />
-        <DeckResults deckId={d.id} versionId={d.version_id} />
-        <DeckStatsPanel cards={d.cards} />
-
         <div className="deck-toolbar">
-          <div className="segmented" role="tablist" aria-label="Show">
+          <div className="deck-show" role="tablist" aria-label="Show">
             <button role="tab" aria-selected={view === "all"} onClick={() => setView("all")}>Whole deck</button>
             <button role="tab" aria-selected={view === "needed"} onClick={() => setView("needed")}>Still need {o.needed}</button>
           </div>
-          <div className="segmented" role="group" aria-label="View">
+          <div className="deck-layout" role="group" aria-label="View">
             <button aria-pressed={layout === "stacks"} onClick={() => setLayout("stacks")}>Stacks</button>
             <button aria-pressed={layout === "list"} onClick={() => setLayout("list")}>List</button>
           </div>
@@ -429,53 +470,168 @@ export function DeckPage() {
                       <span className="dim">{priced}</span>
                     </span>
                   )}
+                  {plan && <PlanCardLine plan={plan} name={shown.name} />}
                 </div>
               </aside>
             )}
           </div>
         ) : (
-          groups.map(([group, entries]) => (
-            <section key={group} className="deck-group">
-              <h3>
-                {group} <span className="dim num">{entries.reduce((a, e) => a + e.qty, 0)}</span>
-              </h3>
-              <div className="list">
-                {entries.map((e) => (
-                  <button key={`${e.oracle_id}-${e.board}`} className="list-row" onClick={() => setOpen(e.oracle_id)}>
-                    <CardImage src={e.card?.image_small} name={e.name} className="thumb" />
-                    <span>
-                      <span className="title">{e.qty > 1 ? `${e.qty} ` : ""}{e.name}</span> <ManaCost cost={e.card?.mana_cost ?? null} />
-                      <br />
-                      <CardStatus e={e} small />
-                    </span>
-                    <span className="small num" style={{ textAlign: "right" }}>
-                      {e.needed > 0 ? <span className="tag warn">Need {e.needed}</span> : <span className="tag good">Have</span>}
-                      {e.needed > 0 && <><br /><span className="dim">{usd(e.cheapest_usd)}</span></>}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ))
+          <>
+            {groups.map(([group, entries]) => (
+              <section key={group} className="deck-group">
+                <h2 className="deck-group-head">
+                  {group} <span className="deck-stack-meta num">{entries.reduce((a, e) => a + e.qty, 0)}</span>
+                </h2>
+                <div className="deck-rows">
+                  {entries.map((e) => (
+                    <button key={`${e.oracle_id}-${e.board}`} className="deck-row" onClick={() => setOpen(e.oracle_id)}>
+                      <Crop src={e.card?.image_art_crop} size="sm" />
+                      <span className="deck-row-text">
+                        <span className="deck-row-name">
+                          {e.qty > 1 ? `${e.qty} ` : ""}
+                          {e.name}
+                        </span>
+                        <CardStatus e={e} small plan={plan} />
+                      </span>
+                      <span className="deck-row-state num">
+                        {e.needed > 0 ? <span className="need">Need{e.needed > 1 ? ` ${e.needed}` : ""}</span> : <span className="have">Have</span>}
+                        {e.needed > 0 && <span className="dim">{usd(e.cheapest_usd)}</span>}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))}
+            {listArtists.some(Boolean) && <p className="small dim art-credits">{artCredits(listArtists)}</p>}
+          </>
         )}
         <p className="small dim">
           Prices are each card's cheapest printing, for one copy: {priced}. A market price isn't a quote from any store.
         </p>
+
+        {/* Everything else about the deck, under the cards. */}
+        <section className="deck-more" aria-label="More about this deck">
+          <div className="deck-legal">
+            <p className="dim small">
+              {v.ok ? "Commander-legal" : "Not legal yet"} by size, singleton, color identity and the ban list in our card data.
+            </p>
+            {v.warnings.length > 0 && <ul className="small dim">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+          </div>
+
+          <div className="deck-facts">
+            {d.game_changers ? (
+              <div>
+                <p>
+                  <b>Game Changers: {d.game_changers.length}</b>
+                  {d.game_changers_as_of && <span className="as-of"> Scryfall's list as of {day(d.game_changers_as_of)}</span>}
+                </p>
+                {d.game_changers.length > 0 && (
+                  <p className="names"><NameList names={d.game_changers} onCard={openByName} /></p>
+                )}
+              </div>
+            ) : (
+              <div>
+                <p><b>Game Changers: not checked yet</b></p>
+                <p className="card-note">The Game Changer list isn't loaded on this server yet. It comes with the next card data import.</p>
+              </div>
+            )}
+            <OnlineSupport deckId={d.id} versionId={d.version_id} onCard={openByName} />
+          </div>
+
+          <BracketPanel
+            deckId={d.id}
+            versionId={d.version_id}
+            declared={d.bracket}
+            gameChangers={d.game_changers}
+            onCard={openByName}
+            onDeclare={() => setEditing(true)}
+          />
+          <DeckResults deckId={d.id} versionId={d.version_id} />
+          <DeckStatsPanel cards={d.cards} />
+        </section>
         {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
+      </div>
+
+      {/* Phones: the two actions you reach for, kept above the tab bar. */}
+      <div className="deck-actbar">
+        <button onClick={() => setGoldfish(true)}>Sample hand</button>
+        <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
       </div>
     </main>
   );
 }
 
-/** Where your copies are, or that you still need it (in the warn color). */
-function CardStatus({ e, small = false }: { e: DeckEntry; small?: boolean }) {
+/** The plan linked to a Yama deck: its counts in a line, its swaps by card, and its simulated strength. */
+interface DeckPlanInfo {
+  deck: PlanDeck;
+  view: PlanView;
+  /** The first thing to do, and (laptops) the next. */
+  line: string;
+  more: string;
+  swapsByIn: Map<string, Swap>;
+  sim: string | null;
+}
+
+function useDeckPlan(deckId: string | undefined): DeckPlanInfo | null {
+  const userId = useMe().data?.id;
+  const plan = usePlan(userId);
+  const box = useOutbox(userId);
+  const runs = useRuns(!!plan.bundle?.decks.some((p) => p.deck_id === deckId));
+  return useMemo(() => {
+    const deck = plan.bundle?.decks.find((p) => p.deck_id === deckId && p.status !== "archived");
+    if (!plan.bundle || !deck || !userId) return null;
+    const view = planView(plan.bundle, outbox.localOps(userId));
+    const swaps = view.swapsOf(deck.key).filter((s) => !s.retired);
+    const c = deckCounts(deck, swaps, view.answers, view.ctx.orders);
+    const prints = c.printsOnOrder + c.printsNext;
+    const parts: string[] = [];
+    if (prints) parts.push(`${prints} ${prints === 1 ? "swap waits" : "swaps wait"} on prints`);
+    if (c.planned - c.ready - prints > 0) parts.push(`${c.planned - c.ready - prints} more to get`);
+    if (c.undecided) parts.push(`${c.undecided} ${c.undecided === 1 ? "proposal" : "proposals"} to review`);
+    const line = parts[0] ?? (c.planned ? `all ${c.planned} swaps in hand` : "no swaps yet");
+    const more = parts.slice(1, 2).join(", ");
+    const swapsByIn = new Map(swaps.filter((s) => s.stage === "planned").map((s) => [s.in, s]));
+    const paired = pairedFor(runs.data, deck.key);
+    const now = paired?.versions.find((x) => x.state === "now");
+    const after = paired?.versions.find((x) => x.state === "after");
+    const sim =
+      paired && (now || after)
+        ? `Raw simulated win rate ${[now ? `${pct(now.variant.win_rate)} now` : null, after ? `${pct(after.variant.win_rate)} after prints` : null].filter(Boolean).join(", ")}. ${simShort(paired.run, paired.versions)}.`
+        : null;
+    return { deck, view, line, more, swapsByIn, sim };
+    // `box` moves when a tap lands in the outbox, so the counts follow answers made here.
+  }, [plan.bundle, box, deckId, userId, runs.data]);
+}
+
+/** What the plan says about one card of the deck, when it's one of the plan's swaps. */
+function PlanCardLine({ plan, name }: { plan: DeckPlanInfo; name: string }) {
+  const s = plan.swapsByIn.get(name);
+  if (!s) return null;
+  const status = swapStatus(s, deckLogs(plan.deck), plan.view.deckName, plan.view.ctx.orders);
+  return (
+    <span className="dim">
+      In the plan{s.out ? ` for ${s.out}` : ""}
+      {status ? `: ${status.label.charAt(0).toLowerCase()}${status.label.slice(1)}` : ""}. {swapSource(s, plan.view.ctx)}
+    </span>
+  );
+}
+
+/** Where your copies are, or that you still need it (in the warn color), with what the plan
+ *  says about a card you don't own yet. */
+function CardStatus({ e, small = false, plan }: { e: DeckEntry; small?: boolean; plan?: DeckPlanInfo | null }) {
   const cls = small ? "small" : "";
   if (e.owned > 0) {
     const where = Object.entries(e.locations).map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ""}`).join(", ");
     return <span className={`${cls} dim`}>Own {e.owned}: {where}</span>;
   }
   if (e.proxies > 0) return <span className={`${cls} dim`}>Proxy only</span>;
-  return <span className={`${cls} not-owned`}>Not owned</span>;
+  const s = plan?.swapsByIn.get(e.name);
+  const status = s && plan ? swapStatus(s, deckLogs(plan.deck), plan.view.deckName, plan.view.ctx.orders) : null;
+  return (
+    <span className={`${cls} not-owned`}>
+      Not owned{status ? <span className="dim">. Plan: {status.label.charAt(0).toLowerCase()}{status.label.slice(1)}</span> : null}
+    </span>
+  );
 }
 
 function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
@@ -573,41 +729,51 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   );
 }
 
-function SampleHand({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
+function SampleHand({ deck, art, artist, onClose }: { deck: DeckView; art: string | null; artist: string | null; onClose: () => void }) {
   const library = useMemo(() => expandDeck(deck.cards), [deck]);
   const images = useMemo(() => new Map(deck.cards.map((c) => [c.name, c.card?.image_normal ?? null])), [deck]);
   const deal = (mulligans: number) => newHand(library, rng(crypto.getRandomValues(new Uint32Array(1))[0]!), mulligans);
   const [g, setG] = useState<Goldfish>(() => deal(0));
+  const done = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    done.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   const lands = g.hand.filter((c) => deck.cards.find((d) => d.name === c.name)?.card?.type_line.includes("Land")).length;
   return (
-    <Sheet label="Sample hand" onClose={onClose}>
-      <div className="stack">
-        <div className="sheet-head">
-          <div>
-            <h2>Sample hand</h2>
-            <p className="dim small" style={{ margin: 0 }}>
-              {g.hand.length} cards, {lands} {lands === 1 ? "land" : "lands"}
-              {g.mulligans ? `, mulligan ${g.mulligans}` : ""}
-              {g.drawn ? `, drawn ${g.drawn}` : ""}. {g.library.length} left in the library.
-            </p>
-          </div>
-          <button className="quiet" onClick={onClose}>Close</button>
-        </div>
-        {g.toBottom > 0 && <p className="small">Tap {g.toBottom === 1 ? "a card" : `${g.toBottom} cards`} to put on the bottom.</p>}
-        <div className="card-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))" }}>
+    <div className="hand-view" role="dialog" aria-modal="true" aria-label="Sample hand">
+      <ArtPanel as="header" className="hand-head" art={art} artist={artist} wash="bottom" toGround>
+        <span className="hand-title">
+          <span className="hand-deck">{deck.name}</span>
+          <span className="hand-name">Sample hand</span>
+        </span>
+        <button ref={done} className="primary hand-done" onClick={onClose}>Done</button>
+      </ArtPanel>
+      <div className="hand-body">
+        <p className="hand-summary" aria-live="polite">
+          {g.hand.length} cards, {lands} {lands === 1 ? "land" : "lands"}
+          {g.mulligans ? `, mulligan ${g.mulligans}${g.mulligans === 1 ? " (the first is free)" : ""}` : ""}
+          {g.drawn ? `, drawn ${g.drawn}` : ""}. {g.library.length} left in the library.
+        </p>
+        {g.toBottom > 0 && <p className="hand-bottom">Tap {g.toBottom === 1 ? "a card" : `${g.toBottom} cards`} to put on the bottom.</p>}
+        <ul className="hand-cards" aria-label="Your hand">
           {g.hand.map((c, i) => (
-            <button key={c.id} onClick={() => setG(bottom(g, i))} disabled={g.toBottom === 0} aria-label={c.name} style={{ opacity: 1 }}>
-              <CardImage src={images.get(c.name)} name={c.name} />
-            </button>
+            <li key={c.id}>
+              <button onClick={() => setG(bottom(g, i))} disabled={g.toBottom === 0} aria-label={g.toBottom ? `Put ${c.name} on the bottom` : c.name}>
+                <CardImage src={images.get(c.name)} name={c.name} />
+              </button>
+            </li>
           ))}
-        </div>
-        <div className="row">
-          <button className="primary" onClick={() => setG(draw(g))} disabled={g.toBottom > 0 || g.library.length === 0}>Draw a card</button>
-          <button onClick={() => setG(deal(g.mulligans + 1))}>Mulligan</button>
-          <button onClick={() => setG(deal(0))}>New hand</button>
-        </div>
-        <p className="small faint">The first mulligan is free, as in most Commander games.</p>
+        </ul>
+        <p className="small dim hand-note">The first mulligan is free, as in most Commander games. Card images from Scryfall, © Wizards of the Coast.</p>
       </div>
-    </Sheet>
+      <div className="hand-bar">
+        <button className="primary" onClick={() => setG(draw(g))} disabled={g.toBottom > 0 || g.library.length === 0}>Draw</button>
+        <button onClick={() => setG(deal(g.mulligans + 1))}>Mulligan</button>
+        <button onClick={() => setG(deal(0))}>New hand</button>
+      </div>
+    </div>
   );
 }

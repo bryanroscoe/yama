@@ -1,136 +1,51 @@
-/* The deck planner's pages (web/src/plan). Brief for the design session that replaces the felt
-   tokens: every rule here uses only the tokens in styles.css (the Night table names since the 2026-10-19
-   merge: --ground, --surface, --raised, --line, --text, --dim, --warn, --good, --bad, --radius,
-   --gap, --t-*), so a new token set restyles the planner with no edits.
+/* The deck planner's pages (web/src/plan), on the Night table (design/tokens.md; artboards
+   PlanOverview, PlanDeck, PlanDeckWide, Review, ReviewWide, Buy, Prints, Spares). Every rule uses
+   the tokens in styles.css. Commander art comes through the shared ArtPanel (components/ArtPanel),
+   never filtered; small art crops are components/Crop.
+
+   styles.css loads after this file, so rules that style buttons, links and inputs start with
+   `.plan` (the layout's <main>) to stay ahead of its element rules.
+
    Semantic classes, in page order:
-   - The Decks | Plans | Lab control at the top of the Decks tab is the shared .segmented pill
-     (components/DeckTabs.tsx; .deck-sections in styles.css spaces it).
-   - .plan-art (+ .plan-hero on a deck page, .plan-deck-card on the overview): the commander's
-     Scryfall art crop behind a solid wash of the page colour. The wash is one flat colour, not a
-     gradient; .plan-art-body holds the text above it.
-   - .plan-banner: where an imported plan came from. .plan-notes: open questions, shown first.
-   - .plan-tabs: Changes, Stock, Now, After prints, Brackets (a Lab tab comes later).
-   - .swap-row: a swap as out → in thumbnails and its text; .swap-standin nests a stand-in under
-     the print it holds.
-   - .tag.warn: the warning tone, next to the existing .tag.good and .tag.bad.
-   - .plan-subnav: Overview, Review, Buy, Prints, Spares, Settings under the control.
-   - Review: .plan-chips (deck chips and filters, pressed = chosen), .plan-search, .review-row
-     (a .swap-row with the answer), .plan-decide (Want, Unsure, Don't want: the chosen one takes
-     --good, --warn or --bad), .plan-cut, .plan-note, .plan-sync (where answers are on their way).
-   - Settings: .plan-key, a new script key shown once.
-   - Buy, Prints, Spares: .plan-store (one store, print order or spares group), .plan-fold (a folded
-     section), .plan-delivery (an order's card, A to Z, with price and scan tags on the side),
-     .plan-print and .plan-spare (rows with tags on the right), .plan-spares-tools (search and filter).
-   - .plan-tick: "I've put this in the deck"; .plan-bought: what a "bought it" mark said.
+   - Page heads are components/DeckTabs' AreaHead (title, Decks | Plans | Lab, the sub-nav).
+   - .plan-figures / .plan-figure: the big numbers. .plan-section-head: a section title.
+   - Overview: .plan-tile, an art tile per deck (left wash), with .art-chip warn chips.
+   - Deck page: .plan-hero (art; bottom wash on phones, left wash on laptops), .plan-question,
+     .plan-tabs (pills), .plan-deck-cols (.plan-deck-main and the .plan-deck-side panels),
+     .swap-card (out and in crops, the reason, where it comes from, status and "In the deck").
+   - Review: .review-decks (deck chips), .review-filters, .review-card (the full card, the cut
+     card, reasons, prices, Want / Unsure / No), and on laptops .review-panes with .review-queue.
+   - Buy: .buy-store (a store's card with "Fill the cart"), .buy-row, .buy-mini.
+   - Prints: .prints-order, .prints-line, .prints-next (the draft order with its tier bar).
+   - Spares: .spare-card.
+   - .plan-tick: "In the deck"; .plan-bought: what a "bought it" mark said.
    Touch targets stay at least 44 px. Sentence case; no all-caps; no middle-dot separators. */
 
-/* ── tags ───────────────────────────────────────────────────────────────── */
+/* ── tags, notes ────────────────────────────────────────────────────────── */
 
 .tag.warn {
   color: var(--warn);
   border-color: color-mix(in srgb, var(--warn) 40%, transparent);
 }
-
-/* ── art panels: commander art behind a flat wash ───────────────────────── */
-
-.plan-art {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background-color: var(--surface);
-  background-size: cover;
-  background-position: center 25%;
-}
-.plan-art::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: color-mix(in srgb, var(--ground) 74%, transparent);
-}
-.plan-art-body {
-  position: relative;
-}
-
-.plan-hero {
-  margin-bottom: 1rem;
-}
-.plan-hero .plan-art-body {
-  padding: 1.25rem 1rem 1rem;
-  min-height: 9rem;
-  display: grid;
-  align-content: end;
-}
-.plan-hero h1 {
-  margin: 0 0 0.25rem;
-}
-.plan-hero p {
-  margin: 0 0 0.25rem;
-}
-
-.plan-deck-commander {
-  font-weight: 700;
-}
-
-/* overview: one card per deck */
-.plan-deck-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
-  gap: 0.75rem;
-  margin-bottom: 1.5rem;
-}
-.plan-deck-link {
-  color: inherit;
-  text-decoration: none;
-  display: block;
-  border-radius: var(--radius);
-}
-.plan-deck-link:hover .plan-art {
-  border-color: var(--line);
-}
-.plan-deck-card .plan-art-body {
-  padding: 1rem;
-  min-height: 11rem;
-  display: grid;
-  align-content: space-between;
-  gap: 0.5rem;
-}
-.plan-deck-title {
-  display: grid;
-  gap: 0.15rem;
-}
-.plan-deck-title h2 {
-  font-size: var(--t-lg);
-  margin: 0;
-}
-.plan-deck-counts {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  color: var(--text);
-}
-.plan-deck-tags {
-  gap: 0.4rem;
-}
-
-/* ── banners and notes ──────────────────────────────────────────────────── */
-
 .plan-banner {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 12px;
   background: var(--surface);
-  padding: 0.75rem 1rem;
-  margin: 0 0 1rem;
+  padding: 10px 12px;
+  margin: 0 0 16px;
   max-width: none;
 }
-.plan-banner p:last-child {
+.plan-banner p:last-child,
+.area-note p:last-child {
   margin-bottom: 0;
 }
-
+.area-note p {
+  margin: 0 0 4px;
+  max-width: none;
+}
 .plan-notes {
   border-left: 3px solid var(--warn);
-  padding: 0.25rem 0 0.25rem 0.9rem;
-  margin: 0 0 1rem;
+  padding: 4px 0 4px 14px;
+  margin: 0 0 16px;
 }
 .plan-notes h3 {
   margin-bottom: 0.3rem;
@@ -141,61 +56,601 @@
   display: grid;
   gap: 0.4rem;
 }
-.plan-notes-fold summary {
+.plan-notes-fold summary,
+.plan-warnings summary {
   cursor: pointer;
   padding: 0.6rem 0;
+  min-height: 44px;
 }
 .plan-notes-fold[open] summary {
   margin-bottom: 0.4rem;
 }
 .plan-warnings {
-  margin-bottom: 1rem;
-}
-.plan-warnings summary {
-  cursor: pointer;
-  padding: 0.6rem 0;
+  margin-bottom: 16px;
 }
 .plan-callout {
   border-left: 3px solid var(--line);
   padding-left: 0.75rem;
 }
 
-/* ── tabs ───────────────────────────────────────────────────────────────── */
+/* ── figures and sections ───────────────────────────────────────────────── */
 
+.plan-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(150px, 45%), 1fr));
+  gap: 8px;
+  margin: 0 0 24px;
+}
+.plan .plan-figure {
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  line-height: 1.15;
+}
+.plan a.plan-figure:hover {
+  background: color-mix(in srgb, var(--surface), var(--text) 5%);
+}
+.plan-figure b {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 2.5rem;
+  line-height: 1;
+}
+.plan-figure b.warn {
+  color: var(--warn);
+}
+.plan-figure span {
+  margin-top: 4px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.plan-section {
+  margin: 0 0 28px;
+}
+.plan-section-head {
+  margin: 0 0 10px;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.75rem;
+}
+.plan-section-head .num {
+  font-family: var(--body);
+  font-size: var(--t-sm);
+  font-weight: 400;
+}
+
+/* ── overview: an art tile per deck ─────────────────────────────────────── */
+
+.plan-deck-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 10px;
+}
+.plan .plan-tile {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 18px;
+}
+.plan-tile .plan-tile-art {
+  min-height: 128px;
+  height: 100%;
+  border-radius: 18px;
+  display: grid;
+}
+.plan-tile-art > .art-body {
+  align-self: end;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.plan .plan-tile:hover .plan-tile-art {
+  box-shadow: 0 0 0 2px var(--text);
+}
+.plan-tile-name {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.75rem;
+  line-height: 0.95;
+  text-shadow: var(--art-shadow);
+}
+.plan-tile-cmdr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-sm);
+  font-weight: 700;
+}
+.plan-tile-cmdr .pip {
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4);
+}
+.plan-tile-counts {
+  font-size: var(--t-sm);
+  color: var(--on-art-dim);
+}
+.plan-tile-art.art-none .plan-tile-counts,
+.plan-tile-art.art-none .dim-on-art {
+  color: var(--dim);
+}
+.plan-tile-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.plan-tile-chips:empty {
+  display: none;
+}
+.art-chip.warn {
+  color: var(--warn);
+  font-size: 0.75rem;
+}
+.art-chip.plain {
+  font-weight: 400;
+  background: rgb(11 12 14 / 0.6);
+}
+.dim-on-art {
+  color: var(--on-art-dim);
+}
+
+/* ── a plan deck: hero ──────────────────────────────────────────────────── */
+
+.plan.plan-deck-page {
+  padding-bottom: 48px;
+}
+.plan-hero.art-panel {
+  border-radius: 0;
+  min-height: 260px;
+  display: grid;
+}
+.plan-hero > .art-body {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 72px var(--page-pad) 16px;
+}
+.plan-hero-inner {
+  width: 100%;
+  max-width: var(--content-w);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plan-hero-credit {
+  position: absolute;
+  z-index: 3;
+  top: 26px;
+  right: 14px;
+  max-width: calc(100% - 90px);
+  font-size: 0.625rem;
+  color: rgb(255 255 255 / 0.85);
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.7);
+  text-align: right;
+}
+.plan-crumbs {
+  display: none;
+}
+.plan-hero-cmdr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-sm);
+  font-weight: 700;
+}
+.plan-hero-title {
+  margin: 0;
+  font-size: 3.125rem;
+  line-height: 0.85;
+  text-shadow: var(--art-shadow);
+}
+.plan-hero-sub {
+  font-size: var(--t-sm);
+  color: var(--on-art-dim);
+}
+.plan-hero.art-none .plan-hero-sub,
+.plan-hero.art-none .dim-on-art {
+  color: var(--dim);
+}
+.plan-hero.art-none .plan-hero-title {
+  text-shadow: none;
+}
+.plan-hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  font-size: var(--t-label);
+}
+.plan-hero-chips .art-chip {
+  padding: 3px 12px;
+  font-size: var(--t-label);
+}
+@media (min-width: 900px) {
+  .plan-hero.art-panel {
+    min-height: 300px;
+  }
+  /* Laptops: the text sits on the left, so the wash runs from the left. */
+  .plan-hero.wash-bottom > .art-wash,
+  .plan-hero.wash-bottom.to-ground > .art-wash {
+    background: linear-gradient(90deg, rgb(11 12 14 / 0.94) 0%, rgb(11 12 14 / 0.65) 50%, rgb(11 12 14 / 0.2) 100%);
+  }
+  .plan-hero > .art-body {
+    padding: 24px var(--page-pad) 28px;
+  }
+  .plan-hero-inner {
+    gap: 10px;
+  }
+  .plan-hero .area-back {
+    display: none;
+  }
+  .plan-hero-credit {
+    top: auto;
+    bottom: 14px;
+    right: var(--page-pad);
+    font-size: 0.75rem;
+  }
+  .plan-crumbs {
+    display: flex;
+    gap: 8px;
+    font-size: var(--t-label);
+    color: var(--on-art-dim);
+  }
+  .plan .plan-crumbs a {
+    color: var(--on-art-dim);
+  }
+  .plan-hero.art-none .plan-crumbs,
+  .plan.plan-deck-page .plan-hero.art-none .plan-crumbs a {
+    color: var(--dim);
+  }
+  .plan-hero-title {
+    font-size: 4.75rem;
+    line-height: 0.88;
+  }
+}
+.plan-deck-body {
+  padding-top: 8px;
+}
+.plan-deck-about {
+  margin: 0 0 12px;
+}
+
+/* An open question: warn-tinted, with the card it's about. */
+.plan-question {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgb(240 180 90 / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(240 180 90 / 0.4);
+}
+.plan-question-text {
+  flex: 1 1 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.35;
+}
+.plan-question-text > span {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+
+/* View tabs: pills (Changes, Stock, Now, After prints, Brackets, Lab). */
 .plan-tabs {
   display: flex;
-  gap: 0.25rem;
+  gap: 6px;
   overflow-x: auto;
-  border-bottom: 1px solid var(--line);
-  margin: 1.25rem 0 1rem;
   scrollbar-width: none;
+  margin: 12px 0 20px;
 }
-.plan-tabs button {
-  background: none;
-  border: none;
-  border-bottom: 3px solid transparent;
-  border-radius: 0;
-  color: var(--dim);
-  padding: 0.5rem 0.75rem;
-  white-space: nowrap;
+.plan .plan-tabs button {
   flex: none;
+  min-height: 40px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--dim);
+  white-space: nowrap;
 }
-.plan-tabs button.active {
+.plan .plan-tabs button:hover {
   color: var(--text);
-  border-bottom-color: var(--text);
 }
-@media (max-width: 520px) {
+.plan .plan-tabs button.active {
+  background: var(--text);
+  color: var(--ground);
+}
+@media (min-width: 900px) {
   .plan-tabs {
-    gap: 0;
-  }
-  .plan-tabs button {
-    padding: 0.5rem 0.45rem;
-    font-size: 0.9rem;
+    flex-wrap: wrap;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
   }
 }
 
-/* ── swaps ──────────────────────────────────────────────────────────────── */
+/* The page's two columns: the tab's content, and the panels beside it (under it on phones). */
+.plan-deck-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: start;
+}
+.plan-deck-main {
+  flex: 999 1 560px;
+  min-width: 0;
+}
+.plan-deck-side {
+  flex: 1 1 300px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.plan-panel {
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plan-panel h2 {
+  margin: 0;
+  font-size: 1.375rem;
+}
+.plan-panel-note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+.plan .plan-panel-link {
+  align-self: start;
+  min-height: 36px;
+  padding: 0 12px;
+}
+.plan-panel .button {
+  min-height: 44px;
+}
+.plan-version {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  align-items: center;
+}
+.plan-version-rate {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.625rem;
+  line-height: 1;
+}
+.plan-version-note,
+.plan-version-ci {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.plan-version-ci {
+  font-size: 0.75rem;
+}
+.plan-version .wbar {
+  grid-column: 1 / -1;
+}
+.plan-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.plan-compare-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.plan-copy {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.plan .plan-copy button {
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: var(--t-label);
+}
+.plan-copy .small {
+  grid-column: 1 / -1;
+}
 
+/* ── swaps on the Changes tab ───────────────────────────────────────────── */
+
+.plan-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 24px;
+}
+.plan-group > p {
+  margin: 0;
+}
+.plan-group-title {
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 1.5rem;
+}
+.plan-group-title .num {
+  font-family: var(--body);
+  font-size: var(--t-sm);
+  font-weight: 400;
+  color: var(--dim);
+}
+.plan-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plan-group-head {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-md);
+  margin: 0.75rem 0 0.2rem;
+}
+
+/* Phones: crops across the top, then the text, then status and the tick. */
+.swap-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--surface);
+}
+.swap-crops {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.swap-crop {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.swap-crop .crop {
+  width: 100%;
+  height: 72px;
+  border-radius: 10px;
+}
+.plan .swap-crop-btn {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+}
+.swap-crop-label {
+  font-size: 0.75rem;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.swap-crop.is-in .swap-crop-label {
+  color: var(--text);
+  font-weight: 700;
+}
+.swap-arrow {
+  color: var(--dim);
+}
+.swap-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.swap-text > p {
+  margin: 0;
+}
+.swap-title {
+  display: none;
+}
+.swap-why {
+  font-size: var(--t-label);
+  line-height: 1.4;
+}
+.swap-source {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.swap-more summary {
+  cursor: pointer;
+  color: var(--dim);
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+.swap-more p {
+  margin: 0.25rem 0 0.5rem;
+}
+.swap-side {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.swap-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.swap-standin {
+  border-left: 2px solid var(--line);
+  padding: 4px 0 4px 10px;
+  margin-top: 4px;
+}
+/* Laptops: one row per swap: out crop, arrow, in crop, the text, status and the tick. */
+@media (min-width: 900px) {
+  .swap-card {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 14px 10px 10px;
+  }
+  .swap-crops {
+    grid-template-columns: 96px 20px 96px;
+    gap: 12px;
+  }
+  .swap-crop .crop {
+    width: 96px;
+    height: 68px;
+  }
+  .swap-crop-label {
+    display: none;
+  }
+  .swap-title {
+    display: block;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+  .swap-title span {
+    font-weight: 400;
+    color: var(--dim);
+  }
+  .swap-side {
+    flex-direction: column;
+    align-items: end;
+    justify-content: center;
+    gap: 6px;
+  }
+  .swap-side {
+    max-width: 13rem;
+  }
+  .swap-pills {
+    justify-content: end;
+  }
+}
+
+/* The Brackets tab keeps compact thumbnail rows. */
 .swap-row {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -208,36 +663,13 @@
   align-items: center;
   gap: 0.3rem;
 }
-.swap-arrow {
-  color: var(--dim);
-}
 .swap-body > * {
   margin: 0 0 0.3rem;
 }
 .swap-body > :last-child {
   margin-bottom: 0;
 }
-.swap-title {
-  line-height: 1.3;
-}
-.swap-tags {
-  gap: 0.35rem;
-}
-.swap-body details summary {
-  cursor: pointer;
-  color: var(--dim);
-  padding: 0.35rem 0;
-}
-.swap-body details p {
-  margin: 0.25rem 0 0.5rem;
-}
-.swap-standin {
-  border-left: 2px solid var(--line);
-  padding: 0.2rem 0 0.2rem 0.6rem;
-  margin-top: 0.4rem;
-}
-
-.plan-thumb-wrap {
+.plan .plan-thumb-wrap {
   padding: 0;
   border: none;
   background: none;
@@ -252,27 +684,6 @@
   padding: 0.2rem;
   line-height: 1.1;
   overflow: hidden;
-}
-.plan-thumb-out {
-  opacity: 0.55;
-}
-.plan-thumb-empty {
-  display: inline-block;
-  width: 44px;
-  aspect-ratio: 488 / 680;
-  border: 1px dashed var(--line);
-  border-radius: var(--card-radius);
-}
-
-.plan-group-head {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: var(--t-base);
-  margin: 0.75rem 0 0.4rem;
 }
 
 .plan-build,
@@ -295,7 +706,7 @@
   align-items: center;
   font-weight: 400;
 }
-.plan-check input {
+.plan .plan-check input {
   width: auto;
   min-height: 0;
 }
@@ -338,143 +749,455 @@
   margin: 0;
 }
 
-/* ── the Plans pages' sub-nav ───────────────────────────────────────────── */
-
-.plan-subnav {
-  display: flex;
-  gap: 0.25rem 1.25rem;
-  flex-wrap: wrap;
-  margin: -0.25rem 0 1rem;
-}
-.plan-subnav a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  color: var(--dim);
-  text-decoration: none;
-  font-weight: 700;
-  border-bottom: 2px solid transparent;
-}
-.plan-subnav a.active {
-  color: var(--text);
-  border-bottom-color: var(--text);
-}
-a.figure {
-  color: inherit;
-  text-decoration: none;
-}
-a.figure:hover span {
-  color: var(--text);
-}
-
 /* ── review ─────────────────────────────────────────────────────────────── */
 
-.plan-chips {
+.review-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+  text-align: right;
+}
+.review-status::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+.review-status.warn::before {
+  background: var(--warn);
+}
+.review-status.good::before {
+  background: var(--good);
+}
+.review-intro {
+  margin: 0 0 8px;
+}
+.plan-sync {
+  margin-bottom: 12px;
+}
+.plan-sync p {
+  margin: 0 0 0.3rem;
+}
+.review-decks {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0 0 0.75rem;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  margin: 0 0 6px;
 }
-.plan-chips button {
-  border-radius: 999px;
-  font-weight: 700;
-  padding: 0.35rem 0.9rem;
-  background: transparent;
+.plan .review-decks button {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px 0 4px;
+  border: none;
+  background: var(--surface);
+  font-size: var(--t-label);
 }
-.plan-chips button[aria-selected="true"],
-.plan-chips button[aria-pressed="true"] {
+.plan .review-decks button[aria-selected="true"] {
   background: var(--text);
   color: var(--ground);
-  border-color: var(--text);
 }
-.plan-chips button[aria-selected="true"] .dim,
-.plan-chips button[aria-pressed="true"] .dim {
-  color: var(--raised);
+.review-deck-art {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--raised);
 }
-/* Deck chips scroll sideways on a phone instead of taking the whole screen. */
-.plan-chips-decks {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: 0.25rem;
-}
-.plan-chips-decks button {
-  flex: none;
-}
-@media (min-width: 720px) {
-  .plan-chips-decks {
-    flex-wrap: wrap;
-  }
-}
-.plan-settings section {
-  margin-bottom: 1.5rem;
-}
-.plan-chips-small button {
+.review-deck-count {
   font-weight: 400;
+}
+.review-credit {
+  margin: 16px 0 0;
+}
+.review-filters {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 0 10px;
+}
+.plan .review-filters button {
+  flex: none;
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--dim);
   font-size: var(--t-sm);
+  font-weight: 400;
 }
-.plan-search {
+.plan .review-filters button[aria-pressed="true"] {
+  border-color: var(--raised);
+  background: var(--raised);
+  color: var(--text);
+  font-weight: 700;
+}
+.plan .review-search {
+  margin: 0 0 14px;
+  border-radius: var(--r-pill);
+  padding: 6px 16px;
+}
+.review-group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 24px;
+}
+.review-group-head {
+  margin: 0;
+  font-size: 1.5rem;
+}
+.review-group-head .num,
+.review-queue-head .num {
+  font-family: var(--body);
+  font-size: var(--t-sm);
+  font-weight: 400;
+  color: var(--dim);
+}
+
+/* One proposal: the full card with the cut card tilted over its corner. */
+.review-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 22px;
+  background: var(--surface);
+}
+.review-card.answered-want {
+  box-shadow: inset 0 0 0 1px rgb(143 211 168 / 0.45);
+}
+.review-card.answered-unsure {
+  box-shadow: inset 0 0 0 1px rgb(240 180 90 / 0.45);
+}
+.review-card.answered-no {
+  box-shadow: inset 0 0 0 1px rgb(240 122 98 / 0.45);
+}
+.review-fig {
+  margin: 0;
+}
+.review-stack {
+  position: relative;
+  display: block;
+  padding-right: 64px;
+}
+.review-fig .review-in {
+  display: block;
   width: 100%;
-  margin-bottom: 0.75rem;
+  border-radius: var(--card-radius);
 }
-.review-row.answered-want {
-  box-shadow: inset 3px 0 0 var(--good);
+.review-cut {
+  position: absolute;
+  right: 0;
+  bottom: 8px;
+  width: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--dim);
 }
-.review-row.answered-unsure {
-  box-shadow: inset 3px 0 0 var(--warn);
+.review-cut .review-out {
+  display: block;
+  width: 92px;
+  border-radius: var(--card-radius);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.6);
+  transform: rotate(4deg);
 }
-.review-row.answered-no {
-  box-shadow: inset 3px 0 0 var(--bad);
+.review-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
-.review-row {
-  padding-left: 0.5rem;
+.review-body > p {
+  margin: 0;
 }
-.plan-decide {
+.review-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.review-name {
+  font-size: 1.125rem;
+  line-height: 1.2;
+}
+.review-title .dim {
+  font-size: var(--t-label);
+}
+.review-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.5rem;
+  gap: 6px;
 }
-.plan-decide button {
-  flex: 1 1 6rem;
+.review-pills:empty {
+  display: none;
+}
+.review-why {
+  font-size: var(--t-label);
+  line-height: 1.45;
+}
+.review-why.dim b {
+  color: var(--text);
+}
+.review-prices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--raised);
+  font-size: var(--t-label);
+}
+.review-stock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.review-price {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.review-price.dim a {
+  color: var(--dim);
+}
+.review-market {
+  display: block;
+}
+.review-flag {
+  font-weight: 700;
+}
+.review-flag.warn {
+  color: var(--warn);
+}
+.review-decide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.plan .review-decide button {
+  min-height: 48px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
   background: transparent;
 }
-.plan-decide button[aria-pressed="true"].decide-want {
+.plan .review-decide button[aria-pressed="true"].decide-want {
   background: var(--good);
   border-color: var(--good);
   color: var(--ground);
 }
-.plan-decide button[aria-pressed="true"].decide-unsure {
+.plan .review-decide button[aria-pressed="true"].decide-unsure {
   background: var(--warn);
   border-color: var(--warn);
   color: var(--ground);
 }
-.plan-decide button[aria-pressed="true"].decide-no {
+.plan .review-decide button[aria-pressed="true"].decide-no {
   background: var(--bad);
   border-color: var(--bad);
   color: var(--ground);
 }
-.plan-cut {
-  display: grid;
-  gap: 0.25rem;
+.review-key {
+  margin-left: 4px;
   font-weight: 400;
+  font-size: var(--t-sm);
 }
-.plan-cut select {
-  max-width: 100%;
+.review-fields {
+  display: grid;
+  gap: 10px;
 }
-.plan-note {
-  width: 100%;
-  min-height: 44px;
-  resize: vertical;
+.review-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--t-sm);
+  color: var(--dim);
 }
-.plan-stock {
-  margin: 0.2rem 0 0.4rem;
-  padding-left: 1.1rem;
+.plan .review-field select,
+.plan .review-field input {
+  background: var(--ground);
 }
-.plan-sync {
-  margin-bottom: 0.75rem;
+.review-state {
+  margin: 0;
 }
-.plan-sync p {
-  margin: 0 0 0.3rem;
+
+/* Laptops: the queue beside one proposal. */
+.review-panes {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.review-queue {
+  flex: 0 0 300px;
+  max-height: calc(100dvh - 120px);
+  position: sticky;
+  top: 0;
+  overflow-y: auto;
+  padding: 14px 14px 14px 0;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.review-queue .review-search {
+  margin-bottom: 4px;
+}
+.review-queue .review-filters {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+.review-queue-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.review-queue-head {
+  margin: 10px 0 4px;
+  font-family: var(--body);
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: var(--dim);
+}
+.plan .review-qrow {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 4px 10px 4px 4px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font-weight: 400;
+  text-align: left;
+  justify-content: stretch;
+}
+.plan .review-qrow:hover {
+  background: var(--surface);
+}
+.plan .review-qrow[aria-current="true"] {
+  background: var(--raised);
+}
+.review-qrow-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
+}
+.review-qrow-in {
+  font-weight: 700;
+  font-size: var(--t-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.review-qrow-out {
+  font-size: 0.75rem;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.review-qrow-state {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--dim);
+}
+.review-qrow-state.want {
+  color: var(--good);
+}
+.review-qrow-state.unsure {
+  color: var(--warn);
+}
+.review-qrow-state.no {
+  color: var(--bad);
+}
+.review-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 24px 0 24px 28px;
+}
+.review-card.is-wide {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 28px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  align-items: start;
+}
+.review-card.is-wide .review-fig {
+  flex: 0 1 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.review-card.is-wide .review-stack {
+  padding-right: 0;
+}
+.review-card.is-wide .review-in {
+  max-width: 300px;
+  box-shadow: 0 24px 50px rgb(0 0 0 / 0.55);
+}
+.review-card.is-wide .review-cut {
+  right: -4px;
+  bottom: -14px;
+  width: 130px;
+  font-size: var(--t-sm);
+}
+.review-card.is-wide .review-out {
+  width: 130px;
+  transform: rotate(5deg);
+}
+.review-card.is-wide .review-body {
+  flex: 1 1 320px;
+  gap: 16px;
+}
+.review-card.is-wide .review-name {
+  margin: 0;
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 0.95;
+}
+.review-card.is-wide .review-title .dim {
+  font-size: var(--t-base);
+}
+.review-card.is-wide .review-why {
+  font-size: var(--t-base);
+  line-height: 1.5;
+}
+.review-card.is-wide .review-prices {
+  background: var(--surface);
+  padding: 14px;
+  border-radius: 16px;
+}
+.plan .review-card.is-wide .review-decide button {
+  min-height: 54px;
+  font-size: 1.0625rem;
+}
+.review-card.is-wide .review-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.plan .review-card.is-wide .review-field select,
+.plan .review-card.is-wide .review-field input {
+  background: var(--surface);
 }
 .plan-orphans {
   margin-top: 2rem;
@@ -487,6 +1210,9 @@ a.figure:hover span {
 
 /* ── settings ───────────────────────────────────────────────────────────── */
 
+.plan-settings section {
+  margin-bottom: 1.5rem;
+}
 .plan-key {
   display: block;
   overflow-wrap: anywhere;
@@ -497,20 +1223,150 @@ a.figure:hover span {
   user-select: all;
 }
 
-/* ── buy, prints, spares ────────────────────────────────────────────────── */
+/* ── buy ────────────────────────────────────────────────────────────────── */
 
-.plan-store {
+.buy-stores {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+@media (min-width: 1100px) {
+  .buy-stores {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+.buy-store {
+  border-radius: 20px;
+  background: var(--surface);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.buy-stores .buy-store {
+  margin-bottom: 0;
+}
+.buy-store-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 10px;
+}
+.buy-store-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+.buy-store-name b {
+  font-size: 1.0625rem;
+}
+.buy-store-name span {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.plan .buy-cart {
+  flex: none;
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: var(--t-label);
+}
+.buy-store-note {
+  margin: 0;
+  padding: 0 14px 10px;
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+.buy-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 14px;
   border-top: 1px solid var(--line);
-  padding-top: 1rem;
-  margin-top: 1rem;
-  gap: 0.5rem;
 }
-.plan-store h3 {
-  margin: 0;
+.plan-section .buy-row {
+  padding: 10px 0;
 }
-.plan-store > p {
-  margin: 0;
+.buy-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
+.buy-row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.buy-row-meta {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.buy-row-meta a {
+  color: var(--dim);
+}
+.buy-flag {
+  font-size: var(--t-sm);
+  font-weight: 700;
+}
+.buy-flag.warn {
+  color: var(--warn);
+}
+.buy-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.plan .buy-mark {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  background: transparent;
+  font-size: var(--t-sm);
+}
+.buy-row.is-bought .plan-bought {
+  margin: 4px 0;
+}
+.buy-mini {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 52px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+.buy-mini-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+.buy-mini-text > span {
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+.buy-mini-text > span.good {
+  color: var(--good);
+}
+.buy-mini-text a {
+  color: var(--dim);
+}
+.buy-mini-side {
+  display: flex;
+  flex-direction: column;
+  align-items: end;
+  gap: 2px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.plan .buy-mini-side button {
+  min-height: 32px;
+  padding: 0 8px;
+}
+
 .plan-fold {
   border-top: 1px solid var(--line);
   margin-top: 1rem;
@@ -522,22 +1378,11 @@ a.figure:hover span {
   min-height: 44px;
   font-weight: 700;
 }
-.plan-orders {
-  margin-top: 1.5rem;
-  gap: 0.25rem;
-}
-.plan-delivery,
-.plan-print,
-.plan-spare {
-  grid-template-columns: auto 1fr auto;
-  align-items: start;
-}
 .plan-delivery {
   grid-template-columns: 1fr auto;
+  align-items: start;
 }
-.plan-delivery .title,
-.plan-print .title,
-.plan-spare .title {
+.plan-delivery .title {
   overflow-wrap: anywhere;
 }
 .plan-delivery-side {
@@ -546,26 +1391,207 @@ a.figure:hover span {
   gap: 0.25rem;
   text-align: right;
 }
+
+/* ── prints ─────────────────────────────────────────────────────────────── */
+
+.prints-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: start;
+}
+.prints-main {
+  flex: 999 1 480px;
+  min-width: 0;
+}
+.prints-order {
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 20px;
+}
+.prints-order-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 10px;
+}
+.prints-order-title {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.prints-order-title h2 {
+  margin: 0;
+  font-weight: 800;
+  font-size: 1.75rem;
+}
+.prints-order-title .dim {
+  font-size: var(--t-label);
+}
+.prints-order-title .dim:first-child {
+  font-size: var(--t-sm);
+}
+.prints-count {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 2.5rem;
+  line-height: 1;
+}
+.prints-lines-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.prints-line {
+  display: grid;
+  grid-template-columns: 52px 18px 52px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+}
+.prints-line-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+  color: var(--text);
+}
+.prints-line-text b {
+  font-size: var(--t-label);
+}
+.prints-line-text > span {
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+.prints-line-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.prints-more {
+  margin: 8px 0 0;
+}
+.prints-next {
+  flex: 1 1 320px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px dashed var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.prints-next > p {
+  margin: 0;
+}
+.prints-next-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.prints-next-head h2 {
+  margin: 0;
+  font-weight: 800;
+  font-size: 1.5rem;
+}
+.prints-bar {
+  position: relative;
+  display: block;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+}
+.prints-bar > span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--r-pill);
+  background: var(--text);
+}
+
+/* ── spares ─────────────────────────────────────────────────────────────── */
+
+.spares-intro {
+  margin: 0 0 6px;
+  color: var(--dim);
+}
 .plan-spares-tools {
   align-items: center;
   gap: 0.5rem 1rem;
-  margin-bottom: 0.5rem;
+  margin: 12px 0 20px;
 }
-.plan-spares-tools .plan-search {
+.plan .plan-spares-tools .plan-search {
   flex: 1 1 14rem;
   width: auto;
   margin: 0;
 }
-@media (max-width: 520px) {
-  .plan-print,
-  .plan-spare {
-    grid-template-columns: auto 1fr;
+.spares-cols {
+  display: grid;
+  gap: 8px 24px;
+}
+@media (min-width: 1100px) {
+  .spares-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
   }
-  .plan-print .plan-slot-tags,
-  .plan-spare .plan-slot-tags {
-    grid-column: 2;
-    justify-content: start;
-  }
+}
+.spares-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.spares-group > p {
+  margin: 0;
+}
+.spares-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0;
+}
+.spare-card {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px;
+  border-radius: 16px;
+  background: var(--surface);
+}
+.plan-fold .spare-card {
+  margin-bottom: 8px;
+}
+.spare-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.3;
+  min-width: 0;
+}
+.spare-text > .dim {
+  font-size: var(--t-sm);
+}
+.spare-next {
+  font-size: var(--t-sm);
+  font-weight: 700;
+}
+.spare-next.warn {
+  color: var(--warn);
+}
+.spare-next.good {
+  color: var(--good);
+}
+.spare-next.quiet {
+  color: var(--dim);
 }
 
 /* ── ticks and marks ────────────────────────────────────────────────────── */
@@ -585,13 +1611,46 @@ a.figure:hover span {
   font-weight: 400;
   cursor: pointer;
 }
-.plan-tick input {
+.plan .plan-tick input {
   width: 1.25rem;
   height: 1.25rem;
   min-height: 0;
   margin: 0;
 }
+/* "In the deck" on a swap card: the label in dim text, its notes under it. */
+.plan-tick.plan-tick-short {
+  margin: 0;
+  flex-direction: column;
+  align-items: end;
+  gap: 0;
+}
+.plan .plan-tick-short label {
+  min-height: 40px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+  white-space: nowrap;
+}
+.plan-tick-short > span {
+  max-width: 16rem;
+  text-align: right;
+}
+@media (max-width: 899px) {
+  .plan-tick.plan-tick-short {
+    align-items: start;
+  }
+  .plan-tick-short > span {
+    text-align: left;
+  }
+}
 .plan-bought {
   border-left: 2px solid var(--good);
   padding-left: 0.6rem;
+}
+.plan-search {
+  width: 100%;
+  margin-bottom: 0.75rem;
+}
+.plan-bracket h3 .small {
+  font-family: var(--body);
+  font-weight: 400;
 }

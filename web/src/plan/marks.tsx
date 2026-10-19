@@ -30,7 +30,7 @@ function stateOf(view: PlanView, s: Swap, m: Mark | undefined) {
  * "I've put this in the deck": a tick for a planned swap, starting from the planner's install record
  * (a newer tick here wins), with where the tick is on its way and when the state is the planner's.
  */
-export function InstalledTick({ swap, view, userId, compact = false }: { swap: Swap; view: PlanView; userId: string; compact?: boolean }) {
+export function InstalledTick({ swap, view, userId, compact = false, short = false }: { swap: Swap; view: PlanView; userId: string; compact?: boolean; short?: boolean }) {
   const m = view.markBy.get(swap.key)?.installed;
   const st = installedState(swap, m);
   const on = st.on;
@@ -48,10 +48,10 @@ export function InstalledTick({ swap, view, userId, compact = false }: { swap: S
     outbox.enqueue(userId, op);
   };
   return (
-    <div className={`plan-tick${compact ? " small" : ""}`}>
+    <div className={`plan-tick${compact ? " small" : ""}${short ? " plan-tick-short" : ""}`}>
       <label>
         <input type="checkbox" checked={on} onChange={toggle} />
-        {swap.role === "standin" ? `I've put ${swap.in} in the deck` : "I've put this in the deck"}
+        {short ? "In the deck" : swap.role === "standin" ? `I've put ${swap.in} in the deck` : "I've put this in the deck"}
       </label>
       {plan && <span className="faint small">{plan}</span>}
       {state && (on || state.tone === "warn") && <span className="faint small">{state.label}.</span>}

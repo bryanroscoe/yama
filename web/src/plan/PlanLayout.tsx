@@ -1,10 +1,10 @@
 import { fmtDate, type PlanHead } from "@yama/core/plan";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
-import { NavLink, Outlet, useOutletContext } from "react-router";
+import { useEffect, useMemo, type ReactNode } from "react";
+import { Outlet, useMatch, useOutletContext } from "react-router";
 import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
-import { DeckTabs } from "../components/DeckTabs";
+import { AreaHead, SubNav } from "../components/DeckTabs";
 import { outbox, useOutbox } from "./outbox";
 import { usePlan } from "./store";
 import { planView, type PlanView } from "./view";
@@ -13,6 +13,8 @@ import "./plan.css";
 export interface PlanOutlet {
   view: PlanView;
   userId: string;
+  /** The no-connection banner, for a page that places it itself (a plan deck's, under its art). */
+  banner?: ReactNode;
 }
 
 export function usePlanOutlet(): PlanOutlet {
@@ -64,28 +66,45 @@ export function PlanLayout() {
     };
   }, [userId, qc]);
 
+  // A plan deck's page opens on full-bleed commander art, like a deck's page.
+  const deckPage = !!useMatch("/decks/plan/d/:key");
+  const banner = plan.offline && (
+    <p className="plan-banner small" role="status">
+      No connection. This is the copy of your plans saved on this device{plan.bundle?.head ? `, imported ${fmtDate(plan.bundle.head.imported_at)}` : ""}.
+      {box.pending.length ? ` Your answers are saved on this phone and go to Yama when you're back online.` : ""}
+    </p>
+  );
   return (
-    <main className="page plan">
-      <DeckTabs />
-      {view && view.b.decks.length > 0 && (
-        <nav className="plan-subnav" aria-label="Plans pages">
-          {PLAN_PAGES.map((p) => (
-            <NavLink key={p.to} to={p.to} end={p.end}>
-              {p.label}
-            </NavLink>
-          ))}
-        </nav>
+    <main className={deckPage && view ? "plan plan-deck-page" : "page plan"}>
+      {!deckPage && banner}
+      {!view && (
+        <>
+          <PlansHead title="Plans" index />
+          {plan.pending && <p className="dim">Loading your plans…</p>}
+          <ErrorText error={plan.error} />
+        </>
       )}
-      {plan.offline && (
-        <p className="plan-banner small" role="status">
-          No connection. This is the copy of your plans saved on this device{plan.bundle?.head ? `, imported ${fmtDate(plan.bundle.head.imported_at)}` : ""}.
-          {box.pending.length ? ` Your answers are saved on this phone and go to Yama when you're back online.` : ""}
-        </p>
-      )}
-      {plan.pending && <p className="dim">Loading your plans…</p>}
-      <ErrorText error={plan.error} />
-      {view && userId && <Outlet context={{ view, userId } satisfies PlanOutlet} />}
+      {view && userId && <Outlet context={{ view, userId, banner: deckPage ? banner : null } satisfies PlanOutlet} />}
     </main>
+  );
+}
+
+/**
+ * The head of a Plans page: its title, Decks | Plans | Lab, and the Plans pages under it (once
+ * there are plans). Pages other than the overview get a back button to it on phones.
+ */
+export function PlansHead({ title, index = false, action, status }: { title: ReactNode; index?: boolean; action?: ReactNode; status?: ReactNode }) {
+  const { view } = useOutletContext<PlanOutlet | undefined>() ?? {};
+  const hasPlans = !!view && view.b.decks.length > 0;
+  return (
+    <AreaHead
+      title={title}
+      index={index}
+      back={{ to: "/decks/plan", label: "Back to plans" }}
+      action={action}
+      status={status}
+      nav={hasPlans ? <SubNav label="Plans pages" pages={PLAN_PAGES} /> : undefined}
+    />
   );
 }
 
