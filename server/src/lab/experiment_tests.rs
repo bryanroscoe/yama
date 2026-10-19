@@ -70,6 +70,11 @@ impl Simulator for FakeSim {
     }
 }
 
+/// For cancel: no game of any experiment is playing.
+fn idle(_: &str) -> bool {
+    false
+}
+
 fn user(id: &str, admin: bool) -> User {
     User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin }
 }
@@ -342,14 +347,14 @@ async fn fields_from_the_catalog_and_from_your_decks() {
     let d = create(&pool, &bryan, mk(json!({"kind": "precon", "id": "p1"}), json!({"kind": "precons_all"})), sim.as_ref()).await.unwrap();
     assert_eq!(d.item.field.as_ref().unwrap().label, "All 4 precons");
     assert!(d.warnings.iter().any(|w| w.contains("Left out 1 precons") && w.contains("Precon p6")), "{:?}", d.warnings);
-    cancel(&pool, "bryan", &d.item.id).await.unwrap();
+    cancel(&pool, "bryan", &d.item.id, &idle).await.unwrap();
     // Nearest in strength to the base precon (p3, 1.0): p4 (0.8), p2 (1.5), p5 (0.5).
     let d = create(&pool, &bryan, mk(json!({"kind": "precon", "id": "p3"}), json!({"kind": "precons_near", "n": 3})), sim.as_ref()).await.unwrap();
     let mut ids: Vec<&str> = d.opponents.iter().map(|o| o.id.as_str()).collect();
     ids.sort();
     assert_eq!(ids, vec!["precons/p2", "precons/p4", "precons/p5"]);
     assert_eq!(d.item.field.as_ref().unwrap().label, "3 precons nearest in strength to Precon p3");
-    cancel(&pool, "bryan", &d.item.id).await.unwrap();
+    cancel(&pool, "bryan", &d.item.id, &idle).await.unwrap();
 
     // Your own decks: the base deck and a 98-card deck are left out of an "all my decks" field.
     let base = deck(&pool, "bryan", "Mine", list_of("Ghave", &[])).await;
@@ -364,7 +369,7 @@ async fn fields_from_the_catalog_and_from_your_decks() {
     assert!(d.opponents.iter().all(|o| o.id.starts_with("deck/") && o.id != format!("deck/{base}")));
     assert!(d.warnings.iter().any(|w| w.contains("Short")), "{:?}", d.warnings);
     assert_eq!(d.item.base.as_ref().unwrap().label, "Mine");
-    cancel(&pool, "bryan", &d.item.id).await.unwrap();
+    cancel(&pool, "bryan", &d.item.id, &idle).await.unwrap();
     // Naming the short deck is refused, saying why.
     let all: Vec<String> = sqlx::query_scalar("SELECT id FROM decks WHERE owner_id = 'bryan' AND id != ?").bind(&base).fetch_all(&pool).await.unwrap();
     let (_, details) = invalid(create(&pool, &bryan, mk(json!({"kind": "deck", "id": base}), json!({"kind": "my_decks", "ids": all})), sim.as_ref()).await.unwrap_err());
@@ -384,7 +389,7 @@ async fn other_users_experiments_and_decks_are_not_found() {
     assert!(list(&pool, "other").await.unwrap().is_empty());
     assert_eq!(list(&pool, "bryan").await.unwrap().len(), 1);
     assert!(matches!(detail(&pool, "other", &id).await, Err(AppError::NotFound(_))));
-    assert!(matches!(cancel(&pool, "other", &id).await, Err(AppError::NotFound(_))));
+    assert!(matches!(cancel(&pool, "other", &id, &idle).await, Err(AppError::NotFound(_))));
     assert!(matches!(delete(&pool, "other", &id).await, Err(AppError::NotFound(_))));
     assert_eq!(detail(&pool, "bryan", &id).await.unwrap().item.status, "queued");
     // Bryan's deck can't be someone else's base or field.
@@ -421,7 +426,7 @@ async fn limits_per_user_and_retried_creates() {
     assert_eq!(n, 3, "the refused one left nothing behind");
     let games: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiment_games").fetch_one(&pool).await.unwrap();
     assert_eq!(games, 300);
-    assert_eq!(cancel(&pool, "bryan", &ids[0]).await.unwrap().item.status, "cancelled");
+    assert_eq!(cancel(&pool, "bryan", &ids[0], &idle).await.unwrap().item.status, "cancelled");
     let mut with_op = swap_req(200);
     with_op.op_id = Some("try-1".into());
     let made = create(&pool, &bryan, with_op, sim.as_ref()).await.unwrap();
@@ -574,11 +579,11 @@ async fn cancelled_and_deleted_experiments_stop_and_failures_are_reported() {
     let sim = FakeSim::new();
     let bryan = user("bryan", false);
     let d = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
-    let c = cancel(&pool, "bryan", &d.item.id).await.unwrap();
+    let c = cancel(&pool, "bryan", &d.item.id, &idle).await.unwrap();
     assert_eq!(c.item.status, "cancelled");
     assert!(c.item.label.finished_at.is_some());
     assert!(c.item.summary.as_ref().unwrap().verdict.is_final);
-    assert_eq!(cancel(&pool, "bryan", &d.item.id).await.unwrap().item.status, "cancelled");
+    assert_eq!(cancel(&pool, "bryan", &d.item.id, &idle).await.unwrap().item.status, "cancelled");
     let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
     worker.drain().await;
     assert!(sim.played().is_empty(), "a cancelled experiment plays nothing more");
@@ -596,7 +601,7 @@ async fn cancelled_and_deleted_experiments_stop_and_failures_are_reported() {
     // Cancelling a finished experiment leaves it done.
     let finished = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
     worker.drain().await;
-    assert_eq!(cancel(&pool, "bryan", &finished.item.id).await.unwrap().item.status, "done");
+    assert_eq!(cancel(&pool, "bryan", &finished.item.id, &idle).await.unwrap().item.status, "done");
 
     // Every game failing: the experiment fails and says why.
     let failing = Arc::new(FakeSim { fail: true, ..Default::default() });
@@ -722,4 +727,342 @@ async fn hung_threads_take_places_and_games_keep_their_frozen_limits() {
         assert_eq!(detail(&pool, &owner, id).await.unwrap().item.status, "done");
     }
     assert_eq!(LIMITS.turn_action_cap, MAX_TURN_ACTIONS);
+}
+
+// ── review fixes (experiments step) ─────────────────────────────────────────
+
+/// Holds every game until `open` is set, then plays it as [`FakeSim`] does: games stay in flight
+/// for as long as a test needs.
+struct GateSim {
+    open: std::sync::atomic::AtomicBool,
+    inner: Arc<FakeSim>,
+}
+
+impl GateSim {
+    fn new() -> Arc<Self> {
+        Arc::new(GateSim { open: Default::default(), inner: FakeSim::new() })
+    }
+}
+
+impl Simulator for GateSim {
+    fn card_data(&self) -> String {
+        self.inner.card_data()
+    }
+    fn unknown(&self, cards: &[LabCard]) -> Vec<String> {
+        self.inner.unknown(cards)
+    }
+    fn play(&self, spec: &GameSpec, decks: &[Arc<LabList>], limits: &Limits) -> GameResult {
+        while !self.open.load(Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        self.inner.play(spec, decks, limits)
+    }
+}
+
+async fn stored_summary(pool: &SqlitePool, id: &str) -> (i64, Value) {
+    let (done, summary): (i64, String) = sqlx::query_as("SELECT games_done, summary FROM lab_experiments WHERE id = ?").bind(id).fetch_one(pool).await.unwrap();
+    (done, serde_json::from_str(&summary).unwrap())
+}
+
+#[tokio::test]
+async fn a_cancelled_summary_is_final_only_once_its_games_in_flight_are_in() {
+    let pool = fixture().await;
+    let sim = GateSim::new();
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    assert_eq!(worker.tick().await.unwrap(), 2);
+    assert!(worker.playing(&d.item.id));
+    // Cancelled with two games playing: they still count, so the summary isn't final yet.
+    let c = cancel(&pool, "bryan", &d.item.id, &|e: &str| worker.playing(e)).await.unwrap();
+    assert_eq!(c.item.status, "cancelled");
+    assert!(!c.item.summary.as_ref().unwrap().verdict.is_final);
+    sim.open.store(true, Ordering::SeqCst);
+    worker.drain().await;
+    let (done, summary) = stored_summary(&pool, &d.item.id).await;
+    assert_eq!(done, 2, "the games in flight were kept");
+    assert_eq!(summary["verdict"]["final"], json!(true), "final once the last one was in");
+    assert_eq!(summary["base"]["games"].as_u64().unwrap() + summary["variant"]["games"].as_u64().unwrap(), 2);
+    assert_eq!(sim.inner.played().len(), 2, "nothing else started");
+    // Nothing playing: a cancel is final at once.
+    let q = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let c = cancel(&pool, "bryan", &q.item.id, &|e: &str| worker.playing(e)).await.unwrap();
+    assert!(c.item.summary.unwrap().verdict.is_final);
+}
+
+#[tokio::test]
+async fn a_cancel_between_picking_and_starting_games_starts_nothing() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    let jobs = worker.next_jobs(2).await.unwrap();
+    assert_eq!(jobs.len(), 2);
+    cancel(&pool, "bryan", &d.item.id, &idle).await.unwrap();
+    // The write that starts games skips an experiment that is no longer queued or running.
+    assert!(worker.mark_started(&jobs).await.unwrap().is_empty());
+    let attempts: i64 = sqlx::query_scalar("SELECT SUM(attempts) FROM lab_experiment_games WHERE experiment_id = ?").bind(&d.item.id).fetch_one(&pool).await.unwrap();
+    assert_eq!(attempts, 0);
+    let status: String = sqlx::query_scalar("SELECT status FROM lab_experiments WHERE id = ?").bind(&d.item.id).fetch_one(&pool).await.unwrap();
+    assert_eq!(status, "cancelled");
+}
+
+#[tokio::test]
+async fn a_server_restart_settles_experiments_cancelled_with_games_in_flight() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    // Cancelled while a game was playing, then the server stopped before it was stored.
+    cancel(&pool, "bryan", &d.item.id, &|_: &str| true).await.unwrap();
+    assert_eq!(stored_summary(&pool, &d.item.id).await.1["verdict"]["final"], json!(false));
+    let restarted = LabWorker::new(pool.clone(), 2, SimState::Starting);
+    assert_eq!(restarted.settle_left_over().await.unwrap(), 1);
+    assert_eq!(stored_summary(&pool, &d.item.id).await.1["verdict"]["final"], json!(true));
+    assert_eq!(restarted.settle_left_over().await.unwrap(), 0, "only open ones");
+}
+
+/// cancel() and a game being stored at the same moment, on a file database with the server's pool
+/// settings: the cancel's recount never overwrites the newer count (it did in about a third of the
+/// rounds when cancel recounted outside a transaction).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancel_and_a_finishing_game_never_lose_a_result() {
+    let dir = tempfile::tempdir().unwrap();
+    let pool = crate::db::connect(&format!("sqlite://{}", dir.path().join("t.db").display())).await.unwrap();
+    add_user(&pool, "bryan", false).await;
+    let sim = FakeSim::new();
+    for round in 0..30u64 {
+        let id = format!("e{round}");
+        sqlx::query(
+            "INSERT INTO lab_experiments (id, owner_id, name, status, spec, games_total, games_done, engine, card_data, runner, difficulty, created_at, updated_at)
+             VALUES (?, 'bryan', 'raw', 'running', '{}', 200, 0, 'e', 'c', 'r', 'Easy', 'now', 'now')",
+        )
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut specs = Vec::new();
+        for i in 0..200usize {
+            let side = if i % 2 == 0 { BASE_ID } else { VARIANT_ID };
+            let spec = GameSpec {
+                game: format!("g{i}"),
+                seed: i as u64,
+                decks: vec![side.into(), "precons/a".into(), "precons/b".into(), "precons/c".into()],
+                difficulty: "Easy".into(),
+                max_turns: 120,
+                max_actions: 200_000,
+                max_seconds: 600,
+            };
+            let result = (i < 198).then(|| sim.play(&spec, &[], &LIMITS).to_line());
+            sqlx::query("INSERT INTO lab_experiment_games (experiment_id, game, ord, spec, result, end_kind, attempts) VALUES (?,?,?,?,?,?,1)")
+                .bind(&id)
+                .bind(&spec.game)
+                .bind(i as i64)
+                .bind(serde_json::to_string(&spec).unwrap())
+                .bind(&result)
+                .bind(result.as_ref().map(|_| "win"))
+                .execute(&pool)
+                .await
+                .unwrap();
+            specs.push(spec);
+        }
+        let last = sim.play(&specs[198], &[], &LIMITS);
+        let jitter = std::time::Duration::from_micros((round * 97) % 4000);
+        let (p1, p2, id1, id2) = (pool.clone(), pool.clone(), id.clone(), id.clone());
+        let cancelling = tokio::spawn(async move {
+            // detail() can't read the raw '{}' spec afterwards; the cancel itself is what's tested.
+            let _ = cancel(&p1, "bryan", &id1, &|_: &str| true).await;
+        });
+        let finishing = tokio::spawn(async move {
+            tokio::time::sleep(jitter).await;
+            assert!(store(&p2, &id2, "g198", &last).await.unwrap());
+        });
+        cancelling.await.unwrap();
+        finishing.await.unwrap();
+        let (done, summary) = stored_summary(&pool, &id).await;
+        assert_eq!(done, 199, "round {round}");
+        assert_eq!(summary["base"]["games"].as_u64().unwrap() + summary["variant"]["games"].as_u64().unwrap(), 199, "round {round}");
+    }
+}
+
+#[tokio::test]
+async fn a_pod_half_played_on_another_build_replays_on_this_one() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT game, spec FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord").bind(&d.item.id).fetch_all(&pool).await.unwrap();
+    // An earlier server, on older card data, stored pod 0 and pod 1's base game. Pod 2 was split
+    // across two other runners by a server without the check.
+    let stamped = |i: usize, card_data: &str, runner: Option<&str>| {
+        let mut r = sim.play(&serde_json::from_str(&rows[i].1).unwrap(), &[], &LIMITS);
+        r.card_data = card_data.into();
+        if let Some(runner) = runner {
+            r.runner = runner.into();
+        }
+        r
+    };
+    for i in 0..3 {
+        assert!(store(&pool, &d.item.id, &rows[i].0, &stamped(i, "olddata", None)).await.unwrap());
+    }
+    assert!(store(&pool, &d.item.id, &rows[4].0, &stamped(4, "fakecarddata0000", Some("older"))).await.unwrap());
+    assert!(store(&pool, &d.item.id, &rows[5].0, &stamped(5, "fakecarddata0000", Some("newer"))).await.unwrap());
+    // Pod 3's base game has a line that isn't JSON: it is never read as JSON, and stays.
+    sqlx::query("UPDATE lab_experiment_games SET result = '{nope', end_kind = 'error' WHERE experiment_id = ? AND game = ?").bind(&d.item.id).bind(&rows[6].0).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE lab_experiments SET status = 'running' WHERE id = ?").bind(&d.item.id).execute(&pool).await.unwrap();
+
+    let fresh = FakeSim::new();
+    LabWorker::new(pool.clone(), 2, SimState::Ready(fresh.clone())).drain().await;
+    let replayed: HashSet<String> = fresh.played().into_iter().map(|(s, _)| s.game).collect();
+    assert!(!replayed.contains(&rows[0].0) && !replayed.contains(&rows[1].0), "a whole pod on one build is kept");
+    for i in [2, 3, 4, 5, 7] {
+        assert!(replayed.contains(&rows[i].0), "game {i} replayed on this build");
+    }
+    assert!(!replayed.contains(&rows[6].0));
+    assert_eq!(replayed.len(), 97);
+    let done = detail(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!(done.item.status, "done");
+    let s = done.item.summary.as_ref().unwrap();
+    assert_eq!((s.paired.pods, s.paired.split_builds, s.unscored.error), (49, 0, 1), "every scored pod on one build");
+    let builds: Vec<(&str, &str, u32)> = s.builds.iter().map(|b| (b.build.card_data.as_str(), b.build.runner.as_str(), b.games)).collect();
+    let runner = yama_play::lab::RUNNER;
+    assert_eq!(builds, vec![("olddata", runner, 2), ("fakecarddata0000", runner, 97), ("unknown", "unknown", 1)]);
+    // The label names every build the games ran on, not the one the experiment was created on.
+    assert_eq!(done.item.label.card_data, "olddata, fakecarddata0000, unknown");
+    assert_eq!(done.item.label.engine, "phase-rs v0.113.0, unknown");
+    assert_eq!(done.item.label.builds, s.builds);
+}
+
+#[tokio::test]
+async fn the_label_follows_the_games_not_the_build_it_was_created_on() {
+    let pool = fixture().await;
+    let d = create(&pool, &user("bryan", false), swap_req(100), FakeSim::new().as_ref()).await.unwrap();
+    assert_eq!((d.item.label.card_data.as_str(), d.item.label.builds.len()), ("fakecarddata0000", 0));
+    // A card data refresh before it started: every game plays on the new data, and says so.
+    struct Refreshed(Arc<FakeSim>);
+    impl Simulator for Refreshed {
+        fn card_data(&self) -> String {
+            "newcarddata00000".into()
+        }
+        fn unknown(&self, cards: &[LabCard]) -> Vec<String> {
+            self.0.unknown(cards)
+        }
+        fn play(&self, spec: &GameSpec, decks: &[Arc<LabList>], limits: &Limits) -> GameResult {
+            let mut r = self.0.play(spec, decks, limits);
+            r.card_data = self.card_data();
+            r
+        }
+    }
+    LabWorker::new(pool.clone(), 2, SimState::Ready(Arc::new(Refreshed(FakeSim::new())))).drain().await;
+    let done = detail(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!(done.item.label.card_data, "newcarddata00000");
+    assert_eq!(done.item.label.builds.iter().map(|b| b.games).collect::<Vec<_>>(), vec![100]);
+}
+
+/// Panics if the rules engine is ever asked about a list it would be expensive to look at.
+struct Strict(Arc<FakeSim>);
+impl Simulator for Strict {
+    fn card_data(&self) -> String {
+        self.0.card_data()
+    }
+    fn unknown(&self, cards: &[LabCard]) -> Vec<String> {
+        let total: u64 = cards.iter().map(|c| u64::from(c.qty)).sum();
+        assert!(cards.iter().all(|c| c.qty <= MAX_LINE_QTY) && total <= MAX_LIST_CARDS, "the engine was asked about an oversized list ({total} cards)");
+        self.0.unknown(cards)
+    }
+    fn play(&self, spec: &GameSpec, decks: &[Arc<LabList>], limits: &Limits) -> GameResult {
+        self.0.play(spec, decks, limits)
+    }
+}
+
+#[tokio::test]
+async fn oversized_lists_are_refused_before_any_engine_work() {
+    let pool = fixture().await;
+    let sim = Strict(FakeSim::new());
+    let bryan = user("bryan", false);
+    let top3 = json!({"kind": "precons_top", "n": 3});
+    let pasted = |text: String| req(json!({"base": {"kind": "list", "text": text}, "variant": {"add": ["Sol Ring"]}, "field": top3, "games": 100}));
+    for (text, says) in [
+        ("Commander\n1 Ghave\nDeck\n4000000000 Forest".to_string(), "4000000000 copies of Forest"),
+        // Past u32: not read as 100 (4294967396 mod 2^32).
+        ("Commander\n1 Ghave\nDeck\n4294967396 Forest".to_string(), "4294967396 copies of Forest"),
+        ("Commander\n1 Ghave\nDeck\n50000000 Forest".to_string(), "50000000 copies of Forest"),
+        ("Commander\n1 Ghave\nDeck\n100 Forest\n100 Forest\n100 Forest".to_string(), "301 cards on 4 lines"),
+        (format!("Commander\n1 Ghave\nDeck\n{}", (0..301).map(|i| format!("1 Card {i}\n")).collect::<String>()), "302 card lines"),
+        (format!("1 Ghave\n{}", "1 Forest // padding to make the text long\n".repeat(2000)), "at most 64 KB"),
+    ] {
+        let (msg, details) = invalid(create(&pool, &bryan, pasted(text), &sim).await.unwrap_err());
+        assert!(msg.starts_with("The base list: ") && msg.contains(says), "{msg}");
+        assert_eq!(details["problems"]["variant"], json!([]));
+    }
+    // The changed list too, and too many cards to add and cut.
+    let text_variant = req(json!({"base": {"kind": "precon", "id": "p1"}, "variant": {"text": "1 Ghave\n4000000000 Forest"}, "field": top3, "games": 100}));
+    let (msg, details) = invalid(create(&pool, &bryan, text_variant, &sim).await.unwrap_err());
+    assert!(msg.starts_with("The changed list: ") && msg.contains("4000000000 copies"), "{msg}");
+    assert_eq!(details["problems"]["base"], json!([]));
+    let many = req(json!({"base": {"kind": "precon", "id": "p1"}, "variant": {"add": vec!["Sol Ring"; 201]}, "field": top3, "games": 100}));
+    assert!(invalid(create(&pool, &bryan, many, &sim).await.unwrap_err()).0.contains("201 cards to add and cut; at most 200"));
+    let lots = req(json!({"base": {"kind": "precon", "id": "p1"}, "variant": {"add": vec!["Sol Ring"; 200]}, "field": top3, "games": 100}));
+    // 200 more Sol Rings make one line of 201 copies.
+    assert!(invalid(create(&pool, &bryan, lots, &sim).await.unwrap_err()).0.contains("The changed list: 201 copies of Sol Ring"));
+
+    // A saved deck with a huge quantity: refused as a base, left out of a field of your decks.
+    let mut huge = list_of("Atla", &[]);
+    huge.last_mut().unwrap().1 = 50_000_000;
+    let huge = deck(&pool, "bryan", "Huge", huge).await;
+    let as_base = req(json!({"base": {"kind": "deck", "id": huge}, "variant": {"add": ["Sol Ring"]}, "field": top3, "games": 100}));
+    assert!(invalid(create(&pool, &bryan, as_base, &sim).await.unwrap_err()).0.contains("50000000 copies of Forest"));
+    for (name, c) in [("A", "Bruna"), ("B", "Cadric"), ("C", "Dina")] {
+        deck(&pool, "bryan", name, list_of(c, &[])).await;
+    }
+    let mine = |field: Value| req(json!({"base": {"kind": "precon", "id": "p1"}, "variant": {"cut": ["Forest"], "add": ["Llanowar Elves"]}, "field": field, "games": 100}));
+    let d = create(&pool, &bryan, mine(json!({"kind": "my_decks"})), &sim).await.unwrap();
+    assert_eq!(d.item.field.as_ref().unwrap().decks, 3);
+    assert!(d.warnings.iter().any(|w| w.contains("Huge")), "{:?}", d.warnings);
+    delete(&pool, "bryan", &d.item.id).await.unwrap();
+    let (_, details) = invalid(create(&pool, &bryan, mine(json!({"kind": "my_decks", "ids": [huge]})), &sim).await.unwrap_err());
+    assert!(details["unplayable_decks"][&huge]["problems"][0].as_str().unwrap().contains("50000000 copies"), "{details}");
+}
+
+#[test]
+fn merging_a_long_list_is_linear_and_keeps_the_first_line() {
+    // 30,000 distinct lines took tens of seconds with the old pairwise merge.
+    let lines: Vec<LabCard> = (0..30_000).rev().map(|i| LabCard { name: format!("Card {i:05}"), oracle_id: None, qty: 1, commander: false }).collect();
+    let started = std::time::Instant::now();
+    let out = normalize(lines);
+    assert_eq!(out.len(), 30_000);
+    assert_eq!(out[0].name, "Card 00000");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+    // Repeats merge under the first line's name; commanders sort first.
+    let out = normalize(vec![
+        LabCard { name: "forest".into(), oracle_id: Some("f".into()), qty: 2, commander: false },
+        LabCard { name: "Ghave".into(), oracle_id: Some("g".into()), qty: 1, commander: true },
+        LabCard { name: "Forest".into(), oracle_id: Some("f".into()), qty: 3, commander: false },
+        LabCard { name: "Sol Ring".into(), oracle_id: None, qty: 0, commander: false },
+    ]);
+    assert_eq!(out.iter().map(|c| (c.name.as_str(), c.qty)).collect::<Vec<_>>(), vec![("Ghave", 1), ("forest", 5)]);
+}
+
+#[tokio::test]
+async fn a_user_at_the_limit_is_refused_before_anything_is_built() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let bryan = user("bryan", false);
+    for _ in 0..3 {
+        create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
+    }
+    let mut nope = swap_req(100);
+    nope.base = BaseChoice { kind: "precon".into(), id: Some("no-such-precon".into()), text: None };
+    assert!(matches!(create(&pool, &bryan, nope, sim.as_ref()).await, Err(AppError::Conflict(_))));
+}
+
+#[tokio::test]
+async fn the_queue_ahead_is_shown_to_admins_only() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    create(&pool, &user("other", false), swap_req(400), sim.as_ref()).await.unwrap();
+    let mine = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    // Bryan doesn't learn how many games other people have queued.
+    assert_eq!(mine.item.progress.games_ahead, None);
+    assert_eq!(list(&pool, "bryan").await.unwrap()[0].progress.games_ahead, None);
+    let admins = create(&pool, &user("admin", true), swap_req(100), sim.as_ref()).await.unwrap();
+    assert_eq!(admins.item.progress.games_ahead, Some(500));
 }

@@ -8,9 +8,14 @@
 //! Isolation: every query binds the owner; another user's experiment is "not found". Limits for
 //! anyone but an admin: 100, 200 or 400 games, Easy or Medium, and one experiment playing plus two
 //! waiting. Admins may ask for any even number of games up to 2,000 and any AI level.
+//!
+//! Sizes are checked before any expensive work: a request body of at most 256 KB, a pasted list of
+//! at most 64 KB and 300 card lines, at most 200 cards to add and cut, at most 100 copies on a line
+//! and 250 cards in a list. The rules engine only ever looks cards up by name here (it never
+//! expands quantities), and a deck with a problem that stops a simulation is never sent to it.
 
 use super::pairing::{self, LIMITS, Limits, POD};
-use super::stats::{BASE_ID, Summary, VARIANT_ID};
+use super::stats::{BASE_ID, BuildGames, Summary, VARIANT_ID};
 use super::worker::Simulator;
 use super::{Art, PreconCard, RunLabel, latest_global_ratings_run, ratings_for};
 use crate::auth::{CurrentUser, User};
@@ -20,13 +25,14 @@ use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use crate::util::{new_id, now, sha256_hex};
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{AssertSqlSafe, SqlitePool};
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use yama_play::lab::{ENGINE, GameSpec, RUNNER};
 
@@ -35,6 +41,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/lab/experiments", get(list_handler).post(create_handler))
         .route("/api/lab/experiments/{id}", get(detail_handler).delete(delete_handler))
         .route("/api/lab/experiments/{id}/cancel", post(cancel_handler))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
 
 /// The 503 message when this server has no engine card data.
@@ -53,6 +60,17 @@ pub const DEFAULT_FIELD: usize = 20;
 pub const MIN_FIELD: usize = 3;
 const MAX_FIELD: usize = 200;
 const MAX_NAME: usize = 120;
+/// Most bytes in a request to these endpoints (two pasted lists fit four times over).
+const MAX_BODY_BYTES: usize = 256 * 1024;
+/// Most bytes in a pasted list, and most card lines in it (sideboard lines not counted).
+pub const MAX_TEXT_BYTES: usize = 64 * 1024;
+pub const MAX_TEXT_LINES: usize = 300;
+/// Most copies of one card on a line: more than a Commander deck holds.
+pub const MAX_LINE_QTY: u32 = 100;
+/// Most cards in a list (a game needs exactly 100).
+pub const MAX_LIST_CARDS: u64 = 250;
+/// Most cards to add and cut, together.
+pub const MAX_CHANGES: usize = 200;
 
 // ── lists ───────────────────────────────────────────────────────────────────
 
@@ -93,20 +111,85 @@ fn key(c: &LabCard) -> (bool, String) {
     (c.commander, c.oracle_id.clone().unwrap_or_else(|| c.name.to_lowercase()))
 }
 
-/// Merge repeated lines and order the list: commanders first, then by name.
+/// Merge repeated lines (the first line's name and id kept) and order the list: commanders first,
+/// then by name. Linear in the lines, plus the sort.
 pub fn normalize(cards: Vec<LabCard>) -> Vec<LabCard> {
-    let mut out: Vec<LabCard> = Vec::new();
+    let mut out: Vec<LabCard> = Vec::with_capacity(cards.len());
+    let mut at: HashMap<(bool, String), usize> = HashMap::with_capacity(cards.len());
     for c in cards {
         if c.qty == 0 {
             continue;
         }
-        match out.iter_mut().find(|o| key(o) == key(&c)) {
-            Some(o) => o.qty += c.qty,
-            None => out.push(c),
+        match at.entry(key(&c)) {
+            Entry::Occupied(e) => {
+                let o = &mut out[*e.get()];
+                o.qty = o.qty.saturating_add(c.qty);
+            }
+            Entry::Vacant(e) => {
+                e.insert(out.len());
+                out.push(c);
+            }
         }
     }
-    out.sort_by(|a, b| b.commander.cmp(&a.commander).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    // Stable: lines with the same name keep their order, as before.
+    out.sort_by_cached_key(|c| (!c.commander, c.name.to_lowercase()));
     out
+}
+
+/// What makes a list too big to work with, from its (name, copies) lines: too many lines, too many
+/// copies on one line, or too many cards. Checked before anything expands or looks up the list.
+fn size_problem<'a>(lines: impl IntoIterator<Item = (&'a str, u64)>) -> Option<String> {
+    let mut count = 0usize;
+    let mut total = 0u64;
+    for (name, qty) in lines {
+        count += 1;
+        if qty > u64::from(MAX_LINE_QTY) {
+            return Some(format!("{qty} copies of {name}; a line can have at most {MAX_LINE_QTY}"));
+        }
+        total += qty;
+    }
+    if count as u64 > MAX_LIST_CARDS || total > MAX_LIST_CARDS {
+        return Some(format!("{total} cards on {count} lines; a list can have at most {MAX_LIST_CARDS} cards (a game needs exactly 100)"));
+    }
+    None
+}
+
+/// "base list" or "changed list", and its key in a 400's details.
+#[derive(Clone, Copy)]
+enum Which {
+    Base,
+    Variant,
+}
+
+impl Which {
+    fn label(self) -> &'static str {
+        match self {
+            Which::Base => "base list",
+            Which::Variant => "changed list",
+        }
+    }
+}
+
+/// A 400 for a problem with one list, in the shape of the other per-list problems.
+fn list_problem(which: Which, problem: String) -> AppError {
+    let (base, variant) = match which {
+        Which::Base => (vec![problem.clone()], vec![]),
+        Which::Variant => (vec![], vec![problem.clone()]),
+    };
+    AppError::Invalid { message: format!("The {}: {problem}", which.label()), details: json!({"problems": {"base": base, "variant": variant}}) }
+}
+
+/// `cards`, refused with a 400 when the list is too big to work with.
+fn sized(which: Which, cards: Vec<LabCard>) -> AppResult<Vec<LabCard>> {
+    match size_problem(cards.iter().map(|c| (c.name.as_str(), u64::from(c.qty)))) {
+        Some(p) => Err(list_problem(which, p)),
+        None => Ok(cards),
+    }
+}
+
+/// A stored quantity as a lab quantity; one that doesn't fit is too many copies anyway.
+fn copies(qty: i64) -> u32 {
+    u32::try_from(qty).unwrap_or(u32::MAX)
 }
 
 fn list_text(cards: &[LabCard]) -> String {
@@ -153,7 +236,7 @@ fn from_deck_cards(cards: Vec<DeckCard>) -> Vec<LabCard> {
     cards
         .into_iter()
         .filter(|c| c.board != Board::Side && c.qty > 0)
-        .map(|c| LabCard { name: c.name, oracle_id: Some(c.oracle_id), qty: c.qty as u32, commander: c.board == Board::Commander })
+        .map(|c| LabCard { name: c.name, oracle_id: Some(c.oracle_id), qty: copies(c.qty), commander: c.board == Board::Commander })
         .collect()
 }
 
@@ -166,8 +249,11 @@ fn from_precon_cards(cards: Vec<PreconCard>) -> Vec<LabCard> {
 }
 
 /// Oracle ids and Yama's canonical names for `names`; names Yama doesn't know come back apart.
+/// One lookup per distinct name.
 async fn resolve(pool: &SqlitePool, names: &[String]) -> AppResult<(HashMap<String, (String, String)>, Vec<String>)> {
-    let ids = crate::cards::resolve_names(pool, names).await?;
+    let mut seen = HashSet::new();
+    let names: Vec<String> = names.iter().filter(|n| seen.insert(n.as_str())).cloned().collect();
+    let ids = crate::cards::resolve_names(pool, &names).await?;
     let wanted: Vec<&String> = ids.values().collect();
     let canonical: HashMap<String, String> =
         sqlx::query_as::<_, (String, String)>("SELECT oracle_id, name FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")
@@ -179,28 +265,37 @@ async fn resolve(pool: &SqlitePool, names: &[String]) -> AppResult<(HashMap<Stri
     let mut found = HashMap::new();
     let mut unknown = Vec::new();
     for n in names {
-        match ids.get(n).and_then(|oid| canonical.get(oid).map(|c| (oid.clone(), c.clone()))) {
+        match ids.get(&n).and_then(|oid| canonical.get(oid).map(|c| (oid.clone(), c.clone()))) {
             Some(hit) => {
-                found.insert(n.clone(), hit);
+                found.insert(n, hit);
             }
-            None if !unknown.contains(n) => unknown.push(n.clone()),
-            None => {}
+            None => unknown.push(n),
         }
     }
     Ok((found, unknown))
 }
 
 /// A pasted list: lines as the deck editor reads them (first card is the commander when there's
-/// no Commander section), sideboards ignored. Names Yama doesn't know come back apart.
-async fn parse_text(pool: &SqlitePool, text: &str) -> AppResult<(Vec<LabCard>, Vec<String>)> {
+/// no Commander section), sideboards ignored. Names Yama doesn't know come back apart. Too long a
+/// text, too many lines or cards are refused before any name is looked up.
+async fn parse_text(pool: &SqlitePool, text: &str, which: Which) -> AppResult<(Vec<LabCard>, Vec<String>)> {
+    if text.len() > MAX_TEXT_BYTES {
+        return Err(list_problem(which, format!("the pasted text is {} KB; at most {} KB", text.len().div_ceil(1024), MAX_TEXT_BYTES / 1024)));
+    }
     let lines: Vec<decks::ParsedLine> = decks::parse_list(text, true).into_iter().filter(|l| l.board != Board::Side).collect();
+    if lines.len() > MAX_TEXT_LINES {
+        return Err(list_problem(which, format!("{} card lines; a pasted list can have at most {MAX_TEXT_LINES}", lines.len())));
+    }
+    if let Some(p) = size_problem(lines.iter().map(|l| (l.name.as_str(), u64::try_from(l.qty).unwrap_or(u64::MAX)))) {
+        return Err(list_problem(which, p));
+    }
     let names: Vec<String> = lines.iter().map(|l| l.name.clone()).collect();
     let (found, unknown) = resolve(pool, &names).await?;
     let cards = lines
         .into_iter()
         .filter_map(|l| {
             let (oid, name) = found.get(&l.name)?.clone();
-            Some(LabCard { name, oracle_id: Some(oid), qty: l.qty as u32, commander: l.board == Board::Commander })
+            Some(LabCard { name, oracle_id: Some(oid), qty: copies(l.qty), commander: l.board == Board::Commander })
         })
         .collect();
     Ok((cards, unknown))
@@ -433,7 +528,8 @@ async fn base_list(pool: &SqlitePool, owner: &str, b: &BaseChoice) -> AppResult<
             let (deck_id, name, version, cards) = row.ok_or(AppError::NotFound("deck"))?;
             let cards: Vec<DeckCard> = serde_json::from_str(&cards).map_err(anyhow::Error::from)?;
             let source = json!({"kind": "deck", "id": deck_id, "version": version});
-            Ok(Base { list: make_list(BASE_ID, &name, source, from_deck_cards(cards)), precon: None, deck: Some(deck_id), unknown: vec![] })
+            let cards = sized(Which::Base, from_deck_cards(cards))?;
+            Ok(Base { list: make_list(BASE_ID, &name, source, cards), precon: None, deck: Some(deck_id), unknown: vec![] })
         }
         "precon" => {
             let id = need(&b.id, "base.id")?;
@@ -441,11 +537,12 @@ async fn base_list(pool: &SqlitePool, owner: &str, b: &BaseChoice) -> AppResult<
                 sqlx::query_as("SELECT name, cards FROM precons WHERE id = ?").bind(id).fetch_optional(pool).await?.ok_or(AppError::NotFound("precon"))?;
             let cards: Vec<PreconCard> = serde_json::from_str(&cards).map_err(anyhow::Error::from)?;
             let source = json!({"kind": "precon", "id": id});
-            Ok(Base { list: make_list(BASE_ID, &name, source, from_precon_cards(cards)), precon: Some(id.to_string()), deck: None, unknown: vec![] })
+            let cards = sized(Which::Base, from_precon_cards(cards))?;
+            Ok(Base { list: make_list(BASE_ID, &name, source, cards), precon: Some(id.to_string()), deck: None, unknown: vec![] })
         }
         "list" => {
             let text = need(&b.text, "base.text")?;
-            let (cards, unknown) = parse_text(pool, text).await?;
+            let (cards, unknown) = parse_text(pool, text, Which::Base).await?;
             Ok(Base { list: make_list(BASE_ID, "Pasted list", json!({"kind": "list"}), cards), precon: None, deck: None, unknown })
         }
         other => Err(AppError::bad(format!("base.kind {other:?}: use deck_version, deck, precon or list"))),
@@ -457,17 +554,20 @@ async fn variant_list(pool: &SqlitePool, base: &LabList, v: &VariantChoice) -> A
     match (&v.text, v.add.is_empty() && v.cut.is_empty()) {
         (Some(_), false) => Err(AppError::bad("variant: give either text or add/cut, not both")),
         (Some(text), true) => {
-            let (cards, unknown) = parse_text(pool, text).await?;
+            let (cards, unknown) = parse_text(pool, text, Which::Variant).await?;
             Ok((make_list(VARIANT_ID, "Changed list", json!({"kind": "list"}), cards), unknown, vec![]))
         }
         (None, true) => Err(AppError::bad("variant: give the changed list as text, or cards to add and cut")),
         (None, false) => {
+            if v.add.len() + v.cut.len() > MAX_CHANGES {
+                return Err(list_problem(Which::Variant, format!("{} cards to add and cut; at most {MAX_CHANGES}", v.add.len() + v.cut.len())));
+            }
             let names: Vec<String> = v.add.iter().chain(&v.cut).map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).collect();
             let (found, unknown) = resolve(pool, &names).await?;
             let pick = |list: &[String]| -> Vec<(String, String)> { list.iter().filter_map(|n| found.get(n.trim()).cloned()).collect() };
             let (add, cut) = (pick(&v.add), pick(&v.cut));
             let (cards, problems) = match apply_change(&base.cards, &add, &cut) {
-                Ok(cards) => (cards, vec![]),
+                Ok(cards) => (sized(Which::Variant, cards)?, vec![]),
                 Err(p) => (base.cards.clone(), p),
             };
             let source = json!({"kind": "change", "add": v.add, "cut": v.cut});
@@ -688,18 +788,40 @@ async fn my_decks_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, ba
             }
             !is_base
         })
-        .map(|(id, name, cards)| Ok((id, name, normalize(from_deck_cards(serde_json::from_str(&cards).map_err(anyhow::Error::from)?)))))
+        .map(|(id, name, cards)| Ok((id, name, from_deck_cards(serde_json::from_str(&cards).map_err(anyhow::Error::from)?))))
         .collect::<AppResult<_>>()?;
+    // A deck too big to work with is set aside before its cards are merged, looked up or checked.
+    let mut oversized: Vec<(String, String, String)> = Vec::new();
+    let lists: Vec<(String, String, Vec<LabCard>)> = lists
+        .into_iter()
+        .filter_map(|(id, name, cards)| match size_problem(cards.iter().map(|c| (c.name.as_str(), u64::from(c.qty)))) {
+            Some(p) => {
+                oversized.push((id, name, p));
+                None
+            }
+            None => Some((id, name, normalize(cards))),
+        })
+        .collect();
     let all_cards: Vec<&[LabCard]> = lists.iter().map(|l| l.2.as_slice()).collect();
     let info = card_info(pool, &all_cards).await?;
     let mut opponents = Vec::new();
     let mut problems = serde_json::Map::new();
     let mut skipped = Vec::new();
+    for (id, name, p) in oversized {
+        if explicit {
+            problems.insert(id, json!({"name": name, "problems": [p]}));
+        } else {
+            skipped.push(name);
+        }
+    }
     for (id, name, cards) in lists {
         let mut why = check_list(&cards, &info).blocking;
-        let unknown = sim.unknown(&cards);
-        if !unknown.is_empty() {
-            why.push(format!("cards the simulator can't play: {}", unknown.join(", ")));
+        // Only a deck that could be simulated is sent to the rules engine.
+        if why.is_empty() {
+            let unknown = sim.unknown(&cards);
+            if !unknown.is_empty() {
+                why.push(format!("cards the simulator can't play: {}", unknown.join(", ")));
+            }
         }
         if why.is_empty() {
             opponents.push(make_list(&format!("deck/{id}"), &name, json!({"kind": "deck", "id": id}), cards));
@@ -772,6 +894,11 @@ pub async fn create(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dy
     let difficulty = canonical_difficulty(req.difficulty.as_deref().unwrap_or(DEFAULT_DIFFICULTY))?;
     if !user.is_admin && !USER_DIFFICULTIES.contains(&difficulty.as_str()) {
         return Err(AppError::bad("difficulty must be Easy or Medium"));
+    }
+    // Refuse a user at the limit before building anything; it is checked again where it counts,
+    // in the transaction that stores the experiment.
+    if !user.is_admin && unfinished(pool, &user.id).await? >= MAX_UNFINISHED {
+        return Err(at_limit());
     }
 
     let base = base_list(pool, &user.id, &req.base).await?;
@@ -897,16 +1024,8 @@ pub async fn create(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dy
         let id: String = sqlx::query_scalar("SELECT id FROM lab_experiments WHERE owner_id = ? AND op_id = ?").bind(&user.id).bind(op_id).fetch_one(pool).await?;
         return detail(pool, &user.id, &id).await;
     }
-    if !user.is_admin {
-        let unfinished: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id = ? AND status IN ('queued','running')")
-            .bind(&user.id)
-            .fetch_one(&mut *tx)
-            .await?;
-        if unfinished > MAX_UNFINISHED {
-            return Err(AppError::Conflict(
-                "You can have one experiment playing and two waiting. Wait for one to finish, or cancel one.".into(),
-            ));
-        }
+    if !user.is_admin && unfinished(&mut *tx, &user.id).await? > MAX_UNFINISHED {
+        return Err(at_limit());
     }
     const COLS: usize = 4;
     const CHUNK: usize = 200;
@@ -923,6 +1042,15 @@ pub async fn create(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dy
     }
     tx.commit().await?;
     detail(pool, &user.id, &id).await
+}
+
+/// The owner's queued and running experiments.
+async fn unfinished<'c>(conn: impl sqlx::SqliteExecutor<'c>, owner: &str) -> AppResult<i64> {
+    Ok(sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id = ? AND status IN ('queued','running')").bind(owner).fetch_one(conn).await?)
+}
+
+fn at_limit() -> AppError {
+    AppError::Conflict("You can have one experiment playing and two waiting. Wait for one to finish, or cancel one.".into())
 }
 
 /// "easy" -> "Easy", as the engine names its levels; unknown levels are refused.
@@ -946,9 +1074,14 @@ fn canonical_difficulty(label: &str) -> AppResult<String> {
 #[derive(Debug, Clone, Serialize)]
 pub struct SimLabel {
     pub simulated: bool,
+    /// Engine, card data and runner of the games stored so far, from their result lines (each
+    /// value once, in order of first use, joined with ", " when the server changed part way).
+    /// Until a game is in: the build the experiment was created on.
     pub engine: String,
     pub card_data: String,
     pub runner: String,
+    /// Every build that played a stored game, with its games (empty until a game is in).
+    pub builds: Vec<BuildGames>,
     pub difficulty: String,
     pub games: i64,
     pub pod: usize,
@@ -962,10 +1095,11 @@ pub struct SimLabel {
 pub struct Progress {
     pub done: i64,
     pub total: i64,
-    /// Seconds until this experiment's last game should be in, from the lab's recent pace; null
-    /// until a few games have finished, and once it's over.
+    /// Seconds until this experiment's last game should be in, from the lab's recent pace, in
+    /// whole minutes; null until a few games have finished, and once it's over.
     pub eta_seconds: Option<i64>,
-    /// Games other experiments still have to play before this one's turn (FIFO).
+    /// Games earlier experiments (anyone's) still have to play before this one's turn (FIFO).
+    /// Admins only: for anyone else it is null, because it would show other users' queues.
     pub games_ahead: Option<i64>,
 }
 
@@ -1034,14 +1168,18 @@ struct ExpRow {
 const EXP_COLUMNS: &str = "e.id, e.name, e.status, e.games_total, e.games_done, e.engine, e.card_data, e.runner, e.difficulty, e.summary, \
     e.error, e.created_at, e.started_at, e.finished_at, e.updated_at, json_extract(e.spec, '$.display') AS display";
 
-/// The lab's queue: its recent pace and, per unfinished experiment, the games ahead of it and its own.
+/// The lab's queue as `viewer` may see it: its recent pace and, per unfinished experiment, the
+/// games ahead of it and its own.
 struct Queue {
     /// Games per second over the last finished games, when recent.
     rate: Option<f64>,
     ahead: HashMap<String, (i64, i64)>,
+    /// Whether the viewer may see games_ahead (it counts other users' games).
+    admin: bool,
 }
 
-async fn queue(pool: &SqlitePool) -> AppResult<Queue> {
+async fn queue(pool: &SqlitePool, viewer: &str) -> AppResult<Queue> {
+    let admin: bool = sqlx::query_scalar("SELECT is_admin FROM users WHERE id = ?").bind(viewer).fetch_optional(pool).await?.unwrap_or(false);
     // Only experiments touched in the last hour can have recent games, so the pace never scans the
     // whole lab's history.
     let since = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
@@ -1074,22 +1212,48 @@ async fn queue(pool: &SqlitePool) -> AppResult<Queue> {
         ahead.insert(id, (before, own));
         before += own;
     }
-    Ok(Queue { rate, ahead })
+    Ok(Queue { rate, ahead, admin })
+}
+
+/// Distinct values in order of first use, joined with ", ".
+fn joined<'a>(values: impl Iterator<Item = &'a str>) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    for v in values {
+        if !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    out.join(", ")
 }
 
 impl ExpRow {
     fn item(self, q: &Queue) -> ExperimentItem {
         let display: Option<Display> = self.display.as_deref().and_then(|d| serde_json::from_str(d).ok());
         let (games_ahead, eta) = match q.ahead.get(&self.id) {
-            Some((before, own)) => (Some(*before), q.rate.map(|r| ((before + own) as f64 / r).round() as i64)),
+            Some((before, own)) => {
+                let eta = q.rate.map(|r| (((before + own) as f64 / r) / 60.0).ceil() as i64 * 60);
+                (q.admin.then_some(*before), eta)
+            }
             None => (None, None),
+        };
+        let summary: Option<Summary> = self.summary.as_deref().and_then(|s| serde_json::from_str(s).ok());
+        let builds = summary.as_ref().map(|s| s.builds.clone()).unwrap_or_default();
+        let (engine, card_data, runner) = if builds.is_empty() {
+            (self.engine, self.card_data, self.runner)
+        } else {
+            (
+                joined(builds.iter().map(|b| b.build.engine.as_str())),
+                joined(builds.iter().map(|b| b.build.card_data.as_str())),
+                joined(builds.iter().map(|b| b.build.runner.as_str())),
+            )
         };
         ExperimentItem {
             label: SimLabel {
                 simulated: true,
-                engine: self.engine,
-                card_data: self.card_data,
-                runner: self.runner,
+                engine,
+                card_data,
+                runner,
+                builds,
                 difficulty: self.difficulty,
                 games: self.games_total,
                 pod: POD,
@@ -1099,7 +1263,7 @@ impl ExpRow {
                 updated_at: self.updated_at,
             },
             progress: Progress { done: self.games_done, total: self.games_total, eta_seconds: eta, games_ahead },
-            summary: self.summary.as_deref().and_then(|s| serde_json::from_str(s).ok()),
+            summary,
             base: display.as_ref().map(|d| d.base.clone()),
             variant: display.as_ref().map(|d| d.variant.clone()),
             field: display.map(|d| d.field),
@@ -1117,7 +1281,7 @@ pub async fn list(pool: &SqlitePool, owner: &str) -> AppResult<Vec<ExperimentIte
         .bind(owner)
         .fetch_all(pool)
         .await?;
-    let q = queue(pool).await?;
+    let q = queue(pool, owner).await?;
     Ok(rows.into_iter().map(|r| r.item(&q)).collect())
 }
 
@@ -1131,7 +1295,7 @@ pub async fn detail(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Exper
         .ok_or(AppError::NotFound("experiment"))?;
     let spec: String = sqlx::query_scalar("SELECT spec FROM lab_experiments WHERE id = ? AND owner_id = ?").bind(id).bind(owner).fetch_one(pool).await?;
     let spec: ExperimentSpec = serde_json::from_str(&spec).map_err(anyhow::Error::from)?;
-    let q = queue(pool).await?;
+    let q = queue(pool, owner).await?;
     Ok(ExperimentDetail {
         item: row.item(&q),
         opponents: spec
@@ -1147,9 +1311,16 @@ pub async fn detail(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Exper
 }
 
 /// Stop an experiment's remaining games from starting. Games already playing finish and are kept.
-/// Cancelling again, or cancelling a finished experiment, changes nothing.
-pub async fn cancel(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<ExperimentDetail> {
+/// Cancelling again, or cancelling a finished experiment, changes nothing. `playing` says whether
+/// a game of an experiment is claimed or playing now (the worker's [`LabWorker::playing`]): the
+/// summary is final at once when none is, and otherwise when the last one is in.
+///
+/// [`LabWorker::playing`]: super::worker::LabWorker::playing
+pub async fn cancel(pool: &SqlitePool, owner: &str, id: &str, playing: &(dyn Fn(&str) -> bool + Sync)) -> AppResult<ExperimentDetail> {
     let stamp = now();
+    // One immediate transaction: it waits for a result being stored and recounts with that result
+    // in, and a result stored after it sees the cancel.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let changed = sqlx::query(
         "UPDATE lab_experiments SET status = 'cancelled', finished_at = ?, updated_at = ? WHERE id = ? AND owner_id = ? AND status IN ('queued','running')",
     )
@@ -1157,14 +1328,13 @@ pub async fn cancel(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Exper
     .bind(&stamp)
     .bind(id)
     .bind(owner)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?
     .rows_affected();
     if changed > 0 {
-        // Mark the summary final: no more games will start.
-        let mut conn = pool.acquire().await?;
-        super::worker::refresh(&mut conn, id).await?;
+        super::worker::refresh(&mut tx, id, !playing(id)).await?;
     }
+    tx.commit().await?;
     detail(pool, owner, id).await
 }
 
@@ -1197,7 +1367,7 @@ async fn detail_handler(State(st): State<AppState>, CurrentUser(user): CurrentUs
 
 async fn cancel_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<ExperimentDetail>> {
     st.lab.check_available()?;
-    let d = cancel(&st.pool, &user.id, &id).await?;
+    let d = cancel(&st.pool, &user.id, &id, &|e: &str| st.lab.playing(e)).await?;
     st.lab.wake();
     Ok(Json(d))
 }

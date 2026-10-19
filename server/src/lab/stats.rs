@@ -11,6 +11,11 @@
 //! - A game that ran out of CPU time (time_cap) isn't scored: where it runs out depends on the
 //!   machine. A panic or an error isn't scored either. Both are reported as unscored.
 //!
+//! Every result line names the build that played it (engine, card data, runner). The summary lists
+//! each build with its games, and a pod counts in the paired difference only when its two games
+//! ran on the same build (the worker replays a pod half played on an older build, so this only
+//! leaves out pods stored before that rule).
+//!
 //! The paired difference uses only the pods where both lists finished a scored game. Its interval
 //! is the Agresti-Min interval for matched pairs ([`matched_difference`]), not a bootstrap: it is
 //! closed-form, so the same results always give the same interval with no random resampling,
@@ -39,7 +44,9 @@ pub const METHOD: &str = "Wins count for the tested seat only. The difference co
 won minus the share the base list won. Its 90% interval is the Agresti-Min interval for matched pairs (half a pod added \
 to each of the four outcomes, then a normal interval), so the same results always give the same interval. Win rates \
 carry Wilson 90% intervals. Games that ran out of CPU time, crashed or failed aren't scored; games that reached the turn \
-or action cap count as games nobody won, as in the batch analysis.";
+or action cap count as games nobody won, as in the batch analysis. A pod whose two games ran on different builds (engine, \
+card data or runner) is left out of the difference. The verdict goes by the interval as shown, in whole points: better \
+only when its low end is at least +1, worse only when its high end is at most \u{2212}1.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -71,15 +78,43 @@ impl Outcome {
             _ => None,
         })?;
         // An unreadable result line counts as an error, never as pending (it would replay forever).
+        // What played it is unknown too.
         let result = result.map(|r| {
             serde_json::from_str::<GameResult>(r).unwrap_or_else(|e| {
-                let mut g = GameResult::new(&spec, "unknown");
+                let mut g = GameResult::new(&spec, UNKNOWN);
+                g.engine = UNKNOWN.into();
+                g.runner = UNKNOWN.into();
                 g.error = Some(format!("unreadable result line: {e}"));
                 g
             })
         });
         Some(Outcome { pod: usize::try_from(ord / 2).ok()?, side, seat: seat as u8, result })
     }
+}
+
+const UNKNOWN: &str = "unknown";
+
+/// What played a game, from its result line: the rules engine, its card data and the build of
+/// Yama's lab code.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Build {
+    pub engine: String,
+    pub card_data: String,
+    pub runner: String,
+}
+
+impl Build {
+    pub fn of(r: &GameResult) -> Build {
+        Build { engine: r.engine.clone(), card_data: r.card_data.clone(), runner: r.runner.clone() }
+    }
+}
+
+/// A build and how many of the experiment's stored games it played.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BuildGames {
+    #[serde(flatten)]
+    pub build: Build,
+    pub games: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -177,7 +212,8 @@ pub struct ListStats {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Paired {
-    /// Pods where both lists finished a scored game; the difference uses these only.
+    /// Pods where both lists finished a scored game on the same build; the difference uses these
+    /// only.
     pub pods: u32,
     pub both_won: u32,
     pub variant_only: u32,
@@ -189,6 +225,9 @@ pub struct Paired {
     /// The changed list's average place minus the base's (negative: it finishes higher).
     pub delta_avg_place: Option<f64>,
     pub delta_avg_place_ci: Option<[f64; 2]>,
+    /// Pods where both games were scored but on different builds: left out of the difference.
+    #[serde(default)]
+    pub split_builds: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -237,14 +276,21 @@ pub struct Summary {
     pub unscored: Unscored,
     /// Scored games nobody won: draws and caps.
     pub no_winner: NoWinner,
+    /// Every build that played a stored game, in play order of first use, with its games.
+    #[serde(default)]
+    pub builds: Vec<BuildGames>,
     pub verdict: Verdict,
     pub method: String,
 }
 
+/// A difference in whole percentage points, as it is shown.
+fn whole_points(x: f64) -> i64 {
+    (x * 100.0).round() as i64
+}
+
 /// "+4", "−3" (U+2212 minus) or "0": a difference in whole percentage points.
 pub fn points(x: f64) -> String {
-    let p = (x * 100.0).round() as i64;
-    match p {
+    match whole_points(x) {
         0 => "0".into(),
         p if p > 0 => format!("+{p}"),
         p => format!("\u{2212}{}", -p),
@@ -252,11 +298,14 @@ pub fn points(x: f64) -> String {
 }
 
 fn points_word(x: f64) -> String {
-    let n = (x * 100.0).round().abs() as i64;
+    let n = whole_points(x).abs();
     format!("{} {}", points(x), if n == 1 { "point" } else { "points" })
 }
 
-/// The plain-language verdict on a paired difference and its interval.
+/// The plain-language verdict on a paired difference and its interval. It goes by the interval as
+/// shown, in whole points, so the words never disagree with the numbers beside them: "better" only
+/// when the low end reads +1 or more, "worse" only when the high end reads −1 or less. An interval
+/// that rounds to 0 at either end can't tell yet.
 pub fn verdict(paired: &Paired, is_final: bool) -> Verdict {
     let level = format!("{:.0}%", LEVEL * 100.0);
     let unclear = Verdict { kind: VerdictKind::Unclear, text: "Can't tell yet: run more games".into(), is_final };
@@ -265,20 +314,22 @@ pub fn verdict(paired: &Paired, is_final: bool) -> Verdict {
         return unclear;
     }
     let detail = format!("{}, {level} interval {} to {}", points_word(d), points(lo), points(hi));
-    if lo > 0.0 {
+    if whole_points(lo) >= 1 {
         Verdict { kind: VerdictKind::Better, text: format!("Probably better ({detail})"), is_final }
-    } else if hi < 0.0 {
+    } else if whole_points(hi) <= -1 {
         Verdict { kind: VerdictKind::Worse, text: format!("Probably worse ({detail})"), is_final }
     } else {
         unclear
     }
 }
 
-/// The experiment's summary from its games so far. `is_final` marks a finished experiment.
+/// The experiment's summary from its games so far, in play order. `is_final` marks a summary no
+/// later game can change.
 pub fn summarize(outcomes: &[Outcome], is_final: bool) -> Summary {
     let mut lists: HashMap<Side, ListStats> = HashMap::from([(Side::Base, ListStats::default()), (Side::Variant, ListStats::default())]);
     let mut place_sum: HashMap<Side, f64> = HashMap::new();
-    let mut pods: BTreeMap<usize, [Option<Score>; 2]> = BTreeMap::new();
+    let mut pods: BTreeMap<usize, [Option<(Score, Option<Build>)>; 2]> = BTreeMap::new();
+    let mut builds: Vec<BuildGames> = Vec::new();
     let mut unscored = Unscored::default();
     let mut no_winner = NoWinner::default();
     for o in outcomes {
@@ -291,6 +342,13 @@ pub fn summarize(outcomes: &[Outcome], is_final: bool) -> Summary {
                 l.games += 1;
                 l.wins += u32::from(win);
                 *place_sum.entry(o.side).or_default() += place;
+            }
+        }
+        let build = o.result.as_ref().map(Build::of);
+        if let Some(b) = &build {
+            match builds.iter_mut().find(|g| &g.build == b) {
+                Some(g) => g.games += 1,
+                None => builds.push(BuildGames { build: b.clone(), games: 1 }),
             }
         }
         if let Some(r) = &o.result {
@@ -306,7 +364,7 @@ pub fn summarize(outcomes: &[Outcome], is_final: bool) -> Summary {
             }
         }
         let slot = &mut pods.entry(o.pod).or_default()[usize::from(o.side == Side::Variant)];
-        *slot = Some(s);
+        *slot = Some((s, build));
     }
     unscored.total = unscored.time_cap + unscored.panic + unscored.error;
     no_winner.total = no_winner.draw + no_winner.turn_cap + no_winner.action_cap;
@@ -321,7 +379,12 @@ pub fn summarize(outcomes: &[Outcome], is_final: bool) -> Summary {
     let mut paired = Paired::default();
     let mut place_diffs = Vec::new();
     for slots in pods.values() {
-        let [Some(Score::Played { win: bw, place: bp }), Some(Score::Played { win: vw, place: vp })] = *slots else { continue };
+        let [Some((Score::Played { win: bw, place: bp }, base_build)), Some((Score::Played { win: vw, place: vp }, variant_build))] = slots else { continue };
+        let (bw, bp, vw, vp) = (*bw, *bp, *vw, *vp);
+        if base_build != variant_build {
+            paired.split_builds += 1;
+            continue;
+        }
         paired.pods += 1;
         match (bw, vw) {
             (true, true) => paired.both_won += 1,
@@ -348,6 +411,7 @@ pub fn summarize(outcomes: &[Outcome], is_final: bool) -> Summary {
         paired,
         unscored,
         no_winner,
+        builds,
         verdict,
         method: METHOD.into(),
     }
@@ -516,6 +580,67 @@ mod tests {
         assert_eq!(s.variant.ends.get("turn_cap"), Some(&1));
         // At the cap all four share first: place 2.5.
         assert!(s.variant.avg_place.unwrap() < 2.5);
+    }
+
+    /// Every possible result at 50, 100 and 200 pods: "better" always prints a low end of +1 or
+    /// more, "worse" a high end of −1 or less, and an interval that reads 0 at either end can't
+    /// tell. (Deciding on the unrounded bounds gave "Probably better (+12 points, 90% interval 0
+    /// to +23)" in 264 such cases.)
+    #[test]
+    fn the_verdict_goes_by_the_interval_as_shown() {
+        let paired = |b: u32, c: u32, n: u32| {
+            let (d, ci) = matched_difference(b, c, n).unwrap();
+            Paired { pods: n, variant_only: b, base_only: c, neither: n - b - c, delta_win_rate: Some(d), delta_ci: Some(ci), ..Default::default() }
+        };
+        let mut decided = 0;
+        for n in [50u32, 100, 200] {
+            for b in 0..=n {
+                for c in 0..=(n - b) {
+                    let p = paired(b, c, n);
+                    let [lo, hi] = p.delta_ci.unwrap();
+                    let v = verdict(&p, true);
+                    match v.kind {
+                        VerdictKind::Better => assert!(whole_points(lo) >= 1, "{b} {c} {n}: {}", v.text),
+                        VerdictKind::Worse => assert!(whole_points(hi) <= -1, "{b} {c} {n}: {}", v.text),
+                        VerdictKind::Unclear => assert!(whole_points(lo) < 1 && whole_points(hi) > -1, "{b} {c} {n}: {}", v.text),
+                    }
+                    if v.kind != VerdictKind::Unclear {
+                        decided += 1;
+                        assert!(!v.text.contains("interval 0 ") && !v.text.ends_with(" 0)"), "{}", v.text);
+                    }
+                }
+            }
+        }
+        assert!(decided > 1000, "{decided}");
+        // The two cases the review found.
+        assert_eq!(verdict(&paired(9, 3, 50), true).kind, VerdictKind::Unclear);
+        assert_eq!(verdict(&paired(0, 4, 100), true).kind, VerdictKind::Unclear);
+    }
+
+    #[test]
+    fn pods_split_across_builds_are_left_out_and_every_build_is_listed() {
+        let mut games = pods(0, 12, 0, 0);
+        // Pod 0's changed-list game ran on newer card data; pod 1's base game on another runner.
+        games[1].result.as_mut().unwrap().card_data = "newer".into();
+        games[2].result.as_mut().unwrap().runner = "other".into();
+        let s = summarize(&games, true);
+        assert_eq!((s.paired.pods, s.paired.split_builds, s.paired.variant_only), (10, 2, 10));
+        // Each list still counts its own games.
+        assert_eq!((s.base.games, s.variant.games), (12, 12));
+        let builds: Vec<(&str, &str, u32)> = s.builds.iter().map(|b| (b.build.card_data.as_str(), b.build.runner.as_str(), b.games)).collect();
+        let runner = yama_play::lab::RUNNER;
+        assert_eq!(builds, vec![("eb309108eb0df708", runner, 22), ("newer", runner, 1), ("eb309108eb0df708", "other", 1)]);
+        // A summary stored before builds were listed still reads.
+        let mut old = serde_json::to_value(&s).unwrap();
+        old.as_object_mut().unwrap().remove("builds");
+        old["paired"].as_object_mut().unwrap().remove("split_builds");
+        let back: Summary = serde_json::from_value(old).unwrap();
+        assert!(back.builds.is_empty() && back.paired.split_builds == 0);
+        // An unreadable line names no build it didn't run on.
+        let line = serde_json::to_string(&spec(&["base", "a", "b", "c"])).unwrap();
+        let bad = Outcome::from_row(0, &line, Some("{nope")).unwrap();
+        let r = bad.result.unwrap();
+        assert_eq!((r.engine.as_str(), r.card_data.as_str(), r.runner.as_str()), ("unknown", "unknown", "unknown"));
     }
 
     #[test]
