@@ -131,6 +131,7 @@ function GroupActions() {
 function Account() {
   const me = useMe();
   const logout = useLogout();
+  const [signOutError, setSignOutError] = useState<unknown>(null);
   const qc = useQueryClient();
   const [email, setEmail] = useState("");
   const invites = useQuery({
@@ -165,7 +166,8 @@ function Account() {
       )}
       <OfflineCardsSetting />
       <p style={{ margin: 0 }}><Link to="/new">What's new in Yama</Link></p>
-      <div><button onClick={() => void logout()}>Sign out</button></div>
+      <div><button onClick={() => logout().catch(setSignOutError)}>Sign out</button></div>
+      <ErrorText error={signOutError} />
     </section>
   );
 }

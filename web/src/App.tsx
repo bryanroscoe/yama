@@ -8,6 +8,14 @@ import { CollectionPage } from "./pages/Collection";
 import { DeckPage, DecksPage } from "./pages/Decks";
 import { GroupPage } from "./pages/Group";
 import { NewsNotice, WhatsNewPage } from "./pages/WhatsNew";
+import { Buy } from "./plan/Buy";
+import { DeckPlan } from "./plan/DeckPlan";
+import { Overview } from "./plan/Overview";
+import { PlanLayout } from "./plan/PlanLayout";
+import { Prints } from "./plan/Prints";
+import { Review } from "./plan/Review";
+import { PlanSettings } from "./plan/Settings";
+import { Spares } from "./plan/Spares";
 import { GuestTable } from "./table/GuestTable";
 import { TableHome } from "./table/TableHome";
 import { TablePlay } from "./table/TablePlay";
@@ -68,6 +76,16 @@ export function App() {
         <Route path="cards" element={<CardsPage />} />
         <Route path="collection" element={<CollectionPage />} />
         <Route path="decks" element={<DecksPage />} />
+        {/* Static "plan" outranks ":id", so plan pages never reach DeckPage. */}
+        <Route path="decks/plan" element={<PlanLayout />}>
+          <Route index element={<Overview />} />
+          <Route path="review" element={<Review />} />
+          <Route path="buy" element={<Buy />} />
+          <Route path="prints" element={<Prints />} />
+          <Route path="spares" element={<Spares />} />
+          <Route path="settings" element={<PlanSettings />} />
+          <Route path="d/:key" element={<DeckPlan />} />
+        </Route>
         <Route path="decks/:id" element={<DeckPage />} />
         <Route path="group" element={<GroupPage />} />
         <Route path="new" element={<WhatsNewPage />} />

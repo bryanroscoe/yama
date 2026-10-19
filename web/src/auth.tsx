@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError, setToken, type User } from "./api";
 import { ArtPanel } from "./components/ArtPanel";
 import { ErrorText } from "./components/ui";
+import { outbox } from "./plan/outbox";
+import { discardQuestion, signOut, within } from "./plan/signout";
+import { clearPlanData } from "./plan/store";
 
 /** The sign-in page's art: Éowyn, Shieldmaiden by Craig Elliott, loaded from Scryfall at runtime. */
 const SIGN_IN_ART = "https://cards.scryfall.io/art_crop/front/d/d/dd4a00ff-2206-4e12-a0ab-61ed82c9e6c5.jpg";
@@ -32,21 +35,44 @@ export function useMe() {
   });
 }
 
+/**
+ * Sign out. Plan data and unsent taps leave the device first (web/src/plan/signout.ts has the
+ * order), so neither a failed logout request (no connection) nor the Cloudflare Access redirect
+ * can leave them behind. Resolves false if the person chose to keep unsent answers; throws when
+ * the server couldn't be reached, after the plan data is already gone.
+ */
 export function useLogout() {
   const qc = useQueryClient();
-  return async () => {
-    await api("/api/auth/logout", { method: "POST" });
-    const config = qc.getQueryData<AuthConfig>(["auth-config"]) ?? (await api<AuthConfig>("/api/auth/config").catch(() => null));
-    if (config?.cf_access) {
-      // Cloudflare Access holds the real session; end it there.
-      localStorage.removeItem(ME_KEY);
-      location.href = "/cdn-cgi/access/logout";
-      return;
-    }
-    setToken(null);
-    localStorage.removeItem(ME_KEY);
-    qc.clear();
-    qc.setQueryData(["me"], null);
+  return async (): Promise<boolean> => {
+    const userId = qc.getQueryData<User | null>(["me"])?.id;
+    const result = await signOut({
+      userId,
+      pending: () => outbox.pendingCount(userId),
+      flush: () => within(userId ? outbox.sync(userId) : Promise.resolve(), 4000),
+      confirmDiscard: (n) => window.confirm(discardQuestion(n, outbox.sending(userId))),
+      clearPlan: clearPlanData,
+      dropQueries: () => {
+        qc.removeQueries({ queryKey: ["plan"] });
+        qc.removeQueries({ queryKey: ["plan-cache"] });
+      },
+      logoutRequest: () => api("/api/auth/logout", { method: "POST" }),
+      authConfig: async () => qc.getQueryData<AuthConfig>(["auth-config"]) ?? (await api<AuthConfig>("/api/auth/config")),
+      cloudflareLogout: () => {
+        localStorage.removeItem(ME_KEY);
+        location.href = "/cdn-cgi/access/logout";
+      },
+      finish: () => {
+        setToken(null);
+        localStorage.removeItem(ME_KEY);
+        qc.clear();
+        qc.setQueryData(["me"], null);
+      },
+    }).catch((e: unknown) => {
+      throw new Error(
+        `Couldn't reach Yama to sign out (${e instanceof Error ? e.message : String(e)}). Your plans are already off this device; try again when you're online.`,
+      );
+    });
+    return result !== "cancelled";
   };
 }
 

@@ -4,6 +4,7 @@
 import { searchOffline, type OfflineCard } from "@yama/core";
 import { useSyncExternalStore } from "react";
 import { api, type Card } from "../api";
+import { idbGet, idbPut } from "./idb";
 
 /** Bundle shape this app reads (the server's OFFLINE_FORMAT). A saved copy in another
  *  format, or none (saved before formats existed), is downloaded again. */
@@ -18,37 +19,7 @@ interface Bundle {
   cards: OfflineCard[];
 }
 
-const DB = "yama";
-const STORE = "kv";
 const KEY = "offline-cards";
-
-function idb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbGet<T>(key: string): Promise<T | undefined> {
-  const db = await idb();
-  return new Promise((resolve, reject) => {
-    const req = db.transaction(STORE).objectStore(STORE).get(key);
-    req.onsuccess = () => resolve(req.result as T | undefined);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbPut(key: string, value: unknown): Promise<void> {
-  const db = await idb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
 
 type Status = { count: number; version: string | null; savedAt: string | null; downloading: boolean; error: string | null };
 let status: Status = { count: 0, version: null, savedAt: null, downloading: false, error: null };

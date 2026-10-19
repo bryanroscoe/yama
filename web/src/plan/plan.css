@@ -1,0 +1,604 @@
+/* The deck planner's pages (web/src/plan). Brief for the design session that replaces the felt
+   tokens: every rule here uses only the tokens in styles.css (the Night table names since the 2026-10-19
+   merge: --ground, --surface, --raised, --line, --text, --dim, --warn, --good, --bad, --radius,
+   --gap, --t-*), so a new token set restyles the planner with no edits.
+   Semantic classes, in page order:
+   - .deck-sections: the Decks | Plans control at the top of the Decks tab, drawn as the shared
+     .segmented pill (a third section is one line in DeckTabs.tsx).
+   - .plan-art (+ .plan-hero on a deck page, .plan-deck-card on the overview): the commander's
+     Scryfall art crop behind a solid wash of the page colour. The wash is one flat colour, not a
+     gradient; .plan-art-body holds the text above it.
+   - .plan-banner: where an imported plan came from. .plan-notes: open questions, shown first.
+   - .plan-tabs: Changes, Stock, Now, After prints, Brackets (a Lab tab comes later).
+   - .swap-row: a swap as out → in thumbnails and its text; .swap-standin nests a stand-in under
+     the print it holds.
+   - .tag.warn: the warning tone, next to the existing .tag.good and .tag.bad.
+   - .plan-subnav: Overview, Review, Buy, Prints, Spares, Settings under the control.
+   - Review: .plan-chips (deck chips and filters, pressed = chosen), .plan-search, .review-row
+     (a .swap-row with the answer), .plan-decide (Want, Unsure, Don't want: the chosen one takes
+     --good, --warn or --bad), .plan-cut, .plan-note, .plan-sync (where answers are on their way).
+   - Settings: .plan-key, a new script key shown once.
+   - Buy, Prints, Spares: .plan-store (one store, print order or spares group), .plan-fold (a folded
+     section), .plan-delivery (an order's card, A to Z, with price and scan tags on the side),
+     .plan-print and .plan-spare (rows with tags on the right), .plan-spares-tools (search and filter).
+   - .plan-tick: "I've put this in the deck"; .plan-bought: what a "bought it" mark said.
+   Touch targets stay at least 44 px. Sentence case; no all-caps; no middle-dot separators. */
+
+/* ── the Decks tab's sections ───────────────────────────────────────────── */
+
+/* The control itself is the shared .segmented pill (styles.css); this only spaces it. */
+.deck-sections {
+  margin-bottom: 1rem;
+}
+
+/* ── tags ───────────────────────────────────────────────────────────────── */
+
+.tag.warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
+/* ── art panels: commander art behind a flat wash ───────────────────────── */
+
+.plan-art {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  background-size: cover;
+  background-position: center 25%;
+}
+.plan-art::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--ground) 74%, transparent);
+}
+.plan-art-body {
+  position: relative;
+}
+
+.plan-hero {
+  margin-bottom: 1rem;
+}
+.plan-hero .plan-art-body {
+  padding: 1.25rem 1rem 1rem;
+  min-height: 9rem;
+  display: grid;
+  align-content: end;
+}
+.plan-hero h1 {
+  margin: 0 0 0.25rem;
+}
+.plan-hero p {
+  margin: 0 0 0.25rem;
+}
+
+.plan-deck-commander {
+  font-weight: 700;
+}
+
+/* overview: one card per deck */
+.plan-deck-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+.plan-deck-link {
+  color: inherit;
+  text-decoration: none;
+  display: block;
+  border-radius: var(--radius);
+}
+.plan-deck-link:hover .plan-art {
+  border-color: var(--line);
+}
+.plan-deck-card .plan-art-body {
+  padding: 1rem;
+  min-height: 11rem;
+  display: grid;
+  align-content: space-between;
+  gap: 0.5rem;
+}
+.plan-deck-title {
+  display: grid;
+  gap: 0.15rem;
+}
+.plan-deck-title h2 {
+  font-size: var(--t-lg);
+  margin: 0;
+}
+.plan-deck-counts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+}
+.plan-deck-tags {
+  gap: 0.4rem;
+}
+
+/* ── banners and notes ──────────────────────────────────────────────────── */
+
+.plan-banner {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0.75rem 1rem;
+  margin: 0 0 1rem;
+  max-width: none;
+}
+.plan-banner p:last-child {
+  margin-bottom: 0;
+}
+
+.plan-notes {
+  border-left: 3px solid var(--warn);
+  padding: 0.25rem 0 0.25rem 0.9rem;
+  margin: 0 0 1rem;
+}
+.plan-notes h3 {
+  margin-bottom: 0.3rem;
+}
+.plan-notes ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.4rem;
+}
+.plan-notes-fold summary {
+  cursor: pointer;
+  padding: 0.6rem 0;
+}
+.plan-notes-fold[open] summary {
+  margin-bottom: 0.4rem;
+}
+.plan-warnings {
+  margin-bottom: 1rem;
+}
+.plan-warnings summary {
+  cursor: pointer;
+  padding: 0.6rem 0;
+}
+.plan-callout {
+  border-left: 3px solid var(--line);
+  padding-left: 0.75rem;
+}
+
+/* ── tabs ───────────────────────────────────────────────────────────────── */
+
+.plan-tabs {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  margin: 1.25rem 0 1rem;
+  scrollbar-width: none;
+}
+.plan-tabs button {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  color: var(--dim);
+  padding: 0.5rem 0.75rem;
+  white-space: nowrap;
+  flex: none;
+}
+.plan-tabs button.active {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+@media (max-width: 520px) {
+  .plan-tabs {
+    gap: 0;
+  }
+  .plan-tabs button {
+    padding: 0.5rem 0.45rem;
+    font-size: 0.9rem;
+  }
+}
+
+/* ── swaps ──────────────────────────────────────────────────────────────── */
+
+.swap-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  padding: 0.75rem 0.25rem;
+  align-items: start;
+}
+.swap-thumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.swap-arrow {
+  color: var(--dim);
+}
+.swap-body > * {
+  margin: 0 0 0.3rem;
+}
+.swap-body > :last-child {
+  margin-bottom: 0;
+}
+.swap-title {
+  line-height: 1.3;
+}
+.swap-tags {
+  gap: 0.35rem;
+}
+.swap-body details summary {
+  cursor: pointer;
+  color: var(--dim);
+  padding: 0.35rem 0;
+}
+.swap-body details p {
+  margin: 0.25rem 0 0.5rem;
+}
+.swap-standin {
+  border-left: 2px solid var(--line);
+  padding: 0.2rem 0 0.2rem 0.6rem;
+  margin-top: 0.4rem;
+}
+
+.plan-thumb-wrap {
+  padding: 0;
+  border: none;
+  background: none;
+  min-height: 0;
+  display: inline-block;
+  line-height: 0;
+  border-radius: var(--radius);
+}
+.plan-thumb-wrap .card-fallback {
+  width: 44px;
+  font-size: 0.55rem;
+  padding: 0.2rem;
+  line-height: 1.1;
+  overflow: hidden;
+}
+.plan-thumb-out {
+  opacity: 0.55;
+}
+.plan-thumb-empty {
+  display: inline-block;
+  width: 44px;
+  aspect-ratio: 488 / 680;
+  border: 1px dashed var(--line);
+  border-radius: var(--card-radius);
+}
+
+.plan-group-head {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: var(--t-base);
+  margin: 0.75rem 0 0.4rem;
+}
+
+.plan-build,
+.plan-bracket,
+.plan-link {
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+  gap: 0.6rem;
+}
+.plan-build h4,
+.plan-bracket h3 {
+  margin: 0;
+}
+.plan-link {
+  margin-top: 2rem;
+}
+.plan-check {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-weight: 400;
+}
+.plan-check input {
+  width: auto;
+  min-height: 0;
+}
+
+/* ── lists ──────────────────────────────────────────────────────────────── */
+
+.plan-slot .title {
+  overflow-wrap: anywhere;
+}
+.plan-slot-tags {
+  justify-content: end;
+  gap: 0.3rem;
+}
+@media (max-width: 520px) {
+  .plan-slot {
+    grid-template-columns: auto 1fr;
+  }
+  .plan-slot-tags {
+    grid-column: 2;
+    justify-content: start;
+  }
+}
+
+/* ── import report ──────────────────────────────────────────────────────── */
+
+.plan-report details summary {
+  cursor: pointer;
+  padding: 0.6rem 0;
+}
+.plan-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.9rem;
+  margin: 0;
+}
+.plan-kv dt {
+  color: var(--dim);
+}
+.plan-kv dd {
+  margin: 0;
+}
+
+/* ── the Plans pages' sub-nav ───────────────────────────────────────────── */
+
+.plan-subnav {
+  display: flex;
+  gap: 0.25rem 1.25rem;
+  flex-wrap: wrap;
+  margin: -0.25rem 0 1rem;
+}
+.plan-subnav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--dim);
+  text-decoration: none;
+  font-weight: 700;
+  border-bottom: 2px solid transparent;
+}
+.plan-subnav a.active {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+a.figure {
+  color: inherit;
+  text-decoration: none;
+}
+a.figure:hover span {
+  color: var(--text);
+}
+
+/* ── review ─────────────────────────────────────────────────────────────── */
+
+.plan-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+}
+.plan-chips button {
+  border-radius: 999px;
+  font-weight: 700;
+  padding: 0.35rem 0.9rem;
+  background: transparent;
+}
+.plan-chips button[aria-selected="true"],
+.plan-chips button[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--ground);
+  border-color: var(--text);
+}
+.plan-chips button[aria-selected="true"] .dim,
+.plan-chips button[aria-pressed="true"] .dim {
+  color: var(--raised);
+}
+/* Deck chips scroll sideways on a phone instead of taking the whole screen. */
+.plan-chips-decks {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+.plan-chips-decks button {
+  flex: none;
+}
+@media (min-width: 720px) {
+  .plan-chips-decks {
+    flex-wrap: wrap;
+  }
+}
+.plan-settings section {
+  margin-bottom: 1.5rem;
+}
+.plan-chips-small button {
+  font-weight: 400;
+  font-size: var(--t-sm);
+}
+.plan-search {
+  width: 100%;
+  margin-bottom: 0.75rem;
+}
+.review-row.answered-want {
+  box-shadow: inset 3px 0 0 var(--good);
+}
+.review-row.answered-unsure {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.review-row.answered-no {
+  box-shadow: inset 3px 0 0 var(--bad);
+}
+.review-row {
+  padding-left: 0.5rem;
+}
+.plan-decide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.plan-decide button {
+  flex: 1 1 6rem;
+  background: transparent;
+}
+.plan-decide button[aria-pressed="true"].decide-want {
+  background: var(--good);
+  border-color: var(--good);
+  color: var(--ground);
+}
+.plan-decide button[aria-pressed="true"].decide-unsure {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: var(--ground);
+}
+.plan-decide button[aria-pressed="true"].decide-no {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--ground);
+}
+.plan-cut {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 400;
+}
+.plan-cut select {
+  max-width: 100%;
+}
+.plan-note {
+  width: 100%;
+  min-height: 44px;
+  resize: vertical;
+}
+.plan-stock {
+  margin: 0.2rem 0 0.4rem;
+  padding-left: 1.1rem;
+}
+.plan-sync {
+  margin-bottom: 0.75rem;
+}
+.plan-sync p {
+  margin: 0 0 0.3rem;
+}
+.plan-orphans {
+  margin-top: 2rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+.plan-orphans .list-row {
+  grid-template-columns: 1fr auto;
+}
+
+/* ── settings ───────────────────────────────────────────────────────────── */
+
+.plan-key {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--ground);
+  user-select: all;
+}
+
+/* ── buy, prints, spares ────────────────────────────────────────────────── */
+
+.plan-store {
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+  margin-top: 1rem;
+  gap: 0.5rem;
+}
+.plan-store h3 {
+  margin: 0;
+}
+.plan-store > p {
+  margin: 0;
+}
+.plan-fold {
+  border-top: 1px solid var(--line);
+  margin-top: 1rem;
+  padding-top: 0.25rem;
+}
+.plan-fold summary {
+  cursor: pointer;
+  padding: 0.6rem 0;
+  min-height: 44px;
+  font-weight: 700;
+}
+.plan-orders {
+  margin-top: 1.5rem;
+  gap: 0.25rem;
+}
+.plan-delivery,
+.plan-print,
+.plan-spare {
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+}
+.plan-delivery {
+  grid-template-columns: 1fr auto;
+}
+.plan-delivery .title,
+.plan-print .title,
+.plan-spare .title {
+  overflow-wrap: anywhere;
+}
+.plan-delivery-side {
+  display: grid;
+  justify-items: end;
+  gap: 0.25rem;
+  text-align: right;
+}
+.plan-spares-tools {
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.5rem;
+}
+.plan-spares-tools .plan-search {
+  flex: 1 1 14rem;
+  width: auto;
+  margin: 0;
+}
+@media (max-width: 520px) {
+  .plan-print,
+  .plan-spare {
+    grid-template-columns: auto 1fr;
+  }
+  .plan-print .plan-slot-tags,
+  .plan-spare .plan-slot-tags {
+    grid-column: 2;
+    justify-content: start;
+  }
+}
+
+/* ── ticks and marks ────────────────────────────────────────────────────── */
+
+.plan-tick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.4rem;
+}
+.plan-tick label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.plan-tick input {
+  width: 1.25rem;
+  height: 1.25rem;
+  min-height: 0;
+  margin: 0;
+}
+.plan-bought {
+  border-left: 2px solid var(--good);
+  padding-left: 0.6rem;
+}

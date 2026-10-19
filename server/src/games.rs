@@ -835,4 +835,94 @@ mod tests {
         // Someone else can't take over the id either.
         assert!(matches!(create_game(&pool, "sam", new_game(id, None)).await, Err(AppError::Conflict(_))));
     }
+
+    /// Planner slice 0's checks, through the real router. That slice refused another user's (or a
+    /// missing) deck version with a 404; quickwins' `resolve_seat` drops it instead, so an offline
+    /// phone's game still uploads. Either way no game points at someone else's list, and a missing
+    /// version no longer fails the foreign key with a 500.
+    mod through_the_router {
+        use crate::testutil::{app, deck, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+
+        fn game(id: &str, seats: serde_json::Value) -> serde_json::Value {
+            json!({ "id": id, "seats": seats })
+        }
+
+        async fn stored(pool: &sqlx::SqlitePool, id: &str) -> Vec<Option<String>> {
+            sqlx::query_scalar("SELECT deck_version_id FROM game_seats WHERE game_id = ? ORDER BY seat").bind(id).fetch_all(pool).await.unwrap()
+        }
+
+        #[tokio::test]
+        async fn a_seat_cant_use_someone_elses_deck_version() {
+            let (app, pool) = app().await;
+            let (alice, _) = user(&pool, "alice@example.com").await;
+            let (bob, bob_token) = user(&pool, "bob@example.com").await;
+            let (_, alices_version) = deck(&pool, &alice, "Alice's deck").await;
+            let (_, bobs_version) = deck(&pool, &bob, "Bob's deck").await;
+
+            // Alice's list on Bob's game: the game is saved without it.
+            let id = uuid::Uuid::new_v4().to_string();
+            let seats = json!([{ "seat": 0, "user_id": bob, "deck_version_id": alices_version }]);
+            let (status, body) = send(&app, Method::POST, "/api/games", Some(&bob_token), Some(game(&id, seats))).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(stored(&pool, &id).await, vec![None]);
+
+            // A version that doesn't exist is dropped the same way.
+            let id = uuid::Uuid::new_v4().to_string();
+            let seats = json!([{ "seat": 0, "guest_name": "Guest", "deck_version_id": "no-such-version" }]);
+            let (status, body) = send(&app, Method::POST, "/api/games", Some(&bob_token), Some(game(&id, seats))).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(stored(&pool, &id).await, vec![None]);
+
+            // His own list stays on his own seat. Lent to a guest it isn't kept: a seat keeps a
+            // version only of a deck the seat's own account owns (results per version count those).
+            let id = uuid::Uuid::new_v4().to_string();
+            let seats = json!([
+                { "seat": 0, "user_id": bob, "deck_version_id": bobs_version },
+                { "seat": 1, "guest_name": "Guest", "deck_version_id": bobs_version },
+            ]);
+            let (status, body) = send(&app, Method::POST, "/api/games", Some(&bob_token), Some(game(&id, seats))).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(stored(&pool, &id).await, vec![Some(bobs_version), None]);
+        }
+
+        #[tokio::test]
+        async fn a_seated_playgroup_member_can_bring_their_own_deck() {
+            let (app, pool) = app().await;
+            let (alice, _) = user(&pool, "alice@example.com").await;
+            let (bob, bob_token) = user(&pool, "bob@example.com").await;
+            let (_, alices_version) = deck(&pool, &alice, "Alice's deck").await;
+            sqlx::query("INSERT INTO playgroups (id, name, owner_id, join_code, created_at) VALUES ('pg', 'Friday', ?, 'ABC123', 'now')")
+                .bind(&bob)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO playgroup_members (id, playgroup_id, user_id, created_at) VALUES ('m-alice', 'pg', ?, 'now'), ('m-bob', 'pg', ?, 'now')")
+                .bind(&alice)
+                .bind(&bob)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            // Alice's list on a guest's seat isn't kept, even in the playgroup.
+            let id = uuid::Uuid::new_v4().to_string();
+            let mut body = game(&id, json!([{ "seat": 0, "guest_name": "Someone", "deck_version_id": alices_version }]));
+            body["playgroup_id"] = json!("pg");
+            let (status, body) = send(&app, Method::POST, "/api/games", Some(&bob_token), Some(body)).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(stored(&pool, &id).await, vec![None]);
+
+            // On Alice's own seat it is.
+            let id = uuid::Uuid::new_v4().to_string();
+            let mut body = game(&id, json!([
+                { "seat": 0, "member_id": "m-bob" },
+                { "seat": 1, "member_id": "m-alice", "deck_version_id": alices_version },
+            ]));
+            body["playgroup_id"] = json!("pg");
+            let (status, body) = send(&app, Method::POST, "/api/games", Some(&bob_token), Some(body)).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(stored(&pool, &id).await, vec![None, Some(alices_version)]);
+        }
+    }
 }

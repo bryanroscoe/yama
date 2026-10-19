@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { bottom, draw, expandDeck, identityName, newHand, rng, type Goldfish } from "@yama/core";
+import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, listText, newHand, rng, type Goldfish } from "@yama/core";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { api, priceSource, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView, type PreconList } from "../api";
@@ -13,6 +13,7 @@ import { DeckStatsPanel } from "../components/DeckStats";
 import { DeckExport } from "../components/DeckExport";
 import { DeckHistory } from "../components/DeckHistory";
 import { DeckResults } from "../components/DeckResults";
+import { DeckTabs } from "../plan/DeckTabs";
 import { CardSheet } from "./Cards";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good). */
@@ -49,6 +50,7 @@ export function DecksPage() {
   };
   return (
     <main className="page">
+      <DeckTabs />
       <div className="page-head">
         <h1>Decks</h1>
         <button className="primary" onClick={() => setAdding(true)}>Add a deck</button>
@@ -183,26 +185,6 @@ function AddDeck({ onClose, precon }: { onClose: () => void; precon?: string | n
   );
 }
 
-const GROUPS: [string, (t: string) => boolean][] = [
-  ["Creatures", (t) => t.includes("Creature")],
-  ["Planeswalkers", (t) => t.includes("Planeswalker")],
-  ["Instants", (t) => t.includes("Instant")],
-  ["Sorceries", (t) => t.includes("Sorcery")],
-  ["Artifacts", (t) => t.includes("Artifact")],
-  ["Enchantments", (t) => t.includes("Enchantment")],
-  ["Battles", (t) => t.includes("Battle")],
-  ["Lands", (t) => t.includes("Land")],
-];
-
-function groupOf(e: DeckEntry): string {
-  if (e.board === "commander") return "Commander";
-  if (e.board === "side") return "Sideboard";
-  // Lands that are also creatures (Dryad Arbor) read as lands; the front face decides for MDFCs.
-  const t = (e.card?.type_line ?? "").split(" // ")[0]!;
-  if (t.includes("Land")) return "Lands";
-  return GROUPS.find(([, test]) => test(t))?.[0] ?? "Other";
-}
-
 /** How many cards a collapsed stack shows before "Show all". */
 const STACK_PEEK = 6;
 
@@ -230,14 +212,13 @@ export function DeckPage() {
   const [history, setHistory] = useState(false);
 
   const groups = useMemo(() => {
-    const order = ["Commander", ...GROUPS.map(([g]) => g), "Other", "Sideboard"];
     const map = new Map<string, DeckEntry[]>();
     for (const e of deck.data?.cards ?? []) {
       if (view === "needed" && e.needed === 0) continue;
-      const g = groupOf(e);
+      const g = groupOf(e.board, e.card?.type_line);
       map.set(g, [...(map.get(g) ?? []), e]);
     }
-    return order.filter((g) => map.has(g)).map((g) => [g, map.get(g)!.sort((a, b) => (a.card?.cmc ?? 0) - (b.card?.cmc ?? 0) || a.name.localeCompare(b.name))] as const);
+    return GROUP_ORDER.filter((g) => map.has(g)).map((g) => [g, map.get(g)!.sort((a, b) => (a.card?.cmc ?? 0) - (b.card?.cmc ?? 0) || a.name.localeCompare(b.name))] as const);
   }, [deck.data, view]);
 
   if (deck.error) return <main className="page"><ErrorText error={deck.error} /></main>;
@@ -484,14 +465,6 @@ function CardStatus({ e, small = false }: { e: DeckEntry; small?: boolean }) {
   }
   if (e.proxies > 0) return <span className={`${cls} dim`}>Proxy only</span>;
   return <span className={`${cls} not-owned`}>Not owned</span>;
-}
-
-function listText(cards: DeckCard[]): string {
-  const section = (title: string, board: DeckCard["board"]) => {
-    const rows = cards.filter((c) => c.board === board).map((c) => `${c.qty} ${c.name}`);
-    return rows.length ? [title, ...rows, ""] : [];
-  };
-  return [...section("Commander", "commander"), ...section("Deck", "main"), ...section("Sideboard", "side")].join("\n").trim();
 }
 
 function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {

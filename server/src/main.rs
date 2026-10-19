@@ -10,10 +10,13 @@ mod error;
 mod game_export;
 mod games;
 mod play;
+mod plan;
 mod playgroups;
 mod routes;
 mod stats;
 mod table_rooms;
+#[cfg(test)]
+mod testutil;
 mod util;
 
 use anyhow::Context;
@@ -32,6 +35,10 @@ USAGE:
   yama-server import-calendar                Refresh upcoming sets (Scryfall) and Commander
                                              precon lists (MTGJSON) once
   yama-server import-decks DIR --owner EMAIL Import every .txt deck list in DIR
+  yama-server import-plan FILE --owner EMAIL [--dry-run] [--force]
+                                             Import a yama-plan/1 file (docs/plan-format.md)
+                                             as EMAIL's plan, the same way the web upload
+                                             does; prints the import report
   yama-server invite EMAIL                   Allow EMAIL to sign in
   yama-server user add EMAIL [--name NAME] [--admin] [--password-stdin]
                                              Give EMAIL a password for password sign-in
@@ -66,6 +73,15 @@ async fn main() -> anyhow::Result<()> {
             let dir = args.get(1).context("usage: yama-server import-decks DIR --owner EMAIL")?;
             let owner = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
             decks::import_dir(&pool, std::path::Path::new(dir), &owner).await
+        }
+        Some("import-plan") => {
+            let file = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-plan FILE --owner EMAIL [--dry-run] [--force]")?;
+            let owner = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
+            let dry_run = args.iter().any(|a| a == "--dry-run");
+            let force = args.iter().any(|a| a == "--force");
+            let report = plan::import::import_file(&pool, std::path::Path::new(file), &owner, dry_run, force).await?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
         }
         Some("backup") => {
             // A consistent copy of the live database (safe while the server runs).

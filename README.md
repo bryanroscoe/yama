@@ -26,6 +26,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Prices | Daily Scryfall snapshots kept by date (`YAMA_AUTO_IMPORT=1`, which also refreshes the release calendar) |
 | Online play | Commander on the phase-rs rules engine (`play/`): lobby, friends join by code, AI seats (Easy/Medium/Hard), legal options only, auto-pass, per-seat hidden information, replay log saved after every move, games resume after a restart, final boards rebuilt from replays. Readable board: hover a card for a full-size preview (desktop), tap for the card with its rules text and your options for it (phone); on phones your options and hand sit in a dock at the bottom. Needs the engine card data (below) |
 | Scanner | In progress (docs/scanner.md) |
+| Deck planner | In progress (docs/planner-design.md). Importing a plan file works, from the browser (Decks, then Plans, then "Import a plan file") or with `import-plan` below. The pages are built: an overview and a page per plan deck with its changes, stock, now and after-prints lists, bracket builds, copy buttons, "Make this a Yama deck" and a link to your Yama deck; a Review page for answering every swap (offline too) and "Suggest a change"; Settings with script keys for commander-decks' `publish.py` and `pull.py`; a Buy page (cards by store with cart links, dated prices and rule flags, "Mark bought", each order A to Z for sorting a delivery), Prints (each print order and the next one, with tiers and double-faced backs) and Spares; and "I've put this in the deck" ticks |
 
 ## Run it locally
 
@@ -56,6 +57,8 @@ Optional:
 ```sh
 ./target/debug/yama-server import-decks ../commander-decks/decks --owner you@example.com
 ./target/debug/yama-server import-calendar  # upcoming sets and Commander precon lists, once (daily with YAMA_AUTO_IMPORT=1)
+./target/debug/yama-server import-plan ../commander-decks/data/planner/yama-plan.json --owner you@example.com --dry-run
+                                        # prints the import report; drop --dry-run to import
 ./target/debug/yama-server invite friend@gmail.com
 ```
 
@@ -85,12 +88,14 @@ npm run typecheck     # core + web
 ## Layout
 
 ```
-server/            Rust (Axum, SQLite via sqlx). One binary: serve, import-cards, import-calendar, import-decks, invite.
+server/            Rust (Axum, SQLite via sqlx). One binary: serve, import-cards, import-calendar, import-decks, import-plan, invite.
   migrations/      Schema
   src/cards/       Scryfall import and search
+  src/plan/        Deck planner: plan file import, the per-user bundle, deck links, inputs and the inbox, script keys
 play/              Online play on the phase-rs engine (local fork at ../yama-phase), soak test.
-packages/core/     Shared TypeScript: life counter, offline search, sample hands, mana colors
-web/               React app (Vite). Also the future Capacitor phone app.
+packages/core/     Shared TypeScript: life counter, offline search, sample hands, mana colors, deck lists;
+                   src/plan/ is the planner's logic (@yama/core/plan)
+web/               React app (Vite). Also the future Capacitor phone app. Planner pages in src/plan/.
 data/              SQLite database and downloads (git-ignored)
 docs/              Design notes
 ```
