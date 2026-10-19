@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { bottom, draw, expandDeck, identityName, newHand, rng, type Goldfish } from "@yama/core";
+import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, listText, newHand, rng, type Goldfish } from "@yama/core";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, usd, type Container, type DeckCard, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { CardImage, ErrorText, ManaCost, Pips, Sheet } from "../components/ui";
+import { DeckTabs } from "../plan/DeckTabs";
 import { CardSheet } from "./Cards";
 
 export function DecksPage() {
@@ -11,6 +12,7 @@ export function DecksPage() {
   const [adding, setAdding] = useState(false);
   return (
     <main className="page">
+      <DeckTabs />
       <div className="page-head">
         <h1>Decks</h1>
         <button className="primary" onClick={() => setAdding(true)}>Add a deck</button>
@@ -90,26 +92,6 @@ function AddDeck({ onClose }: { onClose: () => void }) {
   );
 }
 
-const GROUPS: [string, (t: string) => boolean][] = [
-  ["Creatures", (t) => t.includes("Creature")],
-  ["Planeswalkers", (t) => t.includes("Planeswalker")],
-  ["Instants", (t) => t.includes("Instant")],
-  ["Sorceries", (t) => t.includes("Sorcery")],
-  ["Artifacts", (t) => t.includes("Artifact")],
-  ["Enchantments", (t) => t.includes("Enchantment")],
-  ["Battles", (t) => t.includes("Battle")],
-  ["Lands", (t) => t.includes("Land")],
-];
-
-function groupOf(e: DeckEntry): string {
-  if (e.board === "commander") return "Commander";
-  if (e.board === "side") return "Sideboard";
-  // Lands that are also creatures (Dryad Arbor) read as lands; the front face decides for MDFCs.
-  const t = (e.card?.type_line ?? "").split(" // ")[0]!;
-  if (t.includes("Land")) return "Lands";
-  return GROUPS.find(([, test]) => test(t))?.[0] ?? "Other";
-}
-
 export function DeckPage() {
   const { id } = useParams();
   const deck = useQuery({ queryKey: ["deck", id], queryFn: () => api<DeckView>(`/api/decks/${id}`) });
@@ -119,14 +101,13 @@ export function DeckPage() {
   const [goldfish, setGoldfish] = useState(false);
 
   const groups = useMemo(() => {
-    const order = ["Commander", ...GROUPS.map(([g]) => g), "Other", "Sideboard"];
     const map = new Map<string, DeckEntry[]>();
     for (const e of deck.data?.cards ?? []) {
       if (view === "needed" && e.needed === 0) continue;
-      const g = groupOf(e);
+      const g = groupOf(e.board, e.card?.type_line);
       map.set(g, [...(map.get(g) ?? []), e]);
     }
-    return order.filter((g) => map.has(g)).map((g) => [g, map.get(g)!.sort((a, b) => (a.card?.cmc ?? 0) - (b.card?.cmc ?? 0) || a.name.localeCompare(b.name))] as const);
+    return GROUP_ORDER.filter((g) => map.has(g)).map((g) => [g, map.get(g)!.sort((a, b) => (a.card?.cmc ?? 0) - (b.card?.cmc ?? 0) || a.name.localeCompare(b.name))] as const);
   }, [deck.data, view]);
 
   if (deck.error) return <main className="page"><ErrorText error={deck.error} /></main>;
@@ -214,14 +195,6 @@ export function DeckPage() {
       {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
     </main>
   );
-}
-
-function listText(cards: DeckCard[]): string {
-  const section = (title: string, board: DeckCard["board"]) => {
-    const rows = cards.filter((c) => c.board === board).map((c) => `${c.qty} ${c.name}`);
-    return rows.length ? [title, ...rows, ""] : [];
-  };
-  return [...section("Commander", "commander"), ...section("Deck", "main"), ...section("Sideboard", "side")].join("\n").trim();
 }
 
 function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {

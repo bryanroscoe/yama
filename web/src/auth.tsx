@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, setToken, type User } from "./api";
 import { ErrorText, Pips } from "./components/ui";
+import { clearPlanData } from "./plan/store";
 
 const ME_KEY = "yama.me";
 
@@ -31,6 +32,11 @@ export function useMe() {
 export function useLogout() {
   const qc = useQueryClient();
   return async () => {
+    // Plans hold prices paid: clear them first, so neither the Cloudflare Access path below nor
+    // a failed (offline) logout request can leave them on the device.
+    await clearPlanData(qc.getQueryData<User | null>(["me"])?.id);
+    qc.removeQueries({ queryKey: ["plan"] });
+    qc.removeQueries({ queryKey: ["plan-cache"] });
     await api("/api/auth/logout", { method: "POST" });
     const config = qc.getQueryData<AuthConfig>(["auth-config"]) ?? (await api<AuthConfig>("/api/auth/config").catch(() => null));
     if (config?.cf_access) {

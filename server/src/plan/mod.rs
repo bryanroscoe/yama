@@ -1,10 +1,12 @@
 //! The per-user deck planner (docs/planner-design.md, docs/plan-format.md).
 //!
 //! Every user gets the same tables and routes on their own rows. Slice 1: storage, the import of a
-//! `yama-plan/1` document, and the bundle the pages read. Every query binds the caller's id, and
-//! anyone else's row is a 404.
+//! `yama-plan/1` document, and the bundle the pages read. Slice 3: linking a plan deck to a Yama
+//! deck and making a Yama deck from a plan list (`decks.rs`). Every query binds the caller's id,
+//! and anyone else's row is a 404.
 
 pub mod bundle;
+pub mod decks;
 pub mod import;
 pub mod model;
 
@@ -13,7 +15,7 @@ use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Query, State};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -32,6 +34,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/plan/head", get(head_route))
         .route("/api/plan/imports", get(imports_route))
         .route("/api/plan/bundle", get(bundle_route))
+        .route("/api/plan/decks/{key}", patch(decks::patch_deck))
+        .route("/api/plan/decks/{key}/yama-deck", post(decks::make_yama_deck))
 }
 
 #[derive(Deserialize)]
@@ -112,8 +116,6 @@ async fn bundle_route(State(st): State<AppState>, CurrentUser(user): CurrentUser
 }
 
 /// One of the owner's plan decks by key: (id, source, status). Anyone else's key is a 404.
-/// Slice 3's deck routes use it; the isolation tests cover it now.
-#[cfg_attr(not(test), allow(dead_code))]
 pub async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<(String, String, String)> {
     sqlx::query_as("SELECT id, source, status FROM plan_decks WHERE owner_id = ? AND key = ?")
         .bind(owner)

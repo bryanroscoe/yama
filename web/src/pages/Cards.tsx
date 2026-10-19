@@ -117,7 +117,8 @@ export function CardsPage() {
   );
 }
 
-export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: () => void }) {
+/** One card's details and printings. `readOnly` (plan pages) hides the buttons that add copies to your collection. */
+export function CardSheet({ oracleId, onClose, readOnly = false }: { oracleId: string; onClose: () => void; readOnly?: boolean }) {
   const detail = useQuery({
     queryKey: ["card", oracleId],
     queryFn: async () => {
@@ -190,7 +191,7 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
                     <th>#</th>
                     <th className="r">Normal</th>
                     <th className="r">Foil</th>
-                    <th className="r">Add</th>
+                    {!readOnly && <th className="r">Add</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -208,7 +209,7 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
                       <td className="num">{p.collector_number}</td>
                       <td className="r num">{p.finishes.includes("nonfoil") ? usd(p.usd) : ""}</td>
                       <td className="r num">{p.finishes.includes("foil") ? usd(p.usd_foil) : p.finishes.includes("etched") ? usd(p.usd_etched) : ""}</td>
-                      <td className="r">
+                      {!readOnly && <td className="r">
                         <span className="row" style={{ justifyContent: "end", gap: 4, flexWrap: "nowrap" }}>
                           {p.finishes.map((f) => (
                             <button
@@ -222,7 +223,7 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
                             </button>
                           ))}
                         </span>
-                      </td>
+                      </td>}
                     </tr>
                   ))}
                 </tbody>
@@ -233,7 +234,7 @@ export function CardSheet({ oracleId, onClose }: { oracleId: string; onClose: ()
               {added && <p className="small" role="status">{added}</p>}
               <ErrorText error={add.error} />
               <p className="small faint">
-                Tap a set to see its price history. +1 adds a regular copy, +F a foil, +E an etched foil. TCGplayer market prices via Scryfall, {detail.data!.printings.find((p) => p.price_date)?.price_date ?? "date unknown"}. A market price isn't a quote from any store.
+                Tap a set to see its price history.{readOnly ? "" : " +1 adds a regular copy, +F a foil, +E an etched foil."} TCGplayer market prices via Scryfall, {detail.data!.printings.find((p) => p.price_date)?.price_date ?? "date unknown"}. A market price isn't a quote from any store.
               </p>
             </div>
           )}

@@ -238,6 +238,19 @@ pub async fn create_deck_with_cards(
     folder: Option<&str>,
     cards: Vec<DeckCard>,
 ) -> AppResult<String> {
+    create_deck_with_note(pool, owner, name, folder, cards, "created").await
+}
+
+/// As `create_deck_with_cards`, with the first version's note. The planner uses it to say which
+/// plan list a deck was made from.
+pub async fn create_deck_with_note(
+    pool: &SqlitePool,
+    owner: &str,
+    name: &str,
+    folder: Option<&str>,
+    cards: Vec<DeckCard>,
+    note: &str,
+) -> AppResult<String> {
     if name.trim().is_empty() {
         return Err(AppError::bad("deck needs a name"));
     }
@@ -252,7 +265,7 @@ pub async fn create_deck_with_cards(
         .bind(&stamp)
         .execute(pool)
         .await?;
-    insert_version(pool, &id, &cards, Some("created")).await?;
+    insert_version(pool, &id, &cards, Some(note)).await?;
     Ok(id)
 }
 
