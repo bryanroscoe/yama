@@ -14,6 +14,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-20-sim-confidence",
+    date: "2026-10-20",
+    title: "The lab says which decks it can't judge",
+    items: [
+      "Precons the simulator is known to misjudge carry a sim unreliable mark, and lesser cases a sim doubtful mark. Tap one for why.",
+      "Sorted by simulated rank, the decks it can't judge go last under their own heading. A switch can hide them.",
+      "A precon's page, your batch runs and a plan's three versions say plainly when the numbers say little about real games.",
+      "Try a change warns before you run a deck like Tricky Terrain, and again beside the verdict.",
+    ],
+    link: { to: "/decks/lab", label: "Open the lab" },
+  },
+  {
     id: "2026-10-19-online-board",
     date: "2026-10-19",
     title: "A new online board",

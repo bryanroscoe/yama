@@ -6,7 +6,8 @@ import { api } from "../api";
 import { CardImage, Details, ErrorText, ManaCost, Pips } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 import type { Matchup, PreconDetail, PreconItem, RunLabel } from "./api";
-import { caveat, fmtDate, grouped, linScale, logScale, pct, pctRange, strengthDomain, strengthText } from "./logic";
+import { ConfidenceNote } from "./confidence";
+import { cantJudge, caveat, fmtDate, grouped, linScale, logScale, pct, pctRange, strengthDomain, strengthText } from "./logic";
 import { ArtPanel, IntervalBar } from "./parts";
 import { RunLine, usePrecons } from "./Precons";
 import { LabHead } from "./LabLayout";
@@ -84,7 +85,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
         </section>
       )}
 
-      {d.matchups && d.matchups.rows.length > 0 && d.run && <Matchups rows={d.matchups.rows} run={d.run} />}
+      {d.matchups && d.matchups.rows.length > 0 && d.run && <Matchups rows={d.matchups.rows} run={d.run} unjudged={cantJudge(p.rating?.confidence)} />}
 
       <section>
         <h2>Decklist</h2>
@@ -182,9 +183,20 @@ function Rating({ detail, all }: { detail: PreconDetail; all: PreconItem[] }) {
   // A rank is among every deck the run ranked, which can be more than the catalogue's precons.
   const of = run.ranked >= (r.rank ?? 0) && run.ranked > 0 ? run.ranked : null;
   const wins = r.win_rate != null ? Math.round(r.win_rate * r.games) : null;
+  const conf = r.confidence;
+  const pg = detail.precon.playgroup;
   return (
     <>
-      <div className="lab-figures">
+      {conf && conf.level !== "ok" && (
+        <ConfidenceNote level={conf.level} reasons={conf.reasons}>
+          {cantJudge(conf) && pg?.rank != null && (
+            <p>
+              Real games are the better guide: rank {pg.rank} of {pg.of} on playgroup.gg{pg.win_rate_4p != null ? `, ${pg.win_rate_4p.toFixed(1)}% wins` : ""}, below.
+            </p>
+          )}
+        </ConfidenceNote>
+      )}
+      <div className={`lab-figures${cantJudge(conf) ? " unjudged" : ""}`}>
         <div className="lab-figure">
           <b>{r.rank != null ? `${r.rank}${of ? ` of ${of}` : ""}` : "no rank"}</b>
           <span>
@@ -227,7 +239,7 @@ function Rating({ detail, all }: { detail: PreconDetail; all: PreconItem[] }) {
   );
 }
 
-function Matchups({ rows, run }: { rows: Matchup[]; run: RunLabel }) {
+function Matchups({ rows, run, unjudged }: { rows: Matchup[]; run: RunLabel; unjudged: boolean }) {
   const [q, setQ] = useState("");
   const scale = linScale(0, 1);
   const best = rows.slice(0, 5);
@@ -246,6 +258,7 @@ function Matchups({ rows, run }: { rows: Matchup[]; run: RunLabel }) {
       <p className="lab-note">
         The chance of beating each precon in a game of two, implied by the model from the 4-player games of run {run.name}. They aren't head-to-head
         games, and with few games per precon they lean towards even.
+        {unjudged ? " They come from the same simulation, which can't judge this deck yet, so they say little about real games too." : ""}
       </p>
       <div className="lab-two">
         <div>

@@ -2,7 +2,7 @@
 // filters and sorts, and the "Try a change" list arithmetic. No React here, so it's tested on its own.
 
 import { GROUP_ORDER, groupOf, identityKeys } from "@yama/core";
-import type { ExperimentStatus, Pace, PreconItem, Summary } from "./api";
+import type { Confidence, ConfidenceLevel, ExperimentStatus, Pace, PreconItem, Summary } from "./api";
 
 // ── wording ──────────────────────────────────────────────────────────────────
 
@@ -151,6 +151,99 @@ export function engineName(engine: string | null | undefined): string | null {
 export function caveat(engine?: string | null): string {
   const name = engineName(engine);
   return `AI vs AI games${name ? ` on ${name}` : ""}: evidence about the simulation, not your table.`;
+}
+
+// ── simulation confidence ────────────────────────────────────────────────────
+
+/** "sim unreliable" or "sim doubtful", the marker beside a deck's name; null when no problem is known. */
+export function confidenceMark(c: Confidence | null | undefined): string | null {
+  return c && c.level !== "ok" ? `sim ${c.level}` : null;
+}
+
+/** A deck the simulation can't judge: its simulated numbers say little about real games. */
+export const cantJudge = (c: Confidence | null | undefined) => c?.level === "unreliable";
+
+/** What a confidence sentence is about: [subject with its verb, object to read with care]. */
+const ABOUT = {
+  numbers: ["these numbers say", "these numbers"],
+  verdict: ["this verdict says", "this verdict"],
+  run: ["a run says", "a run's result"],
+} as const;
+
+/**
+ * The plain sentence for a deck's level, about its numbers, a verdict, or a run still to make.
+ * Null for a deck with no known problem.
+ */
+export function confidenceSentence(level: ConfidenceLevel, about: keyof typeof ABOUT = "numbers"): string | null {
+  const [says, read] = ABOUT[about];
+  if (level === "unreliable") return `The simulator can't judge this deck yet, so ${says} little about real games.`;
+  if (level === "doubtful") return `The simulator may misjudge this deck, so read ${read} with care.`;
+  return null;
+}
+
+const RANK: Record<ConfidenceLevel, number> = { ok: 0, doubtful: 1, unreliable: 2 };
+
+/**
+ * The worst of several confidences (a deck's versions), with the reasons of every one at that
+ * level, each once. Null when none says anything.
+ */
+export function worstConfidence(list: (Confidence | null | undefined)[]): Confidence | null {
+  const known = list.filter((c): c is Confidence => c != null);
+  if (!known.length) return null;
+  const level = known.reduce<ConfidenceLevel>((w, c) => (RANK[c.level] > RANK[w] ? c.level : w), "ok");
+  return { level, reasons: [...new Set(known.filter((c) => c.level === level).flatMap((c) => c.reasons))] };
+}
+
+/** Sorts that order decks by the simulation's own judgement of them. */
+export const SIM_SORTS: readonly SortKey[] = ["rank", "p4", "strength"];
+
+/**
+ * Rows split into the decks the simulation can judge (in their order) and those it can't. A sort
+ * by a simulated number lists the second group last, under its own heading, so the top of the
+ * table is never a deck the simulator is known to misjudge.
+ */
+export function splitUnjudged<T>(rows: T[], confidence: (row: T) => Confidence | null | undefined): [T[], T[]] {
+  const judged: T[] = [];
+  const not: T[] = [];
+  for (const r of rows) (cantJudge(confidence(r)) ? not : judged).push(r);
+  return [judged, not];
+}
+
+/**
+ * The confidence that goes with a base list in "Try a change": a precon's own, or for a deck or a
+ * pasted list, that of the rated precon led by the same commanders. The analysis judges a list
+ * built on a precon by that precon (and a known AI gap often comes with the commander), so a deck
+ * on Omo carries Tricky Terrain's warning. `own` is true when it is the base's own rating.
+ */
+export function baseConfidence(
+  precons: PreconItem[],
+  base: { precon?: string | null; commanders: string[] },
+): { precon: PreconItem; confidence: Confidence; own: boolean } | null {
+  if (base.precon) {
+    const p = precons.find((x) => x.id === base.precon);
+    return p?.rating?.confidence ? { precon: p, confidence: p.rating.confidence, own: true } : null;
+  }
+  if (!base.commanders.length) return null;
+  const key = (names: string[]) => [...names].sort().join("|");
+  const mine = key(base.commanders);
+  const same = precons.filter((p) => p.rating?.confidence && key(p.commanders) === mine);
+  // Of several precons on the same commanders, the most cautious one speaks.
+  const p = same.sort((a, b) => RANK[b.rating!.confidence!.level] - RANK[a.rating!.confidence!.level])[0];
+  return p ? { precon: p, confidence: p.rating!.confidence!, own: false } : null;
+}
+
+/**
+ * The sentence for a "Try a change" base and its confidence (see baseConfidence): about the deck
+ * itself when it is that precon, else naming the precon on the same commanders.
+ */
+export function baseConfidenceSentence(found: { precon: PreconItem; confidence: Confidence; own: boolean }, about: "verdict" | "run"): string | null {
+  const level = found.confidence.level;
+  if (found.own) return confidenceSentence(level, about);
+  const [says, read] = ABOUT[about];
+  const which = `${found.precon.name}, the precon on the same ${found.precon.commanders.length > 1 ? "commanders" : "commander"}`;
+  if (level === "unreliable") return `The simulator can't judge ${which}, so ${says} little about real games.`;
+  if (level === "doubtful") return `The simulator may misjudge ${which}, so read ${read} with care.`;
+  return null;
 }
 
 // ── experiment results ───────────────────────────────────────────────────────

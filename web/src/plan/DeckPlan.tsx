@@ -38,7 +38,8 @@ import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { Crop, WinBar, winCeiling } from "../components/Crop";
 import { BackButton } from "../components/DeckTabs";
 import { Details, ErrorText, Pips } from "../components/ui";
-import { pct, pctRange, pointsRange, pointsWord } from "../lab/logic";
+import { ConfidenceLine, ConfidenceMark, ConfidenceNote } from "../lab/confidence";
+import { cantJudge, pct, pctRange, pointsRange, pointsWord, worstConfidence } from "../lab/logic";
 import { pairedFor, simShort, stateLabel, useRuns, variantState, type PlanSim } from "../lab/paired";
 import { CardSheet } from "../pages/Cards";
 import { linkDeck, makeYamaDeck } from "./api";
@@ -231,14 +232,23 @@ function VersionsPanel({ deck, sim, compact = false }: { deck: PlanDeck; sim: Pl
   const level = sim.run.level ? `${Math.round(sim.run.level * 100)}%` : "90%";
   const stockAfter = sim.comparisons.find((c) => variantState(c.base, deck.key) === "stock" && variantState(c.variant, deck.key) === "after");
   const tryHref = deck.deck_id ? `/decks/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/decks/lab/try";
+  const conf = worstConfidence(sim.versions.map((v) => v.variant.confidence));
+  const method = sim.run.confidence?.method;
   return (
     <section className="plan-panel plan-versions" aria-labelledby={`versions-${compact ? "c" : "f"}`}>
       <h2 id={`versions-${compact ? "c" : "f"}`}>{sim.versions.length === 3 ? "Three versions" : "Simulated strength"}</h2>
+      {conf && conf.level !== "ok" && (
+        <ConfidenceNote level={conf.level} reasons={conf.reasons} fold={compact}>
+          {cantJudge(conf) && sim.versions.some((v) => !cantJudge(v.variant.confidence)) && <p>Only the versions marked sim unreliable are affected.</p>}
+        </ConfidenceNote>
+      )}
       {sim.versions.map((v) => {
         const w = v.variant.wilson;
         return (
           <div key={v.variant.id} className="plan-version">
-            <b className="plan-version-name">{v.label}</b>
+            <b className="plan-version-name">
+              {v.label} <ConfidenceMark confidence={v.variant.confidence} name={`${deck.name}, ${v.label.toLowerCase()}`} method={method} />
+            </b>
             <b className="plan-version-rate num">{pct(v.variant.win_rate)}</b>
             <span className="plan-version-note">
               {v.note}. {v.variant.games} games
@@ -282,6 +292,7 @@ function LabTab({ deck, sim, loading, error }: { deck: PlanDeck; sim: PlanSim | 
     );
   }
   const level = sim.run.level ? `${Math.round(sim.run.level * 100)}%` : "90%";
+  const confOf = (id: string) => sim.run.paired?.variants.find((v) => v.id === id)?.confidence ?? null;
   return (
     <div className="stack">
       <VersionsPanel deck={deck} sim={sim} />
@@ -290,6 +301,7 @@ function LabTab({ deck, sim, loading, error }: { deck: PlanDeck; sim: PlanSim | 
         {sim.comparisons.map((c) => {
           const a = stateLabel(variantState(c.base, deck.key) ?? c.base)[0];
           const z = stateLabel(variantState(c.variant, deck.key) ?? c.variant)[0];
+          const conf = worstConfidence([confOf(c.base), confOf(c.variant)]);
           return (
             <div key={`${c.base}>${c.variant}`} className="plan-compare">
               <span className="plan-compare-head">
@@ -304,6 +316,9 @@ function LabTab({ deck, sim, loading, error }: { deck: PlanDeck; sim: PlanSim | 
                 {c.delta_win_rate != null && c.delta_ci ? `${pointsWord(c.delta_win_rate)}, ${level} interval ${pointsRange(c.delta_ci)}. ` : ""}
                 {c.pods} paired pods: only {z.toLowerCase()} won {c.variant_only}, only {a.toLowerCase()} won {c.base_only}.
               </span>
+              {cantJudge(conf) && (
+                <ConfidenceLine confidence={conf} name={`${deck.name}, ${z.toLowerCase()} against ${a.toLowerCase()}`} method={sim.run.confidence?.method} />
+              )}
             </div>
           );
         })}

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { PreconItem, Summary } from "./api";
+import type { Confidence, PreconItem, Summary } from "./api";
 import {
+  baseConfidence,
+  baseConfidenceSentence,
+  cantJudge,
+  confidenceMark,
+  confidenceSentence,
+  splitUnjudged,
+  worstConfidence,
   caveat,
   changeText,
   changedCount,
@@ -48,8 +55,8 @@ const precon = (id: string, over: Partial<PreconItem> = {}): PreconItem => ({
   ...over,
 });
 
-const rated = (rank: number, strength: number, p4: number | null = null) =>
-  ({ deck_ref: "", strength, lo: strength / 2, hi: strength * 2, win_rate: null, wr_lo: null, wr_hi: null, games: 10, avg_place: null, rank, rank_lo: null, rank_hi: null, p4_field: p4, p4_lo: null, p4_hi: null, flags: [] });
+const rated = (rank: number, strength: number, p4: number | null = null, confidence: Confidence | null = null) =>
+  ({ deck_ref: "", strength, lo: strength / 2, hi: strength * 2, win_rate: null, wr_lo: null, wr_hi: null, games: 10, avg_place: null, rank, rank_lo: null, rank_hi: null, p4_field: p4, p4_lo: null, p4_hi: null, flags: [], confidence });
 
 describe("wording", () => {
   it("words differences as the server does, with a real minus sign", () => {
@@ -189,6 +196,61 @@ describe("the precon table", () => {
     expect(sortPrecons(list, "rank", true).map((p) => p.id)).toEqual(["b", "c", "a"]);
     expect(sortPrecons(list, "strength", true).map((p) => p.id)).toEqual(["c", "b", "a"]);
     expect(sortPrecons(list, "name", false).map((p) => p.id)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("simulation confidence", () => {
+  const bad: Confidence = { level: "unreliable", reasons: ["known phase gap: the AI gives Omo's counters away", "real games disagree"] };
+  const meh: Confidence = { level: "doubtful", reasons: ["commander partly unimplemented in phase: Omo"] };
+  const fine: Confidence = { level: "ok", reasons: [] };
+
+  it("marks only decks with a known problem", () => {
+    expect(confidenceMark(bad)).toBe("sim unreliable");
+    expect(confidenceMark(meh)).toBe("sim doubtful");
+    expect(confidenceMark(fine)).toBeNull();
+    expect(confidenceMark(null)).toBeNull();
+    expect([bad, meh, fine, null].map(cantJudge)).toEqual([true, false, false, false]);
+  });
+
+  it("says plainly what a level means for numbers, a verdict or a run", () => {
+    expect(confidenceSentence("unreliable")).toBe("The simulator can't judge this deck yet, so these numbers say little about real games.");
+    expect(confidenceSentence("unreliable", "verdict")).toBe("The simulator can't judge this deck yet, so this verdict says little about real games.");
+    expect(confidenceSentence("doubtful", "run")).toBe("The simulator may misjudge this deck, so read a run's result with care.");
+    expect(confidenceSentence("ok")).toBeNull();
+  });
+
+  it("takes the worst level across a deck's versions, with each reason once", () => {
+    const other: Confidence = { level: "unreliable", reasons: ["real games disagree", "5 cards partly unimplemented in phase"] };
+    expect(worstConfidence([meh, bad, other, null])).toEqual({
+      level: "unreliable",
+      reasons: ["known phase gap: the AI gives Omo's counters away", "real games disagree", "5 cards partly unimplemented in phase"],
+    });
+    expect(worstConfidence([fine, meh])?.level).toBe("doubtful");
+    expect(worstConfidence([null, undefined])).toBeNull();
+  });
+
+  it("lists the decks the simulation can't judge after the rest, each group in order", () => {
+    const rows = [precon("a", { rating: rated(1, 3, null, bad) }), precon("b", { rating: rated(2, 2, null, meh) }), precon("c", { rating: rated(3, 1) }), precon("d")];
+    const [judged, not] = splitUnjudged(rows, (p) => p.rating?.confidence);
+    expect(judged.map((p) => p.id)).toEqual(["b", "c", "d"]);
+    expect(not.map((p) => p.id)).toEqual(["a"]);
+  });
+
+  it("judges a Try a change base by its precon, or the precon on the same commanders", () => {
+    const tricky = precon("tricky-terrain", { name: "Tricky Terrain", commanders: ["Omo, Queen of Vesuva"], rating: rated(165, 0.5, null, bad) });
+    const repeat = precon("tricky-terrain-ce", { name: "Tricky Terrain CE", commanders: ["Omo, Queen of Vesuva"], rating: rated(160, 0.6, null, meh) });
+    const plain = precon("counterpunch", { commanders: ["Ghave"], rating: rated(1, 2, null, fine) });
+    const list = [repeat, plain, tricky];
+    const own = baseConfidence(list, { precon: "tricky-terrain", commanders: [] });
+    expect([own?.precon.id, own?.own, own?.confidence.level]).toEqual(["tricky-terrain", true, "unreliable"]);
+    // A deck on Omo: the most cautious precon on Omo speaks for it.
+    const deck = baseConfidence(list, { precon: null, commanders: ["Omo, Queen of Vesuva"] });
+    expect([deck?.precon.id, deck?.own]).toEqual(["tricky-terrain", false]);
+    expect(baseConfidenceSentence(deck!, "run")).toBe("The simulator can't judge Tricky Terrain, the precon on the same commander, so a run says little about real games.");
+    expect(baseConfidenceSentence(own!, "verdict")).toBe("The simulator can't judge this deck yet, so this verdict says little about real games.");
+    expect(baseConfidence(list, { precon: null, commanders: ["Nobody"] })).toBeNull();
+    expect(baseConfidence(list, { precon: null, commanders: [] })).toBeNull();
+    expect(baseConfidence([precon("unrated")], { precon: "unrated", commanders: [] })).toBeNull();
   });
 });
 

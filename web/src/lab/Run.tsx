@@ -5,7 +5,10 @@ import { Link, useNavigate, useParams } from "react-router";
 import { api } from "../api";
 import { ErrorText, Pips } from "../components/ui";
 import type { ExperimentDetail, ExperimentItem, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
+import { ConfidenceLine } from "./confidence";
 import {
+  baseConfidence,
+  baseConfidenceSentence,
   caveat,
   deltaBound,
   durationText,
@@ -26,6 +29,7 @@ import {
 } from "./logic";
 import { ArtPanel, IntervalChart, SimLine, StatusTag } from "./parts";
 import { LabHead } from "./LabLayout";
+import { usePrecons } from "./Precons";
 
 const LIVE = new Set(["queued", "running"]);
 
@@ -195,8 +199,16 @@ function Progress({ e }: { e: ExperimentDetail }) {
   );
 }
 
+/** The base list's simulation confidence: its precon's, or the precon's on the same commanders. */
+export function useBaseConfidence(e: ExperimentItem) {
+  const precons = usePrecons();
+  const src = e.base?.source;
+  return e.base ? baseConfidence(precons.data?.precons ?? [], { precon: src?.kind === "precon" ? src.id : null, commanders: e.base.commanders }) : null;
+}
+
 function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
   const level = `${Math.round(s.level * 100)}%`;
+  const conf = useBaseConfidence(e);
   const cancelled = e.status === "cancelled";
   const d = s.paired.delta_win_rate;
   const ci = s.paired.delta_ci;
@@ -232,6 +244,11 @@ function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
     <section>
       <h2>{s.verdict.final ? "Result" : "So far"}</h2>
       <p className="lab-verdict">{verdictText(e.status, s)}</p>
+      {conf && (
+        <ConfidenceLine confidence={conf.confidence} name={conf.precon.name}>
+          {baseConfidenceSentence(conf, "verdict")}
+        </ConfidenceLine>
+      )}
       <p className="dim" style={{ marginTop: 0 }}>
         {d != null && ci
           ? `The changed list won ${moreOften(d)} the base on the same ${s.paired.pods} pods (${pointsWord(d)}, ${level} interval ${pointsRange(ci)}).`

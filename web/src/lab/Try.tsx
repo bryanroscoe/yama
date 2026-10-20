@@ -10,9 +10,13 @@ import { CardImage, ErrorText, ManaCost, Pips } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { offlineSearch } from "../offline/cards";
 import type { BaseChoice, ExperimentDetail, ExperimentItem, FieldChoice, NewExperiment, Pace, PreconDetail, TryPrefill } from "./api";
+import { ConfidenceLine, ConfidenceNote } from "./confidence";
 import { LabHead } from "./LabLayout";
-import { experimentLabel } from "./Run";
+import { experimentLabel, useBaseConfidence } from "./Run";
 import {
+  baseConfidence,
+  baseConfidenceSentence,
+  cantJudge,
   caveat,
   changeText,
   changedCount,
@@ -166,6 +170,8 @@ function TryForm() {
   const anchorId = selfAnchor ? "" : anchor || sameCommander?.id || "";
   const run = precons.data?.run;
   const preconMissing = kind === "precon" && !!precon.error;
+  // Whether the simulator can judge the base at all: said before the run, and beside its verdict.
+  const conf = base ? baseConfidence(precons.data?.precons ?? [], { precon: base.precon, commanders: base.commanders }) : null;
 
   const field: FieldChoice =
     fieldKind === "precons_top"
@@ -253,6 +259,11 @@ function TryForm() {
                   </button>
                 </ArtPanel>
                 {base.art && <span className="small dim">{artCredit(base.art.artist)}</span>}
+                {conf && conf.confidence.level !== "ok" && (
+                  <ConfidenceNote level={conf.confidence.level} lead={baseConfidenceSentence(conf, "run")} reasons={conf.confidence.reasons} fold>
+                    {cantJudge(conf.confidence) && <p>You can still run it; the verdict will carry this warning.</p>}
+                  </ConfidenceNote>
+                )}
               </div>
             ) : (
               <>
@@ -441,6 +452,11 @@ function TryForm() {
                 Pick a list, change it, and choose who it plays against.
               </p>
             )}
+            {conf && cantJudge(conf.confidence) && (
+              <ConfidenceLine confidence={conf.confidence} name={conf.precon.name} method={run?.confidence?.method}>
+                {baseConfidenceSentence(conf, "run")}
+              </ConfidenceLine>
+            )}
             {blockers.length > 0 && (
               <ul className="lab-problems dim">
                 {blockers.map((b) => (
@@ -484,8 +500,13 @@ function RunningNow() {
   });
   const e = exps.data?.find((x) => x.status === "running") ?? exps.data?.find((x) => x.status === "queued");
   if (!e) return null;
+  return <RunningBox e={e} />;
+}
+
+function RunningBox({ e }: { e: ExperimentItem }) {
   const p = e.progress;
   const s = e.summary && hasResults(e.summary) ? e.summary : null;
+  const conf = useBaseConfidence(e);
   return (
     <section className="lab-running" aria-label="Running now">
       <h2>{e.status === "running" ? "Running" : "Waiting"}</h2>
@@ -503,6 +524,11 @@ function RunningNow() {
             {s.paired.delta_win_rate != null ? `${pointsWord(s.paired.delta_win_rate)} so far` : ""}
             {s.paired.delta_ci ? `, ${Math.round(s.level * 100)}% interval ${pointsRange(s.paired.delta_ci)}` : ""}.
           </span>
+          {conf && cantJudge(conf.confidence) && (
+            <ConfidenceLine confidence={conf.confidence} name={conf.precon.name}>
+              {baseConfidenceSentence(conf, "verdict")}
+            </ConfidenceLine>
+          )}
         </div>
       )}
       <span className="lab-note">{experimentLabel(e)}.</span>

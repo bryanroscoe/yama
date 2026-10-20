@@ -22,6 +22,30 @@ export interface RunLabel {
   analysed_at: string | null;
   imported_at: string;
   warnings: string[];
+  /** The run's simulation confidence block; null for a run analysed before it existed. */
+  confidence: RunConfidence | null;
+}
+
+/**
+ * Whether the simulation can judge a deck at all (commander-decks' analysis). "unreliable": real
+ * games disagree strongly, or a known engine or AI gap breaks the deck's plan, so its simulated
+ * numbers say little. "doubtful": a lesser disagreement, or a commander or many cards the engine
+ * only partly implements. "ok": no deck-specific problem is known.
+ */
+export type ConfidenceLevel = "ok" | "doubtful" | "unreliable";
+
+export interface Confidence {
+  level: ConfidenceLevel;
+  /** The analysis's reasons, in its own words. */
+  reasons: string[];
+}
+
+export interface RunConfidence {
+  /** How the levels are decided, in the analysis's words (it names its files). */
+  method: string | null;
+  /** The run whose comparison with real games stands in for decks this run doesn't compare itself. */
+  reference_run: string | null;
+  counts: { ok: number; doubtful: number; unreliable: number };
 }
 
 export interface Rating {
@@ -43,6 +67,7 @@ export interface Rating {
   p4_lo: number | null;
   p4_hi: number | null;
   flags: string[];
+  confidence: Confidence | null;
 }
 
 export interface Art {
@@ -126,6 +151,8 @@ export interface BatchVariant {
   avg_place: number | null;
   unscored: number;
   failed: number;
+  /** From the list's rating in the same run. */
+  confidence: Confidence | null;
 }
 
 export interface Verdict {

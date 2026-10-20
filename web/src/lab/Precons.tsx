@@ -1,6 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { identityName, MANA, type ManaKey } from "@yama/core";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api } from "../api";
 import { useMe } from "../auth";
@@ -9,8 +9,11 @@ import { Details, ErrorText, Pips } from "../components/ui";
 import { usePlan } from "../plan/store";
 import type { PreconItem, PreconList, Rating, RunDetail, RunLabel, RunListItem } from "./api";
 import { LabHead } from "./LabLayout";
+import { ConfidenceMark } from "./confidence";
 import {
+  cantJudge,
   caveat,
+  confidenceMark,
   DEFAULT_DESC,
   engineName,
   filterPrecons,
@@ -19,8 +22,10 @@ import {
   pct,
   pctRange,
   simDetails,
+  SIM_SORTS,
   simLabel,
   sortPrecons,
+  splitUnjudged,
   strengthText,
   year,
   yearsOf,
@@ -131,9 +136,12 @@ export function PreconsPage() {
   const sort = (params.get("s") ?? "rank") as SortKey;
   const desc = params.has("d") ? params.get("d") === "1" : DEFAULT_DESC[sort];
   const tenPlus = params.get("g") === "10";
+  // Off by default: every precon stays listed, and the ones the simulation can't judge carry a mark
+  // (and go last when the table is sorted by a simulated number).
+  const hideUnjudged = params.get("h") === "1";
   // Phones keep the colour, year and sort controls folded until asked for (or in use).
   const [moreOpen, setMoreOpen] = useState(false);
-  const filtering = !!colors || yr != null || tenPlus || params.has("s") || params.has("d");
+  const filtering = !!colors || yr != null || tenPlus || hideUnjudged || params.has("s") || params.has("d");
 
   const set = (patch: Record<string, string | null>) => {
     const next = new URLSearchParams(params);
@@ -149,9 +157,15 @@ export function PreconsPage() {
   const all = precons.data?.precons ?? [];
   const run = precons.data?.run ?? null;
   const rows = useMemo(
-    () => sortPrecons(filterPrecons(all, { q, colors, mode, year: yr }), sort, desc).filter((p) => !tenPlus || (p.rating?.games ?? 0) >= FEW),
-    [all, q, colors, mode, yr, sort, desc, tenPlus],
+    () =>
+      sortPrecons(filterPrecons(all, { q, colors, mode, year: yr }), sort, desc).filter(
+        (p) => (!tenPlus || (p.rating?.games ?? 0) >= FEW) && (!hideUnjudged || !cantJudge(p.rating?.confidence)),
+      ),
+    [all, q, colors, mode, yr, sort, desc, tenPlus, hideUnjudged],
   );
+  // Sorted by what the simulation says, the decks it can't judge go last, under their own heading.
+  const simSort = SIM_SORTS.includes(sort);
+  const [judged, unjudged] = useMemo(() => (simSort ? splitUnjudged(rows, (p) => p.rating?.confidence) : [rows, []]), [rows, simSort]);
   const needle = q.trim().toLowerCase();
   // Your lists start folded (there can be dozens), and open when asked or when the search finds one.
   const mineOpen = params.get("mine") === "1";
@@ -160,6 +174,7 @@ export function PreconsPage() {
       (!needle || [m.name, ...m.commanders].some((s) => s.toLowerCase().includes(needle))) &&
       (!colors || (m.identity != null && identityMatches(m.identity, colors, mode))) &&
       (!tenPlus || m.rating.games >= FEW) &&
+      (!hideUnjudged || !cantJudge(m.rating.confidence)) &&
       yr == null,
   );
   // One axis for every row, so filtering never rescales the bars.
@@ -168,6 +183,9 @@ export function PreconsPage() {
   const rated = all.filter((p) => p.rating).length;
   const few = all.filter((p) => p.rating && p.rating.games < FEW).length;
   const real = all.find((p) => p.playgroup?.source)?.playgroup;
+  const unjudgedAll = all.filter((p) => cantJudge(p.rating?.confidence)).length;
+  const doubtfulAll = all.filter((p) => p.rating?.confidence?.level === "doubtful").length;
+  const hidden = hideUnjudged ? sortPrecons(filterPrecons(all, { q, colors, mode, year: yr }), sort, desc).length - rows.length : 0;
 
   // No count, filters or table until the list is in: a count from nothing would be made up.
   if (!precons.data) {
@@ -200,6 +218,13 @@ export function PreconsPage() {
             {few ? ` ${few} ${few === 1 ? "precon has" : "precons have"} fewer than ${FEW} games, so ${few === 1 ? "its interval is" : "their intervals are"} wide and the order will move.` : ""}{" "}
             {caveat(run.engine)} Real-game ranks from playgroup.gg sit in their own column.
           </p>
+          {unjudgedAll > 0 && (
+            <p>
+              The simulation can't judge {unjudgedAll} of these precons: real games disagree strongly with it, or a known gap in the engine's AI breaks their plan.
+              They're marked sim unreliable{hideUnjudged ? " and hidden" : simSort ? " and listed last" : ""}.
+              {doubtfulAll ? ` ${doubtfulAll} more are marked sim doubtful.` : ""}
+            </p>
+          )}
           {skipped > 0 && <p>Ranks are among all {run.ranked} decks in the run, and {skipped} of those aren't in this list, so some ranks are skipped.</p>}
           {run.card_data && (
             <Details>
@@ -225,6 +250,22 @@ export function PreconsPage() {
               Real-game ranks: playgroup.gg's precon tier list ({real.method}), fetched {fmtDate(real.fetched)}. They count people's games, not simulations,
               and only cover precons with enough logged games.
             </p>
+          )}
+          {run.confidence && (
+            <>
+              <p className="lab-note">
+                The <b>sim unreliable</b> and <b>sim doubtful</b> marks come from the analysis. It compares each precon's simulated win rate with real games on
+                playgroup.gg, counts the cards the engine only partly implements, and checks a hand-kept list of known gaps in the engine's AI (a deck whose plan
+                needs plays the AI never makes). Unreliable means real games disagree strongly or a known gap breaks the deck's plan; doubtful is a lesser
+                warning. No mark only means no problem is known: the simulation as a whole still follows real games only loosely.
+                {run.confidence.reference_run ? ` Decks without real games of their own are judged by their precon in run ${run.confidence.reference_run}.` : ""}
+              </p>
+              {run.confidence.method && (
+                <Details>
+                  <p>{run.confidence.method}</p>
+                </Details>
+              )}
+            </>
           )}
         </details>
       )}
@@ -267,6 +308,12 @@ export function PreconsPage() {
           <input type="checkbox" checked={tenPlus} onChange={(e) => set({ g: e.target.checked ? "10" : null })} />
           Only {FEW}+ games
         </label>
+        {unjudgedAll > 0 && (
+          <label className="lab-ten">
+            <input type="checkbox" checked={hideUnjudged} onChange={(e) => set({ h: e.target.checked ? "1" : null })} />
+            Hide decks the simulation can't judge
+          </label>
+        )}
         {!filtering && (
           <button type="button" className="phone-only lab-more" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
             {moreOpen ? "Fewer filters" : "Filters"}
@@ -276,6 +323,7 @@ export function PreconsPage() {
       <p className="lab-count">
         {rows.length === all.length ? `${all.length} precons` : `${rows.length} of ${all.length} precons`}
         {colors && `, ${mode === "exactly" ? "exactly" : mode === "within" ? "within" : "including"} ${identityName(colors.replace("C", "")).toLowerCase()}`}
+        {hidden > 0 && `, without the ${hidden} the simulation can't judge`}
       </p>
 
       <div className="lab-table-wrap">
@@ -311,10 +359,26 @@ export function PreconsPage() {
             </tbody>
           )}
           <tbody>
-            {rows.map((p) => (
-              <TableRow key={p.id} p={p} max={max} level={level} />
+            {judged.map((p) => (
+              <TableRow key={p.id} p={p} max={max} level={level} method={run?.confidence?.method} />
             ))}
           </tbody>
+          {unjudged.length > 0 && (
+            <tbody>
+              <tr className="lab-unjudged-head">
+                <th colSpan={6} scope="rowgroup">
+                  <b>
+                    The simulation can't judge {unjudged.length === 1 ? "this deck" : `these ${unjudged.length} decks`}
+                  </b>
+                  Real games disagree strongly with their simulated numbers, or a known gap in the engine's AI breaks their plan. Their ranks are the simulation's,
+                  shown for reference; tap a mark for why.
+                </th>
+              </tr>
+              {unjudged.map((p) => (
+                <TableRow key={p.id} p={p} max={max} level={level} method={run?.confidence?.method} />
+              ))}
+            </tbody>
+          )}
         </table>
       </div>
       <ol className="lab-cards" aria-label="Precons">
@@ -334,36 +398,48 @@ export function PreconsPage() {
               </span>
               <WinBar value={m.rating.p4_field} lo={m.rating.p4_lo} hi={m.rating.p4_hi} max={max} few={m.rating.games < FEW} label={rateAria(m.name, m.rating, level)} />
               <span className={`lab-card-games${m.rating.games < FEW ? " few" : ""}`}>
+                <ConfidenceMark confidence={m.rating.confidence} name={m.name} method={m.run.confidence?.method} />
                 {m.rating.games} games{m.rating.games < FEW ? ", too few to trust" : ""}. Your run {m.run.name}, rank of {m.run.ranked}
               </span>
             </span>
             <b className="lab-card-rate num">{pct(m.rating.p4_field, 1)}</b>
           </li>
         ))}
-        {rows.map((p) => {
+        {[...judged, ...unjudged].map((p, i) => {
           const r = p.rating;
           const isFew = !!r && r.games < FEW;
+          const last = i >= judged.length;
           return (
-            <li key={p.id} className={`lab-card${isFew ? " few" : ""}`}>
-              <span className="rank num">{r?.rank ?? ""}</span>
-              <span className="lab-card-main">
-                <Link to={`/decks/lab/p/${p.id}`} className="lab-card-name">
-                  <b>{p.name}</b> <Pips identity={p.color_identity} />
-                </Link>
-                {r?.p4_field != null && <WinBar value={r.p4_field} lo={r.p4_lo} hi={r.p4_hi} max={max} few={isFew} label={rateAria(p.name, r, level)} />}
-                <span className={`lab-card-games${isFew ? " few" : ""}`}>
-                  {r ? `${r.games} games${isFew ? ", too few to trust" : ""}` : "Not rated"}
-                  {p.playgroup?.rank != null ? `. Real games: ${p.playgroup.rank} of ${p.playgroup.of} on playgroup.gg` : ""}
+            <Fragment key={p.id}>
+              {last && i === judged.length && (
+                <li className="lab-card-unjudged-head">
+                  <b>The simulation can't judge {unjudged.length === 1 ? "this deck" : `these ${unjudged.length} decks`}</b>
+                  Real games disagree strongly, or a known gap in the engine's AI breaks their plan. Their ranks are the simulation's, shown for reference.
+                </li>
+              )}
+              <li className={`lab-card${isFew ? " few" : ""}${last ? " unjudged" : ""}`}>
+                <span className="rank num">{r?.rank ?? ""}</span>
+                <span className="lab-card-main">
+                  <Link to={`/decks/lab/p/${p.id}`} className="lab-card-name">
+                    <b>{p.name}</b> <Pips identity={p.color_identity} />
+                  </Link>
+                  {r?.p4_field != null && <WinBar value={r.p4_field} lo={r.p4_lo} hi={r.p4_hi} max={max} few={isFew} label={rateAria(p.name, r, level)} />}
+                  <span className={`lab-card-games${isFew ? " few" : ""}`}>
+                    <ConfidenceMark confidence={r?.confidence} name={p.name} method={run?.confidence?.method} />
+                    {r ? `${r.games} games${isFew ? ", too few to trust" : ""}` : "Not rated"}
+                    {p.playgroup?.rank != null ? `. Real games: ${p.playgroup.rank} of ${p.playgroup.of} on playgroup.gg` : ""}
+                  </span>
                 </span>
-              </span>
-              <b className="lab-card-rate num">{r?.p4_field != null ? pct(r.p4_field, 1) : ""}</b>
-            </li>
+                <b className="lab-card-rate num">{r?.p4_field != null ? pct(r.p4_field, 1) : ""}</b>
+              </li>
+            </Fragment>
           );
         })}
       </ol>
       {rows.length === 0 && <p className="empty">No precon matches. Clear the search or a colour.</p>}
       <p className="lab-note">
-        The amber line is 25%, an even share at a 4-player table. Precons with fewer than {FEW} games are faded, with "few games" in amber. Open a precon for its
+        The amber line is 25%, an even share at a 4-player table. Precons with fewer than {FEW} games are faded, with "few games" in amber.
+        {unjudgedAll > 0 ? " A sim unreliable or sim doubtful mark says the simulator is known to misjudge that deck; tap it for why." : ""} Open a precon for its
         list, matchups and "Make this a Yama deck".
         {mineShown.length ? ` Your lists come from your own runs with ${mineShown.map((m) => m.rating.games).reduce((a, b) => Math.min(a, b))} or more games each, so their intervals are tighter.` : ""}
       </p>
@@ -386,18 +462,20 @@ function Th({ k, label, sort, desc, onSort, num, className }: { k: SortKey; labe
 const rateAria = (name: string, r: Rating, level: string) =>
   `${name}: model win rate ${pct(r.p4_field, 1)} of 4-player pods${r.p4_lo != null && r.p4_hi != null ? `, ${level} interval ${pctRange(r.p4_lo, r.p4_hi)}` : ""}; a quarter is an even share`;
 
-function TableRow({ p, max, level }: { p: PreconItem; max: number; level: string }) {
+function TableRow({ p, max, level, method }: { p: PreconItem; max: number; level: string; method?: string | null }) {
   const r = p.rating;
   const pg = p.playgroup;
   const isFew = !!r && r.games < FEW;
+  const cls = [isFew ? "few" : "", cantJudge(r?.confidence) ? "unjudged" : ""].filter(Boolean).join(" ");
   return (
-    <tr className={isFew ? "few" : undefined}>
+    <tr className={cls || undefined}>
       <td className="num rank" title={r?.rank_lo != null ? `Could be anywhere from ${r.rank_lo} to ${r.rank_hi}` : undefined}>
         {r?.rank ?? ""}
       </td>
       <td className="deck">
-        <span className="lab-deck-name">
+        <span className={`lab-deck-name${confidenceMark(r?.confidence) ? " has-mark" : ""}`}>
           <Link to={`/decks/lab/p/${p.id}`}>{p.name}</Link> <Pips identity={p.color_identity} />
+          <ConfidenceMark confidence={r?.confidence} name={p.name} method={method} />
         </span>
         <span className="sub">
           {p.commanders.join(" and ")}. {p.set_name ?? p.set_code}
@@ -452,8 +530,9 @@ function MineRow({ m, max, level }: { m: MyList; max: number; level: string }) {
         {r.rank ?? ""}
       </td>
       <td className="deck">
-        <span className="lab-deck-name">
+        <span className={`lab-deck-name${confidenceMark(r.confidence) ? " has-mark" : ""}`}>
           <b>{m.name}</b> {m.identity != null && <Pips identity={m.identity} />}
+          <ConfidenceMark confidence={r.confidence} name={m.name} method={m.run.confidence?.method} />
         </span>
         <span className="sub">
           {m.commanders.length ? `${m.commanders.join(" and ")}. ` : ""}Your run {m.run.name}, {fmtDate(m.run.analysed_at ?? m.run.created_at)}; rank of {m.run.ranked}

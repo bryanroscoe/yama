@@ -1127,3 +1127,176 @@
   font-size: var(--t-sm);
   min-height: 36px;
 }
+
+/* ── simulation confidence (lab/confidence.tsx) ─────────────────────────── */
+
+/* "sim unreliable" in --bad on its tint (used sparingly), "sim doubtful" in --warn with a dashed
+   outline. As a button it opens the reasons; its hit area reaches 44 px without a bigger chip. */
+.conf-mark {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.35;
+  padding: 1px 8px;
+  min-height: 0;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.conf-mark.unreliable {
+  color: var(--bad);
+  background: var(--bad-tint);
+}
+.conf-mark.doubtful {
+  color: var(--warn);
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--warn) 55%, transparent);
+}
+button.conf-mark {
+  position: relative;
+  cursor: pointer;
+}
+button.conf-mark::after {
+  content: "";
+  position: absolute;
+  inset: -12px -4px;
+}
+button.conf-mark.unreliable:hover {
+  background: color-mix(in srgb, var(--bad) 24%, transparent);
+}
+button.conf-mark.doubtful:hover {
+  background: var(--warn-tint);
+}
+button.conf-mark:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.conf-sheet-deck {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+.conf-sheet p {
+  margin: 0;
+}
+.conf-why {
+  margin: 0;
+  font-size: 1rem;
+}
+.conf-reasons {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 4px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.conf-reasons li {
+  overflow-wrap: anywhere;
+}
+
+/* The note above a deck's simulated numbers: a coloured rule on the left, plain text. */
+.conf-note {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 1rem;
+  padding: 10px 14px;
+  border-left: 3px solid var(--warn);
+  border-radius: 0 12px 12px 0;
+  background: var(--surface);
+}
+.conf-note.unreliable {
+  border-left-color: var(--bad);
+}
+.conf-note-lead {
+  margin: 0;
+  line-height: 1.4;
+  max-width: 90ch;
+}
+.conf-note-lead .conf-mark {
+  margin-right: 4px;
+}
+.conf-note > p:not(.conf-note-lead) {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.conf-note .details-fold {
+  margin: 0;
+}
+
+/* Decks the simulation can't judge, listed last when the table is sorted by a simulated number. */
+.lab-unjudged-head th {
+  padding-top: 18px;
+  border-top: 2px solid var(--line);
+  font-weight: 400;
+  color: var(--dim);
+  font-size: var(--t-sm);
+}
+.lab-unjudged-head b {
+  display: block;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.125rem;
+  color: var(--text);
+}
+.lab-table tr.unjudged td.bar b,
+.lab-table tr.unjudged td.strength,
+.lab-table tr.unjudged td.rank {
+  color: var(--dim);
+}
+.lab-card-unjudged-head {
+  padding: 16px 0 6px;
+  border-top: 2px solid var(--line);
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.lab-card-unjudged-head b {
+  display: block;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.125rem;
+  color: var(--text);
+}
+.lab-card.unjudged .rank,
+.lab-card.unjudged .lab-card-rate {
+  color: var(--dim);
+}
+/* Phones: the mark leads the games line under the name, so names keep their room. */
+.lab-card-games > .conf-mark {
+  margin-right: 6px;
+}
+/* Laptops: a long name keeps its line and the mark moves under it. */
+.lab-deck-name.has-mark {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.lab-figures.unjudged .lab-figure b {
+  color: var(--dim);
+}
+.conf-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 0.5rem;
+  font-size: var(--t-sm);
+  line-height: 1.4;
+}
+.conf-line > .conf-mark {
+  align-self: center;
+}
+.lab-runcard .conf-line {
+  margin: 0;
+}
+/* Inside a panel that is already --surface, the note keeps only its rule. */
+:is(.plan-panel, .lab-run, .lab-base, .lab-sofar) > .conf-note {
+  margin: 0;
+  background: transparent;
+  padding: 2px 0 2px 12px;
+}

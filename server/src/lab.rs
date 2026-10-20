@@ -482,6 +482,83 @@ pub async fn import_run(pool: &SqlitePool, summary_path: &std::path::Path, owner
 
 // ── read side ───────────────────────────────────────────────────────────────
 
+/// How far the simulation can judge a deck, as commander-decks' analysis says (scripts/sim/
+/// confidence.py, written by analyze.py into every deck's summary entry, which the import keeps
+/// whole in `lab_ratings.extra`). "unreliable": real games disagree strongly with the simulation,
+/// or a known engine or AI gap breaks the deck's plan, so its numbers say little. "doubtful": a
+/// lesser disagreement, a partly unimplemented commander or many partly unimplemented cards. "ok"
+/// only means no deck-specific problem is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConfidenceLevel {
+    Ok,
+    Doubtful,
+    Unreliable,
+}
+
+impl ConfidenceLevel {
+    /// A level this build doesn't know reads as "doubtful": warning about a deck by mistake is
+    /// better than vouching for it by mistake.
+    fn parse(level: Option<&str>) -> Self {
+        match level {
+            Some("ok") => Self::Ok,
+            Some("unreliable") => Self::Unreliable,
+            _ => Self::Doubtful,
+        }
+    }
+}
+
+/// A deck's simulation confidence: its level and the analysis's reasons, in its own words.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(from = "RawConfidence")]
+pub struct Confidence {
+    pub level: ConfidenceLevel,
+    pub reasons: Vec<String>,
+}
+
+/// The summary's object as written; anything else it carries (the residual, gap ids) stays in
+/// `extra`. Read leniently, so an odd entry can't break the pages that list every precon.
+#[derive(Deserialize)]
+struct RawConfidence {
+    #[serde(default)]
+    level: Option<String>,
+    #[serde(default)]
+    reasons: Vec<Value>,
+}
+
+impl From<RawConfidence> for Confidence {
+    fn from(r: RawConfidence) -> Self {
+        Confidence {
+            level: ConfidenceLevel::parse(r.level.as_deref()),
+            reasons: r.reasons.into_iter().filter_map(|v| v.as_str().map(str::to_string)).collect(),
+        }
+    }
+}
+
+/// A run's confidence block: how many of its decks are at each level, and how the levels are
+/// decided (the analysis's words, which name its files).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct RunConfidence {
+    #[serde(default)]
+    pub method: Option<String>,
+    /// The run whose comparison with real games was used for decks this run doesn't compare
+    /// itself, e.g. "precons-1 (2026-10-19)"; `None` when the run compared its own decks.
+    #[serde(default)]
+    pub reference_run: Option<String>,
+    #[serde(default)]
+    pub counts: ConfidenceCounts,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ConfidenceCounts {
+    #[serde(default)]
+    pub ok: i64,
+    #[serde(default)]
+    pub doubtful: i64,
+    #[serde(default)]
+    pub unreliable: i64,
+}
+
 /// What every simulated number from a run is shown with.
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct RunLabel {
@@ -508,6 +585,9 @@ pub struct RunLabel {
     pub imported_at: String,
     #[sqlx(json)]
     pub warnings: Vec<String>,
+    /// The run's simulation confidence block; `None` for a summary analysed before it existed.
+    #[sqlx(json(nullable))]
+    pub confidence: Option<RunConfidence>,
 }
 
 const RUN_COLUMNS: &str = "lab_runs.id, lab_runs.name, lab_runs.kind, lab_runs.owner_id IS NULL AS global, lab_runs.engine, \
@@ -515,7 +595,7 @@ const RUN_COLUMNS: &str = "lab_runs.id, lab_runs.name, lab_runs.kind, lab_runs.o
     (SELECT COUNT(*) FROM lab_ratings lr WHERE lr.run_id = lab_runs.id AND json_extract(lr.extra, '$.rank') IS NOT NULL) AS ranked, \
     json_extract(lab_runs.summary, '$.run_meta.pod') AS pod, json_extract(lab_runs.summary, '$.analysis.bootstrap.level') AS level, \
     json_extract(lab_runs.summary, '$.analysis.model') AS model, lab_runs.created_at, lab_runs.analysed_at, lab_runs.imported_at, \
-    IFNULL(json_extract(lab_runs.summary, '$.warnings'), '[]') AS warnings";
+    IFNULL(json_extract(lab_runs.summary, '$.warnings'), '[]') AS warnings, json_extract(lab_runs.summary, '$.confidence') AS confidence";
 
 /// One deck's simulated rating in a run. `None` fields weren't in the summary.
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -540,12 +620,16 @@ pub struct Rating {
     pub p4_hi: Option<f64>,
     #[sqlx(json)]
     pub flags: Vec<String>,
+    /// Whether the simulation can judge this deck at all; `None` when the summary doesn't say.
+    #[sqlx(json(nullable))]
+    pub confidence: Option<Confidence>,
 }
 
 const RATING_COLUMNS: &str = "r.deck_ref, r.strength, r.lo, r.hi, r.win_rate, r.wr_lo, r.wr_hi, r.games, r.avg_place, \
     json_extract(r.extra, '$.rank') AS rank, json_extract(r.extra, '$.rank_ci[0]') AS rank_lo, json_extract(r.extra, '$.rank_ci[1]') AS rank_hi, \
     json_extract(r.extra, '$.p4_field') AS p4_field, json_extract(r.extra, '$.p4_field_ci[0]') AS p4_lo, \
-    json_extract(r.extra, '$.p4_field_ci[1]') AS p4_hi, IFNULL(json_extract(r.extra, '$.flags'), '[]') AS flags";
+    json_extract(r.extra, '$.p4_field_ci[1]') AS p4_hi, IFNULL(json_extract(r.extra, '$.flags'), '[]') AS flags, \
+    json_extract(r.extra, '$.confidence') AS confidence";
 
 /// The newest global precon-ratings run: the one the precon pages show.
 pub async fn latest_global_ratings_run(pool: &SqlitePool) -> AppResult<Option<RunLabel>> {
@@ -842,6 +926,9 @@ pub struct BatchVariant {
     pub unscored: i64,
     #[serde(default)]
     pub failed: i64,
+    /// From the list's rating in the same run (the paired part doesn't carry it).
+    #[serde(default)]
+    pub confidence: Option<Confidence>,
 }
 
 /// One comparison of a paired batch run (analyze.py's `paired.comparisons`), with the lists' names
@@ -904,17 +991,30 @@ async fn batch_paired(pool: &SqlitePool, run: &RunLabel) -> AppResult<Option<Bat
     }
     let text: Option<String> = sqlx::query_scalar("SELECT json_extract(summary, '$.paired') FROM lab_runs WHERE id = ?").bind(&run.id).fetch_one(pool).await?;
     let Some(raw) = text.and_then(|t| serde_json::from_str::<RawPaired>(&t).ok()) else { return Ok(None) };
-    let names: HashMap<String, String> = sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT r.deck_ref, IFNULL(p.name, json_extract(r.extra, '$.name')) FROM lab_ratings r LEFT JOIN precons p ON p.lab_id = r.deck_ref WHERE r.run_id = ?",
+    type Row = (String, Option<String>, Option<sqlx::types::Json<Option<Confidence>>>);
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT r.deck_ref, IFNULL(p.name, json_extract(r.extra, '$.name')), json_extract(r.extra, '$.confidence')
+         FROM lab_ratings r LEFT JOIN precons p ON p.lab_id = r.deck_ref WHERE r.run_id = ?",
     )
     .bind(&run.id)
     .fetch_all(pool)
-    .await?
-    .into_iter()
-    .filter_map(|(id, name)| Some((id, name?)))
-    .collect();
+    .await?;
+    let mut names: HashMap<String, String> = HashMap::new();
+    let mut confidence: HashMap<String, Confidence> = HashMap::new();
+    for (id, n, c) in rows {
+        if let Some(c) = c.and_then(|c| c.0) {
+            confidence.insert(id.clone(), c);
+        }
+        if let Some(n) = n {
+            names.insert(id, n);
+        }
+    }
     let name = |id: &str| names.get(id).cloned().unwrap_or_else(|| id.rsplit('/').next().unwrap_or(id).to_string());
-    let variants = raw.variants.into_iter().map(|v| BatchVariant { name: name(&v.id), ..v }).collect();
+    let variants = raw
+        .variants
+        .into_iter()
+        .map(|v| BatchVariant { name: name(&v.id), confidence: confidence.get(&v.id).cloned(), ..v })
+        .collect();
     let comparisons = raw
         .comparisons
         .into_iter()
@@ -1228,10 +1328,15 @@ mod tests {
     /// A run's summary. Precons only, as a global run must be; with `mine`, one of Bryan's lists
     /// is rated too and compared with the precon, as his own runs do.
     fn summary(run: &str, created: &str, strength: f64, mine: bool) -> String {
+        // Counterpunch is a deck the simulation can't judge, as analyze.py writes it since 2026-10-19.
         let mut decks = vec![json!(
             {"id": "precons/counterpunch", "name": "Counterpunch", "games": 3, "strength": strength, "strength_ci": [0.5, 2.0],
              "main": {"win_rate": 0.33, "wilson": [0.06, 0.79], "avg_place": 2.1}, "rank": 1, "rank_ci": [1, 2],
-             "p4_field": 0.3, "p4_field_ci": [0.2, 0.4], "flags": ["few games: 3 usable"]}
+             "p4_field": 0.3, "p4_field_ci": [0.2, 0.4], "flags": ["few games: 3 usable"],
+             "confidence": {"level": "unreliable",
+                            "reasons": ["real games disagree: the sim overrates it (rescaled sim 33.9% vs playgroup.gg 23.0% over 451 games, z +4.9)",
+                                        "known phase gap: the AI gives Ghave's counters away"],
+                            "residual": {"z": 4.9, "source": "this run"}, "partly_unimplemented": 0, "gaps": ["phase-ghave"]}}
         )];
         // An older run still rates the left-out repeat on its own.
         let mut matrix = json!({"ids": ["precons/counterpunch", "precons/counterpunch-ce", "precons/spore-tide"],
@@ -1241,7 +1346,8 @@ mod tests {
         if mine {
             decks.push(json!(
                 {"id": "bryan/mine", "name": "Mine (Bryan)", "games": 3, "strength": 0.8, "strength_ci": [0.4, 1.5],
-                 "main": {"win_rate": 0.0, "wilson": [0.0, 0.56], "avg_place": 3.0}, "rank": 2, "rank_ci": [1, 2]}
+                 "main": {"win_rate": 0.0, "wilson": [0.0, 0.56], "avg_place": 3.0}, "rank": 2, "rank_ci": [1, 2],
+                 "confidence": {"level": "doubtful", "reasons": ["commander partly unimplemented in phase: Ghave, Guru of Spores"]}}
             ));
             matrix = json!({"ids": ["precons/counterpunch", "bryan/mine", "precons/counterpunch-ce", "precons/spore-tide"],
                             "p": [[0.5, 0.6, 0.5, 0.7], [0.4, 0.5, 0.4, 0.5], [0.5, 0.6, 0.5, 0.7], [0.3, 0.5, 0.3, 0.5]],
@@ -1260,6 +1366,9 @@ mod tests {
             "decks": decks,
             "matrix": matrix,
             "calibration": {"spearman": "NAN_HERE"},
+            "confidence": {"method": "Simulation confidence per deck (scripts/sim/confidence.py)", "engine": "phase",
+                           "own_calibration": null, "reference_run": "precons-1 (2026-10-19)",
+                           "counts": {"ok": 0, "doubtful": if mine { 1 } else { 0 }, "unreliable": 1}},
             "paired": paired
         })
         .to_string()
@@ -1350,6 +1459,10 @@ mod tests {
         // Ranks are out of the decks the run ranked.
         assert_eq!(own_detail.run.ranked, 2);
         assert_eq!(own_detail.ratings.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), vec!["Counterpunch", "Mine (Bryan)"]);
+        let levels: Vec<Option<ConfidenceLevel>> = own_detail.ratings.iter().map(|r| r.rating.confidence.as_ref().map(|c| c.level)).collect();
+        assert_eq!(levels, vec![Some(ConfidenceLevel::Unreliable), Some(ConfidenceLevel::Doubtful)]);
+        assert_eq!(own_detail.run.confidence.as_ref().map(|c| c.counts.doubtful), Some(1));
+        assert_eq!(own_detail.summary["confidence"]["counts"]["unreliable"], 1);
         assert_eq!(own_detail.summary["paired"]["comparisons"][0]["variant"], "bryan/mine");
         assert!(matches!(run_for(&pool, "other", &mine.id).await, Err(AppError::NotFound(_))));
         let detail = run_for(&pool, "other", &a.id).await.unwrap();
@@ -1369,6 +1482,18 @@ mod tests {
         assert_eq!((r.strength, r.rank, r.lo, r.wr_hi), (Some(3.0), Some(1), Some(0.5), Some(0.79)));
         assert_eq!(cp.art.as_ref().map(|a| a.card.as_str()), Some("Ghave, Guru of Spores"));
         assert_eq!(cp.card_count, 100);
+        // The import keeps each deck's simulation confidence, and the run's block, from the summary.
+        let c = r.confidence.as_ref().unwrap();
+        assert_eq!(c.level, ConfidenceLevel::Unreliable);
+        assert_eq!(c.reasons.len(), 2);
+        assert!(c.reasons[1].starts_with("known phase gap"));
+        let rc = list.run.as_ref().unwrap().confidence.as_ref().unwrap();
+        assert_eq!((rc.counts.unreliable, rc.counts.doubtful, rc.reference_run.as_deref()), (1, 0, Some("precons-1 (2026-10-19)")));
+        let json = serde_json::to_value(cp).unwrap();
+        assert_eq!(json["rating"]["confidence"]["level"], "unreliable");
+        assert_eq!(json["rating"]["confidence"]["reasons"][0], c.reasons[0].as_str());
+        // Only level and reasons travel; the rest stays in the stored summary entry.
+        assert!(json["rating"]["confidence"].get("residual").is_none());
         // A precon the run didn't rate is listed without a rating, after the rated ones.
         assert_eq!(list.precons.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["counterpunch", "spore-tide"]);
         assert!(list.precons[1].rating.is_none());
@@ -1404,12 +1529,15 @@ mod tests {
         std::fs::write(&global, summary("pilot-2", "2026-10-19T04:15:40Z", 2.5, false)).unwrap();
         let pilot = import_run(&pool, &global, None, None).await.unwrap();
         let entry = |id: &str, name: &str| json!({"id": id, "name": name, "games": 57, "strength": 1.0, "main": {"win_rate": 0.5}});
+        // The after list is one the simulation can't judge (a known gap in its new cards); stock has
+        // no confidence at all, as a summary analysed before 2026-10-19 has none.
+        let mut after = entry("bryan/ff-after", "Fantastic Four (Bryan, after)");
+        after["confidence"] = json!({"level": "unreliable", "reasons": ["known phase gap: the AI misplays the new commander"]});
         let paired = json!({
             "run": "bryan-ff-1", "generated": "2026-10-19T05:04:42Z",
             "run_meta": {"created": "2026-10-19T04:51:00Z", "difficulty": "Easy", "pod": 4, "mode": "paired"},
             "versions": {"engine": {"phase-rs v0.113.0": 180}},
-            "decks": [entry("bryan/ff-stock", "Fantastic Four (Bryan, stock)"), entry("bryan/ff-after", "Fantastic Four (Bryan, after)"),
-                      entry("precons/counterpunch", "Counterpunch")],
+            "decks": [entry("bryan/ff-stock", "Fantastic Four (Bryan, stock)"), after, entry("precons/counterpunch", "Counterpunch")],
             "paired": {"templates": 60,
                 "variants": [{"id": "bryan/ff-stock", "games": 60, "wins": 29, "win_rate": 0.4833, "wilson": [0.38, 0.588], "avg_place": 1.98},
                              {"id": "bryan/ff-after", "games": 57, "wins": 35, "win_rate": 0.614, "wilson": [0.505, 0.713], "avg_place": 1.55,
@@ -1436,6 +1564,11 @@ mod tests {
         // A list the ratings don't name falls back to the last part of its id.
         assert_eq!(names, vec!["Fantastic Four (Bryan, stock)", "Fantastic Four (Bryan, after)", "gone"]);
         assert_eq!((p.variants[1].wins, p.variants[1].failed, p.variants[1].wilson), (35, 2, Some([0.505, 0.713])));
+        // Each list carries its rating's confidence; a list with none, or no rating, has none.
+        let conf: Vec<Option<ConfidenceLevel>> = p.variants.iter().map(|v| v.confidence.as_ref().map(|c| c.level)).collect();
+        assert_eq!(conf, vec![None, Some(ConfidenceLevel::Unreliable), None]);
+        assert_eq!(p.variants[1].confidence.as_ref().unwrap().reasons, vec!["known phase gap: the AI misplays the new commander".to_string()]);
+        assert!(listed.run.confidence.is_none());
         let c = &p.comparisons;
         assert_eq!((c[0].base_name.as_str(), c[0].variant_name.as_str(), c[0].pods), ("Fantastic Four (Bryan, stock)", "Fantastic Four (Bryan, after)", 57));
         assert_eq!((c[0].variant_only, c[0].base_only), (15, 8));
@@ -1540,6 +1673,18 @@ mod tests {
         ] {
             assert_eq!(non_precon_ids(&summary).into_iter().collect::<Vec<_>>(), vec![id.to_string()], "{summary}");
         }
+    }
+
+    #[test]
+    fn confidence_reads_leniently() {
+        let read = |v: Value| serde_json::from_value::<Confidence>(v).unwrap();
+        let ok = read(json!({"level": "ok", "reasons": [], "residual": null, "gaps": []}));
+        assert_eq!((ok.level, ok.reasons.len()), (ConfidenceLevel::Ok, 0));
+        // A level this build doesn't know warns rather than vouches; reasons that aren't text drop out.
+        let odd = read(json!({"level": "someday", "reasons": ["a", 3, null, "b"]}));
+        assert_eq!((odd.level, odd.reasons), (ConfidenceLevel::Doubtful, vec!["a".to_string(), "b".to_string()]));
+        assert_eq!(read(json!({})).level, ConfidenceLevel::Doubtful);
+        assert_eq!(serde_json::to_value(read(json!({"level": "unreliable", "reasons": ["x"]}))).unwrap(), json!({"level": "unreliable", "reasons": ["x"]}));
     }
 
     #[test]

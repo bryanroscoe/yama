@@ -2,10 +2,31 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { api } from "../api";
 import { Details, ErrorText } from "../components/ui";
-import type { BatchComparison, ExperimentItem, RunDetail, RunListItem } from "./api";
-import { caveat, deltaBound, durationText, fmtDate, hasResults, pct, pctRange, points, pointsRange, pointsWord, rateCeiling, sentence, simDetails, simLabel, verdictText } from "./logic";
+import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem } from "./api";
+import { ConfidenceLine, ConfidenceMark, ConfidenceNote } from "./confidence";
+import {
+  baseConfidence,
+  baseConfidenceSentence,
+  cantJudge,
+  caveat,
+  deltaBound,
+  durationText,
+  fmtDate,
+  hasResults,
+  pct,
+  pctRange,
+  points,
+  pointsRange,
+  pointsWord,
+  rateCeiling,
+  sentence,
+  simDetails,
+  simLabel,
+  verdictText,
+  worstConfidence,
+} from "./logic";
 import { IntervalChart, SimLine } from "./parts";
-import { RunWarnings } from "./Precons";
+import { RunWarnings, usePrecons } from "./Precons";
 import { experimentLabel } from "./Run";
 import { LabHead } from "./LabLayout";
 import { stateLabel } from "./paired";
@@ -36,6 +57,7 @@ export function RunsPage() {
     refetchInterval: (q) => (q.state.data?.some((e) => e.status === "queued" || e.status === "running") ? 5000 : false),
   });
   const runs = useQuery({ queryKey: ["lab", "runs"], queryFn: () => api<RunListItem[]>("/api/lab/runs") });
+  const precons = usePrecons();
   const batch = (runs.data ?? []).filter((r) => !r.global && r.kind === "paired");
   const refresh = () => void qc.invalidateQueries({ queryKey: ["lab", "experiments"] });
   const stop = useMutation({ mutationFn: (id: string) => api(`/api/lab/experiments/${id}/cancel`, { method: "POST" }), onSuccess: refresh });
@@ -89,6 +111,7 @@ export function RunsPage() {
                   </span>
                 )}
                 <span className="lab-runcard-result">{headline(e)}</span>
+                {s && <ExperimentConfidence e={e} precons={precons.data?.precons ?? []} />}
                 <span className="lab-note">{experimentLabel(e)}.</span>
                 <span className="lab-runcard-actions">
                   <Link className="button" to={`/decks/lab/runs/${e.id}`}>
@@ -119,6 +142,7 @@ export function RunsPage() {
           {batch.flatMap((r) =>
             (r.paired?.comparisons ?? []).map((c) => {
               const tag = verdictTag(c.verdict.kind);
+              const conf = worstConfidence((r.paired?.variants ?? []).filter((v) => v.id === c.base || v.id === c.variant).map((v) => v.confidence));
               return (
                 <article key={`${r.id}-${c.base}-${c.variant}`} className="lab-runcard">
                   <div className="lab-runcard-head">
@@ -138,6 +162,7 @@ export function RunsPage() {
                       : `${c.verdict.text}.`}
                     {c.verdict.kind === "unclear" ? " Run more games to tell." : ""} Only {shortName(c.variant_name)} won {c.variant_only}, only {shortName(c.base_name)} won {c.base_only}.
                   </span>
+                  {cantJudge(conf) && <ConfidenceLine confidence={conf} name={deckOf(c.base_name)} method={r.confidence?.method} />}
                   <span className="lab-note">
                     {simLabel({ engine: r.engine, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at, run: r.name })}.
                   </span>
@@ -159,6 +184,21 @@ export function RunsPage() {
         </p>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Under an experiment's verdict on its card: the warning when its base (or the precon on the same
+ * commanders) is a deck the simulator can't judge. Doubtful bases say so on the run's page only.
+ */
+function ExperimentConfidence({ e, precons }: { e: ExperimentItem; precons: PreconItem[] }) {
+  const src = e.base?.source;
+  const found = e.base ? baseConfidence(precons, { precon: src?.kind === "precon" ? src.id : null, commanders: e.base.commanders }) : null;
+  if (!found || !cantJudge(found.confidence)) return null;
+  return (
+    <ConfidenceLine confidence={found.confidence} name={found.precon.name}>
+      {baseConfidenceSentence(found, "verdict")}
+    </ConfidenceLine>
   );
 }
 
@@ -196,6 +236,9 @@ export function BatchPage() {
   const level = r.level ? `${Math.round(r.level * 100)}%` : "90%";
   const top = rateCeiling((p?.variants ?? []).map((v) => v.wilson?.[1]));
   const bound = deltaBound((p?.comparisons ?? []).flatMap((c) => [c.delta_ci?.[0], c.delta_ci?.[1]]));
+  const conf = worstConfidence((p?.variants ?? []).map((v) => v.confidence));
+  const method = r.confidence?.method;
+  const confOf = (id: string) => p?.variants.find((v) => v.id === id)?.confidence ?? null;
   return (
     <>
       <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
@@ -206,6 +249,17 @@ export function BatchPage() {
         </div>
       </div>
       <p className="lab-caveat">{caveat(r.engine)}</p>
+      {conf && conf.level !== "ok" && (
+        <ConfidenceNote level={conf.level} reasons={conf.reasons}>
+          {cantJudge(conf) && (
+            <p>
+              {(p?.variants ?? []).every((v) => cantJudge(v.confidence))
+                ? "Every list in this run is marked sim unreliable, so the differences between them say little too."
+                : "The lists marked sim unreliable say little, and so do differences with them."}
+            </p>
+          )}
+        </ConfidenceNote>
+      )}
       {r.warnings.length > 0 && <RunWarnings warnings={r.warnings} />}
       {!p ? (
         <p className="dim">This run has no paired comparison.</p>
@@ -222,7 +276,9 @@ export function BatchPage() {
                 key: v.id,
                 label: (
                   <>
-                    <b>{sentence(shortName(v.name))}</b>
+                    <b>
+                      {sentence(shortName(v.name))} <ConfidenceMark confidence={v.confidence} name={v.name} method={method} />
+                    </b>
                     <span>{v.name}</span>
                   </>
                 ),
@@ -257,6 +313,7 @@ export function BatchPage() {
                     {c.pods} pods: only {shortName(c.variant_name)} won {c.variant_only}, only {shortName(c.base_name)} won {c.base_only}.
                   </span>
                 </p>
+                <ConfidenceLine confidence={worstConfidence([confOf(c.base), confOf(c.variant)])} name={deckOf(c.base_name)} method={method} />
                 {c.delta_win_rate != null && c.delta_ci && (
                   <IntervalChart
                     caption={`Difference in win rate, ${c.variant_name} minus ${c.base_name}`}
