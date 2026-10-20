@@ -581,10 +581,11 @@ impl LabWorker {
     }
 
     /// The next games to play, oldest experiment first, at most `free`, skipping games in flight.
+    /// A disabled account's experiments wait until it is enabled again.
     pub(crate) async fn next_jobs(&self, free: usize) -> AppResult<Vec<Job>> {
         let experiments: Vec<(String, String, bool)> = sqlx::query_as(
             "SELECT e.id, e.owner_id, u.is_admin FROM lab_experiments e JOIN users u ON u.id = e.owner_id
-             WHERE e.status IN ('queued','running') ORDER BY e.created_at, e.rowid",
+             WHERE e.status IN ('queued','running') AND u.disabled_at IS NULL ORDER BY e.created_at, e.rowid",
         )
         .fetch_all(&self.pool)
         .await?;

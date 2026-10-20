@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import { api, API_BASE, type GameRow, type GameSeat, type PlayerStat, type PlaygroupStats, type Playgroup } from "../api";
-import { useLogout, useMe } from "../auth";
+import { api, API_BASE, type AccountInfo, type GameRow, type GameSeat, type PlayerStat, type PlaygroupStats, type Playgroup } from "../api";
+import { accountLine } from "../accounts";
+import { useAuthConfig, useLogout, useMe } from "../auth";
 import { Details, ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats, pct } from "../components/GroupStats";
@@ -414,8 +415,12 @@ function Account() {
     onSuccess: () => {
       setEmail("");
       void qc.invalidateQueries({ queryKey: ["invites"] });
+      void qc.invalidateQueries({ queryKey: ["admin-users"] });
     },
   });
+  // With open sign-up anyone can join, and an invite means the full allowance instead.
+  const openSignup = useAuthConfig(!!me.data?.is_admin).data?.open_signup === true;
+  const invited = invites.data ? `${invites.data.length} invited ${invites.data.length === 1 ? "account" : "accounts"}` : "";
   return (
     <section className="grp-section" aria-labelledby="grp-you">
       <h2 id="grp-you">You</h2>
@@ -433,7 +438,9 @@ function Account() {
               <span className="grp-you-text">
                 <b>Who can sign in</b>
                 <span>
-                  {invites.data ? `${invites.data.length} invited ${invites.data.length === 1 ? "account" : "accounts"}. ` : ""}Yama is invite-only.
+                  {openSignup
+                    ? `Anyone with a Google account. Invite people for the full lab and online play allowance; everyone else gets a smaller one.${invited ? ` ${invited}.` : ""}`
+                    : `${invited ? `${invited}. ` : ""}Yama is invite-only.`}
                 </span>
               </span>
               <button onClick={() => setInviting((v) => !v)} aria-expanded={inviting}>Invite</button>
@@ -455,6 +462,7 @@ function Account() {
             )}
           </div>
         )}
+        {me.data?.is_admin && <Accounts meId={me.data.id} />}
         <div className="grp-you-row grp-you-actions">
           <button className="outline" onClick={() => logout().catch(setSignOutError)}>Sign out</button>
           <Link className="grp-new" to="/new">What's new in Yama</Link>
@@ -463,6 +471,56 @@ function Account() {
       </div>
       <p className="small dim" style={{ margin: 0 }}>Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast.</p>
     </section>
+  );
+}
+
+/** Admins: every account, newest first, with a switch to turn one off (and back on). */
+function Accounts({ meId }: { meId: string }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const accounts = useQuery({ queryKey: ["admin-users"], queryFn: () => api<AccountInfo[]>("/api/admin/users"), enabled: open });
+  const toggle = useMutation({
+    mutationFn: (a: AccountInfo) => api(`/api/admin/users/${encodeURIComponent(a.id)}/${a.disabled_at ? "enable" : "disable"}`, { method: "POST" }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["admin-users"] }),
+  });
+  const flip = (a: AccountInfo) => {
+    if (!a.disabled_at && !window.confirm(`Disable ${a.email}? They're signed out at once and can't sign in until you enable the account again.`)) return;
+    toggle.mutate(a);
+  };
+  return (
+    <div className="grp-you-row grp-you-stack">
+      <div className="grp-you-line">
+        <span className="grp-you-text">
+          <b>Accounts</b>
+          <span>
+            {accounts.data
+              ? `${accounts.data.length} ${accounts.data.length === 1 ? "account" : "accounts"}, newest first.`
+              : "Everyone who has signed in. Disabling an account signs it out and keeps it out."}
+          </span>
+        </span>
+        <button onClick={() => setOpen((v) => !v)} aria-expanded={open}>{open ? "Hide" : "Show"}</button>
+      </div>
+      {open && (
+        <>
+          <ul className="grp-accounts">
+            {accounts.data?.map((a) => (
+              <li key={a.id} className={a.disabled_at ? "is-off" : undefined}>
+                <span className="grp-you-text">
+                  <b>{a.display_name}</b>
+                  <span>{accountLine(a)}</span>
+                </span>
+                {!a.is_admin && a.id !== meId && (
+                  <button className="outline" onClick={() => flip(a)} disabled={toggle.isPending}>
+                    {a.disabled_at ? "Enable" : "Disable"}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <ErrorText error={accounts.error ?? toggle.error} />
+        </>
+      )}
+    </div>
   );
 }
 

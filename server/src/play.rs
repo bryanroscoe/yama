@@ -3,8 +3,14 @@
 //!
 //! The engine and its AI are CPU-heavy and recurse deeply, so each live match runs on its own
 //! OS thread with a 32 MiB stack (as phase does) and talks to the async side over channels.
+//!
+//! Because every unfinished game can hold a thread and its match in memory, anyone but an admin
+//! may host at most [`MAX_OPEN_GAMES`] games that haven't finished (lobbies and live games), an
+//! account that joined without an invite [`OPEN_MAX_OPEN_GAMES`], and such accounts together
+//! [`OPEN_MAX_OPEN_GAMES_ALL`]. New games and join codes are rate-limited per account too
+//! (`limits.rs`).
 
-use crate::auth::CurrentUser;
+use crate::auth::{CurrentUser, User};
 use crate::deck_checks::Estimated;
 use crate::decks::{Board, DeckCard, load_version_cards};
 use crate::error::{AppError, AppResult};
@@ -690,11 +696,49 @@ struct CreateRequest {
     playgroup_id: Option<String>,
 }
 
+/// Unfinished games (lobbies and live ones) anyone but an admin may host.
+pub const MAX_OPEN_GAMES: i64 = 10;
+/// The same for an account that joined without an invite.
+pub const OPEN_MAX_OPEN_GAMES: i64 = 2;
+/// Unfinished games all accounts without an invite may host together.
+pub const OPEN_MAX_OPEN_GAMES_ALL: i64 = 20;
+
+/// Refuse a new game that would take `user` past the limits on unfinished games they host.
+async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
+    if user.is_admin {
+        return Ok(());
+    }
+    let mine: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM online_games WHERE host_id = ? AND stage IN ('lobby','live')")
+        .bind(&user.id)
+        .fetch_one(pool)
+        .await?;
+    let cap = if user.limited { OPEN_MAX_OPEN_GAMES } else { MAX_OPEN_GAMES };
+    if mine >= cap {
+        return Err(AppError::Conflict(format!(
+            "You have {mine} online games that haven't finished. Finish or concede one before starting another."
+        )));
+    }
+    if user.limited {
+        let all: i64 = sqlx::query_scalar(concat!(
+            "SELECT COUNT(*) FROM online_games o JOIN users u ON u.id = o.host_id WHERE o.stage IN ('lobby','live') AND ",
+            crate::auth::limited_sql!()
+        ))
+        .fetch_one(pool)
+        .await?;
+        if all >= OPEN_MAX_OPEN_GAMES_ALL {
+            return Err(AppError::Conflict("Online play is busy right now. Try again later.".into()));
+        }
+    }
+    Ok(())
+}
+
 async fn create(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
     Json(body): Json<CreateRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
+    st.limits.play_creates.check_user(&user)?;
+    check_open_games(&st.pool, &user).await?;
     st.play.engine()?;
     if !(2..=6).contains(&body.seats.len()) {
         return Err(AppError::bad("a game has 2 to 6 seats"));
@@ -781,6 +825,7 @@ struct JoinRequest {
 }
 
 async fn join(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<JoinRequest>) -> AppResult<Json<serde_json::Value>> {
+    st.limits.join_codes.check_user(&user)?;
     let id: String = sqlx::query_scalar("SELECT game_id FROM online_games WHERE code = ?")
         .bind(body.code.trim().to_uppercase())
         .fetch_optional(&st.pool)

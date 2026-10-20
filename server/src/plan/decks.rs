@@ -106,6 +106,7 @@ pub async fn make_yama_deck(
     Path(key): Path<String>,
     Json(body): Json<MakeDeck>,
 ) -> AppResult<Json<Value>> {
+    st.limits.deck_writes.check_user(&user)?;
     let label = state_label(&body.state).ok_or_else(|| AppError::bad(format!("state: unknown list \"{}\"", body.state)))?;
     let (plan_id, _, _) = plan_deck(&st.pool, &user.id, &key).await?;
     let (name, hash, cards, computed_by): (String, String, String, String) = sqlx::query_as(

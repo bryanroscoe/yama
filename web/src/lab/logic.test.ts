@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Confidence, PreconItem, Summary } from "./api";
+import type { Confidence, Pace, PreconItem, Summary } from "./api";
 import {
+  allowanceText,
+  gameChoices,
   baseConfidence,
   baseConfidenceSentence,
   cantJudge,
@@ -290,5 +292,34 @@ describe("try a change", () => {
     expect(identityQuery("WUG")).toBe("id<=wug");
     expect(identityQuery("")).toBe("id:c");
     expect(identityQuery(null)).toBe("");
+  });
+});
+
+describe("the smaller lab allowance", () => {
+  const pace = (game_choices?: number[]): Pace => ({
+    available: true,
+    message: null,
+    threads: 2,
+    estimates: [],
+    seconds_per_game: null,
+    basis: null,
+    sample: null,
+    your_pending: 0,
+    game_choices,
+  });
+
+  it("offers the game counts the server allows, else the usual three", () => {
+    expect(gameChoices(pace([100]))).toEqual([100]);
+    expect(gameChoices(pace([100, 200, 400]))).toEqual([100, 200, 400]);
+    expect(gameChoices(pace())).toEqual([100, 200, 400]);
+    expect(gameChoices(pace([]))).toEqual([100, 200, 400]);
+    expect(gameChoices(undefined)).toEqual([100, 200, 400]);
+  });
+
+  it("says what an account without an invite may run and what's left today", () => {
+    expect(allowanceText({ games: 100, at_a_time: 1, games_per_day: 300, used_today: 100 })).toBe(
+      "Accounts that joined without an invite run 100-game experiments, one at a time, up to 300 games a day (200 left today). An invite from the host lifts this.",
+    );
+    expect(allowanceText({ games: 100, at_a_time: 1, games_per_day: 300, used_today: 400 })).toContain("(0 left today)");
   });
 });

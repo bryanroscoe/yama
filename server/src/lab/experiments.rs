@@ -7,7 +7,13 @@
 //!
 //! Isolation: every query binds the owner; another user's experiment is "not found". Limits for
 //! anyone but an admin: 100, 200 or 400 games, Easy or Medium, and one experiment playing plus two
-//! waiting. Admins may ask for any even number of games up to 2,000 and any AI level.
+//! waiting. An account that joined without an invite (`User::limited`) gets less: 100 games, one
+//! experiment at a time, and a daily number of games (YAMA_LAB_OPEN_DAILY_GAMES, counted from
+//! `lab_usage`, which deleting an experiment doesn't touch). Games waiting or playing are capped
+//! for everyone but admins together (YAMA_LAB_QUEUE_GAMES) and, within that, for accounts without
+//! an invite together (YAMA_LAB_OPEN_QUEUE_GAMES), so a crowd of new accounts can't fill the
+//! queue. Admins may ask for any even number of games up to 2,000 and any AI level, and no cap
+//! applies to them.
 //!
 //! Sizes are checked before any expensive work: a request body of at most 256 KB, a pasted list of
 //! at most 64 KB and 300 card lines, at most 200 cards to add and cut, at most 100 copies on a line
@@ -20,6 +26,7 @@ use super::worker::Simulator;
 use super::{Art, PreconCard, RunLabel, latest_global_ratings_run, ratings_for};
 use crate::auth::{CurrentUser, User};
 use crate::cards::{CARD_COLUMNS, Card};
+use crate::config::LabQuota;
 use crate::decks::{self, Board, DeckCard};
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
@@ -31,7 +38,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::{AssertSqlSafe, SqlitePool};
+use sqlx::{AssertSqlSafe, SqliteConnection, SqlitePool};
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use yama_play::lab::{ENGINE, GameSpec, RUNNER};
@@ -54,6 +61,15 @@ pub const GAME_CHOICES: [u32; 3] = [100, 200, 400];
 pub const ADMIN_MAX_GAMES: u32 = 2_000;
 /// Unfinished experiments (one playing plus two waiting) a user who isn't an admin may have.
 pub const MAX_UNFINISHED: i64 = 3;
+/// Games an experiment may have for an account that joined without an invite.
+pub const OPEN_GAME_CHOICES: [u32; 1] = [100];
+/// Unfinished experiments such an account may have: one at a time, none waiting.
+pub const OPEN_MAX_UNFINISHED: i64 = 1;
+
+/// The game counts `user` may choose.
+pub fn game_choices(user: &User) -> &'static [u32] {
+    if user.limited && !user.is_admin { &OPEN_GAME_CHOICES } else { &GAME_CHOICES }
+}
 /// AI levels anyone may choose; admins may choose any level the engine has.
 const USER_DIFFICULTIES: [&str; 2] = ["Easy", "Medium"];
 const DEFAULT_DIFFICULTY: &str = "Easy";
@@ -871,9 +887,15 @@ fn default_name(base: &str, variant: &VariantDisplay, text_variant: bool) -> Str
     name
 }
 
+/// [`create_with`] under the default lab caps (tests; the server passes its configured caps).
+#[cfg(test)]
+pub async fn create(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dyn Simulator) -> AppResult<ExperimentDetail> {
+    create_with(pool, user, req, sim, &LabQuota::default()).await
+}
+
 /// Check the request, freeze the lists and the field, schedule the paired games and store it all.
 /// With an `op_id` the owner already used, returns that experiment unchanged.
-pub async fn create(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dyn Simulator) -> AppResult<ExperimentDetail> {
+pub async fn create_with(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dyn Simulator, quota: &LabQuota) -> AppResult<ExperimentDetail> {
     let op_id = req.op_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
     if let Some(op) = op_id {
         if op.len() > 100 {
@@ -885,10 +907,12 @@ pub async fn create(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dy
             return detail(pool, &user.id, &id).await;
         }
     }
-    let games_ok = if user.is_admin { req.games >= 2 && req.games <= ADMIN_MAX_GAMES && req.games % 2 == 0 } else { GAME_CHOICES.contains(&req.games) };
+    let games_ok = if user.is_admin { req.games >= 2 && req.games <= ADMIN_MAX_GAMES && req.games % 2 == 0 } else { game_choices(user).contains(&req.games) };
     if !games_ok {
         return Err(AppError::bad(if user.is_admin {
             format!("games must be an even number from 2 to {ADMIN_MAX_GAMES}")
+        } else if user.limited {
+            "games must be 100 for an account that joined without an invite".to_string()
         } else {
             "games must be 100, 200 or 400".to_string()
         }));
@@ -899,9 +923,7 @@ pub async fn create(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dy
     }
     // Refuse a user at the limit before building anything; it is checked again where it counts,
     // in the transaction that stores the experiment.
-    if !user.is_admin && unfinished(pool, &user.id).await? >= MAX_UNFINISHED {
-        return Err(at_limit());
-    }
+    check_allowance(&mut *pool.acquire().await?, user, req.games, quota, false).await?;
 
     let base = base_list(pool, &user.id, &req.base).await?;
     let (variant, variant_unknown, change_problems) = variant_list(pool, &base.list, &req.variant).await?;
@@ -1026,9 +1048,14 @@ pub async fn create(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dy
         let id: String = sqlx::query_scalar("SELECT id FROM lab_experiments WHERE owner_id = ? AND op_id = ?").bind(&user.id).bind(op_id).fetch_one(pool).await?;
         return detail(pool, &user.id, &id).await;
     }
-    if !user.is_admin && unfinished(&mut *tx, &user.id).await? > MAX_UNFINISHED {
-        return Err(at_limit());
-    }
+    check_allowance(&mut tx, user, req.games, quota, true).await?;
+    sqlx::query("INSERT INTO lab_usage (experiment_id, owner_id, games, created_at) VALUES (?,?,?,?)")
+        .bind(&id)
+        .bind(&user.id)
+        .bind(i64::from(req.games))
+        .bind(&stamp)
+        .execute(&mut *tx)
+        .await?;
     const COLS: usize = 4;
     const CHUNK: usize = 200;
     for chunk in games.chunks(CHUNK) {
@@ -1053,6 +1080,79 @@ async fn unfinished<'c>(conn: impl sqlx::SqliteExecutor<'c>, owner: &str) -> App
 
 fn at_limit() -> AppError {
     AppError::Conflict("You can have one experiment playing and two waiting. Wait for one to finish, or cancel one.".into())
+}
+
+/// Games an account asked for in the last 24 hours, deleted experiments included.
+async fn games_today(conn: &mut SqliteConnection, owner: &str) -> AppResult<i64> {
+    let since = (chrono::Utc::now() - chrono::Duration::hours(24)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    Ok(sqlx::query_scalar("SELECT COALESCE(SUM(games), 0) FROM lab_usage WHERE owner_id = ? AND created_at > ?")
+        .bind(owner)
+        .bind(since)
+        .fetch_one(conn)
+        .await?)
+}
+
+/// Refuse a new experiment of `games` that would take `user` past their allowance, or the lab past
+/// its queue caps. `stored`: the experiment row is already written in this transaction (so it
+/// counts as unfinished) but its games aren't yet.
+async fn check_allowance(conn: &mut SqliteConnection, user: &User, games: u32, quota: &LabQuota, stored: bool) -> AppResult<()> {
+    if user.is_admin {
+        return Ok(());
+    }
+    let games = i64::from(games);
+    let unfinished = unfinished(&mut *conn, &user.id).await? - i64::from(stored);
+    if user.limited {
+        if unfinished >= OPEN_MAX_UNFINISHED {
+            return Err(AppError::Conflict(
+                "Accounts that joined without an invite run one experiment at a time. Wait for yours to finish, or cancel it.".into(),
+            ));
+        }
+        let used = games_today(&mut *conn, &user.id).await?;
+        if used + games > quota.open_daily_games {
+            return Err(AppError::Conflict(format!(
+                "Accounts that joined without an invite can run {} games a day, and you've asked for {used} in the last 24 hours. Try again later.",
+                quota.open_daily_games
+            )));
+        }
+    } else if unfinished >= MAX_UNFINISHED {
+        return Err(at_limit());
+    }
+    let (all, open): (i64, i64) = sqlx::query_as(concat!(
+        "SELECT COUNT(*), COALESCE(SUM(limited), 0) FROM (SELECT ",
+        crate::auth::limited_sql!(),
+        " AS limited FROM lab_experiment_games g JOIN lab_experiments e ON e.id = g.experiment_id JOIN users u ON u.id = e.owner_id
+           WHERE e.status IN ('queued','running') AND g.result IS NULL AND u.is_admin = 0)"
+    ))
+    .fetch_one(&mut *conn)
+    .await?;
+    let busy = || AppError::Conflict("The lab has too many games waiting right now. Try again later.".into());
+    if user.limited && open + games > quota.open_queue_games {
+        return Err(busy());
+    }
+    if all + games > quota.queue_games {
+        return Err(busy());
+    }
+    Ok(())
+}
+
+/// The smaller allowance of an account that joined without an invite, as the Try page shows it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Allowance {
+    /// Games in one experiment.
+    pub games: u32,
+    /// Experiments at once.
+    pub at_a_time: i64,
+    pub games_per_day: i64,
+    /// Games asked for in the last 24 hours.
+    pub used_today: i64,
+}
+
+pub async fn allowance(pool: &SqlitePool, user: &User, quota: &LabQuota) -> AppResult<Option<Allowance>> {
+    if !user.limited || user.is_admin {
+        return Ok(None);
+    }
+    let used_today = games_today(&mut *pool.acquire().await?, &user.id).await?;
+    Ok(Some(Allowance { games: OPEN_GAME_CHOICES[0], at_a_time: OPEN_MAX_UNFINISHED, games_per_day: quota.open_daily_games, used_today }))
 }
 
 /// "easy" -> "Easy", as the engine names its levels; unknown levels are refused.
@@ -1502,6 +1602,10 @@ pub struct Pace {
     pub sample: Option<usize>,
     /// Games your own queued and running experiments still have to play; they go first.
     pub your_pending: i64,
+    /// Game counts this account may choose.
+    pub game_choices: Vec<u32>,
+    /// The smaller allowance of an account that joined without an invite; null for anyone else.
+    pub allowance: Option<Allowance>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -1565,12 +1669,13 @@ pub async fn pace(pool: &SqlitePool, viewer: &User, threads: usize, available: R
         Err(m) => (false, Some(m)),
     };
     let step = time_step(viewer.is_admin);
+    let choices = game_choices(viewer);
     let estimates = match seconds_per_game {
-        Some(spg) => GAME_CHOICES.iter().map(|&games| Estimate { games, seconds: round_up((your_pending + i64::from(games)) as f64 * spg, step) }).collect(),
+        Some(spg) => choices.iter().map(|&games| Estimate { games, seconds: round_up((your_pending + i64::from(games)) as f64 * spg, step) }).collect(),
         None => Vec::new(),
     };
     let (seconds_per_game, basis, sample) = if viewer.is_admin { (seconds_per_game, basis.map(String::from), Some(sample)) } else { (None, None, None) };
-    Ok(Pace { available, message, threads, estimates, seconds_per_game, basis, sample, your_pending })
+    Ok(Pace { available, message, threads, estimates, seconds_per_game, basis, sample, your_pending, game_choices: choices.to_vec(), allowance: None })
 }
 
 // ── handlers ────────────────────────────────────────────────────────────────
@@ -1583,7 +1688,9 @@ async fn pods_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser
 /// Never a 503: the page shows why experiments can't start instead.
 async fn pace_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Pace>> {
     let available = st.lab.simulator().map(|_| ()).map_err(|e| e.to_string());
-    Ok(Json(pace(&st.pool, &user, st.lab.threads(), available).await?))
+    let mut p = pace(&st.pool, &user, st.lab.threads(), available).await?;
+    p.allowance = allowance(&st.pool, &user, &st.cfg.lab_quota).await?;
+    Ok(Json(p))
 }
 
 async fn list_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<ExperimentItem>>> {
@@ -1594,7 +1701,7 @@ async fn list_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser
 async fn create_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: Bytes) -> AppResult<Json<ExperimentDetail>> {
     let sim = st.lab.simulator()?;
     let req: NewExperiment = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
-    let created = create(&st.pool, &user, req, sim.as_ref()).await?;
+    let created = create_with(&st.pool, &user, req, sim.as_ref(), &st.cfg.lab_quota).await?;
     st.lab.wake();
     Ok(Json(created))
 }

@@ -76,7 +76,7 @@ fn idle(_: &str) -> bool {
 }
 
 fn user(id: &str, admin: bool) -> User {
-    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin }
+    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited: false }
 }
 
 async fn add_user(pool: &SqlitePool, id: &str, admin: bool) {
@@ -1202,4 +1202,82 @@ async fn another_users_queue_cant_be_worked_out_from_the_pace_and_eta() {
     // Admins still get the exact pace.
     let admins = pace(&pool, &admin, 2, ok()).await.unwrap();
     assert!((admins.seconds_per_game.unwrap() - 10.0).abs() < 1e-9);
+}
+
+/// A Google account with no invite: what open sign-up makes (`User::limited`).
+async fn add_open_user(pool: &SqlitePool, id: &str) -> User {
+    sqlx::query("INSERT INTO users (id, google_sub, email, display_name, created_at) VALUES (?,?,?,?, 'now')")
+        .bind(id)
+        .bind(format!("g-{id}"))
+        .bind(format!("{id}@gmail.com"))
+        .bind(id)
+        .execute(pool)
+        .await
+        .unwrap();
+    User { limited: true, ..user(id, false) }
+}
+
+#[tokio::test]
+async fn accounts_without_an_invite_get_the_smaller_allowance() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let newbie = add_open_user(&pool, "newbie").await;
+    let quota = crate::config::LabQuota { queue_games: 2_000, open_queue_games: 400, open_daily_games: 200 };
+    for g in [200, 400] {
+        assert!(bad(create_with(&pool, &newbie, swap_req(g), sim.as_ref(), &quota).await.unwrap_err()).contains("must be 100"));
+    }
+    let first = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota).await.unwrap();
+    // One at a time: nothing waits behind it.
+    let e = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota).await.unwrap_err();
+    assert!(matches!(&e, AppError::Conflict(m) if m.contains("one experiment at a time")), "{e:?}");
+    // Deleting a run doesn't hand back the day's games.
+    delete(&pool, "newbie", &first.item.id).await.unwrap();
+    let second = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota).await.unwrap();
+    cancel(&pool, "newbie", &second.item.id, &idle).await.unwrap();
+    let e = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota).await.unwrap_err();
+    assert!(matches!(&e, AppError::Conflict(m) if m.contains("200 games a day") && m.contains("asked for 200")), "{e:?}");
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id = 'newbie'").fetch_one(&pool).await.unwrap();
+    assert_eq!(n, 1, "refused runs leave nothing behind");
+    // The day's count moves on.
+    sqlx::query("UPDATE lab_usage SET created_at = '2026-01-01T00:00:00Z'").execute(&pool).await.unwrap();
+    create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota).await.unwrap();
+
+    // The Try page hears what it may offer.
+    let p = pace(&pool, &newbie, 2, Ok(())).await.unwrap();
+    assert_eq!(p.game_choices, vec![100]);
+    let a = allowance(&pool, &newbie, &quota).await.unwrap().unwrap();
+    assert_eq!((a.games, a.at_a_time, a.games_per_day, a.used_today), (100, 1, 200, 100));
+    assert_eq!(pace(&pool, &user("bryan", false), 2, Ok(())).await.unwrap().game_choices, vec![100, 200, 400]);
+    assert!(allowance(&pool, &user("bryan", false), &quota).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn the_queue_is_capped_for_everyone_but_admins_with_a_smaller_share_for_new_accounts() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let quota = crate::config::LabQuota { queue_games: 300, open_queue_games: 100, open_daily_games: 1_000 };
+    let (a, b) = (add_open_user(&pool, "new-a").await, add_open_user(&pool, "new-b").await);
+    let first = create_with(&pool, &a, swap_req(100), sim.as_ref(), &quota).await.unwrap();
+    let busy = |r: Result<ExperimentDetail, AppError>| matches!(r, Err(AppError::Conflict(m)) if m.contains("too many games waiting"));
+    // New accounts' share is full; members still have room.
+    assert!(busy(create_with(&pool, &b, swap_req(100), sim.as_ref(), &quota).await));
+    create_with(&pool, &user("bryan", false), swap_req(200), sim.as_ref(), &quota).await.unwrap();
+    // Now everyone's is full, but not for an admin.
+    assert!(busy(create_with(&pool, &user("other", false), swap_req(100), sim.as_ref(), &quota).await));
+    create_with(&pool, &user("admin", true), swap_req(400), sim.as_ref(), &quota).await.unwrap();
+    // Played games stop counting.
+    sqlx::query("UPDATE lab_experiment_games SET result = '{}' WHERE experiment_id = ?").bind(&first.item.id).execute(&pool).await.unwrap();
+    create_with(&pool, &user("other", false), swap_req(100), sim.as_ref(), &quota).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_disabled_accounts_experiments_wait() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    create(&pool, &user("other", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    sqlx::query("UPDATE users SET disabled_at = 'now' WHERE id = 'other'").execute(&pool).await.unwrap();
+    assert!(worker.next_jobs(2).await.unwrap().is_empty());
+    sqlx::query("UPDATE users SET disabled_at = NULL WHERE id = 'other'").execute(&pool).await.unwrap();
+    assert_eq!(worker.next_jobs(2).await.unwrap().len(), 2);
 }

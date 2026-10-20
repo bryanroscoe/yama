@@ -22,6 +22,8 @@ pub struct AppState {
     pub play: Arc<crate::play::PlayHub>,
     /// The simulation lab's experiment worker (shares the play hub's engine).
     pub lab: Arc<crate::lab::worker::LabWorker>,
+    /// Rate limits (sign-in, searches, imports, joins...), in memory.
+    pub limits: Arc<crate::limits::Limits>,
 }
 
 pub fn app(state: AppState) -> Router {
@@ -72,6 +74,13 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     if cfg.dev_login {
         tracing::warn!("YAMA_DEV_LOGIN is on: anyone who can reach this server can sign in by email");
     }
+    if cfg.open_signup {
+        if cfg.google_client_ids.is_empty() {
+            tracing::warn!("YAMA_OPEN_SIGNUP is on but Google sign-in isn't set up (YAMA_GOOGLE_CLIENT_IDS), so nobody can sign up");
+        } else {
+            tracing::info!("open sign-up: anyone with a verified Google account can make an account");
+        }
+    }
     if cfg.auto_import {
         crate::cards::import::spawn_scheduler(pool.clone(), cfg.data_dir.clone());
         crate::calendar::spawn_scheduler(pool.clone(), http_client());
@@ -89,10 +98,21 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         }
         _ => None,
     };
-    let state = AppState { pool, cfg: Arc::new(cfg), http: http_client(), google_keys: Arc::default(), cf_keys, rooms: Arc::default(), play, lab };
+    let state = AppState {
+        pool,
+        cfg: Arc::new(cfg),
+        http: http_client(),
+        google_keys: Arc::default(),
+        cf_keys,
+        rooms: Arc::default(),
+        play,
+        lab,
+        limits: Arc::default(),
+    };
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!("listening on http://{bind}");
-    axum::serve(listener, app(state)).await?;
+    // The peer address feeds per-address limits (`limits::ClientAddress`).
+    axum::serve(listener, app(state).into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
     Ok(())
 }
 

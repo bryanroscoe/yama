@@ -386,6 +386,25 @@
   margin: 0;
   padding-left: 1.2rem;
 }
+.grp-accounts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+.grp-accounts li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.grp-accounts li.is-off .grp-you-text b {
+  color: var(--dim);
+}
 
 @media (min-width: 900px) {
   .group-page {

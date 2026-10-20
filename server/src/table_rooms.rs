@@ -12,6 +12,9 @@
 //!
 //! Access: only the game's creator may host. The host picks a random share key (it travels in
 //! the QR code's URL fragment, never in a page request), and guests must present the same key.
+//!
+//! Memory: a room keeps its newest snapshot (at most [`MAX_MESSAGE`]) and a short backlog for slow
+//! guests, so anyone but an admin may host at most [`MAX_HOSTED`] tables at once.
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -39,6 +42,8 @@ pub struct Rooms {
 struct Room {
     /// Set by the host; guests must match it.
     key: Option<String>,
+    /// The account hosting it.
+    host_user: Option<String>,
     snapshot: Option<String>,
     host: Option<(u64, mpsc::UnboundedSender<String>)>,
     guests: broadcast::Sender<String>,
@@ -47,7 +52,7 @@ struct Room {
 
 impl Room {
     fn new() -> Self {
-        Self { key: None, snapshot: None, host: None, guests: broadcast::channel(64).0, next_conn: 0 }
+        Self { key: None, host_user: None, snapshot: None, host: None, guests: broadcast::channel(BACKLOG).0, next_conn: 0 }
     }
 }
 
@@ -58,6 +63,10 @@ struct ConnectParams {
 }
 
 const MAX_MESSAGE: usize = 512 * 1024;
+/// Snapshots kept for a guest that falls behind (it skips to the newest, which carries everything).
+const BACKLOG: usize = 16;
+/// Tables one account (not an admin) may host at once.
+pub const MAX_HOSTED: usize = 4;
 
 async fn connect(
     State(st): State<AppState>,
@@ -79,7 +88,18 @@ async fn connect(
             return Err(AppError::Forbidden("only the phone that started this game can share it".into()));
         }
         let mut map = st.rooms.rooms.lock().unwrap();
-        map.entry(game_id.clone()).or_insert_with(Room::new).key = Some(p.key.clone());
+        // Rooms still in use: a host or guests connected (one whose upgrade never finished doesn't count).
+        let hosted = map
+            .iter()
+            .filter(|(id, r)| **id != game_id && r.host_user.as_deref() == Some(user.id.as_str()))
+            .filter(|(_, r)| r.host.is_some() || r.guests.receiver_count() > 0)
+            .count();
+        if !user.is_admin && hosted >= MAX_HOSTED {
+            return Err(AppError::Conflict(format!("You're sharing {hosted} tables already. Close one on its phone first.")));
+        }
+        let room = map.entry(game_id.clone()).or_insert_with(Room::new);
+        room.key = Some(p.key.clone());
+        room.host_user = Some(user.id.clone());
     } else {
         let map = st.rooms.rooms.lock().unwrap();
         let ok = map.get(&game_id).and_then(|r| r.key.as_deref()) == Some(p.key.as_str());

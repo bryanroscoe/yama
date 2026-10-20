@@ -1239,6 +1239,7 @@ async fn precon_deck_cards(pool: &SqlitePool, precon_name: &str, cards_json: &st
 }
 
 async fn create_precon_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, body: Bytes) -> AppResult<Json<PreconDeckCreated>> {
+    st.limits.deck_writes.check_user(&user)?;
     let req: NewPreconDeck = if body.iter().all(u8::is_ascii_whitespace) {
         NewPreconDeck::default()
     } else {

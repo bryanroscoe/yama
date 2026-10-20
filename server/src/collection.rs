@@ -8,7 +8,7 @@ use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use crate::util::{new_id, now, sha256_hex};
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
@@ -22,7 +22,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/collection", get(list_items))
         .route("/api/collection/summary", get(summary))
         .route("/api/collection/ops", post(apply_ops))
-        .route("/api/collection/import/mythic", post(import_mythic))
+        .route("/api/collection/import/mythic", post(import_mythic).layer(DefaultBodyLimit::max(MYTHIC_MAX_BYTES)))
         .route("/api/collection/export.csv", get(export_csv))
         .route("/api/containers", get(list_containers).post(create_container))
         .route("/api/containers/{id}", patch(rename_container).delete(delete_container))
@@ -737,7 +737,21 @@ pub struct ImportReport {
     decks_updated: Vec<String>,
 }
 
+/// Largest Mythic Tools CSV: about 20,000 rows (an export runs about 210 bytes a row). Larger
+/// bodies get 413.
+pub const MYTHIC_MAX_BYTES: usize = 4 << 20;
+/// The same for an account that joined without an invite: about 5,000 rows.
+pub const OPEN_MYTHIC_MAX_BYTES: usize = 1 << 20;
+
 async fn import_mythic(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: String) -> AppResult<Json<ImportReport>> {
+    st.limits.imports.check_user(&user)?;
+    if user.limited && body.len() > OPEN_MYTHIC_MAX_BYTES {
+        return Err(AppError::bad(format!(
+            "That file is {} KB. Accounts that joined without an invite can import up to {} KB at a time.",
+            body.len() / 1024,
+            OPEN_MYTHIC_MAX_BYTES / 1024
+        )));
+    }
     Ok(Json(import_mythic_csv(&st.pool, &user.id, &body).await?))
 }
 

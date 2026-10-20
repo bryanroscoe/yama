@@ -31,6 +31,10 @@ pub fn config() -> Config {
         cf_access_aud: None,
         // The lab's worker runs, but with no engine card data it starts nothing (503s).
         lab_threads: 2,
+        open_signup: false,
+        password_login: true,
+        trusted_proxies: vec![],
+        lab_quota: crate::config::LabQuota::default(),
     }
 }
 
@@ -38,8 +42,12 @@ pub fn config() -> Config {
 /// lab's experiments are off (no engine card data), which is what their routes report in that case
 /// anyway.
 pub async fn state() -> AppState {
-    let pool = crate::db::test_pool().await;
-    let cfg = config();
+    state_with(config(), crate::db::test_pool().await).await
+}
+
+/// An `AppState` with other settings, on a given database (two states can share one, as a server
+/// restarted with new settings would).
+pub async fn state_with(cfg: Config, pool: SqlitePool) -> AppState {
     let play = crate::play::PlayHub::start(None, pool.clone());
     let lab = crate::lab::worker::LabWorker::start(pool.clone(), cfg.lab_threads, play.clone(), None);
     AppState {
@@ -51,6 +59,7 @@ pub async fn state() -> AppState {
         rooms: Arc::default(),
         play,
         lab,
+        limits: Arc::default(),
     }
 }
 

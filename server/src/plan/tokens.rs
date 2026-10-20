@@ -7,7 +7,9 @@
 //! `CurrentUser` never accepts a key: it looks bearer tokens (and WebSocket `?token=`) up in
 //! `sessions`, where a key never is, so a key anywhere else is a 401. A key is never admin, and a
 //! key can't make keys, because the key routes below take `CurrentUser`. Revoking someone's invite
-//! revokes their keys (`auth::delete_invite`); `yama-server user add` ends sessions, not keys.
+//! revokes their keys (`auth::delete_invite`); `yama-server user add` ends sessions, not keys. A
+//! disabled account's keys are refused while it stays disabled, and so are the keys of an account
+//! that isn't invited while open sign-up is off (the same rule as its sessions).
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -45,6 +47,9 @@ pub enum Via {
 pub struct SyncUser {
     pub user_id: String,
     pub via: Via,
+    /// The account isn't invited (`auth::User::limited`): smaller imports.
+    pub limited: bool,
+    pub is_admin: bool,
 }
 
 impl FromRequestParts<AppState> for SyncUser {
@@ -60,11 +65,14 @@ impl FromRequestParts<AppState> for SyncUser {
             .map(str::to_string);
         if let Some(key) = key {
             // A key that doesn't work never falls back to a cookie: the script should hear about it.
-            let user_id = user_for_key(&state.pool, &key, SCOPE_SYNC).await?.ok_or(AppError::Unauthorized)?;
-            return Ok(SyncUser { user_id, via: Via::Token });
+            let owner = user_for_key(&state.pool, &key, SCOPE_SYNC)
+                .await?
+                .filter(|o| state.cfg.open_signup || !o.limited)
+                .ok_or(AppError::Unauthorized)?;
+            return Ok(SyncUser { user_id: owner.id, via: Via::Token, limited: owner.limited, is_admin: owner.is_admin });
         }
         let CurrentUser(user) = CurrentUser::from_request_parts(parts, state).await?;
-        Ok(SyncUser { user_id: user.id, via: Via::Session })
+        Ok(SyncUser { user_id: user.id, via: Via::Session, limited: user.limited, is_admin: user.is_admin })
     }
 }
 
@@ -72,25 +80,35 @@ fn time(t: chrono::DateTime<Utc>) -> String {
     t.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
-/// The owner of a live key with `scope`, or `None`. Records the key's last use, at most once a minute.
-pub async fn user_for_key(pool: &SqlitePool, key: &str, scope: &str) -> AppResult<Option<String>> {
+/// Whose a key is.
+pub struct KeyOwner {
+    pub id: String,
+    pub limited: bool,
+    pub is_admin: bool,
+}
+
+/// The owner of a live key with `scope` whose account isn't disabled, or `None`. Records the
+/// key's last use, at most once a minute.
+pub async fn user_for_key(pool: &SqlitePool, key: &str, scope: &str) -> AppResult<Option<KeyOwner>> {
     let stamp = now();
-    let row: Option<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT t.id, t.owner_id, t.last_used_at FROM api_tokens t JOIN users u ON u.id = t.owner_id
-         WHERE t.token_hash = ? AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at > ?)
-           AND EXISTS (SELECT 1 FROM json_each(t.scopes) WHERE value = ?)",
-    )
+    let row: Option<(String, String, bool, bool, Option<String>)> = sqlx::query_as(concat!(
+        "SELECT t.id, t.owner_id, ",
+        crate::auth::limited_sql!(),
+        ", u.is_admin, t.last_used_at FROM api_tokens t JOIN users u ON u.id = t.owner_id
+         WHERE t.token_hash = ? AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at > ?) AND u.disabled_at IS NULL
+           AND EXISTS (SELECT 1 FROM json_each(t.scopes) WHERE value = ?)"
+    ))
     .bind(sha256_hex(key))
     .bind(&stamp)
     .bind(scope)
     .fetch_optional(pool)
     .await?;
-    let Some((id, owner, last)) = row else { return Ok(None) };
+    let Some((id, owner, limited, is_admin, last)) = row else { return Ok(None) };
     let minute_ago = time(Utc::now() - Duration::seconds(60));
     if last.as_deref().is_none_or(|l| l < minute_ago.as_str()) {
         sqlx::query("UPDATE api_tokens SET last_used_at = ? WHERE id = ?").bind(&stamp).bind(&id).execute(pool).await?;
     }
-    Ok(Some(owner))
+    Ok(Some(KeyOwner { id: owner, limited, is_admin }))
 }
 
 /// A key as the list shows it: never the key or its hash.

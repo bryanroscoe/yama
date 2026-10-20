@@ -1,3 +1,4 @@
+use crate::limits::Cidr;
 use anyhow::Context;
 use std::path::PathBuf;
 
@@ -33,6 +34,39 @@ pub struct Config {
     /// Game threads for the simulation lab's experiments (YAMA_LAB_THREADS, default 2). 0 turns
     /// the lab off: experiments can be read but no new ones start.
     pub lab_threads: usize,
+    /// Anyone with a verified Google account may make an account (YAMA_OPEN_SIGNUP=1; off by
+    /// default). Invites still matter: an account that isn't invited gets the smaller allowance
+    /// (`auth::User::limited`), and can't use Yama at all once this is off again.
+    pub open_signup: bool,
+    /// Password sign-in for accounts given a password with `yama-server user add`. On unless
+    /// YAMA_PASSWORD_LOGIN=0. Nothing ever makes a password account except that command.
+    pub password_login: bool,
+    /// Peers whose `CF-Connecting-IP` header is believed (YAMA_TRUSTED_PROXIES: addresses or
+    /// CIDR ranges, comma-separated). Set it to the Cloudflare tunnel connector's Docker network;
+    /// without it, per-address limits count the connector's address (see `limits.rs`).
+    pub trusted_proxies: Vec<Cidr>,
+    /// The lab's caps on queued games and on accounts that joined without an invite.
+    pub lab_quota: LabQuota,
+}
+
+/// How much of the lab anyone but an admin may take. Admins have no caps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LabQuota {
+    /// Most games waiting or playing at once for everyone but admins together
+    /// (YAMA_LAB_QUEUE_GAMES, default 2,000).
+    pub queue_games: i64,
+    /// Most of those from accounts that joined without an invite, together
+    /// (YAMA_LAB_OPEN_QUEUE_GAMES, default 400).
+    pub open_queue_games: i64,
+    /// Games one account that joined without an invite may ask for in 24 hours
+    /// (YAMA_LAB_OPEN_DAILY_GAMES, default 300: three 100-game runs).
+    pub open_daily_games: i64,
+}
+
+impl Default for LabQuota {
+    fn default() -> Self {
+        Self { queue_games: 2_000, open_queue_games: 400, open_daily_games: 300 }
+    }
 }
 
 impl Config {
@@ -47,6 +81,30 @@ impl Config {
                 .collect()
         };
         let flag = |key: &str| matches!(std::env::var(key).as_deref(), Ok("1" | "true" | "yes"));
+        let off = |key: &str| matches!(std::env::var(key).as_deref(), Ok("0" | "false" | "no"));
+        let number = |key: &str, default: i64| -> anyhow::Result<i64> {
+            match std::env::var(key) {
+                Ok(v) if !v.trim().is_empty() => {
+                    let n: i64 = v.trim().parse().with_context(|| format!("{key} {v:?} must be a whole number"))?;
+                    anyhow::ensure!(n >= 0, "{key} can't be negative");
+                    Ok(n)
+                }
+                _ => Ok(default),
+            }
+        };
+        let trusted_proxies = std::env::var("YAMA_TRUSTED_PROXIES")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| Cidr::parse(s).map_err(|e| anyhow::anyhow!("YAMA_TRUSTED_PROXIES: {e}")))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let defaults = LabQuota::default();
+        let lab_quota = LabQuota {
+            queue_games: number("YAMA_LAB_QUEUE_GAMES", defaults.queue_games)?,
+            open_queue_games: number("YAMA_LAB_OPEN_QUEUE_GAMES", defaults.open_queue_games)?,
+            open_daily_games: number("YAMA_LAB_OPEN_DAILY_GAMES", defaults.open_daily_games)?,
+        };
         let data_dir = PathBuf::from(std::env::var("YAMA_DATA_DIR").unwrap_or_else(|_| "data".into()));
         std::fs::create_dir_all(&data_dir).with_context(|| format!("creating {}", data_dir.display()))?;
         let engine_card_data = std::env::var("YAMA_ENGINE_CARD_DATA")
@@ -79,7 +137,7 @@ impl Config {
             secure_cookies: flag("YAMA_SECURE_COOKIES"),
             cors_origins: list("YAMA_CORS_ORIGINS"),
             auto_import: flag("YAMA_AUTO_IMPORT"),
-            deck_checks: !matches!(std::env::var("YAMA_DECK_CHECKS").as_deref(), Ok("0" | "false" | "no")),
+            deck_checks: !off("YAMA_DECK_CHECKS"),
             engine_card_data: Some(engine_card_data),
             cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),
             cf_access_aud: std::env::var("YAMA_CF_ACCESS_AUD").ok().filter(|s| !s.is_empty()),
@@ -87,6 +145,10 @@ impl Config {
                 Ok(v) if !v.trim().is_empty() => v.trim().parse().with_context(|| format!("YAMA_LAB_THREADS {v:?} must be a whole number"))?,
                 _ => 2,
             },
+            open_signup: flag("YAMA_OPEN_SIGNUP"),
+            password_login: !off("YAMA_PASSWORD_LOGIN"),
+            trusted_proxies,
+            lab_quota,
         })
     }
 }

@@ -2,7 +2,7 @@
 // filters and sorts, and the "Try a change" list arithmetic. No React here, so it's tested on its own.
 
 import { GROUP_ORDER, groupOf, identityKeys } from "@yama/core";
-import type { Confidence, ConfidenceLevel, ExperimentStatus, Pace, PreconItem, Summary } from "./api";
+import type { Allowance, Confidence, ConfidenceLevel, ExperimentStatus, Pace, PreconItem, Summary } from "./api";
 
 // ── wording ──────────────────────────────────────────────────────────────────
 
@@ -479,4 +479,20 @@ export function identityQuery(identity: string | null | undefined): string {
   if (identity == null) return "";
   const keys = identityKeys(identity);
   return keys[0] === "C" ? "id:c" : `id<=${keys.join("").toLowerCase()}`;
+}
+
+/** Game counts "Try a change" offers: what the server allows this account, else the usual three. */
+export function gameChoices(pace: Pace | null | undefined): number[] {
+  const choices = pace?.game_choices?.filter((g) => g > 0) ?? [];
+  return choices.length ? choices : [100, 200, 400];
+}
+
+/** The smaller allowance of an account that joined without an invite, in one plain line. */
+export function allowanceText(a: Allowance): string {
+  const left = Math.max(0, a.games_per_day - a.used_today);
+  const atOnce = a.at_a_time === 1 ? "one at a time" : `${a.at_a_time} at a time`;
+  return (
+    `Accounts that joined without an invite run ${a.games}-game experiments, ${atOnce}, up to ${a.games_per_day} games a day ` +
+    `(${left} left today). An invite from the host lifts this.`
+  );
 }

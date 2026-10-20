@@ -10,10 +10,15 @@ mod error;
 mod game_export;
 mod games;
 mod lab;
+mod limits;
 mod play;
 mod plan;
 mod playgroups;
+#[cfg(test)]
+mod privacy_tests;
 mod routes;
+#[cfg(test)]
+mod signup_tests;
 mod stats;
 mod table_rooms;
 #[cfg(test)]
@@ -50,13 +55,18 @@ USAGE:
                                              unless --owner is given. A global run may rate
                                              precons only; one with a user's lists needs
                                              --owner
-  yama-server invite EMAIL                   Allow EMAIL to sign in
+  yama-server invite EMAIL                   Allow EMAIL to sign in (with open sign-up,
+                                             give it the full allowance)
   yama-server user add EMAIL [--name NAME] [--admin] [--password-stdin]
                                              Give EMAIL a password for password sign-in
                                              (creates the account; prints a generated
                                              password unless one is piped in)
   yama-server user remove-password EMAIL     Turn off password sign-in for EMAIL
-  yama-server user list                      Every account and how it signs in
+  yama-server user disable EMAIL             Turn EMAIL's account off: its sessions end and
+                                             every way of signing in refuses it
+  yama-server user enable EMAIL              Turn it back on
+  yama-server user list                      Every account, how it signs in, and whether
+                                             it's invited or turned off
   yama-server backup FILE                    Write a consistent copy of the database
 
 Configuration comes from the environment; see .env.example.";
@@ -160,6 +170,20 @@ async fn main() -> anyhow::Result<()> {
                     println!("{email} can no longer sign in with a password");
                 } else {
                     println!("{email} had no password");
+                }
+                Ok(())
+            }
+            Some(cmd @ ("disable" | "enable")) => {
+                let email = args.get(2).with_context(|| format!("usage: yama-server user {cmd} EMAIL"))?;
+                let disable = cmd == "disable";
+                if auth::set_disabled_by_email(&pool, email, disable).await? {
+                    if disable {
+                        println!("{email} is turned off: signed out everywhere, and sign-in is refused");
+                    } else {
+                        println!("{email} can sign in again");
+                    }
+                } else {
+                    println!("there's no account for {email}");
                 }
                 Ok(())
             }

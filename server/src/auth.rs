@@ -1,9 +1,29 @@
-//! Sign-in with Google ID tokens (web and native both send one), sessions, and the invite allowlist.
+//! Sign-in, sessions, invites, open sign-up and accounts an admin has turned off.
+//!
+//! Who gets in:
+//! - **Google** (web and native both send an ID token): the token must be signed by Google for one
+//!   of our client IDs, with issuer, audience, expiry and subject all present and checked, and a
+//!   verified email (`email_verified`). With YAMA_OPEN_SIGNUP off (the default) the email must be
+//!   an admin's or invited. With it on, anyone may make an account; an account that isn't invited
+//!   is `limited` (the smaller lab and play allowance), and is shut out again if open sign-up is
+//!   turned off. An account is tied to its Google subject: a different Google account with the
+//!   same email is refused, and open sign-up never gives a Google sign-in an existing account that
+//!   was made another way (a password, Cloudflare Access, dev login) unless that email is invited.
+//! - **Password**: only accounts given one with `yama-server user add` on the server. No route
+//!   creates a password account or sets a password. YAMA_PASSWORD_LOGIN=0 turns it off.
+//! - **Cloudflare Access**: Access has already checked the person against its policy, which is
+//!   the invite list.
+//! - **Dev login**: any email, only while the server listens on localhost.
+//!
+//! Sign-in attempts (Google and password) are rate-limited per client address and per email
+//! (`limits.rs`). A disabled account has no sessions, and every way in refuses it.
 
+use crate::config::Config;
 use crate::error::{AppError, AppResult};
+use crate::limits::{ClientAddress, address_key};
 use crate::routes::AppState;
 use crate::util::{new_id, now, random_token, sha256_hex};
-use axum::extract::{FromRequestParts, State};
+use axum::extract::{FromRequestParts, Path, State};
 use axum::http::request::Parts;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -19,6 +39,31 @@ pub const SESSION_COOKIE: &str = "yama_session";
 const SESSION_DAYS: i64 = 90;
 const GOOGLE_CERTS: &str = "https://www.googleapis.com/oauth2/v3/certs";
 const GOOGLE_ISSUERS: [&str; 2] = ["accounts.google.com", "https://accounts.google.com"];
+/// Claims a Google ID token must carry; jsonwebtoken only insists on `exp` by default, and skips
+/// the issuer and audience checks for a token without them.
+const GOOGLE_REQUIRED: [&str; 4] = ["exp", "iss", "aud", "sub"];
+const ACCESS_REQUIRED: [&str; 3] = ["exp", "iss", "aud"];
+/// Longest display name kept from a Google profile.
+const MAX_NAME: usize = 60;
+pub const DISABLED: &str = "This account has been turned off. Ask the host if that's a mistake.";
+
+/// SQL that is true for a `users u` row with the smaller allowance (`User::limited`): a Google
+/// account that isn't an admin, has no password from the command line, and isn't invited.
+/// Accounts made any other way (Cloudflare Access, dev login, `user add`) never are.
+macro_rules! limited_sql {
+    () => {
+        "(u.google_sub IS NOT NULL AND u.is_admin = 0 AND u.password_hash IS NULL \
+          AND NOT EXISTS (SELECT 1 FROM invites i WHERE i.email = u.email))"
+    };
+}
+pub(crate) use limited_sql;
+
+/// The columns of [`User`], read from `users u`.
+macro_rules! user_columns {
+    () => {
+        concat!("u.id, u.email, u.display_name, u.is_admin, ", $crate::auth::limited_sql!(), " AS limited")
+    };
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -30,6 +75,9 @@ pub fn router() -> Router<AppState> {
         .route("/api/me", get(me))
         .route("/api/invites", get(list_invites).post(create_invite))
         .route("/api/invites/{email}", delete(delete_invite))
+        .route("/api/admin/users", get(admin_list_users))
+        .route("/api/admin/users/{id}/disable", post(admin_disable_user))
+        .route("/api/admin/users/{id}/enable", post(admin_enable_user))
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -38,6 +86,44 @@ pub struct User {
     pub email: String,
     pub display_name: String,
     pub is_admin: bool,
+    /// A Google account that isn't invited (nor an admin or a password account): someone who
+    /// joined through open sign-up, or whose invite was withdrawn. Gets the smaller lab and play
+    /// allowance, and can't use Yama while open sign-up is off.
+    pub limited: bool,
+}
+
+/// A user and whether an admin has turned the account off.
+#[derive(sqlx::FromRow)]
+struct AccountRow {
+    #[sqlx(flatten)]
+    user: User,
+    disabled: bool,
+}
+
+async fn account_by_email(pool: &SqlitePool, email: &str) -> sqlx::Result<Option<AccountRow>> {
+    sqlx::query_as(concat!("SELECT ", user_columns!(), ", u.disabled_at IS NOT NULL AS disabled FROM users u WHERE u.email = ?"))
+        .bind(email)
+        .fetch_optional(pool)
+        .await
+}
+
+async fn account_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<AccountRow>> {
+    sqlx::query_as(concat!("SELECT ", user_columns!(), ", u.disabled_at IS NOT NULL AS disabled FROM users u WHERE u.id = ?"))
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+}
+
+async fn account_by_google(pool: &SqlitePool, sub: &str) -> sqlx::Result<Option<AccountRow>> {
+    sqlx::query_as(concat!("SELECT ", user_columns!(), ", u.disabled_at IS NOT NULL AS disabled FROM users u WHERE u.google_sub = ?"))
+        .bind(sub)
+        .fetch_optional(pool)
+        .await
+}
+
+/// An account that isn't invited may use Yama only while open sign-up is on.
+pub fn may_use_yama(cfg: &Config, user: &User) -> bool {
+    cfg.open_signup || !user.limited
 }
 
 /// Extractor: the signed-in user, from the session cookie or `Authorization: Bearer`.
@@ -67,7 +153,7 @@ impl FromRequestParts<AppState> for CurrentUser {
             .or(ws_token)
             .or_else(|| CookieJar::from_headers(&parts.headers).get(SESSION_COOKIE).map(|c| c.value().to_string()));
         if let Some(token) = token
-            && let Some(user) = user_for_token(&state.pool, &token).await?
+            && let Some(user) = user_for_token(state, &token).await?
         {
             return Ok(CurrentUser(user));
         }
@@ -75,15 +161,20 @@ impl FromRequestParts<AppState> for CurrentUser {
     }
 }
 
-pub async fn user_for_token(pool: &SqlitePool, token: &str) -> AppResult<Option<User>> {
-    Ok(sqlx::query_as::<_, User>(
-        "SELECT u.id, u.email, u.display_name, u.is_admin FROM sessions s JOIN users u ON u.id = s.user_id
-         WHERE s.token_hash = ? AND s.expires_at > ?",
-    )
+/// The live session's user. A disabled account has no sessions (disabling deletes them), and the
+/// check here covers one made between that and now; an account that isn't invited only works
+/// while open sign-up is on.
+pub async fn user_for_token(st: &AppState, token: &str) -> AppResult<Option<User>> {
+    let user: Option<User> = sqlx::query_as(concat!(
+        "SELECT ",
+        user_columns!(),
+        " FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled_at IS NULL"
+    ))
     .bind(sha256_hex(token))
     .bind(now())
-    .fetch_optional(pool)
-    .await?)
+    .fetch_optional(&st.pool)
+    .await?;
+    Ok(user.filter(|u| may_use_yama(&st.cfg, u)))
 }
 
 #[derive(Serialize)]
@@ -101,17 +192,21 @@ struct AuthConfig {
     password_login: bool,
     /// Signed in by Cloudflare Access before the app loads; sign-out goes through Cloudflare too.
     cf_access: bool,
+    /// Anyone with a Google account may join (YAMA_OPEN_SIGNUP, with Google sign-in set up).
+    open_signup: bool,
 }
 
 async fn auth_config(State(st): State<AppState>) -> AppResult<Json<AuthConfig>> {
-    let password_login: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE password_hash IS NOT NULL)")
-        .fetch_one(&st.pool)
-        .await?;
+    let password_login = st.cfg.password_login
+        && sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM users WHERE password_hash IS NOT NULL AND disabled_at IS NULL)")
+            .fetch_one(&st.pool)
+            .await?;
     Ok(Json(AuthConfig {
         google_client_id: st.cfg.google_client_ids.first().cloned(),
         dev_login: st.cfg.dev_login,
         password_login,
         cf_access: st.cf_keys.is_some(),
+        open_signup: st.cfg.open_signup && !st.cfg.google_client_ids.is_empty(),
     }))
 }
 
@@ -124,27 +219,140 @@ struct GoogleLogin {
 struct GoogleClaims {
     sub: String,
     email: String,
-    #[serde(default)]
+    /// Google sends a boolean; some older tokens carried the string "true". Missing is false.
+    #[serde(default, deserialize_with = "bool_or_string")]
     email_verified: bool,
     name: Option<String>,
 }
 
+fn bool_or_string<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Flag {
+        Bool(bool),
+        Text(String),
+    }
+    Ok(match Option::<Flag>::deserialize(d)? {
+        Some(Flag::Bool(b)) => b,
+        Some(Flag::Text(t)) => t.eq_ignore_ascii_case("true"),
+        None => false,
+    })
+}
+
 async fn google_login(
     State(st): State<AppState>,
+    ClientAddress(address): ClientAddress,
     jar: CookieJar,
     Json(body): Json<GoogleLogin>,
 ) -> AppResult<(CookieJar, Json<LoginResponse>)> {
     if st.cfg.google_client_ids.is_empty() {
         return Err(AppError::bad("Google sign-in is not configured (YAMA_GOOGLE_CLIENT_IDS)"));
     }
-    let claims: GoogleClaims = st.google_keys.verify(&st.http, &body.credential, &st.cfg.google_client_ids, &GOOGLE_ISSUERS).await?;
+    // Before any work, including fetching Google's keys.
+    st.limits.sign_in_address.check(&address_key(address))?;
+    let claims: GoogleClaims =
+        st.google_keys.verify(&st.http, &body.credential, &st.cfg.google_client_ids, &GOOGLE_ISSUERS, &GOOGLE_REQUIRED).await?;
     if !claims.email_verified {
         return Err(AppError::Forbidden("Google account email is not verified".into()));
     }
-    ensure_allowed(&st, &claims.email).await?;
-    let name = claims.name.clone().unwrap_or_else(|| claims.email.split('@').next().unwrap_or("player").to_string());
-    let user = upsert_user(&st, Some(&claims.sub), &claims.email, &name).await?;
+    let email = claims.email.trim().to_lowercase();
+    if !email.contains('@') {
+        return Err(AppError::Forbidden("the Google sign-in had no email address".into()));
+    }
+    st.limits.sign_in_email.check(&email)?;
+    let user = google_account(&st, &claims.sub, &email, claims.name.as_deref()).await?;
     start_session(&st, jar, user).await
+}
+
+fn not_invited(email: &str) -> AppError {
+    AppError::Forbidden(format!("{email} hasn't been invited to Yama yet"))
+}
+
+fn is_admin_email(cfg: &Config, email: &str) -> bool {
+    cfg.admin_emails.iter().any(|a| a.eq_ignore_ascii_case(email))
+}
+
+/// An admin's email, or one on the invite list.
+async fn is_invited(st: &AppState, email: &str) -> AppResult<bool> {
+    if is_admin_email(&st.cfg, email) {
+        return Ok(true);
+    }
+    Ok(sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM invites WHERE email = ?)").bind(email).fetch_one(&st.pool).await?)
+}
+
+fn display_name(name: Option<&str>, email: &str) -> String {
+    let name = name.map(str::trim).filter(|n| !n.is_empty()).unwrap_or_else(|| email.split('@').next().unwrap_or("player"));
+    name.chars().take(MAX_NAME).collect()
+}
+
+/// The account a verified Google sign-in (`sub`, lower-cased `email`) belongs to, made if need
+/// be, or why it can't come in. See the module notes for the rules.
+async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str>) -> AppResult<User> {
+    let invited = is_invited(st, email).await?;
+    let open = st.cfg.open_signup;
+    let id = if let Some(acc) = account_by_google(&st.pool, sub).await? {
+        // The Google account that signed in before (its email may have changed at Google since).
+        if acc.disabled {
+            return Err(AppError::Forbidden(DISABLED.into()));
+        }
+        if !open && !invited && acc.user.limited {
+            return Err(not_invited(email));
+        }
+        acc.user.id
+    } else {
+        let by_email: Option<(String, Option<String>, bool)> =
+            sqlx::query_as("SELECT id, google_sub, disabled_at IS NOT NULL FROM users WHERE email = ?").bind(email).fetch_optional(&st.pool).await?;
+        match by_email {
+            Some((_, Some(_), _)) => {
+                tracing::warn!(%email, "Google sign-in refused: the email is tied to a different Google account");
+                return Err(AppError::Forbidden(format!(
+                    "{email} is tied to a different Google account in Yama. Sign in with that one, or ask the host."
+                )));
+            }
+            Some((_, None, true)) => return Err(AppError::Forbidden(DISABLED.into())),
+            Some((id, None, false)) => {
+                // An account made another way. Only an invite lets Google into it; open sign-up never does.
+                if !invited {
+                    return Err(if open {
+                        AppError::Forbidden(format!(
+                            "{email} already has a Yama account that signs in another way. Ask the host to invite this email to add Google sign-in."
+                        ))
+                    } else {
+                        not_invited(email)
+                    });
+                }
+                sqlx::query("UPDATE users SET google_sub = ? WHERE id = ? AND google_sub IS NULL").bind(sub).bind(&id).execute(&st.pool).await?;
+                id
+            }
+            None => {
+                if !open && !invited {
+                    return Err(not_invited(email));
+                }
+                sqlx::query(
+                    "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at) VALUES (?, ?, ?, ?, 0, ?) ON CONFLICT DO NOTHING",
+                )
+                .bind(new_id())
+                .bind(sub)
+                .bind(email)
+                .bind(display_name(name, email))
+                .bind(now())
+                .execute(&st.pool)
+                .await?;
+                if !invited {
+                    tracing::info!(%email, "new account through open sign-up");
+                }
+                // Two sign-ins at once: the second finds the first one's row.
+                sqlx::query_scalar("SELECT id FROM users WHERE google_sub = ?")
+                    .bind(sub)
+                    .fetch_optional(&st.pool)
+                    .await?
+                    .ok_or_else(|| AppError::Conflict("another sign-in with this email happened at the same moment; try again".into()))?
+            }
+        }
+    };
+    // Admin from YAMA_ADMIN_EMAILS is applied at every sign-in; admin given on the command line stays.
+    sqlx::query("UPDATE users SET is_admin = (? OR admin_granted) WHERE id = ?").bind(is_admin_email(&st.cfg, email)).bind(&id).execute(&st.pool).await?;
+    Ok(account_by_id(&st.pool, &id).await?.ok_or(AppError::NotFound("account"))?.user)
 }
 
 #[derive(Deserialize)]
@@ -165,8 +373,8 @@ async fn dev_login(
     if !email.contains('@') {
         return Err(AppError::bad("enter an email address"));
     }
-    let name = body.name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| email.split('@').next().unwrap().to_string());
-    let user = upsert_user(&st, None, &email, &name).await?;
+    let name = display_name(body.name.as_deref(), &email);
+    let user = upsert_user(&st, &email, &name).await?;
     start_session(&st, jar, user).await
 }
 
@@ -177,13 +385,20 @@ struct PasswordLogin {
 }
 
 /// Sign in to an account given a password with `yama-server user add`. Only someone with a shell
-/// on the server can create one, so these accounts skip the invite check.
+/// on the server can create one, so these accounts skip the invite check. This route never makes
+/// an account or sets a password: an email without one is refused like a wrong password.
 async fn password_login(
     State(st): State<AppState>,
+    ClientAddress(address): ClientAddress,
     jar: CookieJar,
     Json(body): Json<PasswordLogin>,
 ) -> AppResult<(CookieJar, Json<LoginResponse>)> {
+    if !st.cfg.password_login {
+        return Err(AppError::Forbidden("password sign-in is turned off on this server".into()));
+    }
+    st.limits.sign_in_address.check(&address_key(address))?;
     let email = body.email.trim().to_lowercase();
+    st.limits.sign_in_email.check(&email)?;
     let row: Option<(String,)> = sqlx::query_as("SELECT password_hash FROM users WHERE email = ? AND password_hash IS NOT NULL")
         .bind(&email)
         .fetch_optional(&st.pool)
@@ -201,11 +416,11 @@ async fn password_login(
         tracing::warn!(%email, "failed password sign-in");
         return Err(AppError::Forbidden("wrong email or password".into()));
     }
-    let user = sqlx::query_as::<_, User>("SELECT id, email, display_name, is_admin FROM users WHERE email = ?")
-        .bind(&email)
-        .fetch_one(&st.pool)
-        .await?;
-    start_session(&st, jar, user).await
+    let acc = account_by_email(&st.pool, &email).await?.ok_or(AppError::NotFound("account"))?;
+    if acc.disabled {
+        return Err(AppError::Forbidden(DISABLED.into()));
+    }
+    start_session(&st, jar, acc.user).await
 }
 
 // ── local accounts (command line) ──────────────────────────────────────────
@@ -257,22 +472,52 @@ pub async fn remove_local_password(pool: &SqlitePool, email: &str) -> anyhow::Re
     Ok(done.rows_affected() > 0)
 }
 
-/// `yama-server user list`: who has an account and how they sign in.
+/// `yama-server user list`: who has an account, how they sign in, and whether it's invited
+/// (an account without an invite has the smaller allowance) or turned off.
 pub async fn list_users(pool: &SqlitePool) -> anyhow::Result<()> {
-    let rows: Vec<(String, String, bool, bool, bool)> = sqlx::query_as(
-        "SELECT email, display_name, is_admin, password_hash IS NOT NULL, google_sub IS NOT NULL FROM users ORDER BY email",
-    )
+    let rows: Vec<(String, String, bool, bool, bool, bool, bool)> = sqlx::query_as(concat!(
+        "SELECT u.email, u.display_name, u.is_admin, u.password_hash IS NOT NULL, u.google_sub IS NOT NULL, ",
+        limited_sql!(),
+        ", u.disabled_at IS NOT NULL FROM users u ORDER BY u.email"
+    ))
     .fetch_all(pool)
     .await?;
-    for (email, name, admin, password, google) in rows {
+    for (email, name, admin, password, google, limited, disabled) in rows {
         let how: Vec<&str> = [(google, "google"), (password, "password")].into_iter().filter(|(on, _)| *on).map(|(_, s)| s).collect();
+        let notes: Vec<&str> = [(limited, "not invited"), (disabled, "disabled")].into_iter().filter(|(on, _)| *on).map(|(_, s)| s).collect();
         println!(
-            "{email:<36} {name:<20} {:<6} {}",
+            "{email:<36} {name:<20} {:<6} {:<18} {}",
             if admin { "admin" } else { "" },
-            if how.is_empty() { "dev/access".to_string() } else { how.join(", ") }
+            if how.is_empty() { "dev/access".to_string() } else { how.join(", ") },
+            notes.join(", ")
         );
     }
     Ok(())
+}
+
+/// Turn an account off (its sessions end at once; every way in refuses it) or back on. Returns
+/// false when there's no such account.
+async fn set_disabled(pool: &SqlitePool, user_id: &str, disabled: bool) -> sqlx::Result<bool> {
+    let mut tx = pool.begin().await?;
+    let found = if disabled {
+        let n = sqlx::query("UPDATE users SET disabled_at = COALESCE(disabled_at, ?) WHERE id = ?").bind(now()).bind(user_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM sessions WHERE user_id = ?").bind(user_id).execute(&mut *tx).await?;
+        n.rows_affected() > 0
+    } else {
+        sqlx::query("UPDATE users SET disabled_at = NULL WHERE id = ?").bind(user_id).execute(&mut *tx).await?.rows_affected() > 0
+    };
+    tx.commit().await?;
+    Ok(found)
+}
+
+/// `yama-server user disable EMAIL` / `user enable EMAIL`.
+pub async fn set_disabled_by_email(pool: &SqlitePool, email: &str, disabled: bool) -> anyhow::Result<bool> {
+    let email = email.trim().to_lowercase();
+    let id: Option<String> = sqlx::query_scalar("SELECT id FROM users WHERE email = ?").bind(&email).fetch_optional(pool).await?;
+    match id {
+        Some(id) => Ok(set_disabled(pool, &id, disabled).await?),
+        None => Ok(false),
+    }
 }
 
 pub fn hash_password(password: &str) -> anyhow::Result<String> {
@@ -311,38 +556,26 @@ async fn me(CurrentUser(user): CurrentUser) -> Json<User> {
     Json(user)
 }
 
-async fn ensure_allowed(st: &AppState, email: &str) -> AppResult<()> {
-    let email = email.to_lowercase();
-    if st.cfg.admin_emails.contains(&email) {
-        return Ok(());
-    }
-    let invited: Option<(String,)> =
-        sqlx::query_as("SELECT email FROM invites WHERE email = ?").bind(&email).fetch_optional(&st.pool).await?;
-    match invited {
-        Some(_) => Ok(()),
-        None => Err(AppError::Forbidden(format!("{email} hasn't been invited to Yama yet"))),
-    }
-}
-
-pub async fn upsert_user(st: &AppState, google_sub: Option<&str>, email: &str, name: &str) -> AppResult<User> {
-    let is_admin = st.cfg.admin_emails.contains(&email.to_lowercase());
+/// The account for a dev login or a Cloudflare Access sign-in, made if need be. Admin from
+/// YAMA_ADMIN_EMAILS is applied again; a disabled account is refused.
+async fn upsert_user(st: &AppState, email: &str, name: &str) -> AppResult<User> {
+    let is_admin = is_admin_email(&st.cfg, email);
     sqlx::query(
-        "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(email) DO UPDATE SET google_sub = COALESCE(excluded.google_sub, users.google_sub),
-                                          is_admin = excluded.is_admin OR users.admin_granted",
+        "INSERT INTO users (id, email, display_name, is_admin, created_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET is_admin = excluded.is_admin OR users.admin_granted",
     )
     .bind(new_id())
-    .bind(google_sub)
     .bind(email)
     .bind(name)
     .bind(is_admin)
     .bind(now())
     .execute(&st.pool)
     .await?;
-    Ok(sqlx::query_as::<_, User>("SELECT id, email, display_name, is_admin FROM users WHERE email = ?")
-        .bind(email)
-        .fetch_one(&st.pool)
-        .await?)
+    let acc = account_by_email(&st.pool, email).await?.ok_or(AppError::NotFound("account"))?;
+    if acc.disabled {
+        return Err(AppError::Forbidden(DISABLED.into()));
+    }
+    Ok(acc.user)
 }
 
 async fn start_session(st: &AppState, jar: CookieJar, user: User) -> AppResult<(CookieJar, Json<LoginResponse>)> {
@@ -436,6 +669,64 @@ pub(crate) fn require_admin(user: &User) -> AppResult<()> {
     if user.is_admin { Ok(()) } else { Err(AppError::Forbidden("admins only".into())) }
 }
 
+// ── accounts (admins) ──────────────────────────────────────────────────────
+
+/// An account as the admin list in Group shows it.
+#[derive(Serialize, sqlx::FromRow)]
+struct AccountInfo {
+    id: String,
+    email: String,
+    display_name: String,
+    is_admin: bool,
+    limited: bool,
+    invited: bool,
+    google: bool,
+    password: bool,
+    disabled_at: Option<String>,
+    created_at: String,
+    /// The newest session's start: roughly the last sign-in.
+    last_sign_in: Option<String>,
+}
+
+/// Newest accounts first, at most 500.
+async fn admin_list_users(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<AccountInfo>>> {
+    require_admin(&user)?;
+    Ok(Json(
+        sqlx::query_as(concat!(
+            "SELECT u.id, u.email, u.display_name, u.is_admin, ",
+            limited_sql!(),
+            " AS limited, EXISTS (SELECT 1 FROM invites i WHERE i.email = u.email) AS invited,
+               u.google_sub IS NOT NULL AS google, u.password_hash IS NOT NULL AS password, u.disabled_at, u.created_at,
+               (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_sign_in
+             FROM users u ORDER BY u.created_at DESC, u.email LIMIT 500"
+        ))
+        .fetch_all(&st.pool)
+        .await?,
+    ))
+}
+
+async fn admin_disable_user(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
+    require_admin(&user)?;
+    if id == user.id {
+        return Err(AppError::bad("you can't turn off your own account"));
+    }
+    let target = account_by_id(&st.pool, &id).await?.ok_or(AppError::NotFound("account"))?;
+    if target.user.is_admin {
+        return Err(AppError::Forbidden("an admin can only be turned off on the server: yama-server user disable EMAIL".into()));
+    }
+    set_disabled(&st.pool, &id, true).await?;
+    tracing::info!(by = %user.email, account = %target.user.email, "account disabled");
+    Ok(())
+}
+
+async fn admin_enable_user(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
+    require_admin(&user)?;
+    if !set_disabled(&st.pool, &id, false).await? {
+        return Err(AppError::NotFound("account"));
+    }
+    Ok(())
+}
+
 // ── Google signing keys ────────────────────────────────────────────────────
 
 #[derive(Deserialize, Clone)]
@@ -451,11 +742,17 @@ struct JwkSet {
 }
 
 /// Signing keys for an identity provider (Google, Cloudflare Access). Providers rotate keys
-/// every few days; refetch hourly or on an unknown `kid`.
+/// every few days; refetch hourly or on an unknown `kid`, but on an unknown `kid` at most once a
+/// minute, so tokens with made-up key ids can't make Yama hammer the provider.
 pub struct JwkCache {
     url: String,
     cache: RwLock<Option<(Instant, Vec<Jwk>)>>,
+    /// Keys given up front (tests): never fetched.
+    fixed: bool,
 }
+
+/// Soonest refetch after the last fetch when a token names an unknown key.
+const MIN_REFETCH_SECS: u64 = 60;
 
 pub type GoogleKeys = JwkCache;
 
@@ -467,12 +764,25 @@ impl Default for JwkCache {
 
 impl JwkCache {
     pub fn new(url: &str) -> Self {
-        Self { url: url.to_string(), cache: RwLock::new(None) }
+        Self { url: url.to_string(), cache: RwLock::new(None), fixed: false }
+    }
+
+    /// Keys known up front, as (kid, n, e); nothing is ever fetched.
+    #[cfg(test)]
+    pub fn fixed(keys: &[(&str, &str, &str)]) -> Self {
+        let keys = keys.iter().map(|(kid, n, e)| Jwk { kid: kid.to_string(), n: n.to_string(), e: e.to_string() }).collect();
+        Self { url: String::new(), cache: RwLock::new(Some((Instant::now(), keys))), fixed: true }
     }
 
     async fn keys(&self, http: &reqwest::Client, force: bool) -> AppResult<Vec<Jwk>> {
-        if !force && let Some((at, keys)) = &*self.cache.read().await && at.elapsed().as_secs() < 3600 {
-            return Ok(keys.clone());
+        if let Some((at, keys)) = &*self.cache.read().await {
+            let age = at.elapsed().as_secs();
+            if self.fixed || (age < 3600 && (!force || age < MIN_REFETCH_SECS)) {
+                return Ok(keys.clone());
+            }
+        }
+        if self.fixed {
+            return Ok(Vec::new());
         }
         let set: JwkSet = http
             .get(&self.url)
@@ -493,6 +803,7 @@ impl JwkCache {
         token: &str,
         audiences: &[String],
         issuers: &[&str],
+        required: &[&str],
     ) -> AppResult<T> {
         let header = jsonwebtoken::decode_header(token).map_err(|_| AppError::bad("malformed sign-in token"))?;
         let kid = header.kid.ok_or_else(|| AppError::bad("sign-in token has no key id"))?;
@@ -505,6 +816,7 @@ impl JwkCache {
         let mut validation = Validation::new(jsonwebtoken::Algorithm::RS256);
         validation.set_audience(audiences);
         validation.set_issuer(issuers);
+        validation.set_required_spec_claims(required);
         jsonwebtoken::decode::<T>(token, &key, &validation)
             .map(|d| d.claims)
             .map_err(|e| AppError::Forbidden(format!("sign-in token rejected: {e}")))
@@ -533,15 +845,16 @@ async fn access_user(parts: &Parts, state: &AppState) -> AppResult<Option<User>>
         .or_else(|| CookieJar::from_headers(&parts.headers).get("CF_Authorization").map(|c| c.value().to_string()));
     let Some(token) = token else { return Ok(None) };
     let issuer = format!("https://{team}.cloudflareaccess.com");
-    let claims: AccessClaims = keys.verify(&state.http, &token, std::slice::from_ref(aud), &[issuer.as_str()]).await?;
+    let claims: AccessClaims = keys.verify(&state.http, &token, std::slice::from_ref(aud), &[issuer.as_str()], &ACCESS_REQUIRED).await?;
     let email = claims.email.to_lowercase();
-    if let Some(user) =
-        sqlx::query_as::<_, User>("SELECT id, email, display_name, is_admin FROM users WHERE email = ?").bind(&email).fetch_optional(&state.pool).await?
-    {
-        return Ok(Some(user));
+    if let Some(acc) = account_by_email(&state.pool, &email).await? {
+        if acc.disabled {
+            return Err(AppError::Forbidden(DISABLED.into()));
+        }
+        return Ok(Some(acc.user));
     }
-    let name = email.split('@').next().unwrap_or("player").to_string();
-    Ok(Some(upsert_user(state, None, &email, &name).await?))
+    let name = display_name(None, &email);
+    Ok(Some(upsert_user(state, &email, &name).await?))
 }
 
 #[cfg(test)]

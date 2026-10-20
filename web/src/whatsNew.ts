@@ -14,6 +14,20 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-20-open-signup",
+    date: "2026-10-20",
+    title: "Signing in, and room for new people",
+    items: [
+      "The host can open Yama to anyone with a Google account. Until then it stays invite-only, as before.",
+      "There is still no sign-up with a username and password. Google checks who you are.",
+      "With sign-up open, accounts that join without an invite get a smaller share of the server: 100-game lab runs, one at a time, a few a day, and two online games at once. An invite lifts it.",
+      "Nobody can see anyone else's decks, collection, prices paid, plans, games or lab runs. A playgroup still needs its join code.",
+      "Too many sign-in attempts, searches or join codes in a row now get a short wait, to stop guessing and floods.",
+      "Admins can see every account under Group, You, and disable one: it's signed out at once and can't sign in until it's enabled.",
+    ],
+    link: { to: "/group", label: "Open Group" },
+  },
+  {
     id: "2026-10-20-sim-confidence",
     date: "2026-10-20",
     title: "The lab says which decks it can't judge",

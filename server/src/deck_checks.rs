@@ -5,7 +5,10 @@
 //! worker, so saving never waits on the network. The worker sends one request at a time, at
 //! least [`MIN_GAP`] apart, which keeps Yama far under Spellbook's guideline of about 80
 //! requests a minute; a 429 makes it wait as long as Spellbook asks. Failures retry with growing
-//! pauses and stop after [`MAX_ATTEMPTS`] until someone presses "check again".
+//! pauses and stop after [`MAX_ATTEMPTS`] until someone presses "check again". One account's
+//! decks get at most [`PER_OWNER_HOUR`] checks an hour; the rest wait their turn, so nobody (with
+//! open sign-up, a stranger saving deck after deck) can keep Spellbook busy on Yama's behalf or
+//! hold up everyone else's checks.
 //!
 //! Spellbook's API guidelines (docs/api.md in SpaceCowMedia/commander-spellbook-backend, read
 //! 2026-10-19): sparse unauthenticated requests, name the service in the User-Agent, handle
@@ -35,6 +38,10 @@ pub const MAX_ATTEMPTS: i64 = 6;
 const BACKOFF_SECS: [i64; 6] = [0, 60, 5 * 60, 30 * 60, 2 * 3600, 12 * 3600];
 /// How often an idle worker looks for checks queued by another process.
 const IDLE_POLL: Duration = Duration::from_secs(10 * 60);
+/// Checks one account's decks may have in an hour (counted by the last try of each version).
+pub const PER_OWNER_HOUR: i64 = 20;
+/// How long the worker waits before looking again when every due check is held by that limit.
+const OWNER_WAIT: Duration = Duration::from_secs(5 * 60);
 /// "Check again" is refused this soon after an answer, so a button can't hammer Spellbook.
 pub const RECHECK_AFTER_SECS: i64 = 10 * 60;
 /// …and this soon after a failed try, so pressing it while retries wait out a pause still
@@ -582,10 +589,11 @@ enum Next {
 }
 
 /// The oldest due check of a deck's current version. Superseded versions wait (a later save
-/// replaced them before their turn came), as do archived decks.
+/// replaced them before their turn came), as do archived decks, and the decks of an account that
+/// has had [`PER_OWNER_HOUR`] checks in the last hour.
 async fn next_pending(pool: &SqlitePool) -> sqlx::Result<Next> {
-    let rows: Vec<(String, String, i64, Option<String>)> = sqlx::query_as(
-        "SELECT c.version_id, c.requested_at, c.attempts, c.last_attempt_at FROM deck_version_checks c
+    let rows: Vec<(String, String, i64, Option<String>, String)> = sqlx::query_as(
+        "SELECT c.version_id, c.requested_at, c.attempts, c.last_attempt_at, d.owner_id FROM deck_version_checks c
          JOIN decks d ON d.current_version_id = c.version_id AND d.archived = 0
          WHERE c.source = ? AND (c.checked_at IS NULL OR c.checked_at < c.requested_at) AND c.attempts < ?
          ORDER BY c.requested_at",
@@ -595,8 +603,26 @@ async fn next_pending(pool: &SqlitePool) -> sqlx::Result<Next> {
     .fetch_all(pool)
     .await?;
     let now = Utc::now();
+    let busy: HashMap<String, i64> = if rows.is_empty() {
+        HashMap::new()
+    } else {
+        sqlx::query_as::<_, (String, i64)>(
+            "SELECT d.owner_id, COUNT(*) FROM deck_version_checks c JOIN deck_versions v ON v.id = c.version_id JOIN decks d ON d.id = v.deck_id
+             WHERE c.source = ? AND c.last_attempt_at > ? GROUP BY d.owner_id",
+        )
+        .bind(SPELLBOOK)
+        .bind(stamp_of(now - chrono::Duration::hours(1)))
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect()
+    };
     let mut soonest: Option<Duration> = None;
-    for (version, _, attempts, last) in rows {
+    for (version, _, attempts, last, owner) in rows {
+        if busy.get(&owner).is_some_and(|n| *n >= PER_OWNER_HOUR) {
+            soonest = Some(soonest.map_or(OWNER_WAIT, |s| s.min(OWNER_WAIT)));
+            continue;
+        }
         let due = due_at(attempts, last.as_deref(), now);
         if due <= now {
             return Ok(Next::Due(version));
@@ -929,6 +955,35 @@ mod tests {
         sqlx::query("UPDATE deck_version_checks SET last_attempt_at = '2026-01-01T00:00:00.000Z'").execute(&pool).await.unwrap();
         request_again(&pool, &v).await.unwrap();
         assert!(matches!(next_pending(&pool).await.unwrap(), Next::Due(_)));
+    }
+
+    #[tokio::test]
+    async fn one_account_gets_at_most_twenty_checks_an_hour() {
+        let pool = crate::db::test_pool().await;
+        let busy = user(&pool).await;
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('u2', 'b@example.com', 'B', '2026-10-19T00:00:00Z')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // u1 saves 21 decks; 20 of them were checked in the last few minutes.
+        let mut versions = Vec::new();
+        for i in 0..=PER_OWNER_HOUR {
+            let deck = crate::decks::create_deck_with_cards(&pool, &busy, &format!("Deck {i}"), None, rohan_sample()).await.unwrap();
+            versions.push(current_version(&pool, &deck).await);
+        }
+        for v in &versions[..PER_OWNER_HOUR as usize] {
+            store(&pool, v, &summarize(serde_json::from_value(serde_json::json!({"bracketTag": "C"})).unwrap(), &rohan_sample(), &stamp())).await.unwrap();
+        }
+        // u1's 21st waits, even though it was queued before u2's deck...
+        let theirs = crate::decks::create_deck_with_cards(&pool, "u2", "B's deck", None, rohan_sample()).await.unwrap();
+        let theirs = current_version(&pool, &theirs).await;
+        assert!(matches!(next_pending(&pool).await.unwrap(), Next::Due(v) if v == theirs));
+        // ...and with nothing else due the worker looks again in a few minutes.
+        store(&pool, &theirs, &summarize(serde_json::from_value(serde_json::json!({"bracketTag": "C"})).unwrap(), &rohan_sample(), &stamp())).await.unwrap();
+        assert!(matches!(next_pending(&pool).await.unwrap(), Next::Later(d) if d == OWNER_WAIT));
+        // An hour on, it goes.
+        sqlx::query("UPDATE deck_version_checks SET last_attempt_at = '2026-01-01T00:00:00.000Z'").execute(&pool).await.unwrap();
+        assert!(matches!(next_pending(&pool).await.unwrap(), Next::Due(v) if v == versions[PER_OWNER_HOUR as usize]));
     }
 
     #[tokio::test]

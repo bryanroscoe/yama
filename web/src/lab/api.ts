@@ -342,6 +342,20 @@ export interface Pace {
   basis: "recent" | "average" | null;
   sample: number | null;
   your_pending: number;
+  /** Game counts this account may choose (missing on older servers: 100, 200 and 400). */
+  game_choices?: number[];
+  /** The smaller allowance of an account that joined without an invite; null for anyone else. */
+  allowance?: Allowance | null;
+}
+
+export interface Allowance {
+  /** Games in one experiment. */
+  games: number;
+  /** Experiments at once. */
+  at_a_time: number;
+  games_per_day: number;
+  /** Games asked for in the last 24 hours. */
+  used_today: number;
 }
 
 export type BaseChoice = { kind: "deck"; id: string } | { kind: "precon"; id: string } | { kind: "list"; text: string };

@@ -21,8 +21,10 @@ import {
   changeText,
   changedCount,
   cuttable,
+  allowanceText,
   durationText,
   expectedSeconds,
+  gameChoices,
   grouped,
   hasResults,
   identityQuery,
@@ -37,7 +39,6 @@ import { usePrecons } from "./Precons";
 type BaseKind = "deck" | "precon" | "list";
 type FieldKind = "precons_top" | "precons_near" | "precons_all" | "my_decks";
 
-const GAMES = [100, 200, 400];
 const FIELD_N = 20;
 
 /** A loaded base list: its lines, the commander's colours when known, and its label. */
@@ -111,7 +112,7 @@ function TryForm() {
   const [fieldKind, setFieldKind] = useState<FieldKind>((prefill?.field?.kind as FieldKind) ?? "precons_top");
   const [anchor, setAnchor] = useState(prefill?.field?.kind === "precons_near" ? (prefill.field.ids[0] ?? "") : "");
   const [myDecks, setMyDecks] = useState<string[]>(prefill?.field?.kind === "my_decks" ? prefill.field.ids : []);
-  const [games, setGames] = useState(prefill?.games && GAMES.includes(prefill.games) ? prefill.games : 200);
+  const [gamesPicked, setGames] = useState<number | null>(prefill?.games ?? null);
   const [difficulty, setDifficulty] = useState(prefill?.difficulty === "Medium" ? "Medium" : "Easy");
   const [name, setName] = useState("");
   const opId = useRef(crypto.randomUUID());
@@ -119,6 +120,9 @@ function TryForm() {
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const precons = usePrecons();
   const pace = useQuery({ queryKey: ["lab", "pace"], queryFn: () => api<Pace>("/api/lab/pace"), refetchInterval: 60_000 });
+  // The server says which sizes this account may run (an account without an invite: 100 only).
+  const choices = gameChoices(pace.data);
+  const games = gamesPicked != null && choices.includes(gamesPicked) ? gamesPicked : choices.includes(200) ? 200 : (choices[0] ?? 100);
   const deck = useQuery({ queryKey: ["deck", deckId], queryFn: () => api<DeckView>(`/api/decks/${deckId}`), enabled: kind === "deck" && !!deckId });
   const precon = useQuery({ queryKey: ["lab", "precon", preconId], queryFn: () => api<PreconDetail>(`/api/precons/${preconId}`), enabled: kind === "precon" && !!preconId });
 
@@ -423,7 +427,7 @@ function TryForm() {
                 Games
               </span>
               <div className="segmented" role="radiogroup" aria-labelledby="try-games">
-                {GAMES.map((g) => (
+                {choices.map((g) => (
                   <button key={g} type="button" role="radio" aria-checked={games === g} aria-pressed={games === g} onClick={() => setGames(g)}>
                     {g}
                   </button>
@@ -433,6 +437,7 @@ function TryForm() {
                 {games / 2} pods, each played by both lists. More games take longer and give a tighter answer.
                 {eta != null ? ` ${durationText(eta).replace(/^about/, "About")}.` : ""} <PaceNote pace={pace.data} error={pace.error} />
               </span>
+              {pace.data?.allowance && <span className="lab-note">{allowanceText(pace.data.allowance)}</span>}
             </div>
           </section>
         </div>

@@ -28,6 +28,8 @@ use std::collections::{HashMap, HashSet};
 
 /// A plan file is at most 8 MB; larger bodies get 413.
 pub const IMPORT_LIMIT: usize = 8 << 20;
+/// At most 2 MB for an account that joined without an invite (Bryan's file is about 1.3 MB).
+pub const OPEN_IMPORT_LIMIT: usize = 2 << 20;
 
 /// An alias is followed to a live key at most this many hops.
 const ALIAS_HOPS: usize = 10;
@@ -58,6 +60,16 @@ fn truthy(v: &Option<String>) -> bool {
 /// The browser (a session) and `publish.py` (a script key) both use it; the owner is always the
 /// caller.
 async fn import_route(State(st): State<AppState>, user: SyncUser, Query(q): Query<ImportQuery>, body: Bytes) -> AppResult<Json<import::Report>> {
+    if !user.is_admin {
+        st.limits.imports.check(&user.user_id)?;
+    }
+    if user.limited && body.len() > OPEN_IMPORT_LIMIT {
+        return Err(AppError::bad(format!(
+            "That plan file is {} KB. Accounts that joined without an invite can import up to {} KB.",
+            body.len() / 1024,
+            OPEN_IMPORT_LIMIT / 1024
+        )));
+    }
     let via = if user.via == Via::Token { "token" } else { "web" };
     let opts = import::Options { dry_run: truthy(&q.dry_run), force: truthy(&q.force), via };
     Ok(Json(import::import_doc(&st.pool, &user.user_id, &body, opts).await?))

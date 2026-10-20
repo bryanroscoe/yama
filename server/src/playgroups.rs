@@ -130,7 +130,9 @@ struct Join {
     code: String,
 }
 
+/// Join by code. Tries (right or wrong) are rate-limited per account, so codes can't be guessed.
 async fn join(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<Join>) -> AppResult<Json<serde_json::Value>> {
+    st.limits.join_codes.check_user(&user)?;
     let id: String = sqlx::query_scalar("SELECT id FROM playgroups WHERE join_code = ?")
         .bind(body.code.trim().to_uppercase())
         .fetch_optional(&st.pool)

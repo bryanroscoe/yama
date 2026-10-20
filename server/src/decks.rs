@@ -146,7 +146,8 @@ async fn resolve(pool: &SqlitePool, lines: Vec<ParsedLine>) -> AppResult<ParseRe
     Ok(ParseResult { cards, unknown })
 }
 
-async fn parse_preview(State(st): State<AppState>, _u: CurrentUser, Json(req): Json<ParseRequest>) -> AppResult<Json<ParseResult>> {
+async fn parse_preview(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(req): Json<ParseRequest>) -> AppResult<Json<ParseResult>> {
+    st.limits.deck_writes.check_user(&user)?;
     Ok(Json(resolve(&st.pool, parse_list(&req.text, req.first_is_commander)).await?))
 }
 
@@ -270,6 +271,7 @@ struct Created {
 }
 
 async fn create_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<NewDeck>) -> AppResult<Json<Created>> {
+    st.limits.deck_writes.check_user(&user)?;
     let (cards, unknown) = match (body.cards, body.text) {
         (Some(cards), _) => (cards, vec![]),
         (None, Some(text)) => {
@@ -646,6 +648,7 @@ async fn save_version(
     Path(id): Path<String>,
     Json(body): Json<SaveVersion>,
 ) -> AppResult<Json<serde_json::Value>> {
+    st.limits.deck_writes.check_user(&user)?;
     owned_deck(&st.pool, &user.id, &id).await?;
     let vid = insert_version(&st.pool, &id, &body.cards, body.note.as_deref()).await?;
     Ok(Json(serde_json::json!({ "version_id": vid })))
@@ -809,10 +812,11 @@ async fn recheck(
     CurrentUser(user): CurrentUser,
     Path(id): Path<String>,
 ) -> AppResult<Json<crate::deck_checks::CheckView>> {
+    // Someone else's deck is "not found" whatever this server's settings.
+    let (_, version, _) = owned_deck(&st.pool, &user.id, &id).await?;
     if !st.cfg.deck_checks {
         return Err(AppError::Conflict("deck checks are off on this server".into()));
     }
-    let (_, version, _) = owned_deck(&st.pool, &user.id, &id).await?;
     let version = version.ok_or_else(|| AppError::bad("the deck has no cards yet"))?;
     crate::deck_checks::request_again(&st.pool, &version).await?;
     Ok(Json(crate::deck_checks::view(&st.pool, Some(&version), true).await?))

@@ -86,11 +86,18 @@ function Or({ children }: { children: string }) {
   );
 }
 
-interface AuthConfig {
+export interface AuthConfig {
   google_client_id: string | null;
   dev_login: boolean;
   password_login: boolean;
   cf_access: boolean;
+  /** Anyone with a Google account may join (YAMA_OPEN_SIGNUP). Missing on older servers. */
+  open_signup?: boolean;
+}
+
+/** The server's sign-in settings, shared by the sign-in page and the admin rows in Group. */
+export function useAuthConfig(enabled = true) {
+  return useQuery({ queryKey: ["auth-config"], queryFn: () => api<AuthConfig>("/api/auth/config"), enabled });
 }
 
 declare global {
@@ -120,7 +127,7 @@ function loadGoogle(): Promise<void> {
 
 export function Login() {
   const qc = useQueryClient();
-  const config = useQuery({ queryKey: ["auth-config"], queryFn: () => api<AuthConfig>("/api/auth/config") });
+  const config = useAuthConfig();
   const googleRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<unknown>(null);
   const [email, setEmail] = useState("");
@@ -178,7 +185,11 @@ export function Login() {
       <div className="login-inner">
         <div>
           <h2 className="login-title">Sign in</h2>
-          <p className="dim" style={{ margin: 0 }}>Yama is invite-only. Use the {clientId ? "Google account" : "account"} your host added.</p>
+          {config.data?.open_signup ? (
+            <p className="dim" style={{ margin: 0 }}>Anyone with a Google account can join. Yama is free, unofficial and private to its users.</p>
+          ) : (
+            <p className="dim" style={{ margin: 0 }}>Yama is invite-only. Use the {clientId ? "Google account" : "account"} your host added.</p>
+          )}
         </div>
         {clientId && <div ref={googleRef} />}
         {config.data?.cf_access && (

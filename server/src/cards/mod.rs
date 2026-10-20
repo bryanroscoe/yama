@@ -94,11 +94,18 @@ const GAME_CHANGERS_NOT_LOADED: &str =
     "The Game Changer list isn't loaded on this server yet, so is:gamechanger can't be searched. It comes with the next card data import.";
 const EXTRA_LAYOUTS: &str = "('token','double_faced_token','emblem','vanguard','scheme','planar')";
 
+/// Longest search query accepted: far more than any real search, and it keeps compiled SQL small.
+const MAX_QUERY_CHARS: usize = 1_000;
+
 async fn search_cards(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
     Query(p): Query<SearchParams>,
 ) -> AppResult<Json<SearchResult>> {
+    st.limits.search.check_user(&user)?;
+    if p.q.chars().count() > MAX_QUERY_CHARS {
+        return Err(AppError::bad(format!("a search can be at most {MAX_QUERY_CHARS} characters")));
+    }
     let compiled = search::compile(&p.q).map_err(AppError::BadRequest)?;
     // Before the flags are loaded every card's flag is NULL, so is:gamechanger would quietly
     // find nothing. Say why instead.
@@ -202,11 +209,15 @@ struct AutoParams {
 
 async fn autocomplete(
     State(st): State<AppState>,
-    _user: CurrentUser,
+    CurrentUser(user): CurrentUser,
     Query(p): Query<AutoParams>,
 ) -> AppResult<Json<Vec<String>>> {
     let q = p.q.trim();
     if q.len() < 2 {
+        return Ok(Json(vec![]));
+    }
+    st.limits.autocomplete.check_user(&user)?;
+    if q.chars().count() > 200 {
         return Ok(Json(vec![]));
     }
     let names: Vec<String> = sqlx::query_scalar(
@@ -436,7 +447,8 @@ struct OfflineBundle {
     cards: Vec<OfflineCard>,
 }
 
-async fn offline_cards(State(st): State<AppState>, _user: CurrentUser) -> AppResult<Json<OfflineBundle>> {
+async fn offline_cards(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<OfflineBundle>> {
+    st.limits.offline_cards.check_user(&user)?;
     let version: Option<String> = sqlx::query_scalar("SELECT MAX(updated_at) FROM cards").fetch_one(&st.pool).await?;
     let cards = sqlx::query_as::<_, OfflineCard>(
         "SELECT oracle_id AS i, name AS n, mana_cost AS m, cmc AS v, type_line AS t, oracle_text AS o, colors AS c,

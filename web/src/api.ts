@@ -49,6 +49,26 @@ export interface User {
   email: string;
   display_name: string;
   is_admin: boolean;
+  /**
+   * Joined through open sign-up and not invited: the smaller lab and online play allowance.
+   * Missing from a user cached by an older build, which reads as false.
+   */
+  limited?: boolean;
+}
+
+/** An account in the admins' list (Group, You, Accounts). */
+export interface AccountInfo {
+  id: string;
+  email: string;
+  display_name: string;
+  is_admin: boolean;
+  limited: boolean;
+  invited: boolean;
+  google: boolean;
+  password: boolean;
+  disabled_at: string | null;
+  created_at: string;
+  last_sign_in: string | null;
 }
 
 export interface Card {

@@ -22,6 +22,9 @@ pub enum AppError {
     /// outside service Yama needs for this request didn't answer).
     #[error("{0}")]
     Unavailable(String),
+    /// 429 with `Retry-After`: a rate limit (`limits.rs`).
+    #[error("{message}")]
+    TooManyRequests { message: String, retry_after: u64 },
     #[error(transparent)]
     Db(#[from] sqlx::Error),
     #[error(transparent)]
@@ -45,6 +48,7 @@ impl IntoResponse for AppError {
             Self::BadRequest(_) | Self::Invalid { .. } => StatusCode::BAD_REQUEST,
             Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::Db(sqlx::Error::RowNotFound) => StatusCode::NOT_FOUND,
             Self::Db(_) | Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -63,6 +67,10 @@ impl IntoResponse for AppError {
                 }
             }
         }
-        (status, Json(body)).into_response()
+        let mut res = (status, Json(body)).into_response();
+        if let Self::TooManyRequests { retry_after, .. } = &self {
+            res.headers_mut().insert(axum::http::header::RETRY_AFTER, axum::http::HeaderValue::from(*retry_after));
+        }
+        res
     }
 }
