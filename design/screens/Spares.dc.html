@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Spares</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1100px; position: relative; background: var(--ground); padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 18px">
+  <div style="display: flex; align-items: center; gap: 10px">
+    <a href="PlanOverview.dc.html" aria-label="Back to plans" style="width: 44px; height: 44px; border-radius: 50%; background: var(--surface); display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+    <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 0.9">Spares</h1>
+  </div>
+  <p style="margin: 0; font-size: 14px; color: var(--dim)">Cards leaving one deck, and where they go next.</p>
+
+  <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+    <section aria-label="{{g.title}}" style="display: flex; flex-direction: column; gap: 8px">
+      <h2 style="margin: 0; display: flex; justify-content: space-between; align-items: baseline; font-family: var(--display); font-weight: 800; font-size: 26px">{{g.title}}<span style="font-family: var(--body); font-size: 13px; font-weight: 400; color: var(--dim)">{{g.count}}</span></h2>
+      <sc-for list="{{g.cards}}" as="c" hint-placeholder-count="3">
+        <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; padding: 10px; border-radius: 16px; background: var(--surface)">
+          <img src="{{c.art}}" alt="" style="width: 64px; height: 46px; border-radius: 8px; object-fit: cover">
+          <span style="display: flex; flex-direction: column; gap: 2px; line-height: 1.3; min-width: 0">
+            <b>{{c.name}}</b>
+            <span style="font-size: 13px; color: var(--dim)">From {{c.from}}</span>
+            <span style="font-size: 13px; color: {{c.nextInk}}; font-weight: 700">{{c.next}}</span>
+          </span>
+        </div>
+      </sc-for>
+    </section>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const c = (name, art, from, next, ink) => ({ name, art: A(art), from, next, nextInk: ink || '#f2efe8' });
+    return {
+      groups: [
+        { title: 'Out now', count: '4', cards: [
+          c('Angel of the Ruins', '3689b6bcc6a7e0cbb5611d74ab146d43', 'Revival Trance', 'Proposed for Multiverse Reforged'),
+          c('Archfiend of Depravity', '75b6404c0b2229aed23c72079fd10ae4', 'Revival Trance', 'Proposed for Multiverse Reforged'),
+          c('Port Town', 'c420d1ed60b537705c81bbb8c1a8ee50', 'Riders of Rohan', 'Proposed for Multiverse Reforged'),
+          c('Sepulchral Primordial', 'a601244677f562b0aa02ff845ea1fba4', 'Revival Trance', 'Stays until Karmic Guide can move. Decide that first.', '#f0b45a')
+        ] },
+        { title: 'Out when prints arrive', count: '5', cards: [
+          c('Arcane Denial', 'fdc2fadc5a0e7d18d6b693b5d7b6281d', 'a print replacing it', 'Proposed for Multiverse Reforged'),
+          c('Mount Doom', 'de637fa153f17b078d20e55a175acc4f', 'Riders of Rohan', 'Off-color there. No deck wants it yet', '#a9adb3')
+        ] },
+        { title: 'Stand-ins leaving', count: '2', cards: [
+          c('Archivist of Gondor', '7360d4a1959622482ec2eee16f276239', 'Riders of Rohan, when Horn of the Mark arrives', 'Back to the trade binder', '#a9adb3'),
+          c('Mountain', '3bf02968b49b8af680661d10aa4e5547', 'Riders of Rohan, when Volcanic Island arrives', 'Back to the basic lands box', '#a9adb3')
+        ] }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

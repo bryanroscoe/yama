@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Online board</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--stop-mine:#f0b45a;--stop-opp:#7fb0ff;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="height: 100vh; min-height: 760px; display: grid; grid-template-columns: minmax(0, 1fr) 340px; background: var(--ground); overflow: hidden">
+
+  <div style="min-width: 0; display: grid; grid-template-rows: minmax(0, 36fr) auto minmax(0, 40fr) auto; gap: 8px; padding: 10px 10px 0">
+
+    <section aria-label="Opponents in turn order" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; min-height: 0">
+      <sc-for list="{{opps}}" as="o" hint-placeholder-count="3">
+        <article aria-label="{{o.name}}, {{o.life}} life" style="min-height: 0; border-radius: 16px; background: var(--surface); overflow: hidden; display: flex; flex-direction: column; box-shadow: {{o.ring}}">
+          <header style="position: relative; height: 76px; flex: 0 0 auto; padding: 8px 10px; display: flex; gap: 10px; align-items: end">
+            <img src="{{o.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+            <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.86) 0%, rgb(11 12 14 / 0.55) 55%, rgb(11 12 14 / 0.25) 100%)"></span>
+            <span style="position: relative; display: flex; flex-direction: column; line-height: 1.1; min-width: 0; flex: 1">
+              <span style="font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{o.name}}</span>
+              <span style="font-size: 12px; color: #d5d7db; white-space: nowrap">{{o.counts}}</span>
+              <span style="font-size: 10px; color: rgb(255 255 255 / 0.7)">Art: {{o.artist}}</span>
+            </span>
+            <span style="position: relative; display: flex; flex-direction: column; align-items: end; gap: 3px">
+              <span style="display: flex; align-items: center; gap: 4px; padding: 1px 8px 1px 2px; border-radius: 999px; background: rgb(11 12 14 / 0.75); font-size: 12px; font-weight: 700"><img src="{{o.art}}" alt="" style="width: 18px; height: 18px; border-radius: 50%; object-fit: cover">{{o.cmdr}}</span>
+              <sc-if value="{{o.deciding}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; font-weight: 700; color: var(--warn)">Deciding</span></sc-if>
+            </span>
+            <b style="position: relative; font-family: var(--display); font-weight: 700; font-size: 34px; line-height: 1; font-variant-numeric: tabular-nums">{{o.life}}</b>
+          </header>
+          <div style="flex: 1; min-height: 0; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 6px">
+            <div style="display: flex; gap: 4px; flex-wrap: wrap">
+              <sc-for list="{{o.back}}" as="t" hint-placeholder-count="3">
+                <span title="{{t.name}}" style="position: relative; width: 44px; height: 44px; border-radius: 8px; overflow: hidden; background: var(--raised); transform: {{t.tap}}">
+                  <img src="{{t.art}}" alt="{{t.name}}" style="width: 100%; height: 100%; object-fit: cover">
+                  <sc-if value="{{t.many}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: 2px; bottom: 2px; padding: 0 4px; border-radius: 4px; background: rgb(11 12 14 / 0.85); font-size: 11px; font-weight: 700">{{t.count}}</span></sc-if>
+                </span>
+              </sc-for>
+            </div>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap">
+              <sc-for list="{{o.front}}" as="t" hint-placeholder-count="2">
+                <span title="{{t.name}}" style="position: relative; width: 64px; height: 64px; border-radius: 10px; overflow: hidden; background: var(--raised); box-shadow: {{t.border}}">
+                  <sc-if value="{{t.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{t.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+                  <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span>
+                  <span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">{{t.pt}}</span>
+                  <sc-if value="{{t.many}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: rgb(11 12 14 / 0.85); font-size: 11px; font-weight: 700">{{t.count}}</span></sc-if>
+                </span>
+              </sc-for>
+            </div>
+          </div>
+        </article>
+      </sc-for>
+    </section>
+
+    <div aria-label="Turn 9, your turn, declare attackers" style="display: flex; align-items: center; gap: 14px; padding: 4px 6px; flex-wrap: wrap">
+      <span style="padding: 4px 12px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; font-size: 14px; white-space: nowrap">Your turn 9</span>
+      <ol style="margin: 0; padding: 0; list-style: none; display: flex; gap: 2px; font-size: 13px">
+        <sc-for list="{{phases}}" as="p" hint-placeholder-count="9">
+          <li style="display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 8px; border-radius: 8px; background: {{p.bg}}; color: {{p.ink}}; font-weight: {{p.weight}}">
+            <span style="white-space: nowrap">{{p.label}}</span>
+            <span aria-label="{{p.stops}}" style="display: flex; gap: 3px; height: 6px">
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: {{p.mine}}"></span>
+              <span style="width: 6px; height: 6px; border-radius: 2px; box-shadow: inset 0 0 0 1.5px {{p.opp}}"></span>
+            </span>
+          </li>
+        </sc-for>
+      </ol>
+      <span style="margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 999px; background: var(--surface); font-size: 14px">
+        <img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="" style="width: 26px; height: 26px; border-radius: 50%; object-fit: cover">
+        Attacking Sam with <b>2 creatures, 9 power</b>
+      </span>
+    </div>
+
+    <section aria-label="Your battlefield" style="min-height: 0; border-radius: 16px; background: var(--surface); padding: 12px; display: flex; flex-direction: column; justify-content: space-between; gap: 10px; position: relative">
+      <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: end">
+        <sc-for list="{{creatures}}" as="t" hint-placeholder-count="5">
+          <button aria-label="{{t.label}}" style="position: relative; width: 96px; height: 96px; padding: 0; border: none; border-radius: 12px; overflow: hidden; background: var(--raised); box-shadow: {{t.ring}}; transform: {{t.lift}}">
+            <sc-if value="{{t.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{t.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover"></sc-if>
+            <span style="position: absolute; left: 0; right: 0; top: 0; padding: 2px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span>
+            <sc-if value="{{t.hasBadge}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 4px; bottom: 4px; padding: 0 6px; border-radius: 4px; background: var(--bad); color: var(--ground); font-size: 11px; font-weight: 700">{{t.badge}}</span></sc-if>
+            <sc-if value="{{t.many}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 4px; bottom: 4px; padding: 0 6px; border-radius: 4px; background: rgb(11 12 14 / 0.85); font-size: 12px; font-weight: 700">{{t.count}}</span></sc-if>
+            <span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 14px; font-weight: 700">{{t.pt}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+        <div style="display: flex; gap: 6px; flex-wrap: wrap" aria-label="Your lands">
+          <sc-for list="{{lands}}" as="t" hint-placeholder-count="4">
+            <span title="{{t.name}}" style="position: relative; width: 60px; height: 60px; border-radius: 10px; overflow: hidden; background: var(--raised); transform: {{t.tap}}">
+              <img src="{{t.art}}" alt="{{t.name}}" style="width: 100%; height: 100%; object-fit: cover">
+              <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 4px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span>
+              <sc-if value="{{t.many}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: rgb(11 12 14 / 0.85); font-size: 12px; font-weight: 700">{{t.count}}</span></sc-if>
+            </span>
+          </sc-for>
+        </div>
+        <div style="display: flex; gap: 6px" aria-label="Your other permanents">
+          <sc-for list="{{others}}" as="t" hint-placeholder-count="3">
+            <span title="{{t.name}}" style="position: relative; width: 60px; height: 60px; border-radius: 10px; overflow: hidden; background: var(--raised)">
+              <img src="{{t.art}}" alt="{{t.name}}" style="width: 100%; height: 100%; object-fit: cover">
+              <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 4px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span>
+            </span>
+          </sc-for>
+        </div>
+      </div>
+
+      <div aria-hidden="true" style="position: absolute; right: 14px; top: -170px; width: 248px; display: flex; flex-direction: column; gap: 6px; z-index: 2">
+        <img src="/_blob/7c226842e4dc64d727461e5c3c1fde3f" alt="" style="width: 248px; border-radius: 12px; box-shadow: 0 20px 50px rgb(0 0 0 / 0.6)">
+        <span style="padding: 8px 10px; border-radius: 10px; background: var(--raised); font-size: 12px; line-height: 1.4"><b>Vigilance</b>: attacking doesn't tap it. Power counts your creatures: 7 now.</span>
+      </div>
+    </section>
+
+    <div aria-label="Your hand and zones" style="display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 14px; align-items: end; padding: 6px 4px 10px">
+      <span style="display: flex; flex-direction: column; gap: 6px">
+        <button style="min-height: 36px; padding: 0 12px; border-radius: 999px; border: none; background: var(--surface); font-size: 13px; font-weight: 700">Library 79</button>
+        <button style="min-height: 36px; padding: 0 12px; border-radius: 999px; border: none; background: var(--surface); font-size: 13px; font-weight: 700">Graveyard 5</button>
+      </span>
+      <span style="display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; color: var(--dim)">
+        <span style="width: 72px; height: 100px; border-radius: 8px; border: 1.5px dashed var(--line); display: grid; place-items: center; text-align: center; padding: 6px; font-size: 11px">Commander on the battlefield</span>
+      </span>
+      <div style="display: flex; justify-content: center; align-items: end; height: 150px; padding-left: 50px">
+        <sc-for list="{{hand}}" as="h" hint-placeholder-count="5">
+          <button aria-label="{{h.label}}" style="flex: 0 0 auto; width: 120px; margin-left: -48px; padding: 0; border: none; background: transparent; border-radius: 6px; box-shadow: {{h.glow}}; transform: {{h.lift}}"><img src="{{h.img}}" alt="" style="display: block; width: 120px; border-radius: 6px"></button>
+        </sc-for>
+      </div>
+      <span style="display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)">
+        <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 52px; height: 52px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px var(--text)">
+        <span style="display: flex; flex-direction: column; line-height: 1">
+          <b style="font-family: var(--display); font-weight: 700; font-size: 40px; font-variant-numeric: tabular-nums">38</b>
+          <span style="font-size: 12px; color: var(--dim)">You, priority</span>
+        </span>
+      </span>
+    </div>
+  </div>
+
+  <aside aria-label="Stack and your options" style="border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line)">
+      <a href="Play.dc.html" style="display: inline-flex; align-items: center; min-height: 40px; color: var(--dim); font-weight: 700; text-decoration: none">Leave</a>
+      <button style="min-height: 40px; padding: 0 14px; border-radius: 999px; border: none; background: var(--surface); font-weight: 700; font-size: 14px">Game log</button>
+    </div>
+    <section aria-labelledby="st" style="padding: 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px">
+      <h2 id="st" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 20px">Stack</h2>
+      <p style="margin: 0; font-size: 14px; color: var(--dim)">Empty.</p>
+    </section>
+    <section aria-live="polite" aria-labelledby="dc" style="padding: 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0">
+      <h2 id="dc" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1">Declare attackers</h2>
+      <p style="margin: 0; font-size: 14px; color: var(--dim)">Click a creature to add it, then click the player it attacks.</p>
+      <ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px">
+        <sc-for list="{{attackers}}" as="a" hint-placeholder-count="3">
+          <li style="display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 52px; padding: 4px 10px 4px 4px; border-radius: 12px; background: {{a.bg}}">
+            <img src="{{a.art}}" alt="" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover">
+            <span style="display: flex; flex-direction: column; line-height: 1.2; min-width: 0"><span style="font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{a.name}}</span><span style="font-size: 12px; color: var(--dim)">{{a.target}}</span></span>
+            <span style="font-size: 13px; font-weight: 700; color: {{a.ink}}">{{a.state}}</span>
+          </li>
+        </sc-for>
+      </ul>
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
+        <section aria-labelledby="lg" style="display: flex; flex-direction: column; gap: 4px; font-size: 13px">
+          <h3 id="lg" style="margin: 0; font-size: 13px; color: var(--dim)">Recent</h3>
+          <p style="margin: 0"><span style="color: var(--dim)">T9</span> You drew Akroma's Will.</p>
+          <p style="margin: 0"><span style="color: var(--dim)">T8</span> Sam attacked you with Terra. You took 3.</p>
+        </section>
+        <span role="status" style="align-self: start; display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: 999px; background: var(--surface); font-size: 13px">Stops on your blockers step<button style="min-height: 30px; padding: 0 10px; border-radius: 999px; border: none; background: var(--raised); font-size: 12px; font-weight: 700">Change</button></span>
+        <button style="min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Attack with all</button>
+        <button style="min-height: 60px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 20px">Attack (2)</button>
+      </div>
+    </section>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const A = {
+      eowyn: '/_blob/c19490e7c081fb35071c85147c01bed4', quint: '/_blob/042e4cb280a5a896fb249a47c8f4a8a3', terra: '/_blob/7678674b257c9f2d67041ed3a4ee2ab4', rootha: '/_blob/81164bc65e84b270bffcfa1e0c331002',
+      adeline: '/_blob/93443cca264c2d66fac605d8e8311296', aragorn: '/_blob/c2a67f4f687b666fcd3c4d8cb3b0bf63', faramir: '/_blob/62e4a477ddbf5628d609a86bc8d12c3a', archivist: '/_blob/7360d4a1959622482ec2eee16f276239',
+      sol: '/_blob/6eb6974115f1bfa5c775b479771e7166', signet: '/_blob/af66cc45335c7043758a263a745cbd02', anointed: '/_blob/39ddc54ea3b9ba45e6d3ac018401863e', rhystic: '/_blob/a3e58275bd2364af6a346bbf2e6a38b9', grave: '/_blob/1dccd462a02a0872cc11a4d8518c111f',
+      plains: '/_blob/30df84aecfd8c45546b9a6bdd64b8552', island: '/_blob/7a66b1e98da872225edb04cfeb9bd60e', mountain: '/_blob/3bf02968b49b8af680661d10aa4e5547', swamp: '/_blob/a5c78b51515608fa9170604cd5046ca0', forge: '/_blob/3599624673068d143c783b9871cd28b6', tower: '/_blob/f42c34fc11f085b17d9a7720c94e99fd'
+    };
+    const back = (name, art, count, tapped) => ({ name, art, count: count ? '×' + count : '', many: !!count, tap: tapped ? 'rotate(90deg)' : 'none' });
+    const front = (name, art, pt, count, cmdr) => ({ name, art: art || '', hasArt: !!art, pt, count: count ? '×' + count : '', many: !!count, border: cmdr ? 'inset 0 0 0 2px #f2efe8' : 'none' });
+    const ph = (label, now, mine, opp) => ({ label, bg: now ? '#1e2125' : 'transparent', ink: now ? '#f2efe8' : '#a9adb3', weight: now ? 700 : 400, mine: mine ? '#f0b45a' : '#2a2e33', opp: opp ? '#7fb0ff' : '#2a2e33', stops: (mine ? 'Stop on your turns. ' : '') + (opp ? 'Stop on opponents’ turns.' : '') });
+    return {
+      opps: [
+        { name: 'Computer, medium', counts: 'Hand 4, library 71, graveyard 6', cmdr: 'Tax +2, 0 to you', life: 31, art: A.quint, artist: 'Darren Tan', ring: 'none', deciding: false,
+          back: [back('Plains', A.plains, 3), back('Mountain', A.mountain, 4), back('Battlefield Forge', A.forge), back('Sol Ring', A.sol)],
+          front: [front('Quintorius', A.quint, '3/3', 0, true), front('Spirit token', '', '3/2', 2)] },
+        { name: 'Sam', counts: 'Hand 6, library 74, graveyard 3', cmdr: 'Tax +0, 3 to you', life: 24, art: A.terra, artist: 'Marta Nael', ring: 'inset 0 0 0 2px #f07a62', deciding: true,
+          back: [back('Swamp', A.swamp, 3), back('Plains', A.plains, 2), back('Mountain', A.mountain, 2), back('Arcane Signet', A.signet)],
+          front: [front('Terra', A.terra, '3/3', 0, true), front('Grave Titan', A.grave, '6/6')] },
+        { name: 'Computer, hard', counts: 'Hand 2, library 70, graveyard 9', cmdr: 'Tax +2, 0 to you', life: 36, art: A.rootha, artist: 'Lie Setiawan', ring: 'none', deciding: false,
+          back: [back('Island', A.island, 4), back('Mountain', A.mountain, 3, true), back('Sol Ring', A.sol), back('Rhystic Study', A.rhystic)],
+          front: [front('Rootha', A.rootha, '3/4', 0, true)] }
+      ],
+      phases: [
+        ph('Upkeep', false, false, false), ph('Draw', false, false, false), ph('Main 1', false, true, false), ph('Combat', false, false, false), ph('Attackers', true, true, false), ph('Blockers', false, true, true), ph('Damage', false, false, false), ph('Main 2', false, true, false), ph('End', false, false, true)
+      ],
+      creatures: [
+        { name: 'Éowyn', label: 'Éowyn, Shieldmaiden, your commander, attacking', art: A.eowyn, hasArt: true, pt: '5/4', ring: '0 0 0 2px #f2efe8, 0 0 0 5px #f07a62', lift: 'translateY(-6px)', hasBadge: true, badge: 'Attacking', many: false, count: '' },
+        { name: 'Adeline', label: 'Adeline, Resplendent Cathar, attacking', art: A.adeline, hasArt: true, pt: '7/4', ring: '0 0 0 3px #f07a62', lift: 'translateY(-6px)', hasBadge: true, badge: 'Attacking', many: false, count: '' },
+        { name: 'Aragorn', label: 'Aragorn, King of Gondor, can attack', art: A.aragorn, hasArt: true, pt: '4/4', ring: '0 0 0 2px #8fd3a8', lift: 'none', hasBadge: false, badge: '', many: false, count: '' },
+        { name: 'Faramir', label: 'Faramir, Steward of Gondor, can attack', art: A.faramir, hasArt: true, pt: '2/2', ring: '0 0 0 2px #8fd3a8', lift: 'none', hasBadge: false, badge: '', many: false, count: '' },
+        { name: 'Archivist', label: 'Archivist of Gondor, summoning sick', art: A.archivist, hasArt: true, pt: '2/3', ring: 'none', lift: 'none', hasBadge: false, badge: '', many: false, count: '' },
+        { name: 'Human Soldier', label: 'Three Human Soldier tokens, can attack', art: '', hasArt: false, pt: '1/1', ring: '0 0 0 2px #8fd3a8', lift: 'none', hasBadge: false, badge: '', many: true, count: '×3' }
+      ],
+      lands: [back('Plains', A.plains, 4), back('Island', A.island, 2), back('Mountain', A.mountain), back('Battlefield Forge', A.forge, 0, true), back('Command Tower', A.tower)],
+      others: [back('Sol Ring', A.sol), back('Arcane Signet', A.signet), back('Anointed Procession', A.anointed)],
+      hand: [
+        { label: 'Boros Charm, can cast', img: '/_blob/2d80527eb5c346c24b35ad5381fe99a6', glow: '0 0 0 2px #8fd3a8', lift: 'translateY(-14px)' },
+        { label: 'Flawless Maneuver', img: '/_blob/2b7584e35f9b697ba24e7b43dae7b869', glow: 'none', lift: 'none' },
+        { label: 'Cyclonic Rift, can cast', img: '/_blob/4e274a0a80fefd3f3346bd10c98c1349', glow: '0 0 0 2px #8fd3a8', lift: 'none' },
+        { label: 'Akroma’s Will', img: '/_blob/d2df35f8a45cc092aadf237d7374fc27', glow: 'none', lift: 'none' },
+        { label: 'Glacial Fortress', img: '/_blob/e25b0374571373f1ab95c0e88cd1758e', glow: 'none', lift: 'none' }
+      ],
+      attackers: [
+        { name: 'Éowyn, Shieldmaiden', target: 'Attacking Sam', art: A.eowyn, state: 'In', ink: '#f07a62', bg: '#1e2125' },
+        { name: 'Adeline, Resplendent Cathar', target: 'Attacking Sam', art: A.adeline, state: 'In', ink: '#f07a62', bg: '#1e2125' },
+        { name: 'Aragorn, King of Gondor', target: 'Can attack', art: A.aragorn, state: 'Add', ink: '#a9adb3', bg: 'transparent' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

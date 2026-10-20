@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Table menu</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#000;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #000">
+  <div aria-hidden="true" style="position: absolute; inset: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 8px">
+    <span style="border-radius: 20px; overflow: hidden"><img src="/_blob/042e4cb280a5a896fb249a47c8f4a8a3" alt="" style="width: 100%; height: 100%; object-fit: cover"></span>
+    <span style="border-radius: 20px; overflow: hidden"><img src="/_blob/383d04a073378ede76b3234038a68757" alt="" style="width: 100%; height: 100%; object-fit: cover"></span>
+    <span style="border-radius: 20px; overflow: hidden"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 100%; height: 100%; object-fit: cover"></span>
+    <span style="border-radius: 20px; overflow: hidden"><img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="" style="width: 100%; height: 100%; object-fit: cover"></span>
+  </div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.72)"></div>
+
+  <section role="dialog" aria-modal="true" aria-label="Table menu" style="position: absolute; left: 0; right: 0; bottom: 0; top: 72px; background: var(--surface); border-radius: 26px 26px 0 0; padding: 10px 18px 22px; display: flex; flex-direction: column; gap: 18px">
+    <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 3px; background: var(--line)"></span>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 52px; height: 52px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px var(--text)">
+        <span style="display: flex; flex-direction: column; line-height: 1.1">
+          <span style="font-family: var(--display); font-weight: 800; font-size: 40px">Turn 7</span>
+          <span style="font-size: 14px; color: var(--dim)">Bryan's turn, 4 min</span>
+        </span>
+      </div>
+      <a href="Life.dc.html" aria-label="Back to the game" style="width: 44px; height: 44px; border-radius: 50%; background: var(--raised); display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></a>
+    </div>
+
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) 52px 52px; gap: 8px">
+      <a href="Life.dc.html" style="min-height: 56px; display: flex; align-items: center; justify-content: center; gap: 10px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none"><img src="/_blob/042e4cb280a5a896fb249a47c8f4a8a3" alt="" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover">Pass to Sam</a>
+      <button aria-label="Undo" style="width: 52px; height: 56px; border-radius: 999px; border: none; background: var(--raised); display: grid; place-items: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 0 12h-3"></path></svg></button>
+      <button aria-label="Redo" style="width: 52px; height: 56px; border-radius: 999px; border: none; background: var(--raised); display: grid; place-items: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"></path><path d="M20 9H10a6 6 0 0 0 0 12h3"></path></svg></button>
+    </div>
+
+    <section aria-labelledby="tk" style="display: flex; flex-direction: column; gap: 10px">
+      <h3 id="tk" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 22px; line-height: 1">On the table</h3>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+        <button style="min-height: 76px; padding: 10px; border-radius: 16px; border: 1px solid var(--text); background: var(--raised); display: flex; flex-direction: column; align-items: start; justify-content: space-between; text-align: left">
+          <span style="font-weight: 700">Monarch</span>
+          <span style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 18px; height: 18px; border-radius: 50%; object-fit: cover">Bryan</span>
+        </button>
+        <button style="min-height: 76px; padding: 10px; border-radius: 16px; border: 1px solid var(--line); background: transparent; display: flex; flex-direction: column; align-items: start; justify-content: space-between; text-align: left">
+          <span style="font-weight: 700">Initiative</span>
+          <span style="font-size: 13px; color: var(--dim)">Nobody</span>
+        </button>
+        <button style="min-height: 76px; padding: 10px; border-radius: 16px; border: 1px solid var(--line); background: transparent; display: flex; flex-direction: column; align-items: start; justify-content: space-between; text-align: left">
+          <span style="font-weight: 700">Day</span>
+          <span style="font-size: 13px; color: var(--dim)">Tap for night</span>
+        </button>
+      </div>
+      <p style="margin: 0; font-size: 13px; color: var(--dim)">Tap a marker, then tap whoever takes it.</p>
+    </section>
+
+    <section aria-labelledby="sh" style="display: flex; gap: 14px; align-items: center; padding: 14px; border-radius: 18px; background: var(--raised)">
+      <div role="img" aria-label="Join code" style="width: 104px; height: 104px; flex: 0 0 auto; border-radius: 10px; background: var(--text); position: relative">
+        <span style="position: absolute; left: 9px; top: 9px; width: 24px; height: 24px; border: 5px solid var(--ground); border-radius: 4px"></span>
+        <span style="position: absolute; right: 9px; top: 9px; width: 24px; height: 24px; border: 5px solid var(--ground); border-radius: 4px"></span>
+        <span style="position: absolute; left: 9px; bottom: 9px; width: 24px; height: 24px; border: 5px solid var(--ground); border-radius: 4px"></span>
+        <span style="position: absolute; right: 14px; bottom: 16px; font-size: 10px; font-weight: 700; color: var(--ground)">QR code</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <h3 id="sh" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 22px; line-height: 1">Everyone's phone</h3>
+        <p style="margin: 0; font-size: 13px; color: var(--dim); line-height: 1.4">Friends scan this, pick their seat and keep their own total.</p>
+        <p role="status" style="margin: 0; font-size: 13px; display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--good)"></span>2 phones following</p>
+      </div>
+    </section>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <button style="min-height: 50px; border-radius: 999px; border: none; background: var(--raised); font-weight: 700">Roll for first</button>
+      <button style="min-height: 50px; border-radius: 999px; border: none; background: var(--raised); font-weight: 700">Record a winner</button>
+    </div>
+
+    <p style="margin: auto 0 0; display: flex; justify-content: space-between; font-size: 13px; color: var(--dim)"><span>Saved to Yama</span><a href="Table.dc.html" style="color: var(--dim); font-weight: 700">Leave it running</a></p>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

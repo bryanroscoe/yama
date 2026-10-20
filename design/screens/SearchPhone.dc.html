@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cards on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Atkinson+Hyperlegible+Mono:wght@400&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;--mono:"Atkinson Hyperlegible Mono",ui-monospace,monospace;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1100px; position: relative; background: var(--ground); padding: 20px 16px 96px; display: flex; flex-direction: column; gap: 16px">
+  <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 48px; line-height: 0.9">Cards</h1>
+  <label style="position: relative; display: block"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%)">Search cards</span>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a9adb3" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%)"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>
+    <input type="search" value="id<=wur t:creature o:create" autocapitalize="off" style="width: 100%; min-height: 52px; padding: 8px 16px 8px 46px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-family: var(--mono); font-size: 15px">
+  </label>
+  <div style="display: flex; gap: 6px; overflow-x: auto">
+    <span style="flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; background: var(--raised); font-size: 13px">Fits white, blue, red</span>
+    <span style="flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; background: var(--raised); font-size: 13px">Creature</span>
+    <span style="flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; background: var(--raised); font-size: 13px">Says "create"</span>
+    <span style="flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px">Most played</span>
+  </div>
+  <p style="margin: 0; font-size: 14px; color: var(--dim)">48 cards. Prices: TCGplayer market via Scryfall, Oct 19.</p>
+  <ul style="margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px">
+    <sc-for list="{{cards}}" as="c" hint-placeholder-count="6">
+      <li style="display: flex; flex-direction: column; gap: 4px">
+        <a href="CardPhone.dc.html" aria-label="{{c.name}}" style="display: block; border-radius: 4.75% / 3.4%; overflow: hidden"><img src="{{c.img}}" alt="{{c.name}}" style="display: block; width: 100%; aspect-ratio: 488 / 680"></a>
+        <span style="display: flex; justify-content: space-between; font-size: 13px"><span style="color: {{c.ownInk}}; font-weight: 700">{{c.own}}</span><span style="color: var(--dim)">{{c.price}}</span></span>
+      </li>
+    </sc-for>
+  </ul>
+
+  <nav aria-label="Main" style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; padding: 8px 4px 16px; background: var(--ground); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr))">
+    <a href="TablePhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"></path></svg>Table</a>
+    <a href="PlayPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)"></rect><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)"></rect></svg>Play</a>
+    <a href="SearchPhone.dc.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--text); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>Cards</a>
+    <a href="CollectionPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="10" height="14" rx="1.5"></rect><path d="M17 7v12M20 9v8"></path></svg>Collection</a>
+    <a href="DeckListPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="16" rx="1.5"></rect><path d="M4 7v12a2 2 0 0 0 2 2h10"></path></svg>Decks</a>
+    <a href="GroupPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"></path></svg>Group</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const c = (name, id, price, own) => ({ name, img: '/_blob/' + id, price: '$' + price, own: own || 'Not owned', ownInk: own ? '#8fd3a8' : '#a9adb3' });
+    return {
+      cards: [
+        c('Adeline, Resplendent Cathar', '7c226842e4dc64d727461e5c3c1fde3f', '3.12', 'In a deck'),
+        c('Young Pyromancer', '83f67844fe118ec8f0a94e7066cd52e3', '0.37'),
+        c('Monastery Mentor', 'c8765d27dab83eefd46f6647d19b1791', '1.39', 'Own 1'),
+        c('Third Path Iconoclast', 'e09d58de61f91eb32fe197f804b319b9', '0.38'),
+        c('Goblin Rabblemaster', '457b48727c89fd7cd1b206c04ad27994', '0.61', 'Own 2'),
+        c('Brimaz, King of Oreskos', 'dec1c1cc0b94bb66bc355c5e278505c4', '9.62')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

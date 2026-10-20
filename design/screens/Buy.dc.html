@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Buy list</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1400px; position: relative; background: var(--ground); padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 16px">
+  <div style="display: flex; align-items: center; gap: 10px">
+    <a href="PlanOverview.dc.html" aria-label="Back to plans" style="width: 44px; height: 44px; border-radius: 50%; background: var(--surface); display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+    <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 0.9">Buy list</h1>
+  </div>
+  <p role="note" style="margin: 0; padding: 10px 12px; border-radius: 12px; background: rgb(240 180 90 / 0.1); box-shadow: inset 0 0 0 1px rgb(240 180 90 / 0.35); font-size: 13px; line-height: 1.4">Stock and prices checked 18 Oct 2026. Recheck before going in. Your rule: never more than 25% over market.</p>
+
+  <sc-for list="{{stores}}" as="s" hint-placeholder-count="2">
+    <section aria-label="{{s.name}}" style="border-radius: 20px; background: var(--surface); overflow: hidden">
+      <header style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 14px 14px 10px">
+        <span style="display: flex; flex-direction: column; line-height: 1.2"><b style="font-size: 17px">{{s.name}}</b><span style="font-size: 13px; color: var(--dim)">{{s.meta}}</span></span>
+        <button style="min-height: 40px; padding: 0 14px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 700; font-size: 14px">Fill the cart</button>
+      </header>
+      <sc-for list="{{s.rows}}" as="r" hint-placeholder-count="3">
+        <div style="padding: 10px 14px; border-top: 1px solid var(--line); display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; opacity: {{r.fade}}">
+          <img src="{{r.art}}" alt="" style="width: 52px; height: 38px; border-radius: 6px; object-fit: cover">
+          <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+            <span style="display: flex; justify-content: space-between; gap: 8px"><b>{{r.card}}</b><b style="font-variant-numeric: tabular-nums">{{r.price}}</b></span>
+            <span style="font-size: 13px; color: var(--dim)">{{r.deck}}, replaces {{r.out}}</span>
+            <span style="font-size: 13px; color: var(--dim)">{{r.listing}}. Market {{r.market}}</span>
+            <sc-if value="{{r.hasFlag}}" hint-placeholder-val="{{false}}"><span style="font-size: 13px; font-weight: 700; color: var(--warn)">{{r.flag}}</span></sc-if>
+            <button onClick="{{r.toggle}}" aria-pressed="{{r.bought}}" style="align-self: start; margin-top: 4px; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid {{r.btnBorder}}; background: {{r.btnBg}}; color: {{r.btnInk}}; font-size: 13px; font-weight: 700">{{r.btnLabel}}</button>
+          </span>
+        </div>
+      </sc-for>
+    </section>
+  </sc-for>
+
+  <section aria-labelledby="ns" style="display: flex; flex-direction: column; gap: 8px">
+    <h2 id="ns" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 26px">Not stocked at your stores</h2>
+    <p style="margin: 0; font-size: 13px; color: var(--dim)">Ask at Card Gurus, or add them to the next print order for about $0.30 each.</p>
+    <sc-for list="{{missing}}" as="m" hint-placeholder-count="4">
+      <div style="display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 52px; border-top: 1px solid var(--line)">
+        <img src="{{m.art}}" alt="" style="width: 44px; height: 32px; border-radius: 6px; object-fit: cover">
+        <span style="display: flex; flex-direction: column; line-height: 1.25; min-width: 0"><b>{{m.card}}</b><span style="font-size: 12px; color: var(--dim)">{{m.note}}</span></span>
+        <span style="font-size: 13px; color: var(--dim)">{{m.market}}</span>
+      </div>
+    </sc-for>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1400}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { bought: { 'Settle the Wreckage': true } };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const row = (card, deck, out, listing, price, market, art, flag) => {
+      const b = !!this.state.bought[card];
+      return { card, deck, out, listing, price, market, art: A(art), flag: flag || '', hasFlag: !!flag, bought: b, fade: b ? 0.55 : 1,
+        btnLabel: b ? 'Bought' : 'Mark bought', btnBg: b ? '#8fd3a8' : 'transparent', btnInk: b ? '#0b0c0e' : '#f2efe8', btnBorder: b ? '#8fd3a8' : '#2a2e33',
+        toggle: () => this.setState((s) => ({ bought: { ...s.bought, [card]: !s.bought[card] } })) };
+    };
+    return {
+      stores: [
+        { name: 'Pat’s Games', meta: '4 cards, $7.25 before tax', rows: [
+          row('Agent of Treachery', 'Multiverse Reforged', 'Venser', 'Borderless, near mint, 4 in stock', '$3.50', '$3.44', '987c210df26330378843a33fab51ef1a'),
+          row('Counterspell', 'Multiverse Reforged', 'Rakdos Signet', 'Masters 25, lightly played, 15 in stock', '$2.25', '$2.15', '9a6ae3977b20b21e1ee40d23e0bc0b56'),
+          row('Chaos Warp', 'Multiverse Reforged', 'Sunfall', 'Warhammer 40,000, lightly played', '$1.00', '$0.32 cheapest', '6759048df4816cbf74dda632d894a6a9', 'Three times the cheapest market price. Print it instead?'),
+          row('Settle the Wreckage', 'Riders of Rohan', 'Talisman of Progress', 'The Hobbit, near mint', '$0.50', '$0.49', '1f21e9291ffe80025fc7a40652c39e26')
+        ] },
+        { name: 'Mothership Books and Games', meta: '3 cards, $3.25 before tax', rows: [
+          row('Ardyn, the Usurper', 'Multiverse Reforged', 'Niv-Mizzet', 'Final Fantasy, near mint, 1 in stock', '$1.50', '$1.38', '083677b55efefe4fbde0278026a06705'),
+          row('Ashen Rider', 'Multiverse Reforged', 'Jhoira', 'Double Masters 2022, near mint', '$0.75', '$0.53', 'ec89776a1116a42d310c1910c35585c9', '42% over market. Your rule is 25%.'),
+          row('Grave Titan', 'Multiverse Reforged', 'Dack Fayden', 'Lorwyn Eclipsed Commander, near mint', '$1.00', '$0.81', '1dccd462a02a0872cc11a4d8518c111f', '23% over market. Within your rule.')
+        ] }
+      ],
+      missing: [
+        { card: 'Deification', note: 'Alpha Strike Games, San Marcos, 44 mi, $0.30', market: '$0.37', art: A('7ecbc1d3eca2830124ade9ebbc1a6bfe') },
+        { card: 'Identity Echo', note: 'Alpha Strike Games, $0.35', market: '$0.38', art: A('feec51bb164be8d79110cf8b7df91d2f') },
+        { card: 'Polymorph', note: 'None found in Austin', market: '$1.42', art: A('300019146fb8931adcce4f0a5a2aee1b') },
+        { card: 'Transmogrify', note: 'None found in Austin', market: '$0.56', art: A('e4c32638a8e0c510b443c8002e8a17d5') },
+        { card: 'Jace’s Machinations', note: 'None found in Austin', market: '$0.56', art: A('86ba0e49d2b64a8e5824053c95385f2b') },
+        { card: 'Archangel of Tithes', note: 'Riders of Rohan. None found in Austin', market: '$2.30', art: A('9e5b458e684da6844324e5c9c535e17d') }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Play online on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1200px; position: relative; background: var(--ground); padding: 20px 16px 96px; display: flex; flex-direction: column; gap: 22px">
+  <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 48px; line-height: 0.9">Play online</h1>
+
+  <a href="PlayBoardPhone.dc.html" style="position: relative; display: block; height: 170px; border-radius: 22px; overflow: hidden; color: var(--text); text-decoration: none">
+    <span style="position: absolute; inset: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr))">
+      <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 100%; height: 100%; object-fit: cover">
+      <img src="/_blob/042e4cb280a5a896fb249a47c8f4a8a3" alt="" style="width: 100%; height: 100%; object-fit: cover">
+      <img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="" style="width: 100%; height: 100%; object-fit: cover">
+      <img src="/_blob/81164bc65e84b270bffcfa1e0c331002" alt="" style="width: 100%; height: 100%; object-fit: cover">
+    </span>
+    <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.25) 0%, rgb(11 12 14 / 0.9) 100%)"></span>
+    <span style="position: absolute; left: 18px; right: 18px; bottom: 16px; display: flex; align-items: end; justify-content: space-between; gap: 10px">
+      <span style="display: flex; flex-direction: column; line-height: 1.1">
+        <span style="font-size: 13px; color: #d5d7db">Continue</span>
+        <span style="font-family: var(--display); font-weight: 800; font-size: 32px">Your move, turn 9</span>
+      </span>
+      <span style="min-height: 44px; padding: 0 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; display: flex; align-items: center">Open</span>
+    </span>
+  </a>
+
+  <section aria-labelledby="ng" style="display: flex; flex-direction: column; gap: 10px">
+    <h2 id="ng" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 30px">New game</h2>
+    <sc-for list="{{seats}}" as="s" hint-placeholder-count="4">
+      <div style="display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 12px 8px 8px; border-radius: 16px; background: var(--surface); border: {{s.border}}">
+        <span style="width: 56px; height: 56px; border-radius: 12px; overflow: hidden; background: var(--raised); display: grid; place-items: center; color: var(--dim); font-family: var(--display); font-weight: 800; font-size: 22px">
+          <sc-if value="{{s.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{s.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+          <sc-if value="{{s.noArt}}" hint-placeholder-val="{{false}}">{{s.n}}</sc-if>
+        </span>
+        <span style="display: flex; flex-direction: column; line-height: 1.25; min-width: 0">
+          <span style="font-weight: 700">{{s.who}}</span>
+          <span style="font-size: 13px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.detail}}</span>
+        </span>
+        <button style="min-height: 40px; padding: 0 14px; border-radius: 999px; border: none; background: var(--raised); font-size: 13px; font-weight: 700">Change</button>
+      </div>
+    </sc-for>
+    <button style="min-height: 44px; border-radius: 999px; border: 1px dashed var(--line); background: transparent; color: var(--dim); font-weight: 700">Add a seat</button>
+    <a href="PlayLobby.dc.html" style="min-height: 54px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none">Open the table</a>
+  </section>
+
+  <section aria-labelledby="jn" style="padding: 16px; border-radius: 20px; background: var(--surface); display: flex; flex-direction: column; gap: 12px">
+    <h2 id="jn" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 26px">Join with a code</h2>
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px">
+      <label style="display: block"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%)">Code</span>
+        <input placeholder="Code" autocapitalize="characters" style="width: 100%; min-height: 52px; padding: 4px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--ground); font-family: var(--display); font-weight: 800; font-size: 28px; letter-spacing: 0.18em">
+      </label>
+      <a href="LobbyPhone.dc.html" style="min-height: 52px; padding: 0 20px; display: flex; align-items: center; border-radius: 999px; background: var(--raised); color: var(--text); font-weight: 700; text-decoration: none">Join</a>
+    </div>
+  </section>
+
+  <section aria-labelledby="yg" style="display: flex; flex-direction: column; gap: 8px">
+    <h2 id="yg" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 26px">Earlier games</h2>
+    <a href="LobbyPhone.dc.html" style="display: flex; justify-content: space-between; padding: 12px 14px; border-radius: 14px; background: var(--surface); text-decoration: none"><span style="display: flex; flex-direction: column; line-height: 1.25"><span style="font-weight: 700; color: var(--warn)">Waiting, code KTRV</span><span style="font-size: 13px; color: var(--dim)">You and 2 computers</span></span><span style="font-size: 13px; color: var(--dim)">Today</span></a>
+    <a href="PlayBoardPhone.dc.html" style="display: flex; justify-content: space-between; padding: 12px 14px; border-radius: 14px; background: var(--surface); text-decoration: none"><span style="display: flex; flex-direction: column; line-height: 1.25"><span style="font-weight: 700">Jules won on turn 12</span><span style="font-size: 13px; color: var(--dim)">You, Jules and 2 computers</span></span><span style="font-size: 13px; color: var(--dim)">Oct 12</span></a>
+  </section>
+
+  <nav aria-label="Main" style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; padding: 8px 4px 16px; background: var(--ground); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr))">
+    <a href="TablePhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"></path></svg>Table</a>
+    <a href="PlayPhone.dc.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--text); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)"></rect><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)"></rect></svg>Play</a>
+    <a href="SearchPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>Cards</a>
+    <a href="CollectionPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="10" height="14" rx="1.5"></rect><path d="M17 7v12M20 9v8"></path></svg>Collection</a>
+    <a href="DeckListPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="16" rx="1.5"></rect><path d="M4 7v12a2 2 0 0 0 2 2h10"></path></svg>Decks</a>
+    <a href="GroupPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"></path></svg>Group</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      seats: [
+        { n: 1, who: 'You', detail: 'Riders of Rohan', hasArt: true, noArt: false, art: '/_blob/c19490e7c081fb35071c85147c01bed4', border: 'none' },
+        { n: 2, who: 'Computer, medium', detail: 'Lorehold Spirit', hasArt: true, noArt: false, art: '/_blob/042e4cb280a5a896fb249a47c8f4a8a3', border: 'none' },
+        { n: 3, who: 'A friend', detail: 'Joins with the code', hasArt: false, noArt: true, art: '', border: '1px dashed #2a2e33' },
+        { n: 4, who: 'Computer, hard', detail: 'Prismari Artistry', hasArt: true, noArt: false, art: '/_blob/81164bc65e84b270bffcfa1e0c331002', border: 'none' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

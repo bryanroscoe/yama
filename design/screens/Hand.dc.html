@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sample hand</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; background: var(--ground); display: flex; flex-direction: column">
+  <header style="position: relative; height: 130px; flex: 0 0 auto; display: flex; align-items: end; justify-content: space-between; padding: 14px 16px">
+    <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+    <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.3) 0%, #0b0c0e 100%)"></span>
+    <span style="position: relative; display: flex; flex-direction: column; line-height: 1.1">
+      <span style="font-size: 13px; color: #d5d7db">Riders of Rohan</span>
+      <span style="font-family: var(--display); font-weight: 800; font-size: 40px">Sample hand</span>
+    </span>
+    <a href="DeckPhone.dc.html" style="position: relative; min-height: 40px; padding: 0 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none; display: flex; align-items: center">Done</a>
+  </header>
+  <p aria-live="polite" style="margin: 0; padding: 0 16px 12px; color: var(--dim); font-size: 14px">{{summary}}</p>
+  <ul aria-label="Your hand" style="margin: 0; padding: 0 16px; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-content: start; flex: 1">
+    <sc-for list="{{hand}}" as="c" hint-placeholder-count="7">
+      <li><img src="{{c.img}}" alt="{{c.name}}" style="display: block; width: 100%; aspect-ratio: 488 / 680; border-radius: 4.75% / 3.4%"></li>
+    </sc-for>
+  </ul>
+  <div style="padding: 12px 16px 22px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; border-top: 1px solid var(--line)">
+    <button onClick="{{draw}}" style="min-height: 52px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 700">Draw</button>
+    <button onClick="{{mull}}" style="min-height: 52px; border-radius: 999px; border: none; background: var(--raised); font-weight: 700">Mulligan</button>
+    <button onClick="{{fresh}}" style="min-height: 52px; border-radius: 999px; border: none; background: var(--raised); font-weight: 700">New hand</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.pool = [
+      ['Sol Ring', '93aeaa2a6917b9e736b5247340b2f26e', 0], ['Arcane Signet', '03e78afa359f0c0e0da6d048c29e844e', 0], ['Clifftop Retreat', '4b6f8a8ccbd66b04717e915e9e659b37', 1],
+      ['Glacial Fortress', 'e25b0374571373f1ab95c0e88cd1758e', 1], ['Adeline, Resplendent Cathar', '7c226842e4dc64d727461e5c3c1fde3f', 0], ['Boros Charm', '2d80527eb5c346c24b35ad5381fe99a6', 0],
+      ['Esper Sentinel', 'f91dfa789f2b0816a79359bb277f07b0', 0], ['Akroma’s Will', 'd2df35f8a45cc092aadf237d7374fc27', 0], ['Cyclonic Rift', '4e274a0a80fefd3f3346bd10c98c1349', 0],
+      ['Flawless Maneuver', '2b7584e35f9b697ba24e7b43dae7b869', 0], ['Fierce Guardianship', 'c858d7cf7a488b3218bd7bbf1fe8b79c', 0]
+    ];
+    this.state = { order: this.pool.map((_, i) => i), size: 7, mulligans: 0 };
+  }
+  shuffle() {
+    const a = this.pool.map((_, i) => i);
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  }
+  renderVals() {
+    const { order, size, mulligans } = this.state;
+    const hand = order.slice(0, Math.min(size, 9)).map((i) => ({ name: this.pool[i][0], img: '/_blob/' + this.pool[i][1], land: this.pool[i][2] }));
+    const lands = hand.filter((c) => c.land).length;
+    const drawn = Math.max(0, size - 7);
+    return {
+      hand,
+      summary: hand.length + ' cards, ' + lands + (lands === 1 ? ' land' : ' lands') + (mulligans ? ', mulligan ' + mulligans + ' (the first is free)' : '') + (drawn ? ', drawn ' + drawn : '') + '. ' + (99 - size) + ' left in the library.',
+      draw: () => this.setState({ size: Math.min(9, size + 1) }),
+      mull: () => this.setState({ order: this.shuffle(), size: 7, mulligans: mulligans + 1 }),
+      fresh: () => this.setState({ order: this.shuffle(), size: 7, mulligans: 0 })
+    };
+  }
+}
+</script>
+</body>
+</html>

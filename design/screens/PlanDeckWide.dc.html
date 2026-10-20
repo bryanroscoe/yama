@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Riders of Rohan plan</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; background: var(--ground)">
+
+  <nav aria-label="Main" style="flex: 1 1 220px; max-width: 248px; padding: 24px 14px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--line)">
+    <span style="font-family: var(--display); font-weight: 800; font-size: 38px; line-height: 1; padding: 0 12px 24px">Yama</span>
+    <a href="Table.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; color: var(--dim); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"></path></svg>Table</a>
+    <a href="Play.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; color: var(--dim); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)"></rect><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)"></rect></svg>Play</a>
+    <a href="Search.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; color: var(--dim); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>Cards</a>
+    <a href="Collection.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; color: var(--dim); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="10" height="14" rx="1.5"></rect><path d="M17 7v12M20 9v8"></path></svg>Collection</a>
+    <a href="DeckList.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; background: var(--raised); color: var(--text); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="16" rx="1.5"></rect><path d="M4 7v12a2 2 0 0 0 2 2h10"></path></svg>Decks</a>
+    <a href="Group.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; color: var(--dim); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"></path></svg>Group</a>
+    <div style="margin-top: auto; padding: 16px 12px 0; display: flex; align-items: center; gap: 10px">
+      <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover">
+      <span style="display: flex; flex-direction: column; line-height: 1.25"><span style="font-weight: 700">Bryan</span><span style="font-size: 13px; color: var(--dim)">Synced just now</span></span>
+    </div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0">
+    <header style="position: relative; min-height: 300px; display: flex; flex-direction: column; justify-content: end; padding: 24px clamp(20px, 4vw, 56px) 28px">
+      <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 28%">
+      <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.94) 0%, rgb(11 12 14 / 0.65) 50%, rgb(11 12 14 / 0.2) 100%)"></span>
+      <span style="position: absolute; right: clamp(20px, 4vw, 56px); bottom: 14px; font-size: 12px; color: rgb(255 255 255 / 0.8)">Art: Craig Elliott, © Wizards of the Coast</span>
+      <div style="position: relative; max-width: 1120px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 10px">
+        <nav aria-label="Breadcrumb" style="display: flex; gap: 8px; font-size: 14px; color: #d5d7db"><a href="DeckList.dc.html" style="color: #d5d7db">Decks</a><span aria-hidden="true">/</span><a href="PlanDeckWide.dc.html" style="color: #d5d7db">Plans</a></nav>
+        <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 76px; line-height: 0.88">Riders of Rohan plan</h1>
+        <span style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 14px">
+          <span style="display: flex; align-items: center; gap: 8px; font-weight: 700"><span aria-hidden="true" style="display: flex; gap: 3px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #F1E4BC"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #2C78C4"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #D4472E"></span></span>Éowyn, Shieldmaiden</span>
+          <span style="padding: 3px 12px; border-radius: 999px; background: rgb(11 12 14 / 0.6)">Bracket 3, swap bags for 2 and 4</span>
+          <span style="padding: 3px 12px; border-radius: 999px; background: rgb(11 12 14 / 0.6); color: #d5d7db">Planned in commander-decks, guide v6, imported 18 Oct</span>
+        </span>
+      </div>
+    </header>
+
+    <div style="max-width: 1120px; margin: 0 auto; padding: 8px clamp(20px, 4vw, 56px) 64px; display: flex; flex-direction: column; gap: 22px">
+      <section aria-label="Open question" style="display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-radius: 16px; background: rgb(240 180 90 / 0.1); box-shadow: inset 0 0 0 1px rgb(240 180 90 / 0.4); flex-wrap: wrap">
+        <img src="/_blob/de637fa153f17b078d20e55a175acc4f" alt="" style="width: 64px; height: 46px; border-radius: 8px; object-fit: cover">
+        <span style="flex: 1 1 320px; display: flex; flex-direction: column; line-height: 1.35"><b>Where did Mount Doom come from?</b><span style="font-size: 14px; color: var(--dim)">It isn't in the Riders precon or any recorded order. It leaves the deck either way: it's off-color.</span></span>
+        <span style="display: flex; gap: 8px"><button style="min-height: 42px; padding: 0 16px; border-radius: 999px; border: none; background: var(--raised); font-weight: 700">It was a spare of mine</button><button style="min-height: 42px; padding: 0 16px; border-radius: 999px; border: none; background: transparent; color: var(--dim); font-weight: 700">Not sure</button></span>
+      </section>
+
+      <nav aria-label="Plan views" style="display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 12px">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="6"><button aria-pressed="{{t.on}}" style="min-height: 40px; padding: 0 16px; border-radius: 999px; border: none; background: {{t.bg}}; color: {{t.ink}}; font-weight: 700">{{t.label}}</button></sc-for>
+      </nav>
+
+      <div style="display: flex; gap: 24px; flex-wrap: wrap; align-items: start">
+        <div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 22px">
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+            <section aria-label="{{g.title}}" style="display: flex; flex-direction: column; gap: 8px">
+              <h2 style="margin: 0; display: flex; justify-content: space-between; align-items: baseline; font-family: var(--display); font-weight: 700; font-size: 26px">{{g.title}}<span style="font-family: var(--body); font-size: 13px; font-weight: 400; color: var(--dim)">{{g.count}}</span></h2>
+              <sc-for list="{{g.swaps}}" as="s" hint-placeholder-count="2">
+                <article style="display: grid; grid-template-columns: 96px 20px 96px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px 10px 10px; border-radius: 16px; background: var(--surface)">
+                  <img src="{{s.outArt}}" alt="{{s.out}}" style="width: 96px; height: 68px; border-radius: 10px; object-fit: cover">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+                  <img src="{{s.inArt}}" alt="{{s.in}}" style="width: 96px; height: 68px; border-radius: 10px; object-fit: cover">
+                  <span style="display: flex; flex-direction: column; gap: 2px; line-height: 1.35; min-width: 0">
+                    <b>{{s.in}} <span style="font-weight: 400; color: var(--dim)">for {{s.out}}</span></b>
+                    <span style="font-size: 14px">{{s.why}}</span>
+                    <span style="font-size: 13px; color: var(--dim)">{{s.source}}</span>
+                  </span>
+                  <span style="display: flex; flex-direction: column; align-items: end; gap: 6px">
+                    <span style="padding: 3px 10px; border-radius: 999px; background: {{s.statusBg}}; color: {{s.statusInk}}; font-size: 12px; font-weight: 700; white-space: nowrap">{{s.status}}</span>
+                    <label style="display: flex; align-items: center; gap: 6px; min-height: 36px; font-size: 13px; color: var(--dim); white-space: nowrap"><input type="checkbox" style="width: 18px; height: 18px; accent-color: #f2efe8">In the deck</label>
+                  </span>
+                </article>
+              </sc-for>
+            </section>
+          </sc-for>
+        </div>
+
+        <aside style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 14px">
+          <section aria-labelledby="vs" style="padding: 16px; border-radius: 18px; background: var(--surface); display: flex; flex-direction: column; gap: 12px">
+            <h2 id="vs" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 22px">Three versions</h2>
+            <sc-for list="{{versions}}" as="v" hint-placeholder-count="3">
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center">
+                <b>{{v.name}}</b><b style="font-family: var(--display); font-weight: 700; font-size: 26px">{{v.rate}}</b>
+                <span style="font-size: 13px; color: var(--dim)">{{v.note}}</span>
+                <span style="font-size: 12px; color: var(--dim)">{{v.ci}}</span>
+                <span role="img" aria-label="{{v.aria}}" style="grid-column: 1 / -1; position: relative; height: 14px">
+                  <span style="position: absolute; left: 0; right: 0; top: 6px; height: 2px; background: var(--raised)"></span>
+                  <span style="position: absolute; left: 41.6%; top: 0; bottom: 0; width: 1px; background: var(--warn)"></span>
+                  <span style="position: absolute; left: {{v.lo}}; width: {{v.span}}; top: 4px; height: 6px; border-radius: 999px; background: rgb(242 239 232 / 0.35)"></span>
+                  <span style="position: absolute; left: {{v.mid}}; top: 2px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--text)"></span>
+                </span>
+              </div>
+            </sc-for>
+            <p style="margin: 0; font-size: 12px; color: var(--dim)">Raw win rate in simulated 4-player games. Stock to after: +16.4 points, 90% interval +1.8 to +30.9. phase-rs v0.113.0, easy AI, 19 Oct 2026. Simulated games, not your table.</p>
+            <a href="LabTry.dc.html" style="min-height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--raised); font-weight: 700; text-decoration: none">Try a change</a>
+          </section>
+          <section aria-labelledby="bg" style="padding: 16px; border-radius: 18px; background: var(--surface); display: flex; flex-direction: column; gap: 8px">
+            <h2 id="bg" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 22px">Bracket bags</h2>
+            <span style="font-size: 14px"><b>Bracket 2:</b> take out 2 Game Changers, put back the stock cards they replaced.</span>
+            <span style="font-size: 14px"><b>Bracket 4:</b> add 3 Game Changers. 2 are owned; 1 is a print.</span>
+          </section>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+            <button style="min-height: 44px; border-radius: 999px; border: none; background: var(--raised); font-weight: 700; font-size: 14px">Copy names</button>
+            <button style="min-height: 44px; border-radius: 999px; border: none; background: var(--raised); font-weight: 700; font-size: 14px">Copy for Moxfield</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const st = {
+      buy: { status: 'To buy', statusBg: 'rgb(240 180 90 / 0.14)', statusInk: '#f0b45a' },
+      stand: { status: 'Stand-in now', statusBg: '#1e2125', statusInk: '#f2efe8' },
+      basic: { status: 'Basic land for now', statusBg: '#1e2125', statusInk: '#f2efe8' },
+      prop: { status: 'Proposed', statusBg: '#1e2125', statusInk: '#a9adb3' }
+    };
+    const pct = (x) => (x / 0.7 * 100).toFixed(1) + '%';
+    const v = (name, note, lo, mid, hi) => ({ name, note, rate: (mid * 100).toFixed(0) + '%', ci: (lo * 100).toFixed(0) + ' to ' + (hi * 100).toFixed(0) + '%', lo: pct(lo), mid: pct(mid), span: pct(hi - lo), aria: name + ' ' + (mid * 100).toFixed(1) + '%, interval ' + (lo * 100).toFixed(1) + ' to ' + (hi * 100).toFixed(1) });
+    return {
+      tabs: ['Changes', 'Stock', 'Now', 'After prints', 'Brackets', 'Lab'].map((label, i) => ({ label, on: i === 0, bg: i === 0 ? '#f2efe8' : '#15171a', ink: i === 0 ? '#0b0c0e' : '#a9adb3' })),
+      groups: [
+        { title: 'Swap in now', count: '2', swaps: [
+          { out: 'Mount Doom', outArt: A('de637fa153f17b078d20e55a175acc4f'), in: 'Mountain', inArt: A('3bf02968b49b8af680661d10aa4e5547'), why: 'Off-color for Jeskai. A basic holds the slot until the Volcanic Island print.', source: 'From your basic lands.', ...st.basic },
+          { out: 'Talisman of Progress', outArt: A('fb99bcf57628a3a614c1c4c659aaf395'), in: 'Settle the Wreckage', inArt: A('1f21e9291ffe80025fc7a40652c39e26'), why: 'A one-sided answer to a big attack.', source: 'Pat’s Games, $0.50 on 18 Oct 2026. Market $0.49.', ...st.buy }
+        ] },
+        { title: 'When your prints arrive', count: '9', swaps: [
+          { out: 'Archivist of Gondor', outArt: A('7360d4a1959622482ec2eee16f276239'), in: 'Horn of the Mark', inArt: A('7912491915667586aa3cc2ce07fe9278'), why: 'Decided 10 Oct: print the Horn.', source: 'Print on order (MakePlayingCards). Archivist stays until it comes.', ...st.stand },
+          { out: 'Mountain', outArt: A('3bf02968b49b8af680661d10aa4e5547'), in: 'Volcanic Island', inArt: A('1ebe33f87e00e52a144537080ff0b67c'), why: 'The dual land Mount Doom’s slot was meant for.', source: 'Print on order (MakePlayingCards).', ...st.stand }
+        ] },
+        { title: 'Proposed, not in the plan', count: '2', swaps: [
+          { out: 'Frontier Warmonger', outArt: A('13b9f5d4d2346d50e37045609fac91a2'), in: 'Archangel of Tithes', inArt: A('9e5b458e684da6844324e5c9c535e17d'), why: 'Taxes attacks on you while yours go through.', source: 'Not stocked in Austin. Market $2.30 on 18 Oct.', ...st.prop },
+          { out: 'Thought Vessel', outArt: A('dfe2ebb6b3a58f54ebacf1c9630da93f'), in: 'Levitation', inArt: A('ed33ce9a880bced02bc6bd4fd8ece6f4'), why: 'Evasion for the whole team.', source: 'Alpha Strike Games, San Marcos, $0.25.', ...st.prop }
+        ] }
+      ],
+      versions: [v('Stock', 'The precon as printed. 57 games', 0.256, 0.351, 0.459), v('Now', 'Cards in hand. 58 games', 0.282, 0.379, 0.487), v('After prints', 'Once the order arrives. 58 games', 0.394, 0.5, 0.606)]
+    };
+  }
+}
+</script>
+</body>
+</html>

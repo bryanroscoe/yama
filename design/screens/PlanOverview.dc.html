@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plans overview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1300px; position: relative; background: var(--ground); padding: 20px 16px 96px; display: flex; flex-direction: column; gap: 16px">
+  <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 48px; line-height: 0.9">Decks</h1>
+  <div role="tablist" aria-label="Decks area" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface)">
+    <a href="DeckListPhone.dc.html" role="tab" aria-selected="false" style="flex: 1; min-height: 40px; border-radius: 999px; color: var(--dim); font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Decks</a>
+    <a href="PlanOverview.dc.html" role="tab" aria-selected="true" style="flex: 1; min-height: 40px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Plans</a>
+    <a href="LabPhone.dc.html" role="tab" aria-selected="false" style="flex: 1; min-height: 40px; border-radius: 999px; color: var(--dim); font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Lab</a>
+  </div>
+  <nav aria-label="Plans" style="display: flex; gap: 18px; overflow-x: auto; border-bottom: 1px solid var(--line); font-weight: 700; font-size: 15px">
+    <a href="PlanOverview.dc.html" aria-current="page" style="padding: 8px 0 10px; text-decoration: none; box-shadow: inset 0 -2px 0 var(--text)">Overview</a>
+    <a href="Review.dc.html" style="padding: 8px 0 10px; color: var(--dim); text-decoration: none">Review</a>
+    <a href="Buy.dc.html" style="padding: 8px 0 10px; color: var(--dim); text-decoration: none">Buy</a>
+    <a href="Prints.dc.html" style="padding: 8px 0 10px; color: var(--dim); text-decoration: none">Prints</a>
+    <a href="Spares.dc.html" style="padding: 8px 0 10px; color: var(--dim); text-decoration: none">Spares</a>
+    <a href="PlanOverview.dc.html" style="padding: 8px 0 10px; color: var(--dim); text-decoration: none">Settings</a>
+  </nav>
+
+  <p role="note" style="margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--surface); font-size: 13px; color: var(--dim); line-height: 1.4">Planned in commander-decks. Imported 18 Oct 2026, guide v6. What you do here goes to its inbox: <b style="color: var(--text)">3 items waiting.</b></p>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+    <a href="Review.dc.html" style="padding: 14px; border-radius: 16px; background: var(--surface); text-decoration: none; display: flex; flex-direction: column; line-height: 1.15"><b style="font-family: var(--display); font-weight: 700; font-size: 40px; color: var(--warn)">30</b><span style="font-size: 13px; color: var(--dim)">to review</span></a>
+    <a href="Buy.dc.html" style="padding: 14px; border-radius: 16px; background: var(--surface); text-decoration: none; display: flex; flex-direction: column; line-height: 1.15"><b style="font-family: var(--display); font-weight: 700; font-size: 40px">$10.50</b><span style="font-size: 13px; color: var(--dim)">7 to buy, 8 not stocked</span></a>
+    <a href="Prints.dc.html" style="padding: 14px; border-radius: 16px; background: var(--surface); text-decoration: none; display: flex; flex-direction: column; line-height: 1.15"><b style="font-family: var(--display); font-weight: 700; font-size: 40px">180</b><span style="font-size: 13px; color: var(--dim)">prints on order</span></a>
+    <a href="Spares.dc.html" style="padding: 14px; border-radius: 16px; background: var(--surface); text-decoration: none; display: flex; flex-direction: column; line-height: 1.15"><b style="font-family: var(--display); font-weight: 700; font-size: 40px">4</b><span style="font-size: 13px; color: var(--dim)">spares out now</span></a>
+  </div>
+
+  <section aria-labelledby="dk" style="display: flex; flex-direction: column; gap: 10px">
+    <h2 id="dk" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 28px">Your plans</h2>
+    <sc-for list="{{plans}}" as="p" hint-placeholder-count="5">
+      <a href="{{p.href}}" style="position: relative; display: flex; flex-direction: column; justify-content: end; min-height: 128px; padding: 12px 14px; border-radius: 18px; overflow: hidden; text-decoration: none">
+        <img src="{{p.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.9) 0%, rgb(11 12 14 / 0.6) 60%, rgb(11 12 14 / 0.25) 100%)"></span>
+        <span style="position: relative; display: flex; flex-direction: column; gap: 4px">
+          <span style="font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 0.95">{{p.name}}</span>
+          <span style="font-size: 13px; color: #d5d7db">{{p.counts}}</span>
+          <sc-if value="{{p.hasWarn}}" hint-placeholder-val="{{false}}"><span style="align-self: start; margin-top: 2px; padding: 2px 10px; border-radius: 999px; background: rgb(11 12 14 / 0.75); color: var(--warn); font-size: 12px; font-weight: 700">{{p.warn}}</span></sc-if>
+        </span>
+      </a>
+    </sc-for>
+  </section>
+
+  <nav aria-label="Main" style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; padding: 8px 4px 16px; background: var(--ground); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr))">
+    <a href="TablePhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"></path></svg>Table</a>
+    <a href="PlayPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)"></rect><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)"></rect></svg>Play</a>
+    <a href="SearchPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>Cards</a>
+    <a href="CollectionPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="10" height="14" rx="1.5"></rect><path d="M17 7v12M20 9v8"></path></svg>Collection</a>
+    <a href="DeckListPhone.dc.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--text); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="16" rx="1.5"></rect><path d="M4 7v12a2 2 0 0 0 2 2h10"></path></svg>Decks</a>
+    <a href="GroupPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"></path></svg>Group</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const p = (name, art, counts, warn, href) => ({ name, art: '/_blob/' + art, counts, warn: warn || '', hasWarn: !!warn, href: href || 'PlanDeck.dc.html' });
+    return {
+      plans: [
+        p('Multiverse Reforged', 'd9cb8751f865e022f14e97f4650e7ffb', '30 to review, 6 to buy, 4 prints', '', 'Review.dc.html'),
+        p('Riders of Rohan', 'c19490e7c081fb35071c85147c01bed4', '1 to buy, 9 wait on prints, bracket 3', 'Mount Doom: where did it come from?'),
+        p('Revival Trance', '7678674b257c9f2d67041ed3a4ee2ab4', '3 spares out, 6 wait on prints', 'Decide: Karmic Guide'),
+        p('Fantastic Four', '383d04a073378ede76b3234038a68757', '24 swaps to put in the deck', 'Two lists disagree'),
+        p('Prismari Artistry', '81164bc65e84b270bffcfa1e0c331002', 'Scarlet Witch moves in when Taigam arrives')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

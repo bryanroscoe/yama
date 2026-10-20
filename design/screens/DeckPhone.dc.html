@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Riders of Rohan on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1500px; position: relative; background: var(--ground); padding-bottom: 100px">
+  <header style="position: relative; height: 340px; display: flex; flex-direction: column; justify-content: end; padding: 16px">
+    <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 25%">
+    <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.25) 0%, rgb(11 12 14 / 0.35) 40%, #0b0c0e 100%)"></span>
+    <a href="DeckListPhone.dc.html" aria-label="Back to decks" style="position: absolute; top: 14px; left: 14px; width: 44px; height: 44px; border-radius: 50%; background: rgb(11 12 14 / 0.6); display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+    <span style="position: absolute; top: 26px; right: 14px; font-size: 10px; color: rgb(255 255 255 / 0.8)">Art: Craig Elliott, © Wizards</span>
+    <span style="position: relative; display: flex; flex-direction: column; gap: 6px">
+      <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700"><span aria-hidden="true" style="display: flex; gap: 3px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #F1E4BC"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #2C78C4"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #D4472E"></span></span>Éowyn, Shieldmaiden</span>
+      <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 56px; line-height: 0.85">Riders of Rohan</h1>
+    </span>
+  </header>
+
+  <div style="padding: 4px 16px 0; display: flex; flex-direction: column; gap: 18px">
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+      <span style="padding: 10px; border-radius: 14px; background: var(--surface); display: flex; flex-direction: column; line-height: 1.15"><b style="font-family: var(--display); font-weight: 700; font-size: 28px">87</b><span style="font-size: 12px; color: var(--dim)">of 100 owned</span></span>
+      <span style="padding: 10px; border-radius: 14px; background: var(--surface); display: flex; flex-direction: column; line-height: 1.15"><b style="font-family: var(--display); font-weight: 700; font-size: 28px">$142</b><span style="font-size: 12px; color: var(--dim)">to finish, Oct 19</span></span>
+      <span style="padding: 10px; border-radius: 14px; background: var(--surface); display: flex; flex-direction: column; line-height: 1.15"><b style="font-family: var(--display); font-weight: 700; font-size: 28px">6–3</b><span style="font-size: 12px; color: var(--dim)">Thursdays</span></span>
+    </div>
+    <a href="PlanDeck.dc.html" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: 14px; background: var(--surface); text-decoration: none"><span style="display: flex; flex-direction: column; line-height: 1.25"><span style="font-weight: 700">Plan: 9 swaps wait on prints</span><span style="font-size: 13px; color: var(--dim)">Bracket 3, Commander-legal</span></span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></a>
+
+    <div role="tablist" aria-label="Show" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface)">
+      <button role="tab" aria-selected="true" style="flex: 1; min-height: 40px; border: none; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700">Whole deck</button>
+      <button role="tab" aria-selected="false" style="flex: 1; min-height: 40px; border: none; border-radius: 999px; background: transparent; color: var(--dim); font-weight: 700">Still need 13</button>
+    </div>
+
+    <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+      <section aria-label="{{g.title}}" style="display: flex; flex-direction: column">
+        <h2 style="margin: 0 0 4px; display: flex; justify-content: space-between; align-items: baseline; font-family: var(--display); font-weight: 700; font-size: 24px">{{g.title}}<span style="font-family: var(--body); font-size: 13px; font-weight: 400; color: var(--dim)">{{g.count}}</span></h2>
+        <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="3">
+          <button style="display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 58px; padding: 4px 0; border: none; border-top: 1px solid var(--line); background: transparent; text-align: left">
+            <img src="{{r.art}}" alt="" style="width: 48px; height: 36px; border-radius: 6px; object-fit: cover">
+            <span style="display: flex; flex-direction: column; line-height: 1.25; min-width: 0"><span style="font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</span><span style="font-size: 13px; color: var(--dim)">{{r.where}}</span></span>
+            <span style="font-size: 13px; font-weight: 700; color: {{r.ink}}">{{r.state}}</span>
+          </button>
+        </sc-for>
+      </section>
+    </sc-for>
+  </div>
+
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 16px 24px; background: var(--ground); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+    <a href="Hand.dc.html" style="min-height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--raised); font-weight: 700; text-decoration: none">Sample hand</a>
+    <a href="TablePhone.dc.html" style="min-height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none">Play this deck</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1500}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const have = (name, art, where) => ({ name, art: '/_blob/' + art, where, state: 'Have', ink: '#8fd3a8' });
+    const need = (name, art, where) => ({ name, art: '/_blob/' + art, where, state: 'Need', ink: '#f0b45a' });
+    return {
+      groups: [
+        { title: 'Commander', count: '1', rows: [have('Éowyn, Shieldmaiden', 'c19490e7c081fb35071c85147c01bed4', 'In the deck box')] },
+        { title: 'Creatures', count: '31', rows: [
+          have('Adeline, Resplendent Cathar', '93443cca264c2d66fac605d8e8311296', 'In the deck box'),
+          have('Aragorn, King of Gondor', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', 'In the deck box'),
+          have('Faramir, Steward of Gondor', '62e4a477ddbf5628d609a86bc8d12c3a', 'In the deck box'),
+          need('Archangel of Tithes', '9e5b458e684da6844324e5c9c535e17d', '$3.92 market, not stocked locally')
+        ] },
+        { title: 'Instants', count: '12', rows: [
+          have('Boros Charm', 'f279aaa76497b626853a97f9a71aab53', 'In the deck box'),
+          have('Cyclonic Rift', 'e9cdfcd4ca473d2d07e135917fc6bcee', 'Trade binder, move it here'),
+          need('Settle the Wreckage', '1f21e9291ffe80025fc7a40652c39e26', '$0.50 at Pat’s Games')
+        ] },
+        { title: 'Artifacts', count: '9', rows: [
+          have('Sol Ring', '6eb6974115f1bfa5c775b479771e7166', 'In the deck box'),
+          have('Arcane Signet', 'af66cc45335c7043758a263a745cbd02', 'In the deck box')
+        ] }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

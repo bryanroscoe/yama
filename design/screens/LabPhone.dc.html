@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lab on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1100px; position: relative; background: var(--ground); padding: 20px 16px 96px; display: flex; flex-direction: column; gap: 14px">
+  <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 48px; line-height: 0.9">Decks</h1>
+  <div role="tablist" aria-label="Decks area" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface)">
+    <a href="DeckListPhone.dc.html" role="tab" aria-selected="false" style="flex: 1; min-height: 40px; border-radius: 999px; color: var(--dim); font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Decks</a>
+    <a href="PlanOverview.dc.html" role="tab" aria-selected="false" style="flex: 1; min-height: 40px; border-radius: 999px; color: var(--dim); font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Plans</a>
+    <a href="LabPhone.dc.html" role="tab" aria-selected="true" style="flex: 1; min-height: 40px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Lab</a>
+  </div>
+  <nav aria-label="Lab" style="display: flex; gap: 18px; border-bottom: 1px solid var(--line); font-weight: 700; font-size: 15px">
+    <a href="LabPhone.dc.html" aria-current="page" style="padding: 8px 0 10px; text-decoration: none; box-shadow: inset 0 -2px 0 var(--text)">Precons</a>
+    <a href="LabTryPhone.dc.html" style="padding: 8px 0 10px; color: var(--dim); text-decoration: none">Try a change</a>
+    <a href="LabRuns.dc.html" style="padding: 8px 0 10px; color: var(--dim); text-decoration: none">My runs</a>
+  </nav>
+  <p role="note" style="margin: 0; font-size: 13px; color: var(--dim); line-height: 1.4">Model win rate in simulated 4-player pods, easy AI, 19 Oct 2026. Most precons have 2 or 3 games so far, so the order will move.</p>
+  <label style="display: block"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%)">Search precons</span><input type="search" placeholder="Search 198 precons" style="width: 100%; min-height: 46px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 15px"></label>
+
+  <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column">
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+      <li style="display: grid; grid-template-columns: 34px minmax(0, 1fr) 54px; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); background: {{r.bg}}">
+        <b style="font-family: var(--display); font-weight: 700; font-size: 22px; text-align: center">{{r.rank}}</b>
+        <span style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+          <span style="display: flex; align-items: center; gap: 6px; min-width: 0"><b style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</b><span aria-hidden="true" style="display: flex; gap: 2px; flex: 0 0 auto"><sc-for list="{{r.colors}}" as="c" hint-placeholder-count="2"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{c}}"></span></sc-for></span></span>
+          <span role="img" aria-label="{{r.aria}}" style="position: relative; height: 12px">
+            <span style="position: absolute; left: 0; right: 0; top: 5px; height: 2px; background: var(--raised)"></span>
+            <span style="position: absolute; left: 35.7%; top: 0; bottom: 0; width: 1px; background: var(--warn)"></span>
+            <span style="position: absolute; left: {{r.lo}}; width: {{r.span}}; top: 3px; height: 6px; border-radius: 999px; background: {{r.band}}"></span>
+            <span style="position: absolute; left: {{r.mid}}; top: 1px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--text)"></span>
+          </span>
+          <span style="font-size: 12px; color: {{r.gamesInk}}">{{r.games}}</span>
+        </span>
+        <b style="text-align: right; font-variant-numeric: tabular-nums">{{r.rate}}</b>
+      </li>
+    </sc-for>
+  </ol>
+
+  <nav aria-label="Main" style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; padding: 8px 4px 16px; background: var(--ground); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr))">
+    <a href="TablePhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"></path></svg>Table</a>
+    <a href="PlayPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)"></rect><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)"></rect></svg>Play</a>
+    <a href="SearchPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>Cards</a>
+    <a href="CollectionPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="10" height="14" rx="1.5"></rect><path d="M17 7v12M20 9v8"></path></svg>Collection</a>
+    <a href="DeckListPhone.dc.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--text); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="16" rx="1.5"></rect><path d="M4 7v12a2 2 0 0 0 2 2h10"></path></svg>Decks</a>
+    <a href="GroupPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"></path></svg>Group</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const F = { W: '#F1E4BC', U: '#2C78C4', B: '#4B4049', R: '#D4472E', G: '#2F8752' };
+    const scale = (x) => (x / 70 * 100).toFixed(1) + '%';
+    const row = (rank, name, colors, p, lo, hi, games, mine) => ({ rank, name, colors: colors.split('').map((k) => F[k]), rate: p.toFixed(1) + '%', lo: scale(lo), mid: scale(p), span: scale(hi - lo), band: games >= 10 ? 'rgb(242 239 232 / 0.45)' : 'rgb(242 239 232 / 0.2)', aria: name + ' ' + p + '%, interval ' + lo + ' to ' + hi, games: games + ' games' + (games < 10 ? ', too few to trust' : ''), gamesInk: games < 10 ? '#f0b45a' : '#a9adb3', bg: mine ? 'rgb(242 239 232 / 0.05)' : 'transparent' });
+    return {
+      rows: [
+        row(1, 'Cavalry Charge', 'WUB', 49.8, 26.5, 60.5, 3),
+        row(2, 'Enduring Enchantments', 'WBG', 49.4, 26.4, 59.7, 3),
+        row(3, 'Calling All Angels', 'W', 48.5, 26.6, 61.0, 3),
+        row(4, 'Endless Punishment', 'BR', 47.1, 26.5, 57.1, 3),
+        row(16, 'Lorehold Spirit', 'WR', 41.4, 26.5, 47.7, 3, true),
+        row(23, 'Riders, after prints', 'WUR', 37.9, 28.4, 45.9, 58, true),
+        row(34, 'Riders, now', 'WUR', 34.3, 25.9, 40.0, 58, true),
+        row(38, 'Riders, stock', 'WUR', 33.1, 25.3, 39.4, 57, true)
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
