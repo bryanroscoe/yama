@@ -154,6 +154,8 @@ async fn every_write_is_refused_while_viewing_known_routes_or_not() {
         (Method::POST, "/api/watch", Some(json!({}))),
         (Method::POST, "/api/lab/experiments", Some(json!({}))),
         (Method::POST, &format!("/api/admin/users/{}/view", w.pat_id), None),
+        (Method::POST, "/mcp", Some(json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))),
+        (Method::POST, "/a-page-path-nobody-has-yet", Some(json!({}))),
         (Method::POST, "/api/a-route-nobody-has-written-yet", Some(json!({}))),
         (Method::PUT, "/api/another/new/thing", Some(json!({}))),
         (Method::PATCH, "/api/decks/anything", Some(json!({"name": "x"}))),

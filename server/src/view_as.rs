@@ -6,10 +6,12 @@
 //!   session, which is never replaced: the view is tied to that session (its hash is stored), so
 //!   the cookie is useless to anyone else and dies with the admin's session.
 //! - **Read only, enforced here:** [`guard`] wraps the whole router. While a view is live it
-//!   refuses every request but GET and HEAD (except stopping the view and signing out), every
-//!   WebSocket (online games, watched games and shared tables send actions over them), and the
-//!   GETs that would show secrets or spend the person's Claude key ([`HIDDEN`]). The refusal comes
-//!   before routing, so a route added later is covered without being listed.
+//!   refuses every request but GET and HEAD on any path (except stopping the view and signing
+//!   out), so the API and `/mcp` alike; every WebSocket (online games, watched games and shared
+//!   tables send actions over them); and the GETs that would show secrets or reach the person's
+//!   Claude ([`HIDDEN`]: Ask Claude's one-question tokens are minted only by asking, which is a
+//!   POST under it). The refusal comes before routing, so a route added later is covered without
+//!   being listed.
 //! - **Who the request is:** a GET the guard lets through carries [`ViewAs`]; `CurrentUser` then
 //!   answers as the viewed person, so every page shows exactly their data. The viewed person's
 //!   last-seen time isn't touched.
@@ -128,13 +130,15 @@ fn is_hidden(path: &str) -> bool {
 /// `CurrentUser`. Requests without the view cookie pass untouched.
 pub async fn guard(State(st): State<AppState>, mut req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
-    if !path.starts_with("/api/") {
+    let method = req.method().clone();
+    let reading = method == Method::GET || method == Method::HEAD;
+    // Pages and files are only read. Anything else on any path is checked: the API, and `/mcp`
+    // (whose tools take a bearer token, never this cookie, but a write there is still a write).
+    if reading && !path.starts_with("/api/") && !is_websocket(req.headers()) {
         return next.run(req).await;
     }
     let Some(view_token) = view_cookie(req.headers()) else { return next.run(req).await };
     let session = request_session_token(req.headers());
-    let method = req.method().clone();
-    let reading = method == Method::GET || method == Method::HEAD;
     let view = match resolve(&st, &view_token, session.as_deref()).await {
         Ok(v) => v,
         Err(e) => return e.into_response(),
