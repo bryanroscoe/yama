@@ -60,6 +60,7 @@ pub async fn state_with(cfg: Config, pool: SqlitePool) -> AppState {
         rooms: Arc::default(),
         play,
         lab,
+        watch: Arc::default(),
         limits: Arc::default(),
     }
 }

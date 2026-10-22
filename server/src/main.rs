@@ -25,6 +25,7 @@ mod table_rooms;
 #[cfg(test)]
 mod testutil;
 mod util;
+mod watch;
 
 use anyhow::Context;
 use std::path::PathBuf;

@@ -194,6 +194,16 @@ impl Engine {
 
     /// Start a Commander game. Seat order is the order of `decks`.
     pub fn new_match(&self, seed: u64, decks: Vec<SeatDeck>, ai: &[(u8, AiDifficulty)]) -> anyhow::Result<Match> {
+        self.new_match_first(seed, decks, ai, None)
+    }
+
+    /// [`Engine::new_match`], with `first` taking the first turn instead of the engine's roll.
+    /// phase's game setup only honours seat 0 or 1 here; to start anyone else, rotate the decks
+    /// so that player is seat 0 (turn order is the same cycle).
+    pub fn new_match_first(&self, seed: u64, decks: Vec<SeatDeck>, ai: &[(u8, AiDifficulty)], first: Option<u8>) -> anyhow::Result<Match> {
+        if first.is_some_and(|f| f > 1) {
+            bail!("phase can only start seat 0 or 1; rotate the seats so the first player is seat 0");
+        }
         if !(2..=6).contains(&decks.len()) {
             bail!("Commander games here have 2 to 6 players");
         }
@@ -213,7 +223,7 @@ impl Engine {
             format_config: FormatConfig::commander(),
             match_config: MatchConfig::default(),
             player_count,
-            first_player: None,
+            first_player: first,
             seed,
             deck_data: Some(deck_list),
         };
@@ -258,6 +268,7 @@ impl Engine {
             revision: 0,
             lines: Vec::new(),
             names: (1..=players).map(|n| format!("Player {n}")).collect(),
+            fallback: false,
         })
     }
 }
@@ -273,6 +284,9 @@ pub struct Match {
     pub revision: u64,
     lines: Vec<LogLine>,
     names: Vec<String>,
+    /// When the AI finds no action, answer with phase's `fallback_action` instead of stopping
+    /// (as the lab does). Off for games people play in; on for games everyone just watches.
+    fallback: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -794,7 +808,9 @@ impl Match {
             let Some((owner, actor)) = eligible_ai_decision(&self.state, &ai_players) else { break };
             let contract = AiDecisionContract::issue(&self.state, owner);
             let config = &self.ai[&actor];
-            let Some(action) = choose_action_with_session(&self.state, owner, config, &mut self.rng, &self.session) else {
+            let chosen = choose_action_with_session(&self.state, owner, config, &mut self.rng, &self.session)
+                .or_else(|| if self.fallback { phase_ai::search::fallback_action(&self.state, config, &contract) } else { None });
+            let Some(action) = chosen else {
                 bail!("AI for seat {} found no action", actor.0);
             };
             let result = if verified_ai_stack_pass_player(&self.state, &action).is_some() {
@@ -831,6 +847,23 @@ impl Match {
         }
     }
 
+    /// Answer with phase's `fallback_action` when the AI finds no action (see the field).
+    pub fn set_ai_fallback(&mut self, on: bool) {
+        self.fallback = on;
+    }
+
+    /// Settle a physical contest (a coin flip or die roll everyone takes part in) when every
+    /// contestant is an AI seat, as a headless host must: no seat acts on one. Returns whether
+    /// it ran. Not written to the replay log, so only for games that are never replayed.
+    pub fn settle_ai_contest(&mut self) -> bool {
+        let seats: HashSet<PlayerId> = self.ai.keys().copied().collect();
+        let ran = phase_ai::contest::settle_headless_contest(&mut self.state, &seats, &mut self.rng);
+        if ran {
+            self.revision += 1;
+        }
+        ran
+    }
+
     /// The replay log (header + every accepted action), for persistence.
     pub fn replay_json(&self) -> String {
         serde_json::to_string(&self.log).expect("replay log serializes")
@@ -842,6 +875,16 @@ impl Match {
             Some(seat) => filter_state_for_viewer(&self.state, PlayerId(seat)),
             None => engine::game::visibility::filter_state_for_unseated_viewer(&self.state),
         };
+        self.view_of(&state, viewer, false)
+    }
+
+    /// A spectator's board with every hand face up (`View::hands`), for games with nobody to
+    /// hide them from: every seat is an AI and only its owner watches. Libraries stay hidden.
+    pub fn view_revealed(&self) -> View {
+        self.view_of(&self.state, None, true)
+    }
+
+    fn view_of(&self, state: &GameState, viewer: Option<u8>, all_hands: bool) -> View {
         let obj = |id: &ObjectId| -> Option<CardView> {
             let o = state.objects.get(id)?;
             Some(CardView {
@@ -911,6 +954,11 @@ impl Match {
                 .and_then(|seat| state.players.iter().find(|p| p.id.0 == seat))
                 .map(|p| p.hand.iter().filter_map(obj).collect())
                 .unwrap_or_default(),
+            hands: if all_hands {
+                state.players.iter().map(|p| (p.id.0, p.hand.iter().filter_map(obj).collect())).collect()
+            } else {
+                BTreeMap::new()
+            },
             decision: viewer.and_then(|seat| self.decision(seat)),
             log: self.lines.iter().rev().take(LOG_LINES).rev().cloned().collect(),
             over: self.is_over(),
@@ -949,6 +997,9 @@ pub struct View {
     pub exile: Vec<CardView>,
     /// The viewer's own hand; empty for spectators.
     pub hand: Vec<CardView>,
+    /// Every player's hand by seat, only in [`Match::view_revealed`].
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub hands: BTreeMap<u8, Vec<CardView>>,
     /// The viewer's options, when it's their decision.
     pub decision: Option<Decision>,
     pub log: Vec<LogLine>,

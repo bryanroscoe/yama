@@ -940,3 +940,74 @@
     padding: 0 28px;
   }
 }
+
+/* ── Watch AIs play ─────────────────────────────────────────────────────── */
+
+.ph-watch {
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ph-watch p {
+  margin: 0;
+  font-size: 14px;
+}
+.ph-watch .button {
+  align-self: flex-start;
+  min-height: 44px;
+}
+.watch-home .lobby-back {
+  align-self: flex-start;
+}
+.wh-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--surface);
+}
+.wh-first {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wh-first select {
+  background: var(--ground);
+}
+.wh-speed {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wh-label {
+  font-weight: 700;
+}
+.wh-speed .segmented {
+  background: var(--ground);
+  align-self: flex-start;
+}
+.wh-reveal {
+  min-height: 44px;
+}
+@media (min-width: 900px) {
+  .ph-watch {
+    padding: 22px;
+    border-radius: 22px;
+  }
+  .ph-watch h2 {
+    font-size: 30px;
+  }
+  .wh-options {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 18px 28px;
+  }
+  .wh-first {
+    flex: 1 1 260px;
+  }
+}

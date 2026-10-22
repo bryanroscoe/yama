@@ -1762,3 +1762,167 @@ button.pile-chip:hover {
   font-size: 10px;
   line-height: 1.3;
 }
+
+/* ── watching an all-AI game (WatchControls, where the decision area would be) ── */
+
+.watch-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.watch-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.watch-play {
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 17px;
+}
+.watch-step {
+  min-height: 52px;
+  padding: 0 10px;
+}
+.watch-speed {
+  display: flex;
+  background: var(--ground);
+}
+.watch-speed > button {
+  flex: 1 1 auto;
+  justify-content: center;
+  padding: 0 10px;
+  font-size: 14px;
+}
+.watch-note {
+  margin: 0;
+  font-size: 14px;
+  color: var(--warn);
+}
+.watch-pov {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.watch-pov-label {
+  font-size: 13px;
+  color: var(--dim);
+}
+.watch-pov-seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr));
+  gap: 6px;
+}
+.watch-seat {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 700;
+  justify-content: flex-start;
+  min-width: 0;
+}
+.watch-seat[aria-pressed="true"] {
+  border-color: var(--text);
+  color: var(--text);
+}
+.watch-seat img,
+.watch-seat-n {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--raised);
+  display: grid;
+  place-items: center;
+}
+.watch-seat-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.watch-stop {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--dim);
+  font-size: 14px;
+}
+/* The end: the winner's commander art at full size, unfiltered and credited (PP-61). */
+.watch-winner.art-panel {
+  height: 150px;
+  border-radius: 16px;
+  display: grid;
+}
+.watch-winner > .art-body {
+  align-self: end;
+  padding: 10px 14px 26px;
+}
+.watch-winner-name {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 30px;
+  line-height: 1;
+  text-shadow: var(--art-shadow);
+}
+.watch-end {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+.watch-panel.done p.small {
+  margin: 0;
+}
+.watch-end-buttons {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.watch-end-buttons > * {
+  min-height: 48px;
+  justify-content: center;
+}
+/* Phones: the controls dock above the portrait row, in two tight rows. */
+.watch-panel.compact {
+  gap: 8px;
+}
+.watch-panel.compact .watch-main {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.watch-panel.compact .watch-play,
+.watch-panel.compact .watch-step {
+  min-height: 46px;
+}
+.watch-panel.compact .watch-pov {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.watch-panel.compact .watch-pov-label {
+  flex: none;
+}
+.watch-panel.compact .watch-pov-seats {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.watch-panel.compact .watch-seat {
+  flex: none;
+  padding: 3px;
+}
+.watch-panel.compact .watch-seat-name {
+  display: none;
+}
+.watch-panel.compact .watch-seat[aria-pressed="true"] .watch-seat-name {
+  display: inline;
+  padding-right: 6px;
+}

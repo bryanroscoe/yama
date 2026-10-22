@@ -70,6 +70,8 @@ export interface View {
   command_zone: CardView[];
   exile: CardView[];
   hand: CardView[];
+  /** Every hand by seat, when a watched all-AI game shows hands face up. */
+  hands?: Record<string, CardView[]>;
   decision: Decision | null;
   log: { turn: number; text: string }[];
   over: boolean;
@@ -106,9 +108,26 @@ export interface CardMeta {
   oracle_text: string;
 }
 
-/** What the server sends over the play socket. */
+export type Speed = "1x" | "2x" | "4x" | "end";
+
+/** Where a watched all-AI game stands (server/src/watch.rs, Status). */
+export interface WatchStatus {
+  /** Playing, or paused by the viewer. */
+  playing: boolean;
+  speed: Speed;
+  /** Hands face up. */
+  reveal: boolean;
+  /** Paused because nobody has been watching. */
+  idle: boolean;
+  actions: number;
+  /** Why it ended before anyone won: a limit, an error, or the viewer stopping it. */
+  stopped: string | null;
+  finished: boolean;
+}
+
+/** What the server sends over the play socket (and the watch socket, which adds `watch`). */
 export type ServerMessage =
-  | { type: "view"; you: number | null; seats: SeatInfo[]; cards: Record<string, CardMeta>; view: View }
+  | { type: "view"; you: number | null; seats: SeatInfo[]; cards: Record<string, CardMeta>; view: View; watch?: WatchStatus }
   | { type: "error"; message: string };
 
 export interface OnlineGame {

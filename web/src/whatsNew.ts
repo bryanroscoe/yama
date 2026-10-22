@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-22-watch-ais",
+    date: "2026-10-22",
+    title: "Watch the AIs play",
+    items: [
+      "Play online has a new Watch AIs play page. Seat 2 to 4 decks, yours or any precon in the lab, give each an easy, medium or hard computer player, choose who goes first, and watch.",
+      "Pause, play one move at a time, or speed up to 2x, 4x or straight to the end. You can watch from any seat and turn every hand face up.",
+      "Only you can see your watched games, and they don't count in anyone's stats. A game nobody is watching pauses, then stops after ten minutes.",
+    ],
+    link: { to: "/play/watch", label: "Watch AIs play" },
+  },
+  {
     id: "2026-10-20-open-signup",
     date: "2026-10-20",
     title: "Signing in, and room for new people",

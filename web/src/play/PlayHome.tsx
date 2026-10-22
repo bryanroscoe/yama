@@ -75,6 +75,13 @@ export function PlayHome() {
         {status.data?.enabled && <NewGame decks={decks.data ?? []} />}
         <div className="ph-side">
           {status.data?.enabled && <JoinGame decks={decks.data ?? []} />}
+          {status.data?.enabled && (
+            <section className="ph-watch" aria-labelledby="ph-watch-h">
+              <h2 id="ph-watch-h">Watch AIs play</h2>
+              <p className="dim">Seat 2 to 4 decks, yours or precons, give each a computer player, and watch them play it out at your speed.</p>
+              <Link to="/play/watch" className="button outline">Set up a game</Link>
+            </section>
+          )}
           <section className="ph-games" aria-labelledby="ph-games-h">
             <h2 id="ph-games-h">{current ? "Earlier games" : "Your games"}</h2>
             <ErrorText error={games.error} />

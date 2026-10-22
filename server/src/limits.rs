@@ -119,6 +119,8 @@ pub struct Limits {
     pub play_creates: RateLimiter,
     /// Questions to the advisor, per account (each one is a Claude request).
     pub advisor: RateLimiter,
+    /// New watched all-AI games, per account (each one starts a rules engine thread).
+    pub watch_creates: RateLimiter,
 }
 
 impl Default for Limits {
@@ -134,6 +136,7 @@ impl Default for Limits {
             deck_writes: RateLimiter::new("deck saves", 120, 10 * MINUTE),
             play_creates: RateLimiter::new("new online games", 30, 60 * MINUTE),
             advisor: RateLimiter::new("questions to Claude", 6, MINUTE),
+            watch_creates: RateLimiter::new("new watched games", 30, 60 * MINUTE),
         }
     }
 }
