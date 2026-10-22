@@ -7,6 +7,20 @@
 //! Usage:
 //!   lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl>
 //!       --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart]
+//!       [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL]
+//!        [--llm-log FILE] [--llm-object-key]]
+//!
+//! Pilots. A schedule line may name a pilot per seat ("pilots": ["easy", "hard",
+//! "llm:claude-haiku-5-5", "medium"]); see `yama_play::pilot`. LLM seats need --llm, which asks
+//! the Claude Code CLI signed in on this machine (YAMA_LAB_CLAUDE names the program; default
+//! "claude" on PATH), with no tools, settings or API key, at most --llm-concurrency runs at a time
+//! (default 4), each cut off after --llm-timeout seconds (default 90). After --llm-max-calls
+//! requests (default 400) a seat plays the rest of the game on the heuristic AI. --llm-log writes
+//! every request's options, reply and outcome as JSON lines. --llm-object-key adds a key to each
+//! prompt naming the objects the options refer to by number (phase-llm prints targets and
+//! attackers as bare numbers). Games with an LLM seat don't replay
+//! identically from their schedule line, and their wall-clock safety net leaves out the time spent
+//! waiting for the model.
 //!
 //! Deck ids in the schedule are paths under --decks-root without ".txt". Each game is built the
 //! way Yama's play crate builds one (same name resolution, same setup), with phase's AI on every
@@ -96,9 +110,19 @@ struct Args {
     skip_done: bool,
     retry_errors: bool,
     no_restart: bool,
+    llm: Option<LlmArgs>,
 }
 
-const USAGE: &str = "usage: lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl> --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart]";
+struct LlmArgs {
+    concurrency: usize,
+    timeout_secs: u64,
+    max_calls: usize,
+    effort: Option<String>,
+    log: Option<PathBuf>,
+    object_key: bool,
+}
+
+const USAGE: &str = "usage: lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl> --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL] [--llm-log FILE] [--llm-object-key]]";
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut card_data = None;
@@ -109,6 +133,9 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut skip_done = false;
     let mut retry_errors = false;
     let mut no_restart = false;
+    let mut llm = false;
+    let mut llm_args = LlmArgs { concurrency: 4, timeout_secs: 90, max_calls: 400, effort: None, log: None, object_key: false };
+    let mut llm_flags = false;
     let mut it = args.iter().skip(1);
     while let Some(a) = it.next() {
         let mut value = |flag: &str| it.next().cloned().ok_or_else(|| format!("{flag} needs a value\n{USAGE}"));
@@ -124,12 +151,42 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--skip-done" => skip_done = true,
             "--retry-errors" => retry_errors = true,
             "--no-restart" => no_restart = true,
+            "--llm" => llm = true,
+            "--llm-concurrency" | "--llm-timeout" | "--llm-max-calls" => {
+                llm_flags = true;
+                let v = value(a)?;
+                let n: u64 = v.parse().ok().filter(|n| *n > 0).ok_or_else(|| format!("{a} {v:?} must be a positive integer"))?;
+                match a.as_str() {
+                    "--llm-concurrency" => llm_args.concurrency = n as usize,
+                    "--llm-timeout" => llm_args.timeout_secs = n,
+                    _ => llm_args.max_calls = n as usize,
+                }
+            }
+            "--llm-effort" => {
+                llm_flags = true;
+                let v = value(a)?;
+                if !["low", "medium", "high", "xhigh", "max"].contains(&v.as_str()) {
+                    return Err(format!("--llm-effort {v:?}: use low, medium, high, xhigh or max"));
+                }
+                llm_args.effort = Some(v);
+            }
+            "--llm-object-key" => {
+                llm_flags = true;
+                llm_args.object_key = true;
+            }
+            "--llm-log" => {
+                llm_flags = true;
+                llm_args.log = Some(PathBuf::from(value(a)?));
+            }
             "-h" | "--help" => return Err(USAGE.into()),
             other => return Err(format!("unknown argument {other:?}\n{USAGE}")),
         }
     }
     if retry_errors && !skip_done {
         return Err(format!("--retry-errors only makes sense with --skip-done\n{USAGE}"));
+    }
+    if llm_flags && !llm {
+        return Err(format!("the --llm-* options need --llm\n{USAGE}"));
     }
     let need = |v: Option<PathBuf>, flag: &str| v.ok_or_else(|| format!("{flag} is required\n{USAGE}"));
     Ok(Args {
@@ -141,6 +198,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         skip_done,
         retry_errors,
         no_restart,
+        llm: llm.then_some(llm_args),
     })
 }
 
@@ -236,6 +294,8 @@ struct Shared {
     fault: Option<(Fault, String)>,
     /// Per-turn loop guard (MAX_TURN_ACTIONS unless overridden).
     turn_action_cap: usize,
+    /// How LLM seats reach their model (--llm).
+    llm: Option<Arc<lab::LlmSetup>>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -328,6 +388,7 @@ fn run_job(shared: &Shared, index: usize, job: &Job, difficulty: AiDifficulty, l
         turn_action_cap: shared.turn_action_cap,
         panic_after: (fault == Some(Fault::Panic)).then_some(50),
         hang_after: (fault == Some(Fault::Hang)).then_some(30),
+        llm: shared.llm.clone(),
     };
     let report = lab::play_game_isolated(&shared.engine, job, difficulty, decks, &shared.card_data, &opts, live);
     for note in &report.notes {
@@ -467,6 +528,10 @@ fn run_batch(args: &Args) -> anyhow::Result<Exit> {
         jobs.push((job, difficulty));
     }
     let scheduled = jobs.len();
+    let llm_games = jobs.iter().filter(|(j, _)| j.has_llm()).count();
+    if llm_games > 0 && args.llm.is_none() {
+        anyhow::bail!("{llm_games} games have an LLM pilot; run with --llm (see --help)");
+    }
     let restarts: u32 = std::env::var(RESTARTS_ENV).ok().and_then(|v| v.parse().ok()).unwrap_or(0);
 
     let mut skipped = 0;
@@ -561,6 +626,35 @@ fn run_batch(args: &Args) -> anyhow::Result<Exit> {
         return Ok(Exit::Code(deck_code));
     }
 
+    let hang_secs = std::env::var("YAMA_LAB_HANG_SECS").ok().and_then(|v| v.parse().ok()).filter(|s| *s > 0).unwrap_or(HANG_SECS);
+    let llm = match &args.llm {
+        Some(a) => {
+            if a.timeout_secs >= hang_secs {
+                anyhow::bail!("--llm-timeout {}s must be shorter than the hang limit ({hang_secs}s)", a.timeout_secs);
+            }
+            let exe = PathBuf::from(std::env::var("YAMA_LAB_CLAUDE").unwrap_or_else(|_| "claude".into()));
+            let cli = yama_play::pilot::ClaudeCli::new(exe.clone(), Duration::from_secs(a.timeout_secs), a.effort.clone(), a.concurrency)
+                .map_err(|e| anyhow::anyhow!("making the LLM working directory: {e}"))?;
+            let log = match &a.log {
+                Some(path) => Some(Mutex::new(
+                    OpenOptions::new().create(true).append(true).open(path).map_err(|e| anyhow::anyhow!("opening {}: {e}", path.display()))?,
+                )),
+                None => None,
+            };
+            eprintln!(
+                "lab: LLM seats ask {} (at most {} at a time, {}s limit, {} requests per seat per game, effort {}, object key {}); {llm_games} games have one",
+                exe.display(),
+                a.concurrency,
+                a.timeout_secs,
+                a.max_calls,
+                a.effort.as_deref().unwrap_or("default"),
+                if a.object_key { "on" } else { "off" }
+            );
+            Some(Arc::new(lab::LlmSetup { transport: Arc::new(cli), max_calls_per_seat: a.max_calls, max_failure_streak: 5, log, object_key: a.object_key }))
+        }
+        None => None,
+    };
+
     let out = OpenOptions::new().create(true).append(true).open(&args.out).map_err(|e| anyhow::anyhow!("opening {}: {e}", args.out.display()))?;
     let total = jobs.len();
     let threads = args.threads.min(total);
@@ -572,9 +666,10 @@ fn run_batch(args: &Args) -> anyhow::Result<Exit> {
         next: AtomicUsize::new(0),
         draining: AtomicBool::new(false),
         watch: Mutex::new(Watch::default()),
-        hang_secs: std::env::var("YAMA_LAB_HANG_SECS").ok().and_then(|v| v.parse().ok()).filter(|s| *s > 0).unwrap_or(HANG_SECS),
+        hang_secs,
         fault: read_fault(),
         turn_action_cap: std::env::var("YAMA_LAB_MAX_TURN_ACTIONS").ok().and_then(|v| v.parse().ok()).unwrap_or(MAX_TURN_ACTIONS),
+        llm,
     });
 
     lab::install_panic_hook();

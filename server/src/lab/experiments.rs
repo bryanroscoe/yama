@@ -1165,6 +1165,7 @@ fn canonical_difficulty(label: &str) -> AppResult<String> {
         max_turns: 1,
         max_actions: 1,
         max_seconds: 1,
+        pilots: None,
     };
     let d = probe.check().map_err(|_| AppError::bad(format!("unknown difficulty {label:?}")))?;
     Ok(format!("{d:?}"))
