@@ -323,9 +323,9 @@ async fn admins_list_accounts_and_turn_them_off_in_the_app() {
     let (stranger, stranger_user) = signed_in(&app, "g-stranger", "stranger@gmail.com").await;
     crate::auth::add_local_user(&pool, "other-admin@example.com", None, true, Some("a long enough password".into())).await.unwrap();
 
-    assert_eq!(send(&app, Method::GET, "/api/admin/users", Some(&stranger), None).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(send(&app, Method::GET, "/api/admin/users", Some(&stranger), None).await.0, StatusCode::NOT_FOUND);
     let path = |id: &Value, what: &str| format!("/api/admin/users/{}/{what}", id.as_str().unwrap());
-    assert_eq!(send(&app, Method::POST, &path(&admin_user["id"], "disable"), Some(&stranger), None).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(send(&app, Method::POST, &path(&admin_user["id"], "disable"), Some(&stranger), None).await.0, StatusCode::NOT_FOUND);
 
     let (status, list) = send(&app, Method::GET, "/api/admin/users", Some(&admin), None).await;
     assert_eq!(status, StatusCode::OK);

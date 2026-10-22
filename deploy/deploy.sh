@@ -6,6 +6,9 @@ cd "$(dirname "$0")/.."
 HOST=root@<saget-lan-address>
 DIR=/mnt/user/appdata/yama
 REV=$(git rev-parse --short HEAD)
+# Whether the copied source differs from that commit (shown on the admin area's Server page).
+DIRTY=0
+if [ -n "$(git status --porcelain --untracked-files=no -- server play web packages Cargo.toml Cargo.lock)" ]; then DIRTY=1; fi
 
 echo "Copying source to saget…"
 ssh "$HOST" "mkdir -p $DIR/build/yama $DIR/build/yama-phase"
@@ -16,7 +19,8 @@ rsync -a --delete --include Cargo.toml --include 'crates/***' --exclude '*' ../y
 
 echo "Building yama:$REV on saget (log: $DIR/build/build.log)…"
 ssh "$HOST" "cd $DIR/build && rm -f build.status && \
-  nohup sh -c 'docker build -f yama/deploy/Dockerfile --build-context phase=yama-phase -t yama:latest -t yama:$REV yama \
+  nohup sh -c 'docker build -f yama/deploy/Dockerfile --build-context phase=yama-phase \
+    --build-arg YAMA_GIT_SHA=$REV --build-arg YAMA_GIT_DIRTY=$DIRTY -t yama:latest -t yama:$REV yama \
     > build.log 2>&1; echo \$? > build.status' > /dev/null 2>&1 &"
 while ! ssh "$HOST" "test -f $DIR/build/build.status"; do sleep 20; done
 if [ "$(ssh "$HOST" "cat $DIR/build/build.status")" != "0" ]; then

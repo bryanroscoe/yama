@@ -21,6 +21,9 @@ COPY --from=phase crates /src/yama-phase/crates
 COPY Cargo.toml Cargo.lock ./
 COPY server server
 COPY play play
+# The commit this image is built from (the build context has no .git); server/build.rs stamps it.
+ARG YAMA_GIT_SHA=
+ARG YAMA_GIT_DIRTY=
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/yama/target \
     CARGO_BUILD_JOBS=12 cargo build --release -p yama-server \

@@ -531,6 +531,10 @@ label > span.hint {
 .nav-inner {
   display: contents;
 }
+/* The admin entry lives only in the laptop rail; on phones the tab bar keeps its six tabs. */
+.nav a.nav-admin {
+  display: none;
+}
 
 /* Laptops: a left rail. The active item is a raised pill; your avatar and the sync status sit at
    the bottom. */
@@ -584,6 +588,9 @@ label > span.hint {
   .nav a.active {
     background: var(--raised);
     color: var(--text);
+  }
+  .nav a.nav-admin {
+    display: flex;
   }
   .nav .wordmark {
     display: block;
