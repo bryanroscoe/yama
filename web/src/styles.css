@@ -587,11 +587,12 @@ label > span.hint {
   }
   .nav .wordmark {
     display: block;
-    font-family: var(--display);
-    font-weight: 800;
-    font-size: 2.25rem;
-    line-height: 1;
-    padding: 6px 14px 22px;
+    /* design/logo: about 28 px tall in the rail; the peaks rise above the cap line, so the box
+       includes them and the letters sit on its baseline. */
+    height: 28px;
+    width: auto;
+    color: var(--text);
+    margin: 8px 14px 24px;
   }
   .nav .rail-foot {
     display: grid;
@@ -995,6 +996,22 @@ table.plain tr.few td {
 .login h1 {
   font-size: 6rem;
   margin: 8px 0 4px;
+}
+/* The wordmark (design/logo): white on the art, sized by height. */
+.login h1.login-wordmark {
+  margin: 8px 0 0;
+  line-height: 0;
+  color: var(--text);
+}
+.login h1.login-wordmark svg {
+  height: clamp(56px, 9vw, 96px);
+  width: auto;
+}
+.login-expansion {
+  margin: 10px 0 0;
+  color: var(--dim);
+  font-size: 1rem;
+  letter-spacing: 0.04em;
 }
 .login .pips .pip {
   width: 14px;

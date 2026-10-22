@@ -7,6 +7,7 @@ import { outbox } from "./plan/outbox";
 import { discardQuestion, signOut, within } from "./plan/signout";
 import { clearPlanData } from "./plan/store";
 import "./auth.css";
+import { Wordmark } from "./components/Wordmark";
 
 /** The sign-in page's art: Éowyn, Shieldmaiden by Craig Elliott, loaded from Scryfall at runtime. */
 const SIGN_IN_ART = "https://cards.scryfall.io/art_crop/front/d/d/dd4a00ff-2206-4e12-a0ab-61ed82c9e6c5.jpg";
@@ -181,7 +182,10 @@ export function Login() {
   return (
     <main className="login login-split">
       <ArtPanel as="section" className="login-hero" art={SIGN_IN_ART} artist="Craig Elliott" wash="bottom" credit={false}>
-        <h1>Yama</h1>
+        <h1 className="login-wordmark">
+          <Wordmark />
+        </h1>
+        <p className="login-expansion">Yet Another Magic App</p>
         <p className="login-tag">Life totals, decks and the cards behind them, for our table.</p>
         <p className="login-credit">Éowyn, Shieldmaiden. Art by Craig Elliott, ™ &amp; © Wizards of the Coast.</p>
       </ArtPanel>

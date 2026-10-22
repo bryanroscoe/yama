@@ -1,10 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#13201C"/>
-  <g transform="translate(256 256)">
-    <circle cx="0" cy="-118" r="44" fill="#F1E4BC"/>
-    <circle cx="112" cy="-36" r="44" fill="#2C78C4"/>
-    <circle cx="69" cy="96" r="44" fill="#4B4049"/>
-    <circle cx="-69" cy="96" r="44" fill="#D4472E"/>
-    <circle cx="-112" cy="-36" r="44" fill="#2F8752"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="24" fill="#0b0c0e"/>
+  <path d="M44 84L68 36L92 84H76L68 66L60 84Z" fill="#a9adb3"/>
+  <path d="M6 84L34 18L62 84H44L34 58L24 84Z" fill="#f2efe8" stroke="#0b0c0e" stroke-width="6" paint-order="stroke"/>
 </svg>

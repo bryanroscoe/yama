@@ -3,6 +3,7 @@ import { Login, useMe } from "./auth";
 import { RailMe } from "./components/RailMe";
 import { CardsIcon, CollectionIcon, DecksIcon, GroupIcon, PlayIcon, TableIcon } from "./components/icons";
 import { ErrorText } from "./components/ui";
+import { Wordmark } from "./components/Wordmark";
 import { CardsPage } from "./pages/Cards";
 import { CollectionPage } from "./pages/Collection";
 import { DeckPage, DecksPage } from "./pages/Decks";
@@ -45,7 +46,7 @@ function Shell() {
         {/* Laptops: the nav is a full-height column (its border runs the whole page) and this
             block sticks to the window, so the account chip always sits at the window's foot. */}
         <div className="nav-inner">
-          <span className="wordmark">Yama</span>
+          <Wordmark className="wordmark" />
           {tabs.map((t) => (
             <NavLink key={t.to} to={t.to} end={t.end}>
               {t.icon}
@@ -68,7 +69,9 @@ export function App() {
     return (
       <main className="login">
         <div className="login-inner">
-          <h1>Yama</h1>
+          <h1 className="login-wordmark">
+            <Wordmark />
+          </h1>
           <ErrorText error={me.error} />
           <p className="dim">The server didn't answer. If you're offline, the life counter still works once you've signed in on this device.</p>
         </div>
