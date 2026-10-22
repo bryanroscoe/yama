@@ -57,14 +57,28 @@ impl Simulator for FakeSim {
             r.error = Some("engine refused everything".into());
             return r;
         }
-        let seat = spec.decks.iter().position(|d| d == BASE_ID || d == VARIANT_ID).unwrap() as u8;
+        let n = spec.decks.len() as u8;
         let roll = spec.seed % 10;
-        let wins = roll < 2 || (spec.decks[seat as usize] == VARIANT_ID && roll < 4);
-        let winner = if wins { seat } else { (seat + 1) % 4 };
+        let winner = match spec.decks.iter().position(|d| d == BASE_ID || d == VARIANT_ID) {
+            Some(seat) => {
+                let seat = seat as u8;
+                let wins = roll < 2 || (spec.decks[seat as usize] == VARIANT_ID && roll < 4);
+                if wins { seat } else { (seat + 1) % n }
+            }
+            // Head to head: "e0" wins about 8 games in 10, "e1" the rest when it's there, else a filler.
+            None => {
+                let at = |id: &str| spec.decks.iter().position(|d| d == id).map(|s| s as u8);
+                match (at("e0"), at("e1")) {
+                    (Some(a), _) if roll < 8 => a,
+                    (_, Some(b)) => b,
+                    _ => (0..n).find(|s| !spec.decks[*s as usize].starts_with('e')).unwrap_or(0),
+                }
+            }
+        };
         r.end = End::Win;
         r.winner = Some(winner);
         r.first_seat = Some(0);
-        r.placements = vec![vec![winner], (0..4).filter(|s| *s != winner).collect()];
+        r.placements = vec![vec![winner], (0..n).filter(|s| *s != winner).collect()];
         r.turns = 9;
         r
     }
@@ -237,8 +251,8 @@ async fn an_experiment_is_frozen_and_paired_when_created() {
     assert_eq!((d.item.label.engine.as_str(), d.item.label.card_data.as_str(), d.item.label.difficulty.as_str()), (ENGINE, "fakecarddata0000", "Easy"));
     assert!(d.item.label.simulated);
     assert_eq!(d.lists.base.cards.iter().map(|c| c.qty).sum::<u32>(), 100);
-    assert_eq!(d.lists.variant.cards.iter().map(|c| c.qty).sum::<u32>(), 100);
-    assert_ne!(d.lists.base.sha256, d.lists.variant.sha256);
+    assert_eq!(d.lists.variant.as_ref().unwrap().cards.iter().map(|c| c.qty).sum::<u32>(), 100);
+    assert_ne!(d.lists.base.sha256, d.lists.variant.as_ref().unwrap().sha256);
     assert!(d.item.summary.is_none());
 
     // 50 pods, two games each: same seed and opponents, the lists in the same seat.
@@ -307,9 +321,16 @@ async fn bad_requests_say_what_is_wrong() {
     assert!(d.warnings.iter().any(|w| w.contains("2 × Sol Ring: Commander is singleton")), "{:?}", d.warnings);
     delete(&pool, "bryan", &d.item.id).await.unwrap();
 
-    // Fields: too small, unknown precons, unplayable precons, unknown kinds.
+    // Fields: a pick too small for a pod is topped up (the picked precons in every pod), unknown
+    // precons, unplayable precons, unknown kinds.
     let swap = json!({"cut": ["Forest"], "add": ["Llanowar Elves"]});
-    assert!(bad(create(&pool, &bryan, mk(swap.clone(), json!({"kind": "precons_ids", "ids": ["p2", "p3"]}), 100), sim.as_ref()).await.unwrap_err()).contains("at least 3"));
+    let small = create(&pool, &bryan, mk(swap.clone(), json!({"kind": "precons_ids", "ids": ["p2", "p3"]}), 100), sim.as_ref()).await.unwrap();
+    let f = small.item.field.clone().unwrap();
+    assert_eq!(f.every_pod, 2, "{f:?}");
+    assert!(f.label.starts_with("Precon p2 and Precon p3 in every pod, with "), "{}", f.label);
+    assert_eq!(small.opponents.iter().filter(|o| o.pods == 50).map(|o| o.id.as_str()).collect::<Vec<_>>(), ["precons/p2", "precons/p3"]);
+    assert!(small.opponents.iter().all(|o| o.id != "precons/p1" && o.id != "precons/p6"), "never the base or an unplayable precon");
+    delete(&pool, "bryan", &small.item.id).await.unwrap();
     let (_, details) = invalid(create(&pool, &bryan, mk(swap.clone(), json!({"kind": "precons_ids", "ids": ["p2", "p3", "zzz"]}), 100), sim.as_ref()).await.unwrap_err());
     assert_eq!(details["unknown_precons"], json!(["zzz"]));
     let (_, details) = invalid(create(&pool, &bryan, mk(swap.clone(), json!({"kind": "precons_ids", "ids": ["p2", "p3", "p6"]}), 100), sim.as_ref()).await.unwrap_err());
@@ -398,7 +419,7 @@ async fn other_users_experiments_and_decks_are_not_found() {
     let as_base = req(json!({"base": {"kind": "deck", "id": mine}, "variant": {"cut": ["Forest"], "add": ["Llanowar Elves"]}, "field": {"kind": "precons_top", "n": 3}, "games": 100}));
     assert!(matches!(create(&pool, &other, as_base, sim.as_ref()).await, Err(AppError::NotFound(_))));
     let mut in_field = swap_req(100);
-    in_field.field = FieldChoice { kind: "my_decks".into(), n: None, ids: vec![mine.clone()] };
+    in_field.field = Some(FieldChoice { kind: "my_decks".into(), n: None, ids: vec![mine.clone()], fill: None });
     assert!(matches!(create(&pool, &other, in_field, sim.as_ref()).await, Err(AppError::NotFound(_))));
     // The same op id belongs to each user separately.
     let mut a = swap_req(100);
@@ -1050,7 +1071,7 @@ async fn a_user_at_the_limit_is_refused_before_anything_is_built() {
         create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
     }
     let mut nope = swap_req(100);
-    nope.base = BaseChoice { kind: "precon".into(), id: Some("no-such-precon".into()), text: None };
+    nope.base = Some(BaseChoice { kind: "precon".into(), id: Some("no-such-precon".into()), text: None, label: None });
     assert!(matches!(create(&pool, &bryan, nope, sim.as_ref()).await, Err(AppError::Conflict(_))));
 }
 
@@ -1280,4 +1301,242 @@ async fn a_disabled_accounts_experiments_wait() {
     assert!(worker.next_jobs(2).await.unwrap().is_empty());
     sqlx::query("UPDATE users SET disabled_at = NULL WHERE id = 'other'").execute(&pool).await.unwrap();
     assert_eq!(worker.next_jobs(2).await.unwrap().len(), 2);
+}
+
+// ── modes: one deck as it is, two decks against the same field, decks head to head ──
+
+#[tokio::test]
+async fn a_deck_as_it_is_plays_every_pod_once_against_the_field() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let bryan = user("bryan", false);
+    let d = create(&pool, &bryan, req(json!({"mode": "solo", "base": {"kind": "precon", "id": "p1"}, "field": {"kind": "precons_top", "n": 3}, "games": 100})), sim.as_ref()).await.unwrap();
+    assert_eq!(d.item.mode, Mode::Solo);
+    assert_eq!(d.item.name, "Precon p1 as it is");
+    assert!(d.lists.variant.is_none() && d.item.variant.is_none());
+    assert_eq!(d.item.progress.total, 100);
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    let played = sim.played();
+    assert_eq!(played.len(), 100, "each pod once");
+    assert!(played.iter().all(|(g, _)| g.decks.iter().filter(|x| *x == BASE_ID).count() == 1 && !g.decks.iter().any(|x| x == VARIANT_ID)));
+    let done = detail(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!(done.item.status, "done");
+    let s = done.item.summary.unwrap();
+    assert_eq!(s.base.games, 100);
+    assert_eq!(s.variant.games, 0);
+    // The fake wins 2 in 10: below a quarter.
+    assert!(s.verdict.text.contains("no edge would be 25%"), "{}", s.verdict.text);
+    assert!(s.method.contains("no changed copy"));
+    // Its rows list one game per pod.
+    let pods = pods(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!(pods.len(), 100);
+    assert!(pods.iter().all(|p| p.base.is_some() && p.variant.is_none() && p.game.is_none()));
+    // Run again with more games: the same list and opponents, a new seed.
+    let again = again(&pool, &bryan, &d.item.id, 200, None, sim.as_ref()).await.unwrap();
+    assert_eq!((again.item.mode, again.item.progress.total), (Mode::Solo, 200));
+    assert_eq!(again.item.name, "Precon p1 as it is (200 games)");
+    assert_ne!(again.seed, done.seed);
+    assert_eq!(again.lists.base.sha256, done.lists.base.sha256);
+    let again2 = again_with_name(&pool, &bryan, &again.item.id).await;
+    assert_eq!(again2, "Precon p1 as it is (100 games)", "the games ending is replaced, not stacked");
+}
+
+async fn again_with_name(pool: &SqlitePool, user: &User, id: &str) -> String {
+    let sim = FakeSim::new();
+    again(pool, user, id, 100, None, sim.as_ref()).await.unwrap().item.name
+}
+
+#[tokio::test]
+async fn two_decks_play_the_same_pods_and_neither_is_in_the_field() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let bryan = user("bryan", false);
+    let mine = deck(&pool, "bryan", "Elf ball", list_of("Ghave", &["Llanowar Elves"])).await;
+    let r = req(json!({
+        "mode": "compare",
+        "base": {"kind": "deck", "id": mine},
+        "other": {"kind": "precon", "id": "p2"},
+        "field": {"kind": "precons_all"},
+        "games": 100
+    }));
+    let d = create(&pool, &bryan, r, sim.as_ref()).await.unwrap();
+    assert_eq!(d.item.mode, Mode::Compare);
+    assert_eq!(d.item.name, "Elf ball vs Precon p2");
+    assert_eq!(d.item.entrants.iter().map(|e| e.label.as_str()).collect::<Vec<_>>(), ["Elf ball", "Precon p2"]);
+    let v = d.item.variant.as_ref().unwrap();
+    assert_eq!(v.label, "Precon p2");
+    assert!(v.added.is_empty() && v.cut.is_empty(), "whole decks, not a change");
+    assert!(d.opponents.iter().all(|o| o.id != "precons/p2" && o.id != "precons/p6"), "deck B and unplayable precons stay out of the field");
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    let played = sim.played();
+    assert_eq!(played.len(), 100);
+    let mut by_seed: HashMap<u64, Vec<&GameSpec>> = HashMap::new();
+    for (g, _) in &played {
+        by_seed.entry(g.seed).or_default().push(g);
+    }
+    for games in by_seed.values() {
+        assert_eq!(games.len(), 2, "each pod twice, once per deck");
+        let open = |g: &GameSpec| g.decks.iter().position(|x| x == BASE_ID || x == VARIANT_ID).unwrap();
+        assert_eq!(open(games[0]), open(games[1]), "same seat");
+        let rest = |g: &GameSpec| g.decks.iter().filter(|x| *x != BASE_ID && *x != VARIANT_ID).cloned().collect::<Vec<_>>();
+        assert_eq!(rest(games[0]), rest(games[1]), "same opponents in the same seats");
+    }
+    let s = detail(&pool, "bryan", &d.item.id).await.unwrap().item.summary.unwrap();
+    assert_eq!(s.paired.pods, 50);
+    // The same list twice is refused.
+    let same = req(json!({"mode": "compare", "base": {"kind": "precon", "id": "p2"}, "other": {"kind": "precon", "id": "p2"}, "field": {"kind": "precons_all"}, "games": 100}));
+    assert!(bad(create(&pool, &bryan, same, sim.as_ref()).await.unwrap_err()).contains("same list"));
+    let missing = req(json!({"mode": "compare", "base": {"kind": "precon", "id": "p2"}, "field": {"kind": "precons_all"}, "games": 100}));
+    assert!(bad(create(&pool, &bryan, missing, sim.as_ref()).await.unwrap_err()).contains("other is required"));
+}
+
+#[tokio::test]
+async fn decks_head_to_head_rotate_seats_and_count_who_finished_ahead() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let bryan = user("bryan", false);
+    let a = deck(&pool, "bryan", "Elf ball", list_of("Ghave", &["Llanowar Elves"])).await;
+    let b = deck(&pool, "bryan", "Bears", list_of("Atla", &["Grizzly Bears"])).await;
+    let r = req(json!({
+        "mode": "versus",
+        "entrants": [{"kind": "deck", "id": a}, {"kind": "deck", "id": b}, {"kind": "precon", "id": "p3"}],
+        "field": {"kind": "precons_top", "n": 3},
+        "games": 100
+    }));
+    let d = create(&pool, &bryan, r, sim.as_ref()).await.unwrap();
+    assert_eq!(d.item.mode, Mode::Versus);
+    assert_eq!(d.item.name, "Elf ball vs Bears vs Precon p3");
+    assert_eq!(d.lists.entrants.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["e0", "e1", "e2"]);
+    assert!(d.opponents.iter().all(|o| o.id != "precons/p3"), "an entrant isn't a filler too");
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    let played = sim.played();
+    assert_eq!(played.len(), 100);
+    let mut seats: HashMap<(String, usize), usize> = HashMap::new();
+    for (g, _) in &played {
+        for e in ["e0", "e1", "e2"] {
+            assert_eq!(g.decks.iter().filter(|x| *x == e).count(), 1, "{e} in every game");
+        }
+        for (i, x) in g.decks.iter().enumerate() {
+            *seats.entry((x.clone(), i)).or_default() += 1;
+        }
+    }
+    for e in ["e0", "e1", "e2"] {
+        assert_eq!(seats[&(e.to_string(), 0)], 25, "{e} goes first a quarter of the time");
+    }
+    let s = detail(&pool, "bryan", &d.item.id).await.unwrap().item.summary.unwrap();
+    let v = s.versus.as_ref().unwrap();
+    assert_eq!(v.games, 100);
+    let wins: Vec<u32> = v.entrants.iter().map(|e| e.wins).collect();
+    assert_eq!(wins.iter().sum::<u32>(), 100);
+    assert!(wins[0] > 60 && wins[1] > 0 && wins[2] == 0, "{wins:?}");
+    let ab = v.meetings.iter().find(|m| (m.a, m.b) == (0, 1)).unwrap();
+    assert_eq!((ab.a_ahead, ab.b_ahead, ab.ties), (wins[0], wins[1], 0));
+    assert_eq!(v.entrants.iter().map(|e| e.games).collect::<Vec<_>>(), [100, 100, 100]);
+    assert_eq!(v.avg_turns, Some(9.0));
+    assert!(s.verdict.text.contains("Elf ball wins most often"), "{}", s.verdict.text);
+    // Rows name every seat and the winner.
+    let rows = pods(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!(rows.len(), 100);
+    assert!(rows.iter().all(|p| p.game.as_ref().is_some_and(|g| g.winner.is_some()) && p.seats.iter().all(|x| x.is_some())));
+    // Someone else can't see or rerun it.
+    assert!(matches!(pods(&pool, "other", &d.item.id).await, Err(AppError::NotFound(_))));
+    assert!(matches!(again(&pool, &user("other", false), &d.item.id, 100, None, sim.as_ref()).await, Err(AppError::NotFound(_))));
+    // Run again keeps the entrants and the fillers.
+    let more = again(&pool, &bryan, &d.item.id, 200, None, sim.as_ref()).await.unwrap();
+    assert_eq!((more.item.mode, more.item.progress.total, more.lists.entrants.len()), (Mode::Versus, 200, 3));
+}
+
+#[tokio::test]
+async fn two_decks_one_on_one_and_bad_head_to_head_requests() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let bryan = user("bryan", false);
+    let two = json!([{"kind": "precon", "id": "p1"}, {"kind": "precon", "id": "p2"}]);
+    let d = create(&pool, &bryan, req(json!({"mode": "versus", "entrants": two, "pod": 2, "games": 100})), sim.as_ref()).await.unwrap();
+    assert_eq!(d.item.field.as_ref().unwrap().kind, "none");
+    assert!(d.opponents.is_empty());
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    let played = sim.played();
+    assert!(played.iter().all(|(g, _)| g.decks.len() == 2));
+    assert_eq!(played.iter().filter(|(g, _)| g.decks[0] == "e0").count(), 50, "each goes first half the time");
+    let s = detail(&pool, "bryan", &d.item.id).await.unwrap().item.summary.unwrap();
+    assert!(s.verdict.text.starts_with("Precon p1 probably finishes ahead of Precon p2"), "{}", s.verdict.text);
+    // Two decks in pods of four need a field for the empty seats; with one it plays.
+    assert!(bad(create(&pool, &bryan, req(json!({"mode": "versus", "entrants": two, "games": 100})), sim.as_ref()).await.unwrap_err()).contains("field is required"));
+    let four = create(&pool, &bryan, req(json!({"mode": "versus", "entrants": two, "field": {"kind": "precons_all"}, "games": 100})), sim.as_ref()).await.unwrap();
+    assert_eq!(four.item.label.pod, 4);
+    // Bad requests.
+    let one = json!([{"kind": "precon", "id": "p1"}]);
+    assert!(bad(create(&pool, &bryan, req(json!({"mode": "versus", "entrants": one, "games": 100})), sim.as_ref()).await.unwrap_err()).contains("2 to 4"));
+    let dup = json!([{"kind": "precon", "id": "p1"}, {"kind": "precon", "id": "p1"}]);
+    assert!(bad(create(&pool, &bryan, req(json!({"mode": "versus", "entrants": dup, "pod": 2, "games": 100})), sim.as_ref()).await.unwrap_err()).contains("same list"));
+    let three = json!([{"kind": "precon", "id": "p1"}, {"kind": "precon", "id": "p2"}, {"kind": "precon", "id": "p3"}]);
+    assert!(bad(create(&pool, &bryan, req(json!({"mode": "versus", "entrants": three, "pod": 2, "games": 100})), sim.as_ref()).await.unwrap_err()).contains("exactly two"));
+    let unplayable = json!([{"kind": "precon", "id": "p1"}, {"kind": "precon", "id": "p6"}]);
+    let (_, details) = invalid(create(&pool, &bryan, req(json!({"mode": "versus", "entrants": unplayable, "pod": 2, "games": 100})), sim.as_ref()).await.unwrap_err());
+    assert_eq!(details["unknown"]["entrants"]["1"], json!(["Mystery Card"]));
+    assert!(bad(create(&pool, &bryan, req(json!({"mode": "duel", "entrants": two, "pod": 2, "games": 100})), sim.as_ref()).await.unwrap_err()).contains("mode"));
+    // Someone else's deck is "not found".
+    let theirs = deck(&pool, "other", "Theirs", list_of("Bruna", &[])).await;
+    let r = req(json!({"mode": "versus", "entrants": [{"kind": "precon", "id": "p1"}, {"kind": "deck", "id": theirs}], "pod": 2, "games": 100}));
+    assert!(matches!(create(&pool, &bryan, r, sim.as_ref()).await, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn the_new_modes_share_the_allowance_and_the_daily_cap() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let newcomer = add_open_user(&pool, "newbie").await;
+    // 100 games, one at a time, for any mode.
+    let two = json!([{"kind": "precon", "id": "p1"}, {"kind": "precon", "id": "p2"}]);
+    assert!(bad(create(&pool, &newcomer, req(json!({"mode": "versus", "entrants": two, "pod": 2, "games": 200})), sim.as_ref()).await.unwrap_err()).contains("100"));
+    let first = create(&pool, &newcomer, req(json!({"mode": "solo", "base": {"kind": "precon", "id": "p1"}, "field": {"kind": "precons_top", "n": 3}, "games": 100})), sim.as_ref()).await.unwrap();
+    assert!(matches!(create(&pool, &newcomer, req(json!({"mode": "versus", "entrants": two, "pod": 2, "games": 100})), sim.as_ref()).await, Err(AppError::Conflict(_))));
+    assert!(matches!(again(&pool, &newcomer, &first.item.id, 100, None, sim.as_ref()).await, Err(AppError::Conflict(_))));
+    // A retried "again" with the same op id returns the first one.
+    let bryan = user("bryan", false);
+    let base = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
+    let x = again(&pool, &bryan, &base.item.id, 200, Some("again-1"), sim.as_ref()).await.unwrap();
+    let y = again(&pool, &bryan, &base.item.id, 200, Some("again-1"), sim.as_ref()).await.unwrap();
+    assert_eq!(x.item.id, y.item.id);
+    assert_eq!(x.item.variant, base.item.variant, "the same change");
+}
+
+#[tokio::test]
+async fn a_short_pick_of_your_decks_sits_in_every_pod_with_precons_filling_the_rest() {
+    // Bryan's setup (22 Oct 2026): his deck with a change, against one of his other decks.
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let bryan = user("bryan", false);
+    let riders = deck(&pool, "bryan", "Riders of Rohan Upgraded 100", list_of("Ghave", &["Llanowar Elves"])).await;
+    let lorehold = deck(&pool, "bryan", "Lorehold", list_of("Atla", &["Grizzly Bears"])).await;
+    let r = req(json!({
+        "base": {"kind": "deck", "id": riders},
+        "variant": {"cut": ["Llanowar Elves"], "add": ["Elvish Mystic"]},
+        "field": {"kind": "my_decks", "ids": [lorehold]},
+        "games": 100,
+        "difficulty": "Medium",
+        "name": "Test terrain"
+    }));
+    let d = create(&pool, &bryan, r, sim.as_ref()).await.unwrap();
+    let f = d.item.field.clone().unwrap();
+    assert_eq!(f.every_pod, 1);
+    assert!(f.label.starts_with("Lorehold in every pod, with "), "{}", f.label);
+    assert_eq!(d.item.name, "Test terrain");
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    let played = sim.played();
+    assert_eq!(played.len(), 100);
+    let lore = format!("deck/{lorehold}");
+    assert!(played.iter().all(|(g, _)| g.decks.contains(&lore) && g.difficulty == "Medium"), "Lorehold sits in every game");
+    let done = detail(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!(done.item.status, "done");
+    // As it is, against the same pick.
+    let solo = req(json!({"mode": "solo", "base": {"kind": "deck", "id": riders}, "field": {"kind": "my_decks", "ids": [lorehold]}, "games": 100, "difficulty": "Medium"}));
+    let s = create(&pool, &bryan, solo, sim.as_ref()).await.unwrap();
+    assert_eq!(s.item.field.unwrap().every_pod, 1);
 }

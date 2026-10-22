@@ -7,6 +7,7 @@ import "./lab.css";
 const LAB_PAGES: { to: string; label: string; end?: boolean; also?: string }[] = [
   { to: "/decks/lab", label: "Precons", end: true, also: "/decks/lab/p/" },
   { to: "/decks/lab/try", label: "Try a change" },
+  { to: "/decks/lab/compare", label: "Compare decks" },
   { to: "/decks/lab/runs", label: "My runs" },
 ];
 

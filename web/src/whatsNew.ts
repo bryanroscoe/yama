@@ -14,6 +14,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-22-lab-compare",
+    date: "2026-10-22",
+    title: "Swap cards, and compare decks without changing them",
+    items: [
+      "Try a change: every card in the list has a Swap button that opens a card search right there, with your plan's ideas and spare cards first. The Changes panel shows each card going out and what replaces it.",
+      "With no swaps, Run plays the list as it is against the opponents you chose and gives its win rate.",
+      "Compare decks: two decks against the same opponents, or two to four of your decks head to head at one table, each taking every seat in turn.",
+      "Against a pick of one or two of your decks, they now sit in every pod and precons of similar power fill the other seats. Finished runs can be run again with more games.",
+    ],
+    link: { to: "/decks/lab/compare", label: "Compare decks" },
+  },
+  {
     id: "2026-10-22-watch-ais",
     date: "2026-10-22",
     title: "Watch the AIs play",

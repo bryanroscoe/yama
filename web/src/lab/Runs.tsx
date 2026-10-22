@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { api } from "../api";
 import { Details, ErrorText } from "../components/ui";
-import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem } from "./api";
+import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem, ExperimentMode } from "./api";
 import { ConfidenceLine, ConfidenceMark, ConfidenceNote } from "./confidence";
 import {
   baseConfidence,
@@ -69,15 +69,20 @@ export function RunsPage() {
       <LabHead
         title="My runs"
         action={
-          <Link className="button primary" to="/decks/lab/try">
-            Try a change
-          </Link>
+          <span className="row" style={{ gap: 8 }}>
+            <Link className="button" to="/decks/lab/compare">
+              Compare decks
+            </Link>
+            <Link className="button primary" to="/decks/lab/try">
+              Try a change
+            </Link>
+          </span>
         }
       />
       <ErrorText error={exps.error ?? stop.error ?? remove.error} />
       {exps.data?.length === 0 && batch.length === 0 && (
         <p className="empty">
-          No runs yet. <Link to="/decks/lab/try">Try a change</Link> to play a list against a changed copy of it, or start from a precon in{" "}
+          No runs yet. <Link to="/decks/lab/try">Try a change</Link> to play a list against a changed copy of it (or as it is), <Link to="/decks/lab/compare">compare decks</Link> against each other, or start from a precon in{" "}
           <Link to="/decks/lab">Precons</Link>.
         </p>
       )}
@@ -91,7 +96,7 @@ export function RunsPage() {
               : e.status === "failed"
                 ? { text: "Failed", tone: "bad" }
                 : s
-                  ? verdictTag(s.verdict.kind)
+                  ? verdictTag(s.verdict.kind, e.mode ?? "change")
                   : { text: e.status === "cancelled" ? "Cancelled" : "Done", tone: "quiet" };
             return (
               <article key={e.id} className="lab-runcard">
@@ -203,8 +208,18 @@ function ExperimentConfidence({ e, precons }: { e: ExperimentItem; precons: Prec
 }
 
 /** "Probably better" (good), "Probably worse" (bad) or "Can't tell yet" (warn). */
-function verdictTag(kind: "better" | "worse" | "unclear"): { text: string; tone: string } {
-  return kind === "better" ? { text: "Probably better", tone: "good" } : kind === "worse" ? { text: "Probably worse", tone: "bad" } : { text: "Can't tell yet", tone: "warn" };
+function verdictTag(kind: "better" | "worse" | "unclear", mode: ExperimentMode = "change"): { text: string; tone: string } {
+  if (kind === "unclear") return { text: mode === "versus" ? "Too close to call" : "Can't tell yet", tone: "warn" };
+  switch (mode) {
+    case "solo":
+      return kind === "better" ? { text: "Above the field", tone: "good" } : { text: "Below the field", tone: "bad" };
+    case "compare":
+      return kind === "better" ? { text: "Second deck ahead", tone: "good" } : { text: "First deck ahead", tone: "good" };
+    case "versus":
+      return { text: "One deck ahead", tone: "good" };
+    default:
+      return kind === "better" ? { text: "Probably better", tone: "good" } : { text: "Probably worse", tone: "bad" };
+  }
 }
 
 /** "Riders of Rohan (Bryan, stock)" → "Riders of Rohan". */

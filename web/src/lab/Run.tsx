@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api } from "../api";
 import { ErrorText, Pips } from "../components/ui";
-import type { ExperimentDetail, ExperimentItem, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
+import type { ComparePrefill, ExperimentDetail, ExperimentItem, ExperimentMode, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
 import { ConfidenceLine } from "./confidence";
 import {
   baseConfidence,
@@ -31,6 +31,8 @@ import { AskClaude } from "../advisor/AskClaude";
 import { ArtPanel, IntervalChart, SimLine, StatusTag } from "./parts";
 import { LabHead } from "./LabLayout";
 import { usePrecons } from "./Precons";
+import { usePace } from "./pickers";
+import { gameChoices } from "./logic";
 
 const LIVE = new Set(["queued", "running"]);
 
@@ -45,6 +47,80 @@ export function experimentLabel(e: ExperimentItem): string {
     pod: l.pod,
     date: l.finished_at ?? l.started_at ?? l.created_at,
   });
+}
+
+/** A run's mode; runs from before the modes are changes. */
+export function modeOf(e: ExperimentItem): ExperimentMode {
+  return e.mode ?? "change";
+}
+
+const MODE_LINE: Record<ExperimentMode, string> = {
+  change: "A list against a changed copy of it, on the same pods",
+  compare: "Two decks against the same opponents, on the same pods",
+  solo: "One list as it is, against the field",
+  versus: "Decks head to head, every deck in every game",
+};
+
+/** "Run again with more games": the same lists, opponents and AI level, a new seed. */
+function Again({ e }: { e: ExperimentDetail }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const pace = usePace();
+  const choices = gameChoices(pace.data);
+  const bigger = choices.filter((g) => g > e.label.games);
+  const [games, setGames] = useState<number | null>(null);
+  const pick = games ?? bigger[0] ?? choices[choices.length - 1] ?? e.label.games;
+  const again = useMutation({
+    mutationFn: () => api<ExperimentDetail>(`/api/lab/experiments/${e.id}/again`, { method: "POST", json: { games: pick, op_id: `${e.id}-again-${pick}-${Date.now()}` } }),
+    onSuccess: (d) => {
+      void qc.invalidateQueries({ queryKey: ["lab", "experiments"] });
+      navigate(`/decks/lab/runs/${d.id}`);
+    },
+  });
+  return (
+    <div className="lab-again">
+      <span className="lab-games-label">Run again</span>
+      <div className="segmented" role="radiogroup" aria-label="Games">
+        {choices.map((g) => (
+          <button key={g} type="button" role="radio" aria-checked={pick === g} aria-pressed={pick === g} onClick={() => setGames(g)}>
+            {g}
+          </button>
+        ))}
+      </div>
+      <button className="primary" onClick={() => again.mutate()} disabled={again.isPending}>
+        {again.isPending ? "Starting…" : pick > e.label.games ? `Run again with ${pick} games` : `Run again (${pick} games)`}
+      </button>
+      <span className="lab-note">Same lists, opponents and AI level, new shuffles. More games give a tighter answer.</span>
+      <ErrorText error={again.error} />
+    </div>
+  );
+}
+
+/** What "Edit and run again" brings back to the Compare page. */
+function comparePrefill(e: ExperimentDetail): ComparePrefill {
+  const lists = modeOf(e) === "versus" ? (e.lists.entrants ?? []) : [e.lists.base, ...(e.lists.variant ? [e.lists.variant] : [])];
+  const decks = lists.map((l) => {
+    const src = l.source as { kind?: string; id?: string };
+    if (src.kind === "precon" && src.id) return { kind: "precon" as const, id: src.id };
+    if (src.kind === "deck" && src.id) return { kind: "deck" as const, id: src.id };
+    return { kind: "list" as const, text: listText(l.cards.map((c) => ({ qty: c.qty, name: c.name, board: c.commander ? "commander" : "main" }))), label: l.label };
+  });
+  return { mode: modeOf(e) === "versus" ? "versus" : "compare", decks, pod: e.label.pod, field: fieldFrom(e), games: e.label.games, difficulty: e.label.difficulty };
+}
+
+function fieldFrom(e: ExperimentItem): FieldChoice | undefined {
+  const f = e.field;
+  return !f
+    ? undefined
+    : f.kind === "precons_top"
+      ? { kind: "precons_top", n: f.n ?? 20 }
+      : f.kind === "precons_near"
+        ? { kind: "precons_near", n: f.n ?? 20, ids: f.ids }
+        : f.kind === "precons_all"
+          ? { kind: "precons_all" }
+          : f.kind === "my_decks"
+            ? { kind: "my_decks", ids: f.ids }
+            : undefined;
 }
 
 export function RunPage() {
@@ -98,7 +174,8 @@ export function RunPage() {
           <StatusTag status={e.status} />
         </span>
         <h1 style={{ fontSize: "var(--t-xl)" }}>{e.name}</h1>
-        {e.base && (
+        <span className="dim small">{MODE_LINE[modeOf(e)]}</span>
+        {e.base && modeOf(e) !== "versus" && modeOf(e) !== "compare" && (
           <span className="dim small">
             {e.base.commanders.join(" and ")} <Pips identity={e.base.color_identity} /> {identityName(e.base.color_identity)}
           </span>
@@ -119,7 +196,7 @@ export function RunPage() {
       )}
 
       {scored ? (
-        <Results e={e} s={scored} />
+        modeOf(e) === "versus" ? <VersusResults e={e} s={scored} /> : modeOf(e) === "solo" ? <SoloResults e={e} s={scored} /> : <Results e={e} s={scored} />
       ) : (
         !live && (
           <p className="dim">
@@ -131,20 +208,25 @@ export function RunPage() {
       )}
 
       <section>
-        <h2>The change</h2>
+        <h2>{modeOf(e) === "change" ? "The change" : modeOf(e) === "solo" ? "The list" : "The decks"}</h2>
         <Change e={e} />
       </section>
 
-      {e.progress.done > 0 && <Pods id={e.id} done={e.progress.done} status={e.status} />}
+      {e.progress.done > 0 && <Pods id={e.id} done={e.progress.done} status={e.status} mode={modeOf(e)} />}
 
       <section>
+        {!live && <Again e={e} />}
         <div className="row">
           {live && (
             <button onClick={() => cancel.mutate()} disabled={cancel.isPending}>
               Cancel the rest
             </button>
           )}
-          <button onClick={() => navigate("/decks/lab/try", { state: { prefill: prefillFrom(e) } })}>Try again</button>
+          {modeOf(e) === "change" || modeOf(e) === "solo" ? (
+            <button onClick={() => navigate("/decks/lab/try", { state: { prefill: prefillFrom(e) } })}>{modeOf(e) === "solo" ? "Try a change to it" : "Edit the change"}</button>
+          ) : (
+            <button onClick={() => navigate("/decks/lab/compare", { state: { prefill: comparePrefill(e) } })}>Edit and run again</button>
+          )}
           <button className="quiet" onClick={() => confirm("Delete this run and its results?") && remove.mutate()} disabled={remove.isPending}>
             Delete
           </button>
@@ -166,21 +248,11 @@ function prefillFrom(e: ExperimentDetail): TryPrefill {
         : {
             kind: "list",
             text: listText(e.lists.base.cards.map((c) => ({ qty: c.qty, name: c.name, board: c.commander ? "commander" : "main" }))),
+            ...(e.lists.base.label !== "Pasted list" ? { label: e.lists.base.label } : {}),
           };
   const copies = (cards: { name: string; qty: number }[]) => cards.flatMap((c) => Array<string>(c.qty).fill(c.name));
-  const f = e.field;
-  const field: FieldChoice | undefined = !f
-    ? undefined
-    : f.kind === "precons_top"
-      ? { kind: "precons_top", n: f.n ?? 20 }
-      : f.kind === "precons_near"
-        ? { kind: "precons_near", n: f.n ?? 20, ids: f.ids }
-        : f.kind === "precons_all"
-          ? { kind: "precons_all" }
-          : f.kind === "my_decks"
-            ? { kind: "my_decks", ids: f.ids }
-            : undefined;
-  return { base, add: copies(e.variant?.added ?? []), cut: copies(e.variant?.cut ?? []), field, games: e.label.games, difficulty: e.label.difficulty };
+  const solo = modeOf(e) === "solo";
+  return { base, add: solo ? [] : copies(e.variant?.added ?? []), cut: solo ? [] : copies(e.variant?.cut ?? []), field: fieldFrom(e), games: e.label.games, difficulty: e.label.difficulty };
 }
 
 function Progress({ e }: { e: ExperimentDetail }) {
@@ -221,22 +293,26 @@ function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
   const bound = deltaBound([ci?.[0], ci?.[1], d]);
   const top = rateCeiling([s.base.wilson?.[1], s.variant.wilson?.[1]]);
   const ticks = (max: number) => [0, 0.25, 0.5, 0.75, 1].filter((t) => t <= max + 1e-9).map((t) => ({ at: t, label: pct(t) }));
+  const compare = modeOf(e) === "compare";
+  const nameA = e.base?.label ?? "Base list";
+  const nameB = compare ? (e.variant?.label ?? "Second deck") : "Changed list";
   const row = (key: "base" | "variant") => {
     const st = s[key];
-    const label = key === "base" ? e.base?.label ?? "Base list" : "Changed list";
+    const label = key === "base" ? nameA : nameB;
+    const head = compare ? (key === "base" ? "First deck" : "Second deck") : key === "base" ? "Base list" : "Changed list";
     return {
       key,
       label: (
         <>
-          <b>{key === "base" ? "Base list" : "Changed list"}</b>
-          <span>{key === "base" ? label : changeShort(e)}</span>
+          <b>{head}</b>
+          <span>{key === "base" ? label : compare ? nameB : changeShort(e)}</span>
         </>
       ),
       value: st.win_rate,
       lo: st.wilson?.[0] ?? null,
       hi: st.wilson?.[1] ?? null,
       dim: key === "base",
-      aria: `${key === "base" ? "Base list" : "Changed list"}: won ${pct(st.win_rate)} of ${st.games} scored games${st.wilson ? `, ${level} interval ${pctRange(st.wilson[0], st.wilson[1])}` : ""}`,
+      aria: `${head}: won ${pct(st.win_rate)} of ${st.games} scored games${st.wilson ? `, ${level} interval ${pctRange(st.wilson[0], st.wilson[1])}` : ""}`,
       text: (
         <>
           <b>{pct(st.win_rate)}</b> won, {st.wins} of {st.games}
@@ -249,7 +325,7 @@ function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
   return (
     <section>
       <h2>{s.verdict.final ? "Result" : "So far"}</h2>
-      <p className="lab-verdict">{verdictText(e.status, s)}</p>
+      <p className="lab-verdict">{compare ? compareVerdict(e.status, s, nameA, nameB) : verdictText(e.status, s)}</p>
       {conf && (
         <ConfidenceLine confidence={conf.confidence} name={conf.precon.name}>
           {baseConfidenceSentence(conf, "verdict")}
@@ -257,7 +333,9 @@ function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
       )}
       <p className="dim" style={{ marginTop: 0 }}>
         {d != null && ci
-          ? `The changed list won ${moreOften(d)} the base on the same ${s.paired.pods} pods (${pointsWord(d)}, ${level} interval ${pointsRange(ci)}).`
+          ? compare
+            ? `${nameB} won ${moreOften(d)} ${nameA} on the same ${s.paired.pods} pods (${pointsWord(d)}, ${level} interval ${pointsRange(ci)}).`
+            : `The changed list won ${moreOften(d)} the base on the same ${s.paired.pods} pods (${pointsWord(d)}, ${level} interval ${pointsRange(ci)}).`
           : cancelled
             ? "Too few pods where both lists finished."
             : "Not enough pods where both lists finished yet."}
@@ -266,14 +344,14 @@ function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
 
       {d != null && ci && (
         <IntervalChart
-          caption="Difference in win rate, changed list minus base"
+          caption={compare ? `Difference in win rate, ${nameB} minus ${nameA}` : "Difference in win rate, changed list minus base"}
           rows={[
             {
               key: "delta",
               label: (
                 <>
                   <b>Difference</b>
-                  <span>changed minus base</span>
+                  <span>{compare ? "second minus first" : "changed minus base"}</span>
                 </>
               ),
               value: d,
@@ -300,9 +378,9 @@ function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
         <summary>Pod by pod and unscored games</summary>
         <table className="plain small" style={{ maxWidth: "36rem" }}>
           <tbody>
-            <tr><td>Both lists won</td><td className="r num">{s.paired.both_won}</td></tr>
-            <tr><td>Only the changed list won</td><td className="r num">{s.paired.variant_only}</td></tr>
-            <tr><td>Only the base won</td><td className="r num">{s.paired.base_only}</td></tr>
+            <tr><td>Both {compare ? "decks" : "lists"} won</td><td className="r num">{s.paired.both_won}</td></tr>
+            <tr><td>Only {compare ? nameB : "the changed list"} won</td><td className="r num">{s.paired.variant_only}</td></tr>
+            <tr><td>Only {compare ? nameA : "the base"} won</td><td className="r num">{s.paired.base_only}</td></tr>
             <tr><td>Neither won</td><td className="r num">{s.paired.neither}</td></tr>
             {s.paired.split_builds > 0 && <tr><td>Left out: the two games ran on different builds</td><td className="r num">{s.paired.split_builds}</td></tr>}
             <tr><td>Games nobody won (draws, turn or action cap)</td><td className="r num">{s.no_winner.total}</td></tr>
@@ -325,6 +403,169 @@ function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
   );
 }
 
+/** The paired verdict in the two decks' names (the server words it for a change). */
+function compareVerdict(status: ExperimentStatus, s: Summary, a: string, b: string): string {
+  if (status === "cancelled" && s.verdict.kind === "unclear") return "Can't tell from the games played before it was cancelled";
+  const d = s.paired.delta_win_rate;
+  const ci = s.paired.delta_ci;
+  if (s.verdict.kind === "unclear" || d == null || !ci) return "Can't tell yet: run more games";
+  const lead = s.verdict.kind === "better" ? b : a;
+  const lag = s.verdict.kind === "better" ? a : b;
+  return `${lead} probably does better than ${lag} (${pointsWord(Math.abs(d))}, ${Math.round(s.level * 100)}% interval ${pointsRange(s.verdict.kind === "better" ? ci : [-ci[1], -ci[0]])})`;
+}
+
+/** One list as it is: its win rate against the field, beside the no-edge share. */
+function SoloResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
+  const level = `${Math.round(s.level * 100)}%`;
+  const conf = useBaseConfidence(e);
+  const st = s.base;
+  const top = rateCeiling([st.wilson?.[1]]);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].filter((t) => t <= top + 1e-9).map((t) => ({ at: t, label: pct(t) }));
+  return (
+    <section>
+      <h2>{s.verdict.final ? "Result" : "So far"}</h2>
+      <p className="lab-verdict">{verdictText(e.status, s)}</p>
+      {conf && (
+        <ConfidenceLine confidence={conf.confidence} name={conf.precon.name}>
+          {baseConfidenceSentence(conf, "verdict")}
+        </ConfidenceLine>
+      )}
+      <IntervalChart
+        caption="Win rate in 4-player pods"
+        rows={[
+          {
+            key: "base",
+            label: (
+              <>
+                <b>{e.base?.label ?? "The list"}</b>
+                <span>as it is</span>
+              </>
+            ),
+            value: st.win_rate,
+            lo: st.wilson?.[0] ?? null,
+            hi: st.wilson?.[1] ?? null,
+            aria: `Won ${pct(st.win_rate)} of ${st.games} scored games${st.wilson ? `, ${level} interval ${pctRange(st.wilson[0], st.wilson[1])}` : ""}`,
+            text: (
+              <>
+                <b>{pct(st.win_rate)}</b> won, {st.wins} of {st.games}
+                {st.wilson ? ` (${level} interval ${pctRange(st.wilson[0], st.wilson[1])})` : ""}
+                {st.avg_place != null ? `, average place ${st.avg_place.toFixed(2)}` : ""}
+              </>
+            ),
+          },
+        ]}
+        domain={[0, top]}
+        reference={0.25}
+        ticks={ticks}
+      />
+      <p className="lab-note">The line marks a quarter: what a list with no edge over its three opponents would win.</p>
+      <details>
+        <summary>Unscored games and the method</summary>
+        <table className="plain small" style={{ maxWidth: "36rem" }}>
+          <tbody>
+            <tr><td>Games nobody won (draws, turn or action cap)</td><td className="r num">{s.no_winner.total}</td></tr>
+            <tr><td>Not scored (out of time {s.unscored.time_cap}, crashed {s.unscored.panic}, errors {s.unscored.error})</td><td className="r num">{s.unscored.total}</td></tr>
+          </tbody>
+        </table>
+        <p className="lab-note">{s.method}</p>
+      </details>
+      <SimLine details={simDetails(e.label.card_data)}>{experimentLabel(e)}.</SimLine>
+      <p className="lab-caveat">{caveat(e.label.engine)} These numbers are apart from your playgroup's real games.</p>
+    </section>
+  );
+}
+
+/** Decks head to head: each deck's win share, who finished ahead of whom, and game length. */
+function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
+  const v = s.versus!;
+  const level = `${Math.round(s.level * 100)}%`;
+  const even = 1 / v.pod;
+  const top = rateCeiling(v.entrants.map((x) => x.wilson?.[1]));
+  const ticks = [0, 0.25, 0.5, 0.75, 1].filter((t) => t <= top + 1e-9).map((t) => ({ at: t, label: pct(t) }));
+  const names = v.entrants.map((x) => x.label);
+  const rounds = v.avg_turns != null ? v.avg_turns / v.pod : null;
+  return (
+    <section>
+      <h2>{s.verdict.final ? "Result" : "So far"}</h2>
+      <p className="lab-verdict">{verdictText(e.status, s)}</p>
+      <IntervalChart
+        caption={`Win share in ${v.pod === 2 ? "1v1 games" : "4-player pods"}`}
+        rows={v.entrants.map((x) => ({
+          key: x.id,
+          label: (
+            <>
+              <b>{x.label}</b>
+              <span>first in {x.first} games</span>
+            </>
+          ),
+          value: x.win_rate,
+          lo: x.wilson?.[0] ?? null,
+          hi: x.wilson?.[1] ?? null,
+          aria: `${x.label}: won ${pct(x.win_rate)} of ${x.games} scored games${x.wilson ? `, ${level} interval ${pctRange(x.wilson[0], x.wilson[1])}` : ""}`,
+          text: (
+            <>
+              <b>{pct(x.win_rate)}</b> won, {x.wins} of {x.games}
+              {x.wilson ? ` (${level} interval ${pctRange(x.wilson[0], x.wilson[1])})` : ""}
+              {x.avg_place != null ? `, average place ${x.avg_place.toFixed(2)}` : ""}
+            </>
+          ),
+        }))}
+        domain={[0, top]}
+        reference={even}
+        ticks={ticks}
+      />
+      <p className="lab-note">
+        The line marks {v.pod === 2 ? "a half" : "a quarter"}: what a deck with no edge would win.
+        {v.filler_wins > 0 ? ` Precons filling empty seats won ${v.filler_wins} games.` : ""}
+        {rounds != null ? ` Games lasted about ${Math.round(rounds)} rounds (${v.avg_turns!.toFixed(0)} turns counting every player's).` : ""}
+      </p>
+      {v.meetings.length > 0 && (
+        <>
+          <h3>Head to head</h3>
+          <div className="lab-scroll">
+            <table className="plain small lab-h2h">
+              <thead>
+                <tr>
+                  <th>Decks</th>
+                  <th className="r">Games</th>
+                  <th>Who finished ahead</th>
+                </tr>
+              </thead>
+              <tbody>
+                {v.meetings.map((m) => (
+                  <tr key={`${m.a}-${m.b}`}>
+                    <td>
+                      {names[m.a]} and {names[m.b]}
+                    </td>
+                    <td className="r num">{m.games}</td>
+                    <td>
+                      {names[m.a]} {m.a_ahead}, {names[m.b]} {m.b_ahead}
+                      {m.ties ? `, level ${m.ties}` : ""}
+                      {m.a_share != null && m.a_share_ci ? ` (${names[m.a]} ahead in ${pct(m.a_share)}, ${level} interval ${pctRange(m.a_share_ci[0], m.a_share_ci[1])})` : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      <details>
+        <summary>Unscored games and the method</summary>
+        <table className="plain small" style={{ maxWidth: "36rem" }}>
+          <tbody>
+            <tr><td>Games nobody won (draws, turn or action cap)</td><td className="r num">{s.no_winner.total}</td></tr>
+            <tr><td>Not scored (out of time {s.unscored.time_cap}, crashed {s.unscored.panic}, errors {s.unscored.error})</td><td className="r num">{s.unscored.total}</td></tr>
+          </tbody>
+        </table>
+        <p className="lab-note">{s.method}</p>
+      </details>
+      <SimLine details={simDetails(e.label.card_data)}>{experimentLabel(e)}.</SimLine>
+      <p className="lab-caveat">{caveat(e.label.engine)} AI-piloted games: they say how these decks do in the simulation, not at your table.</p>
+    </section>
+  );
+}
+
 function changeShort(e: ExperimentItem): string {
   const v = e.variant;
   if (!v) return "";
@@ -335,6 +576,29 @@ function changeShort(e: ExperimentItem): string {
 
 function Change({ e }: { e: ExperimentDetail }) {
   const v = e.variant;
+  const mode = modeOf(e);
+  if (mode !== "change") {
+    const decks = mode === "solo" ? (e.base ? [e.base] : []) : (e.entrants ?? []);
+    const games = mode === "compare" ? `${e.label.games} games (${e.label.games / 2} pods, each played by both decks)` : mode === "solo" ? `${e.label.games} games (each pod once)` : `${e.label.games} games${e.label.pod === 2 ? ", 1v1" : ""}`;
+    return (
+      <>
+        <ul className="lab-decks small">
+          {decks.map((d) => (
+            <li key={d.label}>
+              <b>{d.label}</b>
+              {d.commanders.length ? `: ${d.commanders.join(" and ")}` : ""}
+              {d.source.kind === "deck" ? " (the deck's version when the run was made)" : d.source.kind === "precon" ? " (the precon's stock list)" : ""}
+            </li>
+          ))}
+        </ul>
+        <p className="small">
+          {mode === "versus" ? (e.field?.kind === "none" ? "No other decks at the table." : `Empty seats: ${e.field?.label.replace(/^./, (c) => c.toLowerCase()) ?? "unknown"}.`) : `Opponents: ${e.field?.label.replace(/^./, (c) => c.toLowerCase()) ?? "unknown"}.`}{" "}
+          {e.label.difficulty} AI, {games}. The lists were frozen when the run was made.
+        </p>
+        <RunNotes e={e} />
+      </>
+    );
+  }
   return (
     <>
       <div className="lab-two">
@@ -353,6 +617,16 @@ function Change({ e }: { e: ExperimentDetail }) {
         {e.field?.label.replace(/^./, (c) => c.toLowerCase()) ?? "unknown"}. {e.label.difficulty} AI, {e.label.games} games ({e.label.games / 2} pods, each played by both lists).
         The lists were frozen when the run was made.
       </p>
+      <RunNotes e={e} />
+    </>
+  );
+}
+
+/** A run's deck-check notes, its opponents and when it was made. */
+function RunNotes({ e }: { e: ExperimentDetail }) {
+  const unit = modeOf(e) === "change" || modeOf(e) === "compare" ? ["pod", "pods"] : ["game", "games"];
+  return (
+    <>
       {e.warnings.length > 0 && (
         <details className="small">
           <summary>
@@ -361,17 +635,21 @@ function Change({ e }: { e: ExperimentDetail }) {
           <ul className="lab-note">{e.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
         </details>
       )}
-      <details className="small">
-        <summary>Opponents ({e.opponents.length})</summary>
-        <ul className="lab-note">
-          {e.opponents.map((o) => (
-            <li key={o.id}>
-              {(o.source as { kind?: string; id?: string }).kind === "precon" ? <Link to={`/decks/lab/p/${(o.source as { id: string }).id}`}>{o.label}</Link> : o.label}, in {o.pods}{" "}
-              {o.pods === 1 ? "pod" : "pods"}
-            </li>
-          ))}
-        </ul>
-      </details>
+      {e.opponents.length > 0 && (
+        <details className="small">
+          <summary>
+            {modeOf(e) === "versus" ? "Precons in the empty seats" : "Opponents"} ({e.opponents.length})
+          </summary>
+          <ul className="lab-note">
+            {e.opponents.map((o) => (
+              <li key={o.id}>
+                {(o.source as { kind?: string; id?: string }).kind === "precon" ? <Link to={`/decks/lab/p/${(o.source as { id: string }).id}`}>{o.label}</Link> : o.label}, in {o.pods}{" "}
+                {o.pods === 1 ? unit[0] : unit[1]}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       <p className="lab-note">Made {fmtDate(e.label.created_at)}.</p>
     </>
   );
@@ -386,7 +664,7 @@ const MISSING: Record<ExperimentStatus, string> = {
   done: "not played",
 };
 
-function Pods({ id, done, status }: { id: string; done: number; status: ExperimentStatus }) {
+function Pods({ id, done, status, mode }: { id: string; done: number; status: ExperimentStatus; mode: ExperimentMode }) {
   const [open, setOpen] = useState(false);
   const pods = useQuery({
     queryKey: ["lab", "pods", id, done],
@@ -394,7 +672,7 @@ function Pods({ id, done, status }: { id: string; done: number; status: Experime
     enabled: open,
     placeholderData: (prev) => prev,
   });
-  const played = (pods.data ?? []).filter((p) => p.base || p.variant);
+  const played = (pods.data ?? []).filter((p) => p.base || p.variant || p.game);
   const cell = (g: PodView["base"]) => {
     if (!g) return <span className="faint">{MISSING[status]}</span>;
     return (
@@ -410,7 +688,45 @@ function Pods({ id, done, status }: { id: string; done: number; status: Experime
         <summary>Every game ({done} played)</summary>
         <ErrorText error={pods.error} />
         {pods.isPending && open && <p className="dim small">Loading…</p>}
-        {played.length > 0 && (
+        {played.length > 0 && mode === "versus" && (
+          <div className="lab-scroll">
+            <table className="lab-pods">
+              <thead>
+                <tr>
+                  <th>Game</th>
+                  <th>Seats, first player first</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {played.map((p) => (
+                  <tr key={p.pod}>
+                    <td className="num">{p.pod}</td>
+                    <td>
+                      {p.seats.map((x, i) => (
+                        <span key={i}>
+                          {i > 0 ? ", " : ""}
+                          {p.game?.winner === x ? <b>{x}</b> : x}
+                        </span>
+                      ))}
+                    </td>
+                    <td>
+                      {p.game ? (
+                        <span className={p.game.scored ? "" : "faint"} title={p.game.error ?? undefined}>
+                          {p.game.end === "win" && p.game.winner ? `${p.game.winner} won on turn ${p.game.turns}` : p.game.end === "draw" ? "Draw" : p.game.scored ? "Nobody won (cap)" : "Not scored"}
+                          <span className="faint">, {Math.round(p.game.seconds)} s</span>
+                        </span>
+                      ) : (
+                        <span className="faint">{MISSING[status]}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {played.length > 0 && mode !== "versus" && (
           <div className="lab-scroll">
             <table className="lab-pods">
               <thead>
@@ -418,8 +734,8 @@ function Pods({ id, done, status }: { id: string; done: number; status: Experime
                   <th>Pod</th>
                   <th>Seat</th>
                   <th>Opponents</th>
-                  <th>Base</th>
-                  <th>Changed</th>
+                  <th>{mode === "compare" ? "First deck" : mode === "solo" ? "Result" : "Base"}</th>
+                  {mode !== "solo" && <th>{mode === "compare" ? "Second deck" : "Changed"}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -432,7 +748,7 @@ function Pods({ id, done, status }: { id: string; done: number; status: Experime
                     </td>
                     <td>{p.seats.filter((x): x is string => x != null).join(", ")}</td>
                     <td>{cell(p.base)}</td>
-                    <td>{cell(p.variant)}</td>
+                    {mode !== "solo" && <td>{cell(p.variant)}</td>}
                   </tr>
                 ))}
               </tbody>

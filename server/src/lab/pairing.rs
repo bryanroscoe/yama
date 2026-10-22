@@ -76,8 +76,17 @@ fn pair_key(a: usize, b: usize) -> (usize, usize) {
 }
 
 /// `count` templates over a field of `field` decks (at least POD - 1).
+#[cfg(test)]
 pub fn templates(field: usize, count: usize, seed: u64) -> Vec<Template> {
+    templates_with(field, 0, count, seed)
+}
+
+/// `count` templates over a field of `field` decks (at least POD - 1) whose first `every` decks
+/// (at most POD - 1) sit in every pod; the other seats are picked as [`templates`] picks them.
+/// With `every` = 0 the schedule is exactly [`templates`]'s.
+pub fn templates_with(field: usize, every: usize, count: usize, seed: u64) -> Vec<Template> {
     assert!(field >= POD - 1, "the field needs at least {} decks", POD - 1);
+    assert!(every < POD, "at most {} decks in every pod", POD - 1);
     let mut rng = Mix::new(seed ^ 0x5EED_0F_7E57_u64);
     let mut seeds = Mix::new(seed);
     let mut used = vec![0usize; field];
@@ -86,8 +95,8 @@ pub fn templates(field: usize, count: usize, seed: u64) -> Vec<Template> {
     let mut out = Vec::with_capacity(count);
     for t in 0..count {
         let open = t % POD;
-        let mut members: Vec<usize> = Vec::with_capacity(POD - 1);
-        for _ in 0..POD - 1 {
+        let mut members: Vec<usize> = (0..every).collect();
+        for _ in every..POD - 1 {
             let mut pool: Vec<usize> = (0..field).filter(|c| !members.contains(c)).collect();
             if pool.len() > CANDIDATES {
                 // A seeded partial shuffle: the first CANDIDATES are a random sample.
@@ -185,6 +194,118 @@ pub fn schedule(prefix: &str, templates: &[Template], field_ids: &[String], diff
     out
 }
 
+/// One list played as it is: the base list alone plays every template in the open seat. Play
+/// order 2t, as a paired schedule's base games, so nothing ever pairs a solo game with another.
+pub fn schedule_solo(prefix: &str, templates: &[Template], field_ids: &[String], difficulty: &str, limits: &Limits) -> Vec<ScheduledGame> {
+    templates
+        .iter()
+        .map(|t| {
+            let decks = t.seats.iter().map(|s| s.map_or_else(|| BASE_ID.to_string(), |d| field_ids[d].clone())).collect();
+            let game = format!("{prefix}-{}-solo", t.index);
+            ScheduledGame {
+                game: game.clone(),
+                ord: (t.index * 2) as i64,
+                spec: GameSpec {
+                    game,
+                    seed: t.seed,
+                    decks,
+                    difficulty: difficulty.to_string(),
+                    max_turns: limits.max_turns,
+                    max_actions: limits.max_actions,
+                    max_seconds: limits.max_seconds,
+                },
+            }
+        })
+        .collect()
+}
+
+/// Head-to-head games: `entrants` (their deck ids, 2 to `pod`) all sit in every game, with
+/// `pod - entrants.len()` seats filled from `fillers`. Games come in blocks of `pod`: a block keeps
+/// one seating order and one set of fillers and rotates it a seat at a time, so each player sits
+/// in every seat (seat 0 goes first) once per block. Each block takes the next ordering of the
+/// entrants (all orderings in turn, from a seeded shuffle) and the least-used fillers (seeded
+/// tie-break). Play order 2g, so no two games are ever treated as a pair. Everything comes from
+/// `seed`.
+#[allow(clippy::too_many_arguments)]
+pub fn schedule_versus(
+    prefix: &str,
+    entrants: &[String],
+    fillers: &[String],
+    pod: usize,
+    games: usize,
+    seed: u64,
+    difficulty: &str,
+    limits: &Limits,
+) -> Vec<ScheduledGame> {
+    let need = pod.saturating_sub(entrants.len());
+    assert!(entrants.len() >= 2 && entrants.len() <= pod, "2 to {pod} entrants");
+    assert!(fillers.len() >= need, "the field needs {need} decks");
+    let mut rng = Mix::new(seed ^ 0x7E25_05_0F_u64);
+    let mut seeds = Mix::new(seed);
+    let idx: Vec<usize> = (0..entrants.len()).collect();
+    let mut orders = permutations(&idx);
+    // A seeded shuffle of the orderings, so a short run doesn't always start the same way.
+    for i in (1..orders.len()).rev() {
+        let j = rng.below(i + 1);
+        orders.swap(i, j);
+    }
+    let mut used = vec![0usize; fillers.len()];
+    let mut out = Vec::with_capacity(games);
+    let mut g = 0usize;
+    let mut block = 0usize;
+    while g < games {
+        let order = &orders[block % orders.len()];
+        let mut picked: Vec<usize> = Vec::with_capacity(need);
+        for _ in 0..need {
+            let best = (0..fillers.len())
+                .filter(|f| !picked.contains(f))
+                .map(|f| (used[f] as f64 + rng.unit() * 0.5, f))
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .expect("enough fillers")
+                .1;
+            used[best] += 1;
+            picked.push(best);
+        }
+        // The block's seating: entrants in this ordering, fillers spread between them.
+        let mut ring: Vec<String> = Vec::with_capacity(pod);
+        let mut fill = picked.iter();
+        for (k, e) in order.iter().enumerate() {
+            ring.push(entrants[*e].clone());
+            if k < need {
+                if let Some(f) = fill.next() {
+                    ring.push(fillers[*f].clone());
+                }
+            }
+        }
+        for f in fill {
+            ring.push(fillers[*f].clone());
+        }
+        for r in 0..pod {
+            if g >= games {
+                break;
+            }
+            let decks: Vec<String> = (0..pod).map(|s| ring[(s + r) % pod].clone()).collect();
+            let game = format!("{prefix}-{g}-vs");
+            out.push(ScheduledGame {
+                game: game.clone(),
+                ord: (g * 2) as i64,
+                spec: GameSpec {
+                    game,
+                    seed: seeds.next_u64(),
+                    decks,
+                    difficulty: difficulty.to_string(),
+                    max_turns: limits.max_turns,
+                    max_actions: limits.max_actions,
+                    max_seconds: limits.max_seconds,
+                },
+            });
+            g += 1;
+        }
+        block += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,5 +378,82 @@ mod tests {
         // The smallest field: the same three every time, in rotating seats.
         let small = templates(3, 8, 1);
         assert!(small.iter().all(|t| t.seats.iter().flatten().copied().collect::<HashSet<_>>() == HashSet::from([0, 1, 2])));
+    }
+
+    #[test]
+    fn solo_games_play_each_template_once_in_the_open_seat() {
+        let field: Vec<String> = (0..10).map(|i| format!("precons/p{i}")).collect();
+        let ts = templates(field.len(), 12, 7);
+        let games = schedule_solo("abcd1234", &ts, &field, "Easy", &LIMITS);
+        assert_eq!(games.len(), 12);
+        for (g, t) in games.iter().zip(&ts) {
+            assert_eq!(g.ord, (t.index * 2) as i64);
+            assert_eq!(g.spec.decks[t.seat], BASE_ID);
+            assert_eq!(g.spec.decks.iter().filter(|d| *d == BASE_ID).count(), 1);
+            assert!(!g.spec.decks.iter().any(|d| d == VARIANT_ID));
+        }
+    }
+
+    #[test]
+    fn versus_rotates_every_entrant_through_every_seat() {
+        let entrants: Vec<String> = (0..3).map(|i| format!("e{i}")).collect();
+        let fillers: Vec<String> = (0..6).map(|i| format!("precons/p{i}")).collect();
+        let games = schedule_versus("abcd1234", &entrants, &fillers, 4, 96, 9, "Easy", &LIMITS);
+        assert_eq!(games.len(), 96);
+        let mut seat_count: HashMap<(String, usize), usize> = HashMap::new();
+        for g in &games {
+            assert_eq!(g.spec.decks.len(), 4);
+            for e in &entrants {
+                assert_eq!(g.spec.decks.iter().filter(|d| *d == e).count(), 1, "every entrant in every game");
+            }
+            assert_eq!(g.spec.decks.iter().filter(|d| d.starts_with("precons/")).count(), 1, "one filler seat");
+            for (s, d) in g.spec.decks.iter().enumerate() {
+                *seat_count.entry((d.clone(), s)).or_default() += 1;
+            }
+            assert_eq!(g.ord % 2, 0, "never paired");
+        }
+        for e in &entrants {
+            for s in 0..4 {
+                assert_eq!(seat_count[&(e.clone(), s)], 24, "{e} sits in seat {s} once per block");
+            }
+        }
+        // Fillers are spread out: 24 blocks over 6 precons, 4 each.
+        for f in &fillers {
+            let blocks = games.iter().filter(|g| g.spec.decks.contains(f)).count() / 4;
+            assert_eq!(blocks, 4, "{f}");
+        }
+        // Same seed, same schedule.
+        assert_eq!(games, schedule_versus("abcd1234", &entrants, &fillers, 4, 96, 9, "Easy", &LIMITS));
+    }
+
+    #[test]
+    fn versus_one_on_one_and_four_entrants_need_no_fillers() {
+        let two = vec!["e0".to_string(), "e1".to_string()];
+        let games = schedule_versus("x", &two, &[], 2, 10, 3, "Easy", &LIMITS);
+        assert_eq!(games.len(), 10);
+        assert_eq!(games.iter().filter(|g| g.spec.decks[0] == "e0").count(), 5, "each goes first half the time");
+        let four: Vec<String> = (0..4).map(|i| format!("e{i}")).collect();
+        let games = schedule_versus("x", &four, &[], 4, 100, 3, "Easy", &LIMITS);
+        assert_eq!(games.len(), 100);
+        for e in &four {
+            assert_eq!(games.iter().filter(|g| g.spec.decks[0] == *e).count(), 25, "{e} goes first a quarter of the time");
+        }
+    }
+
+    #[test]
+    fn decks_kept_in_every_pod_sit_in_every_pod_and_rotate_seats() {
+        let ts = templates_with(12, 1, 40, 5);
+        assert_eq!(ts.len(), 40);
+        let mut seats = [0usize; POD];
+        for t in &ts {
+            assert!(t.seats.contains(&Some(0)), "deck 0 is in every pod");
+            let s = t.seats.iter().position(|d| *d == Some(0)).unwrap();
+            seats[s] += 1;
+            let others: HashSet<usize> = t.seats.iter().flatten().copied().collect();
+            assert_eq!(others.len(), POD - 1, "three different opponents");
+        }
+        assert!(seats.iter().filter(|n| **n > 0).count() >= 3, "it moves around the table: {seats:?}");
+        // every = 0 is the plain schedule.
+        assert_eq!(templates_with(12, 0, 40, 5), templates(12, 40, 5));
     }
 }

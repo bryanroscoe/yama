@@ -281,6 +281,20 @@ pub struct Summary {
     pub builds: Vec<BuildGames>,
     pub verdict: Verdict,
     pub method: String,
+    /// Head to head (mode "versus"): every deck's results against the others. Missing for the
+    /// other modes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub versus: Option<Versus>,
+}
+
+impl Summary {
+    /// Games that count in any number here.
+    pub fn scored_games(&self) -> u32 {
+        match &self.versus {
+            Some(v) => v.games,
+            None => self.base.games + self.variant.games,
+        }
+    }
 }
 
 /// A difference in whole percentage points, as it is shown.
@@ -414,6 +428,259 @@ pub fn summarize(outcomes: &[Outcome], is_final: bool) -> Summary {
         builds,
         verdict,
         method: METHOD.into(),
+        versus: None,
+    }
+}
+
+// ── one deck as it is (mode "solo") ─────────────────────────────────────────
+
+pub const SOLO_METHOD: &str = "Wins count for the tested seat only, with a Wilson 90% interval. The list plays every pod once \
+(no changed copy), so the number is its win rate against this field: in a pod of four, a list with no edge over the others \
+would win about one game in four. Games that ran out of CPU time, crashed or failed aren't scored; games that reached the \
+turn or action cap count as games nobody won. The verdict goes by the interval as shown, in whole points: above the \
+no-edge share only when its low end is at least a point above it, below only when its high end is at least a point under.";
+
+/// The verdict on one list played as it is: its win rate against the share a list with no edge
+/// would win (`1 / pod`), by the interval as shown in whole points.
+pub fn solo_verdict(stats: &ListStats, pod: usize, is_final: bool) -> Verdict {
+    let even = 1.0 / pod.max(1) as f64;
+    let pct = |x: f64| (x * 100.0).round() as i64;
+    let unclear = |text: String| Verdict { kind: VerdictKind::Unclear, text, is_final };
+    let (Some(rate), Some([lo, hi])) = (stats.win_rate, stats.wilson) else { return unclear("Can't tell yet: run more games".into()) };
+    if stats.games < MIN_PODS {
+        return unclear("Can't tell yet: run more games".into());
+    }
+    let detail = format!("wins {}%, {:.0}% interval {} to {}%; no edge would be {}%", pct(rate), LEVEL * 100.0, pct(lo), pct(hi), pct(even));
+    if pct(lo) > pct(even) {
+        Verdict { kind: VerdictKind::Better, text: format!("Probably stronger than this field ({detail})"), is_final }
+    } else if pct(hi) < pct(even) {
+        Verdict { kind: VerdictKind::Worse, text: format!("Probably weaker than this field ({detail})"), is_final }
+    } else {
+        unclear(format!("About even with this field so far ({detail})"))
+    }
+}
+
+// ── head to head (mode "versus") ─────────────────────────────────────────────
+
+pub const VERSUS_METHOD: &str = "Each of your decks plays the others directly, every deck rotated through every seat so \
+going first evens out. Win share: the games each deck won, with a Wilson 90% interval; in a pod of four a deck with no \
+edge wins about one in four (one in two in 1v1). Head to head: of the games two decks both played, how often each finished \
+ahead of the other (ties left out). With two decks, the verdict goes by that head-to-head share and its Wilson 90% \
+interval: a deck is ahead only when the interval is clear of 50% by a whole point. Precons filling empty seats count as \
+opponents, not as entrants. Games that ran out of CPU time, crashed or failed aren't scored; games that reached the turn \
+or action cap count as games nobody won.";
+
+/// One deck in a head-to-head experiment.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Entrant {
+    /// Its deck id in the games ("e0".."e3").
+    pub id: String,
+    pub label: String,
+    pub games: u32,
+    pub wins: u32,
+    pub win_rate: Option<f64>,
+    pub wilson: Option<[f64; 2]>,
+    pub avg_place: Option<f64>,
+    /// Games it went first in (seat 0), scored or not.
+    pub first: u32,
+}
+
+/// Two entrants who sat in the same scored games.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Meeting {
+    /// Indexes into `entrants`, a < b.
+    pub a: usize,
+    pub b: usize,
+    pub games: u32,
+    /// Games `a` finished ahead of `b`, and the other way round; ties are the rest.
+    pub a_ahead: u32,
+    pub b_ahead: u32,
+    pub ties: u32,
+    /// Share of the untied games `a` finished ahead, with its Wilson interval.
+    pub a_share: Option<f64>,
+    pub a_share_ci: Option<[f64; 2]>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Versus {
+    pub pod: usize,
+    /// Scored games.
+    pub games: u32,
+    pub pending: u32,
+    pub entrants: Vec<Entrant>,
+    pub meetings: Vec<Meeting>,
+    /// Games won by a precon filling an empty seat.
+    pub filler_wins: u32,
+    /// Mean turns of the scored games (every player's turn counted; rounds are about turns / pod).
+    pub avg_turns: Option<f64>,
+}
+
+/// The head-to-head summary from an experiment's games (stored rows: schedule line and result),
+/// `entrants` as (deck id, label) in order.
+pub fn summarize_versus(rows: &[(String, Option<String>)], entrants: &[(String, String)], pod: usize, is_final: bool) -> Summary {
+    let mut v = Versus {
+        pod,
+        entrants: entrants.iter().map(|(id, label)| Entrant { id: id.clone(), label: label.clone(), ..Default::default() }).collect(),
+        ..Default::default()
+    };
+    let n = entrants.len();
+    let mut meetings: Vec<Meeting> = Vec::new();
+    for a in 0..n {
+        for b in a + 1..n {
+            meetings.push(Meeting { a, b, ..Default::default() });
+        }
+    }
+    let mut place_sum = vec![0.0f64; n];
+    let mut turns = Vec::new();
+    let mut builds: Vec<BuildGames> = Vec::new();
+    let mut unscored = Unscored::default();
+    let mut no_winner = NoWinner::default();
+    for (spec, result) in rows {
+        let Ok(spec) = serde_json::from_str::<GameSpec>(spec) else { continue };
+        // Entrant index -> seat in this game.
+        let seats: Vec<Option<u8>> = entrants.iter().map(|(id, _)| spec.decks.iter().position(|d| d == id).map(|s| s as u8)).collect();
+        for (i, s) in seats.iter().enumerate() {
+            if *s == Some(0) {
+                v.entrants[i].first += 1;
+            }
+        }
+        let Some(result) = result else {
+            v.pending += 1;
+            continue;
+        };
+        let r = match serde_json::from_str::<GameResult>(result) {
+            Ok(r) => r,
+            Err(_) => {
+                unscored.error += 1;
+                continue;
+            }
+        };
+        let b = Build::of(&r);
+        match builds.iter_mut().find(|g| g.build == b) {
+            Some(g) => g.games += 1,
+            None => builds.push(BuildGames { build: b, games: 1 }),
+        }
+        match r.end {
+            End::TimeCap => {
+                unscored.time_cap += 1;
+                continue;
+            }
+            End::Panic => {
+                unscored.panic += 1;
+                continue;
+            }
+            End::Error => {
+                unscored.error += 1;
+                continue;
+            }
+            End::Draw => no_winner.draw += 1,
+            End::TurnCap => no_winner.turn_cap += 1,
+            End::ActionCap => no_winner.action_cap += 1,
+            End::Win => {}
+        }
+        let places = placement_ranks(&r.placements);
+        let place: Vec<Option<f64>> = seats.iter().map(|s| s.and_then(|s| places.get(&s).copied())).collect();
+        if seats.iter().any(|s| s.is_some()) && seats.iter().zip(&place).any(|(s, p)| s.is_some() && p.is_none()) {
+            // A scored end without every entrant placed: malformed, not scored.
+            unscored.error += 1;
+            continue;
+        }
+        v.games += 1;
+        turns.push(f64::from(r.turns));
+        let winner_is_entrant = r.winner.is_some_and(|w| seats.contains(&Some(w)));
+        if r.end == End::Win && !winner_is_entrant {
+            v.filler_wins += 1;
+        }
+        for i in 0..n {
+            if let (Some(s), Some(p)) = (seats[i], place[i]) {
+                let e = &mut v.entrants[i];
+                e.games += 1;
+                e.wins += u32::from(r.winner == Some(s));
+                place_sum[i] += p;
+            }
+        }
+        for m in meetings.iter_mut() {
+            if let (Some(pa), Some(pb)) = (place[m.a], place[m.b]) {
+                m.games += 1;
+                if pa < pb {
+                    m.a_ahead += 1;
+                } else if pb < pa {
+                    m.b_ahead += 1;
+                } else {
+                    m.ties += 1;
+                }
+            }
+        }
+    }
+    unscored.total = unscored.time_cap + unscored.panic + unscored.error;
+    no_winner.total = no_winner.draw + no_winner.turn_cap + no_winner.action_cap;
+    for (i, e) in v.entrants.iter_mut().enumerate() {
+        if e.games > 0 {
+            e.win_rate = Some(f64::from(e.wins) / f64::from(e.games));
+            e.wilson = wilson(e.wins, e.games);
+            e.avg_place = Some(place_sum[i] / f64::from(e.games));
+        }
+    }
+    for m in meetings.iter_mut() {
+        let decided = m.a_ahead + m.b_ahead;
+        if decided > 0 {
+            m.a_share = Some(f64::from(m.a_ahead) / f64::from(decided));
+            m.a_share_ci = wilson(m.a_ahead, decided);
+        }
+    }
+    v.meetings = meetings;
+    v.avg_turns = (!turns.is_empty()).then(|| turns.iter().sum::<f64>() / turns.len() as f64);
+    let verdict = versus_verdict(&v, is_final);
+    Summary {
+        level: LEVEL,
+        pods: u32::try_from(rows.len()).unwrap_or(u32::MAX),
+        base: ListStats::default(),
+        variant: ListStats::default(),
+        paired: Paired::default(),
+        unscored,
+        no_winner,
+        builds,
+        verdict,
+        method: VERSUS_METHOD.into(),
+        versus: Some(v),
+    }
+}
+
+/// With two decks: which one finishes ahead, by the head-to-head share's interval in whole points.
+/// With more: the deck winning most often, and whether its win share is clear of every other's.
+pub fn versus_verdict(v: &Versus, is_final: bool) -> Verdict {
+    let pct = |x: f64| (x * 100.0).round() as i64;
+    let level = format!("{:.0}%", LEVEL * 100.0);
+    let unclear = |text: String| Verdict { kind: VerdictKind::Unclear, text, is_final };
+    if v.entrants.len() == 2 {
+        let Some(m) = v.meetings.first() else { return unclear("Can't tell yet: run more games".into()) };
+        let (Some(share), Some([lo, hi])) = (m.a_share, m.a_share_ci) else { return unclear("Can't tell yet: run more games".into()) };
+        if m.a_ahead + m.b_ahead < MIN_PODS {
+            return unclear("Can't tell yet: run more games".into());
+        }
+        let (a, b) = (&v.entrants[0].label, &v.entrants[1].label);
+        if pct(lo) > 50 {
+            let detail = format!("ahead in {}% of games, {level} interval {} to {}%", pct(share), pct(lo), pct(hi));
+            return Verdict { kind: VerdictKind::Better, text: format!("{a} probably finishes ahead of {b} ({detail})"), is_final };
+        }
+        if pct(hi) < 50 {
+            let detail = format!("ahead in {}% of games, {level} interval {} to {}%", pct(1.0 - share), pct(1.0 - hi), pct(1.0 - lo));
+            return Verdict { kind: VerdictKind::Better, text: format!("{b} probably finishes ahead of {a} ({detail})"), is_final };
+        }
+        return unclear(format!("Too close to call so far ({a} ahead in {}% of games, {level} interval {} to {}%)", pct(share), pct(lo), pct(hi)));
+    }
+    let scored: Vec<&Entrant> = v.entrants.iter().filter(|e| e.win_rate.is_some()).collect();
+    if scored.len() < v.entrants.len() || v.games < MIN_PODS {
+        return unclear("Can't tell yet: run more games".into());
+    }
+    let best = scored.iter().max_by(|x, y| x.win_rate.partial_cmp(&y.win_rate).unwrap_or(std::cmp::Ordering::Equal)).expect("non-empty");
+    let lo = best.wilson.map(|w| pct(w[0])).unwrap_or(0);
+    let clear = scored.iter().filter(|e| e.id != best.id).all(|e| e.wilson.is_some_and(|w| pct(w[1]) < lo));
+    let detail = format!("wins {}%, {level} interval {} to {}%", pct(best.win_rate.unwrap_or(0.0)), lo, best.wilson.map(|w| pct(w[1])).unwrap_or(0));
+    if clear {
+        Verdict { kind: VerdictKind::Better, text: format!("{} wins most often, clear of the others ({detail})", best.label), is_final }
+    } else {
+        unclear(format!("{} wins most often so far, but the others are within the margin ({detail})", best.label))
     }
 }
 

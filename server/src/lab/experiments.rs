@@ -1,7 +1,14 @@
-//! "Try a change": a user's own paired experiments, played by the server's lab worker.
+//! "Try a change" and its relatives: a user's own experiments, played by the server's lab worker.
 //!
-//! An experiment compares a base list with a changed list. Both play the same pods (see
-//! [`super::pairing`]): `games` = 2 x pods. The lists are frozen into the experiment when it is
+//! Four modes ([`Mode`]), all stored and limited the same way:
+//! - **change**: a base list and a changed copy of it play the same pods (see [`super::pairing`]):
+//!   `games` = 2 x pods.
+//! - **compare**: two different lists play the same pods the same way (the second list is the
+//!   "variant"), so the difference is between the decks.
+//! - **solo**: one list as it is plays every pod once (`games` = pods): its win rate against the
+//!   field.
+//! - **versus**: 2 to 4 lists play each other directly, in pods of four (precons fill empty seats)
+//!   or 1v1, each rotated through every seat (`games` = games). The lists are frozen into the experiment when it is
 //! created (cards, and the opponents' cards too), so a later edit to a deck or a re-imported
 //! precon catalog never changes an experiment part way through.
 //!
@@ -43,11 +50,39 @@ use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use yama_play::lab::{ENGINE, GameSpec, RUNNER};
 
+/// What an experiment compares (see the module docs).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    #[default]
+    Change,
+    Compare,
+    Solo,
+    Versus,
+}
+
+impl Mode {
+    fn parse(s: Option<&str>) -> AppResult<Mode> {
+        match s.map(str::trim).unwrap_or("change") {
+            "" | "change" => Ok(Mode::Change),
+            "compare" => Ok(Mode::Compare),
+            "solo" => Ok(Mode::Solo),
+            "versus" => Ok(Mode::Versus),
+            other => Err(AppError::bad(format!("mode {other:?}: use change, compare, solo or versus"))),
+        }
+    }
+}
+
+/// Lists in a head-to-head experiment.
+pub const MIN_ENTRANTS: usize = 2;
+pub const MAX_ENTRANTS: usize = 4;
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/lab/experiments", get(list_handler).post(create_handler))
         .route("/api/lab/experiments/{id}", get(detail_handler).delete(delete_handler))
         .route("/api/lab/experiments/{id}/cancel", post(cancel_handler))
+        .route("/api/lab/experiments/{id}/again", post(again_handler))
         .route("/api/lab/experiments/{id}/pods", get(pods_handler))
         .route("/api/lab/pace", get(pace_handler))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
@@ -172,29 +207,39 @@ fn size_problem<'a>(lines: impl IntoIterator<Item = (&'a str, u64)>) -> Option<S
     None
 }
 
-/// "base list" or "changed list", and its key in a 400's details.
+/// Which list a problem is about, and its key in a 400's details: "base list" or "changed list"
+/// (change), deck A or B (compare, solo), or the nth deck of a head to head.
 #[derive(Clone, Copy)]
 enum Which {
     Base,
     Variant,
+    /// compare: the two decks.
+    DeckA,
+    DeckB,
+    /// versus: 0-based.
+    Entrant(usize),
 }
 
 impl Which {
-    fn label(self) -> &'static str {
+    fn label(self) -> String {
         match self {
-            Which::Base => "base list",
-            Which::Variant => "changed list",
+            Which::Base => "base list".into(),
+            Which::Variant => "changed list".into(),
+            Which::DeckA => "first deck".into(),
+            Which::DeckB => "second deck".into(),
+            Which::Entrant(i) => format!("deck {}", i + 1),
         }
     }
 }
 
 /// A 400 for a problem with one list, in the shape of the other per-list problems.
 fn list_problem(which: Which, problem: String) -> AppError {
-    let (base, variant) = match which {
-        Which::Base => (vec![problem.clone()], vec![]),
-        Which::Variant => (vec![], vec![problem.clone()]),
+    let details = match which {
+        Which::Base | Which::DeckA => json!({"problems": {"base": [problem.clone()], "variant": []}}),
+        Which::Variant | Which::DeckB => json!({"problems": {"base": [], "variant": [problem.clone()]}}),
+        Which::Entrant(i) => json!({"problems": {"base": [], "variant": [], "entrants": {i.to_string(): [problem.clone()]}}}),
     };
-    AppError::Invalid { message: format!("The {}: {problem}", which.label()), details: json!({"problems": {"base": base, "variant": variant}}) }
+    AppError::Invalid { message: format!("The {}: {problem}", which.label()), details }
 }
 
 /// `cards`, refused with a 400 when the list is too big to work with.
@@ -411,20 +456,41 @@ pub struct NewExperiment {
     pub name: Option<String>,
     /// Client-generated: a retried create returns the experiment the first one made.
     pub op_id: Option<String>,
-    pub base: BaseChoice,
+    /// "change" (the default), "compare", "solo" or "versus".
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// The list to start from (change, solo), deck A (compare). Versus uses `entrants` instead.
+    #[serde(default)]
+    pub base: Option<BaseChoice>,
+    /// change only.
+    #[serde(default)]
     pub variant: VariantChoice,
-    pub field: FieldChoice,
+    /// compare only: deck B.
+    #[serde(default)]
+    pub other: Option<BaseChoice>,
+    /// versus only: 2 to 4 lists.
+    #[serde(default)]
+    pub entrants: Vec<BaseChoice>,
+    /// versus only: 4 (the default; precons from `field` fill empty seats) or 2 (1v1, two lists).
+    #[serde(default)]
+    pub pod: Option<usize>,
+    /// The opponents. Versus needs it only to fill empty seats.
+    #[serde(default)]
+    pub field: Option<FieldChoice>,
     pub games: u32,
     pub difficulty: Option<String>,
 }
 
 /// kind: "deck_version" (id: a version of one of your decks), "deck" (id: one of your decks, its
-/// current version), "precon" (id: a precon slug) or "list" (text: a pasted list).
+/// current version), "precon" (id: a precon slug) or "list" (text: a pasted list, with an optional
+/// `label` such as "Riders of Rohan, now" for a list taken from a plan).
 #[derive(Debug, Deserialize)]
 pub struct BaseChoice {
     pub kind: String,
     pub id: Option<String>,
     pub text: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 /// Either a whole changed list (`text`) or changes to the base (`add`, `cut`: card names, one copy
@@ -447,6 +513,11 @@ pub struct FieldChoice {
     pub n: Option<usize>,
     #[serde(default)]
     pub ids: Vec<String>,
+    /// For a pick of fewer than three decks (my_decks, precons_ids): the precons that fill the
+    /// other seats, "precons_near" or "precons_top". Unset: nearest in strength when the list has
+    /// a rated precon to go by, else the strongest.
+    #[serde(default)]
+    pub fill: Option<String>,
 }
 
 // ── the stored spec ─────────────────────────────────────────────────────────
@@ -462,6 +533,10 @@ pub struct FieldInfo {
     pub kind: String,
     pub n: Option<usize>,
     pub ids: Vec<String>,
+    /// The first this-many opponents sit in every pod (a pick of fewer than three decks, topped up
+    /// with precons for the other seats).
+    #[serde(default)]
+    pub every_pod: usize,
     /// e.g. "Strongest 20 precons in rating run precons-1".
     pub label: String,
     /// The rating run the field was chosen from, for precons_top and precons_near.
@@ -489,22 +564,39 @@ pub struct VariantDisplay {
 /// What lists show without reading the whole spec.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Display {
+    #[serde(default)]
+    pub mode: Mode,
     pub base: ListDisplay,
-    pub variant: VariantDisplay,
+    /// change and compare (in compare, `added` and `cut` are empty: the lists are whole decks).
+    #[serde(default)]
+    pub variant: Option<VariantDisplay>,
+    /// compare: deck A then deck B; versus: every list in order. Empty otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entrants: Vec<ListDisplay>,
     pub field: FieldInfo,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExperimentSpec {
     pub version: u32,
+    #[serde(default)]
+    pub mode: Mode,
     pub seed: u64,
+    /// Players per game (4, or 2 for a 1v1 head to head).
     pub pod: usize,
+    /// Pod templates (change, compare, solo) or games (versus).
     pub pods: usize,
     pub difficulty: String,
     pub limits: Limits,
     pub display: Display,
+    /// The list tested (change, solo), deck A (compare), the first entrant (versus).
     pub base: LabList,
-    pub variant: LabList,
+    /// change and compare only.
+    #[serde(default)]
+    pub variant: Option<LabList>,
+    /// versus: every list, in order (ids "e0".."e3"; `base` is a copy of the first).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entrants: Vec<LabList>,
     pub opponents: Vec<Opponent>,
     pub warnings: Vec<String>,
 }
@@ -524,6 +616,11 @@ fn need<'a>(v: &'a Option<String>, what: &str) -> AppResult<&'a str> {
 }
 
 async fn base_list(pool: &SqlitePool, owner: &str, b: &BaseChoice) -> AppResult<Base> {
+    pick_list(pool, owner, b, BASE_ID, Which::Base).await
+}
+
+/// One chosen list, frozen under deck id `id`; problems name it as `which`.
+async fn pick_list(pool: &SqlitePool, owner: &str, b: &BaseChoice, id_as: &str, which: Which) -> AppResult<Base> {
     match b.kind.as_str() {
         "deck" | "deck_version" => {
             let id = need(&b.id, "base.id")?;
@@ -546,8 +643,8 @@ async fn base_list(pool: &SqlitePool, owner: &str, b: &BaseChoice) -> AppResult<
             let (deck_id, name, version, cards) = row.ok_or(AppError::NotFound("deck"))?;
             let cards: Vec<DeckCard> = serde_json::from_str(&cards).map_err(anyhow::Error::from)?;
             let source = json!({"kind": "deck", "id": deck_id, "version": version});
-            let cards = sized(Which::Base, from_deck_cards(cards))?;
-            Ok(Base { list: make_list(BASE_ID, &name, source, cards), precon: None, deck: Some(deck_id), unknown: vec![] })
+            let cards = sized(which, from_deck_cards(cards))?;
+            Ok(Base { list: make_list(id_as, &name, source, cards), precon: None, deck: Some(deck_id), unknown: vec![] })
         }
         "precon" => {
             let id = need(&b.id, "base.id")?;
@@ -555,13 +652,15 @@ async fn base_list(pool: &SqlitePool, owner: &str, b: &BaseChoice) -> AppResult<
                 sqlx::query_as("SELECT name, cards FROM precons WHERE id = ?").bind(id).fetch_optional(pool).await?.ok_or(AppError::NotFound("precon"))?;
             let cards: Vec<PreconCard> = serde_json::from_str(&cards).map_err(anyhow::Error::from)?;
             let source = json!({"kind": "precon", "id": id});
-            let cards = sized(Which::Base, from_precon_cards(cards))?;
-            Ok(Base { list: make_list(BASE_ID, &name, source, cards), precon: Some(id.to_string()), deck: None, unknown: vec![] })
+            let cards = sized(which, from_precon_cards(cards))?;
+            Ok(Base { list: make_list(id_as, &name, source, cards), precon: Some(id.to_string()), deck: None, unknown: vec![] })
         }
         "list" => {
             let text = need(&b.text, "base.text")?;
-            let (cards, unknown) = parse_text(pool, text, Which::Base).await?;
-            Ok(Base { list: make_list(BASE_ID, "Pasted list", json!({"kind": "list"}), cards), precon: None, deck: None, unknown })
+            let (cards, unknown) = parse_text(pool, text, which).await?;
+            let label: String = b.label.as_deref().map(str::trim).filter(|l| !l.is_empty()).map(|l| l.chars().take(MAX_NAME).collect()).unwrap_or_else(|| "Pasted list".into());
+            let source = if label == "Pasted list" { json!({"kind": "list"}) } else { json!({"kind": "list", "label": label}) };
+            Ok(Base { list: make_list(id_as, &label, source, cards), precon: None, deck: None, unknown })
         }
         other => Err(AppError::bad(format!("base.kind {other:?}: use deck_version, deck, precon or list"))),
     }
@@ -649,12 +748,63 @@ fn shown(names: &[String]) -> String {
     if names.len() > first.len() { format!("{}, and {} more", first.join(", "), names.len() - first.len()) } else { first.join(", ") }
 }
 
-async fn build_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base: &Base, base_commanders: &[String], sim: &dyn Simulator) -> AppResult<Field> {
+/// The opponents for `choice`, topped up when a pick of decks (my_decks, precons_ids) is too small
+/// to fill a pod: the picked decks then sit in every pod (`FieldInfo::every_pod`) and precons fill
+/// the other seats (nearest in strength, else the strongest, else any).
+async fn field_for(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base: &Base, others: &[&Base], base_commanders: &[String], sim: &dyn Simulator) -> AppResult<Field> {
+    let field = build_field(pool, owner, choice, base, others, base_commanders, sim).await?;
+    let picked = matches!(choice.kind.as_str(), "my_decks" | "precons_ids");
+    if !picked || field.opponents.is_empty() || field.opponents.len() >= MIN_FIELD {
+        return Ok(field);
+    }
+    let kinds: Vec<&str> = match choice.fill.as_deref() {
+        Some("precons_top") => vec!["precons_top", "precons_all"],
+        Some("precons_near") | None => vec!["precons_near", "precons_top", "precons_all"],
+        Some(other) => return Err(AppError::bad(format!("field.fill {other:?}: use precons_near or precons_top"))),
+    };
+    let mut last_err = None;
+    let mut fill = None;
+    for kind in kinds {
+        let c = FieldChoice { kind: kind.into(), n: Some(DEFAULT_FIELD), ids: vec![], fill: None };
+        match build_field(pool, owner, &c, base, others, base_commanders, sim).await {
+            Ok(f) => {
+                fill = Some(f);
+                break;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    let Some(fill) = fill else { return Err(last_err.unwrap_or_else(|| AppError::bad("No precons to fill the other seats"))) };
+    let picked_ids: HashSet<String> = field.opponents.iter().map(|o| o.id.clone()).collect();
+    let k = field.opponents.len();
+    let names: Vec<String> = field.opponents.iter().map(|o| o.label.clone()).collect();
+    let fillers: Vec<LabList> = fill.opponents.into_iter().filter(|o| !picked_ids.contains(&o.id)).collect();
+    if k + fillers.len() < MIN_FIELD {
+        return Err(AppError::bad(format!("The field needs at least {MIN_FIELD} decks to fill the pods; this one has {}", k + fillers.len())));
+    }
+    let fill_label = {
+        let l = &fill.info.label;
+        let mut c = l.chars();
+        c.next().map(|f| f.to_lowercase().collect::<String>() + c.as_str()).unwrap_or_default()
+    };
+    let label = format!("{} in every pod, with {fill_label} filling the other seats", names.join(" and "));
+    let mut warnings = field.warnings;
+    warnings.extend(fill.warnings);
+    let mut opponents = field.opponents;
+    opponents.extend(fillers);
+    let info = FieldInfo { every_pod: k, label, decks: opponents.len(), run: fill.info.run, ..field.info };
+    Ok(Field { opponents, info, warnings })
+}
+
+/// The opponents for `choice`. `base` sets "similar strength"; it and `others` (the other lists
+/// being tested) are never in the field.
+async fn build_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base: &Base, others: &[&Base], base_commanders: &[String], sim: &dyn Simulator) -> AppResult<Field> {
     if choice.ids.len() > MAX_FIELD {
         return Err(AppError::bad(format!("field.ids: at most {MAX_FIELD} decks")));
     }
     if choice.kind == "my_decks" {
-        return my_decks_field(pool, owner, choice, base.deck.as_deref(), sim).await;
+        let tested: Vec<&str> = std::iter::once(base).chain(others.iter().copied()).filter_map(|b| b.deck.as_deref()).collect();
+        return my_decks_field(pool, owner, choice, &tested, sim).await;
     }
     if !["precons_all", "precons_top", "precons_near", "precons_ids"].contains(&choice.kind.as_str()) {
         return Err(AppError::bad(format!("field.kind {:?}: use precons_all, precons_top, precons_near, precons_ids or my_decks", choice.kind)));
@@ -662,7 +812,7 @@ async fn build_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base:
     let (run, all) = load_precons(pool).await?;
     let mut warnings = Vec::new();
     let playable = |p: &PreconEntry| sim.unknown(&p.cards);
-    let is_base = |p: &PreconEntry| base.precon.as_deref() == Some(p.slug.as_str());
+    let is_base = |p: &PreconEntry| std::iter::once(base).chain(others.iter().copied()).any(|b| b.precon.as_deref() == Some(p.slug.as_str()));
     let run_ref = run.as_ref().map(|r| RunRef { id: r.id.clone(), name: r.name.clone() });
     let need_run = || {
         run.as_ref().ok_or_else(|| AppError::bad("No precon ratings are imported on this server yet, so there's no strength to choose by. Pick precons, or play all of them."))
@@ -711,7 +861,7 @@ async fn build_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base:
             let mut missing = Vec::new();
             for id in &choice.ids {
                 match all.iter().find(|p| &p.slug == id || &p.lab_id == id) {
-                    Some(p) if is_base(p) => warnings.push(format!("{} is the base list, so it isn't in the field", p.name)),
+                    Some(p) if is_base(p) => warnings.push(format!("{} is one of the lists being tested, so it isn't in the field", p.name)),
                     Some(p) if !picked.iter().any(|q| q.slug == p.slug) => picked.push(p),
                     Some(_) => {}
                     None => missing.push(id.clone()),
@@ -762,6 +912,7 @@ async fn build_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base:
         kind: choice.kind.clone(),
         n,
         ids: choice.ids.clone(),
+        every_pod: 0,
         label: label(opponents.len()),
         run: run_used,
         decks: opponents.len(),
@@ -769,7 +920,7 @@ async fn build_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base:
     Ok(Field { opponents, info, warnings })
 }
 
-async fn my_decks_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base_deck: Option<&str>, sim: &dyn Simulator) -> AppResult<Field> {
+async fn my_decks_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, tested: &[&str], sim: &dyn Simulator) -> AppResult<Field> {
     let explicit = !choice.ids.is_empty();
     let mut rows: Vec<(String, String, String)> = Vec::new();
     let mut warnings = Vec::new();
@@ -800,11 +951,11 @@ async fn my_decks_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, ba
     let lists: Vec<(String, String, Vec<LabCard>)> = rows
         .into_iter()
         .filter(|(id, name, _)| {
-            let is_base = base_deck == Some(id.as_str());
-            if is_base && explicit {
-                warnings.push(format!("{name} is the base list, so it isn't in the field"));
+            let is_tested = tested.contains(&id.as_str());
+            if is_tested && explicit {
+                warnings.push(format!("{name} is one of the lists being tested, so it isn't in the field"));
             }
-            !is_base
+            !is_tested
         })
         .map(|(id, name, cards)| Ok((id, name, from_deck_cards(serde_json::from_str(&cards).map_err(anyhow::Error::from)?))))
         .collect::<AppResult<_>>()?;
@@ -859,6 +1010,7 @@ async fn my_decks_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, ba
         kind: choice.kind.clone(),
         n: None,
         ids: choice.ids.clone(),
+        every_pod: 0,
         label: format!("{} of your decks", opponents.len()),
         run: None,
         decks: opponents.len(),
@@ -893,30 +1045,138 @@ pub async fn create(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dy
     create_with(pool, user, req, sim, &LabQuota::default()).await
 }
 
-/// Check the request, freeze the lists and the field, schedule the paired games and store it all.
-/// With an `op_id` the owner already used, returns that experiment unchanged.
+/// The experiment with this owner's op id, if a create already used it.
+async fn by_op_id(pool: &SqlitePool, user: &User, op_id: Option<&str>) -> AppResult<Option<ExperimentDetail>> {
+    let Some(op) = op_id else { return Ok(None) };
+    if op.len() > 100 {
+        return Err(AppError::bad("op_id is too long"));
+    }
+    let existing: Option<String> = sqlx::query_scalar("SELECT id FROM lab_experiments WHERE owner_id = ? AND op_id = ?").bind(&user.id).bind(op).fetch_optional(pool).await?;
+    match existing {
+        Some(id) => Ok(Some(detail(pool, &user.id, &id).await?)),
+        None => Ok(None),
+    }
+}
+
+/// Whether `user` may ask for `games` games.
+fn check_games(user: &User, games: u32) -> AppResult<()> {
+    let ok = if user.is_admin { games >= 2 && games <= ADMIN_MAX_GAMES && games % 2 == 0 } else { game_choices(user).contains(&games) };
+    if ok {
+        return Ok(());
+    }
+    Err(AppError::bad(if user.is_admin {
+        format!("games must be an even number from 2 to {ADMIN_MAX_GAMES}")
+    } else if user.limited {
+        "games must be 100 for an account that joined without an invite".to_string()
+    } else {
+        "games must be 100, 200 or 400".to_string()
+    }))
+}
+
+/// Names per list as a 400's details: base and variant (and entrants by index, for versus).
+fn per_list(per: &[(Which, Vec<String>)]) -> Value {
+    let (mut base, mut variant, mut entrants) = (Vec::<String>::new(), Vec::<String>::new(), serde_json::Map::new());
+    for (w, v) in per {
+        match w {
+            Which::Base | Which::DeckA => base.extend(v.iter().cloned()),
+            Which::Variant | Which::DeckB => variant.extend(v.iter().cloned()),
+            Which::Entrant(i) => {
+                entrants.insert(i.to_string(), json!(v));
+            }
+        }
+    }
+    let mut out = json!({"base": base, "variant": variant});
+    if !entrants.is_empty() {
+        out["entrants"] = Value::Object(entrants);
+    }
+    out
+}
+
+/// Refuse lists with cards Yama or the rules engine doesn't know (`known` adds the names a pasted
+/// list already couldn't find).
+fn refuse_unknown(lists: &[(Which, &LabList, &[String])], sim: &dyn Simulator) -> AppResult<()> {
+    let mut per: Vec<(Which, Vec<String>)> = Vec::new();
+    for (w, list, known) in lists {
+        let mut u: Vec<String> = known.to_vec();
+        for n in sim.unknown(&list.cards) {
+            if !u.contains(&n) {
+                u.push(n);
+            }
+        }
+        per.push((*w, u));
+    }
+    if per.iter().all(|(_, u)| u.is_empty()) {
+        return Ok(());
+    }
+    let mut all: Vec<String> = Vec::new();
+    for n in per.iter().flat_map(|(_, u)| u) {
+        if !all.contains(n) {
+            all.push(n.clone());
+        }
+    }
+    Err(AppError::Invalid {
+        message: format!("These cards can't be simulated (Yama or the rules engine doesn't know them): {}", shown(&all)),
+        details: json!({"unknown": per_list(&per)}),
+    })
+}
+
+/// Refuse lists a game can't be played with (size, commanders).
+fn refuse_blocking(checked: &[(Which, &Checked)]) -> AppResult<()> {
+    if checked.iter().all(|(_, c)| c.blocking.is_empty()) {
+        return Ok(());
+    }
+    let first: Vec<String> = checked.iter().flat_map(|(w, c)| c.blocking.iter().map(move |e| format!("{}: {e}", w.label()))).collect();
+    let per: Vec<(Which, Vec<String>)> = checked.iter().map(|(w, c)| (*w, c.blocking.clone())).collect();
+    Err(AppError::Invalid {
+        message: format!("A simulated game needs 100 cards and a valid commander. {}", first.join("; ")),
+        details: json!({"problems": per_list(&per)}),
+    })
+}
+
+fn list_display(list: &LabList, checked: &Checked, info: &HashMap<String, Card>) -> ListDisplay {
+    let art = list.cards.iter().find(|c| c.commander).and_then(|c| info.get(c.oracle_id.as_deref()?)).and_then(|card| {
+        Some(Art { url: card.image_art_crop.clone()?, artist: card.artist.clone(), card: card.name.clone() })
+    });
+    ListDisplay { label: list.label.clone(), commanders: checked.commanders.clone(), color_identity: checked.color_identity.clone(), art, source: list.source.clone() }
+}
+
+/// The opponents some game uses, with how many games (pods) each sits in.
+fn used_opponents(field: Vec<LabList>, games: &[pairing::ScheduledGame], per_pod: bool) -> Vec<Opponent> {
+    field
+        .into_iter()
+        .filter_map(|list| {
+            let n = games.iter().filter(|g| (!per_pod || g.ord % 2 == 0) && g.spec.decks.contains(&list.id)).count();
+            (n > 0).then_some(Opponent { list, pods: n })
+        })
+        .collect()
+}
+
+/// A name of at most MAX_NAME characters.
+fn clip(name: &str) -> String {
+    name.chars().take(MAX_NAME).collect()
+}
+
+/// The field a request asks for, required for every mode but versus with no empty seat.
+fn field_choice(req: &NewExperiment) -> AppResult<&FieldChoice> {
+    req.field.as_ref().ok_or_else(|| AppError::bad("field is required: choose who the lists play against"))
+}
+
+/// An experiment ready to store: its spec, name and games.
+struct Built {
+    spec: ExperimentSpec,
+    name: String,
+    games: Vec<pairing::ScheduledGame>,
+}
+
+/// Check the request, freeze the lists and the field, schedule the games and store it all. With an
+/// `op_id` the owner already used, returns that experiment unchanged.
 pub async fn create_with(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dyn Simulator, quota: &LabQuota) -> AppResult<ExperimentDetail> {
-    let op_id = req.op_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    if let Some(op) = op_id {
-        if op.len() > 100 {
-            return Err(AppError::bad("op_id is too long"));
-        }
-        let existing: Option<String> =
-            sqlx::query_scalar("SELECT id FROM lab_experiments WHERE owner_id = ? AND op_id = ?").bind(&user.id).bind(op).fetch_optional(pool).await?;
-        if let Some(id) = existing {
-            return detail(pool, &user.id, &id).await;
-        }
+    let op_id = req.op_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+    if let Some(d) = by_op_id(pool, user, op_id.as_deref()).await? {
+        return Ok(d);
     }
-    let games_ok = if user.is_admin { req.games >= 2 && req.games <= ADMIN_MAX_GAMES && req.games % 2 == 0 } else { game_choices(user).contains(&req.games) };
-    if !games_ok {
-        return Err(AppError::bad(if user.is_admin {
-            format!("games must be an even number from 2 to {ADMIN_MAX_GAMES}")
-        } else if user.limited {
-            "games must be 100 for an account that joined without an invite".to_string()
-        } else {
-            "games must be 100, 200 or 400".to_string()
-        }));
-    }
+    let mode = Mode::parse(req.mode.as_deref())?;
+    check_games(user, req.games)?;
     let difficulty = canonical_difficulty(req.difficulty.as_deref().unwrap_or(DEFAULT_DIFFICULTY))?;
     if !user.is_admin && !USER_DIFFICULTIES.contains(&difficulty.as_str()) {
         return Err(AppError::bad("difficulty must be Easy or Medium"));
@@ -925,99 +1185,243 @@ pub async fn create_with(pool: &SqlitePool, user: &User, req: NewExperiment, sim
     // in the transaction that stores the experiment.
     check_allowance(&mut *pool.acquire().await?, user, req.games, quota, false).await?;
 
-    let base = base_list(pool, &user.id, &req.base).await?;
+    let id = new_id();
+    let seed = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().expect("8 bytes"));
+    let built = match mode {
+        Mode::Change => build_change(pool, user, &req, sim, &id, seed, &difficulty).await?,
+        Mode::Solo => build_solo(pool, user, &req, sim, &id, seed, &difficulty).await?,
+        Mode::Compare => build_compare(pool, user, &req, sim, &id, seed, &difficulty).await?,
+        Mode::Versus => build_versus(pool, user, &req, sim, &id, seed, &difficulty).await?,
+    };
+    let name = req.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(clip).unwrap_or(built.name);
+    store_new(pool, user, &id, op_id.as_deref(), &name, &built.spec, &built.games, req.games, sim, quota).await
+}
+
+async fn build_change(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &dyn Simulator, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
+    let base_choice = req.base.as_ref().ok_or_else(|| AppError::bad("base is required"))?;
+    let base = base_list(pool, &user.id, base_choice).await?;
     let (variant, variant_unknown, change_problems) = variant_list(pool, &base.list, &req.variant).await?;
-    let mut unknown_base = base.unknown.clone();
-    let mut unknown_variant = variant_unknown;
-    for (into, list) in [(&mut unknown_base, &base.list), (&mut unknown_variant, &variant)] {
-        for n in sim.unknown(&list.cards) {
-            if !into.contains(&n) {
-                into.push(n);
-            }
-        }
-    }
-    if !unknown_base.is_empty() || !unknown_variant.is_empty() {
-        let mut all: Vec<String> = Vec::new();
-        for n in unknown_base.iter().chain(&unknown_variant) {
-            if !all.contains(n) {
-                all.push(n.clone());
-            }
-        }
-        return Err(AppError::Invalid {
-            message: format!("These cards can't be simulated (Yama or the rules engine doesn't know them): {}", shown(&all)),
-            details: json!({"unknown": {"base": unknown_base, "variant": unknown_variant}}),
-        });
-    }
+    refuse_unknown(&[(Which::Base, &base.list, &base.unknown), (Which::Variant, &variant, &variant_unknown)], sim)?;
     if !change_problems.is_empty() {
         return Err(AppError::Invalid { message: change_problems.join("; "), details: json!({"problems": {"base": [], "variant": change_problems}}) });
     }
     let info = card_info(pool, &[&base.list.cards, &variant.cards]).await?;
     let (cb, cv) = (check_list(&base.list.cards, &info), check_list(&variant.cards, &info));
-    if !cb.blocking.is_empty() || !cv.blocking.is_empty() {
-        let first = cb.blocking.iter().map(|e| format!("base list: {e}")).chain(cv.blocking.iter().map(|e| format!("changed list: {e}"))).collect::<Vec<_>>();
-        return Err(AppError::Invalid {
-            message: format!("A simulated game needs 100 cards and a valid commander. {}", first.join("; ")),
-            details: json!({"problems": {"base": cb.blocking, "variant": cv.blocking}}),
-        });
-    }
+    refuse_blocking(&[(Which::Base, &cb), (Which::Variant, &cv)])?;
     if base.list.sha256 == variant.sha256 {
         return Err(AppError::bad("The changed list is the same as the base list"));
     }
     let (added, cut) = diff(&base.list.cards, &variant.cards);
-    let field = build_field(pool, &user.id, &req.field, &base, &cb.commanders, sim).await?;
+    let field = field_for(pool, &user.id, field_choice(req)?, &base, &[], &cb.commanders, sim).await?;
     if field.opponents.len() < MIN_FIELD {
         return Err(AppError::bad(format!("The field needs at least {MIN_FIELD} decks to fill the pods; this one has {}", field.opponents.len())));
     }
-
     let mut warnings = field.warnings.clone();
     warnings.extend(cb.warnings.iter().map(|w| format!("Base list: {w}")));
     warnings.extend(cv.warnings.iter().filter(|w| !cb.warnings.contains(w)).map(|w| format!("Changed list: {w}")));
-    let art = base.list.cards.iter().find(|c| c.commander).and_then(|c| info.get(c.oracle_id.as_deref()?)).and_then(|card| {
-        Some(Art { url: card.image_art_crop.clone()?, artist: card.artist.clone(), card: card.name.clone() })
-    });
     let text_variant = req.variant.text.is_some();
     let variant_display = VariantDisplay { label: variant.label.clone(), added, cut };
-    let name = req
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|n| !n.is_empty())
-        .map(|n| n.chars().take(MAX_NAME).collect())
-        .unwrap_or_else(|| default_name(&base.list.label, &variant_display, text_variant));
-
-    let id = new_id();
-    let seed = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().expect("8 bytes"));
+    let name = default_name(&base.list.label, &variant_display, text_variant);
     let pods = (req.games / 2) as usize;
-    let templates = pairing::templates(field.opponents.len(), pods, seed);
+    let templates = pairing::templates_with(field.opponents.len(), field.info.every_pod, pods, seed);
     let field_ids: Vec<String> = field.opponents.iter().map(|o| o.id.clone()).collect();
-    let games = pairing::schedule(&id[..8], &templates, &field_ids, &difficulty, &LIMITS);
-    let mut pods_of = vec![0usize; field.opponents.len()];
-    for t in &templates {
-        for d in t.seats.iter().flatten() {
-            pods_of[*d] += 1;
-        }
-    }
+    let games = pairing::schedule(&id[..8], &templates, &field_ids, difficulty, &LIMITS);
     // Opponents no pod uses aren't stored (a big field with few pods).
-    let opponents: Vec<Opponent> =
-        field.opponents.into_iter().zip(pods_of).filter(|(_, p)| *p > 0).map(|(list, pods)| Opponent { list, pods }).collect();
+    let opponents = used_opponents(field.opponents, &games, true);
     let spec = ExperimentSpec {
         version: 1,
+        mode: Mode::Change,
         seed,
         pod: POD,
         pods,
-        difficulty: difficulty.clone(),
+        difficulty: difficulty.to_string(),
         limits: LIMITS,
-        display: Display {
-            base: ListDisplay { label: base.list.label.clone(), commanders: cb.commanders, color_identity: cb.color_identity, art, source: base.list.source.clone() },
-            variant: variant_display,
-            field: field.info,
-        },
+        display: Display { mode: Mode::Change, base: list_display(&base.list, &cb, &info), variant: Some(variant_display), entrants: vec![], field: field.info },
         base: base.list,
-        variant,
+        variant: Some(variant),
+        entrants: vec![],
         opponents,
         warnings,
     };
+    Ok(Built { spec, name, games })
+}
 
+async fn build_solo(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &dyn Simulator, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
+    let base_choice = req.base.as_ref().ok_or_else(|| AppError::bad("base is required"))?;
+    let base = base_list(pool, &user.id, base_choice).await?;
+    refuse_unknown(&[(Which::Base, &base.list, &base.unknown)], sim)?;
+    let info = card_info(pool, &[&base.list.cards]).await?;
+    let cb = check_list(&base.list.cards, &info);
+    refuse_blocking(&[(Which::Base, &cb)])?;
+    let field = field_for(pool, &user.id, field_choice(req)?, &base, &[], &cb.commanders, sim).await?;
+    if field.opponents.len() < MIN_FIELD {
+        return Err(AppError::bad(format!("The field needs at least {MIN_FIELD} decks to fill the pods; this one has {}", field.opponents.len())));
+    }
+    let mut warnings = field.warnings.clone();
+    warnings.extend(cb.warnings.iter().map(|w| format!("The list: {w}")));
+    let pods = req.games as usize;
+    let templates = pairing::templates_with(field.opponents.len(), field.info.every_pod, pods, seed);
+    let field_ids: Vec<String> = field.opponents.iter().map(|o| o.id.clone()).collect();
+    let games = pairing::schedule_solo(&id[..8], &templates, &field_ids, difficulty, &LIMITS);
+    let opponents = used_opponents(field.opponents, &games, false);
+    let name = clip(&format!("{} as it is", base.list.label));
+    let spec = ExperimentSpec {
+        version: 1,
+        mode: Mode::Solo,
+        seed,
+        pod: POD,
+        pods,
+        difficulty: difficulty.to_string(),
+        limits: LIMITS,
+        display: Display { mode: Mode::Solo, base: list_display(&base.list, &cb, &info), variant: None, entrants: vec![], field: field.info },
+        base: base.list,
+        variant: None,
+        entrants: vec![],
+        opponents,
+        warnings,
+    };
+    Ok(Built { spec, name, games })
+}
+
+async fn build_compare(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &dyn Simulator, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
+    let a_choice = req.base.as_ref().ok_or_else(|| AppError::bad("base is required: the first deck"))?;
+    let b_choice = req.other.as_ref().ok_or_else(|| AppError::bad("other is required: the second deck"))?;
+    let a = pick_list(pool, &user.id, a_choice, BASE_ID, Which::DeckA).await?;
+    let b = pick_list(pool, &user.id, b_choice, VARIANT_ID, Which::DeckB).await?;
+    refuse_unknown(&[(Which::DeckA, &a.list, &a.unknown), (Which::DeckB, &b.list, &b.unknown)], sim)?;
+    let info = card_info(pool, &[&a.list.cards, &b.list.cards]).await?;
+    let (ca, cb) = (check_list(&a.list.cards, &info), check_list(&b.list.cards, &info));
+    refuse_blocking(&[(Which::DeckA, &ca), (Which::DeckB, &cb)])?;
+    if a.list.sha256 == b.list.sha256 {
+        return Err(AppError::bad("The two decks are the same list; pick two different decks"));
+    }
+    let field = field_for(pool, &user.id, field_choice(req)?, &a, &[&b], &ca.commanders, sim).await?;
+    if field.opponents.len() < MIN_FIELD {
+        return Err(AppError::bad(format!("The field needs at least {MIN_FIELD} decks to fill the pods; this one has {}", field.opponents.len())));
+    }
+    let mut warnings = field.warnings.clone();
+    warnings.extend(ca.warnings.iter().map(|w| format!("{}: {w}", a.list.label)));
+    warnings.extend(cb.warnings.iter().map(|w| format!("{}: {w}", b.list.label)));
+    let pods = (req.games / 2) as usize;
+    let templates = pairing::templates_with(field.opponents.len(), field.info.every_pod, pods, seed);
+    let field_ids: Vec<String> = field.opponents.iter().map(|o| o.id.clone()).collect();
+    let games = pairing::schedule(&id[..8], &templates, &field_ids, difficulty, &LIMITS);
+    let opponents = used_opponents(field.opponents, &games, true);
+    let (da, db) = (list_display(&a.list, &ca, &info), list_display(&b.list, &cb, &info));
+    let name = clip(&format!("{} vs {}", a.list.label, b.list.label));
+    let spec = ExperimentSpec {
+        version: 1,
+        mode: Mode::Compare,
+        seed,
+        pod: POD,
+        pods,
+        difficulty: difficulty.to_string(),
+        limits: LIMITS,
+        display: Display {
+            mode: Mode::Compare,
+            base: da.clone(),
+            variant: Some(VariantDisplay { label: b.list.label.clone(), added: vec![], cut: vec![] }),
+            entrants: vec![da, db],
+            field: field.info,
+        },
+        base: a.list,
+        variant: Some(b.list),
+        entrants: vec![],
+        opponents,
+        warnings,
+    };
+    Ok(Built { spec, name, games })
+}
+
+async fn build_versus(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &dyn Simulator, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
+    let n = req.entrants.len();
+    if !(MIN_ENTRANTS..=MAX_ENTRANTS).contains(&n) {
+        return Err(AppError::bad(format!("entrants: pick {MIN_ENTRANTS} to {MAX_ENTRANTS} decks to play each other")));
+    }
+    let pod = req.pod.unwrap_or(POD);
+    if pod != POD && pod != 2 {
+        return Err(AppError::bad("pod must be 4, or 2 for 1v1"));
+    }
+    if pod == 2 && n != 2 {
+        return Err(AppError::bad("1v1 needs exactly two decks"));
+    }
+    let mut lists: Vec<Base> = Vec::with_capacity(n);
+    for (i, c) in req.entrants.iter().enumerate() {
+        lists.push(pick_list(pool, &user.id, c, &format!("e{i}"), Which::Entrant(i)).await?);
+    }
+    let unknown_input: Vec<(Which, &LabList, &[String])> = lists.iter().enumerate().map(|(i, b)| (Which::Entrant(i), &b.list, b.unknown.as_slice())).collect();
+    refuse_unknown(&unknown_input, sim)?;
+    let all_cards: Vec<&[LabCard]> = lists.iter().map(|b| b.list.cards.as_slice()).collect();
+    let info = card_info(pool, &all_cards).await?;
+    let checked: Vec<Checked> = lists.iter().map(|b| check_list(&b.list.cards, &info)).collect();
+    let blocking_input: Vec<(Which, &Checked)> = checked.iter().enumerate().map(|(i, c)| (Which::Entrant(i), c)).collect();
+    refuse_blocking(&blocking_input)?;
+    for i in 0..n {
+        for j in i + 1..n {
+            if lists[i].list.sha256 == lists[j].list.sha256 {
+                return Err(AppError::bad(format!("Deck {} and deck {} are the same list; pick different decks", i + 1, j + 1)));
+            }
+        }
+    }
+    let need = pod - n;
+    let mut warnings = Vec::new();
+    let (fillers, field_info) = if need > 0 {
+        let choice = req.field.as_ref().ok_or_else(|| AppError::bad("field is required: choose the precons that fill the empty seats"))?;
+        let others: Vec<&Base> = lists[1..].iter().collect();
+        let field = build_field(pool, &user.id, choice, &lists[0], &others, &checked[0].commanders, sim).await?;
+        if field.opponents.len() < need {
+            return Err(AppError::bad(format!("The field needs at least {need} decks to fill the empty seats; this one has {}", field.opponents.len())));
+        }
+        warnings.extend(field.warnings.clone());
+        (field.opponents, field.info)
+    } else {
+        (vec![], FieldInfo { kind: "none".into(), n: None, ids: vec![], every_pod: 0, label: "No other decks".into(), run: None, decks: 0 })
+    };
+    for (b, c) in lists.iter().zip(&checked) {
+        warnings.extend(c.warnings.iter().map(|w| format!("{}: {w}", b.list.label)));
+    }
+    let entrant_ids: Vec<String> = lists.iter().map(|b| b.list.id.clone()).collect();
+    let filler_ids: Vec<String> = fillers.iter().map(|o| o.id.clone()).collect();
+    let games = pairing::schedule_versus(&id[..8], &entrant_ids, &filler_ids, pod, req.games as usize, seed, difficulty, &LIMITS);
+    let opponents = used_opponents(fillers, &games, false);
+    let displays: Vec<ListDisplay> = lists.iter().zip(&checked).map(|(b, c)| list_display(&b.list, c, &info)).collect();
+    let labels: Vec<&str> = lists.iter().map(|b| b.list.label.as_str()).collect();
+    let name = clip(&labels.join(" vs "));
+    let entrants: Vec<LabList> = lists.into_iter().map(|b| b.list).collect();
+    let spec = ExperimentSpec {
+        version: 1,
+        mode: Mode::Versus,
+        seed,
+        pod,
+        pods: req.games as usize,
+        difficulty: difficulty.to_string(),
+        limits: LIMITS,
+        display: Display { mode: Mode::Versus, base: displays[0].clone(), variant: None, entrants: displays, field: field_info },
+        base: entrants[0].clone(),
+        variant: None,
+        entrants,
+        opponents,
+        warnings,
+    };
+    Ok(Built { spec, name, games })
+}
+
+/// Store a new experiment, its usage and its games in one transaction, after the op id and the
+/// limits are checked again inside it.
+#[allow(clippy::too_many_arguments)]
+async fn store_new(
+    pool: &SqlitePool,
+    user: &User,
+    id: &str,
+    op_id: Option<&str>,
+    name: &str,
+    spec: &ExperimentSpec,
+    games: &[pairing::ScheduledGame],
+    total: u32,
+    sim: &dyn Simulator,
+    quota: &LabQuota,
+) -> AppResult<ExperimentDetail> {
+    debug_assert_eq!(games.len(), total as usize);
     let stamp = now();
     let mut tx = pool.begin().await?;
     // Writing first takes SQLite's write lock: a concurrent create by the same owner waits, so the
@@ -1027,16 +1431,16 @@ pub async fn create_with(pool: &SqlitePool, user: &User, req: NewExperiment, sim
             created_at, updated_at)
          VALUES (?,?,?,?, 'paired', 'queued', ?,?, 0, ?,?,?,?,?,?) ON CONFLICT DO NOTHING",
     )
-    .bind(&id)
+    .bind(id)
     .bind(&user.id)
     .bind(op_id)
-    .bind(&name)
-    .bind(serde_json::to_string(&spec).map_err(anyhow::Error::from)?)
-    .bind(i64::from(req.games))
+    .bind(name)
+    .bind(serde_json::to_string(spec).map_err(anyhow::Error::from)?)
+    .bind(i64::from(total))
     .bind(ENGINE)
     .bind(sim.card_data())
     .bind(RUNNER)
-    .bind(&difficulty)
+    .bind(&spec.difficulty)
     .bind(&stamp)
     .bind(&stamp)
     .execute(&mut *tx)
@@ -1048,11 +1452,11 @@ pub async fn create_with(pool: &SqlitePool, user: &User, req: NewExperiment, sim
         let id: String = sqlx::query_scalar("SELECT id FROM lab_experiments WHERE owner_id = ? AND op_id = ?").bind(&user.id).bind(op_id).fetch_one(pool).await?;
         return detail(pool, &user.id, &id).await;
     }
-    check_allowance(&mut tx, user, req.games, quota, true).await?;
+    check_allowance(&mut tx, user, total, quota, true).await?;
     sqlx::query("INSERT INTO lab_usage (experiment_id, owner_id, games, created_at) VALUES (?,?,?,?)")
-        .bind(&id)
+        .bind(id)
         .bind(&user.id)
-        .bind(i64::from(req.games))
+        .bind(i64::from(total))
         .bind(&stamp)
         .execute(&mut *tx)
         .await?;
@@ -1065,12 +1469,101 @@ pub async fn create_with(pool: &SqlitePool, user: &User, req: NewExperiment, sim
         // Only placeholders are interpolated; every value is bound.
         let mut q = sqlx::query(AssertSqlSafe(sql));
         for g in chunk {
-            q = q.bind(&id).bind(&g.game).bind(g.ord).bind(serde_json::to_string(&g.spec).map_err(anyhow::Error::from)?);
+            q = q.bind(id).bind(&g.game).bind(g.ord).bind(serde_json::to_string(&g.spec).map_err(anyhow::Error::from)?);
         }
         q.execute(&mut *tx).await?;
     }
     tx.commit().await?;
-    detail(pool, &user.id, &id).await
+    detail(pool, &user.id, id).await
+}
+
+/// A run's name without a " (N games)" ending that an earlier "again" added.
+fn without_games_suffix(name: &str) -> &str {
+    if let Some(at) = name.rfind(" (")
+        && let Some(n) = name[at + 2..].strip_suffix(" games)")
+        && !n.is_empty()
+        && n.chars().all(|c| c.is_ascii_digit())
+    {
+        return &name[..at];
+    }
+    name
+}
+
+/// [`again_with`] under the default lab caps (tests).
+#[cfg(test)]
+pub async fn again(pool: &SqlitePool, user: &User, id: &str, games: u32, op_id: Option<&str>, sim: &dyn Simulator) -> AppResult<ExperimentDetail> {
+    again_with(pool, user, id, games, op_id, sim, &LabQuota::default()).await
+}
+
+/// Run one of the owner's experiments again with `games` games: the same frozen lists, opponents,
+/// AI level and mode, a new seed. Anyone else's experiment is "not found".
+pub async fn again_with(pool: &SqlitePool, user: &User, id: &str, games: u32, op_id: Option<&str>, sim: &dyn Simulator, quota: &LabQuota) -> AppResult<ExperimentDetail> {
+    let op_id = op_id.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(d) = by_op_id(pool, user, op_id).await? {
+        return Ok(d);
+    }
+    let (old_name, text): (String, String) = sqlx::query_as("SELECT name, spec FROM lab_experiments WHERE id = ? AND owner_id = ?")
+        .bind(id)
+        .bind(&user.id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(AppError::NotFound("experiment"))?;
+    check_games(user, games)?;
+    let old: ExperimentSpec = serde_json::from_str(&text).map_err(anyhow::Error::from)?;
+    if !user.is_admin && !USER_DIFFICULTIES.contains(&old.difficulty.as_str()) {
+        return Err(AppError::bad("difficulty must be Easy or Medium"));
+    }
+    check_allowance(&mut *pool.acquire().await?, user, games, quota, false).await?;
+    // The engine may have changed since: every list must still be playable.
+    let mut tested: Vec<(Which, &LabList, &[String])> = vec![];
+    match old.mode {
+        Mode::Versus => tested.extend(old.entrants.iter().enumerate().map(|(i, l)| (Which::Entrant(i), l, &[][..]))),
+        _ => {
+            tested.push((Which::Base, &old.base, &[]));
+            if let Some(v) = &old.variant {
+                tested.push((Which::Variant, v, &[]));
+            }
+        }
+    }
+    refuse_unknown(&tested, sim)?;
+    let field: Vec<LabList> = old.opponents.iter().map(|o| o.list.clone()).collect();
+    let unplayable: Vec<String> = field.iter().filter(|l| !sim.unknown(&l.cards).is_empty()).map(|l| l.label.clone()).collect();
+    if !unplayable.is_empty() {
+        return Err(AppError::bad(format!("Some opponents now have cards the simulator can't play: {}", shown(&unplayable))));
+    }
+    let new_id = new_id();
+    let seed = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().expect("8 bytes"));
+    let field_ids: Vec<String> = field.iter().map(|l| l.id.clone()).collect();
+    // Decks kept in every pod are stored first, and every game uses them, so they're all still here.
+    let every = old.display.field.every_pod.min(field.len()).min(POD - 1);
+    let (pods, scheduled) = match old.mode {
+        Mode::Change | Mode::Compare | Mode::Solo => {
+            if field.len() < MIN_FIELD {
+                return Err(AppError::bad("This run's field is too small to fill new pods; start a new run instead"));
+            }
+            if old.mode == Mode::Solo {
+                let templates = pairing::templates_with(field.len(), every, games as usize, seed);
+                (games as usize, pairing::schedule_solo(&new_id[..8], &templates, &field_ids, &old.difficulty, &LIMITS))
+            } else {
+                let pods = (games / 2) as usize;
+                let templates = pairing::templates_with(field.len(), every, pods, seed);
+                (pods, pairing::schedule(&new_id[..8], &templates, &field_ids, &old.difficulty, &LIMITS))
+            }
+        }
+        Mode::Versus => {
+            let entrant_ids: Vec<String> = old.entrants.iter().map(|l| l.id.clone()).collect();
+            if field.len() < old.pod.saturating_sub(entrant_ids.len()) {
+                return Err(AppError::bad("This run's field is too small to fill new pods; start a new run instead"));
+            }
+            (games as usize, pairing::schedule_versus(&new_id[..8], &entrant_ids, &field_ids, old.pod, games as usize, seed, &old.difficulty, &LIMITS))
+        }
+    };
+    let per_pod = matches!(old.mode, Mode::Change | Mode::Compare);
+    let spec = ExperimentSpec { seed, pods, opponents: used_opponents(field, &scheduled, per_pod), limits: LIMITS, ..old };
+    let suffix = format!(" ({games} games)");
+    let stem = without_games_suffix(&old_name);
+    let name = format!("{}{suffix}", stem.chars().take(MAX_NAME.saturating_sub(suffix.chars().count())).collect::<String>());
+    store_new(pool, user, &new_id, op_id, &name, &spec, &scheduled, games, sim, quota).await
 }
 
 /// The owner's queued and running experiments.
@@ -1215,8 +1708,12 @@ pub struct ExperimentItem {
     pub error: Option<String>,
     pub label: SimLabel,
     pub progress: Progress,
+    /// change, compare, solo or versus.
+    pub mode: Mode,
     pub base: Option<ListDisplay>,
     pub variant: Option<VariantDisplay>,
+    /// compare: the two decks; versus: every deck. Empty otherwise.
+    pub entrants: Vec<ListDisplay>,
     pub field: Option<FieldInfo>,
     /// Results so far (null until the first game is in).
     pub summary: Option<Summary>,
@@ -1236,7 +1733,10 @@ pub struct ExperimentDetail {
 #[derive(Debug, Clone, Serialize)]
 pub struct Lists {
     pub base: LabList,
-    pub variant: LabList,
+    /// change and compare only.
+    pub variant: Option<LabList>,
+    /// versus: every list.
+    pub entrants: Vec<LabList>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1375,8 +1875,10 @@ impl ExpRow {
             },
             progress: Progress { done: self.games_done, total: self.games_total, eta_seconds: eta, games_ahead },
             summary,
+            mode: display.as_ref().map(|d| d.mode).unwrap_or_default(),
             base: display.as_ref().map(|d| d.base.clone()),
-            variant: display.as_ref().map(|d| d.variant.clone()),
+            variant: display.as_ref().and_then(|d| d.variant.clone()),
+            entrants: display.as_ref().map(|d| d.entrants.clone()).unwrap_or_default(),
             field: display.map(|d| d.field),
             id: self.id,
             name: self.name,
@@ -1414,7 +1916,7 @@ pub async fn detail(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Exper
             .iter()
             .map(|o| OpponentView { id: o.list.id.clone(), label: o.list.label.clone(), source: o.list.source.clone(), sha256: o.list.sha256.clone(), pods: o.pods })
             .collect(),
-        lists: Lists { base: spec.base, variant: spec.variant },
+        lists: Lists { base: spec.base, variant: spec.variant, entrants: spec.entrants },
         warnings: spec.warnings,
         seed: spec.seed,
         limits: spec.limits,
@@ -1489,6 +1991,25 @@ pub struct PodView {
     /// Null until that game is played.
     pub base: Option<GameView>,
     pub variant: Option<GameView>,
+    /// Head to head (mode "versus"): the one game of this row, every seat named in `seats`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub game: Option<VersusGame>,
+}
+
+/// One game of a head-to-head experiment.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct VersusGame {
+    pub game: String,
+    pub end: String,
+    pub scored: bool,
+    /// The winner's label (an entrant's or a filler precon's); null for no winner or unplayed.
+    pub winner: Option<String>,
+    /// Finishing place per seat in a scored game (tied players share the mean of their places).
+    pub places: Vec<Option<f64>>,
+    pub turns: u32,
+    pub seconds: f64,
+    pub error: Option<String>,
+    pub finished_at: Option<String>,
 }
 
 fn game_view(game: &str, seat: u8, result: &str, finished_at: Option<String>) -> GameView {
@@ -1523,21 +2044,59 @@ fn game_view(game: &str, seat: u8, result: &str, finished_at: Option<String>) ->
     }
 }
 
+fn versus_game(game: &str, seats: &[Option<String>], result: &str, finished_at: Option<String>) -> VersusGame {
+    match serde_json::from_str::<yama_play::lab::GameResult>(result) {
+        Ok(r) => {
+            let scored = matches!(r.end, yama_play::lab::End::Win | yama_play::lab::End::Draw | yama_play::lab::End::TurnCap | yama_play::lab::End::ActionCap);
+            let ranks = super::stats::placement_ranks(&r.placements);
+            VersusGame {
+                game: game.into(),
+                end: r.end.as_str().into(),
+                scored,
+                winner: r.winner.and_then(|w| seats.get(usize::from(w)).cloned().flatten()),
+                places: (0..seats.len()).map(|s| if scored { ranks.get(&(s as u8)).copied() } else { None }).collect(),
+                turns: r.turns,
+                seconds: r.ms as f64 / 1000.0,
+                error: r.error,
+                finished_at,
+            }
+        }
+        Err(e) => VersusGame {
+            game: game.into(),
+            end: "error".into(),
+            scored: false,
+            winner: None,
+            places: vec![None; seats.len()],
+            turns: 0,
+            seconds: 0.0,
+            error: Some(format!("unreadable result line: {e}")),
+            finished_at,
+        },
+    }
+}
+
 /// The owner's experiment game by game, pod by pod (base and changed list side by side); anyone
 /// else's is "not found".
 pub async fn pods(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Vec<PodView>> {
     let labels: Vec<(String, String)> = sqlx::query_as(
         "SELECT json_extract(o.value, '$.id'), json_extract(o.value, '$.label')
-         FROM lab_experiments e, json_each(e.spec, '$.opponents') o WHERE e.id = ? AND e.owner_id = ?",
+         FROM lab_experiments e, json_each(e.spec, '$.opponents') o WHERE e.id = ? AND e.owner_id = ?
+         UNION ALL
+         SELECT json_extract(o.value, '$.id'), json_extract(o.value, '$.label')
+         FROM lab_experiments e, json_each(e.spec, '$.entrants') o WHERE e.id = ? AND e.owner_id = ?",
     )
+    .bind(id)
+    .bind(owner)
     .bind(id)
     .bind(owner)
     .fetch_all(pool)
     .await?;
-    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM lab_experiments WHERE id = ? AND owner_id = ?").bind(id).bind(owner).fetch_optional(pool).await?;
-    if exists.is_none() {
+    let mode: Option<Option<String>> =
+        sqlx::query_scalar("SELECT json_extract(spec, '$.mode') FROM lab_experiments WHERE id = ? AND owner_id = ?").bind(id).bind(owner).fetch_optional(pool).await?;
+    let Some(mode) = mode else {
         return Err(AppError::NotFound("experiment"));
-    }
+    };
+    let versus = mode.as_deref() == Some("versus");
     let labels: HashMap<String, String> = labels.into_iter().collect();
     let rows: Vec<(String, i64, String, Option<String>, Option<String>)> =
         sqlx::query_as("SELECT game, ord, spec, result, finished_at FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord")
@@ -1547,6 +2106,12 @@ pub async fn pods(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Vec<Pod
     let mut out: Vec<PodView> = Vec::new();
     for (game, ord, spec, result, finished_at) in rows {
         let Ok(spec) = serde_json::from_str::<GameSpec>(&spec) else { continue };
+        if versus {
+            let seats: Vec<Option<String>> = spec.decks.iter().map(|d| Some(labels.get(d).cloned().unwrap_or_else(|| d.clone()))).collect();
+            let view = result.map(|r| versus_game(&game, &seats, &r, finished_at));
+            out.push(PodView { pod: usize::try_from(ord / 2).unwrap_or(0) + 1, seat: 0, seats, base: None, variant: None, game: view });
+            continue;
+        }
         let Some((seat, is_variant)) = spec.decks.iter().enumerate().find_map(|(i, d)| match d.as_str() {
             BASE_ID => Some((i as u8, false)),
             VARIANT_ID => Some((i as u8, true)),
@@ -1561,7 +2126,7 @@ pub async fn pods(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Vec<Pod
                 .iter()
                 .map(|d| if d == BASE_ID || d == VARIANT_ID { None } else { Some(labels.get(d).cloned().unwrap_or_else(|| d.clone())) })
                 .collect();
-            out.push(PodView { pod, seat, seats, base: None, variant: None });
+            out.push(PodView { pod, seat, seats, base: None, variant: None, game: None });
         }
         let view = result.map(|r| game_view(&game, seat, &r, finished_at));
         let p = out.last_mut().expect("pushed above");
@@ -1702,6 +2267,20 @@ async fn create_handler(State(st): State<AppState>, CurrentUser(user): CurrentUs
     let sim = st.lab.simulator()?;
     let req: NewExperiment = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
     let created = create_with(&st.pool, &user, req, sim.as_ref(), &st.cfg.lab_quota).await?;
+    st.lab.wake();
+    Ok(Json(created))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Again {
+    pub games: u32,
+    pub op_id: Option<String>,
+}
+
+async fn again_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, body: Bytes) -> AppResult<Json<ExperimentDetail>> {
+    let sim = st.lab.simulator()?;
+    let req: Again = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
+    let created = again_with(&st.pool, &user, &id, req.games, req.op_id.as_deref(), sim.as_ref(), &st.cfg.lab_quota).await?;
     st.lab.wake();
     Ok(Json(created))
 }

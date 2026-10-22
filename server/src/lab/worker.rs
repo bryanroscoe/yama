@@ -667,7 +667,7 @@ impl LabWorker {
             Err(e) => return Ok(Err(format!("unreadable experiment: {e}"))),
         };
         let mut lists = HashMap::new();
-        for list in std::iter::once(spec.base).chain(std::iter::once(spec.variant)).chain(spec.opponents.into_iter().map(|o| o.list)) {
+        for list in std::iter::once(spec.base).chain(spec.variant).chain(spec.entrants).chain(spec.opponents.into_iter().map(|o| o.list)) {
             lists.insert(list.id.clone(), Arc::new(list));
         }
         let frozen = Arc::new(Frozen { lists, limits: spec.limits });
@@ -756,12 +756,36 @@ pub async fn refresh(conn: &mut SqliteConnection, experiment: &str, settled: boo
         .await?;
     let done = rows.iter().filter(|r| r.2.is_some()).count() as i64;
     let complete = done >= total;
-    let outcomes: Vec<Outcome> = rows.iter().filter_map(|(ord, spec, result)| Outcome::from_row(*ord, spec, result.as_deref())).collect();
-    let summary = stats::summarize(&outcomes, complete || (status == "cancelled" && settled));
+    let is_final = complete || (status == "cancelled" && settled);
+    let (mode, pod): (Option<String>, Option<i64>) =
+        sqlx::query_as("SELECT json_extract(spec, '$.mode'), json_extract(spec, '$.pod') FROM lab_experiments WHERE id = ?").bind(experiment).fetch_one(&mut *conn).await?;
+    let pod = usize::try_from(pod.unwrap_or(4)).unwrap_or(4);
+    let summary = match mode.as_deref() {
+        Some("versus") => {
+            let entrants: Vec<(String, String)> = sqlx::query_as(
+                "SELECT json_extract(value, '$.id'), json_extract(value, '$.label') FROM lab_experiments, json_each(lab_experiments.spec, '$.entrants')
+                 WHERE lab_experiments.id = ? ORDER BY CAST(key AS INTEGER)",
+            )
+            .bind(experiment)
+            .fetch_all(&mut *conn)
+            .await?;
+            let games: Vec<(String, Option<String>)> = rows.iter().map(|(_, spec, result)| (spec.clone(), result.clone())).collect();
+            stats::summarize_versus(&games, &entrants, pod, is_final)
+        }
+        other => {
+            let outcomes: Vec<Outcome> = rows.iter().filter_map(|(ord, spec, result)| Outcome::from_row(*ord, spec, result.as_deref())).collect();
+            let mut s = stats::summarize(&outcomes, is_final);
+            if other == Some("solo") {
+                s.verdict = stats::solo_verdict(&s.base, pod, is_final);
+                s.method = stats::SOLO_METHOD.into();
+            }
+            s
+        }
+    };
     let active = status == "queued" || status == "running";
     let (status, error) = if active && complete {
-        if summary.base.games + summary.variant.games == 0 {
-            let first = outcomes.iter().filter_map(|o| o.result.as_ref()?.error.clone()).next();
+        if summary.scored_games() == 0 {
+            let first = rows.iter().filter_map(|(_, _, r)| serde_json::from_str::<yama_play::lab::GameResult>(r.as_deref()?).ok()?.error).next();
             ("failed".to_string(), Some(format!("No game ended with a scored result{}", first.map(|e| format!(". First error: {e}")).unwrap_or_default())))
         } else {
             ("done".to_string(), None)

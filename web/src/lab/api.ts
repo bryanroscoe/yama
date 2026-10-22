@@ -259,7 +259,48 @@ export interface Summary {
   builds: Build[];
   verdict: Verdict;
   method: string;
+  /** Head to head only. */
+  versus?: Versus | null;
 }
+
+/** One deck in a head-to-head run. */
+export interface Entrant {
+  id: string;
+  label: string;
+  games: number;
+  wins: number;
+  win_rate: number | null;
+  wilson: [number, number] | null;
+  avg_place: number | null;
+  /** Games it went first in. */
+  first: number;
+}
+
+/** Two decks that sat in the same scored games: how often each finished ahead (ties apart). */
+export interface Meeting {
+  a: number;
+  b: number;
+  games: number;
+  a_ahead: number;
+  b_ahead: number;
+  ties: number;
+  a_share: number | null;
+  a_share_ci: [number, number] | null;
+}
+
+export interface Versus {
+  pod: number;
+  games: number;
+  pending: number;
+  entrants: Entrant[];
+  meetings: Meeting[];
+  filler_wins: number;
+  /** Every player's turn counted; rounds are about avg_turns / pod. */
+  avg_turns: number | null;
+}
+
+/** What a run compares: a change, two decks, one deck as it is, or decks head to head. */
+export type ExperimentMode = "change" | "compare" | "solo" | "versus";
 
 export interface ListDisplay {
   label: string;
@@ -285,8 +326,12 @@ export interface ExperimentItem {
   error: string | null;
   label: SimLabel;
   progress: { done: number; total: number; eta_seconds: number | null; games_ahead: number | null };
+  /** Missing on runs from before the modes: a change. */
+  mode?: ExperimentMode;
   base: ListDisplay | null;
   variant: { label: string; added: LabCard[]; cut: LabCard[] } | null;
+  /** compare: the two decks; versus: every deck. */
+  entrants?: ListDisplay[];
   field: FieldInfo | null;
   summary: Summary | null;
 }
@@ -300,7 +345,7 @@ export interface LabList {
 }
 
 export interface ExperimentDetail extends ExperimentItem {
-  lists: { base: LabList; variant: LabList };
+  lists: { base: LabList; variant: LabList | null; entrants?: LabList[] };
   opponents: { id: string; label: string; source: Record<string, unknown>; sha256: string; pods: number }[];
   warnings: string[];
   /** A u64: past 2^53 a JavaScript number loses digits, so it's never shown. */
@@ -326,6 +371,20 @@ export interface PodView {
   seats: (string | null)[];
   base: GameView | null;
   variant: GameView | null;
+  /** Head to head: the row's one game, every seat named in `seats`. */
+  game?: VersusGame | null;
+}
+
+export interface VersusGame {
+  game: string;
+  end: string;
+  scored: boolean;
+  winner: string | null;
+  places: (number | null)[];
+  turns: number;
+  seconds: number;
+  error: string | null;
+  finished_at: string | null;
 }
 
 export interface Pace {
@@ -358,7 +417,7 @@ export interface Allowance {
   used_today: number;
 }
 
-export type BaseChoice = { kind: "deck"; id: string } | { kind: "precon"; id: string } | { kind: "list"; text: string };
+export type BaseChoice = { kind: "deck"; id: string } | { kind: "precon"; id: string } | { kind: "list"; text: string; label?: string };
 
 export type FieldChoice =
   | { kind: "precons_top"; n: number }
@@ -369,9 +428,19 @@ export type FieldChoice =
 export interface NewExperiment {
   name?: string;
   op_id: string;
-  base: BaseChoice;
-  variant: { add: string[]; cut: string[] };
-  field: FieldChoice;
+  mode?: ExperimentMode;
+  /** change and solo: the list; compare: the first deck. */
+  base?: BaseChoice;
+  /** change only. */
+  variant?: { add: string[]; cut: string[] };
+  /** compare: the second deck. */
+  other?: BaseChoice;
+  /** versus: 2 to 4 decks. */
+  entrants?: BaseChoice[];
+  /** versus: 4 (precons fill empty seats) or 2 (1v1). */
+  pod?: number;
+  /** Needed by every mode but a versus with no empty seat. */
+  field?: FieldChoice;
   games: number;
   difficulty: string;
 }
@@ -381,6 +450,18 @@ export interface TryPrefill {
   base: BaseChoice;
   add: string[];
   cut: string[];
+  /** Which adds replace which cuts, when known. */
+  pairs?: [string, string][];
+  field?: FieldChoice;
+  games?: number;
+  difficulty?: string;
+}
+
+/** What "Edit and run again" carries to the Compare page. */
+export interface ComparePrefill {
+  mode: "compare" | "versus";
+  decks: BaseChoice[];
+  pod?: number;
   field?: FieldChoice;
   games?: number;
   difficulty?: string;

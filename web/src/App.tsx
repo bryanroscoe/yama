@@ -14,6 +14,7 @@ import { PreconsPage } from "./lab/Precons";
 import { RunPage } from "./lab/Run";
 import { BatchPage, RunsPage } from "./lab/Runs";
 import { TryPage } from "./lab/Try";
+import { ComparePage } from "./lab/Compare";
 import { NewsNotice, WhatsNewPage } from "./pages/WhatsNew";
 import { Buy } from "./plan/Buy";
 import { DeckPlan } from "./plan/DeckPlan";
@@ -108,6 +109,7 @@ export function App() {
           <Route index element={<PreconsPage />} />
           <Route path="p/:id" element={<PreconDetailPage />} />
           <Route path="try" element={<TryPage />} />
+          <Route path="compare" element={<ComparePage />} />
           <Route path="runs" element={<RunsPage />} />
           <Route path="runs/batch/:id" element={<BatchPage />} />
           <Route path="runs/:id" element={<RunPage />} />

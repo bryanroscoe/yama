@@ -250,7 +250,9 @@ export function baseConfidenceSentence(found: { precon: PreconItem; confidence: 
 
 /** Whether a summary has any scored game to show. A run stopped before one finished has none. */
 export function hasResults(s: Summary | null | undefined): boolean {
-  return s != null && s.base.games + s.variant.games > 0;
+  if (s == null) return false;
+  if (s.versus) return s.versus.games > 0;
+  return s.base.games + s.variant.games > 0;
 }
 
 /** The verdict as the page says it: a cancelled run that can't tell won't play more games. */

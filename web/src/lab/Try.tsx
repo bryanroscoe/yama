@@ -1,91 +1,46 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { identityName } from "@yama/core";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { spares as planSpares } from "@yama/core/plan";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
-import { api, ApiError, type DeckCard, type DeckSummary, type DeckView, type SearchResult } from "../api";
+import { api, ApiError, type DeckSummary, type DeckView, type SearchResult } from "../api";
 import { useMe } from "../auth";
-import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
+import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
-import { CardImage, ErrorText, ManaCost, Pips } from "../components/ui";
+import { CardImage, ErrorText, ManaCost } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { offlineSearch } from "../offline/cards";
-import type { BaseChoice, ExperimentDetail, ExperimentItem, FieldChoice, NewExperiment, Pace, PreconDetail, TryPrefill } from "./api";
+import type { ExperimentDetail, ExperimentItem, NewExperiment, Pace, PreconDetail, TryPrefill } from "./api";
+import { addsAndCuts, changeProblems, listDiff, stillIn, swap, swapCount, swapsFrom, swapText, type InCard, type Swap } from "./changes";
 import { ConfidenceLine, ConfidenceNote } from "./confidence";
 import { LabHead } from "./LabLayout";
 import { experimentLabel, useBaseConfidence } from "./Run";
-import {
-  baseConfidence,
-  baseConfidenceSentence,
-  cantJudge,
-  caveat,
-  changeText,
-  changedCount,
-  cuttable,
-  allowanceText,
-  durationText,
-  expectedSeconds,
-  gameChoices,
-  grouped,
-  hasResults,
-  identityQuery,
-  playedCount,
-  pointsRange,
-  pointsWord,
-  tally,
-  type BaseLine,
-} from "./logic";
+import { baseConfidence, baseConfidenceSentence, cantJudge, caveat, durationText, expectedSeconds, gameChoices, grouped, hasResults, identityQuery, playedCount, pointsRange, pointsWord, type BaseLine } from "./logic";
+import { DeckChooser, defaultField, FieldPicker, fromDeckSummary, GamesPicker, PLAN_STATES, RunBlockers, useField, usePace, usePlanLists, type Chosen, type FieldState } from "./pickers";
 import { usePrecons } from "./Precons";
 
-type BaseKind = "deck" | "precon" | "list";
-type FieldKind = "precons_top" | "precons_near" | "precons_all" | "my_decks";
-
-const FIELD_N = 20;
-
-/** A loaded base list: its lines, the commander's colours when known, and its label. */
-interface LoadedBase {
-  choice: BaseChoice;
-  label: string;
+/** A chosen list with its lines loaded. */
+interface LoadedBase extends Chosen {
   lines: BaseLine[];
-  identity: string | null;
-  commanders: string[];
-  /** A precon base's slug, for "similar strength". */
-  precon: string | null;
-  /** Whether the base is a precon with a simulated strength, so it sets "similar strength" itself. */
-  rated: boolean;
-  note?: string;
-  /** The commander's art crop, when known. */
-  art?: { url: string; artist: string | null } | null;
 }
 
-function fromDeck(d: DeckView): LoadedBase {
-  return {
-    choice: { kind: "deck", id: d.id },
-    label: d.name,
-    lines: d.cards.map((c) => ({ name: c.name, qty: c.qty, board: c.board, type_line: c.card?.type_line ?? null, cmc: c.card?.cmc ?? null, image_small: c.card?.image_small ?? null, oracle_id: c.oracle_id })),
-    identity: d.validation.color_identity,
-    commanders: d.cards.filter((c) => c.board === "commander").map((c) => c.name),
-    precon: null,
-    rated: false,
-    note: d.version_id ? "Its latest version" : undefined,
-    art: (() => {
-      const c = d.cards.find((x) => x.board === "commander" && x.card?.image_art_crop)?.card;
-      return c?.image_art_crop ? { url: c.image_art_crop, artist: c.artist } : null;
-    })(),
-  };
+/** A plan swap as the page uses it. */
+interface PlanIdea {
+  key: string;
+  out: string | null;
+  in: string;
+  stage: string;
+  why: string | null;
 }
 
-function fromPrecon(p: PreconDetail): LoadedBase {
-  return {
-    choice: { kind: "precon", id: p.precon.id },
-    label: p.precon.name,
-    lines: p.cards.map((c) => ({ name: c.name, qty: c.qty, board: c.board, type_line: c.type_line, cmc: c.cmc, image_small: c.image_small, oracle_id: c.oracle_id })),
-    identity: p.precon.color_identity,
-    commanders: p.precon.commanders,
-    precon: p.precon.id,
-    rated: p.precon.rating?.strength != null,
-    note: `${p.precon.set_name ?? p.precon.set_code} stock list`,
-    art: p.precon.art ? { url: p.precon.art.url, artist: p.precon.art.artist } : null,
-  };
+type CardInfo = ((name: string | null | undefined) => { color_identity: string; type_line: string; image_small: string | null; cmc: number } | undefined) | undefined;
+
+function deckLines(d: DeckView): BaseLine[] {
+  return d.cards.map((c) => ({ name: c.name, qty: c.qty, board: c.board, type_line: c.card?.type_line ?? null, cmc: c.card?.cmc ?? null, image_small: c.card?.image_small ?? null, oracle_id: c.oracle_id }));
+}
+
+function preconLines(p: PreconDetail): BaseLine[] {
+  return p.cards.map((c) => ({ name: c.name, qty: c.qty, board: c.board, type_line: c.type_line, cmc: c.cmc, image_small: c.image_small, oracle_id: c.oracle_id }));
 }
 
 export function TryPage() {
@@ -100,110 +55,165 @@ function TryForm() {
   const location = useLocation();
   const [params] = useSearchParams();
   const prefill = (location.state as { prefill?: TryPrefill } | null)?.prefill;
-  const initialKind: BaseKind = prefill?.base.kind ?? (params.get("deck") ? "deck" : params.get("precon") ? "precon" : "precon");
 
-  const [kind, setKind] = useState<BaseKind>(initialKind);
-  const [deckId, setDeckId] = useState(prefill?.base.kind === "deck" ? prefill.base.id : (params.get("deck") ?? ""));
-  const [preconId, setPreconId] = useState(prefill?.base.kind === "precon" ? prefill.base.id : (params.get("precon") ?? ""));
-  const [pasteText, setPasteText] = useState(prefill?.base.kind === "list" ? prefill.base.text : "");
-  const [pasted, setPasted] = useState<{ text: string; cards: DeckCard[]; unknown: string[] } | null>(null);
-  const [add, setAdd] = useState<string[]>(prefill?.add ?? []);
-  const [cut, setCut] = useState<string[]>(prefill?.cut ?? []);
-  const [fieldKind, setFieldKind] = useState<FieldKind>((prefill?.field?.kind as FieldKind) ?? "precons_top");
-  const [anchor, setAnchor] = useState(prefill?.field?.kind === "precons_near" ? (prefill.field.ids[0] ?? "") : "");
-  const [myDecks, setMyDecks] = useState<string[]>(prefill?.field?.kind === "my_decks" ? prefill.field.ids : []);
+  const [chosen, setChosen] = useState<Chosen | null>(null);
+  const [swaps, setSwaps] = useState<Swap[]>([]);
+  const [field, setField] = useState<FieldState>(() => {
+    const f = prefill?.field;
+    if (!f) return defaultField("precons_top");
+    return { kind: f.kind, anchor: f.kind === "precons_near" ? (f.ids[0] ?? "") : "", myDecks: f.kind === "my_decks" ? f.ids : [] };
+  });
   const [gamesPicked, setGames] = useState<number | null>(prefill?.games ?? null);
   const [difficulty, setDifficulty] = useState(prefill?.difficulty === "Medium" ? "Medium" : "Easy");
   const [name, setName] = useState("");
+  const [swapping, setSwapping] = useState<string | null>(null);
   const opId = useRef(crypto.randomUUID());
 
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const precons = usePrecons();
-  const pace = useQuery({ queryKey: ["lab", "pace"], queryFn: () => api<Pace>("/api/lab/pace"), refetchInterval: 60_000 });
-  // The server says which sizes this account may run (an account without an invite: 100 only).
+  const { lists: planLists, view: plan } = usePlanLists();
+  const pace = usePace();
   const choices = gameChoices(pace.data);
-  const games = gamesPicked != null && choices.includes(gamesPicked) ? gamesPicked : choices.includes(200) ? 200 : (choices[0] ?? 100);
-  const deck = useQuery({ queryKey: ["deck", deckId], queryFn: () => api<DeckView>(`/api/decks/${deckId}`), enabled: kind === "deck" && !!deckId });
-  const precon = useQuery({ queryKey: ["lab", "precon", preconId], queryFn: () => api<PreconDetail>(`/api/precons/${preconId}`), enabled: kind === "precon" && !!preconId });
 
-  // A pasted list from "Try again" is read once on arrival.
+  // Where the page starts: "Try again", ?deck=, ?precon= or ?plan=<deck>&state=<state>.
+  const pendingPrefill = useRef(true);
   const parse = useMutation({
-    mutationFn: (text: string) => api<{ cards: DeckCard[]; unknown: string[] }>("/api/decks/parse", { method: "POST", json: { text, first_is_commander: true } }),
-    onSuccess: (r, text) => setPasted({ text, ...r }),
+    mutationFn: (text: string) =>
+      api<{ cards: { name: string; qty: number; board: "commander" | "main" | "side"; oracle_id: string }[]; unknown: string[] }>("/api/decks/parse", { method: "POST", json: { text, first_is_commander: true } }),
   });
   useEffect(() => {
-    if (prefill?.base.kind === "list" && !pasted) parse.mutate(prefill.base.text);
-  }, []);
+    if (!pendingPrefill.current) return;
+    const b = prefill?.base;
+    const deckId = b?.kind === "deck" ? b.id : params.get("deck");
+    const preconId = b?.kind === "precon" ? b.id : params.get("precon");
+    const planKey = params.get("plan");
+    if (deckId) {
+      if (!decks.data) return;
+      pendingPrefill.current = false;
+      const d = decks.data.find((x) => x.id === deckId);
+      if (d) setChosen(fromDeckSummary(d));
+    } else if (preconId) {
+      if (!precons.data) return;
+      pendingPrefill.current = false;
+      const p = precons.data.precons.find((x) => x.id === preconId);
+      if (p)
+        setChosen({
+          choice: { kind: "precon", id: p.id },
+          key: `precon:${p.id}`,
+          label: p.name,
+          sub: `${p.set_name ?? p.set_code} precon, stock list`,
+          identity: p.color_identity,
+          commanders: p.commanders,
+          art: p.art ? { url: p.art.url, artist: p.art.artist } : null,
+          precon: p.id,
+          rated: p.rating?.strength != null,
+          deckId: null,
+        });
+    } else if (planKey) {
+      const c = planLists.find((l) => l.key === `plan:${planKey}:${params.get("state") ?? "stock"}`);
+      if (c) {
+        pendingPrefill.current = false;
+        setChosen(c);
+      }
+    } else if (b?.kind === "list") {
+      pendingPrefill.current = false;
+      const fromPlan = planLists.find((l) => l.choice.kind === "list" && l.choice.text === b.text);
+      if (fromPlan) setChosen(fromPlan);
+      else
+        parse.mutate(b.text, {
+          onSuccess: (r) =>
+            setChosen({
+              choice: { kind: "list", text: b.text, ...(b.label ? { label: b.label } : {}) },
+              key: "list",
+              label: b.label ?? "Pasted list",
+              sub: "A pasted list",
+              identity: null,
+              commanders: r.cards.filter((c) => c.board === "commander").map((c) => c.name),
+              art: null,
+              precon: null,
+              rated: false,
+              deckId: null,
+              lines: r.cards.map((c) => ({ name: c.name, qty: c.qty, board: c.board, oracle_id: c.oracle_id })),
+            }),
+        });
+    } else pendingPrefill.current = false;
+  }, [decks.data, precons.data, planLists]);
+  // A prefilled change arrives once the list is known.
+  const prefilledChange = useRef(false);
+  useEffect(() => {
+    if (prefilledChange.current || !prefill || !chosen) return;
+    prefilledChange.current = true;
+    setSwaps(swapsFrom(prefill.add, prefill.cut, prefill.pairs ?? []));
+  }, [chosen]);
+
+  const deck = useQuery({ queryKey: ["deck", chosen?.deckId], queryFn: () => api<DeckView>(`/api/decks/${chosen!.deckId}`), enabled: !!chosen?.deckId });
+  const precon = useQuery({ queryKey: ["lab", "precon", chosen?.precon], queryFn: () => api<PreconDetail>(`/api/precons/${chosen!.precon}`), enabled: !!chosen?.precon });
 
   const base: LoadedBase | null = useMemo(() => {
-    if (kind === "deck" && deck.data) return fromDeck(deck.data);
-    if (kind === "precon" && precon.data) return fromPrecon(precon.data);
-    if (kind === "list" && pasted)
-      return {
-        choice: { kind: "list", text: pasted.text },
-        label: "Pasted list",
-        lines: pasted.cards.map((c) => ({ name: c.name, qty: c.qty, board: c.board, oracle_id: c.oracle_id })),
-        identity: null,
-        commanders: pasted.cards.filter((c) => c.board === "commander").map((c) => c.name),
-        precon: null,
-        rated: false,
-      };
+    if (!chosen) return null;
+    if (chosen.lines) return { ...chosen, lines: chosen.lines };
+    if (chosen.deckId && deck.data) return { ...chosen, lines: deckLines(deck.data), identity: deck.data.validation.color_identity };
+    if (chosen.precon && precon.data) return { ...chosen, lines: preconLines(precon.data) };
     return null;
-  }, [kind, deck.data, precon.data, pasted]);
+  }, [chosen, deck.data, precon.data]);
 
-  const resetChanges = () => {
-    setAdd([]);
-    setCut([]);
-  };
-  const chooseKind = (k: BaseKind) => {
-    if (k !== kind) resetChanges();
-    setKind(k);
+  const choose = (c: Chosen | null) => {
+    setSwaps([]);
+    setSwapping(null);
+    setChosen(c);
   };
 
-  const count = base ? changedCount(base.lines, add, cut) : 0;
-  const changed = add.length + cut.length > 0;
-  const rated = useMemo(() => (precons.data?.precons ?? []).filter((p) => p.rating?.strength != null).sort((a, b) => a.name.localeCompare(b.name)), [precons.data]);
-  // A rated precon sets "similar strength" itself. Anything else (a deck, a list, a precon added
-  // since the last rating run) needs one picked: by default a rated precon with the same commanders.
-  const selfAnchor = !!base?.precon && base.rated;
-  const sameCommander = useMemo(() => {
-    if (!base || selfAnchor) return null;
-    const mine = [...base.commanders].sort().join("|");
-    return rated.find((p) => p.id !== base.precon && [...p.commanders].sort().join("|") === mine) ?? null;
-  }, [base, selfAnchor, rated]);
-  const anchorId = selfAnchor ? "" : anchor || sameCommander?.id || "";
-  const run = precons.data?.run;
-  const preconMissing = kind === "precon" && !!precon.error;
+  // The plan deck behind the base: a plan list, or one of your decks a plan is linked to.
+  const planDeck = useMemo(() => {
+    if (!plan || !chosen) return null;
+    if (chosen.plan) return plan.deck(chosen.plan.deck) ?? null;
+    if (chosen.deckId) return plan.b.decks.find((d) => d.deck_id === chosen.deckId) ?? null;
+    return null;
+  }, [plan, chosen]);
+  const planSwaps: PlanIdea[] = useMemo(
+    () => (planDeck && plan ? plan.swapsOf(planDeck.key).filter((s) => !s.retired && s.in && s.out).map((s) => ({ key: s.key, out: s.out, in: s.in, stage: s.stage, why: s.why })) : []),
+    [planDeck, plan],
+  );
+  const planPairs = useMemo(() => planSwaps.map((s) => [s.out!, s.in] as [string, string]), [planSwaps]);
+  const spareCards = useMemo(() => {
+    if (!plan) return [];
+    const sp = planSpares(plan.b, plan.answers);
+    const names = new Set<string>();
+    for (const s of [...sp.now, ...sp.before, ...sp.extras]) if (s.free) names.add(s.card);
+    return [...names];
+  }, [plan]);
+  const cardInfo: CardInfo = plan ? (n) => plan.card(n) : undefined;
+
+  const count = base ? swapCount(base.lines, swaps) : 0;
+  const changed = swaps.length > 0;
+  const { blocking, warnings } = base ? changeProblems(base.lines, swaps, base.identity) : { blocking: [], warnings: [] };
+  const anchor = base ? { label: base.label, precon: base.precon, rated: base.rated, commanders: base.commanders } : null;
+  const fieldPick = useField(field, anchor, base?.deckId ? [base.deckId] : []);
   // Whether the simulator can judge the base at all: said before the run, and beside its verdict.
   const conf = base ? baseConfidence(precons.data?.precons ?? [], { precon: base.precon, commanders: base.commanders }) : null;
 
-  const field: FieldChoice =
-    fieldKind === "precons_top"
-      ? { kind: "precons_top", n: FIELD_N }
-      : fieldKind === "precons_near"
-        ? { kind: "precons_near", n: FIELD_N, ids: anchorId ? [anchorId] : [] }
-        : fieldKind === "precons_all"
-          ? { kind: "precons_all" }
-          : { kind: "my_decks", ids: myDecks.filter((id) => id !== deckId || kind !== "deck") };
+  const solo = !!base && !changed;
+  const games = gamesPicked != null && choices.includes(gamesPicked) ? gamesPicked : choices.includes(200) ? 200 : (choices[0] ?? 100);
+  const eta = expectedSeconds(pace.data, games);
 
-  const blockers: string[] = [];
-  if (!base) blockers.push("Choose a list to start from.");
+  const blockers: { text: string; href?: string; link?: string }[] = [];
+  if (!chosen) blockers.push({ text: "Choose a list to start from.", href: "#try-1", link: "Step 1" });
+  else if (!base) blockers.push({ text: "Loading the list…" });
   else {
-    if (!changed) blockers.push("Make a change: add a card or tap one to cut it.");
-    if (count !== 100) blockers.push(`The changed list has ${count} cards; a game needs exactly 100.`);
-    if (base.commanders.length === 0) blockers.push("The list needs a commander.");
+    if (changed) for (const b of blocking) blockers.push({ text: b, href: "#try-2", link: "Fix it in step 2" });
+    if (base.commanders.length === 0) blockers.push({ text: "The list needs a commander." });
   }
-  if (fieldKind === "precons_near" && base && !selfAnchor && !anchorId) blockers.push("Pick a precon to set the power level.");
-  if ((fieldKind === "precons_top" || fieldKind === "precons_near") && precons.data && !run) blockers.push("No rating run is imported yet, so there's no strength to choose by.");
-  if (pace.data && !pace.data.available) blockers.push(pace.data.message ?? "Simulations can't start on this server right now.");
+  for (const p of fieldPick.problems) blockers.push({ text: p, href: "#try-3", link: "Step 3" });
+  if (pace.data && !pace.data.available) blockers.push({ text: pace.data.message ?? "Simulations can't start on this server right now." });
 
   const create = useMutation({
-    mutationFn: () => {
+    mutationFn: (mode: "change" | "solo") => {
       const body: NewExperiment = {
         op_id: opId.current,
+        mode,
         base: base!.choice,
-        variant: { add, cut },
-        field,
+        ...(mode === "change" ? { variant: addsAndCuts(swaps) } : {}),
+        field: fieldPick.choice,
         games,
         difficulty,
         ...(name.trim() ? { name: name.trim() } : {}),
@@ -213,29 +223,11 @@ function TryForm() {
     onSuccess: (d) => navigate(`/decks/lab/runs/${d.id}`),
   });
 
-  const fieldLabel =
-    fieldKind === "precons_top"
-      ? `the strongest ${FIELD_N} precons`
-      : fieldKind === "precons_near"
-        ? `the ${FIELD_N} precons nearest in strength`
-        : fieldKind === "precons_all"
-          ? "all the precons"
-          : myDecks.length
-            ? `${myDecks.length} of your decks`
-            : "your decks";
-  const eta = expectedSeconds(pace.data, games);
-  const changeBase = () => {
-    resetChanges();
-    if (kind === "precon") setPreconId("");
-    else if (kind === "deck") setDeckId("");
-    else setPasted(null);
-  };
-
   return (
     <>
       <LabHead title="Try a change" />
       <p className="dim lab-try-intro">
-        Play a list and a changed copy of it against the same opponents, seats and shuffles, then compare. {caveat()}
+        Swap cards in a list, then play the list and the changed copy against the same opponents, seats and shuffles. Or run a list as it is, or <Link to="/decks/lab/compare">compare two decks</Link>. {caveat()}
       </p>
 
       <div className="phone-only">
@@ -243,202 +235,49 @@ function TryForm() {
       </div>
       <div className="lab-try">
         <div className="lab-try-main">
-          <section className="lab-step" aria-labelledby="try-1">
-            <h2 id="try-1">
+          <section className="lab-step" aria-labelledby="try-1-h" id="try-1">
+            <h2 id="try-1-h">
               <span className="n">1.</span> Start from
             </h2>
-            {base ? (
-              <div className="lab-base">
-                <ArtPanel art={base.art?.url} artist={base.art?.artist} wash="left" className="lab-base-art" credit={false}>
-                  <span className="lab-base-text">
-                    <b>{base.label}</b>
-                    <span>
-                      {kind === "deck" ? "One of your decks" : kind === "precon" ? (base.note ?? "A precon") : "A pasted list"}.{" "}
-                      {base.commanders.length ? base.commanders.join(" and ") : "No commander"}
-                      {base.identity != null && <> ({identityName(base.identity)})</>}. {playedCount(base.lines)} cards.
-                    </span>
-                  </span>
-                  <button type="button" className="lab-base-change" onClick={changeBase}>
-                    Change
-                  </button>
-                </ArtPanel>
-                {base.art && <span className="small dim">{artCredit(base.art.artist)}</span>}
-                {conf && conf.confidence.level !== "ok" && (
-                  <ConfidenceNote level={conf.confidence.level} lead={baseConfidenceSentence(conf, "run")} reasons={conf.confidence.reasons} fold>
-                    {cantJudge(conf.confidence) && <p>You can still run it; the verdict will carry this warning.</p>}
-                  </ConfidenceNote>
-                )}
-              </div>
-            ) : (
-              <>
-                <div className="lab-chips" role="radiogroup" aria-label="Start from">
-                  {(
-                    [
-                      ["precon", "A precon"],
-                      ["deck", "One of my decks"],
-                      ["list", "Paste a list"],
-                    ] as [BaseKind, string][]
-                  ).map(([k, label]) => (
-                    <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => chooseKind(k)}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                {kind === "precon" && (
-                  <PreconPicker
-                    value={preconMissing ? "" : preconId}
-                    onChange={(id) => {
-                      resetChanges();
-                      setPreconId(id);
-                    }}
-                  />
-                )}
-                {kind === "deck" && (
-                  <label>
-                    Deck
-                    <span className="hint">Its latest version is used. Simulations need 100 cards with a commander.</span>
-                    <select
-                      value={deckId}
-                      onChange={(e) => {
-                        resetChanges();
-                        setDeckId(e.target.value);
-                      }}
-                    >
-                      <option value="">Choose a deck</option>
-                      {decks.data?.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.name}
-                          {d.commanders.length ? `, ${d.commanders.join(" and ")}` : ""} ({d.card_count} cards)
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                {kind === "list" && (
-                  <div className="stack" style={{ gap: "0.5rem" }}>
-                    <label>
-                      Deck list
-                      <span className="hint">One card per line, like "1 Sol Ring". With no Commander section, the first card is the commander.</span>
-                      <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} />
-                    </label>
-                    <div className="row">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          resetChanges();
-                          parse.mutate(pasteText);
-                        }}
-                        disabled={!pasteText.trim() || parse.isPending}
-                      >
-                        Use this list
-                      </button>
-                    </div>
-                    <ErrorText error={parse.error} />
-                  </div>
-                )}
-                {(kind === "deck" && deck.isFetching) || (kind === "precon" && precon.isFetching) ? <p className="small dim">Loading the list…</p> : null}
-              </>
-            )}
-            {kind === "list" && pasted && pasted.text !== pasteText && <p className="small dim">The text changed since it was read.</p>}
-            {kind === "list" && pasted && pasted.unknown.length > 0 && <p className="error small">Not found, so left out: {pasted.unknown.join(", ")}</p>}
-            {preconMissing && precon.error instanceof ApiError && precon.error.status === 404 ? (
-              <p className="error" role="alert">
-                No precon has the id "{preconId}". Find one above.
-              </p>
-            ) : (
-              <ErrorText error={kind === "deck" ? deck.error : kind === "precon" ? precon.error : null} />
+            <DeckChooser value={chosen} onChange={choose} paste initial={!decks.data?.length && planLists.length ? "plan" : "deck"} />
+            {chosen && !base && (deck.isFetching || precon.isFetching) && <p className="small dim">Loading the list…</p>}
+            <ErrorText error={deck.error ?? (precon.error instanceof ApiError && precon.error.status === 404 ? new Error(`No precon has the id "${chosen?.precon}".`) : precon.error)} />
+            {conf && conf.confidence.level !== "ok" && (
+              <ConfidenceNote level={conf.confidence.level} lead={baseConfidenceSentence(conf, "run")} reasons={conf.confidence.reasons} fold>
+                {cantJudge(conf.confidence) && <p>You can still run it; the verdict will carry this warning.</p>}
+              </ConfidenceNote>
             )}
           </section>
 
           {base && (
-            <section className="lab-step" aria-labelledby="try-2">
+            <section className="lab-step" aria-labelledby="try-2-h" id="try-2">
               <div className="lab-step-head">
-                <h2 id="try-2">
-                  <span className="n">2.</span> Change it
+                <h2 id="try-2-h">
+                  <span className="n">2.</span> Swap cards
                 </h2>
                 <span className={`lab-total ${count === 100 ? "ok" : "off"}`} aria-live="polite">
                   {count} cards{count === 100 ? "" : count < 100 ? `, ${100 - count} short` : `, ${count - 100} too many`}
                 </span>
               </div>
-              <AddSearch identity={base.identity} onAdd={(n) => setAdd((a) => [...a, n])} inBase={(n) => base.lines.some((l) => l.name === n)} />
-              <Diff base={base} add={add} cut={cut} setAdd={setAdd} setCut={setCut} />
+              {planDeck && <PlanShortcuts deckName={planDeck.name} base={base} planLists={planLists.filter((l) => l.plan?.deck === planDeck.key)} swaps={swaps} setSwaps={setSwaps} planSwaps={planSwaps} pairs={planPairs} />}
+              <ChangesPanel base={base} swaps={swaps} setSwaps={setSwaps} warnings={warnings} blocking={changed ? blocking : []} swapping={swapping} setSwapping={setSwapping} planSwaps={planSwaps} spares={spareCards} cardInfo={cardInfo} />
+              <DeckList base={base} swaps={swaps} setSwaps={setSwaps} swapping={swapping} setSwapping={setSwapping} planSwaps={planSwaps} spares={spareCards} cardInfo={cardInfo} />
               <details className="lab-cut-list">
-                <summary>Cut a card from {base.label}</summary>
-                <BaseList base={base} cut={cut} setCut={setCut} />
+                <summary>Add a card without cutting one</summary>
+                <CardSearch identity={base.identity} inBase={(n) => base.lines.some((l) => l.name === n)} action="Add" onPick={(n, inCard) => setSwaps((s) => [...s, swap(null, n, { inCard })])} />
               </details>
             </section>
           )}
 
-          <section className="lab-step" aria-labelledby="try-3">
-            <h2 id="try-3">
+          <section className="lab-step" aria-labelledby="try-3-h" id="try-3">
+            <h2 id="try-3-h">
               <span className="n">{base ? 3 : 2}.</span> Against
             </h2>
-            <div className="lab-choices" role="radiogroup" aria-label="Opponents">
-              <Choice on={fieldKind === "precons_near"} pick={() => setFieldKind("precons_near")} title="Similar power">
-                {FIELD_N} precons nearest in strength to {selfAnchor ? base!.label : "a precon you pick"}.
-              </Choice>
-              <Choice on={fieldKind === "precons_top"} pick={() => setFieldKind("precons_top")} title={`Strongest ${FIELD_N}`}>
-                {run ? `The top of the precon table (run ${run.name}).` : "Needs a rating run."}
-              </Choice>
-              <Choice on={fieldKind === "precons_all"} pick={() => setFieldKind("precons_all")} title="All precons">
-                Every playable precon ({precons.data?.precons.length ?? "…"}); each sits in only a pod or two.
-              </Choice>
-              <Choice on={fieldKind === "my_decks"} pick={() => setFieldKind("my_decks")} title="Your decks">
-                {decks.data?.length ? `${decks.data.slice(0, 3).map((d) => d.commanders[0] ?? d.name).join(", ")}${decks.data.length > 3 ? " and more" : ""}` : "Your own decks with 100 cards and a commander."}
-              </Choice>
-            </div>
-            {fieldKind === "precons_near" && base && !selfAnchor && (
-              <label style={{ marginTop: "0.75rem" }}>
-                Similar to
-                <span className="hint">
-                  {base.precon ? `${base.label} has no simulated rating yet, so pick a precon about as strong. ` : ""}
-                  {sameCommander ? `${sameCommander.name} has the same commander.` : base.precon ? "" : "No rated precon has this commander; pick one about as strong as your list."}
-                </span>
-                <select value={anchorId} onChange={(e) => setAnchor(e.target.value)}>
-                  <option value="">Choose a precon</option>
-                  {rated.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {fieldKind === "my_decks" && (
-              <fieldset className="seat" style={{ marginTop: "0.75rem" }}>
-                <legend className="small dim">Leave all unticked to use every deck that can be simulated.</legend>
-                {decks.data
-                  ?.filter((d) => !(kind === "deck" && d.id === deckId))
-                  .map((d) => (
-                    <label key={d.id} style={{ display: "flex", gap: "0.6rem", alignItems: "center", fontWeight: 400, minHeight: 44 }}>
-                      <input
-                        type="checkbox"
-                        style={{ width: "auto", minHeight: 0 }}
-                        checked={myDecks.includes(d.id)}
-                        onChange={(e) => setMyDecks((m) => (e.target.checked ? [...m, d.id] : m.filter((x) => x !== d.id)))}
-                      />
-                      {d.name} <span className="dim small">({d.card_count} cards)</span>
-                    </label>
-                  ))}
-              </fieldset>
-            )}
-            <div className="lab-games">
-              <span id="try-games" className="lab-games-label">
-                Games
-              </span>
-              <div className="segmented" role="radiogroup" aria-labelledby="try-games">
-                {choices.map((g) => (
-                  <button key={g} type="button" role="radio" aria-checked={games === g} aria-pressed={games === g} onClick={() => setGames(g)}>
-                    {g}
-                  </button>
-                ))}
-              </div>
-              <span className="lab-note">
-                {games / 2} pods, each played by both lists. More games take longer and give a tighter answer.
-                {eta != null ? ` ${durationText(eta).replace(/^about/, "About")}.` : ""} <PaceNote pace={pace.data} error={pace.error} />
-              </span>
-              {pace.data?.allowance && <span className="lab-note">{allowanceText(pace.data.allowance)}</span>}
-            </div>
+            <FieldPicker value={field} onChange={setField} anchor={anchor} excludeDecks={base?.deckId ? [base.deckId] : []} />
+            <GamesPicker id="try-games" choices={choices} games={games} setGames={setGames} pace={pace.data} note={solo ? `${games} pods, each played once by the list as it is.` : `${games / 2} pods, each played by both lists.`} />
+            <p className="lab-note" style={{ margin: 0 }}>
+              <PaceNote pace={pace.data} error={pace.error} />
+            </p>
           </section>
         </div>
 
@@ -448,24 +287,33 @@ function TryForm() {
           </div>
           <section className="lab-run" aria-labelledby="try-run">
             <h2 id="try-run">Run</h2>
-            {base && changed ? (
+            {!base ? (
+              <p className="small dim" style={{ margin: 0 }}>
+                Pick a list, swap cards in it, and choose who it plays against.
+              </p>
+            ) : changed ? (
               <p className="small" style={{ margin: 0 }}>
-                <b>{base.label}</b>: {changeText(add, cut)}. {games} games against {fieldLabel}, {difficulty} AI{eta != null ? `, ${durationText(eta)}` : ""}.
+                <b>{base.label}</b>: {swapText(swaps)}. {games} games against {fieldPick.label}, {difficulty} AI{eta != null ? `, ${durationText(eta)}` : ""}.
               </p>
             ) : (
-              <p className="small dim" style={{ margin: 0 }}>
-                Pick a list, change it, and choose who it plays against.
-              </p>
+              <div className="lab-asis">
+                <p className="small" style={{ margin: 0 }}>
+                  <b>No swaps yet.</b> You can run <b>{base.label}</b> as it is against {fieldPick.label} and see its win rate ({games} games, {difficulty} AI{eta != null ? `, ${durationText(eta)}` : ""}).
+                </p>
+                <p className="small dim" style={{ margin: 0 }}>
+                  To compare a change, <a href="#try-2">swap a card in step 2</a>. To compare two decks, or play your decks against each other, use <Link to="/decks/lab/compare">Compare decks</Link>.
+                </p>
+              </div>
             )}
             {conf && cantJudge(conf.confidence) && (
-              <ConfidenceLine confidence={conf.confidence} name={conf.precon.name} method={run?.confidence?.method}>
+              <ConfidenceLine confidence={conf.confidence} name={conf.precon.name} method={precons.data?.run?.confidence?.method}>
                 {baseConfidenceSentence(conf, "run")}
               </ConfidenceLine>
             )}
-            {blockers.length > 0 && (
+            {changed && warnings.length > 0 && (
               <ul className="lab-problems dim">
-                {blockers.map((b) => (
-                  <li key={b}>{b}</li>
+                {warnings.map((w) => (
+                  <li key={w}>{w} It still plays; the run notes it.</li>
                 ))}
               </ul>
             )}
@@ -480,14 +328,15 @@ function TryForm() {
               <span>
                 Name <span className="dim small" style={{ fontWeight: 400 }}>(optional)</span>
               </span>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder={base && changed ? `${base.label}: ${changeText(add, cut)}` : "Named after the change"} maxLength={120} />
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder={base ? (changed ? `${base.label}: ${swapText(swaps)}` : `${base.label} as it is`) : "Named after the change"} maxLength={120} />
             </label>
             <CreateError error={create.error} />
-            <button className="primary" onClick={() => create.mutate()} disabled={blockers.length > 0 || create.isPending || !me.data}>
-              {create.isPending ? "Starting…" : "Run"}
+            <RunBlockers items={blockers} />
+            <button className="primary" onClick={() => create.mutate(solo ? "solo" : "change")} disabled={blockers.length > 0 || create.isPending || !me.data}>
+              {create.isPending ? "Starting…" : solo ? `Run ${base!.label} as it is` : changed ? "Run the change" : "Run"}
             </button>
             <p className="lab-note" style={{ margin: 0 }}>
-              Same shuffles and seats for both lists. Simulated games, not your table. <Link to="/decks/lab/runs">My runs</Link>
+              {solo ? "Every pod is played once." : "Same shuffles and seats for both lists."} Simulated games, not your table. <Link to="/decks/lab/runs">My runs</Link>
             </p>
           </section>
         </aside>
@@ -496,175 +345,366 @@ function TryForm() {
   );
 }
 
-/** Your experiment that's playing now, if any: its progress and its answer so far. */
-function RunningNow() {
-  const exps = useQuery({
-    queryKey: ["lab", "experiments"],
-    queryFn: () => api<ExperimentItem[]>("/api/lab/experiments"),
-    refetchInterval: (q) => (q.state.data?.some((e) => e.status === "queued" || e.status === "running") ? 5000 : false),
-  });
-  const e = exps.data?.find((x) => x.status === "running") ?? exps.data?.find((x) => x.status === "queued");
-  if (!e) return null;
-  return <RunningBox e={e} />;
+/** Quick changes from the plan behind the base: its next list, or chosen planned swaps. */
+function PlanShortcuts({
+  deckName,
+  base,
+  planLists,
+  swaps,
+  setSwaps,
+  planSwaps,
+  pairs,
+}: {
+  deckName: string;
+  base: LoadedBase;
+  planLists: Chosen[];
+  swaps: Swap[];
+  setSwaps: (f: (s: Swap[]) => Swap[]) => void;
+  planSwaps: PlanIdea[];
+  pairs: [string, string][];
+}) {
+  const from = base.plan ? PLAN_STATES.findIndex((x) => x.id === base.plan!.state) : -1;
+  const later = from < 0 ? [] : PLAN_STATES.slice(from + 1).filter((st) => planLists.some((l) => l.plan?.state === st.id && l.lines));
+  const open = planSwaps.filter((s) => s.out && stillIn(base.lines, [], s.out) > 0 && !base.lines.some((l) => l.name === s.in && l.board !== "side"));
+  const isOn = (s: PlanIdea) => swaps.some((x) => x.out === s.out && x.in === s.in);
+  if (!later.length && !open.length) return null;
+  return (
+    <details className="lab-plan" open={swaps.length === 0}>
+      <summary>From your plan for {deckName}</summary>
+      {later.length > 0 && (
+        <>
+          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+            {later.map((st) => {
+              const target = planLists.find((l) => l.plan?.state === st.id)!;
+              return (
+                <button key={st.id} type="button" onClick={() => setSwaps(() => listDiff(base.lines, target.lines!, pairs).map((s) => ({ ...s, note: `On the way to your ${st.label.toLowerCase()} list` })))}>
+                  {PLAN_STATES[from]!.label} vs {st.label.toLowerCase()}
+                </button>
+              );
+            })}
+          </div>
+          <p className="lab-note" style={{ margin: 0 }}>
+            Fills in every swap between this list and the next one, paired the way your plan pairs them.
+          </p>
+        </>
+      )}
+      {open.length > 0 && (
+        <fieldset className="seat" style={{ marginTop: 8 }}>
+          <legend className="small dim">Or tick swaps from the plan that this list hasn't made yet</legend>
+          {open.map((s) => (
+            <label key={s.key} className="lab-plan-swap">
+              <input
+                type="checkbox"
+                style={{ width: "auto", minHeight: 0 }}
+                checked={isOn(s)}
+                onChange={(e) =>
+                  setSwaps((cur) => (e.target.checked ? [...cur, swap(s.out, s.in, { note: s.stage === "proposed" ? "Proposed in your plan" : "In your plan" })] : cur.filter((x) => !(x.out === s.out && x.in === s.in))))
+                }
+              />
+              <span>
+                {s.out} {"→"} <b>{s.in}</b>
+                <span className="dim small">
+                  {" "}
+                  ({s.stage === "proposed" ? "proposed" : "planned"}){s.why ? `: ${s.why}` : ""}
+                </span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+    </details>
+  );
 }
 
-function RunningBox({ e }: { e: ExperimentItem }) {
-  const p = e.progress;
-  const s = e.summary && hasResults(e.summary) ? e.summary : null;
-  const conf = useBaseConfidence(e);
+/** The swaps so far, out → in, with undo, the count and anything to fix. */
+function ChangesPanel({
+  base,
+  swaps,
+  setSwaps,
+  warnings,
+  blocking,
+  swapping,
+  setSwapping,
+  planSwaps,
+  spares,
+  cardInfo,
+}: {
+  base: LoadedBase;
+  swaps: Swap[];
+  setSwaps: (f: (s: Swap[]) => Swap[]) => void;
+  warnings: string[];
+  blocking: string[];
+  swapping: string | null;
+  setSwapping: (s: string | null) => void;
+  planSwaps: PlanIdea[];
+  spares: string[];
+  cardInfo: CardInfo;
+}) {
+  const art = useCardArt(swaps.flatMap((s) => [s.out, s.in].filter((x): x is string => !!x)));
+  if (!swaps.length) {
+    return <p className="small dim lab-diff-empty">No swaps yet. Tap Swap beside a card below to pick its replacement, or Cut to take it out.</p>;
+  }
+  const remove = (id: string) => setSwaps((s) => s.filter((x) => x.id !== id));
   return (
-    <section className="lab-running" aria-label="Running now">
-      <h2>{e.status === "running" ? "Running" : "Waiting"}</h2>
-      <span className="lab-progress" role="progressbar" aria-label="Games played" aria-valuemin={0} aria-valuemax={p.total} aria-valuenow={p.done}>
-        <span style={{ width: `${p.total ? (p.done / p.total) * 100 : 0}%` }} />
-      </span>
-      <span className="small dim">
-        {e.name}: {p.done} of {p.total} games{p.eta_seconds != null ? `, ${durationText(p.eta_seconds)} left` : ""}. You can leave this page.
-      </span>
-      {s && s.paired.delta_win_rate != null && (
-        <div className="lab-sofar">
-          <span className="small dim">So far</span>
-          <b>{s.verdict.kind === "unclear" ? "Can't tell yet" : s.verdict.kind === "better" ? "Probably better" : "Probably worse"}</b>
-          <span className="small">
-            {s.paired.delta_win_rate != null ? `${pointsWord(s.paired.delta_win_rate)} so far` : ""}
-            {s.paired.delta_ci ? `, ${Math.round(s.level * 100)}% interval ${pointsRange(s.paired.delta_ci)}` : ""}.
-          </span>
-          {conf && cantJudge(conf.confidence) && (
-            <ConfidenceLine confidence={conf.confidence} name={conf.precon.name}>
-              {baseConfidenceSentence(conf, "verdict")}
-            </ConfidenceLine>
+    <div className="lab-swaps" aria-live="polite">
+      <div className="lab-swaps-head">
+        <h3>Changes</h3>
+        <button type="button" className="quiet" onClick={() => setSwaps(() => [])}>
+          Clear all
+        </button>
+      </div>
+      {swaps.map((s) => (
+        <div key={s.id}>
+          <div className={`lab-swap ${s.out && s.in ? "pair" : s.out ? "cut" : "add"}`}>
+            <span className="lab-swap-side">
+              {s.out ? <Crop src={art.get(s.out)?.art} size="md" /> : <span className="crop crop-md lab-swap-none" aria-hidden="true" />}
+              <span className="lab-swap-name">{s.out ? <s>{s.out}</s> : <span className="dim">Nothing cut</span>}</span>
+            </span>
+            <span className="lab-swap-arrow" aria-hidden="true">
+              {"→"}
+            </span>
+            <span className="lab-swap-side">
+              {s.in ? <Crop src={art.get(s.in)?.art} size="md" /> : <span className="crop crop-md lab-swap-none" aria-hidden="true" />}
+              <span className="lab-swap-name">
+                {s.in ? (
+                  <b>{s.in}</b>
+                ) : (
+                  <button type="button" className="quiet" onClick={() => setSwapping(`fill:${s.id}`)}>
+                    Pick a replacement
+                  </button>
+                )}
+              </span>
+            </span>
+            <button type="button" className="lab-diff-undo" aria-label={`Undo ${swapText([s])}`} onClick={() => remove(s.id)}>
+              ×
+            </button>
+          </div>
+          {s.note && (
+            <p className="lab-note" style={{ margin: "2px 0 0 8px" }}>
+              {s.note}
+            </p>
+          )}
+          {swapping === `fill:${s.id}` && (
+            <SwapPicker
+              out={s.out}
+              base={base}
+              planSwaps={planSwaps}
+              spares={spares}
+              cardInfo={cardInfo}
+              onClose={() => setSwapping(null)}
+              onPick={(name, inCard, note) => {
+                setSwaps((cur) => cur.map((x) => (x.id === s.id ? { ...x, in: name, inCard, note } : x)));
+                setSwapping(null);
+              }}
+            />
           )}
         </div>
+      ))}
+      {art.size > 0 && (
+        <p className="small dim" style={{ margin: 0 }}>
+          {artCredits(swaps.flatMap((s) => [s.out, s.in]).map((n) => (n ? art.get(n)?.artist : undefined)))}
+        </p>
       )}
-      <span className="lab-note">{experimentLabel(e)}.</span>
-      <Link className="button outline" to={`/decks/lab/runs/${e.id}`}>
-        Open the run
-      </Link>
-    </section>
-  );
-}
-
-/** Where the expected times come from, or why there are none. */
-function PaceNote({ pace, error }: { pace: Pace | undefined; error: unknown }) {
-  if (error) return <>Couldn't get the lab's pace, so there's no time estimate.</>;
-  if (!pace) return null;
-  if (pace.threads === 0) return <>The lab plays no games on this server (it's turned off), so there's no time estimate.</>;
-  if (pace.estimates.length === 0) return <>No games have been played on this server yet, so there's no time estimate.</>;
-  const at = `${pace.threads} ${pace.threads === 1 ? "game" : "games"} at a time`;
-  const after = pace.your_pending ? `, after the ${pace.your_pending} games your other runs still have to play` : "";
-  // Admins get the exact pace; anyone else, times rounded up to 5 minutes.
-  const from =
-    pace.seconds_per_game != null
-      ? `Times are from the lab's ${pace.basis === "recent" ? `pace over the last hour (${pace.sample ?? 0} games)` : "average game length"}, ${at}${after}.`
-      : `Times are rough, rounded up to 5 minutes, from how fast the lab has been playing (${at})${after}.`;
-  return <>{from} Other people's runs can add to that.</>;
-}
-
-function Choice({ on, pick, title, children }: { on: boolean; pick: () => void; title: string; children: ReactNode }) {
-  return (
-    <button type="button" className="lab-choice" role="radio" aria-checked={on} onClick={pick}>
-      <b>{title}</b>
-      <span>{children}</span>
-    </button>
-  );
-}
-
-/** Errors from creating an experiment, with the names and problems the server lists per list. */
-function CreateError({ error }: { error: unknown }) {
-  if (!error) return null;
-  const body = error instanceof ApiError ? error.body : undefined;
-  const perList = (key: string) => {
-    const v = body?.[key] as { base?: string[]; variant?: string[] } | undefined;
-    return v ? [...(v.base ?? []).map((x) => `Base list: ${x}`), ...(v.variant ?? []).map((x) => `Changed list: ${x}`)] : [];
-  };
-  const details = [...perList("unknown"), ...perList("problems")];
-  return (
-    <div role="alert">
-      <p className="error small" style={{ margin: 0 }}>{error instanceof Error ? error.message : String(error)}</p>
-      {details.length > 0 && <ul className="lab-problems error">{details.map((d) => <li key={d}>{d}</li>)}</ul>}
+      {(blocking.length > 0 || warnings.length > 0) && (
+        <ul className="lab-problems">
+          {blocking.map((b) => (
+            <li key={b} className="error">
+              {b}
+            </li>
+          ))}
+          {warnings.map((w) => (
+            <li key={w} className="dim">
+              {w}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
-function PreconPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
-  const precons = usePrecons();
+/** The base list by type; each card has Swap (pick its replacement right there) and Cut. */
+function DeckList({
+  base,
+  swaps,
+  setSwaps,
+  swapping,
+  setSwapping,
+  planSwaps,
+  spares,
+  cardInfo,
+}: {
+  base: LoadedBase;
+  swaps: Swap[];
+  setSwaps: (f: (s: Swap[]) => Swap[]) => void;
+  swapping: string | null;
+  setSwapping: (s: string | null) => void;
+  planSwaps: PlanIdea[];
+  spares: string[];
+  cardInfo: CardInfo;
+}) {
   const [q, setQ] = useState("");
-  if (value) return null;
   const needle = q.trim().toLowerCase();
-  const matches = (precons.data?.precons ?? []).filter((p) => !needle || [p.name, ...p.commanders].some((s) => s.toLowerCase().includes(needle))).slice(0, 8);
+  const lines = base.lines.filter((l) => l.board !== "side" && (!needle || l.name.toLowerCase().includes(needle)));
+  const keep = (name: string) =>
+    setSwaps((s) => {
+      const i = s.map((x) => x.out).lastIndexOf(name);
+      return i < 0 ? s : [...s.slice(0, i), ...s.slice(i + 1)];
+    });
   return (
-    <div className="stack" style={{ gap: "0.4rem" }}>
-      <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a precon by name or commander" aria-label="Find a precon" />
-      <div className="lab-pick">
-        {matches.map((p) => (
-          <button key={p.id} type="button" className="lab-line" onClick={() => onChange(p.id)} style={{ gridTemplateColumns: "1fr auto" }}>
-            <span className="name">
-              <b>{p.name}</b>
-              <br />
-              <span className="dim small">{p.commanders.join(" and ")}</span>
-            </span>
-            <Pips identity={p.color_identity} />
-          </button>
+    <div className="lab-decklist-try">
+      <div className="lab-swaps-head">
+        <h3>{base.label}</h3>
+        <span className="small dim">{playedCount(base.lines)} cards</span>
+      </div>
+      <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a card in the list" aria-label="Find a card in the list" style={{ marginBottom: "0.4rem" }} />
+      <div className="lab-pick lab-pick-tall">
+        {grouped(lines).map(([group, items]) => (
+          <div key={group}>
+            <p className="small dim" style={{ margin: "0.6rem 0 0.1rem", fontWeight: 700 }}>
+              {group} <span className="num">{items.reduce((n, l) => n + l.qty, 0)}</span>
+            </p>
+            {items.map((l) => {
+              const left = l.board === "main" ? stillIn(base.lines, swaps, l.name) : 0;
+              const cutN = l.board === "main" ? l.qty - left : 0;
+              const gone = l.board === "main" && left === 0;
+              const planned = planSwaps.some((p) => p.out === l.name);
+              return (
+                <div key={`${l.name}-${l.board}`}>
+                  <div className={`lab-row${gone ? " lab-cut" : ""}`}>
+                    <CardImage src={l.image_small} name={l.name} className="thumb" />
+                    <span className="name">
+                      {l.qty > 1 ? `${l.qty} ` : ""}
+                      {l.name}
+                      {l.board === "commander" && <span className="lab-cut-mark"> commander</span>}
+                      {cutN > 0 && <span className="lab-cut-mark"> {l.qty > 1 ? `${cutN} of ${l.qty} out` : "out"}</span>}
+                      {planned && cutN === 0 && <span className="lab-plan-mark"> your plan swaps this</span>}
+                    </span>
+                    {l.board === "main" && (
+                      <span className="lab-row-actions">
+                        {left > 0 ? (
+                          <>
+                            <button type="button" className={swapping === l.name ? "primary" : ""} aria-expanded={swapping === l.name} onClick={() => setSwapping(swapping === l.name ? null : l.name)} aria-label={`Swap ${l.name}`}>
+                              Swap
+                            </button>
+                            <button type="button" className="quiet" onClick={() => setSwaps((s) => [...s, swap(l.name, null)])} aria-label={`Cut ${l.name}`}>
+                              Cut
+                            </button>
+                          </>
+                        ) : (
+                          <button type="button" className="quiet" onClick={() => keep(l.name)} aria-label={`Keep ${l.name}`}>
+                            Keep
+                          </button>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  {swapping === l.name && (
+                    <SwapPicker
+                      out={l.name}
+                      base={base}
+                      planSwaps={planSwaps}
+                      spares={spares}
+                      cardInfo={cardInfo}
+                      onClose={() => setSwapping(null)}
+                      onPick={(name, inCard, note) => {
+                        setSwaps((s) => [...s, swap(l.name, name, { inCard, note })]);
+                        setSwapping(null);
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         ))}
+        {lines.length === 0 && <p className="small dim">No card matches.</p>}
       </div>
     </div>
   );
 }
 
-/** The changes so far, a cut and an add to a row: art crop, name, and an undo. */
-function Diff({ base, add, cut, setAdd, setCut }: { base: LoadedBase; add: string[]; cut: string[]; setAdd: (f: (a: string[]) => string[]) => void; setCut: (f: (c: string[]) => string[]) => void }) {
-  const removeOne = (list: string[], name: string) => {
-    const i = list.lastIndexOf(name);
-    return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 1)];
+/** Pick what replaces `out`: your plan's ideas and spares first, then any card that fits. */
+function SwapPicker({
+  out,
+  base,
+  planSwaps,
+  spares,
+  cardInfo,
+  onPick,
+  onClose,
+}: {
+  out: string | null;
+  base: LoadedBase;
+  planSwaps: PlanIdea[];
+  spares: string[];
+  cardInfo: CardInfo;
+  onPick: (name: string, inCard: InCard | undefined, note?: string) => void;
+  onClose: () => void;
+}) {
+  const identity = base.identity;
+  const inList = (n: string) => base.lines.some((l) => l.board !== "side" && l.name === n);
+  const fits = (n: string) => {
+    const ci = cardInfo?.(n)?.color_identity;
+    if (identity == null || ci == null) return true;
+    const allowed = identity.toUpperCase();
+    return [...ci.toUpperCase()].every((k) => !"WUBRG".includes(k) || allowed.includes(k));
   };
-  const cuts = [...tally(cut)];
-  const adds = [...tally(add)];
-  const art = useCardArt([...cuts.map(([n]) => n), ...adds.map(([n]) => n)]);
-  if (!cuts.length && !adds.length) {
-    return <p className="small dim lab-diff-empty">Search above for a card to add, or open {base.label} below and tap a card to cut it.</p>;
-  }
-  const rows: { kind: "cut" | "add"; name: string; k: number }[] = [];
-  for (let i = 0; i < Math.max(cuts.length, adds.length); i++) {
-    if (cuts[i]) rows.push({ kind: "cut", name: cuts[i]![0], k: cuts[i]![1] });
-    if (adds[i]) rows.push({ kind: "add", name: adds[i]![0], k: adds[i]![1] });
-  }
+  const info = (n: string): InCard | undefined => {
+    const c = cardInfo?.(n);
+    return c ? { color_identity: c.color_identity, type_line: c.type_line, image_small: c.image_small, cmc: c.cmc } : undefined;
+  };
+  const ideas: { name: string; note: string }[] = [];
+  const seen = new Set<string>();
+  const add = (name: string, note: string) => {
+    if (seen.has(name) || inList(name) || !fits(name)) return;
+    seen.add(name);
+    ideas.push({ name, note });
+  };
+  for (const p of planSwaps) if (out && p.out === out) add(p.in, p.stage === "proposed" ? "Proposed in your plan for this card" : "Your plan swaps this card for it");
+  for (const p of planSwaps) add(p.in, p.stage === "proposed" ? "Proposed in your plan" : "In your plan");
+  for (const n of spares) add(n, "A spare: out of one of your decks");
   return (
-    <div className="lab-diff" aria-live="polite">
-      {rows.map((r) => (
-        <div key={`${r.kind}-${r.name}`} className={`lab-diff-row ${r.kind}`}>
-          <span className="lab-diff-mark" aria-hidden="true">
-            {r.kind === "cut" ? "−" : "+"}
-          </span>
-          <Crop src={art.get(r.name)?.art} size="md" />
-          <span className="lab-diff-text">
-            <b>{r.name}</b>
-            <span>
-              {r.kind === "cut" ? "Cut" : "Added"}
-              {r.k > 1 ? `, ${r.k} copies` : ""}
-            </span>
-          </span>
-          <button
-            type="button"
-            className="lab-diff-undo"
-            aria-label={r.kind === "cut" ? `Keep ${r.name}` : `Don't add ${r.name}`}
-            onClick={() => (r.kind === "cut" ? setCut((c) => removeOne(c, r.name)) : setAdd((a) => removeOne(a, r.name)))}
-          >
-            ×
-          </button>
+    <div className="lab-picker" role="group" aria-label={out ? `Replace ${out}` : "Pick a replacement"}>
+      <div className="lab-swaps-head">
+        <b>{out ? `Replace ${out} with…` : "Pick a card"}</b>
+        <button type="button" className="quiet" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      {ideas.length > 0 && (
+        <div className="lab-pick" style={{ maxHeight: "14rem" }}>
+          {ideas.slice(0, 8).map((i) => {
+            const c = info(i.name);
+            return (
+              <div key={i.name} className="lab-line" style={{ gridTemplateColumns: "2rem 1fr auto" }}>
+                <CardImage src={c?.image_small ?? null} name={i.name} className="thumb" />
+                <span className="name">
+                  {i.name}
+                  <br />
+                  <span className="dim small">{i.note}</span>
+                </span>
+                <button type="button" onClick={() => onPick(i.name, c, i.note)} aria-label={`Use ${i.name}`}>
+                  Use
+                </button>
+              </div>
+            );
+          })}
         </div>
-      ))}
-      {[...art.values()].length > 0 && <p className="small dim">{artCredits(rows.map((r) => art.get(r.name)?.artist))}</p>}
+      )}
+      <CardSearch identity={identity} inBase={inList} action="Use" autoFocus onPick={(n, c) => onPick(n, c)} />
     </div>
   );
 }
 
 const isNetworkError = (e: unknown) => e instanceof TypeError || !navigator.onLine;
 
-/** The card search (same endpoint and offline fallback as the Cards page), with an Add button. */
-function AddSearch({ identity, onAdd, inBase }: { identity: string | null; onAdd: (name: string) => void; inBase: (name: string) => boolean }) {
+/** Card search (the Cards page's endpoint, offline fallback), with what you own marked. */
+function CardSearch({ identity, onPick, inBase, action, autoFocus = false }: { identity: string | null; onPick: (name: string, card: InCard) => void; inBase: (name: string) => boolean; action: string; autoFocus?: boolean }) {
   const [draft, setDraft] = useState("");
   const [q, setQ] = useState("");
   const [fits, setFits] = useState(true);
+  const [ownedFirst, setOwnedFirst] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setQ(draft.trim()), 300);
     return () => clearTimeout(t);
@@ -684,33 +724,55 @@ function AddSearch({ identity, onAdd, inBase }: { identity: string | null; onAdd
     enabled: query.length > 0,
     placeholderData: (prev) => prev,
   });
+  type Hit = SearchResult["cards"][number] & { owned?: number; owned_in?: string | null };
+  const hits = ((results.data?.cards ?? []) as Hit[]).slice(0, 24);
+  const shown = (ownedFirst ? [...hits].sort((a, b) => Number((b.owned ?? 0) > 0) - Number((a.owned ?? 0) > 0)) : hits).slice(0, 12);
   return (
     <div>
-      <h3 className="visually-hidden">Add a card</h3>
-      <form className="stack" style={{ gap: "0.4rem" }} role="search" onSubmit={(e) => { e.preventDefault(); setQ(draft.trim()); }}>
-        <input type="search" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Name, or Scryfall syntax like t:instant o:destroy" aria-label="Search cards to add" autoCapitalize="off" autoCorrect="off" />
-        {identity != null && (
+      <form
+        className="stack"
+        style={{ gap: "0.4rem" }}
+        role="search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setQ(draft.trim());
+        }}
+      >
+        <input type="search" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Card name, or Scryfall syntax like t:instant o:destroy" aria-label="Search cards" autoCapitalize="off" autoCorrect="off" autoFocus={autoFocus} />
+        <div className="row" style={{ gap: "1rem", flexWrap: "wrap" }}>
+          {identity != null && (
+            <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
+              <input type="checkbox" checked={fits} onChange={(e) => setFits(e.target.checked)} style={{ width: "auto", minHeight: 0 }} />
+              <span className="small">Within the commander's colours ({identityName(identity)})</span>
+            </label>
+          )}
           <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
-            <input type="checkbox" checked={fits} onChange={(e) => setFits(e.target.checked)} style={{ width: "auto", minHeight: 0 }} />
-            <span className="small">Only cards within the commander's colours ({identityName(identity)})</span>
+            <input type="checkbox" checked={ownedFirst} onChange={(e) => setOwnedFirst(e.target.checked)} style={{ width: "auto", minHeight: 0 }} />
+            <span className="small">Cards I own first</span>
           </label>
-        )}
+        </div>
       </form>
       <ErrorText error={results.error} />
       {query && results.data && (
         <div className="lab-pick" style={{ marginTop: "0.5rem" }}>
-          {results.data.cards.slice(0, 12).map((c) => (
+          {shown.map((c) => (
             <div key={c.oracle_id} className="lab-line" style={{ gridTemplateColumns: "2rem 1fr auto" }}>
               <CardImage src={c.image_small} name={c.name} className="thumb" />
               <span className="name">
                 {c.name} <ManaCost cost={c.mana_cost} />
                 <br />
-                <span className="dim small">{c.type_line}{inBase(c.name) ? ", already in the list" : ""}</span>
+                <span className="dim small">
+                  {c.type_line}
+                  {inBase(c.name) ? ", already in the list" : ""}
+                  {(c.owned ?? 0) > 0 ? `, you own ${c.owned}${c.owned_in ? ` (in ${c.owned_in})` : ""}` : ""}
+                </span>
               </span>
-              <button type="button" onClick={() => onAdd(c.name)} aria-label={`Add ${c.name}`}>Add</button>
+              <button type="button" onClick={() => onPick(c.name, { type_line: c.type_line, color_identity: c.color_identity, image_small: c.image_small, mana_cost: c.mana_cost, cmc: c.cmc })} aria-label={`${action} ${c.name}`}>
+                {action}
+              </button>
             </div>
           ))}
-          {results.data.cards.length === 0 && <p className="small dim">No cards match.</p>}
+          {shown.length === 0 && <p className="small dim">No cards match.</p>}
           {results.data.total > 12 && <p className="small dim">{results.data.total.toLocaleString()} cards match; showing the 12 most played. Narrow the search for others.</p>}
         </div>
       )}
@@ -718,54 +780,103 @@ function AddSearch({ identity, onAdd, inBase }: { identity: string | null; onAdd
   );
 }
 
-/** The base list grouped by type; tap a card to cut a copy, tap again to cut the next or keep them all. */
-function BaseList({ base, cut, setCut }: { base: LoadedBase; cut: string[]; setCut: (f: (c: string[]) => string[]) => void }) {
-  const [q, setQ] = useState("");
-  const needle = q.trim().toLowerCase();
-  const lines = base.lines.filter((l) => l.board !== "side" && (!needle || l.name.toLowerCase().includes(needle)));
-  const cuts = tally(cut);
-  const tap = (l: BaseLine) => {
-    if (l.board !== "main") return;
-    if (cuttable(base.lines, cut, l.name) > 0) setCut((c) => [...c, l.name]);
-    else setCut((c) => c.filter((n) => n !== l.name));
-  };
+/** Your experiment that's playing now, if any: its progress and its answer so far. */
+export function RunningNow() {
+  const exps = useQuery({
+    queryKey: ["lab", "experiments"],
+    queryFn: () => api<ExperimentItem[]>("/api/lab/experiments"),
+    refetchInterval: (q) => (q.state.data?.some((e) => e.status === "queued" || e.status === "running") ? 5000 : false),
+  });
+  const e = exps.data?.find((x) => x.status === "running") ?? exps.data?.find((x) => x.status === "queued");
+  if (!e) return null;
+  return <RunningBox e={e} />;
+}
+
+function RunningBox({ e }: { e: ExperimentItem }) {
+  const p = e.progress;
+  const s = e.summary && hasResults(e.summary) ? e.summary : null;
+  const conf = useBaseConfidence(e);
+  const mode = e.mode ?? "change";
   return (
-    <div>
-      <h3>{base.label}</h3>
-      <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a card in the list" aria-label="Find a card in the list" style={{ marginBottom: "0.4rem" }} />
-      <div className="lab-pick" style={{ maxHeight: "32rem" }}>
-        {grouped(lines).map(([group, items]) => (
-          <div key={group}>
-            <p className="small dim" style={{ margin: "0.6rem 0 0.1rem", fontWeight: 700 }}>
-              {group} <span className="num">{items.reduce((n, l) => n + l.qty, 0)}</span>
-            </p>
-            {items.map((l) => {
-              const k = cuts.get(l.name) ?? 0;
-              const all = k >= l.qty;
-              return (
-                <button
-                  key={`${l.name}-${l.board}`}
-                  type="button"
-                  className={`lab-line${all ? " lab-cut" : ""}`}
-                  onClick={() => tap(l)}
-                  disabled={l.board !== "main"}
-                  aria-pressed={k > 0}
-                  aria-label={l.board === "main" ? `${k > 0 ? (all ? "Keep" : "Cut another") : "Cut"} ${l.name}` : `${l.name}, the commander`}
-                  style={{ opacity: 1 }}
-                >
-                  <CardImage src={l.image_small} name={l.name} className="thumb" />
-                  <span className="name">
-                    {l.qty > 1 ? `${l.qty} ` : ""}
-                    {l.name}
-                  </span>
-                  <span className="lab-cut-mark">{l.board === "commander" ? "commander" : k > 0 ? (l.qty > 1 ? `cut ${k} of ${l.qty}` : "cut") : ""}</span>
-                </button>
-              );
-            })}
-          </div>
-        ))}
-        {lines.length === 0 && <p className="small dim">No card matches.</p>}
-      </div>
+    <section className="lab-running" aria-label="Running now">
+      <h2>{e.status === "running" ? "Running" : "Waiting"}</h2>
+      <span className="lab-progress" role="progressbar" aria-label="Games played" aria-valuemin={0} aria-valuemax={p.total} aria-valuenow={p.done}>
+        <span style={{ width: `${p.total ? (p.done / p.total) * 100 : 0}%` }} />
+      </span>
+      <span className="small dim">
+        {e.name}: {p.done} of {p.total} games{p.eta_seconds != null ? `, ${durationText(p.eta_seconds)} left` : ""}. You can leave this page.
+      </span>
+      {s && (
+        <div className="lab-sofar">
+          <span className="small dim">So far</span>
+          {mode === "change" && s.paired.delta_win_rate != null ? (
+            <>
+              <b>{s.verdict.kind === "unclear" ? "Can't tell yet" : s.verdict.kind === "better" ? "Probably better" : "Probably worse"}</b>
+              <span className="small">
+                {`${pointsWord(s.paired.delta_win_rate)} so far`}
+                {s.paired.delta_ci ? `, ${Math.round(s.level * 100)}% interval ${pointsRange(s.paired.delta_ci)}` : ""}.
+              </span>
+            </>
+          ) : (
+            <span className="small">{s.verdict.text}.</span>
+          )}
+          {conf && cantJudge(conf.confidence) && (
+            <ConfidenceLine confidence={conf.confidence} name={conf.precon.name}>
+              {baseConfidenceSentence(conf, "verdict")}
+            </ConfidenceLine>
+          )}
+        </div>
+      )}
+      <span className="lab-note">{experimentLabel(e)}.</span>
+      <Link className="button outline" to={`/decks/lab/runs/${e.id}`}>
+        Open the run
+      </Link>
+    </section>
+  );
+}
+
+/** Where the expected times come from, or why there are none. */
+export function PaceNote({ pace, error }: { pace: Pace | undefined; error: unknown }) {
+  if (error) return <>Couldn't get the lab's pace, so there's no time estimate.</>;
+  if (!pace) return null;
+  if (pace.threads === 0) return <>The lab plays no games on this server (it's turned off), so there's no time estimate.</>;
+  if (pace.estimates.length === 0) return <>No games have been played on this server yet, so there's no time estimate.</>;
+  const at = `${pace.threads} ${pace.threads === 1 ? "game" : "games"} at a time`;
+  const after = pace.your_pending ? `, after the ${pace.your_pending} games your other runs still have to play` : "";
+  const from =
+    pace.seconds_per_game != null
+      ? `Times are from the lab's ${pace.basis === "recent" ? `pace over the last hour (${pace.sample ?? 0} games)` : "average game length"}, ${at}${after}.`
+      : `Times are rough, rounded up to 5 minutes, from how fast the lab has been playing (${at})${after}.`;
+  return <>{from} Other people's runs can add to that.</>;
+}
+
+/** Errors from creating a run, with the names and problems the server lists per list. */
+export function CreateError({ error, names }: { error: unknown; names?: string[] }) {
+  if (!error) return null;
+  const body = error instanceof ApiError ? error.body : undefined;
+  const perList = (key: string) => {
+    const v = body?.[key] as { base?: string[]; variant?: string[]; entrants?: Record<string, string[]> } | undefined;
+    if (!v) return [];
+    const label = (i: number, fallback: string) => names?.[i] ?? fallback;
+    return [
+      ...(v.base ?? []).map((x) => `${label(0, "Base list")}: ${x}`),
+      ...(v.variant ?? []).map((x) => `${label(1, "Changed list")}: ${x}`),
+      ...Object.entries(v.entrants ?? {}).flatMap(([i, xs]) => xs.map((x) => `${label(Number(i), `Deck ${Number(i) + 1}`)}: ${x}`)),
+    ];
+  };
+  const details = [...perList("unknown"), ...perList("problems")];
+  return (
+    <div role="alert">
+      <p className="error small" style={{ margin: 0 }}>
+        {error instanceof Error ? error.message : String(error)}
+      </p>
+      {details.length > 0 && (
+        <ul className="lab-problems error">
+          {details.map((d) => (
+            <li key={d}>{d}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
