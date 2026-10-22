@@ -8,7 +8,7 @@
 //!   lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl>
 //!       --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart]
 //!       [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL]
-//!        [--llm-log FILE] [--llm-object-key]]
+//!        [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache]]
 //!
 //! Pilots. A schedule line may name a pilot per seat ("pilots": ["easy", "hard",
 //! "llm:claude-haiku-5-5", "medium"]); see `yama_play::pilot`. LLM seats need --llm, which asks
@@ -18,7 +18,9 @@
 //! requests (default 400) a seat plays the rest of the game on the heuristic AI. --llm-log writes
 //! every request's options, reply and outcome as JSON lines. --llm-object-key adds a key to each
 //! prompt naming the objects the options refer to by number (phase-llm prints targets and
-//! attackers as bare numbers). Games with an LLM seat don't replay
+//! attackers as bare numbers). Prompt caching is off (DISABLE_PROMPT_CACHING=1 for the CLI): each
+//! decision's prompt is new, so 1-hour cache writes cost more than they save; --llm-prompt-cache
+//! turns it back on. Games with an LLM seat don't replay
 //! identically from their schedule line, and their wall-clock safety net leaves out the time spent
 //! waiting for the model.
 //!
@@ -120,9 +122,10 @@ struct LlmArgs {
     effort: Option<String>,
     log: Option<PathBuf>,
     object_key: bool,
+    prompt_cache: bool,
 }
 
-const USAGE: &str = "usage: lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl> --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL] [--llm-log FILE] [--llm-object-key]]";
+const USAGE: &str = "usage: lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl> --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL] [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache]]";
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut card_data = None;
@@ -134,7 +137,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut retry_errors = false;
     let mut no_restart = false;
     let mut llm = false;
-    let mut llm_args = LlmArgs { concurrency: 4, timeout_secs: 90, max_calls: 400, effort: None, log: None, object_key: false };
+    let mut llm_args = LlmArgs { concurrency: 4, timeout_secs: 90, max_calls: 400, effort: None, log: None, object_key: false, prompt_cache: false };
     let mut llm_flags = false;
     let mut it = args.iter().skip(1);
     while let Some(a) = it.next() {
@@ -169,6 +172,10 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                     return Err(format!("--llm-effort {v:?}: use low, medium, high, xhigh or max"));
                 }
                 llm_args.effort = Some(v);
+            }
+            "--llm-prompt-cache" => {
+                llm_flags = true;
+                llm_args.prompt_cache = true;
             }
             "--llm-object-key" => {
                 llm_flags = true;
@@ -633,8 +640,9 @@ fn run_batch(args: &Args) -> anyhow::Result<Exit> {
                 anyhow::bail!("--llm-timeout {}s must be shorter than the hang limit ({hang_secs}s)", a.timeout_secs);
             }
             let exe = PathBuf::from(std::env::var("YAMA_LAB_CLAUDE").unwrap_or_else(|_| "claude".into()));
-            let cli = yama_play::pilot::ClaudeCli::new(exe.clone(), Duration::from_secs(a.timeout_secs), a.effort.clone(), a.concurrency)
+            let mut cli = yama_play::pilot::ClaudeCli::new(exe.clone(), Duration::from_secs(a.timeout_secs), a.effort.clone(), a.concurrency)
                 .map_err(|e| anyhow::anyhow!("making the LLM working directory: {e}"))?;
+            cli.prompt_cache = a.prompt_cache;
             let log = match &a.log {
                 Some(path) => Some(Mutex::new(
                     OpenOptions::new().create(true).append(true).open(path).map_err(|e| anyhow::anyhow!("opening {}: {e}", path.display()))?,
@@ -642,13 +650,14 @@ fn run_batch(args: &Args) -> anyhow::Result<Exit> {
                 None => None,
             };
             eprintln!(
-                "lab: LLM seats ask {} (at most {} at a time, {}s limit, {} requests per seat per game, effort {}, object key {}); {llm_games} games have one",
+                "lab: LLM seats ask {} (at most {} at a time, {}s limit, {} requests per seat per game, effort {}, object key {}, prompt cache {}); {llm_games} games have one",
                 exe.display(),
                 a.concurrency,
                 a.timeout_secs,
                 a.max_calls,
                 a.effort.as_deref().unwrap_or("default"),
-                if a.object_key { "on" } else { "off" }
+                if a.object_key { "on" } else { "off" },
+                if a.prompt_cache { "on" } else { "off" }
             );
             Some(Arc::new(lab::LlmSetup { transport: Arc::new(cli), max_calls_per_seat: a.max_calls, max_failure_streak: 5, log, object_key: a.object_key }))
         }

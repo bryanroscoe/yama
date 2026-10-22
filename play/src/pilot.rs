@@ -138,6 +138,10 @@ pub struct ClaudeCli {
     pub effort: Option<String>,
     /// An empty directory the CLI runs in, so no project CLAUDE.md or settings apply.
     pub workdir: PathBuf,
+    /// Let the CLI cache prompts. Off by default: almost every decision's prompt is new (the board
+    /// and history change), so cache writes cost more than they save; off, the CLI gets
+    /// DISABLE_PROMPT_CACHING=1 and input is read once at the plain rate.
+    pub prompt_cache: bool,
     slots: Mutex<usize>,
     freed: Condvar,
 }
@@ -160,7 +164,7 @@ impl ClaudeCli {
     pub fn new(exe: PathBuf, timeout: Duration, effort: Option<String>, concurrency: usize) -> std::io::Result<Self> {
         let workdir = std::env::temp_dir().join(format!("yama-lab-llm-{}", std::process::id()));
         std::fs::create_dir_all(&workdir)?;
-        Ok(ClaudeCli { exe, timeout, effort, workdir, slots: Mutex::new(concurrency.max(1)), freed: Condvar::new() })
+        Ok(ClaudeCli { exe, timeout, effort, workdir, prompt_cache: false, slots: Mutex::new(concurrency.max(1)), freed: Condvar::new() })
     }
 
     /// The arguments for one request (the user message goes on stdin).
@@ -209,6 +213,9 @@ impl ClaudeCli {
         cmd.args(self.args(req)).current_dir(&self.workdir).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         for k in STRIPPED_ENV {
             cmd.env_remove(k);
+        }
+        if !self.prompt_cache {
+            cmd.env("DISABLE_PROMPT_CACHING", "1");
         }
         let mut child = cmd.spawn().map_err(|e| LlmFailure::Transport(format!("can't start {}: {e}", self.exe.display())))?;
         let mut stdin = child.stdin.take().expect("piped stdin");
