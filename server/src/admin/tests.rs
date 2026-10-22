@@ -34,6 +34,8 @@ fn admin_routes() -> Vec<(Method, &'static str, Option<Value>)> {
         (Method::GET, "/api/invites", None),
         (Method::POST, "/api/invites", Some(json!({"email": "friend@example.com"}))),
         (Method::DELETE, "/api/invites/friend@example.com", None),
+        (Method::POST, "/api/admin/users/someone/view", None),
+        (Method::GET, "/api/admin/views", None),
     ]
 }
 
@@ -441,6 +443,9 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     let conversation = fill(&pool, "advisor_conversations", &[("owner_id", t(&v))]).await;
     fill(&pool, "advisor_messages", &[("owner_id", t(&v)), ("conversation_id", t(&conversation))]).await;
     fill(&pool, "advisor_usage", &[("owner_id", t(&v))]).await;
+    // "View as": the bystander (an admin here) viewed the victim, and the victim viewed the bystander.
+    fill(&pool, "view_sessions", &[("admin_id", t(&b)), ("target_id", t(&v))]).await;
+    fill(&pool, "view_sessions", &[("admin_id", t(&v)), ("target_id", t(&b))]).await;
 
     // The fixture must reach every column the deletion handles, or this test proves nothing for it.
     let mut bystander_before = Vec::new();
@@ -503,7 +508,11 @@ async fn deleting_an_account_leaves_nothing_of_it() {
         let after = count(&pool, table, column, &b).await;
         // The one deliberate loss: the bystander's online game the victim sat in loses its replay
         // and log (they name the victim); the game's result stays (g6 above).
-        let expected = if (*table, *column) == ("online_games", "host_id") { before - 1 } else { before };
+        // Likewise the audit rows of views between the two accounts go with the victim.
+        let expected = match (*table, *column) {
+            ("online_games", "host_id") | ("view_sessions", "admin_id") | ("view_sessions", "target_id") => before - 1,
+            _ => before,
+        };
         assert!(after >= expected, "the bystander lost {table}.{column} rows ({before} before, {after} after)");
     }
 

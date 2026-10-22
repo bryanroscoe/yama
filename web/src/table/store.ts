@@ -14,6 +14,7 @@ import {
 } from "@yama/core";
 import { useSyncExternalStore } from "react";
 import { api, ApiError } from "../api";
+import { isViewing } from "../viewingFlag";
 
 export interface LocalGame {
   setup: TableSetup;
@@ -186,6 +187,9 @@ async function pushGame(g: LocalGame): Promise<number> {
 let inflight: Promise<void> | null = null;
 
 export function sync(): Promise<void> {
+  // An admin viewing as someone sends nothing: games recorded on this device wait until the view
+  // ends (the server would refuse them, and they'd be set aside as rejected).
+  if (isViewing()) return Promise.resolve();
   if (inflight) return inflight;
   inflight = (async () => {
     syncState = { ...syncState, syncing: true };

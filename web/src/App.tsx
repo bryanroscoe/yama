@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { NavLink, Outlet, Route, Routes } from "react-router";
 import { AdminLayout } from "./admin/AdminLayout";
 import { LabRunsPage } from "./admin/LabRuns";
@@ -9,6 +10,8 @@ import { RailMe } from "./components/RailMe";
 import { AdminIcon, CardsIcon, CollectionIcon, DecksIcon, GroupIcon, PlayIcon, TableIcon } from "./components/icons";
 import { ErrorText } from "./components/ui";
 import { Wordmark } from "./components/Wordmark";
+import { ViewBanner } from "./components/ViewBanner";
+import { VIEWING_KEY } from "./viewingFlag";
 import { CardsPage } from "./pages/Cards";
 import { CollectionPage } from "./pages/Collection";
 import { DeckPage, DecksPage } from "./pages/Decks";
@@ -77,6 +80,14 @@ function Shell() {
 
 export function App() {
   const me = useMe();
+  // Another tab started or stopped viewing as someone: this one reloads as whoever it is now.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === VIEWING_KEY) location.reload();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
   if (me.isPending) return null;
   if (me.error) {
     return (
@@ -93,6 +104,8 @@ export function App() {
   }
   if (!me.data) return <Login />;
   return (
+    <>
+    {me.data.viewing && <ViewBanner me={me.data} />}
     <Routes>
       {/* The live counter takes the whole screen. */}
       <Route path="/table/play" element={<TablePlay />} />
@@ -136,5 +149,6 @@ export function App() {
         </Route>
       </Route>
     </Routes>
+    </>
   );
 }

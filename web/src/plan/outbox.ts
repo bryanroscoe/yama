@@ -16,6 +16,8 @@ import type { LocalOp, PlanOp } from "@yama/core/plan";
 import { useSyncExternalStore } from "react";
 import { api, ApiError } from "../api";
 
+import { isViewing } from "../viewingFlag";
+
 export interface OpResult {
   op_id: string | null;
   status: "applied" | "duplicate" | "rejected";
@@ -177,6 +179,8 @@ export class PlanOutbox {
 
   /** Send what waits, a batch at a time. Never throws; the error goes in `state`. */
   sync(userId: string): Promise<void> {
+    // An admin viewing as someone sends nothing (the server would refuse it anyway).
+    if (isViewing()) return Promise.resolve();
     const running = this.inflight.get(userId);
     if (running) return running;
     const gen = this.generation(userId);

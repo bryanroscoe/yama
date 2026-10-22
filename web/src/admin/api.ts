@@ -136,4 +136,19 @@ export const adminApi = {
   uninvite: (id: string) => api(`/api/admin/users/${encodeURIComponent(id)}/invite`, { method: "DELETE" }),
   deleteAccount: (id: string, confirmEmail: string) =>
     api<DeleteReport>(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE", json: { confirm_email: confirmEmail } }),
+  views: () => api<ViewLogRow[]>("/api/admin/views"),
 };
+
+/** One "View as" (server/src/view_as.rs), for the viewing log. */
+export interface ViewLogRow {
+  id: string;
+  admin_name: string;
+  admin_email: string;
+  target_id: string;
+  target_name: string;
+  target_email: string;
+  started_at: string;
+  expires_at: string;
+  ended_at: string | null;
+  end_reason: "stopped" | "expired" | "signed out" | "replaced" | "ended" | null;
+}
