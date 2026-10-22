@@ -48,6 +48,10 @@ import { COLOR_NAME, counterName, FieldTile, HandCard, ManaDot, type TileHandler
 import type { AttackAt, CardMeta, CardView, Decision, OptionView, PlayerView, SeatInfo, ServerMessage, View, WatchStatus } from "./types";
 import { WatchControls, type WatchMessage } from "./WatchControls";
 import { seatLabel, seatName } from "./watch";
+import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayLine, readDrop, targetDrop, targetIndex, type Point } from "./drag";
+import { DragLayer, PlanArrows, seatHeadOf, tileOf, type ArrowTone, type DragLayerHandle, type PlanArrow } from "./DragLayer";
+import { MotionContext, Tick, useBoardMotion, type MotionOptions } from "./BoardMotion";
+import { motionScale } from "./motion";
 import "./board.css";
 
 type ViewMessage = Extract<ServerMessage, { type: "view" }>;
@@ -138,6 +142,30 @@ interface BlockState {
   pending: number | null;
 }
 
+/** A press on the board that may turn into a drag (Board's `track`). */
+interface DragSession {
+  kind: "hand" | "attack" | "block" | "aim";
+  pile: Pile | null;
+  el: HTMLElement | null;
+  pointerId: number;
+  pointerType: string;
+  x0: number;
+  y0: number;
+  started: boolean;
+  /** Top edge of the hand fan, for the play line. */
+  handTop: number;
+  /** Where the arrow starts (attackers and blockers: their tile). */
+  from: Point | null;
+  cleanup: () => void;
+}
+
+/** What the drag code needs from the latest render (window listeners outlive a render). */
+interface DragLive {
+  aimTo: (x: number, y: number, from: Point | null) => void;
+  update: (s: DragSession, x: number, y: number) => void;
+  release: (s: DragSession, x: number, y: number) => void;
+}
+
 interface Control {
   label: string;
   run?: () => void;
@@ -184,6 +212,20 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const gameOver = useRef(false);
   const canHover = useMedia("(hover: hover) and (pointer: fine)");
   const wide = useMedia("(min-width: 1000px)");
+  // Drag and drop (drag.ts, DragLayer.tsx): the overlay, the board root the arrows measure against,
+  // the press being tracked, and the latest render's handlers for the window listeners.
+  const layer = useRef<DragLayerHandle>(null);
+  const boardRoot = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragSession | null>(null);
+  const dragLive = useRef<DragLive | null>(null);
+  const lastDragEnd = useRef(0);
+  /** A hand card played by drag stays hidden until the next board takes it out of the hand. */
+  const playedSrc = useRef<HTMLElement | null>(null);
+  const hotEl = useRef<HTMLElement | null>(null);
+  const [dragNote, setDragNote] = useState<string | null>(null);
+  // Board motion (BoardMotion.tsx): its own fixed layer, and options the render fills in below.
+  const motionLayer = useRef<HTMLDivElement>(null);
+  const motionOpts = useRef<MotionOptions | null>(null);
 
   useEffect(() => {
     if (live) return;
@@ -265,7 +307,50 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revision]);
 
+  // A new board ends a parked card (it was cast) unless a target is being chosen for it, and shows
+  // the card that left the hand again if the move was refused.
+  const aimKey = (() => {
+    const d = view?.decision;
+    if (!d || d.attack || d.block || watch || msg?.you === null || msg?.you === undefined) return null;
+    return d.options.some((o) => o.object === null && o.label.startsWith("Target ")) ? d.revision : null;
+  })();
+  useEffect(() => {
+    playedSrc.current?.classList.remove("drag-src");
+    playedSrc.current = null;
+    if (aimKey === null) layer.current?.clear();
+  }, [msg, aimKey]);
+  // Choosing a target with a mouse: an arrow runs from the spell to the pointer (PP-26).
+  useEffect(() => {
+    if (aimKey === null || !wide || !canHover) return;
+    let frame = 0;
+    let last: { x: number; y: number } | null = null;
+    const draw = () => {
+      frame = 0;
+      if (last && !dragRef.current?.started) dragLive.current?.aimTo(last.x, last.y, null);
+    };
+    const onMove = (e: PointerEvent) => {
+      last = { x: e.clientX, y: e.clientY };
+      if (!frame) frame = requestAnimationFrame(draw);
+    };
+    window.addEventListener("pointermove", onMove);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      if (frame) cancelAnimationFrame(frame);
+      layer.current?.arrow(null);
+      hotEl.current?.classList.remove("drop-hot");
+      hotEl.current = null;
+    };
+  }, [aimKey, wide, canHover]);
+  useEffect(() => {
+    if (!dragNote) return;
+    const t = window.setTimeout(() => setDragNote(null), 2600);
+    return () => window.clearTimeout(t);
+  }, [dragNote]);
+  // A drag still going when the board goes away ends cleanly.
+  useEffect(() => () => dragRef.current?.cleanup(), []);
+
   const seatArt = useSeatArt(id, view, seats);
+  useBoardMotion(boardRoot, motionLayer, view, motionOpts);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== "Space" || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -347,6 +432,17 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const art = (n: number): SeatArt => seatArt.get(n) ?? { art: null, artist: null };
   // The engine's log says "Player 3"; say who that is.
   const named = (text: string) => text.replace(/\bPlayer (\d+)\b/g, (_, n: string) => seatInfo(Number(n) - 1)?.name ?? `Player ${n}`);
+  // Motion: normal speed while playing; shorter when watching fast, none "to the end".
+  const scale = motionScale({ reduced: false, hidden: typeof document !== "undefined" && document.hidden, speed: watch ? watchStatus?.speed ?? "1x" : null });
+  motionOpts.current = {
+    you,
+    bottom: watch ? pov : you ?? 0,
+    scale,
+    meta: msg.cards ?? {},
+    turnText: (seat) => (seat === you ? `Your turn ${view.turn}` : watch ? `${Who(seat)}'s turn ${view.turn}` : null),
+    endText: (v) => (v.winner === null ? "A draw" : v.winner === you ? "You won" : `${Who(v.winner)} won`),
+    endArt: (v) => (v.winner === null ? null : art(v.winner).art),
+  };
 
   const opponents = turnOrder(view.players, bottom);
   /** The turn a seat was knocked out, from the log while it still holds the line. */
@@ -360,11 +456,21 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const pending = sentAt !== null;
   // Choosing a target: options read "Target Sol Ring" or "Target Sam". A card or player whose
   // name matches one can be picked on the board as well as from the list (PP-26, without arrows).
-  const targetOptions = new Map<string, OptionView>();
-  if (decision && !decision.attack && !decision.block) {
-    for (const o of decision.options) if (o.object === null && o.label.startsWith("Target ")) targetOptions.set(o.label.slice(7), targetOptions.get(o.label.slice(7)) ?? o);
-  }
+  // Newer servers say exactly which card or player an option targets, so two cards with the same
+  // name stay apart; older ones only name it.
+  const targets = targetIndex(decision && !decision.attack && !decision.block ? decision.options : []);
+  const targetOptions = targets.byName;
+  /** The target option for a card on the board (a stack of tokens: any of its cards). */
+  const targetFor = (ids: number[], name: string): OptionView | undefined => {
+    for (const i of ids) {
+      const o = targets.byId.get(i);
+      if (o) return o;
+    }
+    return targetOptions.get(name);
+  };
   const seatTarget = (seat: number) => {
+    const exact = targets.bySeat.get(seat);
+    if (exact) return exact;
     const name = seatInfo(seat)?.name;
     // A creature with the same name as a computer seat (its commander) wins the name.
     if (!name || view.battlefield.some((c) => c.name === name)) return undefined;
@@ -446,8 +552,11 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     send({ type: "block", revision: decision.revision, blocks });
   };
 
+  /** The click a browser sends at the end of a drag isn't a click. */
+  const justDragged = () => performance.now() - lastDragEnd.current < 400;
   const pick = (p: Pile) => {
-    const asTarget = targetOptions.get(p.card.name);
+    if (justDragged()) return;
+    const asTarget = targetFor(p.ids, p.card.name);
     if (asTarget) return choose(asTarget);
     if (attack && p.ids.some((i) => attack.valid.has(i))) return toggleAttack(p.ids);
     if (block) {
@@ -463,7 +572,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     setSelected((cur) => (cur && cur[0] === p.ids[0] ? null : p.ids));
   };
   const double = (p: Pile) => {
-    if (attack || block) return;
+    if (attack || block || justDragged()) return;
     const os = optionsFor(p.ids);
     if (os.length === 1) choose(os[0]!);
   };
@@ -473,11 +582,12 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     onRead: setInspect,
     onHover: (c, el) => {
       if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
-      if (!c || !canHover || !el) return setHover(null);
+      if (!c || !canHover || !el || dragRef.current?.started) return setHover(null);
       // Right beside the card: above it in the hand, to its side on the battlefield.
       const at = previewPlace(el.getBoundingClientRect(), window.innerWidth, window.innerHeight);
       hoverTimer.current = window.setTimeout(() => setHover({ card: c, ...at }), 150);
     },
+    onPress: (p, where, e) => onPress(p, where, e),
   };
   const look = (p: Pile, extra: TileLook = {}): TileLook => {
     const any = (s: { has: (n: number) => boolean }) => p.ids.some((i) => s.has(i));
@@ -488,10 +598,11 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       attacking: !!attack && any(attack.plan),
       blocking: !!block && any(block.plan),
       ready: (!!attack && any(attack.valid) && !any(attack.plan)) || (!!block && any(block.valid) && !any(block.plan)),
-      target: targetOptions.has(p.card.name),
+      target: !!targetFor(p.ids, p.card.name),
     };
   };
   const onSeat = (seat: number) => {
+    if (justDragged()) return;
     const asTarget = seatTarget(seat);
     if (asTarget) return choose(asTarget);
     if (attack) {
@@ -500,6 +611,234 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     }
     setFocusSeat(seat);
   };
+
+  // ── drag and drop (PP-25 casting, PP-26 targets, PP-40/41 combat) ─────────
+  // Laptop only for now: phones keep taps, where a drag would fight scrolling the hand sheet.
+  const aiming = wide && !watch && you !== null && !view.over && targets.size > 0;
+  const setHot = (el: HTMLElement | null) => {
+    if (hotEl.current === el) return;
+    hotEl.current?.classList.remove("drop-hot");
+    el?.classList.add("drop-hot");
+    hotEl.current = el;
+  };
+  /** Where a target arrow starts: the card you just cast, else the spell on top of the stack. */
+  const aimOrigin = (): Point | null => {
+    const parked = layer.current?.parkedAt();
+    if (parked) return parked;
+    const top = boardRoot.current?.querySelector<HTMLElement>(".stack-list li.top");
+    if (top) {
+      const r = top.getBoundingClientRect();
+      return { x: r.left + 8, y: r.top + r.height / 2 };
+    }
+    const head = boardRoot.current?.querySelector<HTMLElement>("#pb-dec-h");
+    if (head) {
+      const r = head.getBoundingClientRect();
+      return { x: r.left, y: r.top + r.height / 2 };
+    }
+    return null;
+  };
+  /** The legal target under the pointer (and the element its arrow ends at). */
+  const targetAt = (x: number, y: number) => {
+    const under = document.elementFromPoint(x, y);
+    const at = readDrop(under);
+    const cardTarget = (i: number) => targetFor([i], cardById.get(i)?.name ?? "");
+    const option = targetDrop(at, cardTarget, seatTarget);
+    if (!option || !boardRoot.current) return null;
+    const card = at.ids?.find((i) => cardTarget(i) === option);
+    const el = card !== undefined ? tileOf(boardRoot.current, card) : at.seat !== null ? seatHeadOf(boardRoot.current, at.seat) : null;
+    return { option, el };
+  };
+  const anchor = (el: HTMLElement, seat: boolean): Point => {
+    const r = el.getBoundingClientRect();
+    return seat ? { x: r.left + r.width / 2, y: r.bottom - 6 } : centre(r);
+  };
+  const aimTo = (x: number, y: number, from: Point | null) => {
+    const start = from ?? aimOrigin();
+    const hit = targetAt(x, y);
+    setHot(hit?.el ?? null);
+    layer.current?.arrow(start, hit?.el ? anchor(hit.el, hit.el.classList.contains("opp-head")) : { x, y }, "aim");
+  };
+  const attackerOf = (pile: Pile) => pile.ids.find((i) => attack?.valid.has(i));
+  const blockerOf = (pile: Pile) => pile.ids.find((i) => block?.valid.has(i) && !block.plan.has(i)) ?? pile.ids.find((i) => block?.valid.has(i));
+  /** What dropping here would do in combat, and the element the arrow snaps to. */
+  const combatAt = (s: DragSession, x: number, y: number): { attack?: AttackAt; blocks?: number; el: HTMLElement | null } | null => {
+    if (!s.pile || !boardRoot.current) return null;
+    const at = readDrop(document.elementFromPoint(x, y));
+    if (s.kind === "attack" && attack) {
+      const id = attackerOf(s.pile);
+      const t = id === undefined ? null : attackDrop(attack.valid.get(id) ?? [], at);
+      if (!t) return null;
+      return { attack: t, el: t.kind === "player" ? seatHeadOf(boardRoot.current, t.seat) : tileOf(boardRoot.current, t.id) };
+    }
+    if (s.kind === "block" && block) {
+      const id = blockerOf(s.pile);
+      const a = id === undefined ? null : blockDrop(block.valid.get(id) ?? [], at, block.plan.values());
+      if (a === null) return null;
+      return { blocks: a, el: tileOf(boardRoot.current, a) };
+    }
+    return null;
+  };
+  const handOutcome = (s: DragSession, y: number) =>
+    handDrop({
+      passed: pastPlayLine(y, s.handTop),
+      options: s.pile ? optionsFor(s.pile.ids) : [],
+      deciding: !!decision,
+      combat: !!attack || !!block,
+      name: s.pile?.card.name ?? "",
+    });
+  const dropZone = (state: "on" | "no" | null) => {
+    const mine = boardRoot.current?.querySelector(".pb-mine");
+    mine?.classList.toggle("drop-on", state === "on");
+    mine?.classList.toggle("drop-no", state === "no");
+  };
+  const update = (s: DragSession, x: number, y: number) => {
+    if (s.kind === "hand") {
+      const out = handOutcome(s, y);
+      const passed = pastPlayLine(y, s.handTop);
+      const ok = !passed ? null : out.act !== "back";
+      dropZone(ok === null ? null : ok ? "on" : "no");
+      layer.current?.carry(x, y, ok, !passed ? null : out.act === "play" ? out.option.label : out.act === "choose" ? "Let go to choose how to play it" : out.reason);
+      return;
+    }
+    if (s.kind === "aim") return aimTo(x, y, null);
+    const hit = combatAt(s, x, y);
+    setHot(hit?.el ?? null);
+    const tone: ArrowTone = s.kind === "attack" ? "attack" : "block";
+    layer.current?.arrow(s.from, hit?.el ? anchor(hit.el, hit.el.classList.contains("opp-head")) : { x, y }, tone);
+  };
+  const release = (s: DragSession, x: number, y: number) => {
+    if (s.kind === "hand" && s.pile) {
+      const out = handOutcome(s, y);
+      if (out.act === "play") {
+        layer.current?.drop("park");
+        if (s.el) playedSrc.current = s.el;
+        choose(out.option);
+        return;
+      }
+      if (out.act === "choose") {
+        layer.current?.drop("vanish");
+        setSelected(s.pile.ids);
+        return;
+      }
+      if (s.el) layer.current?.drop({ back: s.el.getBoundingClientRect() });
+      else layer.current?.drop("vanish");
+      if (out.reason) setDragNote(out.reason);
+      return;
+    }
+    if (s.kind === "aim") {
+      const hit = targetAt(x, y);
+      if (hit) choose(hit.option);
+      return;
+    }
+    const hit = combatAt(s, x, y);
+    if (!hit || !s.pile) return;
+    if (hit.attack && attack) {
+      const t = hit.attack;
+      const next = new Map(attackPlan);
+      for (const i of s.pile.ids) {
+        const mine = attack.valid.get(i)?.find((x) => sameTarget(x, t));
+        if (mine) next.set(i, mine);
+      }
+      setAttackPlan(next);
+      if (t.kind === "player") setDefender(t);
+    } else if (hit.blocks !== undefined) {
+      const b = blockerOf(s.pile);
+      if (b !== undefined) assignBlock(b, hit.blocks);
+    }
+  };
+  dragLive.current = { aimTo, update, release };
+
+  /** Stop tracking a press: listeners, highlights and the live arrow. */
+  const endDrag = (s: DragSession) => {
+    s.cleanup();
+    if (dragRef.current === s) dragRef.current = null;
+    document.body.classList.remove("pb-dragging");
+    s.el?.classList.remove("drag-from");
+    if (s.el && s.el !== playedSrc.current) s.el.classList.remove("drag-src");
+    dropZone(null);
+    setHot(null);
+    if (s.kind !== "aim" || !canHover) layer.current?.arrow(null);
+  };
+  /** A press on a card or (while aiming) anywhere on the board, which may become a drag. */
+  const track = (kind: DragSession["kind"], pile: Pile | null, el: HTMLElement | null, e: React.PointerEvent) => {
+    const handEl = boardRoot.current?.querySelector(".hand-fan");
+    const s: DragSession = {
+      kind,
+      pile,
+      el,
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
+      x0: e.clientX,
+      y0: e.clientY,
+      started: false,
+      handTop: handEl?.getBoundingClientRect().top ?? window.innerHeight - 180,
+      from: el && kind !== "hand" ? centre(el.getBoundingClientRect()) : null,
+      cleanup: () => undefined,
+    };
+    const begin = (x: number, y: number) => {
+      s.started = true;
+      if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
+      setHover(null);
+      document.body.classList.add("pb-dragging");
+      if (kind === "hand" && el && pile) {
+        el.classList.add("drag-src");
+        layer.current?.lift(meta[pile.card.name]?.image ?? null, pile.card.name, el.getBoundingClientRect(), x, y);
+      } else if (el) el.classList.add("drag-from");
+    };
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== s.pointerId) return;
+      if (!s.started) {
+        if (!movedPast(s.x0, s.y0, ev.clientX, ev.clientY, dragSlop(s.pointerType))) return;
+        begin(ev.clientX, ev.clientY);
+      }
+      ev.preventDefault();
+      dragLive.current?.update(s, ev.clientX, ev.clientY);
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== s.pointerId) return;
+      if (s.started) {
+        lastDragEnd.current = performance.now();
+        dragLive.current?.release(s, ev.clientX, ev.clientY);
+      }
+      endDrag(s);
+    };
+    const cancel = (ev: PointerEvent | KeyboardEvent) => {
+      if ("key" in ev && ev.key !== "Escape") return;
+      if ("pointerId" in ev && ev.pointerId !== s.pointerId) return;
+      if (s.started) {
+        lastDragEnd.current = performance.now();
+        if (kind === "hand" && el) layer.current?.drop({ back: el.getBoundingClientRect() });
+      }
+      endDrag(s);
+    };
+    window.addEventListener("pointermove", move, { passive: false });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", cancel);
+    s.cleanup = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", cancel);
+    };
+    dragRef.current = s;
+  };
+  const onPress = (pile: Pile, where: "hand" | "field", e: React.PointerEvent<HTMLElement>) => {
+    if (!wide || watch || you === null || view.over || e.button !== 0 || dragRef.current || aiming) return;
+    if (where === "hand") return track("hand", pile, e.currentTarget, e);
+    if (attack && pile.ids.some((i) => attack.valid.has(i))) return track("attack", pile, e.currentTarget, e);
+    if (block && pile.ids.some((i) => block.valid.has(i))) return track("block", pile, e.currentTarget, e);
+  };
+  /** While choosing a target, a press anywhere on the table can be dragged onto the target. */
+  const onBoardPress = (e: React.PointerEvent<HTMLElement>) => {
+    if (!aiming || dragRef.current || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest(".pb-rail, .sheet, button.pile-chip")) return;
+    track("aim", null, null, e);
+  };
+  const planArrows: PlanArrow[] = [
+    ...[...attackPlan.entries()].filter(() => !!attack).map(([from, at]): PlanArrow => ({ from, to: at.kind === "player" ? { seat: at.seat } : { id: at.id }, tone: "attack" })),
+    ...[...blockPlan.entries()].filter(() => !!block).map(([from, to]): PlanArrow => ({ from, to: { id: to }, tone: "block" })),
+  ];
 
   // What you'd be attacked by or attacking, for the strip.
   const lines = attack
@@ -672,9 +1011,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   );
   const ladder = <Ladder phase={view.phase} fullControl={fullControl} stops={stops} onToggle={you !== null && !view.over ? toggleStop : undefined} />;
   const whose = view.active === you ? (
-    <span className="whose mine">Your turn {view.turn}</span>
+    <span className="whose mine" key={`w${view.active}-${view.turn}`}>Your turn {view.turn}</span>
   ) : (
-    <span className="whose">
+    <span className="whose" key={`w${view.active}-${view.turn}`}>
       {art(view.active).art && <img src={art(view.active).art!} alt="" />}
       {Who(view.active)}'s turn {view.turn}
     </span>
@@ -823,7 +1162,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   // ── laptop ───────────────────────────────────────────────────────────────
   if (wide) {
     return (
-      <div className="pb wide">
+      <MotionContext.Provider value={scale}>
+      <div className={`pb wide${aiming ? " aiming" : ""}${scale === 0 ? " motion-off" : ""}`} ref={boardRoot} onPointerDown={onBoardPress}>
         <div className="pb-table">
           <section
             className="pb-opps"
@@ -889,19 +1229,20 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
 
           <div className="pb-handrow" aria-label="Your hand and zones">
             <span className="pb-piles">
-              <span className="pile-chip">Library {me?.library ?? 0}</span>
-              <button type="button" className="pile-chip" onClick={() => setSheet({ seat: bottom, zone: "graveyard" })}>Graveyard {me?.graveyard.length ?? 0}</button>
+              <span className="pile-chip" data-zone="library" data-zone-seat={bottom}>Library {me?.library ?? 0}</span>
+              <button type="button" className="pile-chip" data-zone="graveyard" data-zone-seat={bottom} onClick={() => setSheet({ seat: bottom, zone: "graveyard" })}>Graveyard {me?.graveyard.length ?? 0}</button>
               {view.exile.some((c) => c.owner === bottom) && (
-                <button type="button" className="pile-chip" onClick={() => setSheet({ seat: bottom, zone: "exile" })}>Exile {view.exile.filter((c) => c.owner === bottom).length}</button>
+                <button type="button" className="pile-chip" data-zone="exile" data-zone-seat={bottom} onClick={() => setSheet({ seat: bottom, zone: "exile" })}>Exile {view.exile.filter((c) => c.owner === bottom).length}</button>
               )}
             </span>
-            <span className="pb-cmdr">
+            <span className="pb-cmdr" data-zone="command" data-zone-seat={bottom}>
               {myCommanders.map((c) => (
                 <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c), { tag: "Commander" })} h={h} caption={c.tax ? `Tax +${c.tax}` : undefined} />
               ))}
               {commanderWhere && <span className="cmdr-away">{commanderWhere}</span>}
             </span>
             <HandFan
+              seat={bottom}
               hand={handCards}
               meta={meta}
               look={look}
@@ -910,7 +1251,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
               label={watch ? `${seatName(seatInfo(bottom), bottom)}'s hand` : "Your hand"}
               hidden={watch ? "Hands are face down. Turn on Show every hand to see them." : "Hands stay hidden while you watch."}
             />
-            <Portrait art={myArt.art} life={me?.life ?? 0} poison={me?.poison ?? 0} status={myStatus} active={view.active === bottom} />
+            <Portrait seat={bottom} art={myArt.art} life={me?.life ?? 0} poison={me?.poison ?? 0} status={myStatus} active={view.active === bottom} />
           </div>
         </div>
 
@@ -948,8 +1289,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             </div>
           </section>
         </aside>
+        <PlanArrows arrows={planArrows} root={boardRoot} />
+        <DragLayer ref={layer} />
+        <div className="motion-layer" ref={motionLayer} aria-hidden="true" />
+        {dragNote && <p className="drag-toast" role="status">{dragNote}</p>}
         {sheets}
       </div>
+      </MotionContext.Provider>
     );
   }
 
@@ -966,12 +1312,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       ? block.pending !== null
         ? `Now tap the attacker ${shortName(cardById.get(block.pending)?.name ?? "it")} blocks.`
         : "Tap your creature to block. With more than one attacker, then tap the one it blocks."
-      : targetOptions.size > 0
+      : targets.size > 0
         ? "Tap a card or player with an amber ring, or pick one below."
         : null;
   const phoneChoices = decision && !attack && !block ? dedupe(decision.options.filter((o) => !covered(o))) : [];
   return (
-    <div className="pb phone">
+    <MotionContext.Provider value={scale}>
+    <div className={`pb phone${scale === 0 ? " motion-off" : ""}`} ref={boardRoot}>
       <nav className="opp-tabs" aria-label="Opponents">
         {opponents.map((p) => {
           const on = p.seat === focus?.seat;
@@ -989,7 +1336,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
               <span className="tab-wash" aria-hidden="true" />
               <span className="tab-body">
                 <span className="tab-name">{p.seat === you ? "You" : seatInfo(p.seat)?.ai ? (watch ? seatName(seatInfo(p.seat), p.seat) : "Computer") : label(p.seat)}</span>
-                <b className="tab-life num">{p.eliminated ? "Out" : p.life}</b>
+                <b className="tab-life num" data-life-seat={p.eliminated ? undefined : p.seat}>{p.eliminated ? "Out" : <Tick value={p.life} />}</b>
               </span>
               {view.waiting_on.includes(p.seat) && !view.over ? <span className="tab-flag warn">Deciding</span> : view.active === p.seat ? <span className="tab-flag">Turn</span> : null}
             </button>
@@ -1086,7 +1433,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         )}
         {status}
         <div className="dock-row">
-          <Portrait art={myArt.art} life={me?.life ?? 0} poison={me?.poison ?? 0} status={myStatus} active={view.active === bottom} compact />
+          <Portrait seat={bottom} art={myArt.art} life={me?.life ?? 0} poison={me?.poison ?? 0} status={myStatus} active={view.active === bottom} compact />
           <div className={`dock-buttons${controls.secondary ? "" : " one"}`}>{buttons}</div>
         </div>
         <div className="dock-links">
@@ -1094,8 +1441,10 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>
         </div>
       </div>
+      <div className="motion-layer" ref={motionLayer} aria-hidden="true" />
       {sheets}
     </div>
+    </MotionContext.Provider>
   );
 }
 
@@ -1161,12 +1510,12 @@ function Ladder({ phase, fullControl, stops, onToggle, vertical = false }: {
   );
 }
 
-function Portrait({ art, life, poison, status, active, compact = false }: { art: string | null; life: number; poison: number; status: string; active: boolean; compact?: boolean }) {
+function Portrait({ seat, art, life, poison, status, active, compact = false }: { seat: number; art: string | null; life: number; poison: number; status: string; active: boolean; compact?: boolean }) {
   return (
     <span className={`portrait${compact ? " compact" : ""}${active ? " active" : ""}`}>
       {art ? <img src={art} alt="" /> : <span className="portrait-blank" />}
       <span className="portrait-text">
-        <b className="num">{life}</b>
+        <b className="num" data-life-seat={seat}><Tick value={life} /></b>
         {!compact && <span>{status}{poison ? `, ${poison} poison` : ""}</span>}
         {compact && poison > 0 && <span>{poison} poison</span>}
       </span>
@@ -1174,7 +1523,8 @@ function Portrait({ art, life, poison, status, active, compact = false }: { art:
   );
 }
 
-function HandFan({ hand, meta, look, h, spectator, label = "Your hand", hidden = "Hands stay hidden while you watch." }: {
+function HandFan({ seat, hand, meta, look, h, spectator, label = "Your hand", hidden = "Hands stay hidden while you watch." }: {
+  seat: number;
   hand: CardView[];
   meta: Record<string, CardMeta>;
   look: (p: Pile, e?: TileLook) => TileLook;
@@ -1189,7 +1539,7 @@ function HandFan({ hand, meta, look, h, spectator, label = "Your hand", hidden =
   // 60% of each card shows when there's room; tighter as the hand grows, never under 28 px.
   const step = n > 1 ? Math.max(28, Math.min(cardW * 0.62, (width - cardW - 16) / (n - 1))) : cardW;
   return (
-    <div className="hand-fan" ref={ref} aria-label={label}>
+    <div className="hand-fan" ref={ref} aria-label={label} data-zone="hand" data-zone-seat={seat}>
       {spectator ? <p className="zone-empty">{hidden}</p> : null}
       {!spectator && n === 0 && <p className="zone-empty">No cards in hand.</p>}
       {hand.map((c, i) => (
@@ -1317,7 +1667,7 @@ function OppPane(props: {
   const clickable = props.targetable || !!props.aimed;
   const cls = ["opp-pane", props.active && "active", props.attacked && "attacked", clickable && "targetable", props.aimed && "aimed"].filter(Boolean).join(" ");
   return (
-    <article className={cls} aria-label={`${props.label}, ${p.eliminated ? "out of the game" : `${p.life} life`}${props.active ? ", their turn" : ""}`}>
+    <article className={cls} data-seat={p.seat} aria-label={`${props.label}, ${p.eliminated ? "out of the game" : `${p.life} life`}${props.active ? ", their turn" : ""}`}>
       <header
         className="opp-head"
         onClick={clickable ? props.onSeat : undefined}
@@ -1337,11 +1687,11 @@ function OppPane(props: {
               <>Hand {p.hand}</>
             )}
             , library {p.library},{" "}
-            <button type="button" className="inline-link" onClick={(e) => (e.stopPropagation(), props.onZone("graveyard"))}>graveyard {p.graveyard.length}</button>
+            <button type="button" className="inline-link" data-zone="graveyard" data-zone-seat={p.seat} onClick={(e) => (e.stopPropagation(), props.onZone("graveyard"))}>graveyard {p.graveyard.length}</button>
             {props.exile > 0 && (
               <>
                 ,{" "}
-                <button type="button" className="inline-link" onClick={(e) => (e.stopPropagation(), props.onZone("exile"))}>exile {props.exile}</button>
+                <button type="button" className="inline-link" data-zone="exile" data-zone-seat={p.seat} onClick={(e) => (e.stopPropagation(), props.onZone("exile"))}>exile {props.exile}</button>
               </>
             )}
             {p.poison > 0 && `, ${p.poison} poison`}
@@ -1356,7 +1706,7 @@ function OppPane(props: {
           {props.deciding && !p.eliminated && <span className="opp-flag">Deciding</span>}
           {props.active && !props.deciding && !p.eliminated && <span className="opp-flag turn">Their turn</span>}
         </span>
-        <b className="opp-life num">{p.eliminated ? "Out" : p.life}</b>
+        <b className="opp-life num" data-life-seat={p.eliminated ? undefined : p.seat}>{p.eliminated ? "Out" : <Tick value={p.life} />}</b>
         {p.eliminated && <span className="opp-veil" aria-hidden="true" />}
       </header>
       {!p.eliminated && (
@@ -1478,7 +1828,7 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover }: {
         const img = meta[s.name]?.image;
         const a = art(s.controller).art;
         return (
-          <li key={i} className={i === 0 ? "top" : ""}>
+          <li key={`${view.stack.length - 1 - i}:${s.name}`} className={i === 0 ? "top" : ""}>
             <button
               type="button"
               onMouseEnter={(e) => onHover(card, e.currentTarget)}

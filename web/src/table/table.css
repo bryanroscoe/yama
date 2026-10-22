@@ -1117,3 +1117,52 @@
 .guest-credit {
   font-size: var(--t-xs);
 }
+
+/* Feedback motion (Bryan, 2026-10-22: "make it a bit better"). Short and transform/opacity only;
+   the global reduced-motion rule turns all of it off. Life changes stay instant: holding a button
+   must never lag behind the number. */
+.life .life-value {
+  display: inline-block;
+  animation: life-pop 160ms ease-out;
+}
+@keyframes life-pop {
+  from {
+    scale: 1.08;
+  }
+  to {
+    scale: 1;
+  }
+}
+.pending {
+  animation: pill-in 180ms ease-out both;
+}
+.cmdr-pill {
+  animation: pill-in 220ms ease-out both;
+}
+/* `scale`, not `transform`: a pill above the number is placed with its own transform. */
+@keyframes pill-in {
+  from {
+    opacity: 0;
+    scale: 0.7;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+.out-label {
+  animation: out-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes out-in {
+  from {
+    opacity: 0;
+    scale: 1.25;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+.panel .panel-inner::before {
+  transition: opacity 400ms ease;
+}

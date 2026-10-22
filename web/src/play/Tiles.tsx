@@ -15,14 +15,17 @@ export interface TileHandlers {
   onDouble?: (p: Pile) => void;
   /** Long-press, right-click or the inspector button: the card with its rules text. */
   onRead: (c: CardView) => void;
-  /** Hover with a mouse: the full-size preview. `x` is the pointer, so it opens on the far side. */
+  /** Hover with a mouse: the full-size preview, placed beside `el`. */
   onHover: (c: CardView | null, el?: Element) => void;
+  /** A press that may become a drag (Board decides whether this card can be dragged now). */
+  onPress?: (p: Pile, where: "hand" | "field", e: PointerEvent<HTMLElement>) => void;
 }
 
 /** Long-press opens the inspector (PP-69); the click that ends a long-press does nothing else. */
 function usePress(card: CardView, h: TileHandlers) {
   const timer = useRef<number | null>(null);
   const fired = useRef(false);
+  const start = useRef<{ x: number; y: number } | null>(null);
   const clear = () => {
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = null;
@@ -31,12 +34,17 @@ function usePress(card: CardView, h: TileHandlers) {
     onPointerDown: (e: PointerEvent) => {
       if (e.pointerType === "mouse") return;
       fired.current = false;
+      start.current = { x: e.clientX, y: e.clientY };
       clear();
       timer.current = window.setTimeout(() => {
         fired.current = true;
         navigator.vibrate?.(10);
         h.onRead(card);
       }, 400);
+    },
+    // A finger that moves is dragging the card, not holding it to read it.
+    onPointerMove: (e: PointerEvent) => {
+      if (timer.current !== null && start.current && Math.hypot(e.clientX - start.current.x, e.clientY - start.current.y) > 10) clear();
     },
     onPointerUp: clear,
     onPointerLeave: clear,
@@ -141,13 +149,18 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
       type="button"
       className={cls}
       data-id={c.id}
+      data-ids={pile.ids.join(" ")}
       aria-label={label}
       aria-pressed={look.selected || attacking || blocking ? true : undefined}
       onClick={() => !press.consumed() && h.onPick(pile)}
       onDoubleClick={() => h.onDouble?.(pile)}
       onMouseEnter={(e) => h.onHover(c, e.currentTarget)}
       onMouseLeave={() => h.onHover(null)}
-      onPointerDown={press.onPointerDown}
+      onPointerDown={(e) => {
+        press.onPointerDown(e);
+        h.onPress?.(pile, "field", e);
+      }}
+      onPointerMove={press.onPointerMove}
       onPointerUp={press.onPointerUp}
       onPointerLeave={press.onPointerLeave}
       onPointerCancel={press.onPointerCancel}
@@ -201,7 +214,11 @@ export function HandCard({ card, meta, look, h, style, caption }: {
       onDoubleClick={() => h.onDouble?.(pile)}
       onMouseEnter={(e) => h.onHover(card, e.currentTarget)}
       onMouseLeave={() => h.onHover(null)}
-      onPointerDown={press.onPointerDown}
+      onPointerDown={(e) => {
+        press.onPointerDown(e);
+        h.onPress?.(pile, "hand", e);
+      }}
+      onPointerMove={press.onPointerMove}
       onPointerUp={press.onPointerUp}
       onPointerLeave={press.onPointerLeave}
       onPointerCancel={press.onPointerCancel}

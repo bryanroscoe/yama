@@ -1921,3 +1921,328 @@ button.pile-chip:hover {
   display: inline;
   padding-right: 6px;
 }
+
+/* Drag and drop (PP-25, PP-26, PP-40, PP-41; drag.ts, DragLayer.tsx). Card images are never
+   faded or filtered: the card you lift leaves an empty slot, and rings and shadows sit around
+   the image. */
+.drag-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+}
+.drag-svg,
+.plan-svg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.plan-svg {
+  z-index: 20;
+}
+.drag-arrow,
+.plan-arrow {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.plan-arrow {
+  stroke-width: 3;
+}
+.drag-arrow.attack,
+.plan-arrow.attack {
+  stroke: var(--bad);
+}
+.drag-arrow.block,
+.plan-arrow.block {
+  stroke: var(--text);
+}
+.drag-arrow.aim {
+  stroke: var(--warn);
+  stroke-dasharray: 10 8;
+}
+.drag-head.attack {
+  fill: var(--bad);
+}
+.drag-head.block {
+  fill: var(--text);
+}
+.drag-head.aim {
+  fill: var(--warn);
+}
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+.drag-ghost[hidden] {
+  display: none;
+}
+.drag-ghost img,
+.drag-ghost-name {
+  display: block;
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.55);
+  background: var(--raised);
+}
+.drag-ghost-name {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  color: var(--text);
+  font-size: var(--t-sm);
+  text-align: center;
+}
+.drag-ghost-name[hidden],
+.drag-ghost img[hidden] {
+  display: none;
+}
+.drag-ghost[data-ok="yes"] img,
+.drag-ghost[data-ok="yes"] .drag-ghost-name {
+  box-shadow: 0 0 0 3px var(--good), 0 18px 40px rgb(0 0 0 / 0.55);
+}
+.drag-ghost[data-ok="no"] img,
+.drag-ghost[data-ok="no"] .drag-ghost-name {
+  box-shadow: 0 0 0 3px var(--bad), 0 18px 40px rgb(0 0 0 / 0.55);
+}
+.drag-ghost-note {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--t-sm);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+}
+.drag-ghost-note[hidden] {
+  display: none;
+}
+.hc.drag-src {
+  visibility: hidden;
+}
+.ft.drag-from {
+  box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
+}
+.ft.drop-hot {
+  box-shadow: 0 0 0 3px var(--text), 0 0 0 6px var(--warn);
+}
+.opp-head.drop-hot {
+  box-shadow: inset 0 0 0 3px var(--text);
+}
+.pb-mine.drop-on {
+  box-shadow: inset 0 0 0 2px var(--good);
+  border-radius: 14px;
+}
+.pb-mine.drop-no {
+  box-shadow: inset 0 0 0 2px var(--bad);
+  border-radius: 14px;
+}
+.drag-toast {
+  position: fixed;
+  left: calc((100% - 340px) / 2);
+  bottom: 196px;
+  transform: translateX(-50%);
+  z-index: 55;
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--t-sm);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+}
+body.pb-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing;
+  overscroll-behavior: none;
+}
+body.pb-dragging .pb-preview {
+  display: none;
+}
+/* Touch screens wide enough for the laptop board: a finger drags a hand card or a creature that
+   can attack or block instead of panning the page. */
+.pb.wide .hand-fan .hc,
+.pb.wide .pb-cmdr .hc,
+.pb.wide .ft.ready {
+  touch-action: none;
+}
+.pb.wide.aiming .pb-table {
+  cursor: crosshair;
+}
+
+/* Board motion (BoardMotion.tsx, motion.ts; PP-53 to PP-56). Transform and opacity only; the
+   global reduced-motion rule turns the CSS parts off and the hook skips the rest. Card images
+   are never filtered: ghosts and banners fade as wholes. */
+.motion-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 45;
+  overflow: hidden;
+}
+.motion-ghost {
+  position: fixed;
+  overflow: hidden;
+  border-radius: var(--r-tile);
+  background: var(--raised);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.5);
+  will-change: transform, opacity;
+}
+.motion-ghost.hc {
+  border-radius: var(--card-radius);
+}
+.motion-ghost img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.motion-float {
+  position: fixed;
+  font: 800 28px/1 var(--display);
+  text-shadow: 0 2px 10px rgb(0 0 0 / 0.7);
+  white-space: nowrap;
+  will-change: transform, opacity;
+}
+.motion-float.minus {
+  color: var(--bad);
+}
+.motion-float.plus {
+  color: var(--good);
+}
+.motion-hit {
+  position: fixed;
+  inset: 0;
+  box-shadow: inset 0 0 90px 12px rgb(240 122 98 / 0.4);
+}
+.motion-stack-out {
+  position: fixed;
+  will-change: transform, opacity;
+}
+.motion-stack-out .stack-list {
+  margin: 0;
+}
+.motion-spotlight {
+  position: fixed;
+  width: 240px;
+  will-change: transform, opacity;
+}
+.motion-spotlight img {
+  display: block;
+  width: 100%;
+  border-radius: var(--card-radius);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.6);
+}
+.motion-banner {
+  position: fixed;
+  padding: 12px 28px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  color: var(--ground);
+  font: 800 30px/1 var(--display);
+  white-space: nowrap;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+  will-change: transform, opacity;
+}
+.motion-end {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 32px 14px 14px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  box-shadow: 0 0 0 2px var(--text), 0 24px 60px rgb(0 0 0 / 0.6);
+  will-change: transform, opacity;
+}
+.motion-end img {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.motion-end span {
+  font: 800 46px/1 var(--display);
+  color: var(--text);
+  white-space: nowrap;
+}
+/* Your attackers step forward (PP-40). Opponents' front row sits on their pane's edge, so theirs
+   keep the red ring and badge without moving. */
+.pb-mine .ft.attacking {
+  transform: translateY(-12px);
+}
+/* The seat whose turn it is breathes softly; steps, turns and stack items change gently. */
+.opp-pane::after {
+  transition: box-shadow 300ms ease;
+}
+.opp-pane.active:not(.attacked)::after {
+  animation: seat-glow 2.4s ease-in-out infinite;
+}
+@keyframes seat-glow {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 2px var(--text);
+  }
+  50% {
+    box-shadow: inset 0 0 0 2px var(--text), inset 0 0 28px rgb(242 239 232 / 0.16);
+  }
+}
+.portrait.active > img,
+.portrait.active .portrait-blank {
+  animation: portrait-glow 2.4s ease-in-out infinite;
+}
+@keyframes portrait-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
+  }
+  50% {
+    box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text), 0 0 18px 4px rgb(242 239 232 / 0.22);
+  }
+}
+.ladder li {
+  transition: background-color 200ms ease, color 200ms ease;
+}
+.whose {
+  animation: whose-in 260ms ease-out both;
+}
+@keyframes whose-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.stack-list > li {
+  animation: stack-in 240ms ease-out both;
+}
+@keyframes stack-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.pb.motion-off .whose,
+.pb.motion-off .stack-list > li,
+.pb.motion-off .opp-pane.active::after,
+.pb.motion-off .portrait.active > img {
+  animation: none;
+}
