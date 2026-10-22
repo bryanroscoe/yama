@@ -43,6 +43,7 @@ ssh "$HOST" "cd $DIR && umask 077 && touch advisor.env && chmod 600 advisor.env 
     grep -v '^YAMA_ADVISOR_SECRET=' yama.env > yama.env.new; printf 'YAMA_ADVISOR_SECRET=%s\\n' \"\$s\" >> yama.env.new; mv yama.env.new yama.env; fi && \
   { grep -q '^YAMA_ADVISOR_URL=' yama.env || printf '\\n# Ask Claude (the advisor sidecar), added by deploy.sh\\nYAMA_ADVISOR_URL=http://yama-advisor:8790\\n' >> yama.env; } && \
   { grep -q '^YAMA_ADVISOR_KEY_SECRET=' yama.env || printf 'YAMA_ADVISOR_KEY_SECRET=%s\\n' \"\$(rand)\" >> yama.env; } && \
+  { grep -q '^YAMA_ADVISOR_TOOLS_URL=' yama.env || printf 'YAMA_ADVISOR_TOOLS_URL=http://yama:8787/mcp\\n' >> yama.env; } && \
   { grep -q '^YAMA_ADVISOR_SUBSCRIPTION_EMAILS=' yama.env || \
     printf 'YAMA_ADVISOR_SUBSCRIPTION_EMAILS=%s\\n' \"\$(sed -n 's/^YAMA_ADMIN_EMAILS=\\([^,]*\\).*/\\1/p' yama.env | head -1)\" >> yama.env; }"
 

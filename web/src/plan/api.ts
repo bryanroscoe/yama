@@ -47,7 +47,10 @@ export interface ScriptKey {
 export const listKeys = () => api<ScriptKey[]>("/api/me/tokens");
 
 /** The reply is the only time the key itself is shown; Yama keeps only its hash. */
-export const createKey = (name: string) => api<ScriptKey & { token: string }>("/api/me/tokens", { method: "POST", json: { name } });
+export const createKey = (name: string, scope: KeyScope = "plan:sync") => api<ScriptKey & { token: string }>("/api/me/tokens", { method: "POST", json: { name, scope } });
+
+/** `plan:sync`: publish.py and pull.py. `mcp`: Claude's tools from outside Yama (`POST /mcp`). */
+export type KeyScope = "plan:sync" | "mcp";
 
 export const revokeKey = (id: string) => api<ScriptKey>(`/api/me/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
 

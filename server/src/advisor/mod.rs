@@ -496,12 +496,15 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
     let mut messages = if is_new { Vec::new() } else { history(&st.pool, &user.id, &conversation_id).await? };
     messages.push(json!({"role": "user", "content": question}));
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    // Claude may call Yama's tools as this account until the answer ends (`mcp/`).
+    let tools = st.cfg.advisor.tools_url.clone().map(|url| (url, crate::mcp::QuestionToken::mint(&user.id)));
     let request = json!({
         "mode": if mode == Mode::Subscription { "subscription" } else { "api_key" },
         "api_key": api_key,
         "model": model,
-        "system": context::system_prompt(&user, &data, &today),
+        "system": context::system_prompt(&user, &data, &today, tools.is_some()),
         "messages": messages,
+        "tools": tools.as_ref().map(|(url, t)| json!({"url": url, "token": t.token})),
     });
 
     // Ask the sidecar before saving anything, so a refused or unreachable sidecar leaves no trace.
@@ -569,6 +572,8 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
     let owner = user.id.clone();
     tokio::spawn(async move {
         let _guard = guard;
+        // The tools stop working for this answer when it ends.
+        let _tools = tools;
         let _ = send.send(sse("start", &json!({"conversation_id": conversation_id, "user_message_id": user_message_id, "model": model, "mode": mode}))).await;
         let mut text = String::new();
         let mut status = "error";
@@ -593,6 +598,14 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
                         let t = ev["text"].as_str().unwrap_or_default();
                         text.push_str(t);
                         if send.send(sse("text", &json!({"text": t}))).await.is_err() {
+                            gone = true;
+                            break 'read;
+                        }
+                    }
+                    Some("tool") => {
+                        // Which tool Claude is using, for the panel's "Looking up cards…".
+                        let name = ev["name"].as_str().unwrap_or_default();
+                        if send.send(sse("tool", &json!({"name": name}))).await.is_err() {
                             gone = true;
                             break 'read;
                         }

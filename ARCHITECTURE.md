@@ -361,6 +361,16 @@ Bryan (2026-10-22): "We'll probably need an admin-only area too, right?" With op
 - **Server:** the deployed commit (`server/build.rs` stamps `YAMA_SERVER_VERSION` from git, or from the `YAMA_GIT_SHA`/`YAMA_GIT_DIRTY` build args `deploy/deploy.sh` passes, since the build context has no .git), start time, sign-in settings, the engine label, card count and card data file, Scryfall imports, the release calendar, database and WAL size, recent backups, the lab's threads and queue, Ask Claude (sidecar answering, subscription connected, own keys on, never a secret), and every watched game with a stop button.
 - **Lab runs:** imported global runs, renamed or deleted (their ratings go with them). Importing stays on the command line.
 
+### Yama's tools for Claude (MCP, 2026-10-22)
+
+Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outside clients, from one toolset; Claude may change everything, but should recommend review before editing. Design and slices: `docs/mcp-design.md`. Slice 1 (read tools) is built:
+
+- **One endpoint** (`server/src/mcp/`): `POST /mcp`, MCP's Streamable HTTP transport, stateless, plain JSON replies (no server-sent events, no session id); `initialize`, `ping`, `tools/list`, `tools/call`, notifications get 202, `GET` is 405. A browser `Origin` other than the server's own is refused. Logs carry the tool name and outcome, never arguments or results.
+- **Two credentials, no sessions:** a script key with the new `mcp` scope (Decks, Plans, Settings, "For Claude"; `plan:sync` keys can't use the tools and `mcp` keys can't sync), or a one-question token (`yama_ask_`, in memory, hashed) that `ask_route` mints for each question when `YAMA_ADVISOR_TOOLS_URL` is set and drops when the answer ends (15 minutes at most). Both resolve to the account through `auth::user_by_id`, which applies the disabled and open sign-up rules.
+- **Tools** (`mcp/tools.rs`), read-only, owner-checked like the pages: `overview`, `deck` (by name or id, with Commander checks and Game Changers), `plan_deck`, `review_queue`, `find_cards` (the search grammar, through `cards::search`, shared with the search page), `card` (Oracle text, legality, Game Changer, dated prices of the default and cheapest playable printing, the copies they own and where, rulings on request), `check_list` (validate a list without saving), `lab_runs`, `lab_run`, `precon`. The longer ones reuse `advisor::context::build`. `find_cards` and `card` count against the search rate limit.
+- **Ask Claude with tools:** the sidecar gives `query()` exactly one MCP server, `{type: "http", url, Authorization: Bearer <question token>}`, allows only `mcp__yama`, keeps `tools: []` (none of Claude Code's own tools) and `strictMcpConfig`, and allows 16 turns instead of 1. It streams a `tool` event (the tool's short name only) that the panel shows as "Looking up cards…". The instructions tell Claude to check a card with `card` before recommending it.
+- **Outside clients:** `claude mcp add --transport http yama https://yama.saget.org/mcp --header "Authorization: Bearer <key>"` (Settings shows the command once, with the key). The claude.ai and phone apps need OAuth for a connector; that's slice 3.
+
 ## 11. Risks
 
 - **Legal and IP:**

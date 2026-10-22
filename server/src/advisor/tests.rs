@@ -23,6 +23,7 @@ fn cfg(url: Option<&str>, emails: &[&str], key_secret: bool) -> AdvisorConfig {
         secret: Some(SECRET.into()),
         subscription_emails: emails.iter().map(|e| e.to_string()).collect(),
         key_secret: key_secret.then(|| KEY_SECRET.to_string()),
+        tools_url: None,
     }
 }
 

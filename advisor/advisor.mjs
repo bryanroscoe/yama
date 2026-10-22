@@ -46,9 +46,22 @@ export function validateRequest(body) {
   }
   if (messages.at(-1).role !== "user") return bad("the last message must be the user's");
   if (effort !== undefined && effort !== null && !EFFORTS.includes(effort)) return bad(`effort must be one of ${EFFORTS.join(", ")}`);
+  const { tools } = body;
+  if (tools !== undefined && tools !== null) {
+    if (typeof tools !== "object" || typeof tools.url !== "string" || !/^https?:\/\/[^\s]+$/.test(tools.url) || tools.url.length > 300) return bad("tools.url must be an http(s) URL");
+    if (typeof tools.token !== "string" || !/^yama_ask_[A-Za-z0-9]{16,200}$/.test(tools.token)) return bad("tools.token isn't a Yama question token");
+  }
   return {
     ok: true,
-    req: { mode, apiKey: mode === "api_key" ? apiKey : null, model, system, messages: messages.map((m) => ({ role: m.role, content: m.content })), effort: effort ?? null },
+    req: {
+      mode,
+      apiKey: mode === "api_key" ? apiKey : null,
+      model,
+      system,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      effort: effort ?? null,
+      tools: tools ? { url: tools.url, token: tools.token } : null,
+    },
   };
 }
 
@@ -102,21 +115,27 @@ export function childEnv({ mode, apiKey, oauthToken, home, path }) {
   return env;
 }
 
+/** Turns Claude may take when it has Yama's tools: each tool call and its answer is one. */
+export const TOOL_TURNS = 16;
+
 /**
- * Options for the Agent SDK's `query()`: Claude with no tools at all, our system prompt instead
- * of Claude Code's, no settings, skills, CLAUDE.md or MCP servers, one turn, nothing saved.
+ * Options for the Agent SDK's `query()`: our system prompt instead of Claude Code's, no settings,
+ * skills or CLAUDE.md, nothing saved, and none of Claude Code's own tools (no Bash, files or web).
+ * With `req.tools`, exactly one MCP server, Yama's tools for this question's account
+ * (server/src/mcp), and only its tools allowed; without, one turn and no tools at all.
  */
 export function queryOptions({ req, env, home, abortController }) {
+  const yama = req.tools ? { yama: { type: "http", url: req.tools.url, headers: { Authorization: `Bearer ${req.tools.token}` } } } : {};
   const options = {
     model: req.model,
     systemPrompt: req.system,
     tools: [],
-    allowedTools: [],
+    allowedTools: req.tools ? ["mcp__yama"] : [],
     settingSources: [],
-    mcpServers: {},
+    mcpServers: yama,
     strictMcpConfig: true,
     permissionMode: "dontAsk",
-    maxTurns: 1,
+    maxTurns: req.tools ? TOOL_TURNS : 1,
     persistSession: false,
     includePartialMessages: true,
     cwd: home,
@@ -152,7 +171,7 @@ export function secretMatches(given, expected) {
  * `{type:"error", message}`. `queryFn` is the SDK's `query` (a fake in tests).
  */
 export async function runAdvice({ req, queryFn, oauthToken, home, path, abortController, write }) {
-  const secrets = [oauthToken, req.apiKey];
+  const secrets = [oauthToken, req.apiKey, req.tools?.token];
   let env;
   try {
     env = childEnv({ mode: req.mode, apiKey: req.apiKey, oauthToken, home, path });
@@ -167,12 +186,21 @@ export async function runAdvice({ req, queryFn, oauthToken, home, path, abortCon
   let whole = "";
   try {
     const q = queryFn({ prompt: buildPrompt(req.messages), options: queryOptions({ req, env, home, abortController }) });
+    // Text from one turn and the next (around a tool call) is kept apart by a blank line.
+    let needBreak = false;
     for await (const msg of q) {
       if (msg.type === "stream_event") {
         const ev = msg.event;
-        if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) {
-          streamed += ev.delta.text.length;
-          write({ type: "text", text: ev.delta.text });
+        if (ev?.type === "message_start" && streamed > 0) {
+          needBreak = true;
+        } else if (ev?.type === "content_block_start" && ev.content_block?.type === "tool_use") {
+          // Only the tool's short name: never its arguments.
+          write({ type: "tool", name: String(ev.content_block.name ?? "").replace(/^mcp__yama__/, "").slice(0, 60) });
+        } else if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) {
+          const text = needBreak ? `\n\n${ev.delta.text}` : ev.delta.text;
+          needBreak = false;
+          streamed += text.length;
+          write({ type: "text", text });
         }
       } else if (msg.type === "assistant" && streamed === 0 && !msg.error) {
         whole += (msg.message?.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("");
@@ -214,6 +242,7 @@ function errorCode(msg) {
 
 function friendlyError(msg, secrets) {
   const status = msg.api_error_status;
+  if (msg.subtype === "error_max_turns") return "Claude used every step it's allowed for one question before finishing. Ask something narrower, or ask it to carry on.";
   if (status === 401 || status === 403) return "Anthropic refused the credentials. The key or subscription token may be wrong, revoked or expired.";
   if (status === 429) return "Claude's usage limit was reached. Try again later.";
   if (status && status >= 500) return "Claude is busy or unavailable right now. Try again in a minute.";

@@ -67,26 +67,26 @@ struct SearchParams {
 }
 
 #[derive(Serialize)]
-struct SearchResult {
-    total: i64,
-    page: u32,
-    page_size: u32,
-    cards: Vec<SearchCard>,
+pub struct SearchResult {
+    pub total: i64,
+    pub page: u32,
+    pub page_size: u32,
+    pub cards: Vec<SearchCard>,
 }
 
 /// A search hit, with what the results grid shows under each card.
 #[derive(Serialize)]
-struct SearchCard {
+pub struct SearchCard {
     #[serde(flatten)]
-    card: Card,
+    pub card: Card,
     /// Market price of the default printing from the latest snapshot: regular, else foil, else
     /// etched. `None` means Scryfall had no price; it is never 0 for "unknown".
-    usd: Option<f64>,
-    price_date: Option<String>,
+    pub usd: Option<f64>,
+    pub price_date: Option<String>,
     /// Copies of this card (any printing) in the caller's collection.
-    owned: i64,
+    pub owned: i64,
     /// The one binder, box or deck holding every copy, when they're all in the same place.
-    owned_in: Option<String>,
+    pub owned_in: Option<String>,
 }
 
 const PAGE_SIZE: u32 = 60;
@@ -103,26 +103,32 @@ async fn search_cards(
     Query(p): Query<SearchParams>,
 ) -> AppResult<Json<SearchResult>> {
     st.limits.search.check_user(&user)?;
-    if p.q.chars().count() > MAX_QUERY_CHARS {
+    Ok(Json(search(&st.pool, &user.id, &p.q, p.order.as_deref(), p.page.unwrap_or(1)).await?))
+}
+
+/// One page of a card search for `owner` (prices and their own copies included). Shared by the
+/// search page and Claude's `find_cards` tool (`mcp/`).
+pub async fn search(pool: &SqlitePool, owner: &str, query: &str, order: Option<&str>, page: u32) -> AppResult<SearchResult> {
+    if query.chars().count() > MAX_QUERY_CHARS {
         return Err(AppError::bad(format!("a search can be at most {MAX_QUERY_CHARS} characters")));
     }
-    let compiled = search::compile(&p.q).map_err(AppError::BadRequest)?;
+    let compiled = search::compile(query).map_err(AppError::BadRequest)?;
     // Before the flags are loaded every card's flag is NULL, so is:gamechanger would quietly
     // find nothing. Say why instead.
-    if compiled.uses_game_changer && import::game_changers_date(&st.pool).await?.is_none() {
+    if compiled.uses_game_changer && import::game_changers_date(pool).await?.is_none() {
         return Err(AppError::Conflict(GAME_CHANGERS_NOT_LOADED.into()));
     }
     let mut filter = compiled.sql;
-    if !search::wants_extras(&p.q) {
+    if !search::wants_extras(query) {
         filter = format!("({filter}) AND IFNULL(cards.layout, '') NOT IN {EXTRA_LAYOUTS}");
     }
-    let order = match p.order.as_deref() {
+    let order = match order {
         Some("mv" | "cmc") => "cards.cmc, cards.name",
         Some("edhrec") => "cards.edhrec_rank IS NULL, cards.edhrec_rank, cards.name",
         Some("color") => "length(cards.colors), cards.colors, cards.name",
         _ => "cards.name",
     };
-    let page = p.page.unwrap_or(1).max(1);
+    let page = page.max(1);
 
     let count_sql = format!("SELECT COUNT(*) FROM cards WHERE {filter}");
     let mut count_q = sqlx::query_scalar::<_, i64>(AssertSqlSafe(count_sql));
@@ -132,7 +138,7 @@ async fn search_cards(
             search::Bind::Num(n) => count_q.bind(n),
         };
     }
-    let total = count_q.fetch_one(&st.pool).await?;
+    let total = count_q.fetch_one(pool).await?;
 
     let sql = format!("SELECT {CARD_COLUMNS} FROM cards WHERE {filter} ORDER BY {order} LIMIT {PAGE_SIZE} OFFSET ?");
     let mut q = sqlx::query_as::<_, Card>(AssertSqlSafe(sql));
@@ -142,9 +148,9 @@ async fn search_cards(
             search::Bind::Num(n) => q.bind(n),
         };
     }
-    let cards = q.bind(((page - 1) * PAGE_SIZE) as i64).fetch_all(&st.pool).await?;
-    let cards = with_price_and_ownership(&st.pool, &user.id, cards).await?;
-    Ok(Json(SearchResult { total, page, page_size: PAGE_SIZE, cards }))
+    let cards = q.bind(((page - 1) * PAGE_SIZE) as i64).fetch_all(pool).await?;
+    let cards = with_price_and_ownership(pool, owner, cards).await?;
+    Ok(SearchResult { total, page, page_size: PAGE_SIZE, cards })
 }
 
 /// Adds each card's default-printing price and how many copies the user owns, in two queries.

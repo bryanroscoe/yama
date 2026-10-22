@@ -108,9 +108,9 @@ pub fn parse_list(text: &str, first_is_commander: bool) -> Vec<ParsedLine> {
 }
 
 #[derive(Serialize)]
-struct ParseResult {
-    cards: Vec<DeckCard>,
-    unknown: Vec<String>,
+pub(crate) struct ParseResult {
+    pub(crate) cards: Vec<DeckCard>,
+    pub(crate) unknown: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -124,7 +124,7 @@ fn yes() -> bool {
     true
 }
 
-async fn resolve(pool: &SqlitePool, lines: Vec<ParsedLine>) -> AppResult<ParseResult> {
+pub(crate) async fn resolve(pool: &SqlitePool, lines: Vec<ParsedLine>) -> AppResult<ParseResult> {
     let names: Vec<String> = lines.iter().map(|l| l.name.clone()).collect();
     let ids = crate::cards::resolve_names(pool, &names).await?;
     let mut cards: Vec<DeckCard> = Vec::new();

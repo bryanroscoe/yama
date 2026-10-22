@@ -13,6 +13,7 @@ mod game_export;
 mod games;
 mod lab;
 mod limits;
+mod mcp;
 mod play;
 mod plan;
 mod playgroups;
