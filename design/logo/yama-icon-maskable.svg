@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Yama">
+  <rect width="100" height="100" fill="#0b0c0e"/>
+  <g transform="translate(10 10) scale(0.8)">
+    <path d="M46 76L66 40L86 76H74L66 61.6L58 76Z" fill="#a9adb3"/>
+    <path d="M14 76L38 24L62 76H49L38 52.2L27 76Z" fill="#f2efe8" stroke="#0b0c0e" stroke-width="4" paint-order="stroke"/>
+  </g>
+</svg>
