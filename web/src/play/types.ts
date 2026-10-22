@@ -42,6 +42,8 @@ export interface OptionView {
   index: number;
   label: string;
   object: number | null;
+  /** A target choice: exactly which card or player it targets (newer servers). */
+  target?: { kind: "object"; id: number } | { kind: "player"; seat: number };
 }
 
 /** An attack target: a player by seat, or a planeswalker or battle by object id. */

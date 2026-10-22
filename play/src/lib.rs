@@ -380,6 +380,33 @@ pub struct OptionView {
     pub label: String,
     /// The card this option is about, so the board can offer it when you tap that card.
     pub object: Option<u64>,
+    /// For a target choice, exactly which card or player it targets, so the board can pick the
+    /// right one of several cards with the same name (clicking or dragging onto it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<TargetView>,
+}
+
+/// A target on an option: a card by object id, or a player by seat.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum TargetView {
+    Object { id: u64 },
+    Player { seat: u8 },
+}
+
+impl TargetView {
+    /// The one target an option picks, if it's a target choice with a single target.
+    fn of(action: &GameAction) -> Option<TargetView> {
+        let t = match action {
+            GameAction::ChooseTarget { target: Some(t) } => t,
+            GameAction::SelectTargets { targets } if targets.len() == 1 => &targets[0],
+            _ => return None,
+        };
+        Some(match t {
+            TargetRef::Object(id) => TargetView::Object { id: id.0 },
+            TargetRef::Player(p) => TargetView::Player { seat: p.0 },
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -450,7 +477,7 @@ impl Match {
         let contract = AiDecisionContract::issue(&self.state, me);
         // Labels come from what this seat may see, never the full state.
         let vs = filter_state_for_viewer(&self.state, me);
-        let options = contract
+        let mut options: Vec<OptionView> = contract
             .candidates
             .iter()
             .enumerate()
@@ -458,10 +485,31 @@ impl Match {
                 index,
                 label: self.label(&vs, &c.action),
                 object: c.action.source_object().map(|o| o.0),
+                target: TargetView::of(&c.action),
             })
             .collect();
+        self.tell_targets_apart(&vs, me, &mut options);
         let (attack, block) = Self::combat_choices(&vs, me);
         Some(Decision { revision: self.revision, prompt: self.prompt(&vs), options, attack, block })
+    }
+
+    /// Two target options that would read the same ("Target Savannah Lions") say whose card each
+    /// is: "Target Savannah Lions (yours)", "Target Savannah Lions (Sam's)".
+    fn tell_targets_apart(&self, vs: &GameState, me: PlayerId, options: &mut [OptionView]) {
+        let mut seen: HashMap<String, usize> = HashMap::new();
+        for o in options.iter().filter(|o| matches!(o.target, Some(TargetView::Object { .. }))) {
+            *seen.entry(o.label.clone()).or_default() += 1;
+        }
+        for o in options.iter_mut() {
+            let Some(TargetView::Object { id }) = o.target else { continue };
+            if seen.get(&o.label).copied().unwrap_or(0) < 2 {
+                continue;
+            }
+            if let Some(obj) = vs.objects.get(&ObjectId(id)) {
+                let whose = if obj.controller == me { "yours".to_string() } else { format!("{}'s", self.seat_name(obj.controller)) };
+                o.label = format!("{} ({whose})", o.label);
+            }
+        }
     }
 
     /// The engine's own lists of who may attack (and whom) or block (and what), when `me` is
@@ -1077,6 +1125,21 @@ mod tests {
         assert_eq!(AttackAt::from_engine(&pw.to_engine()), pw);
         let list: Vec<(u64, AttackAt)> = serde_json::from_str(r#"[[7,{"kind":"battle","id":9}]]"#).unwrap();
         assert_eq!(list, vec![(7, AttackAt::Battle { id: 9 })]);
+    }
+
+    #[test]
+    fn target_options_say_exactly_what_they_target() {
+        let card = GameAction::ChooseTarget { target: Some(TargetRef::Object(ObjectId(77))) };
+        assert_eq!(TargetView::of(&card), Some(TargetView::Object { id: 77 }));
+        let player = GameAction::SelectTargets { targets: vec![TargetRef::Player(PlayerId(2))] };
+        assert_eq!(TargetView::of(&player), Some(TargetView::Player { seat: 2 }));
+        let two = GameAction::SelectTargets { targets: vec![TargetRef::Player(PlayerId(1)), TargetRef::Player(PlayerId(2))] };
+        assert_eq!(TargetView::of(&two), None);
+        assert_eq!(TargetView::of(&GameAction::PassPriority), None);
+        let o = OptionView { index: 3, label: "Target Bear".into(), object: None, target: TargetView::of(&card) };
+        assert_eq!(serde_json::to_value(&o).unwrap()["target"], serde_json::json!({"kind": "object", "id": 77}));
+        let pass = OptionView { index: 0, label: "Pass".into(), object: None, target: None };
+        assert!(serde_json::to_value(&pass).unwrap().get("target").is_none());
     }
 
     #[test]

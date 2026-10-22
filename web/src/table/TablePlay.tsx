@@ -286,8 +286,9 @@ export function Panel(props: {
           <span aria-hidden="true">+</span>
         </Hold>
         <div ref={lifeRef} className={`life num${pendingAbove ? " pending-above" : ""}`} aria-live="polite" data-digits={digits > 3 ? "4" : String(digits)}>
-          {p.life}
-          {pending !== null && <span className="pending">{pending > 0 ? `+${pending}` : `−${-pending}`}</span>}
+          {/* Keyed by the total, so each change replays a short pop (CSS, off for reduced motion). */}
+          <span key={p.life} className="life-value">{p.life}</span>
+          {pending !== null && <span key={pending > 0 ? "up" : "down"} className="pending">{pending > 0 ? `+${pending}` : `−${-pending}`}</span>}
         </div>
         <div className="panel-top">
           <div className="badges">
@@ -299,7 +300,7 @@ export function Panel(props: {
           {damage.length > 0 && (
             <div className="cmdr-pills">
               {damage.map((d) => (
-                <span key={d.key} className="badge cmdr-pill" aria-label={`${d.amount} commander damage from ${d.name}`} title={`From ${d.name}`}>
+                <span key={`${d.key}:${d.amount}`} className="badge cmdr-pill" aria-label={`${d.amount} commander damage from ${d.name}`} title={`From ${d.name}`}>
                   {d.art ? <img src={d.art} alt="" /> : <span className="cmdr-dot" style={{ background: d.fill }} />}
                   <span aria-hidden="true">{d.amount}</span>
                 </span>
