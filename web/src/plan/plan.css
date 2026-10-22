@@ -1691,3 +1691,6 @@
   font-family: var(--body);
   font-weight: 400;
 }
+.review-stack .card-zoom-open {
+  width: 100%;
+}
