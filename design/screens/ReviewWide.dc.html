@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review proposals</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: var(--ground); display: flex; flex-direction: column">
+  <header style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px clamp(20px, 3vw, 40px); border-bottom: 1px solid var(--line); flex-wrap: wrap">
+    <div style="display: flex; align-items: center; gap: 14px">
+      <a href="PlanDeckWide.dc.html" aria-label="Back to plans" style="width: 44px; height: 44px; border-radius: 50%; background: var(--surface); display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+      <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1">Review</h1>
+      <span style="display: flex; align-items: center; gap: 8px; padding: 4px 14px 4px 4px; border-radius: 999px; background: var(--surface); font-weight: 700"><img src="/_blob/d9cb8751f865e022f14e97f4650e7ffb" alt="" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover">Multiverse Reforged, {{left}} of 30 left</span>
+    </div>
+    <span role="status" style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--dim)"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--good)"></span>Picked up by commander-decks, 2 min ago</span>
+  </header>
+
+  <div style="flex: 1; display: flex; flex-wrap: wrap; min-height: 0">
+    <nav aria-label="Proposals" style="flex: 1 1 260px; max-width: 320px; border-right: 1px solid var(--line); padding: 14px; display: flex; flex-direction: column; gap: 6px">
+      <label style="display: block"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%)">Search proposals</span><input type="search" placeholder="Search" style="width: 100%; min-height: 42px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 15px"></label>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0">
+        <span style="padding: 4px 10px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700">Not decided</span>
+        <span style="padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--dim)">Want</span>
+        <span style="padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--dim)">Unsure</span>
+        <span style="padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--dim)">All</span>
+      </div>
+      <sc-for list="{{queue}}" as="q" hint-placeholder-count="6">
+        <button aria-current="{{q.current}}" style="display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 52px; padding: 4px 10px 4px 4px; border-radius: 12px; border: none; background: {{q.bg}}; text-align: left">
+          <img src="{{q.art}}" alt="" style="width: 48px; height: 36px; border-radius: 6px; object-fit: cover">
+          <span style="display: flex; flex-direction: column; line-height: 1.2; min-width: 0"><span style="font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{q.in}}</span><span style="font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">for {{q.out}}</span></span>
+          <span style="font-size: 12px; font-weight: 700; color: {{q.ink}}">{{q.state}}</span>
+        </button>
+      </sc-for>
+    </nav>
+
+    <section aria-label="Agent of Treachery for Venser, Fervent Forger" style="flex: 999 1 640px; min-width: 0; padding: 24px clamp(20px, 3vw, 40px); display: flex; gap: 28px; flex-wrap: wrap; align-items: start">
+      <div style="flex: 0 1 380px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; gap: 14px; align-items: start">
+          <img src="/_blob/55daf9f77cffa21f0c01041497fec8ca" alt="Agent of Treachery" style="flex: 0 1 240px; min-width: 0; border-radius: 4.75% / 3.4%; box-shadow: 0 24px 50px rgb(0 0 0 / 0.55)">
+          <span style="flex: 0 1 130px; margin-top: 40px; display: flex; flex-direction: column; align-items: center; gap: 4px">
+            <img src="/_blob/a68bb9faf5fcb06053a10b272013f54a" alt="Venser, Fervent Forger" style="width: 100%; border-radius: 4.75% / 3.4%; box-shadow: 0 16px 30px rgb(0 0 0 / 0.6)">
+            <span style="font-size: 13px; color: var(--dim)">Cut</span>
+          </span>
+        </div>
+        <span style="font-size: 12px; color: var(--dim); margin-top: 8px">Card images from Scryfall. ™ &amp; © Wizards of the Coast.</span>
+      </div>
+
+      <div style="flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 48px; line-height: 0.95">Agent of Treachery</h2>
+          <span style="color: var(--dim)">for Venser, Fervent Forger. Proposal 1 of 30.</span>
+        </div>
+        <p style="margin: 0; line-height: 1.5"><b>Why:</b> every polymorph effect puts the next creature in your library onto the battlefield, so the deck wants big creatures. This one steals the best permanent on the table.</p>
+        <p style="margin: 0; line-height: 1.5; color: var(--dim)"><b style="color: var(--text)">Why cut:</b> Venser is in 15.9% of Jace decks on EDHREC, one of the least-played stock creatures.</p>
+        <div style="padding: 14px; border-radius: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; font-size: 14px">
+          <span style="display: flex; justify-content: space-between"><span>Pat's Games, borderless, near mint, 4 in stock</span><b>$3.50</b></span>
+          <span style="display: flex; justify-content: space-between; color: var(--dim)"><span>Checked 18 Oct 2026</span><a href="Buy.dc.html" style="color: var(--dim)">Store page</a></span>
+          <span style="display: flex; justify-content: space-between; color: var(--dim); border-top: 1px solid var(--line); padding-top: 8px"><span>Market, TCGplayer via Scryfall, 18 Oct</span><span>$3.44</span></span>
+        </div>
+        <div role="group" aria-label="Your answer" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+          <sc-for list="{{answers}}" as="a" hint-placeholder-count="3"><button onClick="{{a.pick}}" aria-pressed="{{a.on}}" style="min-height: 54px; border-radius: 999px; border: 1px solid {{a.border}}; background: {{a.bg}}; color: {{a.ink}}; font-weight: 700; font-size: 17px">{{a.label}} <span style="font-weight: 400; font-size: 13px; opacity: 0.7">{{a.key}}</span></button></sc-for>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; color: var(--dim)">Cut something else<select style="min-height: 44px; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-size: 15px; font-weight: 400"><option>Venser, Fervent Forger</option></select></label>
+          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; color: var(--dim)">Note<input placeholder="For the planner" style="min-height: 44px; padding: 6px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 15px; font-weight: 400"></label>
+        </div>
+        <p style="margin: 0; font-size: 13px; color: var(--dim)">Keys: W want, U unsure, N no, J and K to move between proposals.</p>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ans: null };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const colors = { Want: '#8fd3a8', Unsure: '#f0b45a', No: '#f07a62' };
+    const keys = { Want: 'W', Unsure: 'U', No: 'N' };
+    const q = (inn, out, art, state, ink, current) => ({ in: inn, out, art: A(art), state, ink, current: current ? 'true' : 'false', bg: current ? '#1e2125' : 'transparent' });
+    const mine = this.state.ans;
+    return {
+      left: 30 - (mine ? 1 : 0) - 1,
+      answers: ['Want', 'Unsure', 'No'].map((label) => {
+        const on = mine === label;
+        return { label, key: keys[label], on, bg: on ? colors[label] : 'transparent', ink: on ? '#0b0c0e' : '#f2efe8', border: on ? colors[label] : '#2a2e33', pick: () => this.setState({ ans: on ? null : label }) };
+      }),
+      queue: [
+        q('Agent of Treachery', 'Venser, Fervent Forger', '987c210df26330378843a33fab51ef1a', mine || 'Open', mine ? colors[mine] : '#a9adb3', true),
+        q('Ashen Rider', 'Jhoira, Weatherlight Corsair', 'ec89776a1116a42d310c1910c35585c9', 'Want', '#8fd3a8'),
+        q('Chaos Warp', 'Sunfall', '6759048df4816cbf74dda632d894a6a9', 'Open', '#a9adb3'),
+        q('Counterspell', 'Rakdos Signet', '9a6ae3977b20b21e1ee40d23e0bc0b56', 'Open', '#a9adb3'),
+        q('Polymorph', 'Fact or Fiction', '300019146fb8931adcce4f0a5a2aee1b', 'Open', '#a9adb3'),
+        q('Deification', 'Teferi’s Reproach', '7ecbc1d3eca2830124ade9ebbc1a6bfe', 'Open', '#a9adb3'),
+        q('Grave Titan', 'Dack Fayden', '1dccd462a02a0872cc11a4d8518c111f', 'Open', '#a9adb3')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

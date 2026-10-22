@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Life counter</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#000;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;user-select:none}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; background: #000; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 8px; overflow: hidden">
+  <sc-for list="{{players}}" as="p" hint-placeholder-count="4">
+    <section aria-label="{{p.label}}" style="grid-area: {{p.area}}; position: relative; overflow: hidden; border-radius: 20px; background: var(--surface); box-shadow: {{p.ring}}">
+      <div style="position: absolute; top: 50%; left: 50%; width: 410px; height: 183px; transform: translate(-50%, -50%) rotate({{p.rot}}deg); color: #ffffff">
+        <img src="{{p.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+        <div aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(70% 85% at 50% 50%, rgb(0 0 0 / 0.55) 0%, rgb(0 0 0 / 0.25) 70%, rgb(0 0 0 / 0.5) 100%)"></div>
+        <button onClick="{{p.minus}}" aria-label="{{p.name}} loses 1 life" style="position: absolute; left: 0; top: 0; bottom: 0; width: 50%; border: none; background: transparent; color: inherit; display: flex; align-items: center; justify-content: flex-start; padding: 0 18px; font-family: var(--display); font-weight: 500; font-size: 40px; cursor: pointer"><span aria-hidden="true" style="opacity: 0.6">−</span></button>
+        <button onClick="{{p.plus}}" aria-label="{{p.name}} gains 1 life" style="position: absolute; right: 0; top: 0; bottom: 0; width: 50%; border: none; background: transparent; color: inherit; display: flex; align-items: center; justify-content: flex-end; padding: 0 18px; font-family: var(--display); font-weight: 500; font-size: 40px; cursor: pointer"><span aria-hidden="true" style="opacity: 0.6">+</span></button>
+        <div style="position: absolute; left: 12px; right: 12px; top: 12px; display: flex; justify-content: space-between; gap: 6px; pointer-events: none">
+          <span style="display: flex; gap: 6px">
+            <sc-for list="{{p.badges}}" as="b" hint-placeholder-count="1"><span style="padding: 3px 10px; border-radius: 999px; background: rgb(0 0 0 / 0.6); font-size: 13px; font-weight: 700">{{b}}</span></sc-for>
+          </span>
+          <sc-if value="{{p.hasDmg}}" hint-placeholder-val="{{false}}">
+            <span style="display: flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border-radius: 999px; background: rgb(0 0 0 / 0.6); font-size: 13px; font-weight: 700"><img src="{{p.dmgArt}}" alt="" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover">{{p.dmg}}</span>
+          </sc-if>
+        </div>
+        <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none">
+          <span aria-live="polite" style="position: relative; font-family: var(--display); font-weight: 700; font-size: 132px; line-height: 0.8; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; text-shadow: 0 2px 18px rgb(0 0 0 / 0.55)">{{p.life}}<sc-if value="{{p.hasPending}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 100%; top: 0.05em; margin-left: 6px; font-size: 32px; font-weight: 700; padding: 0 8px; border-radius: 999px; background: rgb(0 0 0 / 0.6); letter-spacing: 0">{{p.pending}}</span></sc-if></span>
+        </div>
+        <a href="LifePlayer.dc.html" style="position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 1; min-height: 36px; padding: 2px 14px; border-radius: 999px; background: rgb(0 0 0 / 0.5); color: #ffffff; text-decoration: none; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; white-space: nowrap">
+          {{p.name}}
+          <span aria-hidden="true" style="display: flex; gap: 3px"><sc-for list="{{p.colors}}" as="c" hint-placeholder-count="3"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{c}}; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4)"></span></sc-for></span>
+        </a>
+        <span style="position: absolute; right: 12px; bottom: 6px; font-size: 9px; color: rgb(255 255 255 / 0.7); pointer-events: none">Art: {{p.artist}}</span>
+      </div>
+    </section>
+  </sc-for>
+  <a href="LifeMenu.dc.html" aria-label="Turn 7. Open table menu" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60px; height: 60px; border-radius: 50%; border: 2px solid var(--text); background: var(--ground); color: var(--text); text-decoration: none; display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1; box-shadow: 0 0 0 6px #000">7</a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { lives: [40, 31, 27, 36], pending: { seat: 1, delta: -3 } };
+  }
+  tap(seat, d) {
+    this.setState((s) => {
+      const lives = s.lives.slice();
+      lives[seat] += d;
+      const delta = s.pending && s.pending.seat === seat ? s.pending.delta + d : d;
+      return { lives, pending: { seat, delta } };
+    });
+    if (this._t) clearTimeout(this._t);
+    this._t = setTimeout(() => this.setState({ pending: null }), 1800);
+  }
+  componentWillUnmount() {
+    if (this._t) clearTimeout(this._t);
+  }
+  renderVals() {
+    const W = '#F1E4BC', U = '#2C78C4', B = '#4B4049', R = '#D4472E', G = '#2F8752';
+    const art = { eowyn: '/_blob/c19490e7c081fb35071c85147c01bed4', quint: '/_blob/042e4cb280a5a896fb249a47c8f4a8a3', fant: '/_blob/383d04a073378ede76b3234038a68757', terra: '/_blob/7678674b257c9f2d67041ed3a4ee2ab4' };
+    const seats = [
+      { name: 'Bryan', art: art.eowyn, artist: 'Craig Elliott', colors: [W, U, R], rot: 90, area: '2 / 1', badges: ['Monarch'], hasDmg: false, dmg: '', dmgArt: '' },
+      { name: 'Sam', art: art.quint, artist: 'Darren Tan', colors: [W, R], rot: 90, area: '1 / 1', badges: ['Tax +2'], hasDmg: false, dmg: '', dmgArt: '' },
+      { name: 'Jules', art: art.fant, artist: 'Gintas Galvanauskas', colors: [W, U, R, G], rot: 270, area: '1 / 2', badges: [], hasDmg: true, dmg: '6', dmgArt: art.eowyn },
+      { name: 'Priya', art: art.terra, artist: 'Marta Nael', colors: [W, B, R], rot: 270, area: '2 / 2', badges: ['2 poison'], hasDmg: false, dmg: '', dmgArt: '' }
+    ];
+    const pending = this.state.pending;
+    return {
+      players: seats.map((p, i) => {
+        const life = this.state.lives[i];
+        const has = !!pending && pending.seat === i && pending.delta !== 0;
+        return {
+          ...p,
+          life,
+          label: p.name + ', ' + life + ' life',
+          ring: i === 0 ? 'inset 0 0 0 3px #f2efe8' : 'none',
+          hasPending: has,
+          pending: has ? (pending.delta > 0 ? '+' + pending.delta : '−' + (-pending.delta)) : '',
+          minus: () => this.tap(i, -1),
+          plus: () => this.tap(i, 1)
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

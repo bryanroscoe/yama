@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Online board on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: var(--ground); overflow: hidden">
+  <nav aria-label="Opponents" style="display: flex; gap: 6px; padding: 8px 8px 0">
+    <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+      <button aria-pressed="{{t.on}}" aria-label="{{t.label}}" style="flex: 1; position: relative; height: 56px; padding: 0; border: none; border-radius: 14px; overflow: hidden; box-shadow: {{t.ring}}">
+        <img src="{{t.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: rgb(11 12 14 / {{t.wash}})"></span>
+        <span style="position: absolute; inset: 0; padding: 4px 8px; display: flex; align-items: center; justify-content: space-between; gap: 4px">
+          <span style="font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span>
+          <b style="font-family: var(--display); font-weight: 700; font-size: 28px; color: #fff; font-variant-numeric: tabular-nums">{{t.life}}</b>
+        </span>
+        <sc-if value="{{t.deciding}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 8px; bottom: 3px; font-size: 10px; font-weight: 700; color: var(--warn)">Deciding</span></sc-if>
+      </button>
+    </sc-for>
+  </nav>
+
+  <section aria-label="Sam's board" style="margin: 8px 8px 0; border-radius: 16px; background: var(--surface); padding: 10px; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--dim)"><span>Sam, Terra, Herald of Hope. Hand 6, graveyard 3</span><span>3 to you</span></div>
+    <div style="display: flex; gap: 6px">
+      <span style="display: flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: var(--raised); font-size: 12px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #4B4049; box-shadow: 0 0 0 1px #6c6f74"></span>3 <span style="width: 8px; height: 8px; border-radius: 50%; background: #F1E4BC"></span>2 <span style="width: 8px; height: 8px; border-radius: 50%; background: #D4472E"></span>2 untapped</span>
+      <span style="padding: 2px 8px; border-radius: 999px; background: var(--raised); font-size: 12px">Arcane Signet</span>
+    </div>
+    <div style="display: flex; gap: 8px">
+      <span style="position: relative; width: 72px; height: 72px; border-radius: 12px; overflow: hidden; box-shadow: inset 0 0 0 2px #f2efe8"><img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="Terra, Herald of Hope" style="width: 100%; height: 100%; object-fit: cover"><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700">Terra</span><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">3/3</span></span>
+      <span style="position: relative; width: 72px; height: 72px; border-radius: 12px; overflow: hidden"><img src="/_blob/1dccd462a02a0872cc11a4d8518c111f" alt="Grave Titan" style="width: 100%; height: 100%; object-fit: cover"><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700">Grave Titan</span><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">6/6</span></span>
+    </div>
+  </section>
+
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px">
+    <button style="min-height: 36px; padding: 0 12px; border-radius: 999px; border: none; background: var(--surface); font-size: 13px; font-weight: 700">Your turn 9, attackers</button>
+    <span style="display: flex; align-items: center; gap: 6px; font-size: 13px"><img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover">2 attacking Sam</span>
+    <button style="min-height: 36px; padding: 0 12px; border-radius: 999px; border: none; background: var(--surface); font-size: 13px; font-weight: 700">Stack 0</button>
+  </div>
+
+  <section aria-label="Your board" style="flex: 1; min-height: 0; margin: 0 8px; border-radius: 16px; background: var(--surface); padding: 10px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; gap: 8px; overflow-x: auto; padding-top: 4px">
+      <sc-for list="{{mine}}" as="t" hint-placeholder-count="5">
+        <button aria-label="{{t.label}}" style="flex: 0 0 auto; position: relative; width: 78px; height: 78px; padding: 0; border: none; border-radius: 12px; overflow: hidden; background: var(--raised); box-shadow: {{t.ring}}">
+          <sc-if value="{{t.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{t.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover"></sc-if>
+          <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span>
+          <span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">{{t.pt}}</span>
+          <sc-if value="{{t.hasBadge}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: {{t.badgeBg}}; color: var(--ground); font-size: 10px; font-weight: 700">{{t.badge}}</span></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap">
+      <span style="display: flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; background: var(--raised); font-size: 13px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #F1E4BC"></span>4 <span style="width: 8px; height: 8px; border-radius: 50%; background: #2C78C4"></span>2 <span style="width: 8px; height: 8px; border-radius: 50%; background: #D4472E"></span>1 untapped, 8 lands</span>
+      <span style="padding: 3px 10px; border-radius: 999px; background: var(--raised); font-size: 13px">Sol Ring, Arcane Signet, Anointed Procession</span>
+    </div>
+  </section>
+
+  <div style="margin-top: 8px; background: var(--surface); border-radius: 22px 22px 0 0; padding: 8px 10px 14px; display: flex; flex-direction: column; gap: 8px">
+    <button aria-label="Open your hand, 5 cards" style="align-self: center; display: flex; align-items: end; height: 54px; padding: 0 0 0 30px; border: none; background: transparent">
+      <sc-for list="{{hand}}" as="h" hint-placeholder-count="5"><img src="{{h.img}}" alt="" style="width: 48px; margin-left: -26px; border-radius: 3px; box-shadow: {{h.glow}}"></sc-for>
+      <span style="margin-left: 10px; font-size: 13px; font-weight: 700; color: var(--dim)">Hand 5</span>
+    </button>
+    <div style="display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.3fr); gap: 8px; align-items: center">
+      <span style="display: flex; align-items: center; gap: 6px">
+        <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px var(--text)">
+        <b style="font-family: var(--display); font-weight: 700; font-size: 34px; font-variant-numeric: tabular-nums">38</b>
+      </span>
+      <button style="min-height: 50px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; font-size: 14px">Attack with all</button>
+      <button style="min-height: 50px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">Attack (2)</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const ring = '0 0 0 2px #8fd3a8';
+    return {
+      tabs: [
+        { name: 'Computer', life: 31, art: '/_blob/042e4cb280a5a896fb249a47c8f4a8a3', on: false, wash: 0.6, ring: 'none', deciding: false, label: 'Computer, medium, 31 life' },
+        { name: 'Sam', life: 24, art: '/_blob/7678674b257c9f2d67041ed3a4ee2ab4', on: true, wash: 0.35, ring: '0 0 0 2px #f2efe8', deciding: true, label: 'Sam, 24 life, showing' },
+        { name: 'Computer', life: 36, art: '/_blob/81164bc65e84b270bffcfa1e0c331002', on: false, wash: 0.6, ring: 'none', deciding: false, label: 'Computer, hard, 36 life' }
+      ],
+      mine: [
+        { name: 'Éowyn', label: 'Éowyn, Shieldmaiden, attacking', art: '/_blob/c19490e7c081fb35071c85147c01bed4', hasArt: true, pt: '5/4', ring: '0 0 0 2px #f2efe8, 0 0 0 4px #f07a62', hasBadge: true, badge: 'Attacking', badgeBg: '#f07a62' },
+        { name: 'Adeline', label: 'Adeline, attacking', art: '/_blob/93443cca264c2d66fac605d8e8311296', hasArt: true, pt: '7/4', ring: '0 0 0 3px #f07a62', hasBadge: true, badge: 'Attacking', badgeBg: '#f07a62' },
+        { name: 'Aragorn', label: 'Aragorn, can attack', art: '/_blob/c2a67f4f687b666fcd3c4d8cb3b0bf63', hasArt: true, pt: '4/4', ring, hasBadge: false, badge: '', badgeBg: '' },
+        { name: 'Faramir', label: 'Faramir, can attack', art: '/_blob/62e4a477ddbf5628d609a86bc8d12c3a', hasArt: true, pt: '2/2', ring, hasBadge: false, badge: '', badgeBg: '' },
+        { name: 'Soldier ×3', label: 'Three Human Soldier tokens', art: '', hasArt: false, pt: '1/1', ring, hasBadge: false, badge: '', badgeBg: '' }
+      ],
+      hand: [
+        { img: '/_blob/2d80527eb5c346c24b35ad5381fe99a6', glow: '0 0 0 2px #8fd3a8' },
+        { img: '/_blob/2b7584e35f9b697ba24e7b43dae7b869', glow: 'none' },
+        { img: '/_blob/4e274a0a80fefd3f3346bd10c98c1349', glow: '0 0 0 2px #8fd3a8' },
+        { img: '/_blob/d2df35f8a45cc092aadf237d7374fc27', glow: 'none' },
+        { img: '/_blob/e25b0374571373f1ab95c0e88cd1758e', glow: 'none' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

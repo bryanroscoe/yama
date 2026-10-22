@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Playgroup on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1300px; position: relative; background: var(--ground); padding: 20px 16px 96px; display: flex; flex-direction: column; gap: 20px">
+  <div style="display: flex; align-items: end; justify-content: space-between; gap: 10px">
+    <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 0.9">Thursday night</h1>
+    <span style="display: flex; flex-direction: column; align-items: end; line-height: 1"><span style="font-size: 11px; color: var(--dim)">Join code</span><b style="font-family: var(--display); font-weight: 800; font-size: 26px; letter-spacing: 0.12em">QJ7M</b></span>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+    <span style="padding: 10px; border-radius: 14px; background: var(--surface); display: flex; flex-direction: column; line-height: 1.1"><b style="font-family: var(--display); font-weight: 700; font-size: 30px">42</b><span style="font-size: 12px; color: var(--dim)">games</span></span>
+    <span style="padding: 10px; border-radius: 14px; background: var(--surface); display: flex; flex-direction: column; line-height: 1.1"><b style="font-family: var(--display); font-weight: 700; font-size: 30px">11.4</b><span style="font-size: 12px; color: var(--dim)">turns, average</span></span>
+    <span style="padding: 10px; border-radius: 14px; background: var(--surface); display: flex; flex-direction: column; line-height: 1.1"><b style="font-family: var(--display); font-weight: 700; font-size: 30px">94</b><span style="font-size: 12px; color: var(--dim)">minutes, average</span></span>
+  </div>
+
+  <section aria-labelledby="pl" style="display: flex; flex-direction: column; gap: 8px">
+    <h2 id="pl" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 28px">Players</h2>
+    <sc-for list="{{players}}" as="p" hint-placeholder-count="5">
+      <div style="display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 12px 8px 8px; border-radius: 16px; background: var(--surface); opacity: {{p.fade}}">
+        <span style="width: 48px; height: 48px; border-radius: 50%; overflow: hidden; background: var(--raised)"><sc-if value="{{p.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{p.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if></span>
+        <span style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+          <span style="display: flex; justify-content: space-between; font-size: 14px"><b>{{p.name}}</b><span style="color: var(--dim)">{{p.record}}</span></span>
+          <span role="img" aria-label="{{p.rateLabel}}" style="position: relative; height: 6px; border-radius: 999px; background: var(--raised)"><span style="position: absolute; left: 0; top: 0; bottom: 0; width: {{p.bar}}; border-radius: 999px; background: var(--text)"></span><span style="position: absolute; left: 41.6%; top: -3px; bottom: -3px; width: 2px; background: var(--warn)"></span></span>
+        </span>
+        <b style="font-family: var(--display); font-weight: 700; font-size: 24px; min-width: 52px; text-align: right">{{p.rate}}</b>
+      </div>
+    </sc-for>
+    <p style="margin: 0; font-size: 12px; color: var(--dim)">The line marks 25%. Under 10 games is too few to say.</p>
+  </section>
+
+  <section aria-labelledby="rv" style="display: flex; flex-direction: column; gap: 8px">
+    <h2 id="rv" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 28px">Your rivalries</h2>
+    <div style="display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 12px 10px 10px; border-radius: 16px; background: var(--surface)"><img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover"><span style="display: flex; flex-direction: column; line-height: 1.25"><b>Priya beats you most</b><span style="font-size: 13px; color: var(--dim)">7 wins to your 5 in 31 shared games</span></span></div>
+    <div style="display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 12px 10px 10px; border-radius: 16px; background: var(--surface)"><img src="/_blob/383d04a073378ede76b3234038a68757" alt="" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover"><span style="display: flex; flex-direction: column; line-height: 1.25"><b>You beat Jules most</b><span style="font-size: 13px; color: var(--dim)">6 wins to 3 in 28 shared games</span></span></div>
+  </section>
+
+  <section aria-labelledby="cm" style="display: flex; flex-direction: column">
+    <h2 id="cm" style="margin: 0 0 6px; font-family: var(--display); font-weight: 800; font-size: 28px">Commanders</h2>
+    <sc-for list="{{commanders}}" as="c" hint-placeholder-count="4">
+      <div style="display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 58px; border-top: 1px solid var(--line)">
+        <img src="{{c.art}}" alt="" style="width: 52px; height: 38px; border-radius: 6px; object-fit: cover">
+        <span style="display: flex; flex-direction: column; line-height: 1.2; min-width: 0"><b style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{c.name}}</b><span style="font-size: 13px; color: var(--dim)">{{c.meta}}</span></span>
+        <b style="font-family: var(--display); font-weight: 700; font-size: 22px">{{c.rate}}</b>
+      </div>
+    </sc-for>
+  </section>
+
+  <section aria-labelledby="ac" style="display: flex; flex-direction: column; gap: 8px">
+    <h2 id="ac" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 28px">You</h2>
+    <button style="min-height: 52px; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; border-radius: 14px; border: none; background: var(--surface); font-weight: 700">Cards on this phone<span style="font-weight: 400; color: var(--dim); font-size: 14px">Saved Oct 18</span></button>
+    <button style="min-height: 52px; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; border-radius: 14px; border: none; background: var(--surface); font-weight: 700">Who can sign in<span style="font-weight: 400; color: var(--dim); font-size: 14px">6 invited</span></button>
+    <button style="min-height: 52px; padding: 0 16px; border-radius: 14px; border: none; background: var(--surface); font-weight: 700; text-align: left">Sign out</button>
+    <p style="margin: 4px 0 0; font-size: 12px; color: var(--dim)">Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast.</p>
+  </section>
+
+  <nav aria-label="Main" style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; padding: 8px 4px 16px; background: var(--ground); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr))">
+    <a href="TablePhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"></path></svg>Table</a>
+    <a href="PlayPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)"></rect><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)"></rect></svg>Play</a>
+    <a href="SearchPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>Cards</a>
+    <a href="CollectionPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="10" height="14" rx="1.5"></rect><path d="M17 7v12M20 9v8"></path></svg>Collection</a>
+    <a href="DeckListPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="16" rx="1.5"></rect><path d="M4 7v12a2 2 0 0 0 2 2h10"></path></svg>Decks</a>
+    <a href="GroupPhone.dc.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--text); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"></path></svg>Group</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const p = (name, games, wins, art) => {
+      const r = wins / games, ok = games >= 10;
+      return { name, record: games + ' games', art: art || '', hasArt: !!art, rate: ok ? Math.round(r * 100) + '%' : 'Few', rateLabel: name + ' wins ' + Math.round(r * 100) + '%', bar: Math.min(100, (r / 0.6) * 100) + '%', fade: ok ? 1 : 0.6 };
+    };
+    return {
+      players: [
+        p('Bryan', 42, 14, '/_blob/c19490e7c081fb35071c85147c01bed4'),
+        p('Priya', 40, 12, '/_blob/7678674b257c9f2d67041ed3a4ee2ab4'),
+        p('Sam', 41, 8, '/_blob/042e4cb280a5a896fb249a47c8f4a8a3'),
+        p('Jules', 38, 7, '/_blob/383d04a073378ede76b3234038a68757'),
+        p('Alex, guest', 4, 1, '')
+      ],
+      commanders: [
+        { name: 'Terra, Herald of Hope', meta: 'Priya, 18 games', rate: '39%', art: '/_blob/7678674b257c9f2d67041ed3a4ee2ab4' },
+        { name: 'Éowyn, Shieldmaiden', meta: 'Bryan, 9 games', rate: '67%', art: '/_blob/c19490e7c081fb35071c85147c01bed4' },
+        { name: 'Quintorius, History Chaser', meta: 'Sam, 22 games', rate: '23%', art: '/_blob/042e4cb280a5a896fb249a47c8f4a8a3' },
+        { name: 'Mister Fantastic', meta: 'Jules and Bryan, 14 games', rate: '29%', art: '/_blob/383d04a073378ede76b3234038a68757' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

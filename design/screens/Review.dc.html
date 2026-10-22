@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review proposals</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1500px; position: relative; background: var(--ground); padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 14px">
+  <div style="display: flex; align-items: center; justify-content: space-between">
+    <a href="PlanOverview.dc.html" aria-label="Back to plans" style="width: 44px; height: 44px; border-radius: 50%; background: var(--surface); display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+    <span role="status" style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim)"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--warn)"></span>Saved on this phone, waiting to sync</span>
+  </div>
+  <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 48px; line-height: 0.9">Review</h1>
+
+  <div style="display: flex; gap: 8px; overflow-x: auto">
+    <button aria-pressed="true" style="flex: 0 0 auto; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px 0 4px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 700; font-size: 14px"><img src="/_blob/d9cb8751f865e022f14e97f4650e7ffb" alt="" style="width: 36px; height: 36px; border-radius: 50%; object-fit: cover">Multiverse Reforged {{left}}/30</button>
+    <button aria-pressed="false" style="flex: 0 0 auto; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px 0 4px; border-radius: 999px; border: none; background: var(--surface); font-weight: 700; font-size: 14px"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 36px; height: 36px; border-radius: 50%; object-fit: cover">Riders 2/4</button>
+  </div>
+  <div style="display: flex; gap: 6px; overflow-x: auto">
+    <span style="flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700">Not decided</span>
+    <span style="flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--dim)">Want</span>
+    <span style="flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--dim)">Unsure</span>
+    <span style="flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--dim)">Don't want</span>
+    <span style="flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--dim)">All</span>
+  </div>
+
+  <sc-for list="{{cards}}" as="c" hint-placeholder-count="2">
+    <article aria-label="{{c.in}} for {{c.out}}" style="border-radius: 22px; background: var(--surface); padding: 14px; display: flex; flex-direction: column; gap: 12px">
+      <div style="position: relative; padding-right: 64px">
+        <img src="{{c.inImg}}" alt="{{c.in}}" style="width: 100%; border-radius: 4.75% / 3.4%; display: block">
+        <span style="position: absolute; right: 0; top: 36px; width: 92px; display: flex; flex-direction: column; gap: 4px; align-items: center">
+          <img src="{{c.outImg}}" alt="{{c.out}}" style="width: 92px; border-radius: 4.75% / 3.4%; box-shadow: 0 10px 24px rgb(0 0 0 / 0.6); transform: rotate(4deg)">
+          <span style="font-size: 12px; color: var(--dim)">Cut</span>
+        </span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <b style="font-size: 18px">{{c.in}}</b>
+        <span style="font-size: 14px; color: var(--dim)">for {{c.out}}</span>
+      </div>
+      <p style="margin: 0; font-size: 14px; line-height: 1.45"><b>Why:</b> {{c.why}}</p>
+      <p style="margin: 0; font-size: 14px; line-height: 1.45; color: var(--dim)"><b style="color: var(--text)">Why cut:</b> {{c.cut}}</p>
+      <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 14px; background: var(--raised); font-size: 14px">
+        <span style="display: flex; justify-content: space-between"><span>{{c.store}}</span><b>{{c.storePrice}}</b></span>
+        <span style="display: flex; justify-content: space-between; color: var(--dim)"><span>Market, TCGplayer via Scryfall, 18 Oct</span><span>{{c.market}}</span></span>
+        <sc-if value="{{c.hasFlag}}" hint-placeholder-val="{{false}}"><span style="color: var(--warn); font-weight: 700">{{c.flag}}</span></sc-if>
+      </div>
+      <div role="group" aria-label="Your answer" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+        <sc-for list="{{c.answers}}" as="a" hint-placeholder-count="3"><button onClick="{{a.pick}}" aria-pressed="{{a.on}}" style="min-height: 48px; border-radius: 999px; border: 1px solid {{a.border}}; background: {{a.bg}}; color: {{a.ink}}; font-weight: 700">{{a.label}}</button></sc-for>
+      </div>
+      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; color: var(--dim)">Cut something else
+        <select style="min-height: 44px; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--ground); color: var(--text); font-size: 15px; font-weight: 400"><option>{{c.out}} (proposed)</option></select>
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; color: var(--dim)">Note
+        <input placeholder="Anything to tell the planner" style="min-height: 44px; padding: 6px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--ground); font-size: 15px; font-weight: 400">
+      </label>
+    </article>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1500}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ans: [null, null] };
+  }
+  renderVals() {
+    const labels = ['Want', 'Unsure', 'No'];
+    const colors = { Want: '#8fd3a8', Unsure: '#f0b45a', No: '#f07a62' };
+    const mk = (i) => labels.map((label) => {
+      const on = this.state.ans[i] === label;
+      return { label, on, bg: on ? colors[label] : 'transparent', ink: on ? '#0b0c0e' : '#f2efe8', border: on ? colors[label] : '#2a2e33',
+        pick: () => this.setState((s) => { const a = s.ans.slice(); a[i] = a[i] === label ? null : label; return { ans: a }; }) };
+    });
+    const decided = this.state.ans.filter(Boolean).length;
+    return {
+      left: 30 - decided,
+      cards: [
+        { in: 'Agent of Treachery', out: 'Venser, Fervent Forger', inImg: '/_blob/55daf9f77cffa21f0c01041497fec8ca', outImg: '/_blob/a68bb9faf5fcb06053a10b272013f54a',
+          why: 'Every polymorph effect puts the next creature in your library onto the battlefield, so the deck wants big creatures. This one steals the best permanent on the table.',
+          cut: 'Venser is in 15.9% of Jace decks on EDHREC, one of the least-played stock creatures.',
+          store: 'Pat’s Games, borderless, near mint', storePrice: '$3.50', market: '$3.44', hasFlag: false, flag: '', answers: mk(0) },
+        { in: 'Ashen Rider', out: 'Jhoira, Weatherlight Corsair', inImg: '/_blob/dc22f2e32cfd4e29fe4da92f2ad86ec6', outImg: '/_blob/d8c70b8814cd778f98052c8d7693fcf3',
+          why: 'A huge creature for polymorph to find, and it exiles something when it lands.',
+          cut: 'Jhoira is a cheap utility creature, and the plan cuts those for bigger hits.',
+          store: 'Mothership Books and Games, near mint', storePrice: '$0.75', market: '$0.53', hasFlag: true, flag: '42% over market. Your rule is 25%, so this would be a print.', answers: mk(1) }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

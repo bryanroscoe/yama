@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scan cards</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#000;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; background: #000; overflow: hidden; display: flex; flex-direction: column">
+  <div aria-label="Camera" style="position: relative; flex: 1; background: #1a1b1d; display: grid; place-items: center">
+    <span aria-hidden="true" style="position: absolute; inset: 0; background: repeating-linear-gradient(135deg, #18191b 0 14px, #1c1d20 14px 28px)"></span>
+    <img src="/_blob/c858d7cf7a488b3218bd7bbf1fe8b79c" alt="" style="position: relative; width: 210px; border-radius: 10px; transform: rotate(-3deg); box-shadow: 0 20px 40px rgb(0 0 0 / 0.6)">
+    <span aria-hidden="true" style="position: absolute; width: 236px; height: 326px; border-radius: 14px; box-shadow: 0 0 0 3px var(--good), 0 0 0 999px rgb(0 0 0 / 0.45)"></span>
+    <a href="Collection.dc.html" aria-label="Close the scanner" style="position: absolute; top: 14px; left: 14px; width: 44px; height: 44px; border-radius: 50%; background: rgb(0 0 0 / 0.6); display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></a>
+    <span style="position: absolute; top: 22px; right: 14px; padding: 4px 12px; border-radius: 999px; background: rgb(0 0 0 / 0.6); font-size: 13px; font-weight: 700">Added 3 so far</span>
+    <span role="status" style="position: absolute; bottom: 16px; padding: 6px 14px; border-radius: 999px; background: rgb(0 0 0 / 0.65); font-size: 14px; font-weight: 700; color: var(--good)">Found it</span>
+  </div>
+
+  <section aria-live="polite" style="background: var(--surface); border-radius: 24px 24px 0 0; margin-top: -20px; position: relative; padding: 16px 16px 20px; display: flex; flex-direction: column; gap: 14px">
+    <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 14px; align-items: center">
+      <img src="/_blob/c858d7cf7a488b3218bd7bbf1fe8b79c" alt="" style="width: 64px; border-radius: 4px">
+      <span style="display: flex; flex-direction: column; line-height: 1.25">
+        <span style="font-family: var(--display); font-weight: 800; font-size: 28px">Fierce Guardianship</span>
+        <span style="font-size: 14px; color: var(--dim)">Commander Masters #94, regular</span>
+        <span style="font-size: 14px">$64.44 <span style="color: var(--dim)">market, Oct 19</span></span>
+      </span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; color: var(--dim)">Finish
+        <select style="min-height: 44px; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--ground); color: var(--text); font-size: 16px; font-weight: 400"><option>Regular</option><option>Foil</option></select>
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; color: var(--dim)">Put in
+        <select style="min-height: 44px; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--ground); color: var(--text); font-size: 16px; font-weight: 400"><option>Trade binder</option></select>
+      </label>
+    </div>
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px">
+      <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 700; font-size: 17px">Add and scan next</button>
+      <button style="min-height: 54px; padding: 0 18px; border-radius: 999px; border: none; background: var(--raised); font-weight: 700">Not this</button>
+    </div>
+    <p style="margin: 0; font-size: 13px; color: var(--dim)">Wrong printing? Tap the name to pick another. Recent: Sol Ring, Arcane Signet, Command Tower.</p>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

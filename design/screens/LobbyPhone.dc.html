@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lobby on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; background: var(--ground); padding: 12px 16px 20px; display: flex; flex-direction: column; gap: 16px">
+  <a href="PlayPhone.dc.html" style="align-self: start; display: inline-flex; align-items: center; gap: 4px; min-height: 44px; color: var(--dim); font-weight: 700; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>Play online</a>
+  <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 46px; line-height: 0.9">Waiting for one more</h1>
+  <div role="group" aria-label="Table code" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 12px 20px; border-radius: 20px; background: var(--surface)">
+    <span style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 12px; color: var(--dim)">Table code</span><span style="font-family: var(--display); font-weight: 800; font-size: 54px; letter-spacing: 0.14em">KTRV</span></span>
+    <button style="min-height: 46px; padding: 0 16px; border-radius: 999px; border: none; background: var(--raised); font-weight: 700">Share</button>
+  </div>
+  <ol aria-label="Seats" style="margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; flex: 1">
+    <sc-for list="{{seats}}" as="s" hint-placeholder-count="4">
+      <li style="position: relative; border-radius: 18px; overflow: hidden; background: var(--surface); border: {{s.border}}; display: flex; flex-direction: column; justify-content: end; padding: 12px">
+        <sc-if value="{{s.hasArt}}" hint-placeholder-val="{{true}}">
+          <img src="{{s.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+          <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.1) 30%, rgb(11 12 14 / 0.9) 100%)"></span>
+        </sc-if>
+        <span style="position: relative; display: flex; flex-direction: column; line-height: 1.2">
+          <span style="font-size: 12px; color: #d5d7db">Seat {{s.n}}</span>
+          <span style="font-family: var(--display); font-weight: 800; font-size: 26px">{{s.name}}</span>
+          <span style="font-size: 13px; color: #d5d7db">{{s.detail}}</span>
+          <span style="margin-top: 4px; display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: {{s.ink}}"><span style="width: 7px; height: 7px; border-radius: 50%; background: {{s.ink}}"></span>{{s.state}}</span>
+        </span>
+      </li>
+    </sc-for>
+  </ol>
+  <p role="note" style="margin: 0; font-size: 13px; color: var(--dim)">Lorehold Spirit plays without 2 cards the engine doesn't support yet.</p>
+  <button disabled style="min-height: 54px; border-radius: 999px; border: none; background: var(--raised); color: var(--dim); font-weight: 700">Start when everyone's in</button>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const r = { border: 'none', ink: '#8fd3a8', state: 'Ready', hasArt: true };
+    return {
+      seats: [
+        { ...r, n: 1, name: 'Bryan', detail: 'Riders of Rohan', art: '/_blob/c19490e7c081fb35071c85147c01bed4' },
+        { ...r, n: 2, name: 'Computer', detail: 'Lorehold Spirit', art: '/_blob/042e4cb280a5a896fb249a47c8f4a8a3' },
+        { n: 3, name: 'Open seat', detail: 'Needs the code', hasArt: false, art: '', border: '2px dashed #2a2e33', ink: '#f0b45a', state: 'Waiting' },
+        { ...r, n: 4, name: 'Computer', detail: 'Prismari Artistry', art: '/_blob/81164bc65e84b270bffcfa1e0c331002' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

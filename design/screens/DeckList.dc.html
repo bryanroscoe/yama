@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Decks</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; background: var(--ground)">
+
+  <nav aria-label="Main" style="flex: 1 1 220px; max-width: 248px; padding: 24px 14px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--line)">
+    <span style="font-family: var(--display); font-weight: 800; font-size: 38px; line-height: 1; padding: 0 12px 24px">Yama</span>
+    <a href="Table.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; color: var(--dim); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"></path></svg>Table</a>
+    <a href="Play.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; color: var(--dim); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)"></rect><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)"></rect></svg>Play</a>
+    <a href="Search.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; color: var(--dim); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>Cards</a>
+    <a href="Collection.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; color: var(--dim); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="10" height="14" rx="1.5"></rect><path d="M17 7v12M20 9v8"></path></svg>Collection</a>
+    <a href="DeckList.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; background: var(--raised); color: var(--text); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="16" rx="1.5"></rect><path d="M4 7v12a2 2 0 0 0 2 2h10"></path></svg>Decks</a>
+    <a href="Group.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; color: var(--dim); font-weight: 700; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"></path></svg>Group</a>
+    <div style="margin-top: auto; padding: 16px 12px 0; display: flex; align-items: center; gap: 10px">
+      <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover">
+      <span style="display: flex; flex-direction: column; line-height: 1.25"><span style="font-weight: 700">Bryan</span><span style="font-size: 13px; color: var(--dim)">Synced just now</span></span>
+    </div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 40px clamp(20px, 4vw, 56px) 72px">
+    <div style="max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px">
+      <div style="display: flex; align-items: end; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+        <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 64px; line-height: 0.9">Decks</h1>
+        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap">
+          <div role="tablist" aria-label="Decks area" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface)">
+            <a href="DeckList.dc.html" role="tab" aria-selected="true" style="min-height: 40px; padding: 0 18px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none; display: flex; align-items: center">Decks</a>
+            <a href="PlanDeckWide.dc.html" role="tab" aria-selected="false" style="min-height: 40px; padding: 0 18px; border-radius: 999px; color: var(--dim); font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 6px">Plans <span style="padding: 0 7px; border-radius: 999px; background: var(--warn); color: var(--ground); font-size: 12px">30</span></a>
+            <a href="Lab.dc.html" role="tab" aria-selected="false" style="min-height: 40px; padding: 0 18px; border-radius: 999px; color: var(--dim); font-weight: 700; text-decoration: none; display: flex; align-items: center">Lab</a>
+          </div>
+          <button style="min-height: 46px; padding: 0 22px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 700">Add a deck</button>
+        </div>
+      </div>
+
+      <ul style="margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 14px">
+        <sc-for list="{{decks}}" as="d" hint-placeholder-count="8">
+          <li>
+            <a href="DeckView.dc.html" style="position: relative; display: flex; flex-direction: column; justify-content: end; height: 300px; padding: 16px; border-radius: 20px; overflow: hidden; background: var(--surface); color: var(--text); text-decoration: none">
+              <img src="{{d.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+              <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0) 25%, rgb(11 12 14 / 0.92) 85%)"></span>
+              <span style="position: relative; display: flex; flex-direction: column; gap: 6px">
+                <span aria-hidden="true" style="display: flex; gap: 3px"><sc-for list="{{d.colors}}" as="c" hint-placeholder-count="3"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{c}}; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4)"></span></sc-for></span>
+                <span style="font-family: var(--display); font-weight: 800; font-size: 32px; line-height: 0.95">{{d.name}}</span>
+                <span style="font-size: 14px; color: #d5d7db">{{d.cmdr}}</span>
+                <span style="display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: 13px">
+                  <span style="color: {{d.ownInk}}; font-weight: 700">{{d.own}}</span>
+                  <span style="color: #d5d7db">{{d.record}}</span>
+                </span>
+              </span>
+            </a>
+          </li>
+        </sc-for>
+      </ul>
+      <p style="margin: 0; font-size: 12px; color: var(--dim)">Art by Craig Elliott, Darren Tan, Marta Nael, Lie Setiawan, Gintas Galvanauskas, Volkan Baǵa, Daniel Ljunggren and Alex Brock. ™ &amp; © Wizards of the Coast.</p>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const W = '#F1E4BC', U = '#2C78C4', B = '#4B4049', R = '#D4472E', G = '#2F8752';
+    const d = (name, cmdr, art, colors, own, record, short) => ({ name, cmdr, art: '/_blob/' + art, colors, own, record, ownInk: short ? '#f0b45a' : '#8fd3a8' });
+    return {
+      decks: [
+        d('Riders of Rohan', 'Éowyn, Shieldmaiden', 'c19490e7c081fb35071c85147c01bed4', [W, U, R], 'Own 87 of 100', '6 wins, 3 losses', true),
+        d('Lorehold Spirit', 'Quintorius, History Chaser', '042e4cb280a5a896fb249a47c8f4a8a3', [W, R], 'Own all 100', '2 wins, 5 losses', false),
+        d('Revival Trance', 'Terra, Herald of Hope', '7678674b257c9f2d67041ed3a4ee2ab4', [W, B, R], 'Own 96 of 100', '4 wins, 4 losses', true),
+        d('Prismari Artistry', 'Rootha, Mastering the Moment', '81164bc65e84b270bffcfa1e0c331002', [U, R], 'Own all 100', '1 win, 2 losses', false),
+        d('Fantastic Four', 'Mister Fantastic', '383d04a073378ede76b3234038a68757', [W, U, R, G], 'Own 92 of 100', '3 wins, 3 losses', true),
+        d('Multiverse Reforged', 'Jace, Multiverse Architect', 'd9cb8751f865e022f14e97f4650e7ffb', [W, U, B, R], 'Own 70 of 100', 'Not played yet', true),
+        d('World Shaper', 'Hearthhull, the Worldseed', 'ecd5c2f2be8a0312a00da654bdab73b7', [B, R, G], 'Own all 100', '1 win, 1 loss', false),
+        d('Tricky Terrain', 'Omo, Queen of Vesuva', 'b0695b04701eb0039553c464c1bc4a84', [G, U], 'Own 98 of 100', '0 wins, 2 losses', true)
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

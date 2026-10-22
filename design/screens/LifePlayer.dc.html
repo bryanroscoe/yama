@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bryan, commander damage and counters</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#000;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--surface); display: flex; flex-direction: column">
+  <header style="position: relative; height: 196px; flex: 0 0 auto; display: flex; flex-direction: column; justify-content: end; padding: 16px 18px">
+    <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 25%">
+    <div aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(21 23 26 / 0.1) 0%, rgb(21 23 26 / 0.45) 50%, #15171a 100%)"></div>
+    <a href="Life.dc.html" style="position: absolute; top: 14px; right: 14px; min-height: 40px; padding: 0 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none; display: flex; align-items: center">Done</a>
+    <span style="position: absolute; top: 18px; left: 18px; font-size: 11px; color: rgb(255 255 255 / 0.8)">Art: Craig Elliott, © Wizards of the Coast</span>
+    <div style="position: relative; display: flex; align-items: end; justify-content: space-between; gap: 12px">
+      <span style="display: flex; flex-direction: column; line-height: 1.1">
+        <span style="font-family: var(--display); font-weight: 800; font-size: 44px">Bryan</span>
+        <span style="font-size: 14px; color: #d5d7db">Éowyn, Shieldmaiden</span>
+      </span>
+      <span style="font-family: var(--display); font-weight: 700; font-size: 72px; line-height: 0.8; font-variant-numeric: tabular-nums">{{life}}</span>
+    </div>
+  </header>
+
+  <div style="flex: 1; padding: 6px 18px 18px; display: flex; flex-direction: column; gap: 18px">
+    <section aria-labelledby="cd" style="display: flex; flex-direction: column">
+      <div style="display: flex; justify-content: space-between; align-items: baseline">
+        <h2 id="cd" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px">Commander damage taken</h2>
+        <span style="font-size: 13px; color: var(--dim)">21 from one knocks you out</span>
+      </div>
+      <sc-for list="{{damage}}" as="d" hint-placeholder-count="3">
+        <div style="display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 64px; border-bottom: 1px solid var(--line)">
+          <img src="{{d.art}}" alt="" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover">
+          <span style="display: flex; flex-direction: column; min-width: 0; line-height: 1.25">
+            <span style="font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{d.cmdr}}</span>
+            <span style="font-size: 13px; color: var(--dim)">{{d.who}}</span>
+          </span>
+          <span style="display: flex; align-items: center; gap: 2px">
+            <button onClick="{{d.minus}}" aria-label="{{d.cmdr}} damage minus one" style="width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--raised); font-size: 22px">−</button>
+            <span style="width: 46px; text-align: center; font-family: var(--display); font-weight: 700; font-size: 34px; font-variant-numeric: tabular-nums; color: {{d.ink}}">{{d.value}}</span>
+            <button onClick="{{d.plus}}" aria-label="{{d.cmdr}} damage plus one" style="width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--raised); font-size: 22px">+</button>
+          </span>
+        </div>
+      </sc-for>
+      <p style="margin: 8px 0 0; font-size: 13px; color: var(--dim)">Commander damage also comes off your life.</p>
+    </section>
+
+    <section aria-labelledby="ct" style="display: flex; flex-direction: column; gap: 8px">
+      <h2 id="ct" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px">Counters</h2>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+        <sc-for list="{{counters}}" as="c" hint-placeholder-count="4">
+          <div style="padding: 8px 8px 8px 14px; border-radius: 16px; background: var(--raised); display: flex; align-items: center; justify-content: space-between">
+            <span style="display: flex; flex-direction: column; line-height: 1.05">
+              <span style="font-size: 13px; color: var(--dim)">{{c.label}}</span>
+              <span style="font-family: var(--display); font-weight: 700; font-size: 30px; font-variant-numeric: tabular-nums">{{c.value}}</span>
+            </span>
+            <span style="display: flex; gap: 4px">
+              <button onClick="{{c.minus}}" aria-label="{{c.label}} minus one" style="width: 40px; height: 44px; border-radius: 12px; border: none; background: var(--surface); font-size: 20px">−</button>
+              <button onClick="{{c.plus}}" aria-label="{{c.label}} plus one" style="width: 40px; height: 44px; border-radius: 12px; border: none; background: var(--surface); font-size: 20px">+</button>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <section aria-label="Commander tax" style="display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 10px 10px 12px; border-radius: 16px; background: var(--raised)">
+      <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 44px; height: 44px; border-radius: 12px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; line-height: 1.25">
+        <span style="font-weight: 700">Commander tax +{{tax}}</span>
+        <span style="font-size: 13px; color: var(--dim)">Cast {{casts}} times from the command zone</span>
+      </span>
+      <span style="display: flex; gap: 4px">
+        <button onClick="{{castMinus}}" aria-label="One fewer cast" style="width: 40px; height: 44px; border-radius: 12px; border: none; background: var(--surface); font-size: 20px">−</button>
+        <button onClick="{{castPlus}}" aria-label="One more cast" style="width: 40px; height: 44px; border-radius: 12px; border: none; background: var(--surface); font-size: 20px">+</button>
+      </span>
+    </section>
+
+    <button style="margin-top: auto; min-height: 50px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--bad); font-weight: 700">Knock Bryan out</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { dmg: [0, 6, 0], ctr: [0, 0, 3, 0], casts: 1 };
+  }
+  bump(key, i, d) {
+    this.setState((s) => {
+      const a = s[key].slice();
+      a[i] = Math.max(0, a[i] + d);
+      return { [key]: a };
+    });
+  }
+  renderVals() {
+    const opp = [
+      { cmdr: 'Quintorius, History Chaser', who: 'Sam', art: '/_blob/042e4cb280a5a896fb249a47c8f4a8a3' },
+      { cmdr: 'Mister Fantastic', who: 'Jules', art: '/_blob/383d04a073378ede76b3234038a68757' },
+      { cmdr: 'Terra, Herald of Hope', who: 'Priya', art: '/_blob/7678674b257c9f2d67041ed3a4ee2ab4' }
+    ];
+    const labels = ['Poison', 'Energy', 'Experience', 'Rad'];
+    const casts = this.state.casts;
+    const taken = this.state.dmg.reduce((a, b) => a + b, 0);
+    return {
+      life: 40 - (taken - 6),
+      damage: opp.map((o, i) => {
+        const v = this.state.dmg[i];
+        return { ...o, value: v, ink: v >= 15 ? '#f0b45a' : '#f2efe8', minus: () => this.bump('dmg', i, -1), plus: () => this.bump('dmg', i, 1) };
+      }),
+      counters: labels.map((label, i) => ({ label, value: this.state.ctr[i], minus: () => this.bump('ctr', i, -1), plus: () => this.bump('ctr', i, 1) })),
+      casts,
+      tax: 2 * casts,
+      castMinus: () => this.setState({ casts: Math.max(0, casts - 1) }),
+      castPlus: () => this.setState({ casts: casts + 1 })
+    };
+  }
+}
+</script>
+</body>
+</html>

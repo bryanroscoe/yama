@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New game on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1300px; position: relative; background: var(--ground); padding: 20px 16px 96px; display: flex; flex-direction: column; gap: 20px">
+  <div style="display: flex; align-items: end; justify-content: space-between; gap: 12px">
+    <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 48px; line-height: 0.9">New game</h1>
+    <span style="font-size: 13px; color: var(--dim)">Thursday night</span>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px">
+      <span id="p1" style="font-size: 14px; font-weight: 700">Players</span>
+      <div role="group" aria-labelledby="p1" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface)">
+        <button style="width: 40px; height: 40px; border: none; border-radius: 999px; background: transparent; color: var(--dim); font-weight: 700">2</button>
+        <button style="width: 40px; height: 40px; border: none; border-radius: 999px; background: transparent; color: var(--dim); font-weight: 700">3</button>
+        <button aria-pressed="true" style="width: 40px; height: 40px; border: none; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700">4</button>
+        <button style="width: 40px; height: 40px; border: none; border-radius: 999px; background: transparent; color: var(--dim); font-weight: 700">5</button>
+        <button style="width: 40px; height: 40px; border: none; border-radius: 999px; background: transparent; color: var(--dim); font-weight: 700">6</button>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px">
+      <span id="l1" style="font-size: 14px; font-weight: 700">Starting life</span>
+      <div role="group" aria-labelledby="l1" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface)">
+        <button aria-pressed="true" style="width: 48px; height: 40px; border: none; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700">40</button>
+        <button style="width: 48px; height: 40px; border: none; border-radius: 999px; background: transparent; color: var(--dim); font-weight: 700">30</button>
+        <button style="width: 48px; height: 40px; border: none; border-radius: 999px; background: transparent; color: var(--dim); font-weight: 700">25</button>
+        <button style="width: 48px; height: 40px; border: none; border-radius: 999px; background: transparent; color: var(--dim); font-weight: 700">20</button>
+      </div>
+    </div>
+  </div>
+
+  <ol aria-label="Seats, clockwise from you" style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px">
+    <sc-for list="{{seats}}" as="s" hint-placeholder-count="4">
+      <li>
+        <button style="position: relative; width: 100%; height: 104px; padding: 0 16px; border: {{s.border}}; border-radius: 18px; overflow: hidden; background: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left">
+          <sc-if value="{{s.hasArt}}" hint-placeholder-val="{{true}}">
+            <img src="{{s.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+            <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.88) 0%, rgb(11 12 14 / 0.55) 60%, rgb(11 12 14 / 0.2) 100%)"></span>
+          </sc-if>
+          <span style="position: relative; display: flex; flex-direction: column; line-height: 1.15; min-width: 0">
+            <span style="font-size: 12px; color: #d5d7db">Seat {{s.n}}</span>
+            <span style="font-family: var(--display); font-weight: 800; font-size: 32px">{{s.name}}</span>
+            <span style="font-size: 14px; color: #d5d7db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.cmdr}}</span>
+          </span>
+          <span aria-hidden="true" style="position: relative; display: flex; gap: 3px">
+            <sc-for list="{{s.colors}}" as="c" hint-placeholder-count="3"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{c}}; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4)"></span></sc-for>
+          </span>
+        </button>
+      </li>
+    </sc-for>
+  </ol>
+  <p style="margin: -8px 0 0; font-size: 13px; color: var(--dim)">Seats go clockwise from you. Tap a seat to change the player or commander.</p>
+
+  <a href="Life.dc.html" style="min-height: 56px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; font-size: 18px; text-decoration: none">Start the game</a>
+
+  <section aria-labelledby="rg" style="display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <h2 id="rg" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 30px">Recent games</h2>
+      <button style="min-height: 40px; padding: 0 12px; border: none; border-radius: 999px; background: var(--surface); font-size: 13px; font-weight: 700">Log a game</button>
+    </div>
+    <sc-for list="{{games}}" as="g" hint-placeholder-count="3">
+      <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 6px 12px 6px 6px; border-radius: 14px; background: var(--surface)">
+        <img src="{{g.art}}" alt="" style="width: 64px; height: 46px; border-radius: 8px; object-fit: cover">
+        <span style="display: flex; flex-direction: column; line-height: 1.25; min-width: 0"><span style="font-weight: 700">{{g.title}}</span><span style="font-size: 13px; color: var(--dim)">{{g.sub}}</span></span>
+        <span style="font-size: 13px; color: var(--dim)">{{g.date}}</span>
+      </div>
+    </sc-for>
+  </section>
+
+  <nav aria-label="Main" style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; padding: 8px 4px 16px; background: var(--ground); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr))">
+    <a href="TablePhone.dc.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--text); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"></path></svg>Table</a>
+    <a href="PlayPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)"></rect><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)"></rect></svg>Play</a>
+    <a href="SearchPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>Cards</a>
+    <a href="CollectionPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="10" height="14" rx="1.5"></rect><path d="M17 7v12M20 9v8"></path></svg>Collection</a>
+    <a href="DeckListPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="16" rx="1.5"></rect><path d="M4 7v12a2 2 0 0 0 2 2h10"></path></svg>Decks</a>
+    <a href="GroupPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"></path></svg>Group</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const W = '#F1E4BC', U = '#2C78C4', B = '#4B4049', R = '#D4472E';
+    return {
+      seats: [
+        { n: 1, name: 'Bryan', cmdr: 'Riders of Rohan, Éowyn', colors: [W, U, R], hasArt: true, art: '/_blob/c19490e7c081fb35071c85147c01bed4', border: 'none' },
+        { n: 2, name: 'Sam', cmdr: 'Quintorius, History Chaser', colors: [W, R], hasArt: true, art: '/_blob/042e4cb280a5a896fb249a47c8f4a8a3', border: 'none' },
+        { n: 3, name: 'Guest', cmdr: 'Pick a commander', colors: [], hasArt: false, art: '', border: '2px dashed #2a2e33' },
+        { n: 4, name: 'Priya', cmdr: 'Terra, Herald of Hope', colors: [W, B, R], hasArt: true, art: '/_blob/7678674b257c9f2d67041ed3a4ee2ab4', border: 'none' }
+      ],
+      games: [
+        { title: 'Priya won', sub: 'Terra, 11 turns', date: 'Oct 16', art: '/_blob/7678674b257c9f2d67041ed3a4ee2ab4' },
+        { title: 'Bryan won', sub: 'Éowyn, 9 turns', date: 'Oct 9', art: '/_blob/c19490e7c081fb35071c85147c01bed4' },
+        { title: 'Jules won', sub: 'Mister Fantastic, 12 turns', date: 'Sep 25', art: '/_blob/383d04a073378ede76b3234038a68757' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

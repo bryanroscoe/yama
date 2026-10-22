@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prints</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1100px; position: relative; background: var(--ground); padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 16px">
+  <div style="display: flex; align-items: center; gap: 10px">
+    <a href="PlanOverview.dc.html" aria-label="Back to plans" style="width: 44px; height: 44px; border-radius: 50%; background: var(--surface); display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+    <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 0.9">Prints</h1>
+  </div>
+
+  <section aria-labelledby="po" style="padding: 16px; border-radius: 20px; background: var(--surface); display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; justify-content: space-between; align-items: start; gap: 10px">
+      <span style="display: flex; flex-direction: column; line-height: 1.2">
+        <span style="font-size: 13px; color: var(--dim)">On order</span>
+        <h2 id="po" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 28px">MakePlayingCards</h2>
+        <span style="font-size: 14px; color: var(--dim)">Placed by 15 Oct 2026. Not arrived yet.</span>
+      </span>
+      <b style="font-family: var(--display); font-weight: 700; font-size: 40px; line-height: 1">180</b>
+    </div>
+    <span style="font-size: 13px; color: var(--dim)">Exactly the 180-card tier, including 10 dual lands. Order number and cost aren't recorded yet.</span>
+    <button style="min-height: 46px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 700">It arrived</button>
+  </section>
+
+  <section aria-labelledby="wr" style="display: flex; flex-direction: column; gap: 8px">
+    <h2 id="wr" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 26px">What each print replaces</h2>
+    <sc-for list="{{lines}}" as="l" hint-placeholder-count="4">
+      <div style="display: grid; grid-template-columns: 52px 18px 52px minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line)">
+        <img src="{{l.inArt}}" alt="" style="width: 52px; height: 38px; border-radius: 6px; object-fit: cover">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a9adb3" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
+        <img src="{{l.outArt}}" alt="" style="width: 52px; height: 38px; border-radius: 6px; object-fit: cover">
+        <span style="display: flex; flex-direction: column; line-height: 1.25; min-width: 0"><b style="font-size: 14px">{{l.in}}</b><span style="font-size: 12px; color: var(--dim)">{{l.note}}</span></span>
+      </div>
+    </sc-for>
+    <p style="margin: 0; font-size: 13px; color: var(--dim)">And 174 more across 8 decks.</p>
+  </section>
+
+  <section aria-labelledby="nx" style="padding: 16px; border-radius: 20px; border: 1px dashed var(--line); display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <h2 id="nx" style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 24px">Next order, draft</h2>
+      <span style="font-size: 13px; color: var(--dim)">162 of 180</span>
+    </div>
+    <span role="img" aria-label="162 of 180 slots used" style="height: 8px; border-radius: 999px; background: var(--raised); position: relative"><span style="position: absolute; left: 0; top: 0; bottom: 0; width: 90%; border-radius: 999px; background: var(--text)"></span></span>
+    <span style="font-size: 14px">18 free slots. Cards that aren't stocked locally could fill them: Polymorph, Transmogrify, Jace's Machinations, Archangel of Tithes.</span>
+    <span style="font-size: 13px; color: var(--dim)">Proxy cost is about $0.30 a card. That's what the print costs, not a market price.</span>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    return {
+      lines: [
+        { in: 'Horn of the Mark', inArt: A('7912491915667586aa3cc2ce07fe9278'), outArt: A('7360d4a1959622482ec2eee16f276239'), note: 'Riders of Rohan, replaces Archivist of Gondor' },
+        { in: 'Volcanic Island', inArt: A('1ebe33f87e00e52a144537080ff0b67c'), outArt: A('3bf02968b49b8af680661d10aa4e5547'), note: 'Riders of Rohan, replaces the stand-in Mountain' },
+        { in: 'Ark of Hunger', inArt: A('83f1e789246d8b27997c54a7dfcc32c3'), outArt: A('96ca254f0aa0f4bd9ad8e2c8f114b323'), note: 'Lorehold Spirit. Frees Karmic Guide for Revival Trance' },
+        { in: 'Arcane Denial comes free', inArt: A('fdc2fadc5a0e7d18d6b693b5d7b6281d'), outArt: A('fdc2fadc5a0e7d18d6b693b5d7b6281d'), note: 'Becomes a spare for Multiverse Reforged' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

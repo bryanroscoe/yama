@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Decks on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1000px; position: relative; background: var(--ground); padding: 20px 16px 96px; display: flex; flex-direction: column; gap: 16px">
+  <div style="display: flex; align-items: end; justify-content: space-between">
+    <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 48px; line-height: 0.9">Decks</h1>
+    <button style="min-height: 44px; padding: 0 16px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 700">Add</button>
+  </div>
+  <div role="tablist" aria-label="Decks area" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface)">
+    <a href="DeckListPhone.dc.html" role="tab" aria-selected="true" style="flex: 1; min-height: 40px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Decks</a>
+    <a href="PlanOverview.dc.html" role="tab" aria-selected="false" style="flex: 1; min-height: 40px; border-radius: 999px; color: var(--dim); font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px">Plans <span style="padding: 0 6px; border-radius: 999px; background: var(--warn); color: var(--ground); font-size: 11px">30</span></a>
+    <a href="LabPhone.dc.html" role="tab" aria-selected="false" style="flex: 1; min-height: 40px; border-radius: 999px; color: var(--dim); font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Lab</a>
+  </div>
+  <ul style="margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+    <sc-for list="{{decks}}" as="d" hint-placeholder-count="6">
+      <li>
+        <a href="DeckPhone.dc.html" style="position: relative; display: flex; flex-direction: column; justify-content: end; height: 200px; padding: 12px; border-radius: 18px; overflow: hidden; background: var(--surface); text-decoration: none">
+          <img src="{{d.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+          <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0) 25%, rgb(11 12 14 / 0.92) 85%)"></span>
+          <span style="position: relative; display: flex; flex-direction: column; gap: 3px">
+            <span aria-hidden="true" style="display: flex; gap: 3px"><sc-for list="{{d.colors}}" as="c" hint-placeholder-count="3"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{c}}; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4)"></span></sc-for></span>
+            <span style="font-family: var(--display); font-weight: 800; font-size: 24px; line-height: 0.95">{{d.name}}</span>
+            <span style="font-size: 12px; color: {{d.ownInk}}; font-weight: 700">{{d.own}}</span>
+          </span>
+        </a>
+      </li>
+    </sc-for>
+  </ul>
+
+  <nav aria-label="Main" style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; padding: 8px 4px 16px; background: var(--ground); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr))">
+    <a href="TablePhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"></path></svg>Table</a>
+    <a href="PlayPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)"></rect><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)"></rect></svg>Play</a>
+    <a href="SearchPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>Cards</a>
+    <a href="CollectionPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="10" height="14" rx="1.5"></rect><path d="M17 7v12M20 9v8"></path></svg>Collection</a>
+    <a href="DeckListPhone.dc.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--text); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="16" rx="1.5"></rect><path d="M4 7v12a2 2 0 0 0 2 2h10"></path></svg>Decks</a>
+    <a href="GroupPhone.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0"></path><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"></path></svg>Group</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const W = '#F1E4BC', U = '#2C78C4', B = '#4B4049', R = '#D4472E', G = '#2F8752';
+    const d = (name, art, colors, own, short) => ({ name, art: '/_blob/' + art, colors, own, ownInk: short ? '#f0b45a' : '#8fd3a8' });
+    return {
+      decks: [
+        d('Riders of Rohan', 'c19490e7c081fb35071c85147c01bed4', [W, U, R], 'Need 13', true),
+        d('Lorehold Spirit', '042e4cb280a5a896fb249a47c8f4a8a3', [W, R], 'Complete', false),
+        d('Revival Trance', '7678674b257c9f2d67041ed3a4ee2ab4', [W, B, R], 'Need 4', true),
+        d('Prismari Artistry', '81164bc65e84b270bffcfa1e0c331002', [U, R], 'Complete', false),
+        d('Fantastic Four', '383d04a073378ede76b3234038a68757', [W, U, R, G], 'Need 8', true),
+        d('Multiverse Reforged', 'd9cb8751f865e022f14e97f4650e7ffb', [W, U, B, R], 'Need 30', true)
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

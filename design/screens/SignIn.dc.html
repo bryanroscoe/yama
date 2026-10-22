@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign in to Yama</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<main style="min-height: 100vh; display: flex; flex-wrap: wrap; background: var(--ground)">
+
+  <section aria-label="Yama" style="flex: 999 1 560px; min-height: 520px; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: end; padding: clamp(28px, 5vw, 72px)">
+    <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 25%">
+    <div aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.15) 0%, rgb(11 12 14 / 0.35) 50%, rgb(11 12 14 / 0.94) 100%)"></div>
+    <div style="position: relative; display: flex; flex-direction: column; gap: 18px; max-width: 640px">
+      <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: clamp(112px, 14vw, 200px); line-height: 0.8; letter-spacing: -0.02em">Yama</h1>
+      <p style="margin: 0; font-size: 22px; line-height: 1.35; max-width: 32ch; text-wrap: pretty">Life totals, decks and the cards behind them, for our Thursday table.</p>
+    </div>
+    <p style="position: relative; margin: 28px 0 0; font-size: 12px; color: #c9ccd1">Éowyn, Shieldmaiden. Art by Craig Elliott, ™ &amp; © Wizards of the Coast.</p>
+  </section>
+
+  <section aria-label="Sign in" style="flex: 1 1 400px; display: flex; flex-direction: column; justify-content: center; padding: clamp(28px, 5vw, 72px); background: var(--ground)">
+    <div style="width: min(380px, 100%); margin: 0 auto; display: flex; flex-direction: column; gap: 28px">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1">Sign in</h2>
+        <p style="margin: 0; color: var(--dim)">Yama is invite-only. Use the Google account your host added.</p>
+      </div>
+      <a href="Table.dc.html" style="display: flex; align-items: center; justify-content: center; min-height: 52px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none">Sign in with Google</a>
+      <div aria-hidden="true" style="display: flex; align-items: center; gap: 12px; color: var(--dim); font-size: 13px">
+        <span style="flex: 1; height: 1px; background: var(--line)"></span>or with a password<span style="flex: 1; height: 1px; background: var(--line)"></span>
+      </div>
+      <form style="display: flex; flex-direction: column; gap: 16px">
+        <label style="display: flex; flex-direction: column; gap: 6px; font-weight: 700; font-size: 14px">
+          Email
+          <input type="email" autocomplete="username" style="min-height: 48px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 16px; font-weight: 400">
+        </label>
+        <label style="display: flex; flex-direction: column; gap: 6px; font-weight: 700; font-size: 14px">
+          Password
+          <input type="password" autocomplete="current-password" style="min-height: 48px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 16px; font-weight: 400">
+        </label>
+        <a href="Table.dc.html" style="display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font-weight: 700; text-decoration: none">Sign in</a>
+      </form>
+      <p style="margin: 0; font-size: 14px; color: var(--dim)">Offline? The life counter still opens on any phone that has signed in before.</p>
+      <p style="margin: 0; padding-top: 20px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim)">Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images from Scryfall.</p>
+    </div>
+  </section>
+</main>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
