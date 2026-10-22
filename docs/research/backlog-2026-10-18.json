@@ -1,0 +1,938 @@
+[
+ {
+  "iteration": 1,
+  "feature": "Game Changer flag",
+  "area": "Cards & search / Decks",
+  "value": "high: brackets turn on Game Changer count and the flag is free in Scryfall data",
+  "effort": "S",
+  "spec": "Add game_changer INTEGER to cards; read it in server/src/cards/import.rs. Card sheet (Cards.tsx CardSheet) shows a Game Changer tag. Deck page shows 'Game Changers: N' with names. Add is:gamechanger to server search and packages/core/src/search.ts, and include the flag in the offline bundle.",
+  "inspired_by": "Scryfall, Archidekt, playgroup.gg"
+ },
+ {
+  "iteration": 1,
+  "feature": "Scryfall WebP image keys",
+  "area": "Platform",
+  "value": "high: small, large, border_crop and art_crop JPEGs disappear on 2027-01-01 and Yama reads small, normal and art_crop",
+  "effort": "S",
+  "spec": "In import.rs read image_uris.thumb, grid, display and art, falling back to small, normal, jpeg and art_crop. Re-run import-cards. Resolve URLs from JSON, never from format=image redirects. Keep column names; only the URLs change.",
+  "inspired_by": "Scryfall blog 2026-10-14"
+ },
+ {
+  "iteration": 1,
+  "feature": "Commander art behind each life panel",
+  "area": "Table & life",
+  "value": "high: Bryan asked for Mythic Tools-style art backgrounds",
+  "effort": "S",
+  "spec": "PlayerSetup.art is already filled from image_art_crop. In TablePlay Panel, draw it as a cover background under a dark scrim; keep the mana bands as a thin strip. Player sheet shows 'Art by <artist>' (Scryfall rule for art crops). Per-device toggle to fall back to colors. Use CSS tokens, not felt green.",
+  "inspired_by": "Mythic Tools"
+ },
+ {
+  "iteration": 1,
+  "feature": "Rulings in the card sheet",
+  "area": "Reference & rules",
+  "value": "high: settles disputes at the table and in online play",
+  "effort": "S",
+  "spec": "During import, load Scryfall's rulings bulk file (5.2 MB gz JSONL) into rulings(oracle_id, source, published_at, comment). GET /api/cards/:id returns them. CardSheet shows a collapsible 'Rulings (n)' list with date and source; the online board Inspector reuses it.",
+  "inspired_by": "Scryfall bot [[?card]], MTG Familiar"
+ },
+ {
+  "iteration": 1,
+  "feature": "Bracket, Game Changers and combos per deck version",
+  "area": "Decks & building",
+  "value": "high: one free call gives bracket evidence for rule 0 and planning",
+  "effort": "M",
+  "spec": "On each deck version save (server/src/decks.rs), POST commanders and main to Commander Spellbook /estimate-bracket with User-Agent Yama/<version>, staying well under 80 req/min. Store deck_version_checks(version_id, checked_at, bracket_tag, game_changers, mld, extra_turns, combos json). Deck page panel: estimated bracket (R=4, S/P=3, O/C=2, E=1), card flags and two-card combos with speed, labelled 'estimate, checked DATE', with credit and a link. Offline fallback: local GC count floor.",
+  "inspired_by": "Commander Spellbook, TableCommander"
+ },
+ {
+  "iteration": 1,
+  "feature": "Declared bracket per deck",
+  "area": "Decks & building",
+  "value": "high: the group talks in brackets; declared and estimated must stay separate",
+  "effort": "S",
+  "spec": "Add bracket (1-5, nullable) to decks; edit it in EditDeck. Chip on DecksPage rows, table seat setup and the online lobby. Show declared next to estimated; never overwrite one with the other.",
+  "inspired_by": "Archidekt, MTGGoldfish"
+ },
+ {
+  "iteration": 1,
+  "feature": "Deck stats panel",
+  "area": "Decks & building",
+  "value": "high: curve and color sources are the first thing people check after a swap",
+  "effort": "S",
+  "spec": "Compute on the client from DeckView: mana curve split creatures and noncreatures, average MV with and without lands, land count, and colored pips needed vs land sources per color (flag colors under 1 source per 3 pips). Show under the figures on DeckPage.",
+  "inspired_by": "Moxfield, Archidekt"
+ },
+ {
+  "iteration": 1,
+  "feature": "Deck export",
+  "area": "Decks & building",
+  "value": "high: Bryan pastes lists into EDHbots and Moxfield",
+  "effort": "S",
+  "spec": "Deck page export menu: plain list with Commander and Deck headers, names only (EDHbots), Moxfield format with (SET) number from the owned copy or default printing, MTGA. Copy to clipboard or download .txt. Reuse listText in Decks.tsx.",
+  "inspired_by": "Moxfield, Delver export presets"
+ },
+ {
+  "iteration": 1,
+  "feature": "First player and win rate by seat",
+  "area": "Playgroups & stats",
+  "value": "high: seat 1 wins about 29% vs 21.5% for seat 4 in playgroup.gg data; Yama doesn't record who went first",
+  "effort": "S",
+  "spec": "Add a set_first table event in packages/core/src/table.ts; 'Roll for first' dispatches it and the table menu offers 'X goes first'. Store games.first_seat (migration), also in LogGame. Stats: win rate by position relative to the first player, with playgroup.gg's 29.2/25.7/23.6/21.5% shown as a reference until 20 games.",
+  "inspired_by": "playgroup.gg turn-order study, Mythic Tools"
+ },
+ {
+  "iteration": 1,
+  "feature": "End-of-game capture",
+  "area": "Playgroups & stats",
+  "value": "high: win condition and fun make stats worth reading",
+  "effort": "S",
+  "spec": "The finish flow and LogGame add optional chips for win condition (combat, commander damage, combo, alternate win, mill, poison, concession, other) and an optional fun rating 1-5 per player. Store in games (result json or new columns). Group page shows a win-condition breakdown.",
+  "inspired_by": "playgroup.gg, Pod Companion"
+ },
+ {
+  "iteration": 1,
+  "feature": "Rivalries and highlights",
+  "area": "Playgroups & stats",
+  "value": "high: cheap, fun game-night talking points from data already stored",
+  "effort": "S",
+  "spec": "In playgroups.rs stats, use game_seats.eliminated_by_seat and eliminated_turn for a head-to-head table (who knocked out whom), archnemesis per player, first out and last out counts, and current win streaks. New 'Highlights' section on the Group page.",
+  "inspired_by": "Mythic Tools highlights, playgroup.gg"
+ },
+ {
+  "iteration": 1,
+  "feature": "Results per deck version",
+  "area": "Playgroups & stats",
+  "value": "high: shows whether upgrades help at this table",
+  "effort": "S",
+  "spec": "Group finished games by game_seats.deck_version_id. Deck page shows 'This version: W-L, n games' plus earlier versions with their notes. Stats can roll up by deck across versions. Show n and fade under 5 games.",
+  "inspired_by": "TurnZero HQ"
+ },
+ {
+  "iteration": 1,
+  "feature": "Game history export",
+  "area": "Table & life",
+  "value": "high: feeds commander-decks data/games.json for the lab's real-game loop (E5)",
+  "effort": "S",
+  "spec": "GET /api/games/export.json and .csv per user or playgroup: seats, players, deck version ids and labels, first seat, winner, win condition, turns, eliminations, dates. The JSON matches commander-decks data/games.json. Button on the Group page.",
+  "inspired_by": "Lifetap export"
+ },
+ {
+  "iteration": 1,
+  "feature": "Engine coverage warning",
+  "area": "Online play",
+  "value": "high: a deck with unsupported cards plays wrong online",
+  "effort": "S",
+  "spec": "Read phase coverage data from data/engine. In PlayHome, when a deck is picked for a seat, list unsupported or partial cards before start. Deck page shows 'Online play: 99/100 cards supported' with the names.",
+  "inspired_by": "EDHbots coverage page"
+ },
+ {
+  "iteration": 1,
+  "feature": "Release calendar and precon watch",
+  "area": "Reference & rules",
+  "value": "high: Star Trek Commander previews run 10-26 to 10-29 and Bryan pre-ordered all four decks",
+  "effort": "S",
+  "spec": "Daily job reads Scryfall /sets with released_at today or later: name, type, release date, card_count as a preview progress bar. 'Upcoming' card on the Cards page. Watch a set (trc); when its decklists exist (Scryfall cards or MTGJSON), show 'create stock deck'. An admin note field records delays such as Wizards' 2026-10-16 notice.",
+  "inspired_by": "Scryfall /sets, DeckCheck Set Impact"
+ },
+ {
+  "iteration": 1,
+  "feature": "Honest stats",
+  "area": "Playgroups & stats",
+  "value": "medium: small samples mislead a friend group",
+  "effort": "S",
+  "spec": "Every rate shows n. Rows under 5 games are faded and labelled provisional. Add expected share for pod size (1/N) next to win rate. Stamp 'computed DATE'.",
+  "inspired_by": "playgroup.gg, Pod Companion"
+ },
+ {
+  "iteration": 2,
+  "feature": "Stock / now / after states and diff",
+  "area": "Deck planning & upgrades",
+  "value": "high: the gap no mainstream builder fills (Moxfield #42, #48 open)",
+  "effort": "M",
+  "spec": "deck_states(deck_id, label, version_id) with labels stock, now, after plus custom. Deck page tabs per state. Version history list (the server already lists versions) with notes and dates and 'make current'. Diff any two versions or decks: adds and cuts with images and counts.",
+  "inspired_by": "Deckstats revisions, Archidekt snapshots, commander-decks compare lists"
+ },
+ {
+  "iteration": 2,
+  "feature": "Swaps with reason, source and status",
+  "area": "Deck planning & upgrades",
+  "value": "high: core of the per-user planner",
+  "effort": "M",
+  "spec": "swaps(id, owner_id, deck_id, add_oracle, cut_oracle, reason, source owned|buy|print|borrow, got json, order_ref, status proposed|want|planned|bought|printed|installed|rejected, group, created_at). 'After' = now plus planned swaps. Card sheet gets 'Propose for deck...'. Owner checks on every endpoint.",
+  "inspired_by": "commander-decks swaps.json, sylvan-library"
+ },
+ {
+  "iteration": 2,
+  "feature": "Free copies, deck usage and spares",
+  "area": "Deck planning & upgrades",
+  "value": "high: Bryan's rule is to check spares before buying or printing",
+  "effort": "M",
+  "spec": "Per printing: free = owned minus copies in current deck versions minus lent minus promised. Collection rows show 'in Deck A, Deck B'. Spares page: cards cut from decks still owned (now and after prints), with location and source. Proposals show 'spare in X' before buy or print.",
+  "inspired_by": "commander-decks spares.md, DeckCheck, ManaBox"
+ },
+ {
+  "iteration": 2,
+  "feature": "Review queue",
+  "area": "Deck planning & upgrades",
+  "value": "high: replaces the local review site for every user",
+  "effort": "M",
+  "spec": "Page listing proposed swaps with add and cut images, Oracle text, reason, dated price and stock. Buttons want, maybe, no; pick another cut; note. Accept all per group; locked cards never offered as cuts. Answers keyed by swap id and never deleted; a 'no' on a planned swap asks what to do.",
+  "inspired_by": "DeckCheck triage, DeckFlow Cut Lab"
+ },
+ {
+  "iteration": 2,
+  "feature": "Install checklist",
+  "area": "Deck planning & upgrades",
+  "value": "high: makes installing swaps a two-minute job",
+  "effort": "S",
+  "spec": "For ticked swaps, list 'pull <card> from <binder>' and 'take out <card>, file in <spares box>'. Ticking each creates collection move ops and marks the swap installed; the now state advances.",
+  "inspired_by": "ManaBox deck update"
+ },
+ {
+  "iteration": 2,
+  "feature": "Buy list by store",
+  "area": "Prices & buying",
+  "value": "high: one global buy list with local stores first",
+  "effort": "M",
+  "spec": "Buy-sourced swaps carry a dated price and per-store stock checks (store, variant, price, checked_at). Buy list grouped by store with cart links: Shopify /cart/<variant>:<qty>, TCGplayer massentry?productline=Magic&c= (undocumented, test first), Card Kingdom builder paste. Never-above-market check against the latest snapshot. A 'bought it' tap records store and price for confirmation.",
+  "inspired_by": "ScryPrice, Cardmarket Shopping Wizard, commander-decks buylist.py"
+ },
+ {
+  "iteration": 2,
+  "feature": "Print list and MPC order",
+  "area": "Proxies & printing",
+  "value": "high: Bryan prints what isn't worth buying at MPC",
+  "effort": "M",
+  "spec": "Print-sourced swaps form a print list. Export MPC Autofill XML (stock from settings, default S33; slots; card names as queries) and a names list for Proxxied. Track orders: placed, expected, arrived. Arrival marks copies as proxies and makes swaps installable. Only the XML format is used; MPC Autofill code is GPL.",
+  "inspired_by": "MPC Autofill, Proxxied, commander-decks print order"
+ },
+ {
+  "iteration": 2,
+  "feature": "commander-decks bundle import and inbox",
+  "area": "Deck planning & upgrades",
+  "value": "high: Bryan's existing plans arrive as his data",
+  "effort": "M",
+  "spec": "Admin-only upload of data/planner/bundle.json (deck-lab-plan P1-P3) into Bryan's planner tables, stamped with the guide version. Inbox table for review answers, bought taps and installed ticks; GET endpoint for scripts/planner/pull.py. Upload never overwrites inbox answers.",
+  "inspired_by": "commander-decks deck-lab-plan"
+ },
+ {
+  "iteration": 2,
+  "feature": "Bracket swap bags",
+  "area": "Deck planning & upgrades",
+  "value": "high: lets one deck play at bracket 2, 3 or 4",
+  "effort": "M",
+  "spec": "A bag is a named set of IN/OUT pairs on top of a core version, with a target bracket. Compile: 100 cards, singleton, color identity, GC count, Spellbook estimate, resulting bracket; show an IN/OUT checklist and a reset path. Missing metrics show 'not checked', never zero.",
+  "inspired_by": "DeckFlow Deck Modules, commander-decks brackets.py"
+ },
+ {
+  "iteration": 2,
+  "feature": "Role panel from oracle tags",
+  "area": "Decks & building",
+  "value": "high: shows when a swap cuts ramp without replacing it",
+  "effort": "M",
+  "spec": "Daily import of Scryfall oracle_tags bulk; walk child_ids; store card_roles(oracle_id, role, tag_id) for about 10 roles (ramp, draw, removal, sweeper, counterspell, tutor, protection, recursion, mana-rock, mana-dork). Deck page shows counts against targets (e.g. ramp 10-14) for each state; each swap shows '+1 removal, -1 ramp'. Admin hide list by tag id. Add otag: to search.",
+  "inspired_by": "Scryfall Tagger, Archidekt, TableCommander Deck Shape, Farseek"
+ },
+ {
+  "iteration": 2,
+  "feature": "Precon import from MTGJSON",
+  "area": "Decks & building",
+  "value": "high: every plan starts from a stock precon; Star Trek decks are coming",
+  "effort": "M",
+  "spec": "Server caches MTGJSON's Commander deck lists (198 precons). 'Add a precon' picker creates a deck plus a stock state. Owned/needed works immediately. Refresh when MTGJSON adds decks.",
+  "inspired_by": "ManaBox Explore, Mythic Tools 175+ precons"
+ },
+ {
+  "iteration": 2,
+  "feature": "Per-user planner settings",
+  "area": "Deck planning & upgrades",
+  "value": "medium-high: Bryan's shopping rules become settings friends can change",
+  "effort": "S",
+  "spec": "Settings page: preferred stores in order, print service and stock, never above market, shiny only if no plain version, budget per tier, never-suggest list, table bracket. Read by the buy list, print list and proposal filters.",
+  "inspired_by": "DeckCheck Deckhand Memory"
+ },
+ {
+  "iteration": 2,
+  "feature": "Upgrade tier summary",
+  "area": "Deck planning & upgrades",
+  "value": "medium-high: shows what each tier costs and does",
+  "effort": "S",
+  "spec": "For each swap group or tier: card count, cost from dated prices (missing shown as missing), cumulative or standalone stated, resulting bracket and GC count, and a combo warning.",
+  "inspired_by": "commanderbracket.app upgrade guides"
+ },
+ {
+  "iteration": 2,
+  "feature": "Combos one card away, matched to collection",
+  "area": "Deck planning & upgrades",
+  "value": "medium-high: free upgrade ideas and early combo warnings",
+  "effort": "S",
+  "spec": "Use find-my-combos almostIncluded for each state. Tag each missing card 'you own it' or 'spare in X'. Warn on the review screen when a proposal completes a two-card combo.",
+  "inspired_by": "Commander Spellbook"
+ },
+ {
+  "iteration": 2,
+  "feature": "Set-release watch per deck",
+  "area": "Deck planning & upgrades",
+  "value": "medium-high: new cards for watched decks without reading every spoiler",
+  "effort": "M",
+  "spec": "When an import adds oracle ids, score each watched deck: inside color identity and sharing a role, type or keyword with the commander or deck themes. Show hits with a reason and price, and list decks checked with no hits. No LLM in v1.",
+  "inspired_by": "DeckCheck Deckhand Set Impact"
+ },
+ {
+  "iteration": 2,
+  "feature": "Candidate tray",
+  "area": "Deck planning & upgrades",
+  "value": "medium: collect ideas while browsing",
+  "effort": "S",
+  "spec": "'Add to tray' on the card sheet and search results; tray drawer; 'send to deck' makes proposals with a cut picker and a reason field.",
+  "inspired_by": "EDHREC clipboard, Archidekt clipboard"
+ },
+ {
+  "iteration": 2,
+  "feature": "Maybeboard",
+  "area": "Decks & building",
+  "value": "medium: a place for deferred ideas",
+  "effort": "S",
+  "spec": "Board 'maybe' in deck_versions.cards, left out of size, legality, ownership cost and exports. Review 'maybe' answers can send cards here.",
+  "inspired_by": "Moxfield Considering, MTGGoldfish"
+ },
+ {
+  "iteration": 2,
+  "feature": "Land odds",
+  "area": "Decks & building",
+  "value": "medium: shows the effect of land and ramp swaps",
+  "effort": "S",
+  "spec": "Run 10k hands with packages/core goldfish.ts per state: chance of missing a land drop by turns 2, 3 and 4, flood, and a sweet-spot rate. Show it on DeckPage next to sample hands.",
+  "inspired_by": "EDHPowerLevel"
+ },
+ {
+  "iteration": 2,
+  "feature": "Exact printing and proxy options",
+  "area": "Decks & building",
+  "value": "medium: proxies and printings matter for owned/needed",
+  "effort": "S",
+  "spec": "Toggles on the deck page: match exact printing or any printing; count proxies as owned or not. 'Un-proxy' list of proxies that now have a real copy free.",
+  "inspired_by": "ManaBox missing-card rules"
+ },
+ {
+  "iteration": 3,
+  "feature": "Rule 0 card and house rules",
+  "area": "Playgroups & stats",
+  "value": "medium-high: makes the pregame talk quick",
+  "effort": "S",
+  "spec": "Playgroup gets a house-rules text field. Table setup shows each seat's declared and estimated bracket, GC count and combos. A per-deck Rule 0 card can be shown by QR.",
+  "inspired_by": "Mythic Tools 3.2.0, TableCommander, rule 0 guides"
+ },
+ {
+  "iteration": 3,
+  "feature": "Type a life total, plus or minus 10",
+  "area": "Table & life",
+  "value": "medium: faster big swings",
+  "effort": "S",
+  "spec": "Tapping the life total opens a numeric keypad that logs one life event. Player sheet adds -10/+10 steppers.",
+  "inspired_by": "Mythic Tools 3.0.3, Lotus"
+ },
+ {
+  "iteration": 3,
+  "feature": "Dice, coin, random player and seats",
+  "area": "Table & life",
+  "value": "medium: everything for game start in one place",
+  "effort": "S",
+  "spec": "Table menu dice tray (d4-d20, custom, several dice), coin flip, random opponent. 'Shuffle seats' in NewGame. A roll result can set the first player through set_first.",
+  "inspired_by": "Lifetap, Lotus High Roll"
+ },
+ {
+  "iteration": 3,
+  "feature": "More counters",
+  "area": "Table & life",
+  "value": "medium: common mechanics the counter lacks",
+  "effort": "S",
+  "spec": "Extend CounterKind in packages/core/src/table.ts with storm, treasure, mana, city's blessing, ring (level), speed and named custom counters. Show only counters in use as badges.",
+  "inspired_by": "Lifetap, Lotus"
+ },
+ {
+  "iteration": 3,
+  "feature": "Legibility options",
+  "area": "Table & life",
+  "value": "medium: rotated panels misread 6 and 9",
+  "effort": "S",
+  "spec": "Underline 6 and 9 on rotated panels. OLED black option. Bigger digits setting. Stored per device.",
+  "inspired_by": "Lotus 2.6.4, Lifetap OLED"
+ },
+ {
+  "iteration": 3,
+  "feature": "Log-form upgrades",
+  "area": "Playgroups & stats",
+  "value": "medium: faster logging of paper games",
+  "effort": "S",
+  "spec": "'Rematch' prefills the last game's seats and decks. Optional placements and how each player went out. Same win-condition chips as the finish flow.",
+  "inspired_by": "The Pod Companion"
+ },
+ {
+  "iteration": 3,
+  "feature": "playgroup.gg baseline on decks",
+  "area": "Playgroups & stats",
+  "value": "medium: an outside reference for stock precons",
+  "effort": "S",
+  "spec": "Admin form stores precon, stock win rate, games, date and URL. Decks with a stock state matching the precon show it, labelled as outside data.",
+  "inspired_by": "playgroup.gg precon tier list"
+ },
+ {
+  "iteration": 3,
+  "feature": "Turn timer and chess clock",
+  "area": "Table & life",
+  "value": "medium: some nights run long",
+  "effort": "M",
+  "spec": "Modes: per-turn stopwatch, per-player time bank, chess clock. Pause and resume, optional reminder at N minutes. Ticks stay out of the event log; pass_turn timestamps give turn lengths for stats.",
+  "inspired_by": "Lifetap chess clock, Mythic Tools Blitz"
+ },
+ {
+  "iteration": 3,
+  "feature": "Life graph and recap",
+  "area": "Table & life",
+  "value": "medium: fun to look back on a game",
+  "effort": "M",
+  "spec": "From game_events: life line per player by turn, knockouts, commander damage totals. Recap page per game, visible to the playgroup and linked from recent games.",
+  "inspired_by": "Lotus recaps, Moxtopper charts"
+ },
+ {
+  "iteration": 3,
+  "feature": "TV / spectator view",
+  "area": "Table & life",
+  "value": "medium: a big screen at game night",
+  "effort": "M",
+  "spec": "Read-only route /table/watch/:code on the existing table room: big totals, turn, active seat, monarch and initiative. The code persists for the evening so the TV follows the next game.",
+  "inspired_by": "Lotus Cast to TV"
+ },
+ {
+  "iteration": 3,
+  "feature": "Elo per player and deck version",
+  "area": "Playgroups & stats",
+  "value": "medium: a fairer ranking than raw win rate",
+  "effort": "M",
+  "spec": "Replay finished games in date order. The winner beats each loser pairwise with K/(N-1), K=24, base 1200. Rate players and deck versions separately. Show the formula and a low-sample flag.",
+  "inspired_by": "TurnZero MMR, Nerd Leagues, Cube Cobra code"
+ },
+ {
+  "iteration": 3,
+  "feature": "Game night",
+  "area": "Playgroups & stats",
+  "value": "medium: nights with more than one pod",
+  "effort": "M",
+  "spec": "Check in who's present, split into pods of 3-5 (avoid repeats from last time, optional Elo balance), random seats and first player, one shared table room per pod, night standings, TV view.",
+  "inspired_by": "TurnZero Gatherings, EDHElo podder"
+ },
+ {
+  "iteration": 3,
+  "feature": "Predictions",
+  "area": "Playgroups & stats",
+  "value": "medium: tests the lab against reality",
+  "effort": "M",
+  "spec": "Before a game or night, record predicted shares per seat (by hand or from the lab). After the game, score with Brier and show a running record.",
+  "inspired_by": "EDHbots calibration, deck-lab plan E5"
+ },
+ {
+  "iteration": 3,
+  "feature": "Treachery roles",
+  "area": "Table & life",
+  "value": "medium-low: a hidden-role night that fits the QR table",
+  "effort": "M",
+  "spec": "Host deals roles for 4-8 players through the table room. Each phone sees only its own role; the Leader is face up; unveil from the table. Card text from treachery.app/cards.json with credit, no art. Roles recorded with the game.",
+  "inspired_by": "Lotus Treachery mode, Treachery.app"
+ },
+ {
+  "iteration": 3,
+  "feature": "Planechase at the shared table",
+  "area": "Table & life",
+  "value": "low-medium: a common Commander variant",
+  "effort": "M",
+  "spec": "Host holds a planar deck built from plane and phenomenon cards already in the Scryfall import. Active plane shown on every phone; planar die with extra-roll cost; planeswalk. Works with Commander rules.",
+  "inspired_by": "Planar Atlas, Lotus"
+ },
+ {
+  "iteration": 3,
+  "feature": "Lifelink and infect modifiers",
+  "area": "Table & life",
+  "value": "low: occasional need",
+  "effort": "S",
+  "spec": "Commander damage stepper gets options: lifelink (attacker gains the same life) and infect (poison instead of life).",
+  "inspired_by": "CounterSpell, Playgroup action menu"
+ },
+ {
+  "iteration": 4,
+  "feature": "Bulk edit",
+  "area": "Collection",
+  "value": "high: filing many cards row by row is slow",
+  "effort": "M",
+  "spec": "Multi-select rows (checkbox or long press). Actions: move to container, set condition, finish, language, proxy, delete. Sent as one batch of collection ops.",
+  "inspired_by": "ManaBox, Archidekt, Deckstats"
+ },
+ {
+  "iteration": 4,
+  "feature": "Who in the playgroup owns X",
+  "area": "Collection",
+  "value": "medium-high: borrow before you buy",
+  "effort": "M",
+  "spec": "Container visibility: private, playgroup counts, playgroup full, link token. Card sheet and buy list show 'In your playgroup: Alex x1 (spare)'. Never share purchase prices or notes.",
+  "inspired_by": "Mythic Tools shared collections, Deckbox privacy"
+ },
+ {
+  "iteration": 4,
+  "feature": "Local store stock check",
+  "area": "Prices & buying",
+  "value": "medium-high: Bryan buys locally first",
+  "effort": "M",
+  "spec": "Port commander-decks local-store search: Shopify search/suggest.json and variant .js availability for listed stores; YesTCG list search for others (personal use, 4 or fewer requests at once). Results saved as dated stock checks on proposals.",
+  "inspired_by": "YesTCG, Card Finder"
+ },
+ {
+  "iteration": 4,
+  "feature": "Split a stack",
+  "area": "Collection",
+  "value": "medium: move one copy without workarounds",
+  "effort": "S",
+  "spec": "The move dialog asks how many copies; the server splits the row.",
+  "inspired_by": "ManaBox"
+ },
+ {
+  "iteration": 4,
+  "feature": "Other app CSV imports",
+  "area": "Collection",
+  "value": "medium: friends coming from ManaBox or Moxfield",
+  "effort": "M",
+  "spec": "Presets for ManaBox, Moxfield, Archidekt, Dragon Shield, Deckbox and TCGplayer. Match by Scryfall ID, then set and number, else flag 'unsure'. Downloadable errors CSV. Check MtgCsvHelper's license before reusing its mapping.",
+  "inspired_by": "Archidekt importer, ManaBox"
+ },
+ {
+  "iteration": 4,
+  "feature": "Scan aids",
+  "area": "Collection",
+  "value": "medium: faster sorting",
+  "effort": "S",
+  "spec": "Scanner shows 'own N, in Deck X', a session total, an optional sound above a price threshold, and a set lock.",
+  "inspired_by": "Mythic Tools MATCH, ManaBox"
+ },
+ {
+  "iteration": 4,
+  "feature": "Scan check vs purchases",
+  "area": "Collection",
+  "value": "medium: stores send other printings than listed",
+  "effort": "M",
+  "spec": "Compare a scan session or import with recorded purchases by set and collector number. Lists: to check, missing, fine. No changes until confirmed.",
+  "inspired_by": "commander-decks scancheck.py"
+ },
+ {
+  "iteration": 4,
+  "feature": "Wants and matching",
+  "area": "Social & sharing",
+  "value": "medium: friends' spares fill decks",
+  "effort": "M",
+  "spec": "One tap turns a state's needed cards into a want list. Match against playgroup spares and trade lists, strict (same printing) or relaxed. Matches show on the deck page and buy list.",
+  "inspired_by": "Deckbox, Cardsphere"
+ },
+ {
+  "iteration": 4,
+  "feature": "Loans",
+  "area": "Social & sharing",
+  "value": "medium: lending is common and nobody tracks it well",
+  "effort": "M",
+  "spec": "loans(lender, borrower, scryfall_id, finish, qty, deck_version_id, lent_at, due_at, returned_at, note). Borrowed is a third state in owned/needed. Return tasks when a borrowed card is cut. A lent deck's games credit the deck and the pilot separately.",
+  "inspired_by": "Gap in Deckbox and Mythic Tools"
+ },
+ {
+  "iteration": 4,
+  "feature": "More retailers via MTGJSON",
+  "area": "Prices & buying",
+  "value": "medium: compare beyond TCGplayer market",
+  "effort": "M",
+  "spec": "Daily AllPricesToday: Card Kingdom, Mana Pool and Cardsphere retail with source and date in price_snapshots. Buylist prices kept separate and filtered to qty_buying > 0, never shown as retail.",
+  "inspired_by": "MTGJSON, Card Kingdom price list"
+ },
+ {
+  "iteration": 4,
+  "feature": "Household collection",
+  "area": "Collection",
+  "value": "medium: Bryan and his wife share cards",
+  "effort": "M",
+  "spec": "Share a collection with another user; both can edit; owner shown per copy; decks count both owners' copies.",
+  "inspired_by": "Mythic Tools shared collections"
+ },
+ {
+  "iteration": 4,
+  "feature": "Trade sheet",
+  "area": "Social & sharing",
+  "value": "low-medium: occasional trades at the table",
+  "effort": "M",
+  "spec": "Two sides of lines with dated prices and source. Override a line with a reason. A missing price marks the total incomplete. Both phones join by QR; apply moves copies atomically.",
+  "inspired_by": "MTG Familiar, Deckbox local trades"
+ },
+ {
+  "iteration": 4,
+  "feature": "Price alerts",
+  "area": "Prices & buying",
+  "value": "low-medium: buy when a card dips",
+  "effort": "M",
+  "spec": "Watch a card at a threshold; check after each daily import; in-app notice with the dated price.",
+  "inspired_by": "MTGStocks, MTGGoldfish"
+ },
+ {
+  "iteration": 4,
+  "feature": "Scryfall migrations",
+  "area": "Collection",
+  "value": "low-medium: keeps imported IDs valid",
+  "effort": "S",
+  "spec": "After import, apply Scryfall /migrations to collection_items and deck_versions.",
+  "inspired_by": "Scryfall API"
+ },
+ {
+  "iteration": 4,
+  "feature": "Value over time",
+  "area": "Collection",
+  "value": "low: nice to see",
+  "effort": "S",
+  "spec": "Chart collection market value by date from stored snapshots, with a note for cards that had no price.",
+  "inspired_by": "Collectr"
+ },
+ {
+  "iteration": 5,
+  "feature": "Priority alert",
+  "area": "Online play",
+  "value": "medium: players miss their turn in another tab",
+  "effort": "S",
+  "spec": "When the view says a decision is waiting, play a short chime and change the tab title; setting to turn it off.",
+  "inspired_by": "phase v0.111.0"
+ },
+ {
+  "iteration": 5,
+  "feature": "Spectators",
+  "area": "Online play",
+  "value": "medium: knocked-out players and friends can watch",
+  "effort": "S",
+  "spec": "Route /play/:id/watch using the server's spectator view and Board's existing spectator state; no hidden information.",
+  "inspired_by": "Cockatrice, Playgroup Live, phase"
+ },
+ {
+  "iteration": 5,
+  "feature": "Replay viewer",
+  "area": "Online play",
+  "value": "medium: review AI and friend games",
+  "effort": "M",
+  "spec": "From the saved replay log: step by turn or action, 1-10x speed, clickable game log, life chart, all hands revealed after the game. Pinned to the recording engine version.",
+  "inspired_by": "Commander Arena theatre mode, Cockatrice 3.1"
+ },
+ {
+  "iteration": 5,
+  "feature": "Takeback vote",
+  "area": "Online play",
+  "value": "medium: fixes misclicks",
+  "effort": "M",
+  "spec": "Expose phase's takeback request, response and cancel; actions pause during the vote.",
+  "inspired_by": "phase server-core"
+ },
+ {
+  "iteration": 5,
+  "feature": "Commander Draft and cube",
+  "area": "Online play",
+  "value": "medium: a draft night with friends and AI",
+  "effort": "L",
+  "spec": "Lobby on phase draft-core: CommanderDraft (4-pod, pick two), Winston for 2, cube from a Cube Cobra ID. Finished pools go to the existing match runner.",
+  "inspired_by": "phase draft-core, Draftmancer, Cube Cobra"
+ },
+ {
+  "iteration": 5,
+  "feature": "VeryHard and CEDH AI presets",
+  "area": "Online play",
+  "value": "low-medium: tougher practice",
+  "effort": "S",
+  "spec": "Add the presets from phase-ai config to the skill menu in PlayHome.",
+  "inspired_by": "phase"
+ },
+ {
+  "iteration": 5,
+  "feature": "Claude seat",
+  "area": "Online play",
+  "value": "low-medium: opt-in experiment",
+  "effort": "M",
+  "spec": "phase-llm Anthropic provider; the model picks a legal option index and the engine checks it again. Estimate before the game and log tokens and cost per game.",
+  "inspired_by": "phase-llm, mage-bench"
+ },
+ {
+  "iteration": 5,
+  "feature": "Phase stops and game link",
+  "area": "Online play",
+  "value": "low: comfort",
+  "effort": "S",
+  "spec": "Per-phase stop settings; a copyable invite link next to the code.",
+  "inspired_by": "MTG Arena, Cockatrice 3.1"
+ },
+ {
+  "iteration": 5,
+  "feature": "Online turn timer",
+  "area": "Online play",
+  "value": "low: slow players online",
+  "effort": "M",
+  "spec": "Optional time bank per seat; auto-pass when it runs out.",
+  "inspired_by": "XMage"
+ },
+ {
+  "iteration": 5,
+  "feature": "Planechase, Archenemy and Momir online",
+  "area": "Online play",
+  "value": "low: variety nights",
+  "effort": "M",
+  "spec": "Lobby format choice using phase FormatConfig; shared planar or scheme decks; curate a list of planes that work in the engine.",
+  "inspired_by": "phase formats"
+ },
+ {
+  "iteration": 5,
+  "feature": "Deck by link",
+  "area": "Online play",
+  "value": "low: drafted decks drop straight into a table",
+  "effort": "S",
+  "spec": "Accept /play/import?dt=<MTGA text>&d=<deflated base64>&t=<ticket>&n=<name>; the same ticket pairs players.",
+  "inspired_by": "Moxgate Challenge Links"
+ },
+ {
+  "iteration": 6,
+  "feature": "Lab runner on saget",
+  "area": "Simulation & analytics",
+  "value": "high: measured stock vs now vs after",
+  "effort": "L",
+  "spec": "Batch job: deck files in, seats rotated, seeded games, JSON lines out. Stamp engine version, card-data hash, AI level per seat, seed, field id with list hashes, deck-version hash, game count and date.",
+  "inspired_by": "EDHbots, commander-decks deck-lab plan"
+ },
+ {
+  "iteration": 6,
+  "feature": "Lab page",
+  "area": "Simulation & analytics",
+  "value": "high: shows the lab inside Yama",
+  "effort": "M",
+  "spec": "Win share with 95% intervals by pod size; stock to now to after; every number shows engine, games and date.",
+  "inspired_by": "EDHbots, deck-lab plan"
+ },
+ {
+  "iteration": 6,
+  "feature": "Paired-seed swap test",
+  "area": "Simulation & analytics",
+  "value": "high: tells which upgrades matter",
+  "effort": "L",
+  "spec": "From a proposal: run both arms on the same seeds; report the change with an interval; inside the interval means no difference; confirm on a fresh seed before suggesting.",
+  "inspired_by": "EDHbots Swap Simulator, commander-builder"
+ },
+ {
+  "iteration": 6,
+  "feature": "Goldfish clock",
+  "area": "Simulation & analytics",
+  "value": "medium: speed is half of a bracket",
+  "effort": "M",
+  "spec": "Turn to win on an empty table per state, from phase all-AI solo runs.",
+  "inspired_by": "EDHbots"
+ },
+ {
+  "iteration": 6,
+  "feature": "Calibration vs playgroup.gg",
+  "area": "Simulation & analytics",
+  "value": "medium: how far to trust the engine",
+  "effort": "M",
+  "spec": "Simulate ranked precons; rank-correlate with playgroup.gg's stock rates; show the result and date.",
+  "inspired_by": "deck-lab E0, EDHbots calibration"
+ },
+ {
+  "iteration": 6,
+  "feature": "Matchups and coverage census",
+  "area": "Simulation & analytics",
+  "value": "medium: the opponent matters most",
+  "effort": "S",
+  "spec": "Results split by opponent deck; unsupported cards per deck version listed beside results.",
+  "inspired_by": "Grim.Cards, EDHbots coverage"
+ },
+ {
+  "iteration": 6,
+  "feature": "Card insights",
+  "area": "Simulation & analytics",
+  "value": "medium: which cards pull weight",
+  "effort": "M",
+  "spec": "From online and sim replay logs: win rate when drawn, when cast, and in the opening hand, against not drawn; per deck version; low-sample flags.",
+  "inspired_by": "17lands, playgroup Card Atlas"
+ },
+ {
+  "iteration": 6,
+  "feature": "Forge cross-check",
+  "area": "Simulation & analytics",
+  "value": "low-medium: two engines agreeing is stronger evidence",
+  "effort": "L",
+  "spec": "Run Forge sim -f commander as a separate process on saget; parse results into the same JSON lines. Never copy GPL code.",
+  "inspired_by": "Commander Arena, Grim.Cards"
+ },
+ {
+  "iteration": 7,
+  "feature": "Offline rulings for deck cards",
+  "area": "Reference & rules",
+  "value": "medium: bad wifi at game night",
+  "effort": "S",
+  "spec": "Add rulings for cards in the user's decks to the offline bundle.",
+  "inspired_by": "Judge Core"
+ },
+ {
+  "iteration": 7,
+  "feature": "Format news",
+  "area": "Reference & rules",
+  "value": "medium: bans and GC changes affect brackets",
+  "effort": "S",
+  "spec": "Home card with the next B&R date (2026-11-30) and the last GC change. When game_changer flips in an import, list affected decks.",
+  "inspired_by": "Wizards announcements"
+ },
+ {
+  "iteration": 7,
+  "feature": "[[card]] chips",
+  "area": "Social & sharing",
+  "value": "medium: readable reasons and notes",
+  "effort": "S",
+  "spec": "Render [[name]] as a tappable card chip in notes, swap reasons and comments; ! for the image, ? for rulings.",
+  "inspired_by": "Scryfall bot, Moxfield primers"
+ },
+ {
+  "iteration": 7,
+  "feature": "Deck share link",
+  "area": "Social & sharing",
+  "value": "medium: share a list outside Yama",
+  "effort": "S",
+  "spec": "Unlisted token per deck version, read-only, regenerate to revoke, not indexed.",
+  "inspired_by": "Deckbox unlisted links"
+ },
+ {
+  "iteration": 7,
+  "feature": "Per-user data export",
+  "area": "Platform",
+  "value": "medium: trust and backups",
+  "effort": "S",
+  "spec": "One zip with collection CSV, decks with versions, plans and games JSON.",
+  "inspired_by": "Lotus data export"
+ },
+ {
+  "iteration": 7,
+  "feature": "Extended search syntax",
+  "area": "Cards & search",
+  "value": "medium: power searches",
+  "effort": "M",
+  "spec": "Add otag:, produces:, r:, s:, cn:, a:, year, new:, is:reprint, !exact and regex to search.ts and the server, offline where data allows.",
+  "inspired_by": "Scryfall syntax"
+ },
+ {
+  "iteration": 7,
+  "feature": "Comments and Ask the playgroup",
+  "area": "Social & sharing",
+  "value": "medium: friends help with upgrades",
+  "effort": "M",
+  "spec": "Comments and reactions on decks and swaps, visible to the playgroup. 'Ask the playgroup' opens a request; friends propose swaps into the owner's review queue.",
+  "inspired_by": "Archidekt deck help, TableCommander suggest-only"
+ },
+ {
+  "iteration": 7,
+  "feature": "Oracle and GC change history",
+  "area": "Reference & rules",
+  "value": "medium: rules text changes quietly",
+  "effort": "M",
+  "spec": "On each import, diff name, cost, type, Oracle text, P/T, Commander legality and game_changer into oracle_history; 'changed cards in your decks' list.",
+  "inspired_by": "MTG Rules version diffs"
+ },
+ {
+  "iteration": 7,
+  "feature": "Themes",
+  "area": "Platform",
+  "value": "medium: the design pick is pending",
+  "effort": "M",
+  "spec": "Apply the chosen design tokens across styles.css; no felt green.",
+  "inspired_by": "Bryan's feedback, Mythic Tools themes"
+ },
+ {
+  "iteration": 7,
+  "feature": "CR links and search",
+  "area": "Reference & rules",
+  "value": "low-medium: quick rule lookups",
+  "effort": "S",
+  "spec": "Rule numbers in rulings link to Yawgatog anchors now; later parse the dated CR TXT on the server for search and link to Wizards.",
+  "inspired_by": "Yawgatog"
+ },
+ {
+  "iteration": 7,
+  "feature": "Accessibility pass",
+  "area": "Platform",
+  "value": "low-medium: better for everyone",
+  "effort": "M",
+  "spec": "Screen reader labels review, larger text setting, optional dyslexia-friendly font.",
+  "inspired_by": "Lion's Eye, Mythic Tools"
+ },
+ {
+  "iteration": 7,
+  "feature": "Yama MCP server",
+  "area": "Social & sharing",
+  "value": "low-medium: Bryan's agents can read his data",
+  "effort": "M",
+  "spec": "Read-only MCP tools for decks, plans, collection and games, per user token.",
+  "inspired_by": "TurnZero HQ"
+ },
+ {
+  "iteration": 7,
+  "feature": "AI advisor",
+  "area": "Deck planning & upgrades",
+  "value": "low-medium: optional help",
+  "effort": "L",
+  "spec": "Claude picks from a pre-filtered candidate list (identity, legality, owned or budget). Output goes to the review queue, never into a deck. Store model, prompt version and date.",
+  "inspired_by": "Farseek, DeckCheck"
+ },
+ {
+  "iteration": 7,
+  "feature": "RulesGuru per deck",
+  "area": "Reference & rules",
+  "value": "low: rules practice",
+  "effort": "S",
+  "spec": "Fetch RulesGuru questions for the deck's cards server-side, cached, shown with credit and a link.",
+  "inspired_by": "RulesGuru API"
+ },
+ {
+  "iteration": 7,
+  "feature": "Discord webhook",
+  "area": "Social & sharing",
+  "value": "low: only if the group uses Discord",
+  "effort": "S",
+  "spec": "Per-playgroup webhook URL; post results and new deck versions.",
+  "inspired_by": "Scryfall Discord bot"
+ },
+ {
+  "iteration": 7,
+  "feature": "Primer and folders",
+  "area": "Decks & building",
+  "value": "low: organization",
+  "effort": "S",
+  "spec": "Markdown notes per deck version; folder UI on the existing decks.folder column.",
+  "inspired_by": "Moxfield primers, TableCommander folders"
+ },
+ {
+  "iteration": 7,
+  "feature": "Leagues and Playscore",
+  "area": "Playgroups & stats",
+  "value": "low: more structure than the group needs",
+  "effort": "M",
+  "spec": "Seasons with custom points for kills, saves and first blood, minus points for infinites and long turns.",
+  "inspired_by": "playgroup.gg Playscore, Nerd Leagues"
+ },
+ {
+  "iteration": 7,
+  "feature": "Native apps",
+  "area": "Platform",
+  "value": "low: the PWA covers Android",
+  "effort": "L",
+  "spec": "Capacitor Android build only if the PWA hits a camera or storage limit.",
+  "inspired_by": "ARCHITECTURE.md"
+ },
+ {
+  "iteration": 8,
+  "feature": "Parked low-value features",
+  "area": "Several",
+  "value": "low: build only if asked",
+  "effort": "S",
+  "spec": "Set completion; tags and trade quantity on copies; copy photos; packages; basics helper; token list; cost by category; natural-language search; printed text toggle; other languages; OBS overlay; in-game notes; drag to attack; Archenemy and Bounty at the table; mulligan tracking; result confirmation; achievements; playgroup chat; share card; shipping optimizer; Direct signal; buylist value; home-print PDF; CR diff; LLM rules Q&A; webcam seats; notifications; phantom-opponent goldfish.",
+  "inspired_by": "Various apps in the taxonomy"
+ }
+]
