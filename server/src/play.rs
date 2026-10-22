@@ -80,7 +80,7 @@ enum Cmd {
     Stops { seat: u8, stops: Option<Stops> },
 }
 
-const STACK: usize = 32 << 20;
+pub(crate) const STACK: usize = 32 << 20;
 const AI_BATCH: usize = 40;
 
 impl PlayHub {
@@ -118,7 +118,7 @@ impl PlayHub {
         hub
     }
 
-    fn engine(&self) -> AppResult<Arc<Engine>> {
+    pub(crate) fn engine(&self) -> AppResult<Arc<Engine>> {
         match &*self.engine.lock().unwrap() {
             EngineState::Ready(e) => Ok(e.clone()),
             EngineState::Loading => Err(AppError::Conflict("the rules engine is still starting; try again in a moment".into())),
@@ -336,21 +336,21 @@ async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<
 // ── lobby ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct SeatCfg {
-    seat: u8,
+pub(crate) struct SeatCfg {
+    pub(crate) seat: u8,
     /// "human" or "ai"
-    kind: String,
-    user_id: Option<String>,
-    name: String,
-    deck_id: Option<String>,
-    deck_version_id: Option<String>,
-    deck_name: Option<String>,
-    color_identity: String,
-    commander: Option<String>,
-    difficulty: Option<String>,
+    pub(crate) kind: String,
+    pub(crate) user_id: Option<String>,
+    pub(crate) name: String,
+    pub(crate) deck_id: Option<String>,
+    pub(crate) deck_version_id: Option<String>,
+    pub(crate) deck_name: Option<String>,
+    pub(crate) color_identity: String,
+    pub(crate) commander: Option<String>,
+    pub(crate) difficulty: Option<String>,
     /// The deck's declared bracket when it took the seat. Older lobbies lack it.
     #[serde(default)]
-    bracket: Option<i64>,
+    pub(crate) bracket: Option<i64>,
 }
 
 fn ai_seats(seats: &[SeatCfg]) -> Vec<(u8, Difficulty)> {
@@ -362,7 +362,7 @@ fn ai_seats(seats: &[SeatCfg]) -> Vec<(u8, Difficulty)> {
 }
 
 #[derive(Serialize)]
-struct SeatInfo {
+pub(crate) struct SeatInfo {
     seat: u8,
     name: String,
     ai: Option<String>,
@@ -382,9 +382,9 @@ struct SeatInfo {
 }
 
 /// A commander's art crop and its artist.
-type Art = (Option<String>, Option<String>);
+pub(crate) type Art = (Option<String>, Option<String>);
 
-fn seat_infos(seats: &[SeatCfg], estimates: &HashMap<String, Estimated>, arts: &HashMap<String, Art>) -> Vec<SeatInfo> {
+pub(crate) fn seat_infos(seats: &[SeatCfg], estimates: &HashMap<String, Estimated>, arts: &HashMap<String, Art>) -> Vec<SeatInfo> {
     seats
         .iter()
         .map(|s| {
@@ -408,7 +408,7 @@ fn seat_infos(seats: &[SeatCfg], estimates: &HashMap<String, Estimated>, arts: &
 
 /// Art for every commander seated in these games, by the seat's commander name. Partners
 /// ("A and B") show the first one's art, unless a single card has the whole name.
-async fn commander_arts<'a>(pool: &SqlitePool, seats: impl Iterator<Item = &'a SeatCfg>) -> sqlx::Result<HashMap<String, Art>> {
+pub(crate) async fn commander_arts<'a>(pool: &SqlitePool, seats: impl Iterator<Item = &'a SeatCfg>) -> sqlx::Result<HashMap<String, Art>> {
     let mut arts = HashMap::new();
     for name in seats.filter_map(|s| s.commander.as_ref()) {
         if arts.contains_key(name) {
@@ -590,7 +590,7 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
     Ok(Json(summarize(&r, &user.id, missing, &estimates, &arts)))
 }
 
-fn deck_lines(cards: &[DeckCard]) -> Vec<DeckLine<'_>> {
+pub(crate) fn deck_lines(cards: &[DeckCard]) -> Vec<DeckLine<'_>> {
     cards
         .iter()
         .filter(|c| c.board != Board::Side)
@@ -598,7 +598,7 @@ fn deck_lines(cards: &[DeckCard]) -> Vec<DeckLine<'_>> {
         .collect()
 }
 
-fn resolve(engine: &Engine, cards: &[DeckCard]) -> (SeatDeck, yama_play::DeckReport) {
+pub(crate) fn resolve(engine: &Engine, cards: &[DeckCard]) -> (SeatDeck, yama_play::DeckReport) {
     engine.resolve_deck(&deck_lines(cards))
 }
 
@@ -648,16 +648,16 @@ async fn online_support(State(st): State<AppState>, CurrentUser(user): CurrentUs
 }
 
 /// A deck the user owns, as it takes a seat.
-struct SeatDeckInfo {
-    version: String,
-    name: String,
-    commander: Option<String>,
-    identity: String,
-    bracket: Option<i64>,
+pub(crate) struct SeatDeckInfo {
+    pub(crate) version: String,
+    pub(crate) name: String,
+    pub(crate) commander: Option<String>,
+    pub(crate) identity: String,
+    pub(crate) bracket: Option<i64>,
 }
 
 /// A deck the user owns: its current version, name, commander, color identity and declared bracket.
-async fn deck_for_seat(pool: &SqlitePool, owner: &str, deck_id: &str) -> AppResult<SeatDeckInfo> {
+pub(crate) async fn deck_for_seat(pool: &SqlitePool, owner: &str, deck_id: &str) -> AppResult<SeatDeckInfo> {
     let (name, version, bracket): (String, Option<String>, Option<i64>) =
         sqlx::query_as("SELECT name, current_version_id, bracket FROM decks WHERE id = ? AND owner_id = ? AND archived = 0")
             .bind(deck_id)
@@ -981,7 +981,7 @@ async fn connect(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pat
 
 /// What the board needs to show a card readably: full-size image and rules text, by name.
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
-struct CardMeta {
+pub(crate) struct CardMeta {
     /// For loading rulings in the card inspector.
     oracle_id: String,
     image: Option<String>,
@@ -995,7 +995,7 @@ struct CardMeta {
 }
 
 /// Every card name the view shows (board, hand, stack, graveyards, exile, command zone).
-fn view_names(view: &View) -> Vec<String> {
+pub(crate) fn view_names(view: &View) -> Vec<String> {
     let mut names: Vec<String> = view
         .battlefield
         .iter()
@@ -1003,6 +1003,7 @@ fn view_names(view: &View) -> Vec<String> {
         .chain(&view.command_zone)
         .chain(&view.exile)
         .chain(view.players.iter().flat_map(|p| p.graveyard.iter()))
+        .chain(view.hands.values().flatten())
         .map(|c| c.name.clone())
         .chain(view.stack.iter().map(|s| s.name.clone()))
         .collect();
@@ -1012,7 +1013,7 @@ fn view_names(view: &View) -> Vec<String> {
 }
 
 /// Look up card details by name, remembering answers (including "unknown") for this connection.
-async fn card_meta(pool: &SqlitePool, names: &[String], cache: &mut HashMap<String, Option<CardMeta>>) -> HashMap<String, CardMeta> {
+pub(crate) async fn card_meta(pool: &SqlitePool, names: &[String], cache: &mut HashMap<String, Option<CardMeta>>) -> HashMap<String, CardMeta> {
     for name in names {
         if cache.contains_key(name) {
             continue;

@@ -20,6 +20,8 @@ pub struct AppState {
     pub cf_keys: Option<Arc<crate::auth::JwkCache>>,
     pub rooms: Arc<crate::table_rooms::Rooms>,
     pub play: Arc<crate::play::PlayHub>,
+    /// Watched all-AI games, in memory (`watch.rs`).
+    pub watch: Arc<crate::watch::WatchHub>,
     /// The simulation lab's experiment worker (shares the play hub's engine).
     pub lab: Arc<crate::lab::worker::LabWorker>,
     /// Rate limits (sign-in, searches, imports, joins...), in memory.
@@ -39,6 +41,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::game_export::router())
         .merge(crate::table_rooms::router())
         .merge(crate::play::router())
+        .merge(crate::watch::router())
         .merge(crate::plan::router())
         .merge(crate::lab::router())
         // Unknown API paths are errors, not the web app.
@@ -107,6 +110,7 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         rooms: Arc::default(),
         play,
         lab,
+        watch: Arc::default(),
         limits: Arc::default(),
     };
     let listener = tokio::net::TcpListener::bind(&bind).await?;

@@ -27,6 +27,8 @@ import { TableHome } from "./table/TableHome";
 import { TablePlay } from "./table/TablePlay";
 import { PlayGame } from "./play/PlayGame";
 import { PlayHome } from "./play/PlayHome";
+import { WatchGame } from "./play/WatchGame";
+import { WatchHome } from "./play/WatchHome";
 
 function Shell() {
   const tabs = [
@@ -80,9 +82,11 @@ export function App() {
       <Route path="/table/play" element={<TablePlay />} />
       <Route path="/table/join/:gameId" element={<GuestTable />} />
       <Route path="/play/:id" element={<PlayGame />} />
+      <Route path="/play/watch/:id" element={<WatchGame />} />
       <Route element={<Shell />}>
         <Route index element={<TableHome />} />
         <Route path="play" element={<PlayHome />} />
+        <Route path="play/watch" element={<WatchHome />} />
         <Route path="cards" element={<CardsPage />} />
         <Route path="collection" element={<CollectionPage />} />
         <Route path="decks" element={<DecksPage />} />

@@ -7,6 +7,10 @@
 // One idea holds throughout: you can always read a card and see what you can do with it. Hover
 // (desktop) shows any card full size; a click selects it and filters your options; a
 // right-click, long-press or a tap on a phone opens it with its rules text and options.
+//
+// `watch` is the same board for an all-AI game its owner watches (server/src/watch.rs): no hand
+// or decision area, WatchControls where the decision would be, a choice of which seat sits at
+// the bottom, and every hand face up when asked.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
@@ -40,16 +44,18 @@ import {
 } from "./model";
 import { promptText, shortName } from "./text";
 import { COLOR_NAME, counterName, FieldTile, HandCard, ManaDot, type TileHandlers, type TileLook } from "./Tiles";
-import type { AttackAt, CardMeta, CardView, Decision, OptionView, PlayerView, SeatInfo, ServerMessage, View } from "./types";
+import type { AttackAt, CardMeta, CardView, Decision, OptionView, PlayerView, SeatInfo, ServerMessage, View, WatchStatus } from "./types";
+import { WatchControls, type WatchMessage } from "./WatchControls";
+import { seatLabel, seatName } from "./watch";
 import "./board.css";
 
 type ViewMessage = Extract<ServerMessage, { type: "view" }>;
 
-function playSocketUrl(id: string) {
+function playSocketUrl(id: string, watch: boolean) {
   const base = new URL(API_BASE || location.origin);
   const proto = base.protocol === "https:" ? "wss" : "ws";
   const token = API_BASE ? localStorage.getItem("yama.token") : null;
-  return `${proto}://${base.host}/api/play/${id}/ws${token ? `?token=${token}` : ""}`;
+  return `${proto}://${base.host}/api/${watch ? "watch" : "play"}/${id}/ws${token ? `?token=${token}` : ""}`;
 }
 
 function useMedia(query: string) {
@@ -117,7 +123,8 @@ function useSeatArt(gameId: string, view: View | undefined, seats: SeatInfo[]): 
   return out;
 }
 
-type SheetKind = null | "log" | "stops" | "stack" | "hand" | { seat: number; zone: "graveyard" | "exile" };
+type Zone = "graveyard" | "exile" | "hand";
+type SheetKind = null | "log" | "stops" | "stack" | "hand" | { seat: number; zone: Zone };
 
 interface AttackState {
   valid: Map<number, AttackAt[]>;
@@ -139,8 +146,11 @@ interface Control {
 
 // ── the board ──────────────────────────────────────────────────────────────
 
-export function Board({ id, live }: { id: string; live: boolean }) {
+export function Board({ id, live, watch = false }: { id: string; live: boolean; watch?: boolean }) {
   const [msg, setMsg] = useState<ViewMessage | null>(null);
+  const [watchStatus, setWatchStatus] = useState<WatchStatus | null>(null);
+  // Watching: the seat at the bottom of the board.
+  const [pov, setPov] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [selected, setSelected] = useState<number[] | null>(null);
@@ -185,11 +195,12 @@ export function Board({ id, live }: { id: string; live: boolean }) {
     let attempt = 0;
     let timer: number | null = null;
     const open = () => {
-      const ws = new WebSocket(playSocketUrl(id));
+      const ws = new WebSocket(playSocketUrl(id, watch));
       socket.current = ws;
       ws.onopen = () => {
         attempt = 0;
         setConnected(true);
+        if (watch) return;
         // Always say, so a setting another device made for this seat doesn't linger unseen here.
         ws.send(JSON.stringify({ type: "full_control", on: localStorage.getItem("yama.play.fullControl") === "1" }));
         try {
@@ -207,7 +218,8 @@ export function Board({ id, live }: { id: string; live: boolean }) {
           // game actually moves on.
           if (data.view.revision !== lastRevision.current) setError(null);
           lastRevision.current = data.view.revision;
-          gameOver.current = data.view.over;
+          gameOver.current = data.view.over || !!data.watch?.finished;
+          if (data.watch) setWatchStatus(data.watch);
         } else {
           setError(data.message);
           setSentAt(null);
@@ -226,7 +238,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
       if (timer) window.clearTimeout(timer);
       socket.current?.close();
     };
-  }, [id, live]);
+  }, [id, live, watch]);
 
   const view = msg?.view;
   const you = msg?.you ?? null;
@@ -267,6 +279,18 @@ export function Board({ id, live }: { id: string; live: boolean }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+  // Watching: the right arrow plays one move while paused.
+  useEffect(() => {
+    if (!watch) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowRight" || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, select, [contenteditable]") || t?.closest(".sheet")) return;
+      if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify({ type: "step" }));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [watch]);
   const saveStops = (next: StopMap | null) => {
     setStops(next);
     if (next) localStorage.setItem("yama.play.stops", JSON.stringify(next));
@@ -294,15 +318,23 @@ export function Board({ id, live }: { id: string; live: boolean }) {
   }
 
   const meta = msg.cards ?? {};
-  const bottom = you ?? 0;
+  const bottom = watch ? pov : you ?? 0;
   const seatInfo = (n: number) => seats.find((s) => s.seat === n);
-  /** For headers and tabs: "You", a friend's name, or "Computer, easy". */
+  /** For headers and tabs: "You", a friend's name, or "Computer, easy" ("Éowyn, easy" when watching). */
   const label = (n: number) => {
     if (n === you) return "You";
     const s = seatInfo(n);
+    if (watch) return seatName(s, n);
     if (s?.ai) return `Computer, ${s.ai.toLowerCase()}`;
     return s?.name ?? `Seat ${n + 1}`;
   };
+  const sendWatch = (m: WatchMessage) => {
+    if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(m));
+  };
+  const reveal = watch && !!watchStatus?.reveal;
+  /** The bottom seat's hand: yours, or a watched seat's when hands are face up. */
+  const handCards = watch ? (reveal ? view.hands?.[bottom] ?? [] : []) : view.hand;
+  const handOf = (seat: number) => view.hands?.[seat] ?? [];
   /** In sentences: "you", a friend's name, or the computer's commander ("Éowyn"). */
   const who = (n: number) => {
     if (n === you) return "you";
@@ -530,7 +562,11 @@ export function Board({ id, live }: { id: string; live: boolean }) {
     }
     return { primary: null, secondary: null };
   })();
-  primaryRef.current = controls.primary && !controls.primary.disabled && controls.primary.run ? controls.primary.run : null;
+  primaryRef.current = watch
+    ? watchStatus && !watchStatus.finished
+      ? () => sendWatch(watchStatus.playing ? { type: "pause" } : { type: "play" })
+      : null
+    : controls.primary && !controls.primary.disabled && controls.primary.run ? controls.primary.run : null;
   // Options the buttons already cover don't repeat in the list.
   const covered = (o: OptionView) =>
     isPass(o) ||
@@ -551,7 +587,9 @@ export function Board({ id, live }: { id: string; live: boolean }) {
     return "Commander away";
   })();
   const myArt = art(bottom);
-  const myStatus = you === null
+  const myStatus = watch
+    ? `${seatLabel(seatInfo(bottom), bottom)} computer${view.active === bottom ? ", their turn" : ""}`
+    : you === null
     ? `${label(bottom)}, watching`
     : view.over
       ? "You"
@@ -563,9 +601,15 @@ export function Board({ id, live }: { id: string; live: boolean }) {
   const recent = view.log.slice(-3);
   const stopsLine = fullControl ? "Full control: stops at every step" : stopsSummary(stops) ?? "Stops only where you can act";
 
-  const title = view.over
+  const title = watch && watchStatus?.finished && !view.over
+    ? "The game stopped"
+    : view.over
     ? view.winner === null ? "The game is a draw" : view.winner === you ? "You won" : `${Who(view.winner)} won`
-    : meOut
+    : watch
+      ? watchStatus && !watchStatus.playing
+        ? `Paused, ${who(view.active)}'s turn ${view.turn}`
+        : `${Who(view.active)}'s turn ${view.turn}`
+      : meOut
       ? "You're out"
       : decision
       ? decisionTitle(decision, view, you, Who, promptText)
@@ -613,7 +657,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
           <span>{controls.primary.label}</span>
         </button>
       )}
-      {view.over && (
+      {view.over && !watch && (
         <Link to="/play" className="button pb-secondary outline">Back to Play online</Link>
       )}
     </>
@@ -621,7 +665,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
   const status = (
     <>
       {error && <p className="error small pb-status" role="alert">{error}</p>}
-      {!connected && live && !view.over && <p className="small dim pb-status">Reconnecting…</p>}
+      {!connected && live && !view.over && !watchStatus?.finished && <p className="small dim pb-status">Reconnecting…</p>}
     </>
   );
   const ladder = <Ladder phase={view.phase} fullControl={fullControl} stops={stops} onToggle={you !== null && !view.over ? toggleStop : undefined} />;
@@ -647,6 +691,12 @@ export function Board({ id, live }: { id: string; live: boolean }) {
       </span>
     </span>
   ) : null;
+
+  const leaveTo = watch ? "/play/watch" : "/play";
+  const watchControls = (compact: boolean) =>
+    watch && watchStatus ? (
+      <WatchControls id={id} status={watchStatus} view={view} seats={seats} art={art} pov={bottom} onPov={setPov} send={sendWatch} compact={compact} />
+    ) : null;
 
   const stackList = <StackList view={view} meta={meta} you={you} who={Who} art={art} onHover={h.onHover} onRead={setInspect} canHover={canHover} />;
 
@@ -719,28 +769,35 @@ export function Board({ id, live }: { id: string; live: boolean }) {
         </Sheet>
       )}
       {sheet === "hand" && (
-        <Sheet label="Your hand" onClose={() => setSheet(null)}>
+        <Sheet label={watch ? `${seatName(seatInfo(bottom), bottom)}'s hand` : "Your hand"} onClose={() => setSheet(null)}>
           <div className="stack">
             <div className="sheet-head">
-              <h2>Hand {view.hand.length}</h2>
+              <h2>Hand {handCards.length}</h2>
               <button className="quiet" onClick={() => setSheet(null)}>Close</button>
             </div>
             <div className="hand-grid">
               {myCommanders.map((c) => (
                 <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c), { tag: "Commander" })} h={h} caption={c.tax ? `Commander, tax +${c.tax}` : "Commander"} />
               ))}
-              {view.hand.map((c) => (
+              {handCards.map((c) => (
                 <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c))} h={h} />
               ))}
             </div>
-            {view.hand.length === 0 && <p className="dim">No cards in hand.</p>}
+            {handCards.length === 0 && <p className="dim">No cards in hand.</p>}
           </div>
         </Sheet>
       )}
       {typeof sheet === "object" && sheet !== null && (
         <ZoneSheet
           title={`${Who(sheet.seat) === "You" ? "Your" : `${Who(sheet.seat)}'s`} ${sheet.zone}`}
-          cards={sheet.zone === "graveyard" ? [...(view.players.find((p) => p.seat === sheet.seat)?.graveyard ?? [])].reverse() : view.exile.filter((c) => c.owner === sheet.seat).reverse()}
+          cards={
+            sheet.zone === "hand"
+              ? handOf(sheet.seat)
+              : sheet.zone === "graveyard"
+                ? [...(view.players.find((p) => p.seat === sheet.seat)?.graveyard ?? [])].reverse()
+                : view.exile.filter((c) => c.owner === sheet.seat).reverse()
+          }
+          newestFirst={sheet.zone !== "hand"}
           meta={meta}
           onRead={setInspect}
           onClose={() => setSheet(null)}
@@ -785,6 +842,8 @@ export function Board({ id, live }: { id: string; live: boolean }) {
                 aimed={!!seatTarget(p.seat)}
                 tax={taxOf(p.seat)}
                 toYou={damageFrom(p.seat)}
+                toWhom={watch ? seatName(seatInfo(bottom), bottom) : undefined}
+                onHand={reveal ? () => setSheet({ seat: p.seat, zone: "hand" }) : undefined}
                 exile={view.exile.filter((c) => c.owner === p.seat).length}
                 outTurn={outTurn(p.seat)}
                 cards={view.battlefield.filter((c) => c.controller === p.seat)}
@@ -807,7 +866,15 @@ export function Board({ id, live }: { id: string; live: boolean }) {
             <div className="pb-row creatures">
               {myRows.creatures.map((p) => <FieldTile key={p.key} pile={p} meta={meta[p.card.name]} look={look(p)} h={h} />)}
               {!myRows.creatures.length && !myRows.lands.length && !myRows.others.length && (
-                <p className="zone-empty">{meOut ? `You went out${outTurn(bottom) ? ` on turn ${outTurn(bottom)}` : ""}. You can watch the rest of the game.` : "Your permanents will show here."}</p>
+                <p className="zone-empty">
+                  {watch
+                    ? me?.eliminated
+                      ? `${seatName(seatInfo(bottom), bottom)} went out${outTurn(bottom) ? ` on turn ${outTurn(bottom)}` : ""}.`
+                      : `${seatName(seatInfo(bottom), bottom)}'s permanents will show here.`
+                    : meOut
+                      ? `You went out${outTurn(bottom) ? ` on turn ${outTurn(bottom)}` : ""}. You can watch the rest of the game.`
+                      : "Your permanents will show here."}
+                </p>
               )}
             </div>
             <div className="pb-back">
@@ -832,14 +899,22 @@ export function Board({ id, live }: { id: string; live: boolean }) {
               ))}
               {commanderWhere && <span className="cmdr-away">{commanderWhere}</span>}
             </span>
-            <HandFan hand={view.hand} meta={meta} look={look} h={h} spectator={you === null} />
+            <HandFan
+              hand={handCards}
+              meta={meta}
+              look={look}
+              h={h}
+              spectator={you === null && !reveal}
+              label={watch ? `${seatName(seatInfo(bottom), bottom)}'s hand` : "Your hand"}
+              hidden={watch ? "Hands are face down. Turn on Show every hand to see them." : "Hands stay hidden while you watch."}
+            />
             <Portrait art={myArt.art} life={me?.life ?? 0} poison={me?.poison ?? 0} status={myStatus} active={view.active === bottom} />
           </div>
         </div>
 
         <aside className="pb-rail" aria-label="Stack and your options">
           <div className="rail-top">
-            <Link to="/play" className="rail-leave">Leave</Link>
+            <Link to={leaveTo} className="rail-leave">Leave</Link>
             <button type="button" className="rail-log" onClick={() => setSheet("log")}>Game log</button>
           </div>
           <section className="rail-stack" aria-labelledby="pb-stack-h">
@@ -849,7 +924,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
           <section className="rail-decision" aria-live="polite" aria-labelledby="pb-dec-h">
             <h2 id="pb-dec-h">{title}</h2>
             {/* The choices scroll; the big button below them never leaves the screen. */}
-            <div className="rail-body">{decisionBody}</div>
+            <div className="rail-body">{watch ? watchControls(false) : decisionBody}</div>
             <div className="rail-foot">
               {recent.length > 0 && (
                 <section className="rail-recent" aria-label="Recent">
@@ -911,7 +986,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
               {art(p.seat).art && <img src={art(p.seat).art!} alt="" />}
               <span className="tab-wash" aria-hidden="true" />
               <span className="tab-body">
-                <span className="tab-name">{p.seat === you ? "You" : seatInfo(p.seat)?.ai ? "Computer" : label(p.seat)}</span>
+                <span className="tab-name">{p.seat === you ? "You" : seatInfo(p.seat)?.ai ? (watch ? seatName(seatInfo(p.seat), p.seat) : "Computer") : label(p.seat)}</span>
                 <b className="tab-life num">{p.eliminated ? "Out" : p.life}</b>
               </span>
               {view.waiting_on.includes(p.seat) && !view.over ? <span className="tab-flag warn">Deciding</span> : view.active === p.seat ? <span className="tab-flag">Turn</span> : null}
@@ -924,8 +999,10 @@ export function Board({ id, live }: { id: string; live: boolean }) {
         <OppFocus
           p={focus}
           label={label(focus.seat)}
-          commander={seatInfo(focus.seat)?.commander ?? null}
+          commander={watch ? seatInfo(focus.seat)?.deck_name ?? null : seatInfo(focus.seat)?.commander ?? null}
           toYou={damageFrom(focus.seat)}
+          toWhom={watch ? seatName(seatInfo(bottom), bottom) : undefined}
+          onHand={reveal ? () => setSheet({ seat: focus.seat, zone: "hand" }) : undefined}
           exile={view.exile.filter((c) => c.owner === focus.seat).length}
           cards={view.battlefield.filter((c) => c.controller === focus.seat)}
           meta={meta}
@@ -972,16 +1049,17 @@ export function Board({ id, live }: { id: string; live: boolean }) {
       </section>
 
       <div className="pb-dock">
-        {you !== null && (
-          <button type="button" className={`hand-peek${handPlayable ? " has-play" : ""}`} aria-label={`Open your hand, ${view.hand.length} cards`} onClick={() => setSheet("hand")}>
+        {watchControls(true)}
+        {(you !== null || reveal) && (
+          <button type="button" className={`hand-peek${handPlayable ? " has-play" : ""}`} aria-label={`Open ${watch ? `${seatName(seatInfo(bottom), bottom)}'s` : "your"} hand, ${handCards.length} cards`} onClick={() => setSheet("hand")}>
             <span className="peek-cards">
-              {[...myCommanders, ...view.hand].slice(0, 9).map((c) => (
+              {[...myCommanders, ...handCards].slice(0, 9).map((c) => (
                 <span key={c.id} className={`peek-card${optionObjects.has(c.id) ? " playable" : ""}`}>
                   {meta[c.name]?.image ? <img src={meta[c.name]!.image!} alt="" /> : null}
                 </span>
               ))}
             </span>
-            <span className="peek-label">Hand {view.hand.length}</span>
+            <span className="peek-label">Hand {handCards.length}</span>
           </button>
         )}
         {(phoneHint || phoneChoices.length > 0 || (decision && !decision.prompt.startsWith("Priority") && !attack && !block)) && (
@@ -1010,7 +1088,7 @@ export function Board({ id, live }: { id: string; live: boolean }) {
           <div className={`dock-buttons${controls.secondary ? "" : " one"}`}>{buttons}</div>
         </div>
         <div className="dock-links">
-          <Link to="/play">Leave</Link>
+          <Link to={leaveTo}>Leave</Link>
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>
         </div>
       </div>
@@ -1094,15 +1172,23 @@ function Portrait({ art, life, poison, status, active, compact = false }: { art:
   );
 }
 
-function HandFan({ hand, meta, look, h, spectator }: { hand: CardView[]; meta: Record<string, CardMeta>; look: (p: Pile, e?: TileLook) => TileLook; h: TileHandlers; spectator: boolean }) {
+function HandFan({ hand, meta, look, h, spectator, label = "Your hand", hidden = "Hands stay hidden while you watch." }: {
+  hand: CardView[];
+  meta: Record<string, CardMeta>;
+  look: (p: Pile, e?: TileLook) => TileLook;
+  h: TileHandlers;
+  spectator: boolean;
+  label?: string;
+  hidden?: string;
+}) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const cardW = 120;
   const n = hand.length;
   // 60% of each card shows when there's room; tighter as the hand grows, never under 28 px.
   const step = n > 1 ? Math.max(28, Math.min(cardW * 0.62, (width - cardW - 16) / (n - 1))) : cardW;
   return (
-    <div className="hand-fan" ref={ref} aria-label="Your hand">
-      {spectator ? <p className="zone-empty">Hands stay hidden while you watch.</p> : null}
+    <div className="hand-fan" ref={ref} aria-label={label}>
+      {spectator ? <p className="zone-empty">{hidden}</p> : null}
       {!spectator && n === 0 && <p className="zone-empty">No cards in hand.</p>}
       {hand.map((c, i) => (
         <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c))} h={h} style={{ marginLeft: i === 0 ? 0 : step - cardW, zIndex: i }} />
@@ -1191,6 +1277,10 @@ function OppPane(props: {
   aimed?: boolean;
   tax: number;
   toYou: number;
+  /** Whose commander damage the chip counts: "you", or the watched seat at the bottom. */
+  toWhom?: string;
+  /** Hands are face up (watching): the hand count opens the hand. */
+  onHand?: () => void;
   exile: number;
   outTurn?: number;
   cards: CardView[];
@@ -1239,7 +1329,12 @@ function OppPane(props: {
         <span className="opp-id">
           <span className="opp-name">{props.label}</span>
           <span className="opp-counts">
-            Hand {p.hand}, library {p.library},{" "}
+            {props.onHand ? (
+              <button type="button" className="inline-link" onClick={(e) => (e.stopPropagation(), props.onHand!())}>Hand {p.hand}</button>
+            ) : (
+              <>Hand {p.hand}</>
+            )}
+            , library {p.library},{" "}
             <button type="button" className="inline-link" onClick={(e) => (e.stopPropagation(), props.onZone("graveyard"))}>graveyard {p.graveyard.length}</button>
             {props.exile > 0 && (
               <>
@@ -1252,9 +1347,9 @@ function OppPane(props: {
           {props.art.art && <span className="opp-credit">Art: {props.art.artist ?? "unknown"}</span>}
         </span>
         <span className="opp-side">
-          <span className="cmdr-chip" title="Commander tax, and commander damage it has dealt you">
+          <span className="cmdr-chip" title={`Commander tax, and commander damage it has dealt ${props.toWhom ?? "you"}`}>
             {props.art.art && <img src={props.art.art} alt="" />}
-            {props.tax > 0 ? `Tax +${props.tax}, ` : ""}{props.toYou} to you
+            {props.tax > 0 ? `Tax +${props.tax}, ` : ""}{props.toYou} to {props.toWhom ?? "you"}
           </span>
           {props.deciding && !p.eliminated && <span className="opp-flag">Deciding</span>}
           {props.active && !props.deciding && !p.eliminated && <span className="opp-flag turn">Their turn</span>}
@@ -1302,6 +1397,8 @@ function OppFocus(props: {
   label: string;
   commander: string | null;
   toYou: number;
+  toWhom?: string;
+  onHand?: () => void;
   exile: number;
   cards: CardView[];
   meta: Record<string, CardMeta>;
@@ -1321,7 +1418,13 @@ function OppFocus(props: {
       <div className="focus-meta">
         <span>
           {props.label}
-          {props.commander ? `, ${props.commander}` : ""}. Hand {p.hand},{" "}
+          {props.commander ? `, ${props.commander}` : ""}.{" "}
+          {props.onHand ? (
+            <button type="button" className="inline-link" onClick={props.onHand}>Hand {p.hand}</button>
+          ) : (
+            <>Hand {p.hand}</>
+          )}
+          ,{" "}
           <button type="button" className="inline-link" onClick={() => props.onZone("graveyard")}>graveyard {p.graveyard.length}</button>
           {props.exile > 0 && (
             <>
@@ -1330,7 +1433,7 @@ function OppFocus(props: {
           )}
           {p.poison > 0 && `, ${p.poison} poison`}
         </span>
-        <span>{props.toYou} to you</span>
+        <span>{props.toYou} to {props.toWhom ?? "you"}</span>
       </div>
       {p.eliminated ? (
         <p className="zone-empty">Out of the game.</p>
@@ -1561,7 +1664,14 @@ function DecisionBody(props: {
   );
 }
 
-function ZoneSheet({ title, cards, meta, onRead, onClose }: { title: string; cards: CardView[]; meta: Record<string, CardMeta>; onRead: (c: CardView) => void; onClose: () => void }) {
+function ZoneSheet({ title, cards, meta, onRead, onClose, newestFirst = true }: {
+  title: string;
+  cards: CardView[];
+  meta: Record<string, CardMeta>;
+  onRead: (c: CardView) => void;
+  onClose: () => void;
+  newestFirst?: boolean;
+}) {
   const [q, setQ] = useState("");
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -1583,7 +1693,7 @@ function ZoneSheet({ title, cards, meta, onRead, onClose }: { title: string; car
             </button>
           ))}
         </div>
-        <p className="small dim">Newest first.</p>
+        {newestFirst && <p className="small dim">Newest first.</p>}
       </div>
     </Sheet>
   );
