@@ -371,6 +371,15 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 - **Ask Claude with tools:** the sidecar gives `query()` exactly one MCP server, `{type: "http", url, Authorization: Bearer <question token>}`, allows only `mcp__yama`, keeps `tools: []` (none of Claude Code's own tools) and `strictMcpConfig`, and allows 16 turns instead of 1. It streams a `tool` event (the tool's short name only) that the panel shows as "Looking up cards…". The instructions tell Claude to check a card with `card` before recommending it.
 - **Outside clients:** `claude mcp add --transport http yama https://yama.saget.org/mcp --header "Authorization: Bearer <key>"` (Settings shows the command once, with the key). The claude.ai and phone apps need OAuth for a connector; that's slice 3.
 
+### Deck import (2026-10-22)
+
+Bryan (2026-10-22): "we need to work on importing decks. Make that better." Add a deck is a page now (`/decks/import`, `web/src/decks/ImportPage.tsx`); docs/deck-import.md has the sources and what each site allows.
+
+- **Getting the list out:** a guide per source (Moxfield, Archidekt, Arena, MTGO, ManaBox, Mythic Tools, TappedOut, Deckstats, EDHREC, MTGGoldfish, typed), in `web/src/decks/guides.ts`. In: paste, files (.txt, .dek, .csv, .json; several at once), drag and drop, the clipboard button, and Android's share sheet (the manifest's `share_target` opens `/decks/import?text=&url=&title=`).
+- **Reading it** (`server/src/deck_import/`, `POST /api/decks/import/preview`): `formats.rs` reads every format into one shape; `names.rs` matches names (exact, then forgiving, then suggestions); `links.rs` recognizes deck links and fetches only from sites switched on in `YAMA_DECK_LINK_SOURCES` (none by default: Moxfield doesn't allow it, Archidekt's terms need permission). Nothing is saved by the preview.
+- **Checking it** (`web/src/decks/importLogic.ts`): count to 100, commander (marked, guessed or picked), colour identity, extra copies, unknown names with "did you mean" buttons. Count, colours and copies warn; only unknown names and a missing name block saving.
+- **Saving:** the deck routes, with the cards and the printings the source named (`prints`, kept in `deck_prints`, migration 0013; exports prefer an owned copy, then this printing, then a paper default). "Update from a list" on a deck's page saves a new version and shows what goes in and out first.
+
 ## 11. Risks
 
 - **Legal and IP:**

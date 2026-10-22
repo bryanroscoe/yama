@@ -262,6 +262,9 @@ struct NewDeck {
     first_is_commander: bool,
     /// …or resolved cards.
     cards: Option<Vec<DeckCard>>,
+    /// Printings the import named, kept with the deck (deck_import::save_prints).
+    #[serde(default)]
+    prints: Vec<crate::deck_import::DeckPrint>,
 }
 
 #[derive(Serialize)]
@@ -281,6 +284,7 @@ async fn create_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser,
         (None, None) => (vec![], vec![]),
     };
     let id = create_deck_with_cards(&st.pool, &user.id, &body.name, body.folder.as_deref(), cards).await?;
+    crate::deck_import::save_prints(&st.pool, &id, &body.prints).await?;
     Ok(Json(Created { id, unknown }))
 }
 
@@ -436,7 +440,7 @@ struct PrintRef {
     collector_number: String,
     /// nonfoil | foil | etched
     finish: String,
-    /// "owned" or "default"
+    /// "owned", "chosen" (the printing an import named) or "default"
     from: &'static str,
 }
 
@@ -552,6 +556,8 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
 
     // Ownership, by oracle ID, across the whole collection.
     let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
+    // Printings an import named for this deck.
+    let chosen = crate::deck_import::deck_prints(&st.pool, &id).await?;
     let mut entries = Vec::new();
     let mut totals = OwnershipTotals::default();
     for c in cards {
@@ -601,7 +607,14 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             }
         }
         let card = card_info.get(&c.oracle_id).cloned();
-        let printing = match owned_printing(&mine, container_id.as_deref()) {
+        // Exports need a collector number, so a set alone doesn't count.
+        let chosen_print = chosen.get(&c.oracle_id).and_then(|p| p.collector_number.clone().map(|n| (p, n))).map(|(p, n)| PrintRef {
+            set_code: p.set_code.clone(),
+            collector_number: n,
+            finish: p.finish.clone(),
+            from: "chosen",
+        });
+        let printing = match owned_printing(&mine, container_id.as_deref()).or(chosen_print) {
             Some(p) => Some(p),
             None => paper_printing(
                 &sqlx::query_as::<_, PrintingChoice>(
@@ -640,6 +653,9 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
 struct SaveVersion {
     cards: Vec<DeckCard>,
     note: Option<String>,
+    /// Printings the import named (deck_import::save_prints).
+    #[serde(default)]
+    prints: Vec<crate::deck_import::DeckPrint>,
 }
 
 async fn save_version(
@@ -651,6 +667,7 @@ async fn save_version(
     st.limits.deck_writes.check_user(&user)?;
     owned_deck(&st.pool, &user.id, &id).await?;
     let vid = insert_version(&st.pool, &id, &body.cards, body.note.as_deref()).await?;
+    crate::deck_import::save_prints(&st.pool, &id, &body.prints).await?;
     Ok(Json(serde_json::json!({ "version_id": vid })))
 }
 
