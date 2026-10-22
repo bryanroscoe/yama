@@ -41,12 +41,13 @@ use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-pub const DEFAULT_MODEL: &str = "claude-opus-5-5";
+/// Haiku by default (Bryan, 2026-10-22: Opus kept him on "Thinking…" for most of a minute).
+pub const DEFAULT_MODEL: &str = "claude-haiku-5-5";
 /// (id, label, note) of every model the advisor offers.
 pub const MODELS: [(&str, &str, &str); 3] = [
-    ("claude-opus-5-5", "Claude Opus 5.5", "The most thoughtful answers. The default."),
-    ("claude-sonnet-5-5", "Claude Sonnet 5.5", "Faster, nearly as good."),
-    ("claude-haiku-5-5", "Claude Haiku 5.5", "The quickest, for simple questions."),
+    ("claude-haiku-5-5", "Claude Haiku 5.5", "The quickest. The default."),
+    ("claude-sonnet-5-5", "Claude Sonnet 5.5", "Slower, more thorough."),
+    ("claude-opus-5-5", "Claude Opus 5.5", "The most thoughtful answers, and the slowest: often a minute."),
 ];
 /// Questions a day for an account that joined without an invite, and for an invited account.
 pub const DAILY_LIMITED: i64 = 30;

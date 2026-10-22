@@ -304,7 +304,7 @@ export function DeckPage() {
       <button className="on-art" onClick={() => setEditing(true)}>Edit deck</button>
       <button className="on-art" onClick={() => setExporting(true)}>Export</button>
       <button className="on-art" onClick={() => setHistory(true)}>History</button>
-      <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} />
+      <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
       <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
     </>
   );
@@ -386,7 +386,7 @@ export function DeckPage() {
           <button className="outline" onClick={() => setEditing(true)}>Edit deck</button>
           <button className="outline" onClick={() => setExporting(true)}>Export</button>
           <button className="outline" onClick={() => setHistory(true)}>History</button>
-          <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} />
+          <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
         </div>
 
         {/* The status row: legality, the plan for this deck, and its simulated strength. */}

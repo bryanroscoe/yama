@@ -390,12 +390,15 @@ function SuggestionCard({ s, ideasFor, disabled }: { s: Suggestion; ideasFor: st
         )}
       </p>
       {s.why && <p className="small dim">{s.why}</p>}
-      {ideasFor &&
-        (saved ? (
+      {ideasFor ? (
+        saved ? (
           <p className="small" role="status">Saved. It goes to your planner's inbox.</p>
         ) : (
           <button type="button" className="outline" onClick={save} disabled={disabled || !userId}>Save as an idea</button>
-        ))}
+        )
+      ) : (
+        <p className="small dim">To save this as an idea, ask from the deck's plan.</p>
+      )}
     </div>
   );
 }
