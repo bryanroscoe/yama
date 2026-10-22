@@ -1,0 +1,579 @@
+From b906df0c3d2f8b5b61a24326957a284aa2c827d0 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Tue, 20 Oct 2026 10:41:35 -0500
+Subject: [PATCH 4/4] AI: value "becomes a copy of target land" by its payoff
+ (Thespian's Stage + Dark Depths)
+
+For "~ becomes a copy of target <permanent>" (BecomeCopy with the source as
+recipient) the target is only read, but anti_self_harm treated the Contextual
+effect as harmful and CopyValuePolicy scored only token copies, by creature
+value. A land target scored 0 at best, so Thespian's Stage copied opponents'
+basic lands (Yama deck lab: 32 copies in 157 games, never Dark Depths; in a
+unit test, the opponent's land 19 of 20 times).
+
+- anti_self_harm: a target that every targeting effect only reads as a
+  self-copy's source scores 0 (no controller preference).
+- copy_value: a self-copy target is scored like a token copy, plus
+  zero_counter_state_trigger_payoff: the creature tokens made by the target's
+  "when ~ has no <kind> counters" state trigger when the copy has none of
+  those counters (CR 707.2 + CR 603.8 + CR 614.12: counters aren't copied
+  and the copy never got the target's enters-with counters). For a legendary
+  target of its own, the cost is the original lost to the legend rule.
+- Legend rule (CR 704.5j): a land whose own such payoff is live is kept over
+  a copy that still has its counters, so the Stage copy is kept.
+- combo registry: a Thespian's Stage + Dark Depths line, so the tutor scorer
+  (which uses near-reachable lines at every difficulty) fetches the missing
+  piece when the other is on the battlefield. Not a win by itself.
+
+Tests (policies/tests/land_copy_value.rs): the engine makes Marit Lage when
+the copy is kept; over 20 seeds the Easy AI copies Dark Depths (19, opponent's
+land 0) and gets Marit Lage (19).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/phase-ai/src/combo/registry.rs         |  40 +++-
+ .../phase-ai/src/policies/anti_self_harm.rs   |  25 ++-
+ crates/phase-ai/src/policies/copy_value.rs    | 167 ++++++++++++++-
+ .../src/policies/tests/land_copy_value.rs     | 196 ++++++++++++++++++
+ crates/phase-ai/src/policies/tests/mod.rs     |   1 +
+ 5 files changed, 425 insertions(+), 4 deletions(-)
+ create mode 100644 crates/phase-ai/src/policies/tests/land_copy_value.rs
+
+diff --git a/crates/phase-ai/src/combo/registry.rs b/crates/phase-ai/src/combo/registry.rs
+index c2595f6..ecab345 100644
+--- a/crates/phase-ai/src/combo/registry.rs
++++ b/crates/phase-ai/src/combo/registry.rs
+@@ -51,6 +51,7 @@ impl Default for ComboRegistry {
+                 heliod_ballista_line(),
+                 thoracle_consultation_line(),
+                 kiki_felidar_line(),
++                stage_depths_line(),
+             ],
+             detector: Box::new(StructuralComboDetector),
+         }
+@@ -294,6 +295,41 @@ fn kiki_felidar_line() -> ComboLine {
+     }
+ }
+ 
++/// Thespian's Stage + Dark Depths: "{2}, {T}: This land becomes a copy of
++/// target land, except it has this ability." The copy of Dark Depths has no
++/// ice counters (counters aren't copied, and it never entered with ten), so
++/// its state trigger at once sacrifices it for Marit Lage, a legendary 20/20
++/// flying indestructible token (CR 707.2 + CR 603.8; keep the copy at the
++/// legend rule, CR 704.5j).
++///
++/// Not a win by itself, unlike the lines above, and Commander decks run it
++/// outside cEDH (Tricky Terrain). It is registered for the tutor scorer
++/// (`tutor::score_search_choice_selection`), which, at every difficulty, adds
++/// a bonus to the missing piece of a near-reachable line: with one piece on
++/// the battlefield, Expedition Map and Sylvan Scrying fetch the other. The
++/// target choice itself is scored structurally by `copy_value`
++/// (`zero_counter_state_trigger_payoff`), not by this line. Thespian's Stage's
++/// copy ability is `abilities[1]` (`abilities[0]` is its `{T}: Add {C}`).
++fn stage_depths_line() -> ComboLine {
++    ComboLine {
++        id: ComboLineId(3),
++        name: "Thespian's Stage + Dark Depths",
++        pieces: vec![
++            ComboPiece::OnBattlefield(CardPredicate::NameEquals("Thespian's Stage")),
++            ComboPiece::OnBattlefield(CardPredicate::NameEquals("Dark Depths")),
++        ],
++        mana_cost: ManaCost::Cost {
++            shards: vec![],
++            generic: 2,
++        },
++        action_sequence: vec![ComboStep::Activate {
++            predicate: CardPredicate::NameEquals("Thespian's Stage"),
++            ability_index: 1,
++        }],
++        win_kind: WinKind::LethalDamage,
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -308,7 +344,7 @@ mod tests {
+     #[test]
+     fn registry_exposes_expected_lines() {
+         let reg = ComboRegistry::default();
+-        assert_eq!(reg.lines().len(), 3);
++        assert_eq!(reg.lines().len(), 4);
+         assert_eq!(reg.lines()[0].id, ComboLineId(0));
+         assert_eq!(
+             reg.lines()[0].name,
+@@ -324,6 +360,8 @@ mod tests {
+             reg.lines()[2].name,
+             "Kiki-Jiki, Mirror Breaker + Felidar Guardian"
+         );
++        assert_eq!(reg.lines()[3].id, ComboLineId(3));
++        assert_eq!(reg.lines()[3].name, "Thespian's Stage + Dark Depths");
+     }
+ 
+     #[test]
+diff --git a/crates/phase-ai/src/policies/anti_self_harm.rs b/crates/phase-ai/src/policies/anti_self_harm.rs
+index da3280d..a7fdbba 100644
+--- a/crates/phase-ai/src/policies/anti_self_harm.rs
++++ b/crates/phase-ai/src/policies/anti_self_harm.rs
+@@ -42,7 +42,8 @@ use engine::game::players;
+ use super::activation::turn_only;
+ use super::context::PolicyContext;
+ use super::copy_value::{
+-    copy_effect_strips_legendary, copy_target_penalties, score_legend_rule_keep,
++    copy_effect_strips_legendary, copy_target_penalties, is_self_copy_effect,
++    score_legend_rule_keep,
+ };
+ use super::effect_classify::{
+     aggregate_player_impact, aura_polarity, effect_polarity, effect_polarity_for_source,
+@@ -1286,6 +1287,13 @@ fn score_target_ref(ctx: &PolicyContext<'_>, target: &TargetRef) -> f64 {
+             4.0 + threat_level(ctx.state, ctx.ai_player, *player_id) * 8.0
+         }
+         TargetRef::Object(object_id) => {
++            // CR 707.2: "~ becomes a copy of target X" changes only the source;
++            // X is read, not harmed or helped, so whose X it is doesn't matter
++            // here. CopyValuePolicy scores what the copy is worth. Treating it
++            // as harmful made Thespian's Stage copy opponents' basic lands.
++            if only_read_as_copy_source(ctx, *object_id) {
++                return 0.0;
++            }
+             let object_beneficial =
+                 slot_is_beneficial(ctx, targeted_object_impact(ctx, *object_id), beneficial);
+             score_target_object(ctx, *object_id, object_beneficial)
+@@ -1293,6 +1301,21 @@ fn score_target_ref(ctx: &PolicyContext<'_>, target: &TargetRef) -> f64 {
+     }
+ }
+ 
++/// Every effect that targets `object_id` is a self-copy ("~ becomes a copy of
++/// target ..."), so the target itself is unaffected.
++fn only_read_as_copy_source(ctx: &PolicyContext<'_>, object_id: ObjectId) -> bool {
++    let mut targeted = false;
++    for effect in ctx.effects() {
++        if effect_targets_object(ctx, effect, object_id) {
++            if !is_self_copy_effect(effect) {
++                return false;
++            }
++            targeted = true;
++        }
++    }
++    targeted
++}
++
+ fn score_target_object(ctx: &PolicyContext<'_>, object_id: ObjectId, beneficial: bool) -> f64 {
+     let Some(object) = ctx.state.objects.get(&object_id) else {
+         return -10.0;
+diff --git a/crates/phase-ai/src/policies/copy_value.rs b/crates/phase-ai/src/policies/copy_value.rs
+index bc27a5e..cf4f9ff 100644
+--- a/crates/phase-ai/src/policies/copy_value.rs
++++ b/crates/phase-ai/src/policies/copy_value.rs
+@@ -3,9 +3,13 @@ use engine::ai_support::{
+     project_copy_mana_spent_for_x,
+ };
+ use engine::game::game_object::GameObject;
+-use engine::types::ability::{AbilityDefinition, ContinuousModification, Effect, TargetRef};
++use engine::types::ability::{
++    AbilityDefinition, ContinuousModification, CopyRecipient, Effect, PtValue, QuantityExpr,
++    TargetRef, TriggerCondition, TriggerDefinition,
++};
+ use engine::types::actions::GameAction;
+ use engine::types::card_type::{CoreType, Supertype};
++use engine::types::counter::{CounterMatch, CounterType};
+ use engine::types::game_state::{GameState, PendingCast, WaitingFor};
+ use engine::types::identifiers::ObjectId;
+ use engine::types::keywords::Keyword;
+@@ -70,11 +74,167 @@ impl CopyValuePolicy {
+                     .any(|e| copy_effect_strips_legendary(e));
+                 score_copy_token_target(ctx.state, ctx.ai_player, source_id, *target_id, strips)
+             }
++            (
++                WaitingFor::TargetSelection { .. } | WaitingFor::TriggerTargetSelection { .. },
++                GameAction::ChooseTarget {
++                    target: Some(TargetRef::Object(target_id)),
++                },
++            ) if ctx.effects().iter().any(|e| is_self_copy_effect(e)) => {
++                let source_id = ctx.source_object().map(|source| source.id);
++                let strips = ctx
++                    .effects()
++                    .iter()
++                    .any(|e| copy_effect_strips_legendary(e));
++                score_become_copy_target(ctx.state, ctx.ai_player, source_id, *target_id, strips)
++            }
+             _ => 0.0,
+         }
+     }
+ }
+ 
++/// CR 707.2: "~ becomes a copy of target <permanent>": the ability's source is
++/// the one that changes ([`CopyRecipient::Source`]); the target is only read.
++pub(crate) fn is_self_copy_effect(effect: &Effect) -> bool {
++    matches!(
++        effect,
++        Effect::BecomeCopy {
++            recipient: CopyRecipient::Source,
++            ..
++        }
++    )
++}
++
++/// CR 707.2: a permanent that "becomes a copy of target <permanent>" takes the
++/// target's copiable values and leaves the target untouched, so a target is
++/// worth what a copy of it is worth, whoever controls it. Creatures are valued
++/// as for token copies. A noncreature's copy is valued by the payoff of a state
++/// trigger the copy satisfies at once ([`zero_counter_state_trigger_payoff`]);
++/// without one it scores 0, as before.
++fn score_become_copy_target(
++    state: &GameState,
++    ai_player: PlayerId,
++    source_id: Option<ObjectId>,
++    target_id: ObjectId,
++    strips_legendary: bool,
++) -> f64 {
++    let Some(target) = state.objects.get(&target_id) else {
++        return -10.0;
++    };
++    let payoff = source_id
++        .and_then(|id| state.objects.get(&id))
++        .map_or(0.0, |source| {
++            zero_counter_state_trigger_payoff(source, target)
++        });
++    if payoff > 0.0 {
++        // CR 704.5j: copying one's own legend still forces the legend rule, but
++        // here the copy is the one to keep (it carries the payoff), so the cost
++        // is the original the AI puts into its graveyard, not a wasted copy.
++        let lost_original = if target.controller == ai_player
++            && target.card_types.supertypes.contains(&Supertype::Legendary)
++            && !strips_legendary
++        {
++            evaluate_legend_keep_permanent(state, target_id, target)
++        } else {
++            0.0
++        };
++        return payoff
++            - lost_original
++            - copy_target_penalties(state, ai_player, source_id, target, true);
++    }
++    score_copy_token_target(state, ai_player, source_id, target_id, strips_legendary)
++}
++
++/// CR 603.8 + CR 707.2 + CR 614.12: the value of the creature tokens made by
++/// `target`'s "when ~ has no <kind> counters on it" state triggers, for a
++/// `holder` of its copiable values that carries none of those counters.
++///
++/// Counters aren't copiable values, and a permanent that becomes a copy
++/// without entering the battlefield never gets the target's "enters with N
++/// counters" replacement, so such a trigger fires as soon as the copy exists:
++/// Thespian's Stage becoming a copy of Dark Depths has no ice counters, so it
++/// is sacrificed for Marit Lage, a 20/20 flying indestructible token. With
++/// `holder == target` this reads whether a permanent's own payoff is live
++/// (the copy to keep at the legend rule). Returns 0 when nothing applies.
++pub(crate) fn zero_counter_state_trigger_payoff(holder: &GameObject, target: &GameObject) -> f64 {
++    let payoff: f64 = target
++        .trigger_definitions
++        .iter_unchecked()
++        .map(|entry| &entry.definition)
++        .filter(|trigger| {
++            state_trigger_counter_kind(trigger)
++                .is_some_and(|kind| holder.counters.get(kind).copied().unwrap_or(0) == 0)
++        })
++        .filter_map(|trigger| trigger.execute.as_deref())
++        .map(created_creature_token_value)
++        .sum();
++    payoff.min(30.0)
++}
++
++/// The counter kind of a "When ~ has no <kind> counters on it" state trigger
++/// (CR 603.8), whose condition is "at most zero counters of that kind".
++fn state_trigger_counter_kind(trigger: &TriggerDefinition) -> Option<&CounterType> {
++    if trigger.mode != TriggerMode::StateCondition {
++        return None;
++    }
++    let mut condition = trigger.condition.as_ref()?;
++    while let TriggerCondition::EventTime { condition: inner } = condition {
++        condition = inner;
++    }
++    match condition {
++        TriggerCondition::HasCounters {
++            counters: CounterMatch::OfType(kind),
++            maximum: Some(0),
++            ..
++        } => Some(kind),
++        _ => None,
++    }
++}
++
++/// A rough value for the creature tokens an ability creates: half the fixed
++/// power plus toughness, and a little for each evasion or protection keyword,
++/// per token. Tokens with dynamic stats count 1 each.
++fn created_creature_token_value(ability: &AbilityDefinition) -> f64 {
++    crate::cast_facts::collect_definition_effects(ability)
++        .into_iter()
++        .map(|effect| match effect {
++            Effect::Token {
++                power,
++                toughness,
++                types,
++                keywords,
++                count,
++                ..
++            } if types.iter().any(|t| t.eq_ignore_ascii_case("creature")) => {
++                let stats = match (power, toughness) {
++                    (PtValue::Fixed(p), PtValue::Fixed(t)) => f64::from((p + t).max(0)) / 2.0,
++                    _ => 1.0,
++                };
++                let keyword_bonus = keywords
++                    .iter()
++                    .filter(|k| {
++                        matches!(
++                            k,
++                            Keyword::Flying
++                                | Keyword::Trample
++                                | Keyword::Indestructible
++                                | Keyword::Hexproof
++                                | Keyword::Menace
++                                | Keyword::Haste
++                        )
++                    })
++                    .count() as f64
++                    * 1.5;
++                let n = match count {
++                    QuantityExpr::Fixed { value } => f64::from((*value).max(0)),
++                    _ => 1.0,
++                };
++                n * (stats + keyword_bonus)
++            }
++            _ => 0.0,
++        })
++        .sum()
++}
++
+ /// CR 704.5j: Prefer keeping commanders and non-token originals over ephemeral
+ /// copy tokens when the legend rule fires.
+ pub(crate) fn score_legend_rule_keep(state: &GameState, keep: ObjectId) -> f64 {
+@@ -105,7 +265,10 @@ fn evaluate_legend_keep_permanent(state: &GameState, keep: ObjectId, object: &Ga
+     }
+ 
+     if object.card_types.core_types.contains(&CoreType::Land) {
+-        return 3.0;
++        // Keep the copy whose "no counters" state trigger is live (Thespian's
++        // Stage as a copy of Dark Depths) over the original that still has
++        // its counters; otherwise lands tie.
++        return 3.0 + zero_counter_state_trigger_payoff(object, object);
+     }
+ 
+     (object.mana_cost.mana_value() as f64).min(6.0)
+diff --git a/crates/phase-ai/src/policies/tests/land_copy_value.rs b/crates/phase-ai/src/policies/tests/land_copy_value.rs
+new file mode 100644
+index 0000000..6243edb
+--- /dev/null
++++ b/crates/phase-ai/src/policies/tests/land_copy_value.rs
+@@ -0,0 +1,196 @@
++//! Copying a land for its effect: Thespian's Stage becoming a copy of Dark
++//! Depths (CR 707.2 + CR 603.8). The copy has no ice counters (it didn't enter
++//! the battlefield, so Dark Depths' "enters with ten ice counters" never
++//! applied), so the copy's state trigger fires at once: sacrifice it, create
++//! Marit Lage, a 20/20 flying indestructible token. The legend rule (CR
++//! 704.5j) then asks which Dark Depths to keep; only the copy pays off.
++//!
++//! The deck lab found phase's AI copying opponents' basic lands with the Stage
++//! instead: a copy target scored by creature value alone is 0 for every land.
++
++use engine::game::scenario::{GameScenario, P0, P1};
++use engine::types::ability::TargetRef;
++use engine::types::actions::GameAction;
++use engine::types::counter::CounterType;
++use engine::types::game_state::{GameState, WaitingFor};
++use engine::types::identifiers::ObjectId;
++use engine::types::mana::ManaColor;
++use engine::types::phase::Phase;
++use rand::rngs::SmallRng;
++use rand::SeedableRng;
++
++use crate::config::{create_config, AiDifficulty, Platform};
++use crate::search::choose_action;
++
++const STAGE: &str =
++    "{T}: Add {C}.\n{2}, {T}: This land becomes a copy of target land, except it has this ability.";
++const DEPTHS: &str = "Dark Depths enters with ten ice counters on it.\n{3}: Remove an ice counter from Dark Depths.\nWhen Dark Depths has no ice counters on it, sacrifice it. If you do, create Marit Lage, a legendary 20/20 black Avatar creature token with flying and indestructible.";
++
++struct StageBoard {
++    state: GameState,
++    stage: ObjectId,
++    depths: ObjectId,
++    opponent_land: ObjectId,
++}
++
++/// P0: Thespian's Stage, Dark Depths (ten ice counters), and two Wastes-like
++/// lands to pay {2}. P1: a basic land. P0 has activated the Stage and is
++/// choosing its target.
++fn stage_targeting() -> StageBoard {
++    let mut scenario = GameScenario::new();
++    scenario.at_phase(Phase::PreCombatMain);
++    let stage = scenario
++        .add_land_from_oracle(P0, "Thespian's Stage", STAGE)
++        .id();
++    let depths = scenario
++        .add_land_from_oracle(P0, "Dark Depths", DEPTHS)
++        .as_legendary()
++        .as_snow()
++        .id();
++    scenario.with_counter(depths, CounterType::Generic("ice".to_string()), 10);
++    scenario.add_basic_land(P0, ManaColor::Green);
++    scenario.add_basic_land(P0, ManaColor::Blue);
++    let opponent_land = scenario.add_basic_land(P1, ManaColor::Black);
++    let mut runner = scenario.build();
++    let stage_copy_ability = runner.state().objects[&stage]
++        .abilities
++        .iter()
++        .position(|ability| {
++            matches!(
++                &*ability.effect,
++                engine::types::ability::Effect::BecomeCopy { .. }
++            )
++        })
++        .expect("the Stage's copy ability parses");
++    runner
++        .act(GameAction::ActivateAbility {
++            source_id: stage,
++            ability_index: stage_copy_ability,
++        })
++        .expect("the Stage can be activated");
++    assert!(
++        matches!(
++            runner.state().waiting_for,
++            WaitingFor::TargetSelection { .. }
++        ),
++        "the Stage asks for a target land, got {:?}",
++        runner.state().waiting_for
++    );
++    StageBoard {
++        state: runner.state().clone(),
++        stage,
++        depths,
++        opponent_land,
++    }
++}
++
++/// Answer every prompt for P0 with the AI (Easy, seeded) until the stack is
++/// empty and P0 has priority again, or 200 steps pass.
++fn play_out(mut state: GameState, seed: u64) -> GameState {
++    let config = create_config(AiDifficulty::Easy, Platform::Native);
++    let mut rng = SmallRng::seed_from_u64(seed);
++    for _ in 0..200 {
++        if matches!(state.waiting_for, WaitingFor::Priority { .. }) && state.stack.is_empty() {
++            break;
++        }
++        let actor = state.waiting_for.acting_player().unwrap_or(P0);
++        let action = if actor == P0 {
++            choose_action(&state, P0, &config, &mut rng).expect("AI answers")
++        } else {
++            GameAction::PassPriority
++        };
++        engine::game::apply_as_current(&mut state, action).expect("legal action");
++    }
++    state
++}
++
++fn has_marit_lage(state: &GameState) -> bool {
++    state
++        .battlefield
++        .iter()
++        .filter_map(|id| state.objects.get(id))
++        .any(|object| object.name == "Marit Lage" && object.controller == P0)
++}
++
++#[test]
++fn engine_makes_marit_lage_when_the_stage_copy_is_kept() {
++    // Rules check, no AI: copy Dark Depths, keep the copy at the legend rule.
++    let board = stage_targeting();
++    let mut state = board.state;
++    engine::game::apply_as_current(
++        &mut state,
++        GameAction::ChooseTarget {
++            target: Some(TargetRef::Object(board.depths)),
++        },
++    )
++    .expect("Dark Depths is a legal target");
++    for _ in 0..100 {
++        match &state.waiting_for {
++            WaitingFor::ChooseLegend { .. } => {
++                engine::game::apply_as_current(
++                    &mut state,
++                    GameAction::ChooseLegend { keep: board.stage },
++                )
++                .expect("keep the Stage copy");
++            }
++            WaitingFor::Priority { .. } if state.stack.is_empty() && has_marit_lage(&state) => {
++                break
++            }
++            _ => {
++                let auto = engine::ai_support::legal_actions(&state);
++                let action = auto
++                    .iter()
++                    .find(|action| matches!(action, GameAction::PassPriority))
++                    .or_else(|| auto.first())
++                    .cloned()
++                    .expect("some legal action");
++                engine::game::apply_as_current(&mut state, action).expect("legal");
++            }
++        }
++    }
++    assert!(
++        has_marit_lage(&state),
++        "keeping the copy makes Marit Lage; battlefield: {:?}",
++        state
++            .battlefield
++            .iter()
++            .filter_map(|id| state.objects.get(id).map(|o| o.name.clone()))
++            .collect::<Vec<_>>()
++    );
++}
++
++#[test]
++fn easy_ai_copies_dark_depths_and_makes_marit_lage() {
++    let mut depths_targets = 0;
++    let mut opponent_targets = 0;
++    let mut lages = 0;
++    for seed in 0..20u64 {
++        let board = stage_targeting();
++        let config = create_config(AiDifficulty::Easy, Platform::Native);
++        let mut rng = SmallRng::seed_from_u64(seed);
++        let action = choose_action(&board.state, P0, &config, &mut rng).expect("AI answers");
++        match &action {
++            GameAction::ChooseTarget {
++                target: Some(TargetRef::Object(id)),
++            } if *id == board.depths => depths_targets += 1,
++            GameAction::ChooseTarget {
++                target: Some(TargetRef::Object(id)),
++            } if *id == board.opponent_land => opponent_targets += 1,
++            _ => {}
++        }
++        let mut state = board.state;
++        engine::game::apply_as_current(&mut state, action).expect("legal target");
++        let state = play_out(state, seed);
++        if has_marit_lage(&state) {
++            lages += 1;
++        }
++    }
++    eprintln!(
++        "Stage targets (20 seeds): Dark Depths {depths_targets}, opponent's land {opponent_targets}; Marit Lage {lages}"
++    );
++    assert!(
++        depths_targets >= 16,
++        "the Stage should copy Dark Depths: Dark Depths {depths_targets}, opponent's land {opponent_targets} of 20"
++    );
++    assert!(lages >= 14, "Marit Lage in {lages} of 20 games");
++}
+diff --git a/crates/phase-ai/src/policies/tests/mod.rs b/crates/phase-ai/src/policies/tests/mod.rs
+index 3eef732..1410b97 100644
+--- a/crates/phase-ai/src/policies/tests/mod.rs
++++ b/crates/phase-ai/src/policies/tests/mod.rs
+@@ -13,6 +13,7 @@ pub mod enchantments_payoff;
+ pub mod energy_payoff;
+ pub mod equipment_payoff;
+ pub mod graveyard_types;
++pub mod land_copy_value;
+ pub mod lifegain_payoff;
+ pub mod mill_payoff;
+ pub mod mulligan_input_lint;
+-- 
+2.53.0
+

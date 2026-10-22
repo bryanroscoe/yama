@@ -47,7 +47,8 @@ Online play needs the local phase fork and its card data (see docs/engine-integr
 
 ```sh
 git clone --depth 1 --branch v0.113.0 https://github.com/phase-rs/phase ../yama-phase
-git -C ../yama-phase apply ../yama/patches/phase/*.patch   # drops 3 nightly-only lines so it builds on stable
+git -C ../yama-phase apply ../yama/patches/phase/*.patch   # 0001 drops 3 nightly-only lines so it builds on stable
+                                                           # 0002-0008: AI fixes and free-for-all tempo changes (22 Oct 2026)
 mkdir -p data/engine && curl -o data/engine/card-data-eb309108eb0df708.json \
   https://data.phase-rs.dev/card-data-eb309108eb0df708.json   # 101 MB; sha256 eb309108eb0df708…
 ./target/debug/soak                     # all-AI game with Bryan's decks; checks replay determinism

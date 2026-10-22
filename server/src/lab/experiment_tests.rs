@@ -15,7 +15,7 @@ use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use yama_play::lab::{End, GameResult, GameSpec, MAX_TURN_ACTIONS};
+use yama_play::lab::{ENGINE, End, GameResult, GameSpec, MAX_TURN_ACTIONS};
 
 /// Plays instantly: the tested seat wins when seed % 10 < 2, and the changed list also wins when
 /// seed % 10 is 2 or 3, so the changed list is better by about 20 points. Names in `unknown` are
@@ -234,7 +234,7 @@ async fn an_experiment_is_frozen_and_paired_when_created() {
     let base = d.item.base.as_ref().unwrap();
     assert_eq!((base.commanders.clone(), base.color_identity.as_str()), (vec!["Ghave".to_string()], "G"));
     assert_eq!(base.art.as_ref().map(|a| a.card.as_str()), Some("Ghave"));
-    assert_eq!((d.item.label.engine.as_str(), d.item.label.card_data.as_str(), d.item.label.difficulty.as_str()), ("phase-rs v0.113.0", "fakecarddata0000", "Easy"));
+    assert_eq!((d.item.label.engine.as_str(), d.item.label.card_data.as_str(), d.item.label.difficulty.as_str()), (ENGINE, "fakecarddata0000", "Easy"));
     assert!(d.item.label.simulated);
     assert_eq!(d.lists.base.cards.iter().map(|c| c.qty).sum::<u32>(), 100);
     assert_eq!(d.lists.variant.cards.iter().map(|c| c.qty).sum::<u32>(), 100);
@@ -927,7 +927,7 @@ async fn a_pod_half_played_on_another_build_replays_on_this_one() {
     assert_eq!(builds, vec![("olddata", runner, 2), ("fakecarddata0000", runner, 97), ("unknown", "unknown", 1)]);
     // The label names every build the games ran on, not the one the experiment was created on.
     assert_eq!(done.item.label.card_data, "olddata, fakecarddata0000, unknown");
-    assert_eq!(done.item.label.engine, "phase-rs v0.113.0, unknown");
+    assert_eq!(done.item.label.engine, format!("{ENGINE}, unknown"));
     assert_eq!(done.item.label.builds, s.builds);
 }
 
