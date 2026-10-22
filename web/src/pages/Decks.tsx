@@ -24,6 +24,7 @@ import { DeckStatsPanel } from "../components/DeckStats";
 import { DeckExport } from "../components/DeckExport";
 import { DeckHistory } from "../components/DeckHistory";
 import { DeckResults } from "../components/DeckResults";
+import { AskClaude } from "../advisor/AskClaude";
 import { CardSheet } from "./Cards";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
@@ -303,6 +304,7 @@ export function DeckPage() {
       <button className="on-art" onClick={() => setEditing(true)}>Edit deck</button>
       <button className="on-art" onClick={() => setExporting(true)}>Export</button>
       <button className="on-art" onClick={() => setHistory(true)}>History</button>
+      <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} />
       <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
     </>
   );
@@ -384,6 +386,7 @@ export function DeckPage() {
           <button className="outline" onClick={() => setEditing(true)}>Edit deck</button>
           <button className="outline" onClick={() => setExporting(true)}>Export</button>
           <button className="outline" onClick={() => setHistory(true)}>History</button>
+          <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} />
         </div>
 
         {/* The status row: legality, the plan for this deck, and its simulated strength. */}

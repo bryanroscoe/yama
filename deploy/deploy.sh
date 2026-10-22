@@ -23,10 +23,29 @@ if [ "$(ssh "$HOST" "cat $DIR/build/build.status")" != "0" ]; then
   ssh "$HOST" "tail -30 $DIR/build/build.log"; echo "Build failed."; exit 1
 fi
 
+echo "Building yama-advisor:$REV on saget (log: $DIR/build/advisor-build.log)…"
+if ! ssh "$HOST" "cd $DIR/build && docker build -f yama/deploy/Dockerfile.advisor -t yama-advisor:latest -t yama-advisor:$REV yama/advisor \
+    > advisor-build.log 2>&1"; then
+  ssh "$HOST" "tail -30 $DIR/build/advisor-build.log"; echo "Advisor build failed."; exit 1
+fi
+
+# The advisor's secrets, made once on saget and never printed: the secret yama and the sidecar
+# share, the key that encrypts users' own API keys, and whose account uses the subscription (the
+# first admin email; Anthropic doesn't allow sharing a subscription with other people). Bryan's
+# subscription token itself only ever comes from deploy/advisor-token.sh.
+ssh "$HOST" "cd $DIR && umask 077 && touch advisor.env && chmod 600 advisor.env yama.env && \
+  rand() { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \\n'; } && \
+  if ! grep -q '^ADVISOR_SECRET=' advisor.env; then s=\$(rand); printf 'ADVISOR_SECRET=%s\\n' \"\$s\" >> advisor.env; \
+    grep -v '^YAMA_ADVISOR_SECRET=' yama.env > yama.env.new; printf 'YAMA_ADVISOR_SECRET=%s\\n' \"\$s\" >> yama.env.new; mv yama.env.new yama.env; fi && \
+  { grep -q '^YAMA_ADVISOR_URL=' yama.env || printf '\\n# Ask Claude (the advisor sidecar), added by deploy.sh\\nYAMA_ADVISOR_URL=http://yama-advisor:8790\\n' >> yama.env; } && \
+  { grep -q '^YAMA_ADVISOR_KEY_SECRET=' yama.env || printf 'YAMA_ADVISOR_KEY_SECRET=%s\\n' \"\$(rand)\" >> yama.env; } && \
+  { grep -q '^YAMA_ADVISOR_SUBSCRIPTION_EMAILS=' yama.env || \
+    printf 'YAMA_ADVISOR_SUBSCRIPTION_EMAILS=%s\\n' \"\$(sed -n 's/^YAMA_ADMIN_EMAILS=\\([^,]*\\).*/\\1/p' yama.env | head -1)\" >> yama.env; }"
+
 echo "Backing up the database, then restarting…"
 scp -q deploy/compose.yaml "$HOST:$DIR/compose.yaml"
 STAMP=$(date +%Y%m%d-%H%M%S)
 ssh "$HOST" "cd $DIR && mkdir -p data/backups && chown 99:100 data/backups && \
   (docker exec yama yama-server backup /data/backups/yama-$STAMP.db || echo 'no running yama to back up') && \
-  docker compose up -d && sleep 5 && docker ps --filter name=^yama\$ --format '{{.Names}}: {{.Status}}'"
+  docker compose up -d && sleep 5 && docker ps --filter name=^yama --format '{{.Names}}: {{.Status}}'"
 echo "Done: yama:$REV. LAN http://<saget-lan-address>:8099"

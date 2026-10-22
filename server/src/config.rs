@@ -47,6 +47,31 @@ pub struct Config {
     pub trusted_proxies: Vec<Cidr>,
     /// The lab's caps on queued games and on accounts that joined without an invite.
     pub lab_quota: LabQuota,
+    /// "Ask Claude" (`advisor/`): where the sidecar is, and who may use the server's subscription.
+    pub advisor: AdvisorConfig,
+}
+
+/// The advisor's settings. The advisor is off unless both `url` and `secret` are set.
+#[derive(Clone, Debug, Default)]
+pub struct AdvisorConfig {
+    /// The sidecar's address on the private Docker network (YAMA_ADVISOR_URL, e.g.
+    /// `http://yama-advisor:8790`).
+    pub url: Option<String>,
+    /// Shared with the sidecar as ADVISOR_SECRET (YAMA_ADVISOR_SECRET, at least 32 characters).
+    pub secret: Option<String>,
+    /// Accounts that may use the server's Claude subscription (YAMA_ADVISOR_SUBSCRIPTION_EMAILS,
+    /// comma-separated; empty by default). Anthropic doesn't allow sharing one person's
+    /// subscription with other people, so this is the subscription owner's own account(s) only.
+    pub subscription_emails: Vec<String>,
+    /// Encrypts users' own API keys at rest (YAMA_ADVISOR_KEY_SECRET, at least 32 characters).
+    /// Without it nobody can save a key, so only subscription accounts can ask.
+    pub key_secret: Option<String>,
+}
+
+impl AdvisorConfig {
+    pub fn enabled(&self) -> bool {
+        self.url.is_some() && self.secret.is_some()
+    }
 }
 
 /// How much of the lab anyone but an admin may take. Admins have no caps.
@@ -119,6 +144,21 @@ impl Config {
             }
             loopback
         };
+        let secret = |key: &str| -> anyhow::Result<Option<String>> {
+            match std::env::var(key) {
+                Ok(v) if !v.trim().is_empty() => {
+                    anyhow::ensure!(v.trim().len() >= 32, "{key} must be at least 32 characters (try `openssl rand -hex 32`)");
+                    Ok(Some(v.trim().to_string()))
+                }
+                _ => Ok(None),
+            }
+        };
+        let advisor = AdvisorConfig {
+            url: std::env::var("YAMA_ADVISOR_URL").ok().map(|s| s.trim().trim_end_matches('/').to_string()).filter(|s| !s.is_empty()),
+            secret: secret("YAMA_ADVISOR_SECRET")?,
+            subscription_emails: list("YAMA_ADVISOR_SUBSCRIPTION_EMAILS"),
+            key_secret: secret("YAMA_ADVISOR_KEY_SECRET")?,
+        };
         Ok(Self {
             database_url: std::env::var("DATABASE_URL")
                 .unwrap_or_else(|_| format!("sqlite://{}/yama.db", data_dir.display())),
@@ -149,6 +189,7 @@ impl Config {
             password_login: !off("YAMA_PASSWORD_LOGIN"),
             trusted_proxies,
             lab_quota,
+            advisor,
         })
     }
 }

@@ -30,6 +30,7 @@ import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
 import { CardImage } from "../components/ui";
 import { deviceId, outbox, useOutbox, useOutboxState } from "./outbox";
+import { AskClaude } from "../advisor/AskClaude";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { marketSentence } from "./marks";
 import type { PlanView } from "./view";
@@ -160,7 +161,7 @@ export function Review() {
 
   return (
     <>
-      <PlansHead title="Review" status={<SyncStatus view={view} userId={userId} />} />
+      <PlansHead title="Review" status={<SyncStatus view={view} userId={userId} />} action={<AskClaude context={{ kind: "review" }} about="your proposals" />} />
       {imported && (
         <p className="dim small review-intro">
           Your answers go to your {view.app} inbox. A want joins the plan when the plan is updated there; a no on a planned swap changes nothing until you and

@@ -1,3 +1,4 @@
+mod advisor;
 mod auth;
 mod calendar;
 mod cards;
