@@ -258,6 +258,10 @@ export function Login() {
         <p className="small dim login-notice">
           Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images from Scryfall.
         </p>
+        <p className="small dim" style={{ margin: 0, display: "flex", gap: 20 }}>
+          <a href="/about/">About Yama</a>
+          <a href="/privacy/">Privacy policy</a>
+        </p>
       </div>
       </section>
     </main>

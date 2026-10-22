@@ -29,6 +29,8 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
 
   if (url.origin === location.origin && url.pathname.startsWith("/api/")) return; // always live
+  // The public About and Privacy pages are plain files, not the app shell: never cache them as "/".
+  if (url.origin === location.origin && /^\/(about|privacy)(\/|$)/.test(url.pathname)) return;
 
   // Page loads: network first so updates arrive, cached shell when offline.
   if (req.mode === "navigate") {
