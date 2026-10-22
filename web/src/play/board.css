@@ -1921,3 +1921,162 @@ button.pile-chip:hover {
   display: inline;
   padding-right: 6px;
 }
+
+/* Drag and drop (PP-25, PP-26, PP-40, PP-41; drag.ts, DragLayer.tsx). Card images are never
+   faded or filtered: the card you lift leaves an empty slot, and rings and shadows sit around
+   the image. */
+.drag-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+}
+.drag-svg,
+.plan-svg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.plan-svg {
+  z-index: 20;
+}
+.drag-arrow,
+.plan-arrow {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.plan-arrow {
+  stroke-width: 3;
+}
+.drag-arrow.attack,
+.plan-arrow.attack {
+  stroke: var(--bad);
+}
+.drag-arrow.block,
+.plan-arrow.block {
+  stroke: var(--text);
+}
+.drag-arrow.aim {
+  stroke: var(--warn);
+  stroke-dasharray: 10 8;
+}
+.drag-head.attack {
+  fill: var(--bad);
+}
+.drag-head.block {
+  fill: var(--text);
+}
+.drag-head.aim {
+  fill: var(--warn);
+}
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+.drag-ghost[hidden] {
+  display: none;
+}
+.drag-ghost img,
+.drag-ghost-name {
+  display: block;
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.55);
+  background: var(--raised);
+}
+.drag-ghost-name {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  color: var(--text);
+  font-size: var(--t-sm);
+  text-align: center;
+}
+.drag-ghost-name[hidden],
+.drag-ghost img[hidden] {
+  display: none;
+}
+.drag-ghost[data-ok="yes"] img,
+.drag-ghost[data-ok="yes"] .drag-ghost-name {
+  box-shadow: 0 0 0 3px var(--good), 0 18px 40px rgb(0 0 0 / 0.55);
+}
+.drag-ghost[data-ok="no"] img,
+.drag-ghost[data-ok="no"] .drag-ghost-name {
+  box-shadow: 0 0 0 3px var(--bad), 0 18px 40px rgb(0 0 0 / 0.55);
+}
+.drag-ghost-note {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--t-sm);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+}
+.drag-ghost-note[hidden] {
+  display: none;
+}
+.hc.drag-src {
+  visibility: hidden;
+}
+.ft.drag-from {
+  box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
+}
+.ft.drop-hot {
+  box-shadow: 0 0 0 3px var(--text), 0 0 0 6px var(--warn);
+}
+.opp-head.drop-hot {
+  box-shadow: inset 0 0 0 3px var(--text);
+}
+.pb-mine.drop-on {
+  box-shadow: inset 0 0 0 2px var(--good);
+  border-radius: 14px;
+}
+.pb-mine.drop-no {
+  box-shadow: inset 0 0 0 2px var(--bad);
+  border-radius: 14px;
+}
+.drag-toast {
+  position: fixed;
+  left: calc((100% - 340px) / 2);
+  bottom: 196px;
+  transform: translateX(-50%);
+  z-index: 55;
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--t-sm);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+}
+body.pb-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing;
+  overscroll-behavior: none;
+}
+body.pb-dragging .pb-preview {
+  display: none;
+}
+/* Touch screens wide enough for the laptop board: a finger drags a hand card or a creature that
+   can attack or block instead of panning the page. */
+.pb.wide .hand-fan .hc,
+.pb.wide .pb-cmdr .hc,
+.pb.wide .ft.ready {
+  touch-action: none;
+}
+.pb.wide.aiming .pb-table {
+  cursor: crosshair;
+}

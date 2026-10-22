@@ -349,6 +349,14 @@ Bryan (2026-10-22): "I'd love to have two AIs playing each other here too." Play
 - **Board:** the online board with `watch` (`web/src/play/Board.tsx`): the spectator layout with no hand or decision area. `WatchControls` sits where the decision would be (play and pause on Space, Next move on the right arrow, speed, Show every hand, Watch from any seat) and becomes the end card with the winner's commander art, Watch again and Set up another. With hands face up, the bottom seat's hand shows in the fan and every opponent's hand count opens their hand.
 - **LLM seats:** `watch::ExternalPilot` is the hook. Every seat also has phase's AI; a seat with a pilot is asked first whenever it must decide, and phase's AI answers when the pilot returns nothing or the engine refuses its choice, so a slow or confused pilot can't stall the game. Nothing implements it yet, and the API refuses `{"kind":"llm"}` seats.
 
+### Drag and drop on the online board (2026-10-22)
+
+Bryan (2026-10-22): "You should be able to drag and drop the cards too." Laptop board only (phones keep taps, where a drag would fight scrolling the hand sheet); mouse, pen and touch through one Pointer Events path. The pure decisions are in `web/src/play/drag.ts` (tested), the overlay in `DragLayer.tsx`, the listeners in `Board.tsx` (`track`).
+
+- **Casting (PP-25):** drag a hand card (or your commander) up past a line 64 px above the hand and let go to play it, through the same option a double-click sends. A card with several ways to play is selected so the options list shows them; one that can't be played springs back with the reason ("You can play X when the game gets to you"). The lifted card follows the pointer (transform only), the battlefield rings green or red, and Esc or letting go below the line puts it back.
+- **Targets (PP-26):** while choosing a target, an arrow runs from the card you just cast (it stays parked where you dropped it) or the top of the stack to the pointer, snapping to a legal target; click it or drag onto it. Options now carry their exact target (`OptionView.target`, `play/src/lib.rs`), and targets that would read the same say whose they are ("Target Savannah Lions (yours)"), so two cards with one name stay apart.
+- **Combat (PP-40, PP-41):** drag an attacker onto an opponent's pane (or a planeswalker or battle tile), or a blocker onto an attacker (a stack of attackers gets spread blocks first). The attacks and blocks being built keep their arrows (`PlanArrows`) until they're sent.
+
 ### Admin area (2026-10-22)
 
 Bryan (2026-10-22): "We'll probably need an admin-only area too, right?" With open sign-up, strangers can join, so `/admin` (laptop rail entry for admins; on phones, Group, You, Admin) collects what an admin needs. Server: `server/src/admin/`.
