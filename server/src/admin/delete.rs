@@ -4,7 +4,7 @@
 //! **What goes.** Every row the account owns: sessions, script keys, its invite, decks and their
 //! versions and checks, the collection and containers, synced ops, plans (every `plan_*` table),
 //! lab runs, experiments and usage, advisor keys, settings, conversations and usage, calendar
-//! watches, and the account itself. Its watched games stop, and any live online game it is in
+//! watches, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, and any live online game it is in
 //! ends.
 //!
 //! **What stays, anonymised, because other people's records depend on it:**
@@ -71,12 +71,17 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("playgroup_members", "user_id"),
     ("playgroups", "owner_id"),
     ("sessions", "user_id"),
+    ("view_sessions", "admin_id"),
+    ("view_sessions", "target_id"),
 ];
 
 /// Tables the account's own rows are simply deleted from, children before parents. Tables that
 /// need more than a delete (games, playgroups, online games, invites) are handled before these.
 const OWNED_DELETES: &[(&str, &str)] = &[
     ("sessions", "user_id"),
+    // "View as" sessions it started or that viewed it, and so their audit rows.
+    ("view_sessions", "admin_id"),
+    ("view_sessions", "target_id"),
     ("api_tokens", "owner_id"),
     ("calendar_watches", "user_id"),
     ("advisor_messages", "owner_id"),

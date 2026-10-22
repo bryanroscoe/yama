@@ -33,6 +33,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/health", get(|| async { "ok" }))
         .merge(crate::auth::router())
         .merge(crate::admin::router())
+        .merge(crate::view_as::router())
         .merge(crate::cards::router())
         .merge(crate::calendar::router())
         .merge(crate::collection::router())
@@ -66,6 +67,8 @@ pub fn app(state: AppState) -> Router {
                 .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]),
         );
     }
+    // Admin "View as" stays read only: checked for every request, before routing (view_as.rs).
+    router = router.layer(axum::middleware::from_fn_with_state(state.clone(), crate::view_as::guard));
     router.layer(CompressionLayer::new()).layer(TraceLayer::new_for_http()).with_state(state)
 }
 

@@ -601,3 +601,11 @@
     order: -1;
   }
 }
+
+/* Admin views of your account (Group, You). */
+.grp-viewed {
+  margin: 0;
+  padding-left: 1.1em;
+  color: var(--dim);
+  font-size: 0.9rem;
+}

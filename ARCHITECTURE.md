@@ -363,6 +363,18 @@ Bryan (2026-10-22): "We'll probably need an admin-only area too, right?" With op
 - **Server:** the deployed commit (`server/build.rs` stamps `YAMA_SERVER_VERSION` from git, or from the `YAMA_GIT_SHA`/`YAMA_GIT_DIRTY` build args `deploy/deploy.sh` passes, since the build context has no .git), start time, sign-in settings, the engine label, card count and card data file, Scryfall imports, the release calendar, database and WAL size, recent backups, the lab's threads and queue, Ask Claude (sidecar answering, subscription connected, own keys on, never a secret), and every watched game with a stop button.
 - **Lab runs:** imported global runs, renamed or deleted (their ratings go with them). Importing stays on the command line.
 
+### View as (2026-10-22)
+
+Bryan (2026-10-22): "allow admins to impersonate other people to see their collections and stuff." Admin, People, View as shows Yama as that person sees it, read only (`server/src/view_as.rs`, `web/src/viewing.ts`).
+
+- **Session:** a `yama_view` cookie beside the admin's own session, never replacing it. The `view_sessions` row (migration 0016) stores the hash of the session it was started from, so the cookie works only with that session. It lasts 30 minutes, and ends on Stop, sign-out, the admin's session ending or the admin losing admin. Starting another view ends the last.
+- **Who may:** admins only (404 for anyone else, like every admin route); never another admin or yourself. Disabled accounts can be viewed.
+- **Read only, in the server:** `view_as::guard` wraps the whole router. While a view is live it refuses every request but GET and HEAD on any path (the API and `/mcp`), except `/api/view/stop` and `/api/auth/logout`, and refuses every WebSocket. The refusal comes before routing, so new routes are covered. GETs the guard lets through carry `ViewAs`, and `CurrentUser` answers as the viewed person. Their last-seen time isn't touched.
+- **Hidden:** script keys (`/api/me/tokens`) and all of Ask Claude (`/api/advisor/*`): the status shows a stored key's last characters, conversations are private, and asking would spend their key or mint a one-question MCP token.
+- **Stale views:** a read with an ended view's cookie runs as the admin and clears the cookie; a write with one is refused, never run as the admin.
+- **The device:** the web app pauses plan and table sync while viewing (`viewingFlag.ts`), shows a banner with Stop and the time left on every page, and on stop (or expiry, or sign-out) deletes the person's plan bundle and unsent taps from the device. Other open tabs reload.
+- **Audit:** every view is a `view_sessions` row: Admin, People, Viewing log, and the viewed person's Group, You ("Admin views of your account", the last 180 days). Deleting either account deletes its rows (`admin/delete.rs`). The public privacy page says all this.
+
 ### Yama's tools for Claude (MCP, 2026-10-22)
 
 Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outside clients, from one toolset; Claude may change everything, but should recommend review before editing. Design and slices: `docs/mcp-design.md`. Slice 1 (read tools) is built:

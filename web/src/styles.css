@@ -1961,3 +1961,35 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   object-fit: contain;
   border-radius: var(--card-radius);
 }
+
+/* Admin "View as" (components/ViewBanner.tsx): on every page while viewing as someone. White on
+   the near-black ground so it can't be missed; it sits in the flow, so nothing hides under it. */
+.view-banner {
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: 8px var(--page-pad);
+  padding-top: max(8px, env(safe-area-inset-top));
+  background: var(--text);
+  color: var(--ground);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.view-banner .view-stop {
+  flex: none;
+  min-height: var(--target);
+  padding: 0 var(--s-3);
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ground);
+  background: transparent;
+  color: var(--ground);
+  font: inherit;
+  cursor: pointer;
+}
+.view-banner .view-stop:disabled {
+  cursor: progress;
+}

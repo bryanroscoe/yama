@@ -25,6 +25,7 @@ use crate::limits::{ClientAddress, address_key};
 use crate::routes::AppState;
 use crate::util::{new_id, now, random_token, sha256_hex};
 use axum::extract::{FromRequestParts, Path, State};
+use axum::http::HeaderMap;
 use axum::http::request::Parts;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -65,6 +66,7 @@ macro_rules! user_columns {
         concat!("u.id, u.email, u.display_name, u.is_admin, ", $crate::auth::limited_sql!(), " AS limited")
     };
 }
+pub(crate) use user_columns;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -134,12 +136,12 @@ impl FromRequestParts<AppState> for CurrentUser {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
-        let bearer = parts
-            .headers
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .map(str::to_string);
+        // An admin viewing as someone (view_as.rs): the middleware checked the view and the
+        // admin's own session, and refuses anything but reading, so this request is theirs.
+        if let Some(view) = parts.extensions.get::<crate::view_as::ViewAs>() {
+            return Ok(CurrentUser(view.target.clone()));
+        }
+        let bearer = bearer_token(&parts.headers);
         // WebSockets from the native apps can't send headers or share the web cookie, so they
         // pass the token as `?token=`. Only honored on WebSocket upgrades.
         let ws_token = parts
@@ -150,9 +152,7 @@ impl FromRequestParts<AppState> for CurrentUser {
             .flatten()
             .and_then(|q| q.split('&').find_map(|kv| kv.strip_prefix("token=")))
             .map(str::to_string);
-        let token = bearer
-            .or(ws_token)
-            .or_else(|| CookieJar::from_headers(&parts.headers).get(SESSION_COOKIE).map(|c| c.value().to_string()));
+        let token = bearer.or(ws_token).or_else(|| cookie_token(&parts.headers));
         if let Some(token) = token
             && let Some(user) = user_for_token(state, &token).await?
         {
@@ -160,6 +160,23 @@ impl FromRequestParts<AppState> for CurrentUser {
         }
         access_user(parts, state).await?.map(CurrentUser).ok_or(AppError::Unauthorized)
     }
+}
+
+fn bearer_token(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::to_string)
+}
+
+fn cookie_token(headers: &HeaderMap) -> Option<String> {
+    CookieJar::from_headers(headers).get(SESSION_COOKIE).map(|c| c.value().to_string())
+}
+
+/// The session token an ordinary request carries: `Authorization: Bearer`, else the session cookie.
+pub fn request_session_token(headers: &HeaderMap) -> Option<String> {
+    bearer_token(headers).or_else(|| cookie_token(headers))
 }
 
 /// The live session's user. A disabled account has no sessions (disabling deletes them), and the
@@ -595,14 +612,25 @@ pub fn generate_password() -> String {
 }
 
 async fn logout(State(st): State<AppState>, jar: CookieJar) -> AppResult<CookieJar> {
+    // Signing out while viewing as someone ends the view too (and every view of this session).
+    let jar = crate::view_as::end_for_logout(&st, jar).await?;
     if let Some(c) = jar.get(SESSION_COOKIE) {
         sqlx::query("DELETE FROM sessions WHERE token_hash = ?").bind(sha256_hex(c.value())).execute(&st.pool).await?;
     }
     Ok(jar.remove(Cookie::build(SESSION_COOKIE).path("/")))
 }
 
-async fn me(CurrentUser(user): CurrentUser) -> Json<User> {
-    Json(user)
+/// `/api/me`: the user, and while an admin views as them, who is viewing and until when.
+#[derive(Serialize)]
+struct Me {
+    #[serde(flatten)]
+    user: User,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    viewing: Option<crate::view_as::Viewing>,
+}
+
+async fn me(CurrentUser(user): CurrentUser, crate::view_as::MaybeView(view): crate::view_as::MaybeView) -> Json<Me> {
+    Json(Me { user, viewing: view.as_ref().map(crate::view_as::Viewing::from) })
 }
 
 /// The account for a dev login or a Cloudflare Access sign-in, made if need be. Admin from

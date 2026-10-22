@@ -4,7 +4,8 @@ import { accountLine } from "../accounts";
 import { api, type AccountInfo } from "../api";
 import { useAuthConfig, useMe } from "../auth";
 import { ErrorText, Sheet } from "../components/ui";
-import { adminApi } from "./api";
+import { adminApi, type ViewLogRow } from "./api";
+import { startViewing } from "../viewing";
 import { ago, confirms, deleteSummary, searchAccounts } from "./logic";
 
 const signInWays = (a: AccountInfo) => {
@@ -34,6 +35,8 @@ export function PeoplePage() {
     onSuccess: refresh,
   });
   const invite = useMutation({ mutationFn: (a: AccountInfo) => (a.invited ? adminApi.uninvite(a.id) : adminApi.invite(a.id)), onSuccess: refresh });
+  // View as: the page reloads as them (viewing.ts), so there's nothing to do on success here.
+  const view = useMutation({ mutationFn: (a: AccountInfo) => startViewing(a.id) });
 
   const flip = (a: AccountInfo) => {
     if (!a.disabled_at && !window.confirm(`Disable ${a.email}? They're signed out at once and can't sign in until you enable the account again.`)) return;
@@ -66,7 +69,7 @@ export function PeoplePage() {
           <span className="visually-hidden">Search people</span>
           <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name or email" />
         </label>
-        <ErrorText error={accounts.error ?? toggle.error ?? invite.error} />
+        <ErrorText error={accounts.error ?? toggle.error ?? invite.error ?? view.error} />
         {accounts.data && list.length === 0 && <p className="dim">Nobody matches that search.</p>}
         <ul className="admin-list">
           {list.map((a) => (
@@ -86,6 +89,9 @@ export function PeoplePage() {
                   <button className="outline" onClick={() => flip(a)} disabled={toggle.isPending}>
                     {a.disabled_at ? "Enable" : "Disable"}
                   </button>
+                  <button className="outline" onClick={() => view.mutate(a)} disabled={view.isPending} title="See Yama as they do, read only, for up to 30 minutes">
+                    View as
+                  </button>
                   <button className="outline danger" onClick={() => setDeleting(a)}>
                     Delete
                   </button>
@@ -95,6 +101,7 @@ export function PeoplePage() {
           ))}
         </ul>
       </section>
+      <ViewLog />
       {deleting && (
         <DeleteSheet
           account={deleting}
@@ -203,5 +210,45 @@ function DeleteSheet({ account, onClose, onDone }: { account: AccountInfo; onClo
         </div>
       </div>
     </Sheet>
+  );
+}
+
+const endedText = (r: ViewLogRow) => {
+  if (!r.ended_at) return Date.parse(r.expires_at) > Date.now() ? "still going" : "ran out";
+  const mins = Math.max(1, Math.round((Date.parse(r.ended_at) - Date.parse(r.started_at)) / 60_000));
+  const how = { stopped: "stopped", expired: "ran out", "signed out": "signed out", replaced: "switched to someone else", ended: "ended" }[r.end_reason ?? "ended"] ?? "ended";
+  return `${mins} ${mins === 1 ? "minute" : "minutes"}, ${how}`;
+};
+
+/** Every "View as", newest first: the audit log. */
+function ViewLog() {
+  const log = useQuery({ queryKey: ["admin-views"], queryFn: () => adminApi.views() });
+  const n = log.data?.length ?? 0;
+  return (
+    <section className="admin-section" aria-labelledby="adm-views">
+      <h2 id="adm-views">Viewing log</h2>
+      <p className="admin-lead">
+        View as shows Yama as that person sees it, read only, for up to 30 minutes. Every view is logged here, and the person sees it under
+        Group, You.
+      </p>
+      <ErrorText error={log.error} />
+      {log.data && n === 0 && <p className="dim">Nobody has used View as yet.</p>}
+      {n > 0 && (
+        <ul className="admin-list">
+          {log.data!.map((r) => (
+            <li key={r.id}>
+              <div className="admin-text">
+                <b>
+                  {r.admin_name} viewed {r.target_name}
+                </b>
+                <span>
+                  {r.target_email}, {ago(r.started_at)}: {endedText(r)}.
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

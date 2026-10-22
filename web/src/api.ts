@@ -54,6 +54,8 @@ export interface User {
    * Missing from a user cached by an older build, which reads as false.
    */
   limited?: boolean;
+  /** Set while an admin views Yama as this person, read only (viewing.ts). */
+  viewing?: import("./viewing").Viewing;
 }
 
 /** An account in the admin area's People list. */

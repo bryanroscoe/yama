@@ -8,6 +8,7 @@ import { discardQuestion, signOut, within } from "./plan/signout";
 import { clearPlanData } from "./plan/store";
 import "./auth.css";
 import { Wordmark } from "./components/Wordmark";
+import { noteViewing } from "./viewing";
 
 /** The sign-in page's art: Éowyn, Shieldmaiden by Craig Elliott, loaded from Scryfall at runtime. */
 const SIGN_IN_ART = "https://cards.scryfall.io/art_crop/front/d/d/dd4a00ff-2206-4e12-a0ab-61ed82c9e6c5.jpg";
@@ -22,10 +23,12 @@ export function useMe() {
       try {
         const me = await api<User>("/api/me");
         localStorage.setItem(ME_KEY, JSON.stringify(me));
+        noteViewing(me);
         return me;
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
           localStorage.removeItem(ME_KEY);
+          noteViewing(null);
           return null;
         }
         const cached = localStorage.getItem(ME_KEY);
@@ -46,13 +49,19 @@ export function useMe() {
 export function useLogout() {
   const qc = useQueryClient();
   return async (): Promise<boolean> => {
-    const userId = qc.getQueryData<User | null>(["me"])?.id;
+    const me = qc.getQueryData<User | null>(["me"]);
+    const userId = me?.id;
+    // Signing out while viewing as someone: the admin's own plan data leaves the device too.
+    const alsoClear = me?.viewing?.admin_id;
     const result = await signOut({
       userId,
       pending: () => outbox.pendingCount(userId),
       flush: () => within(userId ? outbox.sync(userId) : Promise.resolve(), 4000),
       confirmDiscard: (n) => window.confirm(discardQuestion(n, outbox.sending(userId))),
-      clearPlan: clearPlanData,
+      clearPlan: async (id) => {
+        await clearPlanData(id);
+        if (alsoClear) await clearPlanData(alsoClear);
+      },
       dropQueries: () => {
         qc.removeQueries({ queryKey: ["plan"] });
         qc.removeQueries({ queryKey: ["plan-cache"] });
