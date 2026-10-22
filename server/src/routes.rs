@@ -38,6 +38,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::calendar::router())
         .merge(crate::collection::router())
         .merge(crate::decks::router())
+        .merge(crate::deck_import::router())
         .merge(crate::playgroups::router())
         .merge(crate::games::router())
         .merge(crate::game_export::router())
@@ -47,6 +48,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::plan::router())
         .merge(crate::lab::router())
         .merge(crate::advisor::router())
+        .merge(crate::mcp::router())
         // Unknown API paths are errors, not the web app.
         .route("/api/{*rest}", axum::routing::any(|| async { crate::error::AppError::NotFound("API route") }));
 

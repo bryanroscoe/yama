@@ -158,3 +158,30 @@ export function unavailableText(reason: string | null | undefined, canSaveKey: b
       return "Ask Claude isn't set up on this server.";
   }
 }
+
+/** What the panel says while Claude uses one of Yama's tools (server/src/mcp/tools.rs). */
+export function toolActivity(name: string): string {
+  switch (name) {
+    case "overview":
+      return "Looking at your decks and plans…";
+    case "deck":
+      return "Reading a deck…";
+    case "plan_deck":
+      return "Reading a plan…";
+    case "review_queue":
+      return "Reading your proposals…";
+    case "find_cards":
+      return "Searching cards…";
+    case "card":
+      return "Looking up cards…";
+    case "check_list":
+      return "Checking a list…";
+    case "lab_runs":
+    case "lab_run":
+      return "Reading lab results…";
+    case "precon":
+      return "Reading a precon…";
+    default:
+      return "Looking something up…";
+  }
+}

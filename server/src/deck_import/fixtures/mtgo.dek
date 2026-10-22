@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Deck xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <NetDeckID>0</NetDeckID>
+  <PreconstructedDeckID>0</PreconstructedDeckID>
+  <Cards CatID="81952" Quantity="1" Sideboard="false" Name="Sol Ring" Annotation="0" />
+  <Cards CatID="12345" Quantity="97" Sideboard="false" Name="Island" Annotation="0" />
+  <Cards CatID="67890" Quantity="1" Sideboard="false" Name="Command Tower" Annotation="0" />
+  <Cards CatID="61234" Quantity="1" Sideboard="true" Name="Atraxa, Praetors&apos; Voice" Annotation="0" />
+</Deck>

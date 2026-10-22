@@ -104,7 +104,7 @@ function PastPrecons({ group: g, names }: { group: PreconGroup; names: string[] 
   );
 }
 
-const startLink = (fileName: string) => `/decks?precon=${encodeURIComponent(fileName)}`;
+const startLink = (fileName: string) => `/decks/import?precon=${encodeURIComponent(fileName)}`;
 
 function PreconRows({ precons, names }: { precons: PreconSummary[]; names: string[] }) {
   return (

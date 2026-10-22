@@ -1,0 +1,7 @@
+{"id": 1234567, "name": "Atraxa Superfriends",
+ "categories": [{"name": "Commander", "isPremier": true, "includedInDeck": true}, {"name": "Maybeboard", "isPremier": false, "includedInDeck": false}, {"name": "Ramp", "isPremier": false, "includedInDeck": true}],
+ "cards": [
+  {"quantity": 1, "modifier": "Normal", "categories": ["Commander"], "card": {"collectorNumber": "190", "edition": {"editioncode": "2x2"}, "oracleCard": {"name": "Atraxa, Praetors' Voice"}}},
+  {"quantity": 1, "modifier": "Foil", "categories": ["Ramp"], "card": {"collectorNumber": "263", "edition": {"editioncode": "c21"}, "oracleCard": {"name": "Sol Ring"}}},
+  {"quantity": 1, "modifier": "Normal", "categories": ["Maybeboard"], "card": {"collectorNumber": "393", "edition": {"editioncode": "cmm"}, "oracleCard": {"name": "Lightning Greaves"}}}
+ ]}

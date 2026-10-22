@@ -199,6 +199,17 @@ pub async fn user_for_token(st: &AppState, token: &str) -> AppResult<Option<User
     Ok(Some(row.user))
 }
 
+/// An account by id, when it isn't disabled and may use Yama now (the same rule as sessions).
+/// For credentials that name an account rather than a session: script keys and Claude's
+/// one-question tool tokens (`mcp/`).
+pub async fn user_by_id(st: &AppState, id: &str) -> AppResult<Option<User>> {
+    let user: Option<User> = sqlx::query_as(concat!("SELECT ", user_columns!(), " FROM users u WHERE u.id = ? AND u.disabled_at IS NULL"))
+        .bind(id)
+        .fetch_optional(&st.pool)
+        .await?;
+    Ok(user.filter(|u| may_use_yama(&st.cfg, u)))
+}
+
 /// A session's user and when the account was last seen (`users.last_seen_at`, for the admin area).
 #[derive(sqlx::FromRow)]
 struct SessionUser {

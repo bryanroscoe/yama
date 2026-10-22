@@ -1,0 +1,5 @@
+//Main
+1 [C21#263] Sol Ring
+1 [2X2#190] Atraxa, Praetors' Voice #!Commander
+//Sideboard
+1 [STA#10] Swords to Plowshares

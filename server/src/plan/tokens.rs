@@ -1,8 +1,9 @@
 //! Script keys for `publish.py` and `pull.py` (docs/planner-design.md 5.1, Decision 12).
 //!
 //! A key is `yama_pat_` plus 64 hex digits (`util::random_token`). Only its SHA-256 is stored, in
-//! `api_tokens`, with a scope (`plan:sync`), an expiry and a revoked time. Keys are accepted only by
-//! the `SyncUser` extractor, on the routes a script needs (import, head, inbox, ack).
+//! `api_tokens`, with a scope, an expiry and a revoked time. A `plan:sync` key is accepted only by
+//! the `SyncUser` extractor, on the routes a script needs (import, head, inbox, ack); an `mcp` key
+//! only by `POST /mcp` (Claude's tools, `mcp/`).
 //!
 //! `CurrentUser` never accepts a key: it looks bearer tokens (and WebSocket `?token=`) up in
 //! `sessions`, where a key never is, so a key anywhere else is a 401. A key is never admin, and a
@@ -24,6 +25,9 @@ use sqlx::SqlitePool;
 
 pub const PREFIX: &str = "yama_pat_";
 pub const SCOPE_SYNC: &str = "plan:sync";
+/// Claude's tools from outside Yama (`mcp/`, `POST /mcp`): reads the account's data and, later,
+/// stages changes for review. A key has one scope; `plan:sync` keys can't use the tools.
+pub const SCOPE_MCP: &str = "mcp";
 const DEFAULT_DAYS: i64 = 365;
 const MAX_DAYS: i64 = 730;
 /// Live (not revoked, not expired) keys one account may hold.
@@ -141,6 +145,8 @@ struct NewKey {
     name: String,
     /// Days until it expires; 365 when missing.
     days: Option<i64>,
+    /// `plan:sync` (the default) or `mcp`.
+    scope: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -177,7 +183,12 @@ async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json
     let token = format!("{PREFIX}{}", random_token());
     let id = new_id();
     let expires_at = time(Utc::now() + Duration::days(days));
-    let scopes = vec![SCOPE_SYNC.to_string()];
+    let scope = match body.scope.as_deref() {
+        None | Some(SCOPE_SYNC) => SCOPE_SYNC,
+        Some(SCOPE_MCP) => SCOPE_MCP,
+        Some(other) => return Err(AppError::bad(format!("scope \"{other}\" isn't one of {SCOPE_SYNC}, {SCOPE_MCP}"))),
+    };
+    let scopes = vec![scope.to_string()];
     sqlx::query("INSERT INTO api_tokens (id, owner_id, name, token_hash, scopes, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .bind(&id)
         .bind(&user.id)

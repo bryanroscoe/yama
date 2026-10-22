@@ -178,6 +178,7 @@ pub fn schedule(prefix: &str, templates: &[Template], field_ids: &[String], diff
                     max_turns: limits.max_turns,
                     max_actions: limits.max_actions,
                     max_seconds: limits.max_seconds,
+                    pilots: None,
                 },
             });
         }

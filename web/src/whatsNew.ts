@@ -14,6 +14,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-22-deck-import",
+    date: "2026-10-22",
+    title: "Bring your decks in",
+    items: [
+      "Add a deck has step-by-step help for Moxfield, Archidekt, MTG Arena, MTGO, ManaBox, Mythic Tools, TappedOut, Deckstats, EDHREC and MTGGoldfish.",
+      "Paste a list, choose a file (.txt, .dek, .csv), or on Android share a list straight to Yama. Yama shows the deck before saving: the count, the commander, cards outside its colours, and names it couldn't match, with a likely card to tap.",
+      "Set codes and foils from the export are kept, so exports name the printings you chose.",
+      "Update from a list (on a deck's page) saves a new version and shows what goes in and out first.",
+    ],
+    link: { to: "/decks/import", label: "Add a deck" },
+  },
+  {
     id: "2026-10-22-watch-ais",
     date: "2026-10-22",
     title: "Watch the AIs play",

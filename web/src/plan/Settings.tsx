@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Details, ErrorText } from "../components/ui";
-import { createKey, listImports, listKeys, revokeKey, type ScriptKey } from "./api";
+import { createKey, listImports, listKeys, revokeKey, type KeyScope, type ScriptKey } from "./api";
 import { outbox, useOutbox } from "./outbox";
 import { PlansHead, shortHash, usePlanOutlet } from "./PlanLayout";
 import { CopyButton } from "./parts";
@@ -63,22 +63,34 @@ function when(iso: string | null): string {
   return iso ? fmtDate(iso) : "never";
 }
 
-/** Keys for publish.py and pull.py: create (shown once), list and revoke. */
+const KEY_NAMES: Record<KeyScope, string> = { "plan:sync": "commander-decks on the Mac", mcp: "Claude Code on the Mac" };
+
+/** The command that connects Claude Code to Yama's tools with a new key. */
+function claudeCommand(token: string): string {
+  return `claude mcp add --transport http yama ${window.location.origin}/mcp --header "Authorization: Bearer ${token}"`;
+}
+
+/** Keys for publish.py and pull.py, and for Claude's tools: create (shown once), list and revoke. */
 function Keys() {
   const qc = useQueryClient();
   const keys = useQuery({ queryKey: ["plan-keys"], queryFn: listKeys });
-  const [name, setName] = useState("commander-decks on the Mac");
-  const create = useMutation({ mutationFn: () => createKey(name.trim()), onSuccess: () => void qc.invalidateQueries({ queryKey: ["plan-keys"] }) });
+  const [scope, setScope] = useState<KeyScope>("plan:sync");
+  const [name, setName] = useState(KEY_NAMES["plan:sync"]);
+  const create = useMutation({ mutationFn: () => createKey(name.trim(), scope), onSuccess: () => void qc.invalidateQueries({ queryKey: ["plan-keys"] }) });
   const revoke = useMutation({ mutationFn: revokeKey, onSuccess: () => void qc.invalidateQueries({ queryKey: ["plan-keys"] }) });
   const live = (k: ScriptKey) => !k.revoked_at && (!k.expires_at || k.expires_at > new Date().toISOString());
   return (
     <section className="stack">
-      <h3>Keys for scripts</h3>
+      <h3>Keys for scripts and Claude</h3>
       <p className="dim small">
-        A key lets a script on your computer send your plan file to Yama and pick up your answers, and nothing else. Revoke it if the computer is lost.
+        A script key lets commander-decks send your plan file to Yama and pick up your answers. A Claude key lets Claude Code (or another app that speaks MCP) read your decks,
+        plans, collection and lab runs with Yama's tools. Revoke a key if the computer is lost.
       </p>
       <Details>
-        <p>The scripts are commander-decks' publish.py and pull.py. A key can't read your decks, collection or games, or make more keys.</p>
+        <p>
+          The scripts are commander-decks' publish.py and pull.py; their keys can't read your decks, collection or games. A Claude key reads everything of yours that Ask Claude can,
+          and changes nothing. No key can make more keys.
+        </p>
       </Details>
       <form
         className="row"
@@ -87,6 +99,18 @@ function Keys() {
           create.mutate();
         }}
       >
+        <select
+          value={scope}
+          aria-label="What the key is for"
+          onChange={(e) => {
+            const next = e.target.value as KeyScope;
+            if (name === KEY_NAMES[scope]) setName(KEY_NAMES[next]);
+            setScope(next);
+          }}
+        >
+          <option value="plan:sync">For scripts</option>
+          <option value="mcp">For Claude</option>
+        </select>
         <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Where the key is used" required maxLength={100} style={{ flex: "1 1 14rem" }} />
         <button disabled={create.isPending || !name.trim()}>Make a key</button>
       </form>
@@ -100,10 +124,20 @@ function Keys() {
           <div className="row">
             <CopyButton text={create.data.token} label="Copy the key" />
           </div>
-          <p className="small dim">
-            On the Mac, save it in the Keychain, where the scripts look for it: run <code>security add-generic-password -a "$USER" -s yama-plan-sync -w</code>{" "}
-            in Terminal and paste the key when it asks. Or keep it in 1Password and set <code>YAMA_TOKEN</code> when you run a script.
-          </p>
+          {create.data.scopes.includes("mcp") ? (
+            <>
+              <p className="small dim">To connect Claude Code, run this in Terminal (it holds the key, so don't share it):</p>
+              <code className="plan-key">{claudeCommand(create.data.token)}</code>
+              <div className="row">
+                <CopyButton text={claudeCommand(create.data.token)} label="Copy the command" />
+              </div>
+            </>
+          ) : (
+            <p className="small dim">
+              On the Mac, save it in the Keychain, where the scripts look for it: run <code>security add-generic-password -a "$USER" -s yama-plan-sync -w</code>{" "}
+              in Terminal and paste the key when it asks. Or keep it in 1Password and set <code>YAMA_TOKEN</code> when you run a script.
+            </p>
+          )}
         </div>
       )}
       {keys.data && keys.data.length > 0 && (
@@ -111,7 +145,7 @@ function Keys() {
           {keys.data.map((k) => (
             <div key={k.id} className="list-row">
               <span>
-                <span className="title">{k.name}</span>
+                <span className="title">{k.name}</span> <span className="small dim">{k.scopes.includes("mcp") ? "for Claude" : "for scripts"}</span>
                 <br />
                 <span className="small dim">
                   Made {fmtDate(k.created_at)}. Last used {when(k.last_used_at)}.{" "}
