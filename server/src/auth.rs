@@ -18,6 +18,7 @@
 //! Sign-in attempts (Google and password) are rate-limited per client address and per email
 //! (`limits.rs`). A disabled account has no sessions, and every way in refuses it.
 
+use crate::admin::AdminUser;
 use crate::config::Config;
 use crate::error::{AppError, AppResult};
 use crate::limits::{ClientAddress, address_key};
@@ -165,16 +166,53 @@ impl FromRequestParts<AppState> for CurrentUser {
 /// check here covers one made between that and now; an account that isn't invited only works
 /// while open sign-up is on.
 pub async fn user_for_token(st: &AppState, token: &str) -> AppResult<Option<User>> {
-    let user: Option<User> = sqlx::query_as(concat!(
+    let row: Option<SessionUser> = sqlx::query_as(concat!(
         "SELECT ",
         user_columns!(),
-        " FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled_at IS NULL"
+        ", u.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled_at IS NULL"
     ))
     .bind(sha256_hex(token))
     .bind(now())
     .fetch_optional(&st.pool)
     .await?;
-    Ok(user.filter(|u| may_use_yama(&st.cfg, u)))
+    let Some(row) = row.filter(|r| may_use_yama(&st.cfg, &r.user)) else { return Ok(None) };
+    if seen_is_stale(row.last_seen_at.as_deref()) {
+        note_seen(&st.pool, &row.user.id).await?;
+    }
+    Ok(Some(row.user))
+}
+
+/// A session's user and when the account was last seen (`users.last_seen_at`, for the admin area).
+#[derive(sqlx::FromRow)]
+struct SessionUser {
+    #[sqlx(flatten)]
+    user: User,
+    last_seen_at: Option<String>,
+}
+
+/// How often an account's last-seen time is rewritten: at most once an hour, so a busy session
+/// costs one small write an hour rather than one per request.
+const SEEN_EVERY: Duration = Duration::hours(1);
+
+fn seen_is_stale(last: Option<&str>) -> bool {
+    match last.and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()) {
+        Some(t) => Utc::now().signed_duration_since(t) >= SEEN_EVERY,
+        None => true,
+    }
+}
+
+/// Record that the account used Yama now. The WHERE repeats the staleness check, so two requests
+/// racing past the read write once.
+async fn note_seen(pool: &SqlitePool, user_id: &str) -> AppResult<()> {
+    let stamp = now();
+    let since = (Utc::now() - SEEN_EVERY).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    sqlx::query("UPDATE users SET last_seen_at = ? WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)")
+        .bind(&stamp)
+        .bind(user_id)
+        .bind(since)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -588,6 +626,8 @@ async fn start_session(st: &AppState, jar: CookieJar, user: User) -> AppResult<(
         .bind(expires.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
         .execute(&st.pool)
         .await?;
+    // Signing in counts as being seen.
+    sqlx::query("UPDATE users SET last_seen_at = ? WHERE id = ?").bind(now()).bind(&user.id).execute(&st.pool).await?;
     let cookie = Cookie::build((SESSION_COOKIE, token.clone()))
         .path("/")
         .http_only(true)
@@ -624,8 +664,7 @@ pub async fn add_invite(pool: &SqlitePool, email: &str, by: Option<&str>) -> App
     Ok(())
 }
 
-async fn list_invites(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<Invite>>> {
-    require_admin(&user)?;
+async fn list_invites(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult<Json<Vec<Invite>>> {
     Ok(Json(sqlx::query_as("SELECT email, created_at FROM invites ORDER BY created_at").fetch_all(&st.pool).await?))
 }
 
@@ -636,19 +675,24 @@ struct NewInvite {
 
 async fn create_invite(
     State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
+    AdminUser(user): AdminUser,
     Json(body): Json<NewInvite>,
 ) -> AppResult<()> {
-    require_admin(&user)?;
     add_invite(&st.pool, &body.email, Some(&user.id)).await
 }
 
 async fn delete_invite(
     State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
+    AdminUser(_): AdminUser,
     axum::extract::Path(email): axum::extract::Path<String>,
 ) -> AppResult<()> {
-    require_admin(&user)?;
+    remove_invite(&st, &email).await
+}
+
+/// Withdraw an invite. Unless the email is an admin's, that person is signed out everywhere and
+/// their script keys are revoked; with open sign-up they may sign in again with the smaller
+/// allowance.
+pub(crate) async fn remove_invite(st: &AppState, email: &str) -> AppResult<()> {
     let email = email.to_lowercase();
     sqlx::query("DELETE FROM invites WHERE email = ?").bind(&email).execute(&st.pool).await?;
     // Revoking an invite signs that person out everywhere and revokes their script keys, unless
@@ -664,10 +708,6 @@ async fn delete_invite(
     Ok(())
 }
 
-/// Admin-only routes. The planner uses it for lab approval only; plans have no admin read path.
-pub(crate) fn require_admin(user: &User) -> AppResult<()> {
-    if user.is_admin { Ok(()) } else { Err(AppError::Forbidden("admins only".into())) }
-}
 
 // ── accounts (admins) ──────────────────────────────────────────────────────
 
@@ -686,18 +726,19 @@ struct AccountInfo {
     created_at: String,
     /// The newest session's start: roughly the last sign-in.
     last_sign_in: Option<String>,
+    /// When the account last used Yama (to the hour).
+    last_seen_at: Option<String>,
 }
 
 /// Newest accounts first, at most 500.
-async fn admin_list_users(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<AccountInfo>>> {
-    require_admin(&user)?;
+async fn admin_list_users(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult<Json<Vec<AccountInfo>>> {
     Ok(Json(
         sqlx::query_as(concat!(
             "SELECT u.id, u.email, u.display_name, u.is_admin, ",
             limited_sql!(),
             " AS limited, EXISTS (SELECT 1 FROM invites i WHERE i.email = u.email) AS invited,
                u.google_sub IS NOT NULL AS google, u.password_hash IS NOT NULL AS password, u.disabled_at, u.created_at,
-               (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_sign_in
+               (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_sign_in, u.last_seen_at
              FROM users u ORDER BY u.created_at DESC, u.email LIMIT 500"
         ))
         .fetch_all(&st.pool)
@@ -705,8 +746,7 @@ async fn admin_list_users(State(st): State<AppState>, CurrentUser(user): Current
     ))
 }
 
-async fn admin_disable_user(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
-    require_admin(&user)?;
+async fn admin_disable_user(State(st): State<AppState>, AdminUser(user): AdminUser, Path(id): Path<String>) -> AppResult<()> {
     if id == user.id {
         return Err(AppError::bad("you can't turn off your own account"));
     }
@@ -719,8 +759,7 @@ async fn admin_disable_user(State(st): State<AppState>, CurrentUser(user): Curre
     Ok(())
 }
 
-async fn admin_enable_user(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
-    require_admin(&user)?;
+async fn admin_enable_user(State(st): State<AppState>, AdminUser(_): AdminUser, Path(id): Path<String>) -> AppResult<()> {
     if !set_disabled(&st.pool, &id, false).await? {
         return Err(AppError::NotFound("account"));
     }

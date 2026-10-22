@@ -51,7 +51,9 @@ What changes:
 - An account is tied to its Google account the first time it signs in; a different Google account with the same email is refused. Open sign-up never hands an existing password or Cloudflare Access account to a Google sign-in: invite that email first.
 - Turning `YAMA_OPEN_SIGNUP` off again shuts out every account that isn't invited (their sessions and script keys stop working at once). Their data stays; inviting them lets them back in.
 
-To keep someone out: `docker exec yama yama-server user disable EMAIL` (or Group, You, Accounts, Disable). Their sessions end at once, sign-in is refused every way, their script keys stop working and their lab runs wait. `user enable EMAIL` undoes it. An admin can only be disabled from the command line. Withdrawing an invite while sign-up is open only moves that person to the smaller allowance.
+To keep someone out: `docker exec yama yama-server user disable EMAIL` (or Admin, People, Disable). Their sessions end at once, sign-in is refused every way, their script keys stop working and their lab runs wait. `user enable EMAIL` undoes it. An admin can only be disabled from the command line. Withdrawing an invite while sign-up is open only moves that person to the smaller allowance.
+
+To delete an account and its data, as the privacy policy (`/privacy/`) promises on request: Admin, People, Delete, then type the account's email. Its own data goes; games and playgroups it shared with others stay without its name (ARCHITECTURE.md, "Admin area"). Admin accounts can't be deleted there: take the email out of `YAMA_ADMIN_EMAILS` first.
 
 Rate limits (per account, admins exempt, in memory so a restart clears them): sign-in 10 tries in 10 minutes per address and per email; card search 120 a minute; name lookups 300 a minute; the offline card download 10 an hour; join codes (playgroups and online games) 20 in 10 minutes; imports 60 an hour; deck saves 120 in 10 minutes; new online games 30 an hour. Commander Spellbook checks run at most 20 an hour per account (the rest wait their turn). One account can share at most 4 life-counter tables at once.
 

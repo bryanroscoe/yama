@@ -101,7 +101,7 @@ pub enum Access {
 }
 
 impl Access {
-    fn reason(self) -> Option<&'static str> {
+    pub(crate) fn reason(self) -> Option<&'static str> {
         match self {
             Access::Ready(_) => None,
             Access::Off => Some("off"),
@@ -200,11 +200,20 @@ pub struct Status {
     subscription_connected: Option<bool>,
 }
 
-/// Whether the sidecar has a subscription token, from its `/health` (2 s at most).
-async fn subscription_connected(st: &AppState) -> Option<bool> {
+/// The sidecar's health for the admin area: `None` when it didn't answer (2 s at most), otherwise
+/// whether it holds a subscription token (`Some(None)` if it answered without saying).
+pub(crate) async fn sidecar_health(st: &AppState) -> Option<Option<bool>> {
     let (url, secret) = (st.cfg.advisor.url.as_ref()?, st.cfg.advisor.secret.as_ref()?);
     let res = st.http.get(format!("{url}/health")).header("x-advisor-secret", secret).timeout(Duration::from_secs(2)).send().await.ok()?;
-    res.json::<Value>().await.ok()?["subscription"].as_bool()
+    if !res.status().is_success() {
+        return None;
+    }
+    Some(res.json::<Value>().await.ok().and_then(|v| v["subscription"].as_bool()))
+}
+
+/// Whether the sidecar has a subscription token, from its `/health` (2 s at most).
+async fn subscription_connected(st: &AppState) -> Option<bool> {
+    sidecar_health(st).await.flatten()
 }
 
 async fn status_for(st: &AppState, user: &User) -> AppResult<Status> {
