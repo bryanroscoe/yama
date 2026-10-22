@@ -55,9 +55,26 @@ To keep someone out: `docker exec yama yama-server user disable EMAIL` (or Group
 
 Rate limits (per account, admins exempt, in memory so a restart clears them): sign-in 10 tries in 10 minutes per address and per email; card search 120 a minute; name lookups 300 a minute; the offline card download 10 an hour; join codes (playgroups and online games) 20 in 10 minutes; imports 60 an hour; deck saves 120 in 10 minutes; new online games 30 an hour. Commander Spellbook checks run at most 20 an hour per account (the rest wait their turn). One account can share at most 4 life-counter tables at once.
 
+## Ask Claude (the advisor)
+
+"Ask Claude" answers questions about your own decks, plans, Review proposals, precons and lab runs. It runs in a second container, `yama-advisor` (`advisor/` in this repo, `deploy/Dockerfile.advisor`): Node and the Claude Agent SDK, running Claude with no tools at all (no shell, files, web, MCP, skills or settings), one throwaway home directory per question. It has no published port and sits only on the private `yama_advisor` network with `yama`, which reaches it at `http://yama-advisor:8790` with a shared secret. It logs one line per question (mode, model, outcome, time, tokens), never a question, answer, key or token.
+
+Whose Claude answers:
+
+- **Bryan's account** (the first admin email, written to `YAMA_ADVISOR_SUBSCRIPTION_EMAILS` by `deploy.sh`) asks on Bryan's Claude subscription. Anthropic doesn't allow an app to share one person's subscription with other people, so only listed accounts ever use it; keep that list to the subscription owner.
+- **Anyone else** may save their own Anthropic API key (Group, You, Ask Claude). It is stored encrypted with `YAMA_ADVISOR_KEY_SECRET` (ChaCha20-Poly1305, bound to the account), used only for that person's questions, never shown again, and removable. Without a key the advisor says how to get one.
+- Limits: 6 questions a minute and one at a time per account; 150 a day for invited accounts and 30 for accounts that joined without an invite (counted in the database, so deleting conversations doesn't reset it); none for admins.
+
+Setting it up:
+
+1. `./deploy/deploy.sh` builds `yama-advisor` too, and on first run writes the advisor's secrets on saget without printing them: `advisor.env` (`ADVISOR_SECRET`, mode 0600) and, in `yama.env`, `YAMA_ADVISOR_URL`, `YAMA_ADVISOR_SECRET`, `YAMA_ADVISOR_KEY_SECRET` and `YAMA_ADVISOR_SUBSCRIPTION_EMAILS`. It never overwrites them; changing `YAMA_ADVISOR_KEY_SECRET` later makes saved keys unreadable (people re-add them).
+2. **Bryan connects his subscription:** `claude setup-token` on the Mac (browser sign-in; prints a token that lasts a year), then `./deploy/advisor-token.sh` and paste it. The token stays hidden, goes to saget over SSH's stdin, lands in `advisor.env` and restarts only `yama-advisor`. `./deploy/advisor-token.sh --remove` takes it off. Until then, Bryan's questions say the subscription isn't connected, and the You section says so too.
+
+Checks (read-only): `ssh root@<saget-lan-address> 'docker logs --tail 20 yama-advisor'`.
+
 ## Updating
 
-`./deploy/deploy.sh`. It backs up the database first (`data/backups/yama-<time>.db`, written with SQLite's `VACUUM INTO`, which is safe while the server runs), rebuilds, and recreates only the `yama` container.
+`./deploy/deploy.sh`. It backs up the database first (`data/backups/yama-<time>.db`, written with SQLite's `VACUUM INTO`, which is safe while the server runs), rebuilds both images, and recreates only the `yama` and `yama-advisor` containers.
 
 ## Phones
 

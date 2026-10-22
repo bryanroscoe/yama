@@ -35,6 +35,7 @@ pub fn config() -> Config {
         password_login: true,
         trusted_proxies: vec![],
         lab_quota: crate::config::LabQuota::default(),
+        advisor: crate::config::AdvisorConfig::default(),
     }
 }
 

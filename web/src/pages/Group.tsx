@@ -11,6 +11,7 @@ import { streakText } from "../components/statsText";
 import { useCardArt } from "../components/useCardArt";
 import "./group.css";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
+import { AdvisorSettings } from "../advisor/AdvisorSettings";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
@@ -432,6 +433,7 @@ function Account() {
           </span>
         </div>
         <OfflineCardsSetting />
+        <AdvisorSettings />
         {me.data?.is_admin && (
           <div className="grp-you-row grp-you-stack">
             <div className="grp-you-line">

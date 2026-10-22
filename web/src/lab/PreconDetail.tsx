@@ -10,6 +10,7 @@ import { ConfidenceNote } from "./confidence";
 import { cantJudge, caveat, fmtDate, grouped, linScale, logScale, pct, pctRange, strengthDomain, strengthText } from "./logic";
 import { ArtPanel, IntervalBar } from "./parts";
 import { RunLine, usePrecons } from "./Precons";
+import { AskClaude } from "../advisor/AskClaude";
 import { LabHead } from "./LabLayout";
 
 interface EngineSupport {
@@ -153,6 +154,7 @@ function Actions({ precon }: { precon: PreconItem }) {
           </button>
         )}
         <Link className="button" to={`/decks/lab/try?precon=${encodeURIComponent(precon.id)}`}>Try a change</Link>
+        <AskClaude context={{ kind: "precon", ref: precon.id }} about={precon.name} />
       </div>
       {make.data && (
         <p className="small dim" role="status" style={{ margin: 0 }}>

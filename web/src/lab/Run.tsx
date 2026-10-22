@@ -27,6 +27,7 @@ import {
   simLabel,
   verdictText,
 } from "./logic";
+import { AskClaude } from "../advisor/AskClaude";
 import { ArtPanel, IntervalChart, SimLine, StatusTag } from "./parts";
 import { LabHead } from "./LabLayout";
 import { usePrecons } from "./Precons";
@@ -104,6 +105,11 @@ export function RunPage() {
         )}
       </ArtPanel>
 
+      {!live && (
+        <div className="row" style={{ marginBottom: "1rem" }}>
+          <AskClaude context={{ kind: "experiment", ref: e.id }} about={`the run "${e.name}"`} />
+        </div>
+      )}
       {live && <Progress e={e} />}
       {e.status === "failed" && <p className="error">This run failed: {e.error ?? "no reason recorded"}.</p>}
       {e.status === "cancelled" && (

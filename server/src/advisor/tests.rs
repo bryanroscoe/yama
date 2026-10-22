@@ -1,0 +1,392 @@
+//! The advisor through the real router: who gets the subscription, key handling, privacy, limits,
+//! and a question answered end to end by a fake sidecar on a local port.
+
+use super::*;
+use crate::config::{AdvisorConfig, Config};
+use crate::testutil::{config, send, state_with, user};
+use axum::Router;
+use axum::http::{HeaderMap, Method, Request};
+use std::sync::Arc;
+use tower::ServiceExt;
+
+const SECRET: &str = "advisor-shared-secret-0123456789abcdef";
+const KEY_SECRET: &str = "advisor-key-secret-0123456789abcdefgh";
+const KEY: &str = "sk-ant-api03-userkey-abcdefghijklmnopqrstuvwxyz0123";
+
+fn u(email: &str, admin: bool, limited: bool) -> User {
+    User { id: "id".into(), email: email.into(), display_name: "x".into(), is_admin: admin, limited }
+}
+
+fn cfg(url: Option<&str>, emails: &[&str], key_secret: bool) -> AdvisorConfig {
+    AdvisorConfig {
+        url: url.map(str::to_string),
+        secret: Some(SECRET.into()),
+        subscription_emails: emails.iter().map(|e| e.to_string()).collect(),
+        key_secret: key_secret.then(|| KEY_SECRET.to_string()),
+    }
+}
+
+#[test]
+fn only_a_listed_account_ever_gets_the_subscription() {
+    let c = cfg(Some("http://advisor"), &["owner@example.com"], true);
+    assert_eq!(access(&c, &u("owner@example.com", false, false), false), Access::Ready(Mode::Subscription));
+    assert_eq!(access(&c, &u("  Owner@Example.com ", false, false), false), Access::Ready(Mode::Subscription), "emails compare as Yama stores them");
+    // Admin, invited or not: none of it gives anyone the subscription.
+    assert_eq!(access(&c, &u("admin@example.com", true, false), false), Access::NeedsKey);
+    assert_eq!(access(&c, &u("friend@example.com", false, true), false), Access::NeedsKey);
+    assert_eq!(access(&c, &u("friend@example.com", false, true), true), Access::Ready(Mode::OwnKey));
+    assert_eq!(access(&c, &u("owner@example.com.evil.test", false, false), false), Access::NeedsKey);
+    assert_eq!(access(&c, &u("", false, false), false), Access::NeedsKey);
+    // Without a key secret a saved key can't be used, and nobody else can ask.
+    let no_keys = cfg(Some("http://advisor"), &["owner@example.com"], false);
+    assert_eq!(access(&no_keys, &u("friend@example.com", false, false), true), Access::KeysOff);
+    assert_eq!(access(&no_keys, &u("owner@example.com", false, false), false), Access::Ready(Mode::Subscription));
+    // No sidecar address: off for everyone.
+    assert_eq!(access(&cfg(None, &["owner@example.com"], true), &u("owner@example.com", true, false), true), Access::Off);
+}
+
+// ── the fake sidecar ────────────────────────────────────────────────────────
+
+#[derive(Clone, Default)]
+struct Fake {
+    seen: Arc<Mutex<Vec<(HeaderMap, Value)>>>,
+    /// NDJSON lines to answer with, and the pause between them.
+    lines: Arc<Mutex<Vec<String>>>,
+    pause_ms: u64,
+    status: u16,
+}
+
+async fn fake_sidecar(fake: Fake) -> String {
+    let app = Router::new().route("/health", get(|| async { Json(json!({"ok": true, "subscription": true})) })).route(
+        "/advise",
+        post(move |headers: HeaderMap, Json(body): Json<Value>| {
+            let fake = fake.clone();
+            async move {
+                fake.seen.lock().unwrap().push((headers, body));
+                if fake.status != 200 {
+                    return (StatusCode::from_u16(fake.status).unwrap(), Json(json!({"error": "busy now"}))).into_response();
+                }
+                let lines = fake.lines.lock().unwrap().clone();
+                let pause = fake.pause_ms;
+                let stream = futures_util::stream::iter(lines).then(move |l| async move {
+                    tokio::time::sleep(Duration::from_millis(pause)).await;
+                    Ok::<_, std::convert::Infallible>(Bytes::from(format!("{l}\n")))
+                });
+                Response::builder().header(header::CONTENT_TYPE, "application/x-ndjson").body(Body::from_stream(stream)).unwrap()
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{addr}")
+}
+
+fn answer_lines() -> Vec<String> {
+    vec![
+        json!({"type": "text", "text": "Play "}).to_string(),
+        json!({"type": "text", "text": "more ramp."}).to_string(),
+        json!({"type": "done", "usage": {"input_tokens": 100, "output_tokens": 4}, "cost_usd": null}).to_string(),
+    ]
+}
+
+async fn app_with(advisor: AdvisorConfig) -> (Router, SqlitePool) {
+    // Open sign-up, so accounts that joined without an invite can be tested too.
+    let cfg = Config { advisor, open_signup: true, ..config() };
+    let st = state_with(cfg, crate::db::test_pool().await).await;
+    let pool = st.pool.clone();
+    (crate::routes::app(st), pool)
+}
+
+/// Send a request and read the whole body as text (the ask route streams).
+async fn send_text(app: &Router, method: Method, path: &str, token: &str, body: Value) -> (StatusCode, String) {
+    let req = Request::builder()
+        .method(method)
+        .uri(path)
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let res = app.clone().oneshot(req).await.unwrap();
+    let status = res.status();
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The events of an SSE body, as (event, data).
+fn events(body: &str) -> Vec<(String, Value)> {
+    body.split("\n\n")
+        .filter(|f| !f.trim().is_empty())
+        .map(|f| {
+            let mut ev = String::new();
+            let mut data = Value::Null;
+            for line in f.lines() {
+                if let Some(e) = line.strip_prefix("event: ") {
+                    ev = e.to_string();
+                } else if let Some(d) = line.strip_prefix("data: ") {
+                    data = serde_json::from_str(d).unwrap();
+                }
+            }
+            (ev, data)
+        })
+        .collect()
+}
+
+async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str, name: &str) {
+    let id = new_id();
+    sqlx::query(
+        "INSERT INTO plan_decks (id, owner_id, key, name, source, commander, color_identity, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'import', '[\"Omo, Queen of Vesuva\"]', 'GU', 'now', 'now')",
+    )
+    .bind(&id)
+    .bind(owner)
+    .bind(key)
+    .bind(name)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO plan_swaps (id, owner_id, plan_deck_id, ext_key, stage, role, src, in_name, out_name, why, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'proposed', 'swap', 'buy', 'Dryad of the Ilysian Grove', 'Explore', 'Lands matter payoff', 'now', 'now')",
+    )
+    .bind(new_id())
+    .bind(owner)
+    .bind(&id)
+    .bind(format!("{key}-dryad"))
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO plan_reviews (owner_id, swap_key, decision, note, at, origin) VALUES (?, ?, 'unsure', 'Too slow?', 'now', 'yama')")
+        .bind(owner)
+        .bind(format!("{key}-dryad"))
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+// ── routes ──────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn status_says_why_it_is_unavailable_and_never_shows_a_key() {
+    let (app, pool) = app_with(AdvisorConfig::default()).await;
+    let (_, token) = user(&pool, "friend@example.com").await;
+    let (status, body) = send(&app, Method::GET, "/api/advisor/status", Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!((body["available"].as_bool(), body["reason"].as_str()), (Some(false), Some("off")));
+    let (status, _) = send(&app, Method::PUT, "/api/advisor/key", Some(&token), Some(json!({"api_key": KEY}))).await;
+    assert_eq!(status, StatusCode::CONFLICT, "a server without the advisor stores no keys");
+
+    let (app, pool) = app_with(cfg(Some("http://127.0.0.1:9"), &["owner@example.com"], true)).await;
+    let (friend_id, friend) = user(&pool, "friend@example.com").await;
+    let (_, owner) = user(&pool, "owner@example.com").await;
+    let (_, body) = send(&app, Method::GET, "/api/advisor/status", Some(&owner), None).await;
+    assert_eq!((body["available"].as_bool(), body["mode"].as_str()), (Some(true), Some("subscription")));
+    let (_, body) = send(&app, Method::GET, "/api/advisor/status", Some(&friend), None).await;
+    assert_eq!((body["available"].as_bool(), body["reason"].as_str(), body["can_save_key"].as_bool()), (Some(false), Some("needs_key"), Some(true)));
+
+    // A bad key is refused; a good one is stored encrypted and only its hint comes back.
+    let (status, _) = send(&app, Method::PUT, "/api/advisor/key", Some(&friend), Some(json!({"api_key": "my password"}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = send(&app, Method::PUT, "/api/advisor/key", Some(&friend), Some(json!({"api_key": format!("  {KEY} ")}))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!((body["mode"].as_str(), body["key_hint"].as_str()), (Some("own_key"), Some("0123")));
+    assert!(!body.to_string().contains(KEY));
+    let (_, body) = send(&app, Method::GET, "/api/advisor/status", Some(&friend), None).await;
+    assert!(!body.to_string().contains(KEY), "status never carries the key");
+    let (ct,): (Vec<u8>,) = sqlx::query_as("SELECT ciphertext FROM advisor_keys WHERE user_id = ?").bind(&friend_id).fetch_one(&pool).await.unwrap();
+    assert!(!ct.windows(KEY.len()).any(|w| w == KEY.as_bytes()), "the key isn't stored in the clear");
+    let (status, body) = send(&app, Method::DELETE, "/api/advisor/key", Some(&friend), None).await;
+    assert_eq!((status, body["has_key"].as_bool()), (StatusCode::OK, Some(false)));
+
+    // Models are a fixed list.
+    let (status, _) = send(&app, Method::PUT, "/api/advisor/settings", Some(&friend), Some(json!({"model": "gpt-5"}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (_, body) = send(&app, Method::PUT, "/api/advisor/settings", Some(&friend), Some(json!({"model": "claude-haiku-5-5"}))).await;
+    assert_eq!(body["model"], "claude-haiku-5-5");
+}
+
+#[tokio::test]
+async fn the_owner_asks_on_the_subscription_and_the_answer_is_saved() {
+    let fake = Fake { lines: Arc::new(Mutex::new(answer_lines())), status: 200, ..Default::default() };
+    let url = fake_sidecar(fake.clone()).await;
+    let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
+    let (owner_id, owner) = user(&pool, "owner@example.com").await;
+    plan_deck(&pool, &owner_id, "tricky-terrain", "Tricky Terrain").await;
+
+    let (status, body) = send_text(
+        &app,
+        Method::POST,
+        "/api/advisor/ask",
+        &owner,
+        json!({"context": {"kind": "plan_deck", "ref": "tricky-terrain"}, "question": "Should I add the Dryad?"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let ev = events(&body);
+    assert_eq!(ev.iter().map(|(e, _)| e.as_str()).collect::<Vec<_>>(), ["start", "text", "text", "done"]);
+    let conversation = ev[0].1["conversation_id"].as_str().unwrap().to_string();
+    assert_eq!(ev[0].1["mode"], "subscription");
+    let (_, st) = send(&app, Method::GET, "/api/advisor/status", Some(&owner), None).await;
+    assert_eq!(st["subscription_connected"], true, "the sidecar says it holds the token");
+
+    // What the sidecar was sent: the secret, subscription mode, no key, and the deck in the prompt.
+    let (headers, req) = fake.seen.lock().unwrap()[0].clone();
+    assert_eq!(headers["x-advisor-secret"], SECRET);
+    assert_eq!(req["mode"], "subscription");
+    assert!(req["api_key"].is_null());
+    assert_eq!(req["model"], DEFAULT_MODEL);
+    let system = req["system"].as_str().unwrap();
+    assert!(system.contains("Tricky Terrain") && system.contains("Dryad of the Ilysian Grove") && system.contains("Too slow?"), "{system}");
+    assert!(system.contains("<yama_data>"));
+    assert_eq!(req["messages"], json!([{"role": "user", "content": "Should I add the Dryad?"}]));
+
+    // Saved: the question and the answer, and one use counted.
+    let (status, detail) = send(&app, Method::GET, &format!("/api/advisor/conversations/{conversation}"), Some(&owner), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(detail["context_kind"], "plan_deck");
+    assert_eq!(detail["items"][1]["content"], "Play more ramp.");
+    assert_eq!(detail["items"][1]["status"], "done");
+    assert_eq!(detail["items"][1]["usage"]["output_tokens"], 4);
+
+    // A follow-up carries the earlier turns.
+    let (status, _) = send_text(&app, Method::POST, "/api/advisor/ask", &owner, json!({"conversation_id": conversation, "question": "And Azusa?"})).await;
+    assert_eq!(status, StatusCode::OK);
+    let req = fake.seen.lock().unwrap()[1].1.clone();
+    assert_eq!(req["messages"].as_array().unwrap().len(), 3);
+    assert_eq!(req["messages"][1]["content"], "Play more ramp.");
+    let (_, list) = send(&app, Method::GET, "/api/advisor/conversations?kind=plan_deck&ref=tricky-terrain", Some(&owner), None).await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["messages"], 4);
+}
+
+#[tokio::test]
+async fn other_accounts_use_their_own_key_or_nothing() {
+    let fake = Fake { lines: Arc::new(Mutex::new(answer_lines())), status: 200, ..Default::default() };
+    let url = fake_sidecar(fake.clone()).await;
+    let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
+    let (_, friend) = user(&pool, "friend@example.com").await;
+    let (admin_id, admin) = user(&pool, "admin@example.com").await;
+    sqlx::query("UPDATE users SET is_admin = 1 WHERE id = ?").bind(&admin_id).execute(&pool).await.unwrap();
+
+    for token in [&friend, &admin] {
+        let (status, _) = send_text(&app, Method::POST, "/api/advisor/ask", token, json!({"question": "Hi"})).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "no key, not listed: no Claude, admins included");
+    }
+    assert!(fake.seen.lock().unwrap().is_empty(), "the sidecar heard nothing");
+
+    send(&app, Method::PUT, "/api/advisor/key", Some(&friend), Some(json!({"api_key": KEY}))).await;
+    let (status, body) = send_text(&app, Method::POST, "/api/advisor/ask", &friend, json!({"question": "Hi", "model": "claude-haiku-5-5"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let req = fake.seen.lock().unwrap()[0].1.clone();
+    assert_eq!((req["mode"].as_str(), req["api_key"].as_str(), req["model"].as_str()), (Some("api_key"), Some(KEY), Some("claude-haiku-5-5")));
+}
+
+#[tokio::test]
+async fn conversations_and_contexts_are_private() {
+    let fake = Fake { lines: Arc::new(Mutex::new(answer_lines())), status: 200, ..Default::default() };
+    let url = fake_sidecar(fake.clone()).await;
+    let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
+    let (owner_id, owner) = user(&pool, "owner@example.com").await;
+    let (_, other) = user(&pool, "other@example.com").await;
+    plan_deck(&pool, &owner_id, "tricky-terrain", "Tricky Terrain").await;
+    let (deck_id, _) = crate::testutil::deck(&pool, &owner_id, "Owner's deck").await;
+    send(&app, Method::PUT, "/api/advisor/key", Some(&other), Some(json!({"api_key": KEY}))).await;
+
+    let (_, body) = send_text(&app, Method::POST, "/api/advisor/ask", &owner, json!({"context": {"kind": "deck", "ref": deck_id}, "question": "Hi"})).await;
+    let conversation = events(&body)[0].1["conversation_id"].as_str().unwrap().to_string();
+
+    let path = format!("/api/advisor/conversations/{conversation}");
+    assert_eq!(send(&app, Method::GET, &path, Some(&other), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::DELETE, &path, Some(&other), None).await.0, StatusCode::NOT_FOUND);
+    let (_, list) = send(&app, Method::GET, "/api/advisor/conversations", Some(&other), None).await;
+    assert_eq!(list, json!([]));
+    let asks = fake.seen.lock().unwrap().len();
+    for body in [
+        json!({"conversation_id": conversation, "question": "Mine now?"}),
+        json!({"context": {"kind": "plan_deck", "ref": "tricky-terrain"}, "question": "Peek"}),
+        json!({"context": {"kind": "deck", "ref": deck_id}, "question": "Peek"}),
+    ] {
+        let (status, _) = send_text(&app, Method::POST, "/api/advisor/ask", &other, body).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+    assert_eq!(fake.seen.lock().unwrap().len(), asks, "nothing of the owner's went anywhere");
+    let (status, _) = send_text(&app, Method::POST, "/api/advisor/ask", &other, json!({"context": {"kind": "secrets"}, "question": "x"})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // The owner deletes it, and it's gone.
+    assert_eq!(send(&app, Method::DELETE, &path, Some(&owner), None).await.0, StatusCode::NO_CONTENT);
+    assert_eq!(send(&app, Method::GET, &path, Some(&owner), None).await.0, StatusCode::NOT_FOUND);
+    let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM advisor_messages").fetch_one(&pool).await.unwrap();
+    assert_eq!(left, 0);
+}
+
+#[tokio::test]
+async fn a_daily_allowance_survives_deleting_and_a_refused_sidecar_leaves_no_trace() {
+    let fake = Fake { lines: Arc::new(Mutex::new(answer_lines())), status: 200, ..Default::default() };
+    let url = fake_sidecar(fake.clone()).await;
+    let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
+    let (stranger_id, stranger) = user(&pool, "stranger@example.com").await;
+    sqlx::query("UPDATE users SET google_sub = 'g-1' WHERE id = ?").bind(&stranger_id).execute(&pool).await.unwrap();
+    send(&app, Method::PUT, "/api/advisor/key", Some(&stranger), Some(json!({"api_key": KEY}))).await;
+    for _ in 0..DAILY_LIMITED {
+        sqlx::query("INSERT INTO advisor_usage (id, owner_id, mode, model, created_at) VALUES (?, ?, 'own_key', ?, ?)")
+            .bind(new_id())
+            .bind(&stranger_id)
+            .bind(DEFAULT_MODEL)
+            .bind(now())
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let (status, body) = send_text(&app, Method::POST, "/api/advisor/ask", &stranger, json!({"question": "One more"})).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    let (_, s) = send(&app, Method::GET, "/api/advisor/status", Some(&stranger), None).await;
+    assert_eq!((s["per_day"].as_i64(), s["used_today"].as_i64()), (Some(DAILY_LIMITED), Some(DAILY_LIMITED)));
+
+    // A sidecar that refuses: a 503 for the browser and nothing saved.
+    let busy = Fake { status: 503, ..Default::default() };
+    let url = fake_sidecar(busy).await;
+    let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
+    let (_, owner) = user(&pool, "owner@example.com").await;
+    let (status, body) = send_text(&app, Method::POST, "/api/advisor/ask", &owner, json!({"question": "Hi"})).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body.contains("busy now"));
+    let rows: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM advisor_conversations) + (SELECT COUNT(*) FROM advisor_usage)").fetch_one(&pool).await.unwrap();
+    assert_eq!(rows, 0);
+}
+
+#[tokio::test]
+async fn leaving_early_saves_what_arrived_as_stopped() {
+    let lines: Vec<String> = (0..40).map(|i| json!({"type": "text", "text": format!("w{i} ")}).to_string()).collect();
+    let fake = Fake { lines: Arc::new(Mutex::new(lines)), pause_ms: 20, status: 200, ..Default::default() };
+    let url = fake_sidecar(fake).await;
+    let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
+    let (_, owner) = user(&pool, "owner@example.com").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/advisor/ask")
+        .header(header::AUTHORIZATION, format!("Bearer {owner}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(json!({"question": "Long answer please"}).to_string()))
+        .unwrap();
+    let res = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let mut body = res.into_body().into_data_stream();
+    let mut got = String::new();
+    while !got.contains("w2 ") {
+        got.push_str(&String::from_utf8_lossy(&body.next().await.unwrap().unwrap()));
+    }
+    drop(body);
+    let mut status = String::new();
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        if let Some(s) = sqlx::query_scalar::<_, String>("SELECT status FROM advisor_messages WHERE role = 'assistant'").fetch_optional(&pool).await.unwrap() {
+            status = s;
+            break;
+        }
+    }
+    assert_eq!(status, "stopped");
+    let text: String = sqlx::query_scalar("SELECT content FROM advisor_messages WHERE role = 'assistant'").fetch_one(&pool).await.unwrap();
+    assert!(text.starts_with("w0 w1 w2"), "{text}");
+    assert!(!text.contains("w39"), "the rest wasn't read");
+}

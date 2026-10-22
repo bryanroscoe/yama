@@ -41,6 +41,7 @@ import { Details, ErrorText, Pips } from "../components/ui";
 import { ConfidenceLine, ConfidenceMark, ConfidenceNote } from "../lab/confidence";
 import { cantJudge, pct, pctRange, pointsRange, pointsWord, worstConfidence } from "../lab/logic";
 import { pairedFor, simShort, stateLabel, useRuns, variantState, type PlanSim } from "../lab/paired";
+import { AskClaude } from "../advisor/AskClaude";
 import { CardSheet } from "../pages/Cards";
 import { linkDeck, makeYamaDeck } from "./api";
 import { deviceId, outbox, useOutbox } from "./outbox";
@@ -175,6 +176,9 @@ export function DeckPlan() {
           {deck.status === "proposals_only" ? " Proposals only: no swaps are approved yet, so stock, now and after prints are the same list." : ""}
           {deck.status === "archived" ? " The latest import didn't include this deck." : ""}
         </p>
+        <div className="row">
+          <AskClaude context={{ kind: "plan_deck", ref: deck.key }} about={`the ${deck.name} plan`} ideasFor={deck.key} />
+        </div>
         {warnings.length > 0 && (
           <details className="plan-warnings">
             <summary>

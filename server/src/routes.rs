@@ -41,6 +41,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::play::router())
         .merge(crate::plan::router())
         .merge(crate::lab::router())
+        .merge(crate::advisor::router())
         // Unknown API paths are errors, not the web app.
         .route("/api/{*rest}", axum::routing::any(|| async { crate::error::AppError::NotFound("API route") }));
 
@@ -141,6 +142,9 @@ mod tests {
             (Method::GET, "/api/invites"),
             (Method::POST, "/api/games"),
             (Method::POST, "/api/collection/ops"),
+            (Method::GET, "/api/advisor/status"),
+            (Method::GET, "/api/advisor/conversations"),
+            (Method::POST, "/api/advisor/ask"),
         ];
         for (method, path) in &private {
             let body = (*method == Method::POST).then(|| json!({}));
