@@ -1457,6 +1457,7 @@ async fn two_decks_one_on_one_and_bad_head_to_head_requests() {
     let two = json!([{"kind": "precon", "id": "p1"}, {"kind": "precon", "id": "p2"}]);
     let d = create(&pool, &bryan, req(json!({"mode": "versus", "entrants": two, "pod": 2, "games": 100})), sim.as_ref()).await.unwrap();
     assert_eq!(d.item.field.as_ref().unwrap().kind, "none");
+    assert_eq!(d.item.label.pod, 2, "the label says 1v1");
     assert!(d.opponents.is_empty());
     let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
     worker.drain().await;

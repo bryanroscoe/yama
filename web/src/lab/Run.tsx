@@ -49,6 +49,13 @@ export function experimentLabel(e: ExperimentItem): string {
   });
 }
 
+/** The field's label mid-sentence: lower-cased, unless it starts with a deck's name (a pick that sits in every pod). */
+function fieldPhrase(e: ExperimentItem): string | undefined {
+  const f = e.field;
+  if (!f) return undefined;
+  return f.every_pod ? f.label : f.label.replace(/^./, (c) => c.toLowerCase());
+}
+
 /** A run's mode; runs from before the modes are changes. */
 export function modeOf(e: ExperimentItem): ExperimentMode {
   return e.mode ?? "change";
@@ -495,7 +502,9 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
           label: (
             <>
               <b>{x.label}</b>
-              <span>first in {x.first} games</span>
+              <span>
+                first in {x.first} {x.first === 1 ? "game" : "games"}
+              </span>
             </>
           ),
           value: x.win_rate,
@@ -592,7 +601,7 @@ function Change({ e }: { e: ExperimentDetail }) {
           ))}
         </ul>
         <p className="small">
-          {mode === "versus" ? (e.field?.kind === "none" ? "No other decks at the table." : `Empty seats: ${e.field?.label.replace(/^./, (c) => c.toLowerCase()) ?? "unknown"}.`) : `Opponents: ${e.field?.label.replace(/^./, (c) => c.toLowerCase()) ?? "unknown"}.`}{" "}
+          {mode === "versus" ? (e.field?.kind === "none" ? "No other decks at the table." : `Empty seats: ${fieldPhrase(e) ?? "unknown"}.`) : `Opponents: ${fieldPhrase(e) ?? "unknown"}.`}{" "}
           {e.label.difficulty} AI, {games}. The lists were frozen when the run was made.
         </p>
         <RunNotes e={e} />
@@ -614,7 +623,7 @@ function Change({ e }: { e: ExperimentDetail }) {
       <p className="small">
         Base: {e.base?.label ?? "unknown"}
         {e.base?.source.kind === "deck" ? " (the deck's version when the run was made)" : e.base?.source.kind === "precon" ? " (the precon's stock list)" : ""}. Opponents:{" "}
-        {e.field?.label.replace(/^./, (c) => c.toLowerCase()) ?? "unknown"}. {e.label.difficulty} AI, {e.label.games} games ({e.label.games / 2} pods, each played by both lists).
+        {fieldPhrase(e) ?? "unknown"}. {e.label.difficulty} AI, {e.label.games} games ({e.label.games / 2} pods, each played by both lists).
         The lists were frozen when the run was made.
       </p>
       <RunNotes e={e} />

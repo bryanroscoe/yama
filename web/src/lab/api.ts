@@ -314,6 +314,8 @@ export interface FieldInfo {
   kind: string;
   n: number | null;
   ids: string[];
+  /** The first this-many opponents sit in every pod (a pick of one or two decks, topped up with precons). */
+  every_pod?: number;
   label: string;
   run: { id: string; name: string } | null;
   decks: number;

@@ -1766,10 +1766,12 @@ struct ExpRow {
     finished_at: Option<String>,
     updated_at: String,
     display: Option<String>,
+    /// Players per game (missing on runs from before 1v1: four).
+    pod: Option<i64>,
 }
 
 const EXP_COLUMNS: &str = "e.id, e.name, e.status, e.games_total, e.games_done, e.engine, e.card_data, e.runner, e.difficulty, e.summary, \
-    e.error, e.created_at, e.started_at, e.finished_at, e.updated_at, json_extract(e.spec, '$.display') AS display";
+    e.error, e.created_at, e.started_at, e.finished_at, e.updated_at, json_extract(e.spec, '$.display') AS display, json_extract(e.spec, '$.pod') AS pod";
 
 /// The lab's queue as `viewer` may see it: its recent pace and, per unfinished experiment, the
 /// games ahead of it and its own.
@@ -1867,7 +1869,7 @@ impl ExpRow {
                 builds,
                 difficulty: self.difficulty,
                 games: self.games_total,
-                pod: POD,
+                pod: self.pod.and_then(|p| usize::try_from(p).ok()).unwrap_or(POD),
                 created_at: self.created_at,
                 started_at: self.started_at,
                 finished_at: self.finished_at,
