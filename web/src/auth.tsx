@@ -195,7 +195,9 @@ export function Login() {
             <p className="dim" style={{ margin: 0 }}>Yama is invite-only. Use the {clientId ? "Google account" : "account"} your host added.</p>
           )}
         </div>
-        {clientId && <div ref={googleRef} />}
+        {/* Google's button is a light-scheme iframe. Inside our dark page Chrome paints an opaque
+            white backdrop behind an iframe whose scheme differs, so give its box the light scheme. */}
+        {clientId && <div ref={googleRef} style={{ colorScheme: "light" }} />}
         {config.data?.cf_access && (
           <div className="stack">
             <p className="dim">Yama signs you in with the email your host invited.</p>
