@@ -357,6 +357,16 @@ Bryan (2026-10-22): "You should be able to drag and drop the cards too." Laptop 
 - **Targets (PP-26):** while choosing a target, an arrow runs from the card you just cast (it stays parked where you dropped it) or the top of the stack to the pointer, snapping to a legal target; click it or drag onto it. Options now carry their exact target (`OptionView.target`, `play/src/lib.rs`), and targets that would read the same say whose they are ("Target Savannah Lions (yours)"), so two cards with one name stay apart.
 - **Combat (PP-40, PP-41):** drag an attacker onto an opponent's pane (or a planeswalker or battle tile), or a blocker onto an attacker (a stack of attackers gets spread blocks first). The attacks and blocks being built keep their arrows (`PlanArrows`) until they're sent.
 
+### Board motion (2026-10-22)
+
+Bryan (2026-10-22): "work on animations for the table play to make it a bit better." The server sends whole boards, not events, so motion comes from comparing one board with the next (`web/src/play/motion.ts`, tested; phase keeps a card's id when it changes zone) and plays with the Web Animations API on `transform` and `opacity` only (`BoardMotion.tsx`, `useBoardMotion`):
+
+- **Cards move as one piece (FLIP):** hand to battlefield, a spell into the stack and a resolved permanent out of it, an opponent's card from their header, draws from your library (staggered), and the rest of a row sliding over when a card leaves. A card leaving the battlefield lifts and flies to its pile (graveyard, exile, hand, command zone) instead of vanishing.
+- **Life:** totals count to the new value (`Tick`), the number pops and a floating "−3" or "+2" rises from it; losing 5 or more at once flashes the screen edge.
+- **The stack:** new items slide in, a resolved item slides out, and an opponent's spell shows large for a moment first (normal speed only).
+- **Turns and the end:** a "Your turn" banner (every seat's when watching at normal speed), the active seat's pane and portrait breathe, steps and the turn chip change softly, your attackers step forward, and the winner gets a moment.
+- **Never in the way:** each board settles at once and the animations play over it (nothing waits on them or blocks input); 150 to 360 ms at normal speed, about a third when watching at 4x, none "to the end", with reduced motion or in a hidden tab.
+
 ### Admin area (2026-10-22)
 
 Bryan (2026-10-22): "We'll probably need an admin-only area too, right?" With open sign-up, strangers can join, so `/admin` (laptop rail entry for admins; on phones, Group, You, Admin) collects what an admin needs. Server: `server/src/admin/`.

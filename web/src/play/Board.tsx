@@ -50,6 +50,8 @@ import { WatchControls, type WatchMessage } from "./WatchControls";
 import { seatLabel, seatName } from "./watch";
 import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayLine, readDrop, targetDrop, targetIndex, type Point } from "./drag";
 import { DragLayer, PlanArrows, seatHeadOf, tileOf, type ArrowTone, type DragLayerHandle, type PlanArrow } from "./DragLayer";
+import { MotionContext, Tick, useBoardMotion, type MotionOptions } from "./BoardMotion";
+import { motionScale } from "./motion";
 import "./board.css";
 
 type ViewMessage = Extract<ServerMessage, { type: "view" }>;
@@ -221,6 +223,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const playedSrc = useRef<HTMLElement | null>(null);
   const hotEl = useRef<HTMLElement | null>(null);
   const [dragNote, setDragNote] = useState<string | null>(null);
+  // Board motion (BoardMotion.tsx): its own fixed layer, and options the render fills in below.
+  const motionLayer = useRef<HTMLDivElement>(null);
+  const motionOpts = useRef<MotionOptions | null>(null);
 
   useEffect(() => {
     if (live) return;
@@ -345,6 +350,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   useEffect(() => () => dragRef.current?.cleanup(), []);
 
   const seatArt = useSeatArt(id, view, seats);
+  useBoardMotion(boardRoot, motionLayer, view, motionOpts);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== "Space" || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -426,6 +432,17 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const art = (n: number): SeatArt => seatArt.get(n) ?? { art: null, artist: null };
   // The engine's log says "Player 3"; say who that is.
   const named = (text: string) => text.replace(/\bPlayer (\d+)\b/g, (_, n: string) => seatInfo(Number(n) - 1)?.name ?? `Player ${n}`);
+  // Motion: normal speed while playing; shorter when watching fast, none "to the end".
+  const scale = motionScale({ reduced: false, hidden: typeof document !== "undefined" && document.hidden, speed: watch ? watchStatus?.speed ?? "1x" : null });
+  motionOpts.current = {
+    you,
+    bottom: watch ? pov : you ?? 0,
+    scale,
+    meta: msg.cards ?? {},
+    turnText: (seat) => (seat === you ? `Your turn ${view.turn}` : watch ? `${Who(seat)}'s turn ${view.turn}` : null),
+    endText: (v) => (v.winner === null ? "A draw" : v.winner === you ? "You won" : `${Who(v.winner)} won`),
+    endArt: (v) => (v.winner === null ? null : art(v.winner).art),
+  };
 
   const opponents = turnOrder(view.players, bottom);
   /** The turn a seat was knocked out, from the log while it still holds the line. */
@@ -994,9 +1011,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   );
   const ladder = <Ladder phase={view.phase} fullControl={fullControl} stops={stops} onToggle={you !== null && !view.over ? toggleStop : undefined} />;
   const whose = view.active === you ? (
-    <span className="whose mine">Your turn {view.turn}</span>
+    <span className="whose mine" key={`w${view.active}-${view.turn}`}>Your turn {view.turn}</span>
   ) : (
-    <span className="whose">
+    <span className="whose" key={`w${view.active}-${view.turn}`}>
       {art(view.active).art && <img src={art(view.active).art!} alt="" />}
       {Who(view.active)}'s turn {view.turn}
     </span>
@@ -1145,7 +1162,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   // ── laptop ───────────────────────────────────────────────────────────────
   if (wide) {
     return (
-      <div className={`pb wide${aiming ? " aiming" : ""}`} ref={boardRoot} onPointerDown={onBoardPress}>
+      <MotionContext.Provider value={scale}>
+      <div className={`pb wide${aiming ? " aiming" : ""}${scale === 0 ? " motion-off" : ""}`} ref={boardRoot} onPointerDown={onBoardPress}>
         <div className="pb-table">
           <section
             className="pb-opps"
@@ -1211,19 +1229,20 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
 
           <div className="pb-handrow" aria-label="Your hand and zones">
             <span className="pb-piles">
-              <span className="pile-chip">Library {me?.library ?? 0}</span>
-              <button type="button" className="pile-chip" onClick={() => setSheet({ seat: bottom, zone: "graveyard" })}>Graveyard {me?.graveyard.length ?? 0}</button>
+              <span className="pile-chip" data-zone="library" data-zone-seat={bottom}>Library {me?.library ?? 0}</span>
+              <button type="button" className="pile-chip" data-zone="graveyard" data-zone-seat={bottom} onClick={() => setSheet({ seat: bottom, zone: "graveyard" })}>Graveyard {me?.graveyard.length ?? 0}</button>
               {view.exile.some((c) => c.owner === bottom) && (
-                <button type="button" className="pile-chip" onClick={() => setSheet({ seat: bottom, zone: "exile" })}>Exile {view.exile.filter((c) => c.owner === bottom).length}</button>
+                <button type="button" className="pile-chip" data-zone="exile" data-zone-seat={bottom} onClick={() => setSheet({ seat: bottom, zone: "exile" })}>Exile {view.exile.filter((c) => c.owner === bottom).length}</button>
               )}
             </span>
-            <span className="pb-cmdr">
+            <span className="pb-cmdr" data-zone="command" data-zone-seat={bottom}>
               {myCommanders.map((c) => (
                 <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c), { tag: "Commander" })} h={h} caption={c.tax ? `Tax +${c.tax}` : undefined} />
               ))}
               {commanderWhere && <span className="cmdr-away">{commanderWhere}</span>}
             </span>
             <HandFan
+              seat={bottom}
               hand={handCards}
               meta={meta}
               look={look}
@@ -1232,7 +1251,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
               label={watch ? `${seatName(seatInfo(bottom), bottom)}'s hand` : "Your hand"}
               hidden={watch ? "Hands are face down. Turn on Show every hand to see them." : "Hands stay hidden while you watch."}
             />
-            <Portrait art={myArt.art} life={me?.life ?? 0} poison={me?.poison ?? 0} status={myStatus} active={view.active === bottom} />
+            <Portrait seat={bottom} art={myArt.art} life={me?.life ?? 0} poison={me?.poison ?? 0} status={myStatus} active={view.active === bottom} />
           </div>
         </div>
 
@@ -1272,9 +1291,11 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         </aside>
         <PlanArrows arrows={planArrows} root={boardRoot} />
         <DragLayer ref={layer} />
+        <div className="motion-layer" ref={motionLayer} aria-hidden="true" />
         {dragNote && <p className="drag-toast" role="status">{dragNote}</p>}
         {sheets}
       </div>
+      </MotionContext.Provider>
     );
   }
 
@@ -1296,7 +1317,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         : null;
   const phoneChoices = decision && !attack && !block ? dedupe(decision.options.filter((o) => !covered(o))) : [];
   return (
-    <div className="pb phone">
+    <MotionContext.Provider value={scale}>
+    <div className={`pb phone${scale === 0 ? " motion-off" : ""}`} ref={boardRoot}>
       <nav className="opp-tabs" aria-label="Opponents">
         {opponents.map((p) => {
           const on = p.seat === focus?.seat;
@@ -1314,7 +1336,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
               <span className="tab-wash" aria-hidden="true" />
               <span className="tab-body">
                 <span className="tab-name">{p.seat === you ? "You" : seatInfo(p.seat)?.ai ? (watch ? seatName(seatInfo(p.seat), p.seat) : "Computer") : label(p.seat)}</span>
-                <b className="tab-life num">{p.eliminated ? "Out" : p.life}</b>
+                <b className="tab-life num" data-life-seat={p.eliminated ? undefined : p.seat}>{p.eliminated ? "Out" : <Tick value={p.life} />}</b>
               </span>
               {view.waiting_on.includes(p.seat) && !view.over ? <span className="tab-flag warn">Deciding</span> : view.active === p.seat ? <span className="tab-flag">Turn</span> : null}
             </button>
@@ -1411,7 +1433,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         )}
         {status}
         <div className="dock-row">
-          <Portrait art={myArt.art} life={me?.life ?? 0} poison={me?.poison ?? 0} status={myStatus} active={view.active === bottom} compact />
+          <Portrait seat={bottom} art={myArt.art} life={me?.life ?? 0} poison={me?.poison ?? 0} status={myStatus} active={view.active === bottom} compact />
           <div className={`dock-buttons${controls.secondary ? "" : " one"}`}>{buttons}</div>
         </div>
         <div className="dock-links">
@@ -1419,8 +1441,10 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>
         </div>
       </div>
+      <div className="motion-layer" ref={motionLayer} aria-hidden="true" />
       {sheets}
     </div>
+    </MotionContext.Provider>
   );
 }
 
@@ -1486,12 +1510,12 @@ function Ladder({ phase, fullControl, stops, onToggle, vertical = false }: {
   );
 }
 
-function Portrait({ art, life, poison, status, active, compact = false }: { art: string | null; life: number; poison: number; status: string; active: boolean; compact?: boolean }) {
+function Portrait({ seat, art, life, poison, status, active, compact = false }: { seat: number; art: string | null; life: number; poison: number; status: string; active: boolean; compact?: boolean }) {
   return (
     <span className={`portrait${compact ? " compact" : ""}${active ? " active" : ""}`}>
       {art ? <img src={art} alt="" /> : <span className="portrait-blank" />}
       <span className="portrait-text">
-        <b className="num">{life}</b>
+        <b className="num" data-life-seat={seat}><Tick value={life} /></b>
         {!compact && <span>{status}{poison ? `, ${poison} poison` : ""}</span>}
         {compact && poison > 0 && <span>{poison} poison</span>}
       </span>
@@ -1499,7 +1523,8 @@ function Portrait({ art, life, poison, status, active, compact = false }: { art:
   );
 }
 
-function HandFan({ hand, meta, look, h, spectator, label = "Your hand", hidden = "Hands stay hidden while you watch." }: {
+function HandFan({ seat, hand, meta, look, h, spectator, label = "Your hand", hidden = "Hands stay hidden while you watch." }: {
+  seat: number;
   hand: CardView[];
   meta: Record<string, CardMeta>;
   look: (p: Pile, e?: TileLook) => TileLook;
@@ -1514,7 +1539,7 @@ function HandFan({ hand, meta, look, h, spectator, label = "Your hand", hidden =
   // 60% of each card shows when there's room; tighter as the hand grows, never under 28 px.
   const step = n > 1 ? Math.max(28, Math.min(cardW * 0.62, (width - cardW - 16) / (n - 1))) : cardW;
   return (
-    <div className="hand-fan" ref={ref} aria-label={label}>
+    <div className="hand-fan" ref={ref} aria-label={label} data-zone="hand" data-zone-seat={seat}>
       {spectator ? <p className="zone-empty">{hidden}</p> : null}
       {!spectator && n === 0 && <p className="zone-empty">No cards in hand.</p>}
       {hand.map((c, i) => (
@@ -1662,11 +1687,11 @@ function OppPane(props: {
               <>Hand {p.hand}</>
             )}
             , library {p.library},{" "}
-            <button type="button" className="inline-link" onClick={(e) => (e.stopPropagation(), props.onZone("graveyard"))}>graveyard {p.graveyard.length}</button>
+            <button type="button" className="inline-link" data-zone="graveyard" data-zone-seat={p.seat} onClick={(e) => (e.stopPropagation(), props.onZone("graveyard"))}>graveyard {p.graveyard.length}</button>
             {props.exile > 0 && (
               <>
                 ,{" "}
-                <button type="button" className="inline-link" onClick={(e) => (e.stopPropagation(), props.onZone("exile"))}>exile {props.exile}</button>
+                <button type="button" className="inline-link" data-zone="exile" data-zone-seat={p.seat} onClick={(e) => (e.stopPropagation(), props.onZone("exile"))}>exile {props.exile}</button>
               </>
             )}
             {p.poison > 0 && `, ${p.poison} poison`}
@@ -1681,7 +1706,7 @@ function OppPane(props: {
           {props.deciding && !p.eliminated && <span className="opp-flag">Deciding</span>}
           {props.active && !props.deciding && !p.eliminated && <span className="opp-flag turn">Their turn</span>}
         </span>
-        <b className="opp-life num">{p.eliminated ? "Out" : p.life}</b>
+        <b className="opp-life num" data-life-seat={p.eliminated ? undefined : p.seat}>{p.eliminated ? "Out" : <Tick value={p.life} />}</b>
         {p.eliminated && <span className="opp-veil" aria-hidden="true" />}
       </header>
       {!p.eliminated && (
@@ -1803,7 +1828,7 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover }: {
         const img = meta[s.name]?.image;
         const a = art(s.controller).art;
         return (
-          <li key={i} className={i === 0 ? "top" : ""}>
+          <li key={`${view.stack.length - 1 - i}:${s.name}`} className={i === 0 ? "top" : ""}>
             <button
               type="button"
               onMouseEnter={(e) => onHover(card, e.currentTarget)}
