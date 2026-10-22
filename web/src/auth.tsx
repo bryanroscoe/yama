@@ -65,8 +65,12 @@ export function useLogout() {
       finish: () => {
         setToken(null);
         localStorage.removeItem(ME_KEY);
-        qc.clear();
+        // Not qc.clear(): it removes the "me" query out from under the mounted observer, which keeps
+        // showing the signed-in user. Set "me" first, drop the rest, then load the page afresh so no
+        // cache, socket or timer from the signed-in session survives.
         qc.setQueryData(["me"], null);
+        qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
+        window.location.replace("/");
       },
     }).catch((e: unknown) => {
       throw new Error(
