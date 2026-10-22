@@ -39,6 +39,7 @@ import {
   stopsSummary,
   stopText,
   turnOrder,
+  previewPlace,
   type Pile,
   type StopMap,
 } from "./model";
@@ -155,7 +156,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const [connected, setConnected] = useState(false);
   const [selected, setSelected] = useState<number[] | null>(null);
   const [inspect, setInspect] = useState<CardView | null>(null);
-  const [hover, setHover] = useState<{ card: CardView; left: boolean } | null>(null);
+  const [hover, setHover] = useState<{ card: CardView; left: number; top: number } | null>(null);
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [fullControl, setFullControl] = useState(() => localStorage.getItem("yama.play.fullControl") === "1");
   // Your own stops by step, kept on this device and sent whenever the board connects.
@@ -470,11 +471,12 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     onPick: pick,
     onDouble: double,
     onRead: setInspect,
-    onHover: (c, x) => {
+    onHover: (c, el) => {
       if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
-      if (!c || !canHover) return setHover(null);
-      const left = (x ?? 0) > window.innerWidth / 2 - 170;
-      hoverTimer.current = window.setTimeout(() => setHover({ card: c, left }), 150);
+      if (!c || !canHover || !el) return setHover(null);
+      // Right beside the card: above it in the hand, to its side on the battlefield.
+      const at = previewPlace(el.getBoundingClientRect(), window.innerWidth, window.innerHeight);
+      hoverTimer.current = window.setTimeout(() => setHover({ card: c, ...at }), 150);
     },
   };
   const look = (p: Pile, extra: TileLook = {}): TileLook => {
@@ -703,7 +705,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const sheets = (
     <>
       {hover && meta[hover.card.name]?.image && (
-        <div className={`pb-preview${hover.left ? " left" : ""}`} aria-hidden="true">
+        <div className="pb-preview" style={{ left: hover.left, top: hover.top }} aria-hidden="true">
           <img src={meta[hover.card.name]!.image!} alt="" />
         </div>
       )}
@@ -1464,7 +1466,7 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover }: {
   you: number | null;
   who: (n: number) => string;
   art: (n: number) => SeatArt;
-  onHover: (c: CardView | null, x?: number) => void;
+  onHover: (c: CardView | null, el?: Element) => void;
   onRead: (c: CardView) => void;
   canHover: boolean;
 }) {
@@ -1479,7 +1481,7 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover }: {
           <li key={i} className={i === 0 ? "top" : ""}>
             <button
               type="button"
-              onMouseEnter={(e) => onHover(card, e.clientX)}
+              onMouseEnter={(e) => onHover(card, e.currentTarget)}
               onMouseLeave={() => onHover(null)}
               onClick={() => !canHover && onRead(card)}
               onContextMenu={(e) => (e.preventDefault(), onRead(card))}

@@ -297,3 +297,31 @@ export function decisionTitle(d: Decision, view: View, you: number | null, name:
   const step = stepName(view.phase);
   return view.active === you ? `Your ${step}` : `${name(view.active)}'s ${step}`;
 }
+
+/** The hover preview's size on a laptop (a card at 300 px wide). */
+export const PREVIEW_W = 300;
+export const PREVIEW_H = Math.round(300 * (88 / 63));
+
+/**
+ * Where the hover preview goes: right beside the card it shows. Cards low on the screen (the hand)
+ * get it above them; others to the right, or to the left when there's no room. Always inside the
+ * window, with a small margin.
+ */
+export function previewPlace(
+  r: { left: number; top: number; right: number; bottom: number; width: number; height: number },
+  vw: number,
+  vh: number,
+  w = PREVIEW_W,
+  h = PREVIEW_H,
+): { left: number; top: number } {
+  const gap = 12;
+  const margin = 8;
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, Math.max(lo, hi)));
+  const centredX = clamp(r.left + r.width / 2 - w / 2, margin, vw - w - margin);
+  const centredY = clamp(r.top + r.height / 2 - h / 2, margin, vh - h - margin);
+  if (r.top > vh * 0.6 && r.top - gap - h >= margin) return { left: centredX, top: r.top - gap - h };
+  if (r.right + gap + w <= vw - margin) return { left: r.right + gap, top: centredY };
+  if (r.left - gap - w >= margin) return { left: r.left - gap - w, top: centredY };
+  if (r.top - gap - h >= margin) return { left: centredX, top: r.top - gap - h };
+  return { left: centredX, top: clamp(r.bottom + gap, margin, vh - h - margin) };
+}

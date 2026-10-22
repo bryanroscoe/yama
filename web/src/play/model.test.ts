@@ -14,6 +14,7 @@ import {
   stopsSummary,
   turnOrder,
 } from "./model";
+import { PREVIEW_H, PREVIEW_W, previewPlace } from "./model";
 import type { CardMeta, CardView, PlayerView, View } from "./types";
 
 const card = (id: number, name: string, extra: Partial<CardView> = {}): CardView => ({
@@ -158,5 +159,24 @@ describe("stops", () => {
     expect(stopsMessage(mine)).toEqual({ own: ["PreCombatMain", "DeclareBlockers", "PostCombatMain"], others: ["Upkeep", "End"] });
     expect(stopsSummary(mine)).toBe("Also stops on opponents' upkeep and your blockers step");
     expect(stopsSummary({ ...DEFAULT_STOPS, End: { mine: false, opp: false } })).toBe("Skips opponents' end step");
+  });
+});
+
+describe("previewPlace", () => {
+  const rect = (left: number, top: number, width = 90, height = 126) => ({ left, top, width, height, right: left + width, bottom: top + height });
+  it("puts a hand card's preview just above it, centred on it", () => {
+    const p = previewPlace(rect(1200, 1000), 1600, 1060);
+    expect(p.top).toBe(1000 - 12 - PREVIEW_H);
+    expect(p.left).toBe(1200 + 45 - PREVIEW_W / 2);
+  });
+  it("puts a battlefield card's preview to its right", () => {
+    const p = previewPlace(rect(300, 200), 1600, 1060);
+    expect(p.left).toBe(390 + 12);
+  });
+  it("uses the left side at the right edge, and stays inside the window", () => {
+    const p = previewPlace(rect(1480, 200), 1600, 1060);
+    expect(p.left).toBe(1480 - 12 - PREVIEW_W);
+    expect(p.top).toBeGreaterThanOrEqual(8);
+    expect(p.top + PREVIEW_H).toBeLessThanOrEqual(1060 - 8);
   });
 });
