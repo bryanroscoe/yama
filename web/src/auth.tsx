@@ -261,6 +261,7 @@ export function Login() {
         <p className="small dim" style={{ margin: 0, display: "flex", gap: 20 }}>
           <a href="/about/">About Yama</a>
           <a href="/privacy/">Privacy policy</a>
+          <a href="/tos/">Terms</a>
         </p>
       </div>
       </section>
