@@ -626,7 +626,7 @@ impl LabWorker {
                     Ok(spec) => spec,
                     Err(e) => {
                         // Store it as failed rather than retrying a line that can't be read.
-                        let g = GameSpec { game: game.clone(), seed: 0, decks: vec![], difficulty: String::new(), max_turns: 0, max_actions: 0, max_seconds: 0 };
+                        let g = GameSpec { game: game.clone(), seed: 0, decks: vec![], difficulty: String::new(), max_turns: 0, max_actions: 0, max_seconds: 0, pilots: None };
                         jobs.push(Job { experiment: id.clone(), game, spec: g, limits: LIMITS, decks: Err(format!("unreadable schedule line: {e}")) });
                         continue;
                     }

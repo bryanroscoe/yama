@@ -8,7 +8,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 
 | Area | Status |
 |---|---|
-| Sign-in | Google ID tokens with an invite list, or open to any verified Google account with `YAMA_OPEN_SIGNUP=1` (accounts without an invite get a smaller lab and online play allowance; see deploy/README.md). Password accounts only from the command line. Sign-in, searches, join codes, imports and new games are rate-limited; admins can disable an account (Group, You, Accounts, or `user disable`). Email-only dev login for local use |
+| Sign-in | Google ID tokens with an invite list, or open to any verified Google account with `YAMA_OPEN_SIGNUP=1` (accounts without an invite get a smaller lab and online play allowance; see deploy/README.md). Password accounts only from the command line. Sign-in, searches, join codes, imports and new games are rate-limited; admins can disable or delete an account in the admin area (`/admin`), or disable one with `user disable`. Email-only dev login for local use |
 | Card data | Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date, rulings, the Game Changer flag. Images are Scryfall's WebP sizes (JPEG fallback for older files) |
 | Card search | Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander` `is:gamechanger`, `-`, `or`, parentheses). Works offline from a 5 MB card bundle kept on the device |
 | Card sheet | Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history |

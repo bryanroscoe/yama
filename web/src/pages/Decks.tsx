@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, listText, newHand, rng, type Goldfish } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { api, priceSource, shortDate, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView, type PreconList } from "../api";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
+import { api, priceSource, shortDate, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { Crop } from "../components/Crop";
@@ -17,7 +17,6 @@ import "./decks.css";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
 import { day } from "../components/Rulings";
-import { hasDeckNamed } from "../components/calendar";
 import { BRACKETS, BracketChips, BracketPanel } from "../components/Bracket";
 import { SENDS_LIST } from "../components/deckCheck";
 import { DeckStatsPanel } from "../components/DeckStats";
@@ -50,33 +49,28 @@ function record(d: Pick<DeckSummary, "games" | "wins" | "draws">): string | null
 
 export function DecksPage() {
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
-  const [adding, setAdding] = useState(false);
-  // "Start a deck" on a precon (Cards page, release calendar) opens Add a deck with its stock list.
-  const [params, setParams] = useSearchParams();
+  // "Start a deck" on a precon (older links to /decks?precon=…) opens the import page with its stock list.
+  const [params] = useSearchParams();
   const precon = params.get("precon");
-  const closeAdd = () => {
-    setAdding(false);
-    if (precon) {
-      const next = new URLSearchParams(params);
-      next.delete("precon");
-      setParams(next, { replace: true });
-    }
-  };
+  if (precon) return <Navigate to={`/decks/import?precon=${encodeURIComponent(precon)}`} replace />;
   return (
     <main className="page">
       <AreaHead
         index
         title="Decks"
         action={
-          <button className="primary" aria-label="Add a deck" onClick={() => setAdding(true)}>
+          <Link className="button primary" aria-label="Add a deck" to="/decks/import">
             <span className="wide-only">Add a deck</span>
             <span className="phone-only">Add</span>
-          </button>
+          </Link>
         }
       />
       <ErrorText error={decks.error} />
       {decks.data?.length === 0 && (
-        <p className="empty">No decks yet. Paste a list from Moxfield, Archidekt, Arena or a text file to add one.</p>
+        <div className="empty">
+          <p>No decks yet. Bring one in from Moxfield, Archidekt, MTG Arena, MTGO, ManaBox, a file or a typed list.</p>
+          <Link className="button primary" to="/decks/import">Add a deck</Link>
+        </div>
       )}
       <ul className="deck-tiles">
         {decks.data?.map((d) => {
@@ -115,109 +109,7 @@ export function DecksPage() {
       {!!decks.data?.some((d) => d.commander_image) && (
         <p className="small dim art-credits">{artCredits(decks.data.filter((d) => d.commander_image).map((d) => d.commander_artist))}</p>
       )}
-      {(adding || precon) && (
-        <AddDeck key={precon ?? "blank"} precon={precon} deckNames={decks.data?.map((d) => d.name) ?? []} onClose={closeAdd} />
-      )}
     </main>
-  );
-}
-
-function AddDeck({ onClose, precon, deckNames }: { onClose: () => void; precon?: string | null; deckNames: string[] }) {
-  const qc = useQueryClient();
-  const navigate = useNavigate();
-  const [name, setName] = useState("");
-  const [text, setText] = useState("");
-  const [firstIsCommander, setFirst] = useState(true);
-  const stock = useQuery({
-    queryKey: ["precon", precon],
-    queryFn: () => api<PreconList>(`/api/calendar/precons/${encodeURIComponent(precon!)}`),
-    enabled: !!precon,
-    retry: false,
-    staleTime: Infinity,
-  });
-  // Paste the stock list in once it arrives, without overwriting anything already typed.
-  useEffect(() => {
-    if (!stock.data) return;
-    setName((n) => n || stock.data.name);
-    setText((t) => t || stock.data.text);
-  }, [stock.data]);
-  const fetched = stock.data?.fetched_at ? day(stock.data.fetched_at.slice(0, 10)) : null;
-  const create = useMutation({
-    mutationFn: () => api<{ id: string; unknown: string[] }>("/api/decks", { method: "POST", json: { name, text, first_is_commander: firstIsCommander } }),
-    onSuccess: (r) => {
-      void qc.invalidateQueries({ queryKey: ["decks"] });
-      if (r.unknown.length) alert(`Added. These names didn't match any card: ${r.unknown.join(", ")}`);
-      // From a precon, the new deck takes the place of /decks?precon=… in history, so Back
-      // doesn't reopen the filled-in sheet (one more tap would add the deck twice).
-      navigate(`/decks/${r.id}`, { replace: !!precon });
-    },
-  });
-  return (
-    <Sheet label="Add a deck" onClose={onClose}>
-      <form
-        className="stack"
-        onSubmit={(e) => {
-          e.preventDefault();
-          create.mutate();
-        }}
-      >
-        <div className="sheet-head">
-          <h2>{precon ? "Start a deck from a precon" : "Add a deck"}</h2>
-          <button type="button" className="quiet" onClick={onClose}>Close</button>
-        </div>
-        {precon && stock.isPending && <p className="dim">Getting the stock list from MTGJSON…</p>}
-        <ErrorText error={stock.error} />
-        {stock.data && (
-          <div className="stack" style={{ gap: "0.4rem" }}>
-            <p className="dim small" style={{ margin: 0 }}>
-              The stock list of {stock.data.name}
-              {stock.data.commanders.length ? `, led by ${stock.data.commanders.join(" and ")}` : ""}
-              {stock.data.cards != null ? `, ${stock.data.cards} cards` : ""}. From{" "}
-              <a href="https://mtgjson.com" target="_blank" rel="noreferrer">MTGJSON</a>
-              {fetched ? `, downloaded ${fetched}` : ""}
-              {stock.data.source_url && (
-                <>
-                  {" "}(<a href={stock.data.source_url} target="_blank" rel="noreferrer">its source</a>)
-                </>
-              )}
-              . Check it, then add the deck.
-            </p>
-            {stock.data.unknown.length > 0 && (
-              <p className="small" style={{ margin: 0, color: "var(--warn)" }} role="note">
-                {stock.data.unknown.length === 1 ? "1 card in this list doesn't" : `${stock.data.unknown.length} cards in this list don't`} match
-                Yama's card data, so the deck would leave {stock.data.unknown.length === 1 ? "it" : "them"} out: {stock.data.unknown.join(", ")}.
-                Brand-new cards arrive with the weekly card import; any other name may be written differently on Scryfall. You can add the
-                deck now and paste the missing cards in later.
-              </p>
-            )}
-          </div>
-        )}
-        <label>
-          Name
-          <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Omo lands" />
-        </label>
-        {name.trim() && hasDeckNamed(deckNames, name) && (
-          <p className="small" style={{ margin: 0, color: "var(--warn)" }} role="note">
-            You already have a deck called {name.trim()}. Adding this one makes a second.
-          </p>
-        )}
-        <label>
-          Deck list
-          <span className="hint">One card per line, like "1 Sol Ring". Sections such as "Commander" and set codes are fine.</span>
-          <textarea value={text} onChange={(e) => setText(e.target.value)} required />
-        </label>
-        {!precon && (
-          <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
-            <input type="checkbox" checked={firstIsCommander} onChange={(e) => setFirst(e.target.checked)} style={{ width: "auto", minHeight: 0 }} />
-            With no Commander section, the first card is the commander
-          </label>
-        )}
-        <ErrorText error={create.error} />
-        <div className="row">
-          <button className="primary" disabled={create.isPending}>Add the deck</button>
-        </div>
-      </form>
-    </Sheet>
   );
 }
 
@@ -302,9 +194,10 @@ export function DeckPage() {
     <>
       <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
       <button className="on-art" onClick={() => setEditing(true)}>Edit deck</button>
+      <Link className="button on-art" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
       <button className="on-art" onClick={() => setExporting(true)}>Export</button>
       <button className="on-art" onClick={() => setHistory(true)}>History</button>
-      <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} />
+      <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
       <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
     </>
   );
@@ -384,9 +277,10 @@ export function DeckPage() {
         {planLink && <div className="phone-only deck-plan-phone">{planLink}</div>}
         <div className="row deck-actions-phone">
           <button className="outline" onClick={() => setEditing(true)}>Edit deck</button>
+          <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
           <button className="outline" onClick={() => setExporting(true)}>Export</button>
           <button className="outline" onClick={() => setHistory(true)}>History</button>
-          <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} />
+          <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
         </div>
 
         {/* The status row: legality, the plan for this deck, and its simulated strength. */}
@@ -713,7 +607,10 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         </label>
         <label>
           Deck list
-          <span className="hint">Keep the Commander and Deck headings. Saving makes a new version; older versions stay with the games they were played in.</span>
+          <span className="hint">
+            Keep the Commander and Deck headings. Saving makes a new version; older versions stay with the games they were played in. Got a newer
+            list on Moxfield or Archidekt, or a file? <Link to={`/decks/import?deck=${deck.id}`}>Update from a list or file</Link> shows what changes first.
+          </span>
           <textarea value={text} onChange={(e) => setText(e.target.value)} style={{ minHeight: "18rem" }} />
         </label>
         <label>

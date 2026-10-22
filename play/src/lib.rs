@@ -42,6 +42,7 @@ use serde::{Deserialize, Serialize};
 pub use phase_ai::config::AiDifficulty as Difficulty;
 
 pub mod lab;
+pub mod pilot;
 
 /// Engine build plus the card data it was built against. Stored with every game, because a
 /// replay only reproduces under the same pair.

@@ -41,12 +41,13 @@ use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-pub const DEFAULT_MODEL: &str = "claude-opus-5-5";
+/// Haiku by default (Bryan, 2026-10-22: Opus kept him on "Thinking…" for most of a minute).
+pub const DEFAULT_MODEL: &str = "claude-haiku-5-5";
 /// (id, label, note) of every model the advisor offers.
 pub const MODELS: [(&str, &str, &str); 3] = [
-    ("claude-opus-5-5", "Claude Opus 5.5", "The most thoughtful answers. The default."),
-    ("claude-sonnet-5-5", "Claude Sonnet 5.5", "Faster, nearly as good."),
-    ("claude-haiku-5-5", "Claude Haiku 5.5", "The quickest, for simple questions."),
+    ("claude-haiku-5-5", "Claude Haiku 5.5", "The quickest. The default."),
+    ("claude-sonnet-5-5", "Claude Sonnet 5.5", "Slower, more thorough."),
+    ("claude-opus-5-5", "Claude Opus 5.5", "The most thoughtful answers, and the slowest: often a minute."),
 ];
 /// Questions a day for an account that joined without an invite, and for an invited account.
 pub const DAILY_LIMITED: i64 = 30;
@@ -101,7 +102,7 @@ pub enum Access {
 }
 
 impl Access {
-    fn reason(self) -> Option<&'static str> {
+    pub(crate) fn reason(self) -> Option<&'static str> {
         match self {
             Access::Ready(_) => None,
             Access::Off => Some("off"),
@@ -200,11 +201,20 @@ pub struct Status {
     subscription_connected: Option<bool>,
 }
 
-/// Whether the sidecar has a subscription token, from its `/health` (2 s at most).
-async fn subscription_connected(st: &AppState) -> Option<bool> {
+/// The sidecar's health for the admin area: `None` when it didn't answer (2 s at most), otherwise
+/// whether it holds a subscription token (`Some(None)` if it answered without saying).
+pub(crate) async fn sidecar_health(st: &AppState) -> Option<Option<bool>> {
     let (url, secret) = (st.cfg.advisor.url.as_ref()?, st.cfg.advisor.secret.as_ref()?);
     let res = st.http.get(format!("{url}/health")).header("x-advisor-secret", secret).timeout(Duration::from_secs(2)).send().await.ok()?;
-    res.json::<Value>().await.ok()?["subscription"].as_bool()
+    if !res.status().is_success() {
+        return None;
+    }
+    Some(res.json::<Value>().await.ok().and_then(|v| v["subscription"].as_bool()))
+}
+
+/// Whether the sidecar has a subscription token, from its `/health` (2 s at most).
+async fn subscription_connected(st: &AppState) -> Option<bool> {
+    sidecar_health(st).await.flatten()
 }
 
 async fn status_for(st: &AppState, user: &User) -> AppResult<Status> {
@@ -486,12 +496,15 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
     let mut messages = if is_new { Vec::new() } else { history(&st.pool, &user.id, &conversation_id).await? };
     messages.push(json!({"role": "user", "content": question}));
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    // Claude may call Yama's tools as this account until the answer ends (`mcp/`).
+    let tools = st.cfg.advisor.tools_url.clone().map(|url| (url, crate::mcp::QuestionToken::mint(&user.id)));
     let request = json!({
         "mode": if mode == Mode::Subscription { "subscription" } else { "api_key" },
         "api_key": api_key,
         "model": model,
-        "system": context::system_prompt(&user, &data, &today),
+        "system": context::system_prompt(&user, &data, &today, tools.is_some()),
         "messages": messages,
+        "tools": tools.as_ref().map(|(url, t)| json!({"url": url, "token": t.token})),
     });
 
     // Ask the sidecar before saving anything, so a refused or unreachable sidecar leaves no trace.
@@ -559,6 +572,8 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
     let owner = user.id.clone();
     tokio::spawn(async move {
         let _guard = guard;
+        // The tools stop working for this answer when it ends.
+        let _tools = tools;
         let _ = send.send(sse("start", &json!({"conversation_id": conversation_id, "user_message_id": user_message_id, "model": model, "mode": mode}))).await;
         let mut text = String::new();
         let mut status = "error";
@@ -583,6 +598,14 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
                         let t = ev["text"].as_str().unwrap_or_default();
                         text.push_str(t);
                         if send.send(sse("text", &json!({"text": t}))).await.is_err() {
+                            gone = true;
+                            break 'read;
+                        }
+                    }
+                    Some("tool") => {
+                        // Which tool Claude is using, for the panel's "Looking up cards…".
+                        let name = ev["name"].as_str().unwrap_or_default();
+                        if send.send(sse("tool", &json!({"name": name}))).await.is_err() {
                             gone = true;
                             break 'read;
                         }

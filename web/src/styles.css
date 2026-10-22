@@ -531,6 +531,10 @@ label > span.hint {
 .nav-inner {
   display: contents;
 }
+/* The admin entry lives only in the laptop rail; on phones the tab bar keeps its six tabs. */
+.nav a.nav-admin {
+  display: none;
+}
 
 /* Laptops: a left rail. The active item is a raised pill; your avatar and the sync status sit at
    the bottom. */
@@ -584,6 +588,9 @@ label > span.hint {
   .nav a.active {
     background: var(--raised);
     color: var(--text);
+  }
+  .nav a.nav-admin {
+    display: flex;
   }
   .nav .wordmark {
     display: block;
@@ -1922,4 +1929,35 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   .deck-preview-facts b {
     font-size: var(--t-base);
   }
+}
+
+/* A card image you can tap to read it full size (ZoomableCard in components/ui.tsx). */
+.card-zoom-open {
+  all: unset;
+  display: block;
+  cursor: zoom-in;
+  border-radius: var(--card-radius);
+}
+.card-zoom-open:focus-visible {
+  outline: 3px solid var(--text);
+  outline-offset: 2px;
+}
+.card-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.85);
+  cursor: zoom-out;
+}
+.card-zoom img {
+  width: min(488px, 92vw);
+  max-height: calc(100dvh - 96px);
+  object-fit: contain;
+  border-radius: var(--card-radius);
 }

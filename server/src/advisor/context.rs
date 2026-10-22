@@ -34,8 +34,7 @@ what it costs (mana value, a slot, money).
 - Respect their rules. The plan settings hold their shopping rules (for example: buy locally, print \
 anything that isn't good value, never pay above market) and the deck's bracket. Swaps they answered \
 \"no\" to are settled unless they ask again.
-- Prices and legality change. Quote a price only from the data, with its date. You can't look anything \
-up, so say when you're unsure whether a card is legal, banned or a Game Changer in Commander today.
+- Prices and legality change. Quote a price only from the data, with its date. {LOOKUP}
 - You can't change anything in Yama. When you suggest a swap they might act on, put each one in its \
 own fenced block so Yama can offer to save it to their planner's inbox:
 
@@ -63,11 +62,20 @@ Style: plain words, short paragraphs or lists, sentence case. Lead with the answ
 doesn't say, say so instead of guessing.";
 
 /// The whole system prompt: instructions, then the data.
-pub fn system_prompt(user: &User, data: &str, today: &str) -> String {
+/// What the instructions say about looking things up, without and with Yama's tools (`mcp/`).
+const NO_TOOLS: &str = "You can't look anything up, so say when you're unsure whether a card is legal, banned or a \
+Game Changer in Commander today.";
+const WITH_TOOLS: &str = "You have Yama's tools: before you recommend a card, check it with `card` (Oracle text, \
+Commander legality, Game Changer, dated price, and whether they already own it), and use `find_cards` to look for \
+options (for example `id<=rw t:artifact o:treasure f:commander`). Other tools read their other decks, plans, lab runs \
+and precons, and `check_list` checks a whole list. Use what the question needs, not everything. A card they already \
+own costs nothing; say so.";
+
+pub fn system_prompt(user: &User, data: &str, today: &str, tools: bool) -> String {
     let name = user.display_name.trim();
     let who = if name.is_empty() { "this person".to_string() } else { name.to_string() };
-    let mut out = String::with_capacity(INSTRUCTIONS.len() + data.len() + 200);
-    out.push_str(INSTRUCTIONS);
+    let mut out = String::with_capacity(INSTRUCTIONS.len() + data.len() + 800);
+    out.push_str(&INSTRUCTIONS.replace("{LOOKUP}", if tools { WITH_TOOLS } else { NO_TOOLS }));
     let _ = write!(out, "\n\nYou are talking with {who}. Today is {today}.\n\n<yama_data>\n{data}\n</yama_data>");
     out
 }

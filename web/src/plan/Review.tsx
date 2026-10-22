@@ -28,7 +28,7 @@ import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from
 import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
-import { CardImage } from "../components/ui";
+import { ZoomableCard } from "../components/ui";
 import { deviceId, outbox, useOutbox, useOutboxState } from "./outbox";
 import { AskClaude } from "../advisor/AskClaude";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
@@ -360,10 +360,10 @@ const ReviewCard = memo(function ReviewCard({
     <article className={`review-card${wide ? " is-wide" : ""}${a?.decision ? ` answered-${a.decision}` : ""}`} aria-label={wide ? undefined : `${s.in}${s.out ? ` for ${s.out}` : ""}`}>
       <figure className="review-fig">
         <span className="review-stack">
-          <CardImage src={inCard?.image_normal ?? normalOf(inCard?.image_small)} name={s.in} className="card-img review-in" />
+          <ZoomableCard src={inCard?.image_normal ?? normalOf(inCard?.image_small)} name={s.in} className="card-img review-in" />
           {s.out && (
             <span className="review-cut">
-              <CardImage src={outCard?.image_normal ?? normalOf(outCard?.image_small)} name={s.out} className="card-img review-out" />
+              <ZoomableCard src={outCard?.image_normal ?? normalOf(outCard?.image_small)} name={s.out} className="card-img review-out" />
               <span>Cut</span>
             </span>
           )}

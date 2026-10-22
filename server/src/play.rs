@@ -78,6 +78,8 @@ enum Cmd {
     FullControl { seat: u8, on: bool },
     /// The seat's own stops by step, or `None` for the default smart stops.
     Stops { seat: u8, stops: Option<Stops> },
+    /// End the game thread now without saving (an account in it is being deleted).
+    Stop,
 }
 
 pub(crate) const STACK: usize = 32 << 20;
@@ -177,6 +179,28 @@ impl PlayHub {
 
     fn live(&self, game_id: &str) -> Option<LiveGame> {
         self.live.lock().unwrap().get(game_id).cloned()
+    }
+
+    /// End a live game's thread without saving and forget it (admins deleting an account in it).
+    pub(crate) fn stop(&self, game_id: &str) {
+        if let Some(g) = self.live.lock().unwrap().remove(game_id) {
+            let _ = g.cmds.send(Cmd::Stop);
+        }
+    }
+
+    /// Live online games on this server now.
+    pub(crate) fn live_count(&self) -> usize {
+        self.live.lock().unwrap().len()
+    }
+
+    /// The engine's state for the admin area: the card count once loaded, or why it isn't.
+    pub(crate) fn engine_status(&self) -> (&'static str, Option<usize>, Option<String>) {
+        match &*self.engine.lock().unwrap() {
+            EngineState::Ready(e) => ("ready", Some(e.card_count()), None),
+            EngineState::Loading => ("loading", None, None),
+            EngineState::Disabled(why) => ("off", None, Some(why.clone())),
+            EngineState::Failed(why) => ("failed", None, Some(why.clone())),
+        }
     }
 }
 
@@ -292,6 +316,7 @@ fn run_game(
             Cmd::Stops { seat, stops: None } => {
                 stops.remove(&seat);
             }
+            Cmd::Stop => return,
         }
         publish(&m);
     }

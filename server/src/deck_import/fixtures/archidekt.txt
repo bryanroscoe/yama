@@ -1,0 +1,5 @@
+1x Atraxa, Praetors' Voice (2x2) 190 [Commander{top}]
+1x Sol Ring (c21) 263 [Ramp]
+1x Arcane Signet (cmm) 371 *F* [Ramp,Fixing]
+1x Lightning Greaves (cmm) 393 [Maybeboard{noDeck}{noPrice}]
+1x Swords to Plowshares (sta) 10 [Sideboard] ^Have,#37d67a^

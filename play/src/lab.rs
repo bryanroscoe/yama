@@ -44,6 +44,7 @@ use engine::game::engine::{apply_interaction, apply_verified_ai_priority_pass, v
 use engine::game::replay::reconstruct_initial_state;
 use engine::types::format::FormatConfig;
 use engine::types::game_state::{GameState, WaitingFor};
+use engine::types::log::GameLogEntry;
 use engine::types::match_config::MatchConfig;
 use engine::types::player::PlayerId;
 use engine::types::replay::ReplayHeader;
@@ -55,6 +56,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
 
+use crate::pilot::{LlmRequest, LlmSeatStats, LlmTransport, Pilot};
 use crate::{DeckLine, Engine, SeatDeck};
 
 /// The engine label every result line carries. Since 22 Oct 2026 the fork carries
@@ -119,6 +121,11 @@ pub struct GameSpec {
     pub max_turns: u32,
     pub max_actions: usize,
     pub max_seconds: u64,
+    /// Who plays each seat, in seat order ([`Pilot::parse`] labels: "easy", "hard",
+    /// "llm:claude-haiku-5-5", ...). Absent: every seat plays at `difficulty`. An LLM seat falls
+    /// back to `difficulty` for any decision the model doesn't settle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pilots: Option<Vec<String>>,
 }
 
 impl GameSpec {
@@ -140,7 +147,26 @@ impl GameSpec {
         if self.max_turns == 0 || self.max_actions == 0 || self.max_seconds == 0 {
             return Err(format!("game {}: max_turns, max_actions and max_seconds must be positive", self.game));
         }
+        self.seat_pilots()?;
         Ok(AiDifficulty::from_label(&self.difficulty))
+    }
+
+    /// Each seat's pilot: the schedule's `pilots`, or `difficulty` on every seat.
+    pub fn seat_pilots(&self) -> Result<Vec<Pilot>, String> {
+        match &self.pilots {
+            None => Ok(vec![Pilot::Heuristic(AiDifficulty::from_label(&self.difficulty)); self.decks.len()]),
+            Some(labels) => {
+                if labels.len() != self.decks.len() {
+                    return Err(format!("game {}: {} pilots for {} decks", self.game, labels.len(), self.decks.len()));
+                }
+                labels.iter().map(|l| Pilot::parse(l).map_err(|e| format!("game {}: {e}", self.game))).collect()
+            }
+        }
+    }
+
+    /// Whether any seat is played by a language model (such games don't replay identically).
+    pub fn has_llm(&self) -> bool {
+        self.seat_pilots().is_ok_and(|p| p.iter().any(Pilot::is_llm))
     }
 }
 
@@ -202,6 +228,12 @@ pub struct GameResult {
     pub card_data: String,
     pub runner: String,
     pub error: Option<String>,
+    /// The schedule line's `pilots`, when it had them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pilots: Option<Vec<String>>,
+    /// What each LLM seat did (games with an LLM pilot only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm: Option<Vec<LlmSeatStats>>,
 }
 
 impl GameResult {
@@ -225,6 +257,8 @@ impl GameResult {
             card_data: card_data.into(),
             runner: RUNNER.into(),
             error: None,
+            pilots: spec.pilots.clone(),
+            llm: None,
         }
     }
 
@@ -375,6 +409,12 @@ struct Progress {
     fallback_first: Option<String>,
     /// The action cap came from the per-turn loop guard, not max_actions.
     loop_guard: bool,
+    /// LLM seats' bookkeeping, in seat order (empty in games without one).
+    llm: Vec<LlmSeatStats>,
+    /// Wall-clock time spent waiting for LLM replies, which the wall-clock safety net leaves out.
+    llm_wait: Duration,
+    /// The first model choice the engine refused after offering it.
+    llm_refused_first: Option<String>,
 }
 
 impl Progress {
@@ -391,6 +431,9 @@ impl Progress {
             fallbacks: 0,
             fallback_first: None,
             loop_guard: false,
+            llm: Vec::new(),
+            llm_wait: Duration::ZERO,
+            llm_refused_first: None,
         }
     }
 
@@ -573,11 +616,206 @@ pub struct GameOptions {
     /// Test hooks: panic, or stop forever, at this action count. `None` in real runs.
     pub panic_after: Option<usize>,
     pub hang_after: Option<usize>,
+    /// How LLM seats reach their model. A game with an LLM pilot and no setup is an error.
+    pub llm: Option<Arc<LlmSetup>>,
 }
 
 impl Default for GameOptions {
     fn default() -> Self {
-        Self { turn_action_cap: MAX_TURN_ACTIONS, panic_after: None, hang_after: None }
+        Self { turn_action_cap: MAX_TURN_ACTIONS, panic_after: None, hang_after: None, llm: None }
+    }
+}
+
+/// How LLM seats reach their model, shared by every game of a run.
+pub struct LlmSetup {
+    pub transport: Arc<dyn LlmTransport>,
+    /// Requests per LLM seat per game; later decisions fall back to the heuristic AI (counted as
+    /// "cap").
+    pub max_calls_per_seat: usize,
+    /// Transport or service failures in a row after which the game ends as an error (not scored,
+    /// replayable with --retry-errors), so a dead service or a spent usage limit can't quietly
+    /// turn LLM games into heuristic ones.
+    pub max_failure_streak: usize,
+    /// JSON-lines log of every request: game, seat, turn, the options, the reply and its outcome.
+    pub log: Option<Mutex<std::fs::File>>,
+    /// Add an object key to each prompt: what each object number in the options is (name, zone,
+    /// controller), from the seat's own view. phase-llm names an action's main object but prints
+    /// targets and attackers as bare numbers ("Choose Target (Target: Object 77)").
+    pub object_key: bool,
+}
+
+impl std::fmt::Debug for LlmSetup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LlmSetup")
+            .field("max_calls_per_seat", &self.max_calls_per_seat)
+            .field("max_failure_streak", &self.max_failure_streak)
+            .field("log", &self.log.is_some())
+            .field("object_key", &self.object_key)
+            .finish_non_exhaustive()
+    }
+}
+
+/// History kept for LLM prompts (phase-llm renders a bounded window of it).
+const LLM_HISTORY: usize = 3_000;
+
+/// One LLM seat's state during a game.
+struct LlmSeat {
+    model: String,
+    persona: AiDifficulty,
+    streak: usize,
+}
+
+/// What asking the model produced for one decision.
+enum Asked {
+    /// The model's choice, already bound to an engine-issued option.
+    Chosen(engine::types::actions::GameAction),
+    /// Use the heuristic AI for this decision.
+    Fallback,
+    /// Too many transport failures in a row: end the game as an error.
+    Abort(String),
+}
+
+/// "Object 77 = Corsair Captain (in your graveyard)" for every object the options name, as the
+/// seat may see them (hidden cards stay hidden). `None` when the options name no object.
+pub fn object_key(state: &GameState, contract: &AiDecisionContract) -> Option<String> {
+    let viewer = contract.semantic_owner;
+    let mut ids: Vec<engine::types::identifiers::ObjectId> = Vec::new();
+    for c in &contract.candidates {
+        for id in c.action.related_object_ids() {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
+    if ids.is_empty() {
+        return None;
+    }
+    let visible = engine::game::filter_state_for_viewer(state, viewer);
+    let who = |p: PlayerId| if p == viewer { "your".to_string() } else { format!("Player {}'s", p.0) };
+    let mut lines = Vec::new();
+    for id in ids.iter().take(60) {
+        let Some(o) = visible.objects.get(id) else { continue };
+        let name = if o.name.is_empty() || (o.face_down && o.controller != viewer) { "a hidden card".to_string() } else { o.name.clone() };
+        use engine::types::zones::Zone;
+        let place = match o.zone {
+            Zone::Battlefield => format!("on the battlefield, {} permanent{}", who(o.controller), if o.tapped { ", tapped" } else { "" }),
+            Zone::Hand => format!("in {} hand", who(o.owner)),
+            Zone::Graveyard => format!("in {} graveyard", who(o.owner)),
+            Zone::Library => format!("in {} library", who(o.owner)),
+            Zone::Exile => format!("in exile ({})", who(o.owner)),
+            Zone::Stack => format!("on the stack, {} spell or ability", who(o.controller)),
+            Zone::Command => format!("in the command zone ({})", who(o.owner)),
+        };
+        lines.push(format!("Object {} = {name} ({place})", id.0));
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    Some(format!("OBJECT KEY: what the object numbers in the options refer to.\n{}", lines.join("\n")))
+}
+
+/// Put one decision to an LLM seat's model and bind the reply, or say why not.
+#[allow(clippy::too_many_arguments)]
+fn ask_llm(
+    db: &Arc<CardDatabase>,
+    setup: &LlmSetup,
+    seat: &mut LlmSeat,
+    stats: &mut LlmSeatStats,
+    wait: &mut Duration,
+    state: &GameState,
+    contract: &AiDecisionContract,
+    history: &[GameLogEntry],
+    game: &str,
+) -> Asked {
+    let request = match phase_llm::build_game_decision_prompt(state, contract, seat.persona, Some(db), history) {
+        Ok(r) => r,
+        Err(phase_llm::LlmError::UnsupportedDecision { .. }) => {
+            stats.forced += 1;
+            return Asked::Fallback;
+        }
+        Err(_) => {
+            stats.decisions += 1;
+            stats.fallback("prompt");
+            return Asked::Fallback;
+        }
+    };
+    stats.decisions += 1;
+    if stats.calls >= setup.max_calls_per_seat {
+        stats.fallback("cap");
+        return Asked::Fallback;
+    }
+    stats.calls += 1;
+    let mut user = request.prompt.user.clone();
+    if setup.object_key {
+        if let Some(key) = object_key(state, contract) {
+            let block = phase_llm::prompt::untrusted_block(&key);
+            let marker = "\n\n--- DECISION ---\n";
+            user = match user.find(marker) {
+                Some(at) => format!("{}\n\n{block}{}", &user[..at], &user[at..]),
+                None => format!("{user}\n\n{block}"),
+            };
+        }
+    }
+    let t = Instant::now();
+    let reply = setup.transport.complete(&LlmRequest { model: &seat.model, system: &request.prompt.system, user: &user });
+    let ms = t.elapsed();
+    *wait += ms;
+    stats.wait_ms += ms.as_millis() as u64;
+    let mut chosen = None;
+    let (outcome, choice, reason, text) = match &reply {
+        Err(f) => {
+            seat.streak += 1;
+            stats.fallback(f.kind());
+            (f.kind().to_string(), None, None, Some(f.detail()))
+        }
+        Ok(t) => {
+            seat.streak = 0;
+            stats.input_tokens += t.input_tokens;
+            stats.cache_read_tokens += t.cache_read_tokens;
+            stats.cache_write_tokens += t.cache_write_tokens;
+            stats.output_tokens += t.output_tokens;
+            let decoded = phase_llm::prompt::decode_choice(&t.text, request.option_count, 1);
+            match phase_llm::select_action(state, contract, &request.fingerprint, &t.text) {
+                Ok(sel) => {
+                    stats.chosen += 1;
+                    chosen = Some(sel.action);
+                    ("chosen".to_string(), decoded.ok().and_then(|c| c.indices.first().copied()), sel.reasoning, None)
+                }
+                Err(e) => {
+                    let why = match e {
+                        phase_llm::LlmError::ChoiceOutOfRange { .. } => "out_of_range",
+                        phase_llm::LlmError::StaleDecision => "stale",
+                        _ => "undecodable",
+                    };
+                    stats.fallback(why);
+                    (why.to_string(), None, None, Some(t.text.clone()))
+                }
+            }
+        }
+    };
+    if let Some(log) = &setup.log {
+        let line = serde_json::json!({
+            "game": game,
+            "seat": contract.authorized_actor.0,
+            "turn": state.turn_number,
+            "model": seat.model,
+            "waiting": phase_llm::render::action::describe_waiting_for(&state.waiting_for),
+            "options": request.prompt.frame.options,
+            "outcome": outcome,
+            "choice": choice,
+            "reason": reason,
+            "reply": text,
+            "ms": ms.as_millis() as u64,
+        });
+        let mut f = lock(log);
+        let _ = std::io::Write::write_all(&mut *f, format!("{line}\n").as_bytes());
+    }
+    match reply {
+        Err(f) if seat.streak >= setup.max_failure_streak => {
+            Asked::Abort(format!("LLM seat {} ({}): {} failures in a row, last: {} ({})", contract.authorized_actor.0, seat.model, seat.streak, f.kind(), f.detail()))
+        }
+        Err(_) => Asked::Fallback,
+        Ok(_) => chosen.map_or(Asked::Fallback, Asked::Chosen),
     }
 }
 
@@ -595,7 +833,24 @@ struct Limits {
 
 /// Build the game as `Engine::new_match` does (except that seat 0 goes first) and let the AI
 /// play every seat.
-fn play(db: &Arc<CardDatabase>, decks: Vec<SeatDeck>, job: &GameSpec, difficulty: AiDifficulty, p: &mut Progress, live: &Mutex<Live>, lim: &Limits) -> Ending {
+#[allow(clippy::too_many_arguments)]
+fn play(
+    db: &Arc<CardDatabase>,
+    decks: Vec<SeatDeck>,
+    job: &GameSpec,
+    difficulty: AiDifficulty,
+    llm: Option<&LlmSetup>,
+    p: &mut Progress,
+    live: &Mutex<Live>,
+    lim: &Limits,
+) -> Ending {
+    let pilots = match job.seat_pilots() {
+        Ok(p) => p,
+        Err(e) => return Ending::Error(e),
+    };
+    if pilots.iter().any(Pilot::is_llm) && llm.is_none() {
+        return Ending::Error("this game has an LLM pilot but the runner has no LLM transport (lab --llm)".into());
+    }
     let lists: Vec<PlayerDeckList> =
         decks.into_iter().map(|d| PlayerDeckList { main_deck: d.main, commander: d.commander, ..Default::default() }).collect();
     let players = lists.len() as u8;
@@ -619,10 +874,32 @@ fn play(db: &Arc<CardDatabase>, decks: Vec<SeatDeck>, job: &GameSpec, difficulty
     state.debug_mode = false;
 
     let seats: HashSet<PlayerId> = (0..players).map(PlayerId).collect();
-    // Measurement mode: search is bounded by node and depth budgets only, never the clock.
+    // Measurement mode: search is bounded by node and depth budgets only, never the clock. An
+    // LLM seat's heuristic (its fallback) plays at the line's difficulty.
     let configs: HashMap<PlayerId, AiConfig> = (0..players)
-        .map(|i| (PlayerId(i), create_config_for_players(difficulty, Platform::Native, players).into_measurement(job.seed)))
+        .map(|i| {
+            let level = match &pilots[i as usize] {
+                Pilot::Heuristic(d) => *d,
+                Pilot::Llm(_) => difficulty,
+            };
+            (PlayerId(i), create_config_for_players(level, Platform::Native, players).into_measurement(job.seed))
+        })
         .collect();
+    let mut llm_seats: HashMap<PlayerId, (LlmSeat, usize)> = HashMap::new();
+    for (i, pilot) in pilots.iter().enumerate() {
+        if let Pilot::Llm(l) = pilot {
+            llm_seats.insert(PlayerId(i as u8), (LlmSeat { model: l.model.clone(), persona: l.persona, streak: 0 }, p.llm.len()));
+            p.llm.push(LlmSeatStats {
+                seat: i as u8,
+                pilot: job.pilots.as_ref().map_or_else(String::new, |v| v[i].clone()),
+                prompt: if llm.is_some_and(|l| l.object_key) { "phase-llm+object-key" } else { "phase-llm" }.into(),
+                ..Default::default()
+            });
+        }
+    }
+    let mut history: Vec<GameLogEntry> = Vec::new();
+    // Set when the engine refused a model's choice: the next decision goes to the heuristic AI.
+    let mut skip_llm_once = false;
     let session = AiSession::arc_from_game(&state);
     // Same AI seed derivation as the play crate's matches.
     let mut rng = StdRng::seed_from_u64(job.seed ^ 0x9e37_79b9_7f4a_7c15);
@@ -668,7 +945,7 @@ fn play(db: &Arc<CardDatabase>, decks: Vec<SeatDeck>, job: &GameSpec, difficulty
                 return Ending::TimeCap;
             }
         }
-        let wall = lim.started.elapsed();
+        let wall = lim.started.elapsed().saturating_sub(p.llm_wait);
         if wall >= lim.wall {
             return Ending::Error(format!(
                 "wall-clock safety limit: {}s elapsed ({WALL_FACTOR} x max_seconds) at turn {} after {} actions, with {:.0}s of CPU time; \
@@ -689,12 +966,25 @@ fn play(db: &Arc<CardDatabase>, decks: Vec<SeatDeck>, job: &GameSpec, difficulty
             Some((owner, actor)) => {
                 // Same choose/verify/apply boundary as phase's run_ai_action and the play crate.
                 let contract = AiDecisionContract::issue(&state, owner);
+                let mut asked = None;
+                let ask = !std::mem::take(&mut skip_llm_once);
+                if let (true, Some(setup), Some((seat, idx))) = (ask, llm, llm_seats.get_mut(&actor)) {
+                    let stats = &mut p.llm[*idx];
+                    match ask_llm(db, setup, seat, stats, &mut p.llm_wait, &state, &contract, &history, &job.game) {
+                        Asked::Chosen(a) => asked = Some(a),
+                        Asked::Fallback => {}
+                        Asked::Abort(e) => return Ending::Error(e),
+                    }
+                    // The model's wait isn't an engine step: tell the watchdog the game moved.
+                    p.publish(live, &state);
+                }
                 // When the AI's specialist answers outside the engine-issued options and returns
                 // nothing (seen with Dream Eater's surveil 4), use phase's own fallback_action,
                 // which picks from those options. phase documents that a miss should fall
                 // through to "a worse decision, never a stopped game"; a few prompts don't yet.
                 // Live Yama games stop here instead. Games that never hit this are unchanged.
-                let chosen = choose_action_with_session(&state, owner, &configs[&actor], &mut rng, &session).or_else(|| {
+                let from_llm = asked.is_some();
+                let chosen = asked.or_else(|| choose_action_with_session(&state, owner, &configs[&actor], &mut rng, &session)).or_else(|| {
                     let fallback = phase_ai::search::fallback_action(&state, &configs[&actor], &contract);
                     if fallback.is_some() {
                         p.fallbacks += 1;
@@ -721,13 +1011,37 @@ fn play(db: &Arc<CardDatabase>, decks: Vec<SeatDeck>, job: &GameSpec, difficulty
                     return Ending::Error(format!("AI for seat {} chose an action outside its options: {action:?} ({})", actor.0, where_in(&state)));
                 }
                 let tried = action.clone();
+                // An engine-issued option the engine then refuses (seen once: CrewVehicle with no
+                // creatures) is an engine bug the heuristic never walks into; for a model's
+                // choice, undo and let the heuristic decide instead of losing the game.
+                let backup = from_llm.then(|| state.clone());
                 let applied = if stack_pass {
                     apply_verified_ai_priority_pass(&mut state, actor, &contract, action)
                 } else {
                     apply_interaction(&mut state, actor, owner, action)
                 };
-                if let Err(e) = applied {
-                    return Ending::Error(format!("engine refused seat {}'s action {tried:?}: {e} ({})", actor.0, where_in(&state)));
+                match applied {
+                    Err(e) if backup.is_some() => {
+                        state = backup.expect("checked");
+                        if let Some((_, idx)) = llm_seats.get(&actor) {
+                            let st = &mut p.llm[*idx];
+                            st.chosen = st.chosen.saturating_sub(1);
+                            st.fallback("refused");
+                        }
+                        if p.llm_refused_first.is_none() {
+                            p.llm_refused_first = Some(format!("seat {} {tried:?}: {e} ({})", actor.0, where_in(&state)));
+                        }
+                        skip_llm_once = true;
+                        continue;
+                    }
+                    Err(e) => return Ending::Error(format!("engine refused seat {}'s action {tried:?}: {e} ({})", actor.0, where_in(&state))),
+                    Ok(r) if !llm_seats.is_empty() => {
+                        history.extend(r.log_entries);
+                        if history.len() > LLM_HISTORY {
+                            history.drain(..history.len() - LLM_HISTORY / 2);
+                        }
+                    }
+                    Ok(_) => {}
                 }
                 p.actions += 1;
                 if lim.panic_after == Some(p.actions) {
@@ -820,7 +1134,27 @@ pub fn play_game(
         hang_after: opts.hang_after,
     };
     let mut progress = Progress::new(players);
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| play(engine.database(), decks, spec, difficulty, &mut progress, live, &lim)));
+    let llm = opts.llm.as_deref();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| play(engine.database(), decks, spec, difficulty, llm, &mut progress, live, &lim)));
+    if !progress.llm.is_empty() {
+        for s in &progress.llm {
+            if s.fallback_count() > 0 {
+                notes.push(format!(
+                    "game {}: LLM seat {} ({}) fell back to the heuristic AI on {} of {} decisions: {:?}",
+                    spec.game,
+                    s.seat,
+                    s.pilot,
+                    s.fallback_count(),
+                    s.decisions,
+                    s.fallbacks
+                ));
+            }
+        }
+        if let Some(first) = &progress.llm_refused_first {
+            notes.push(format!("game {}: the engine refused an option it had offered an LLM seat; the heuristic decided instead (first: {first})", spec.game));
+        }
+        result.llm = Some(progress.llm.clone());
+    }
     if progress.fallbacks > 0 {
         notes.push(format!(
             "game {}: the AI found no action {} time(s); phase's fallback_action answered (first: {})",
@@ -1036,6 +1370,7 @@ mod tests {
             max_turns: 40,
             max_actions: 100,
             max_seconds: 60,
+            pilots: None,
         };
         let mut r = GameResult::new(&spec, "eb309108eb0df708");
         r.end = End::TurnCap;
@@ -1050,6 +1385,42 @@ mod tests {
         for end in [End::Win, End::Draw, End::TurnCap, End::ActionCap, End::TimeCap, End::Panic, End::Error] {
             assert_eq!(serde_json::to_string(&end).unwrap(), format!("\"{}\"", end.as_str()));
         }
+    }
+
+    #[test]
+    fn pilots_are_optional_and_checked() {
+        let base = r#"{"game":"g","seed":1,"decks":["a","b","c"],"difficulty":"Easy","max_turns":40,"max_actions":100,"max_seconds":60}"#;
+        let (spec, _) = GameSpec::parse(base).unwrap();
+        assert_eq!(spec.pilots, None);
+        assert_eq!(spec.seat_pilots().unwrap(), vec![Pilot::Heuristic(AiDifficulty::Easy); 3]);
+        assert!(!spec.has_llm());
+        let with = base.replace(r#""max_seconds":60}"#, r#""max_seconds":60,"pilots":["hard","llm:claude-haiku-5-5","veryeasy"]}"#);
+        let (spec, _) = GameSpec::parse(&with).unwrap();
+        assert!(spec.has_llm());
+        assert_eq!(spec.seat_pilots().unwrap()[0], Pilot::Heuristic(AiDifficulty::Hard));
+        // Written back, it's the same line, and a line without pilots stays without them.
+        assert_eq!(serde_json::to_string(&spec).unwrap(), with);
+        assert!(GameSpec::parse(&base.replace(r#""max_seconds":60}"#, r#""max_seconds":60,"pilots":["hard","easy"]}"#)).is_err());
+        assert!(GameSpec::parse(&base.replace(r#""max_seconds":60}"#, r#""max_seconds":60,"pilots":["hard","easy","genius"]}"#)).is_err());
+    }
+
+    #[test]
+    fn result_line_adds_pilots_and_llm_at_the_end() {
+        let spec = GameSpec {
+            game: "g".into(),
+            seed: 7,
+            decks: vec!["a".into(), "b".into()],
+            difficulty: "Easy".into(),
+            max_turns: 40,
+            max_actions: 100,
+            max_seconds: 60,
+            pilots: Some(vec!["llm:m".into(), "easy".into()]),
+        };
+        let mut r = GameResult::new(&spec, "eb309108eb0df708");
+        r.llm = Some(vec![LlmSeatStats { seat: 0, pilot: "llm:m".into(), prompt: "phase-llm".into(), decisions: 3, calls: 2, chosen: 2, forced: 1, ..Default::default() }]);
+        let line = r.to_line();
+        assert!(line.contains(r#""error":null,"pilots":["llm:m","easy"],"llm":[{"seat":0,"pilot":"llm:m","prompt":"phase-llm","decisions":3"#), "{line}");
+        assert_eq!(serde_json::from_str::<GameResult>(&line).unwrap(), r);
     }
 
     #[test]

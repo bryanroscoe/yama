@@ -1,4 +1,4 @@
-// Words for accounts in the admins' list (Group, You, Accounts).
+// Words for accounts in the admin area's People list.
 
 import type { AccountInfo } from "./api";
 

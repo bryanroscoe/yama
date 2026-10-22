@@ -16,7 +16,7 @@ export interface TileHandlers {
   /** Long-press, right-click or the inspector button: the card with its rules text. */
   onRead: (c: CardView) => void;
   /** Hover with a mouse: the full-size preview. `x` is the pointer, so it opens on the far side. */
-  onHover: (c: CardView | null, x?: number) => void;
+  onHover: (c: CardView | null, el?: Element) => void;
 }
 
 /** Long-press opens the inspector (PP-69); the click that ends a long-press does nothing else. */
@@ -145,7 +145,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
       aria-pressed={look.selected || attacking || blocking ? true : undefined}
       onClick={() => !press.consumed() && h.onPick(pile)}
       onDoubleClick={() => h.onDouble?.(pile)}
-      onMouseEnter={(e) => h.onHover(c, e.clientX)}
+      onMouseEnter={(e) => h.onHover(c, e.currentTarget)}
       onMouseLeave={() => h.onHover(null)}
       onPointerDown={press.onPointerDown}
       onPointerUp={press.onPointerUp}
@@ -199,7 +199,7 @@ export function HandCard({ card, meta, look, h, style, caption }: {
       aria-pressed={look.selected ? true : undefined}
       onClick={() => !press.consumed() && h.onPick(pile)}
       onDoubleClick={() => h.onDouble?.(pile)}
-      onMouseEnter={(e) => h.onHover(card, e.clientX)}
+      onMouseEnter={(e) => h.onHover(card, e.currentTarget)}
       onMouseLeave={() => h.onHover(null)}
       onPointerDown={press.onPointerDown}
       onPointerUp={press.onPointerUp}

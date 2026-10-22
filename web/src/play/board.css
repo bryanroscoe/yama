@@ -1321,16 +1321,11 @@ button.pile-chip:hover {
 
 /* Hover preview: full size, on the side away from the pointer, never over the rail. */
 .pb-preview {
+  /* Placed beside the hovered card by previewPlace (model.ts); 300 px wide, the PREVIEW_W there. */
   position: fixed;
-  top: 72px;
-  right: 356px;
   width: 300px;
   z-index: 30;
   pointer-events: none;
-}
-.pb-preview.left {
-  right: auto;
-  left: 16px;
 }
 .pb-preview img {
   width: 100%;

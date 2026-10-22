@@ -1,5 +1,6 @@
 import { identityKeys, MANA } from "@yama/core";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export function Pips({ identity, label = true }: { identity: string; label?: boolean }) {
   const keys = identityKeys(identity);
@@ -22,6 +23,40 @@ export function ManaCost({ cost }: { cost: string | null }) {
 export function CardImage({ src, name, className = "card-img" }: { src: string | null | undefined; name: string; className?: string }) {
   if (!src) return <div className="card-fallback">{name}</div>;
   return <img className={className} src={src} alt={name} loading="lazy" decoding="async" />;
+}
+
+/** Scryfall's large image for a small or normal one, so the zoomed card's text is readable. */
+function largeOf(src: string): string {
+  return src.replace(/\/(small|normal)\//, "/large/");
+}
+
+/** A card image you can tap to see it full size (Escape, a tap or Close puts it back). */
+export function ZoomableCard({ src, name, className = "card-img" }: { src: string | null | undefined; name: string; className?: string }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+  if (!src) return <CardImage src={src} name={name} className={className} />;
+  return (
+    <>
+      <button type="button" className="card-zoom-open" onClick={() => setOpen(true)} aria-label={`Show ${name} larger`}>
+        <CardImage src={src} name={name} className={className} />
+      </button>
+      {open &&
+        createPortal(
+          <div className="card-zoom" role="dialog" aria-modal="true" aria-label={name} onClick={() => setOpen(false)}>
+            <img src={largeOf(src)} alt={name} decoding="async" />
+            <button type="button" className="outline" autoFocus onClick={() => setOpen(false)}>
+              Close
+            </button>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
 }
 
 export function Sheet({ onClose, children, label }: { onClose: () => void; children: ReactNode; label: string }) {

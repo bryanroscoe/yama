@@ -485,6 +485,28 @@ impl Default for WatchHub {
     }
 }
 
+/// A watched game as the admin area lists it.
+#[derive(Debug, Clone, Serialize)]
+pub struct AdminWatchItem {
+    pub id: String,
+    pub owner_id: String,
+    pub created_at: String,
+    pub seats: Vec<AdminWatchSeat>,
+    pub playing: bool,
+    pub finished: bool,
+    pub actions: usize,
+    pub turn: u32,
+    pub viewers: usize,
+    pub stopped: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AdminWatchSeat {
+    pub name: String,
+    pub deck: Option<String>,
+    pub level: Option<String>,
+}
+
 /// A watched game: who owns it, its seats, and its line to the game thread.
 pub struct WatchGame {
     pub id: String,
@@ -565,6 +587,63 @@ impl WatchHub {
 
     fn remove(&self, id: &str) {
         self.games.lock().unwrap().remove(id);
+    }
+
+    /// Every watched game on the server, newest first, for the admin area.
+    pub fn admin_items(&self) -> Vec<AdminWatchItem> {
+        self.sweep();
+        let mut out: Vec<AdminWatchItem> = self
+            .games
+            .lock()
+            .unwrap()
+            .values()
+            .map(|g| {
+                let frame = g.frames.borrow().clone();
+                let status = status_of(g, &frame);
+                AdminWatchItem {
+                    id: g.id.clone(),
+                    owner_id: g.owner.clone(),
+                    created_at: g.created_at.clone(),
+                    seats: g
+                        .seats
+                        .iter()
+                        .map(|s| AdminWatchSeat { name: s.name.clone(), deck: s.deck_name.clone(), level: s.difficulty.clone() })
+                        .collect(),
+                    playing: status.playing,
+                    finished: status.finished,
+                    actions: status.actions,
+                    turn: frame.view.turn,
+                    viewers: g.presence.viewers.load(Ordering::SeqCst),
+                    stopped: status.stopped,
+                }
+            })
+            .collect();
+        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        out
+    }
+
+    /// Stop any watched game (admins). False when there's no such game.
+    pub fn admin_stop(&self, id: &str) -> bool {
+        let game = self.games.lock().unwrap().get(id).cloned();
+        match game {
+            Some(g) => {
+                g.send(WatchCmd::Stop);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Stop and forget every game `owner` has (their account is being deleted).
+    pub fn remove_owner(&self, owner: &str) {
+        let gone: Vec<Arc<WatchGame>> = {
+            let mut games = self.games.lock().unwrap();
+            let ids: Vec<String> = games.values().filter(|g| g.owner == owner).map(|g| g.id.clone()).collect();
+            ids.iter().filter_map(|id| games.remove(id)).collect()
+        };
+        for g in gone {
+            g.send(WatchCmd::Stop);
+        }
     }
 
     /// Start a game on its own thread and keep it.

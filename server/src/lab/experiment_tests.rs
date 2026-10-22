@@ -871,6 +871,7 @@ async fn cancel_and_a_finishing_game_never_lose_a_result() {
                 max_turns: 120,
                 max_actions: 200_000,
                 max_seconds: 600,
+                pilots: None,
             };
             let result = (i < 198).then(|| sim.play(&spec, &[], &LIMITS).to_line());
             sqlx::query("INSERT INTO lab_experiment_games (experiment_id, game, ord, spec, result, end_kind, attempts) VALUES (?,?,?,?,?,?,1)")

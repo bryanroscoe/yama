@@ -32,10 +32,12 @@ pub fn app(state: AppState) -> Router {
     let mut router = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .merge(crate::auth::router())
+        .merge(crate::admin::router())
         .merge(crate::cards::router())
         .merge(crate::calendar::router())
         .merge(crate::collection::router())
         .merge(crate::decks::router())
+        .merge(crate::deck_import::router())
         .merge(crate::playgroups::router())
         .merge(crate::games::router())
         .merge(crate::game_export::router())
@@ -45,6 +47,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::plan::router())
         .merge(crate::lab::router())
         .merge(crate::advisor::router())
+        .merge(crate::mcp::router())
         // Unknown API paths are errors, not the web app.
         .route("/api/{*rest}", axum::routing::any(|| async { crate::error::AppError::NotFound("API route") }));
 
@@ -75,6 +78,7 @@ pub fn http_client() -> reqwest::Client {
 }
 
 pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
+    crate::admin::mark_started();
     if cfg.dev_login {
         tracing::warn!("YAMA_DEV_LOGIN is on: anyone who can reach this server can sign in by email");
     }
@@ -185,9 +189,11 @@ mod tests {
             .unwrap();
         assert_eq!(app.clone().oneshot(req).await.unwrap().status(), StatusCode::OK);
 
-        // Admin-only routes refuse everyone else; unknown API paths are a JSON 404, not the web app.
-        let (status, _) = send(&app, Method::GET, "/api/invites", Some(&token), None).await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
+        // Admin-only routes look like unknown routes to everyone else; unknown API paths are a JSON
+        // 404, not the web app.
+        let (status, body) = send(&app, Method::GET, "/api/invites", Some(&token), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], "API route not found");
         let (status, body) = send(&app, Method::GET, "/api/no-such-route", Some(&token), None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"], "API route not found");

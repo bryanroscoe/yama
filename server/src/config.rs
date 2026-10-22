@@ -66,6 +66,10 @@ pub struct AdvisorConfig {
     /// Encrypts users' own API keys at rest (YAMA_ADVISOR_KEY_SECRET, at least 32 characters).
     /// Without it nobody can save a key, so only subscription accounts can ask.
     pub key_secret: Option<String>,
+    /// Where the sidecar reaches Yama's tools for Claude (`mcp/`), on the same private network
+    /// (YAMA_ADVISOR_TOOLS_URL, e.g. `http://yama:8787/mcp`). Without it Ask Claude answers from
+    /// the context alone, with no tools.
+    pub tools_url: Option<String>,
 }
 
 impl AdvisorConfig {
@@ -158,6 +162,7 @@ impl Config {
             secret: secret("YAMA_ADVISOR_SECRET")?,
             subscription_emails: list("YAMA_ADVISOR_SUBSCRIPTION_EMAILS"),
             key_secret: secret("YAMA_ADVISOR_KEY_SECRET")?,
+            tools_url: std::env::var("YAMA_ADVISOR_TOOLS_URL").ok().map(|s| s.trim().to_string()).filter(|s| s.starts_with("http://") || s.starts_with("https://")),
         };
         Ok(Self {
             database_url: std::env::var("DATABASE_URL")

@@ -179,3 +179,41 @@ test("subscription mode without a token says so and never runs Claude", async ()
   assert.equal(out[0].code, "no_subscription");
   assert.equal(seen.length, 0);
 });
+
+const ASK = "yama_ask_" + "a".repeat(64);
+const withTools = { ...ok, tools: { url: "http://yama:8787/mcp", token: ASK } };
+
+test("with Yama's tools: one MCP server, only its tools, more turns", () => {
+  const req = validateRequest(withTools).req;
+  const o = queryOptions({ req, env: {}, home: "/tmp/h", abortController: new AbortController() });
+  assert.deepEqual(o.tools, [], "none of Claude Code's own tools");
+  assert.deepEqual(Object.keys(o.mcpServers), ["yama"]);
+  assert.deepEqual(o.mcpServers.yama, { type: "http", url: "http://yama:8787/mcp", headers: { Authorization: `Bearer ${ASK}` } });
+  assert.deepEqual(o.allowedTools, ["mcp__yama"]);
+  assert.equal(o.strictMcpConfig, true);
+  assert.ok(o.maxTurns > 1);
+  for (const bad of [{ url: "file:///etc/passwd", token: ASK }, { url: "http://yama:8787/mcp", token: "sk-ant-x" }, { url: "http://yama/mcp" }, "http://yama/mcp"]) {
+    assert.equal(validateRequest({ ...ok, tools: bad }).ok, false, JSON.stringify(bad));
+  }
+});
+
+test("tool use shows as a tool event with its short name, and turns are kept apart", async () => {
+  const out = [];
+  const start = { type: "stream_event", event: { type: "message_start", message: {} } };
+  const toolUse = { type: "stream_event", event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", name: "mcp__yama__card", input: { names: ["Sol Ring"] } } } };
+  await runAdvice({
+    req: validateRequest(withTools).req,
+    queryFn: fakeQuery([start, delta("Checking."), toolUse, start, delta("It's legal."), { type: "result", subtype: "success", is_error: false, result: "", usage: {} }], []),
+    oauthToken: TOKEN,
+    home: "/tmp/h",
+    path: "",
+    write: (e) => out.push(e),
+  });
+  assert.deepEqual(out.slice(0, 3), [
+    { type: "text", text: "Checking." },
+    { type: "tool", name: "card" },
+    { type: "text", text: "\n\nIt's legal." },
+  ]);
+  assert.ok(!JSON.stringify(out).includes("Sol Ring"), "tool arguments aren't passed on");
+  assert.ok(!JSON.stringify(out).includes(ASK));
+});

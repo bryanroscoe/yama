@@ -19,3 +19,6 @@ export const GroupIcon = () => (
 export const PlayIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)" /><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)" /></svg>
 );
+export const AdminIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><path d="M12 3 5 6v5c0 4.5 3 8.5 7 10 4-1.5 7-5.5 7-10V6z" /><path d="m9 12 2 2 4-4" /></svg>
+);

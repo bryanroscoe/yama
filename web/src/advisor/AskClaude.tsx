@@ -11,7 +11,7 @@ import { useMe } from "../auth";
 import { ErrorText, Sheet } from "../components/ui";
 import { deviceId, outbox } from "../plan/outbox";
 import { advisorStatus, ask, conversation, conversations, deleteConversation, type AdvisorStatus } from "./api";
-import { inline, parseAnswer, starters, unavailableText, type Block, type ContextKind, type Suggestion } from "./logic";
+import { inline, parseAnswer, starters, toolActivity, unavailableText, type Block, type ContextKind, type Suggestion } from "./logic";
 import "./advisor.css";
 
 export interface AskContext {
@@ -69,6 +69,8 @@ interface Pending {
   base: number;
   state: "streaming" | "done" | "error" | "stopped";
   error: string | null;
+  /** What Claude is doing with a tool, until its next words arrive. */
+  activity?: string | null;
 }
 
 function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; about: string; ideasFor: string | null; onClose: () => void }) {
@@ -124,9 +126,12 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
               setCurrent(conversationId);
               setChosen(true);
             }
+          } else if (e.event === "tool") {
+            const activity = toolActivity(String(e.data.name ?? ""));
+            setPending((p) => (p ? { ...p, activity } : p));
           } else if (e.event === "text") {
             const t = String(e.data.text ?? "");
-            setPending((p) => (p ? { ...p, answer: p.answer + t } : p));
+            setPending((p) => (p ? { ...p, answer: p.answer + t, activity: null } : p));
           } else if (e.event === "done") {
             setPending((p) => (p ? { ...p, state: "done" } : p));
           } else if (e.event === "error") {
@@ -239,6 +244,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
                   text={pending.answer}
                   ideasFor={ideasFor}
                   streaming={pending.state === "streaming"}
+                  activity={pending.state === "streaming" ? pending.activity : null}
                   note={pending.state === "stopped" ? "Stopped before the end." : pending.state === "error" ? (pending.error ?? "Claude couldn't answer.") : null}
                   error={pending.state === "error"}
                 />
@@ -316,7 +322,22 @@ function Question({ text }: { text: string }) {
   );
 }
 
-function Answer({ text, ideasFor, streaming = false, note, error = false }: { text: string; ideasFor: string | null; streaming?: boolean; note?: string | null; error?: boolean }) {
+function Answer({
+  text,
+  ideasFor,
+  streaming = false,
+  activity = null,
+  note,
+  error = false,
+}: {
+  text: string;
+  ideasFor: string | null;
+  streaming?: boolean;
+  /** What Claude is doing right now, while it uses a tool. */
+  activity?: string | null;
+  note?: string | null;
+  error?: boolean;
+}) {
   const blocks = parseAnswer(text);
   return (
     <div className={`ask-msg ask-a${error ? " ask-error" : ""}`}>
@@ -324,7 +345,11 @@ function Answer({ text, ideasFor, streaming = false, note, error = false }: { te
       {blocks.map((b, i) => (
         <BlockView key={i} block={b} ideasFor={ideasFor} streaming={streaming} />
       ))}
-      {streaming && !text && <p className="dim">Thinking…</p>}
+      {streaming && (activity || !text) && (
+        <p className="dim" role="status">
+          {activity ?? "Thinking…"}
+        </p>
+      )}
       {note && <p className={error ? "error small" : "dim small"}>{note}</p>}
     </div>
   );
@@ -390,12 +415,15 @@ function SuggestionCard({ s, ideasFor, disabled }: { s: Suggestion; ideasFor: st
         )}
       </p>
       {s.why && <p className="small dim">{s.why}</p>}
-      {ideasFor &&
-        (saved ? (
+      {ideasFor ? (
+        saved ? (
           <p className="small" role="status">Saved. It goes to your planner's inbox.</p>
         ) : (
           <button type="button" className="outline" onClick={save} disabled={disabled || !userId}>Save as an idea</button>
-        ))}
+        )
+      ) : (
+        <p className="small dim">To save this as an idea, ask from the deck's plan.</p>
+      )}
     </div>
   );
 }

@@ -142,8 +142,8 @@ async fn a_stranger_sees_none_of_another_accounts_things() {
     assert_eq!(get(&app, &st, &d).await.0, StatusCode::NOT_FOUND);
 
     // Nor can a stranger use admin routes.
-    for path in ["/api/invites", "/api/admin/users"] {
-        assert_eq!(get(&app, &st, path).await.0, StatusCode::FORBIDDEN, "{path}");
+    for path in ["/api/invites", "/api/admin/users", "/api/admin/usage", "/api/admin/server", "/api/admin/lab-runs"] {
+        assert_eq!(get(&app, &st, path).await.0, StatusCode::NOT_FOUND, "{path}");
     }
 }
 

@@ -1,12 +1,18 @@
 import { NavLink, Outlet, Route, Routes } from "react-router";
+import { AdminLayout } from "./admin/AdminLayout";
+import { LabRunsPage } from "./admin/LabRuns";
+import { PeoplePage } from "./admin/People";
+import { ServerPage } from "./admin/Server";
+import { UsagePage } from "./admin/Usage";
 import { Login, useMe } from "./auth";
 import { RailMe } from "./components/RailMe";
-import { CardsIcon, CollectionIcon, DecksIcon, GroupIcon, PlayIcon, TableIcon } from "./components/icons";
+import { AdminIcon, CardsIcon, CollectionIcon, DecksIcon, GroupIcon, PlayIcon, TableIcon } from "./components/icons";
 import { ErrorText } from "./components/ui";
 import { Wordmark } from "./components/Wordmark";
 import { CardsPage } from "./pages/Cards";
 import { CollectionPage } from "./pages/Collection";
 import { DeckPage, DecksPage } from "./pages/Decks";
+import { ImportPage } from "./decks/ImportPage";
 import { GroupPage } from "./pages/Group";
 import { LabLayout } from "./lab/LabLayout";
 import { PreconDetailPage } from "./lab/PreconDetail";
@@ -33,6 +39,7 @@ import { WatchGame } from "./play/WatchGame";
 import { WatchHome } from "./play/WatchHome";
 
 function Shell() {
+  const me = useMe();
   const tabs = [
     { to: "/", label: "Table", icon: <TableIcon />, end: true },
     { to: "/play", label: "Play", icon: <PlayIcon /> },
@@ -54,6 +61,13 @@ function Shell() {
               <span>{t.label}</span>
             </NavLink>
           ))}
+          {/* Admins only, and only in the laptop rail; phones reach it from Group, You. */}
+          {me.data?.is_admin && (
+            <NavLink to="/admin" className="nav-admin">
+              <AdminIcon />
+              <span>Admin</span>
+            </NavLink>
+          )}
           <RailMe />
         </div>
       </nav>
@@ -114,9 +128,16 @@ export function App() {
           <Route path="runs/batch/:id" element={<BatchPage />} />
           <Route path="runs/:id" element={<RunPage />} />
         </Route>
+        <Route path="decks/import" element={<ImportPage />} />
         <Route path="decks/:id" element={<DeckPage />} />
         <Route path="group" element={<GroupPage />} />
         <Route path="new" element={<WhatsNewPage />} />
+        <Route path="admin" element={<AdminLayout />}>
+          <Route index element={<PeoplePage />} />
+          <Route path="usage" element={<UsagePage />} />
+          <Route path="server" element={<ServerPage />} />
+          <Route path="lab" element={<LabRunsPage />} />
+        </Route>
       </Route>
     </Routes>
   );

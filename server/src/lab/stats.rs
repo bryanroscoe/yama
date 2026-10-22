@@ -698,6 +698,7 @@ mod tests {
             max_turns: 120,
             max_actions: 200_000,
             max_seconds: 600,
+            pilots: None,
         }
     }
 

@@ -56,7 +56,7 @@ export interface User {
   limited?: boolean;
 }
 
-/** An account in the admins' list (Group, You, Accounts). */
+/** An account in the admin area's People list. */
 export interface AccountInfo {
   id: string;
   email: string;
@@ -69,6 +69,8 @@ export interface AccountInfo {
   disabled_at: string | null;
   created_at: string;
   last_sign_in: string | null;
+  /** When the account last used Yama, to the hour. Null before the admin area existed. */
+  last_seen_at?: string | null;
 }
 
 export interface Card {
