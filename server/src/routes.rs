@@ -36,6 +36,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::calendar::router())
         .merge(crate::collection::router())
         .merge(crate::decks::router())
+        .merge(crate::deck_import::router())
         .merge(crate::playgroups::router())
         .merge(crate::games::router())
         .merge(crate::game_export::router())

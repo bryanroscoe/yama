@@ -380,14 +380,19 @@ async fn data_status(State(st): State<AppState>, _user: CurrentUser) -> AppResul
     }))
 }
 
-/// Resolve card names (any face, any case) to oracle IDs. Unknown names are left out.
+/// Resolve card names (any face, any case) to oracle IDs. Unknown names are left out. One card
+/// each: real cards before tokens, a card's own name before another
+/// card's face ("Swords to Plowshares" is also the back of Emeritus of Truce), then the more played
+/// card when two share a face name ("Fire" is in Fire // Ice and Start // Fire).
 pub async fn resolve_names(pool: &SqlitePool, names: &[String]) -> AppResult<HashMap<String, String>> {
     let mut out = HashMap::new();
     for name in names {
         let key = name.trim();
         let hit: Option<String> = sqlx::query_scalar(
             "SELECT n.oracle_id FROM card_names n JOIN cards c ON c.oracle_id = n.oracle_id
-             WHERE n.name = ? ORDER BY IFNULL(c.layout,'') IN ('token','double_faced_token','art_series') LIMIT 1",
+             WHERE n.name = ?
+             ORDER BY IFNULL(c.layout,'') IN ('token','double_faced_token','art_series'), c.name = n.name COLLATE NOCASE DESC,
+                      IFNULL(c.edhrec_rank, 1000000000) LIMIT 1",
         )
         .bind(key)
         .fetch_optional(pool)

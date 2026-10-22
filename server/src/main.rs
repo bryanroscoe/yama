@@ -6,6 +6,7 @@ mod collection;
 mod config;
 mod db;
 mod deck_checks;
+mod deck_import;
 mod decks;
 mod error;
 mod game_export;

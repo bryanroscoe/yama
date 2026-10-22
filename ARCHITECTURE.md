@@ -349,6 +349,15 @@ Bryan (2026-10-22): "I'd love to have two AIs playing each other here too." Play
 - **Board:** the online board with `watch` (`web/src/play/Board.tsx`): the spectator layout with no hand or decision area. `WatchControls` sits where the decision would be (play and pause on Space, Next move on the right arrow, speed, Show every hand, Watch from any seat) and becomes the end card with the winner's commander art, Watch again and Set up another. With hands face up, the bottom seat's hand shows in the fan and every opponent's hand count opens their hand.
 - **LLM seats:** `watch::ExternalPilot` is the hook. Every seat also has phase's AI; a seat with a pilot is asked first whenever it must decide, and phase's AI answers when the pilot returns nothing or the engine refuses its choice, so a slow or confused pilot can't stall the game. Nothing implements it yet, and the API refuses `{"kind":"llm"}` seats.
 
+### Deck import (2026-10-22)
+
+Bryan (2026-10-22): "we need to work on importing decks. Make that better." Add a deck is a page now (`/decks/import`, `web/src/decks/ImportPage.tsx`); docs/deck-import.md has the sources and what each site allows.
+
+- **Getting the list out:** a guide per source (Moxfield, Archidekt, Arena, MTGO, ManaBox, Mythic Tools, TappedOut, Deckstats, EDHREC, MTGGoldfish, typed), in `web/src/decks/guides.ts`. In: paste, files (.txt, .dek, .csv, .json; several at once), drag and drop, the clipboard button, and Android's share sheet (the manifest's `share_target` opens `/decks/import?text=&url=&title=`).
+- **Reading it** (`server/src/deck_import/`, `POST /api/decks/import/preview`): `formats.rs` reads every format into one shape; `names.rs` matches names (exact, then forgiving, then suggestions); `links.rs` recognizes deck links and fetches only from sites switched on in `YAMA_DECK_LINK_SOURCES` (none by default: Moxfield doesn't allow it, Archidekt's terms need permission). Nothing is saved by the preview.
+- **Checking it** (`web/src/decks/importLogic.ts`): count to 100, commander (marked, guessed or picked), colour identity, extra copies, unknown names with "did you mean" buttons. Count, colours and copies warn; only unknown names and a missing name block saving.
+- **Saving:** the deck routes, with the cards and the printings the source named (`prints`, kept in `deck_prints`, migration 0013; exports prefer an owned copy, then this printing, then a paper default). "Update from a list" on a deck's page saves a new version and shows what goes in and out first.
+
 ## 11. Risks
 
 - **Legal and IP:**

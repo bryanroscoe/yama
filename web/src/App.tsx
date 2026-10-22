@@ -7,6 +7,7 @@ import { Wordmark } from "./components/Wordmark";
 import { CardsPage } from "./pages/Cards";
 import { CollectionPage } from "./pages/Collection";
 import { DeckPage, DecksPage } from "./pages/Decks";
+import { ImportPage } from "./decks/ImportPage";
 import { GroupPage } from "./pages/Group";
 import { LabLayout } from "./lab/LabLayout";
 import { PreconDetailPage } from "./lab/PreconDetail";
@@ -112,6 +113,7 @@ export function App() {
           <Route path="runs/batch/:id" element={<BatchPage />} />
           <Route path="runs/:id" element={<RunPage />} />
         </Route>
+        <Route path="decks/import" element={<ImportPage />} />
         <Route path="decks/:id" element={<DeckPage />} />
         <Route path="group" element={<GroupPage />} />
         <Route path="new" element={<WhatsNewPage />} />
