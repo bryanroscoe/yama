@@ -48,6 +48,8 @@ use serde_json::{Value, json};
 use sqlx::{AssertSqlSafe, SqliteConnection, SqlitePool};
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
+use super::forge::{self, EngineMode, Engines, ForgeAccess, ForgeCards};
 use yama_play::lab::{ENGINE, GameSpec, RUNNER};
 
 /// What an experiment compares (see the module docs).
@@ -85,6 +87,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/lab/experiments/{id}/again", post(again_handler))
         .route("/api/lab/experiments/{id}/pods", get(pods_handler))
         .route("/api/lab/pace", get(pace_handler))
+        .route("/api/lab/engines/check", post(engines_check_handler))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
 
@@ -479,6 +482,13 @@ pub struct NewExperiment {
     pub field: Option<FieldChoice>,
     pub games: u32,
     pub difficulty: Option<String>,
+    /// "phase" (the default), "forge" or "both" (every pod on each engine, side by side).
+    #[serde(default)]
+    pub engine: Option<String>,
+    /// Forge's AI profile when Forge plays: Default (the default), Cautious, Reckless or
+    /// Experimental.
+    #[serde(default)]
+    pub forge_ai: Option<String>,
 }
 
 /// kind: "deck_version" (id: a version of one of your decks), "deck" (id: one of your decks, its
@@ -599,6 +609,70 @@ pub struct ExperimentSpec {
     pub entrants: Vec<LabList>,
     pub opponents: Vec<Opponent>,
     pub warnings: Vec<String>,
+    /// Which engines play its games (missing on runs from before Forge: phase).
+    #[serde(default)]
+    pub engines: Engines,
+}
+
+/// What decides whether a list can be simulated in a run: phase's card support (unless only
+/// Forge plays) and, when Forge plays, the Forge worker's answers about card names.
+pub(crate) struct Check<'a> {
+    pub sim: &'a dyn Simulator,
+    pub phase: bool,
+    pub forge: Option<&'a ForgeCards>,
+}
+
+impl Check<'_> {
+    /// Names in `cards` an engine of the run can't play.
+    pub fn unknown(&self, cards: &[LabCard]) -> Vec<String> {
+        let mut out = if self.phase { self.sim.unknown(cards) } else { vec![] };
+        if let Some(f) = self.forge {
+            for n in f.unknown(cards, false) {
+                if !out.contains(&n) {
+                    out.push(n);
+                }
+            }
+        }
+        out
+    }
+    pub fn card_data(&self) -> String {
+        self.sim.card_data()
+    }
+}
+
+/// One scheduled game and the engine that plays it.
+pub(crate) struct EngineGame {
+    pub game: pairing::ScheduledGame,
+    pub engine: &'static str,
+}
+
+/// The games of a run for its engines. Forge copies get Forge's longer wall-clock limit; in a
+/// "both" run they get their own ids ("…-f") and come after every phase game, at an even offset,
+/// so a pod's two games stay adjacent in both halves.
+pub(crate) fn for_engines(games: Vec<pairing::ScheduledGame>, mode: EngineMode) -> Vec<EngineGame> {
+    let forge_copy = |mut g: pairing::ScheduledGame| {
+        g.spec.max_seconds = forge::FORGE_MAX_SECONDS;
+        g
+    };
+    match mode {
+        EngineMode::Phase => games.into_iter().map(|game| EngineGame { game, engine: "phase" }).collect(),
+        EngineMode::Forge => games.into_iter().map(|g| EngineGame { game: forge_copy(g), engine: "forge" }).collect(),
+        EngineMode::Both => {
+            let offset = (games.iter().map(|g| g.ord).max().unwrap_or(-1) + 2) & !1;
+            let forge: Vec<EngineGame> = games
+                .iter()
+                .cloned()
+                .map(|g| {
+                    let mut g = forge_copy(g);
+                    g.game = format!("{}-f", g.game);
+                    g.spec.game = g.game.clone();
+                    g.ord += offset;
+                    EngineGame { game: g, engine: "forge" }
+                })
+                .collect();
+            games.into_iter().map(|game| EngineGame { game, engine: "phase" }).chain(forge).collect()
+        }
+    }
 }
 
 // ── building an experiment ──────────────────────────────────────────────────
@@ -751,7 +825,7 @@ fn shown(names: &[String]) -> String {
 /// The opponents for `choice`, topped up when a pick of decks (my_decks, precons_ids) is too small
 /// to fill a pod: the picked decks then sit in every pod (`FieldInfo::every_pod`) and precons fill
 /// the other seats (nearest in strength, else the strongest, else any).
-async fn field_for(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base: &Base, others: &[&Base], base_commanders: &[String], sim: &dyn Simulator) -> AppResult<Field> {
+async fn field_for(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base: &Base, others: &[&Base], base_commanders: &[String], sim: &Check<'_>) -> AppResult<Field> {
     let field = build_field(pool, owner, choice, base, others, base_commanders, sim).await?;
     let picked = matches!(choice.kind.as_str(), "my_decks" | "precons_ids");
     if !picked || field.opponents.is_empty() || field.opponents.len() >= MIN_FIELD {
@@ -798,7 +872,7 @@ async fn field_for(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base: &
 
 /// The opponents for `choice`. `base` sets "similar strength"; it and `others` (the other lists
 /// being tested) are never in the field.
-async fn build_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base: &Base, others: &[&Base], base_commanders: &[String], sim: &dyn Simulator) -> AppResult<Field> {
+async fn build_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base: &Base, others: &[&Base], base_commanders: &[String], sim: &Check<'_>) -> AppResult<Field> {
     if choice.ids.len() > MAX_FIELD {
         return Err(AppError::bad(format!("field.ids: at most {MAX_FIELD} decks")));
     }
@@ -920,7 +994,7 @@ async fn build_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, base:
     Ok(Field { opponents, info, warnings })
 }
 
-async fn my_decks_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, tested: &[&str], sim: &dyn Simulator) -> AppResult<Field> {
+async fn my_decks_field(pool: &SqlitePool, owner: &str, choice: &FieldChoice, tested: &[&str], sim: &Check<'_>) -> AppResult<Field> {
     let explicit = !choice.ids.is_empty();
     let mut rows: Vec<(String, String, String)> = Vec::new();
     let mut warnings = Vec::new();
@@ -1042,7 +1116,7 @@ fn default_name(base: &str, variant: &VariantDisplay, text_variant: bool) -> Str
 /// [`create_with`] under the default lab caps (tests; the server passes its configured caps).
 #[cfg(test)]
 pub async fn create(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dyn Simulator) -> AppResult<ExperimentDetail> {
-    create_with(pool, user, req, sim, &LabQuota::default()).await
+    create_with(pool, user, req, sim, &LabQuota::default(), &ForgeAccess::default()).await
 }
 
 /// The experiment with this owner's op id, if a create already used it.
@@ -1094,7 +1168,7 @@ fn per_list(per: &[(Which, Vec<String>)]) -> Value {
 
 /// Refuse lists with cards Yama or the rules engine doesn't know (`known` adds the names a pasted
 /// list already couldn't find).
-fn refuse_unknown(lists: &[(Which, &LabList, &[String])], sim: &dyn Simulator) -> AppResult<()> {
+fn refuse_unknown(lists: &[(Which, &LabList, &[String])], sim: &Check<'_>) -> AppResult<()> {
     let mut per: Vec<(Which, Vec<String>)> = Vec::new();
     for (w, list, known) in lists {
         let mut u: Vec<String> = known.to_vec();
@@ -1170,34 +1244,132 @@ struct Built {
 
 /// Check the request, freeze the lists and the field, schedule the games and store it all. With an
 /// `op_id` the owner already used, returns that experiment unchanged.
-pub async fn create_with(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dyn Simulator, quota: &LabQuota) -> AppResult<ExperimentDetail> {
+pub async fn create_with(
+    pool: &SqlitePool,
+    user: &User,
+    req: NewExperiment,
+    sim: &dyn Simulator,
+    quota: &LabQuota,
+    fa: &ForgeAccess,
+) -> AppResult<ExperimentDetail> {
     let op_id = req.op_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
     if let Some(d) = by_op_id(pool, user, op_id.as_deref()).await? {
         return Ok(d);
     }
     let mode = Mode::parse(req.mode.as_deref())?;
+    let engines = engines_for(&req, fa)?;
     check_games(user, req.games)?;
     let difficulty = canonical_difficulty(req.difficulty.as_deref().unwrap_or(DEFAULT_DIFFICULTY))?;
     if !user.is_admin && !USER_DIFFICULTIES.contains(&difficulty.as_str()) {
         return Err(AppError::bad("difficulty must be Easy or Medium"));
     }
+    let cost = engines.mode.cost(req.games);
     // Refuse a user at the limit before building anything; it is checked again where it counts,
     // in the transaction that stores the experiment.
-    check_allowance(&mut *pool.acquire().await?, user, req.games, quota, false).await?;
+    check_allowance(&mut *pool.acquire().await?, user, cost, quota, false).await?;
 
+    // With Forge playing, Forge's answers about every card a field could use (precons and the
+    // owner's decks), so precons Forge can't play are left out like phase's.
+    let (forge_cards, forge_warning) = if engines.mode.forge() { forge_cards_for(pool, &user.id, fa).await? } else { (None, None) };
+    let chk = Check { sim, phase: engines.mode.phase(), forge: forge_cards.as_deref() };
     let id = new_id();
     let seed = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().expect("8 bytes"));
-    let built = match mode {
-        Mode::Change => build_change(pool, user, &req, sim, &id, seed, &difficulty).await?,
-        Mode::Solo => build_solo(pool, user, &req, sim, &id, seed, &difficulty).await?,
-        Mode::Compare => build_compare(pool, user, &req, sim, &id, seed, &difficulty).await?,
-        Mode::Versus => build_versus(pool, user, &req, sim, &id, seed, &difficulty).await?,
+    let mut built = match mode {
+        Mode::Change => build_change(pool, user, &req, &chk, &id, seed, &difficulty).await?,
+        Mode::Solo => build_solo(pool, user, &req, &chk, &id, seed, &difficulty).await?,
+        Mode::Compare => build_compare(pool, user, &req, &chk, &id, seed, &difficulty).await?,
+        Mode::Versus => build_versus(pool, user, &req, &chk, &id, seed, &difficulty).await?,
     };
+    // A pasted list's names weren't asked about yet: ask now, and refuse what Forge can't play.
+    if let (Some(cards), Some(client)) = (&forge_cards, &fa.client) {
+        refuse_forge_unknown(client.as_ref(), cards, &built.spec).await?;
+    }
+    built.spec.warnings.extend(forge_warning);
+    built.spec.engines = engines;
     let name = req.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(clip).unwrap_or(built.name);
-    store_new(pool, user, &id, op_id.as_deref(), &name, &built.spec, &built.games, req.games, sim, quota).await
+    let mode = built.spec.engines.mode;
+    let games = for_engines(built.games, mode);
+    store_new(pool, user, &id, op_id.as_deref(), &name, &built.spec, &games, cost, &chk, quota, fa.engine.as_deref()).await
 }
 
-async fn build_change(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &dyn Simulator, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
+/// The engines a request asks for. Forge needs this server's Forge worker (it may be offline:
+/// its games then wait).
+fn engines_for(req: &NewExperiment, fa: &ForgeAccess) -> AppResult<Engines> {
+    let mode = EngineMode::parse(req.engine.as_deref()).map_err(AppError::bad)?;
+    if !mode.forge() {
+        return Ok(Engines { mode, forge_ai: None });
+    }
+    if fa.client.is_none() {
+        return Err(AppError::Unavailable("Forge isn't set up on this server, so runs use phase only".into()));
+    }
+    Ok(Engines { mode, forge_ai: Some(forge::canonical_profile(req.forge_ai.as_deref()).map_err(AppError::bad)?) })
+}
+
+/// Every card name a field for `owner` could use: the precons and the owner's decks.
+async fn field_names(pool: &SqlitePool, owner: &str) -> AppResult<Vec<String>> {
+    let mut names: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT json_extract(c.value, '$.name') FROM precons p, json_each(p.cards) c WHERE json_extract(c.value, '$.name') IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    let decks: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT json_extract(c.value, '$.name') FROM decks d JOIN deck_versions v ON v.id = d.current_version_id, json_each(v.cards) c
+         WHERE d.owner_id = ? AND d.archived = 0 AND json_extract(c.value, '$.name') IS NOT NULL",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    names.extend(decks);
+    Ok(names)
+}
+
+/// Forge's answers about every name a field could use, or a warning when they can't be had (the
+/// worker is offline: the run is made anyway, and its Forge games wait for the worker).
+async fn forge_cards_for(pool: &SqlitePool, owner: &str, fa: &ForgeAccess) -> AppResult<(Option<Arc<ForgeCards>>, Option<String>)> {
+    const UNCHECKED: &str = "games with cards Forge doesn't know will end as errors";
+    let (Some(client), Some(cards)) = (&fa.client, &fa.cards) else {
+        return Ok((None, Some(format!("The Forge worker is offline, so Forge's card support wasn't checked: {UNCHECKED}. Its games wait until it is back."))));
+    };
+    match forge::ensure_cards(client.as_ref(), cards, field_names(pool, owner).await?).await {
+        Ok(()) => Ok((Some(Arc::clone(cards)), None)),
+        Err(e) => Ok((None, Some(format!("Forge's card support couldn't be checked ({e}): {UNCHECKED}.")))),
+    }
+}
+
+/// The lists a run tests, as the error details name them.
+fn tested_lists(spec: &ExperimentSpec) -> Vec<(Which, &LabList)> {
+    match spec.mode {
+        Mode::Versus => spec.entrants.iter().enumerate().map(|(i, l)| (Which::Entrant(i), l)).collect(),
+        Mode::Compare => std::iter::once((Which::DeckA, &spec.base)).chain(spec.variant.iter().map(|v| (Which::DeckB, v))).collect(),
+        _ => std::iter::once((Which::Base, &spec.base)).chain(spec.variant.iter().map(|v| (Which::Variant, v))).collect(),
+    }
+}
+
+/// Refuse a run whose tested lists have cards Forge doesn't know (asking the worker about any
+/// name it hasn't been asked about). A failed check refuses nothing: the games will say so.
+async fn refuse_forge_unknown(client: &dyn forge::ForgeClient, cards: &ForgeCards, spec: &ExperimentSpec) -> AppResult<()> {
+    let lists = tested_lists(spec);
+    let names: Vec<String> = lists.iter().flat_map(|(_, l)| l.cards.iter().map(|c| c.name.clone())).collect();
+    if forge::ensure_cards(client, cards, names).await.is_err() {
+        return Ok(());
+    }
+    let per: Vec<(Which, Vec<String>)> = lists.iter().map(|(w, l)| (*w, cards.unknown(&l.cards, false))).collect();
+    if per.iter().all(|(_, u)| u.is_empty()) {
+        return Ok(());
+    }
+    let mut all: Vec<String> = Vec::new();
+    for n in per.iter().flat_map(|(_, u)| u) {
+        if !all.contains(n) {
+            all.push(n.clone());
+        }
+    }
+    Err(AppError::Invalid {
+        message: format!("Forge can't play these cards ({} doesn't know them): {}. Run on phase only, or swap them out.", cards.engine(), shown(&all)),
+        details: json!({"unknown": per_list(&per), "engine": "forge"}),
+    })
+}
+
+async fn build_change(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &Check<'_>, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
     let base_choice = req.base.as_ref().ok_or_else(|| AppError::bad("base is required"))?;
     let base = base_list(pool, &user.id, base_choice).await?;
     let (variant, variant_unknown, change_problems) = variant_list(pool, &base.list, &req.variant).await?;
@@ -1242,11 +1414,12 @@ async fn build_change(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: 
         entrants: vec![],
         opponents,
         warnings,
+        engines: Engines::default(),
     };
     Ok(Built { spec, name, games })
 }
 
-async fn build_solo(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &dyn Simulator, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
+async fn build_solo(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &Check<'_>, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
     let base_choice = req.base.as_ref().ok_or_else(|| AppError::bad("base is required"))?;
     let base = base_list(pool, &user.id, base_choice).await?;
     refuse_unknown(&[(Which::Base, &base.list, &base.unknown)], sim)?;
@@ -1279,11 +1452,12 @@ async fn build_solo(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &d
         entrants: vec![],
         opponents,
         warnings,
+        engines: Engines::default(),
     };
     Ok(Built { spec, name, games })
 }
 
-async fn build_compare(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &dyn Simulator, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
+async fn build_compare(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &Check<'_>, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
     let a_choice = req.base.as_ref().ok_or_else(|| AppError::bad("base is required: the first deck"))?;
     let b_choice = req.other.as_ref().ok_or_else(|| AppError::bad("other is required: the second deck"))?;
     let a = pick_list(pool, &user.id, a_choice, BASE_ID, Which::DeckA).await?;
@@ -1329,11 +1503,12 @@ async fn build_compare(pool: &SqlitePool, user: &User, req: &NewExperiment, sim:
         entrants: vec![],
         opponents,
         warnings,
+        engines: Engines::default(),
     };
     Ok(Built { spec, name, games })
 }
 
-async fn build_versus(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &dyn Simulator, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
+async fn build_versus(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &Check<'_>, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
     let n = req.entrants.len();
     if !(MIN_ENTRANTS..=MAX_ENTRANTS).contains(&n) {
         return Err(AppError::bad(format!("entrants: pick {MIN_ENTRANTS} to {MAX_ENTRANTS} decks to play each other")));
@@ -1402,6 +1577,7 @@ async fn build_versus(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: 
         entrants,
         opponents,
         warnings,
+        engines: Engines::default(),
     };
     Ok(Built { spec, name, games })
 }
@@ -1416,13 +1592,21 @@ async fn store_new(
     op_id: Option<&str>,
     name: &str,
     spec: &ExperimentSpec,
-    games: &[pairing::ScheduledGame],
-    total: u32,
-    sim: &dyn Simulator,
+    games: &[EngineGame],
+    cost: u32,
+    sim: &Check<'_>,
     quota: &LabQuota,
+    forge_engine: Option<&str>,
 ) -> AppResult<ExperimentDetail> {
-    debug_assert_eq!(games.len(), total as usize);
+    let total = games.len() as i64;
     let stamp = now();
+    // The run's label until its first results are in (then the result lines' builds are shown).
+    let forge_label = forge_engine.unwrap_or("forge");
+    let (engine, card_data, runner, difficulty) = match spec.engines.mode {
+        EngineMode::Phase => (ENGINE.to_string(), sim.card_data(), RUNNER.to_string(), spec.difficulty.clone()),
+        EngineMode::Forge => (forge_label.to_string(), format!("{forge_label} card scripts"), "yama forge worker".to_string(), spec.engines.profile().to_string()),
+        EngineMode::Both => (format!("{ENGINE}, {forge_label}"), sim.card_data(), RUNNER.to_string(), spec.difficulty.clone()),
+    };
     let mut tx = pool.begin().await?;
     // Writing first takes SQLite's write lock: a concurrent create by the same owner waits, so the
     // op id and the limit below are checked one request at a time.
@@ -1436,11 +1620,11 @@ async fn store_new(
     .bind(op_id)
     .bind(name)
     .bind(serde_json::to_string(spec).map_err(anyhow::Error::from)?)
-    .bind(i64::from(total))
-    .bind(ENGINE)
-    .bind(sim.card_data())
-    .bind(RUNNER)
-    .bind(&spec.difficulty)
+    .bind(total)
+    .bind(engine)
+    .bind(card_data)
+    .bind(runner)
+    .bind(difficulty)
     .bind(&stamp)
     .bind(&stamp)
     .execute(&mut *tx)
@@ -1452,24 +1636,24 @@ async fn store_new(
         let id: String = sqlx::query_scalar("SELECT id FROM lab_experiments WHERE owner_id = ? AND op_id = ?").bind(&user.id).bind(op_id).fetch_one(pool).await?;
         return detail(pool, &user.id, &id).await;
     }
-    check_allowance(&mut tx, user, total, quota, true).await?;
+    check_allowance(&mut tx, user, cost, quota, true).await?;
     sqlx::query("INSERT INTO lab_usage (experiment_id, owner_id, games, created_at) VALUES (?,?,?,?)")
         .bind(id)
         .bind(&user.id)
-        .bind(i64::from(total))
+        .bind(i64::from(cost))
         .bind(&stamp)
         .execute(&mut *tx)
         .await?;
-    const COLS: usize = 4;
+    const COLS: usize = 5;
     const CHUNK: usize = 200;
     for chunk in games.chunks(CHUNK) {
-        let placeholders = vec!["(?,?,?,?)"; chunk.len()].join(",");
+        let placeholders = vec!["(?,?,?,?,?)"; chunk.len()].join(",");
         debug_assert_eq!(placeholders.matches('?').count(), chunk.len() * COLS);
-        let sql = format!("INSERT INTO lab_experiment_games (experiment_id, game, ord, spec) VALUES {placeholders}");
+        let sql = format!("INSERT INTO lab_experiment_games (experiment_id, game, ord, spec, engine) VALUES {placeholders}");
         // Only placeholders are interpolated; every value is bound.
         let mut q = sqlx::query(AssertSqlSafe(sql));
         for g in chunk {
-            q = q.bind(id).bind(&g.game).bind(g.ord).bind(serde_json::to_string(&g.spec).map_err(anyhow::Error::from)?);
+            q = q.bind(id).bind(&g.game.game).bind(g.game.ord).bind(serde_json::to_string(&g.game.spec).map_err(anyhow::Error::from)?).bind(g.engine);
         }
         q.execute(&mut *tx).await?;
     }
@@ -1492,12 +1676,22 @@ fn without_games_suffix(name: &str) -> &str {
 /// [`again_with`] under the default lab caps (tests).
 #[cfg(test)]
 pub async fn again(pool: &SqlitePool, user: &User, id: &str, games: u32, op_id: Option<&str>, sim: &dyn Simulator) -> AppResult<ExperimentDetail> {
-    again_with(pool, user, id, games, op_id, sim, &LabQuota::default()).await
+    again_with(pool, user, id, games, op_id, sim, &LabQuota::default(), &ForgeAccess::default()).await
 }
 
 /// Run one of the owner's experiments again with `games` games: the same frozen lists, opponents,
 /// AI level and mode, a new seed. Anyone else's experiment is "not found".
-pub async fn again_with(pool: &SqlitePool, user: &User, id: &str, games: u32, op_id: Option<&str>, sim: &dyn Simulator, quota: &LabQuota) -> AppResult<ExperimentDetail> {
+#[allow(clippy::too_many_arguments)]
+pub async fn again_with(
+    pool: &SqlitePool,
+    user: &User,
+    id: &str,
+    games: u32,
+    op_id: Option<&str>,
+    sim: &dyn Simulator,
+    quota: &LabQuota,
+    fa: &ForgeAccess,
+) -> AppResult<ExperimentDetail> {
     let op_id = op_id.map(str::trim).filter(|s| !s.is_empty());
     if let Some(d) = by_op_id(pool, user, op_id).await? {
         return Ok(d);
@@ -1513,7 +1707,33 @@ pub async fn again_with(pool: &SqlitePool, user: &User, id: &str, games: u32, op
     if !user.is_admin && !USER_DIFFICULTIES.contains(&old.difficulty.as_str()) {
         return Err(AppError::bad("difficulty must be Easy or Medium"));
     }
-    check_allowance(&mut *pool.acquire().await?, user, games, quota, false).await?;
+    let engines = old.engines.clone();
+    if engines.mode.forge() && fa.client.is_none() {
+        return Err(AppError::Unavailable("Forge isn't set up on this server any more; start a new run on phase".into()));
+    }
+    let cost = engines.mode.cost(games);
+    check_allowance(&mut *pool.acquire().await?, user, cost, quota, false).await?;
+    // With Forge playing, ask the worker about every list's names first (when it's online).
+    let mut forge_warning = None;
+    let forge_cards = match (engines.mode.forge(), &fa.client, &fa.cards) {
+        (true, Some(client), Some(cards)) => {
+            let names = std::iter::once(&old.base).chain(old.variant.iter()).chain(old.entrants.iter()).chain(old.opponents.iter().map(|o| &o.list));
+            match forge::ensure_cards(client.as_ref(), cards, names.flat_map(|l| l.cards.iter().map(|c| c.name.clone())).collect::<Vec<_>>()).await {
+                Ok(()) => Some(Arc::clone(cards)),
+                Err(e) => {
+                    forge_warning = Some(format!("Forge's card support couldn't be checked ({e}): games with cards Forge doesn't know will end as errors."));
+                    None
+                }
+            }
+        }
+        (true, _, _) => {
+            forge_warning = Some("The Forge worker is offline, so Forge's card support wasn't checked. Its games wait until it is back.".to_string());
+            None
+        }
+        _ => None,
+    };
+    let chk = Check { sim, phase: engines.mode.phase(), forge: forge_cards.as_deref() };
+    let sim = &chk;
     // The engine may have changed since: every list must still be playable.
     let mut tested: Vec<(Which, &LabList, &[String])> = vec![];
     match old.mode {
@@ -1559,11 +1779,13 @@ pub async fn again_with(pool: &SqlitePool, user: &User, id: &str, games: u32, op
         }
     };
     let per_pod = matches!(old.mode, Mode::Change | Mode::Compare);
-    let spec = ExperimentSpec { seed, pods, opponents: used_opponents(field, &scheduled, per_pod), limits: LIMITS, ..old };
+    let mut spec = ExperimentSpec { seed, pods, opponents: used_opponents(field, &scheduled, per_pod), limits: LIMITS, ..old };
+    spec.warnings.extend(forge_warning);
     let suffix = format!(" ({games} games)");
     let stem = without_games_suffix(&old_name);
     let name = format!("{}{suffix}", stem.chars().take(MAX_NAME.saturating_sub(suffix.chars().count())).collect::<String>());
-    store_new(pool, user, &new_id, op_id, &name, &spec, &scheduled, games, sim, quota).await
+    let games = for_engines(scheduled, engines.mode);
+    store_new(pool, user, &new_id, op_id, &name, &spec, &games, cost, sim, quota, fa.engine.as_deref()).await
 }
 
 /// The owner's queued and running experiments.
@@ -1716,8 +1938,33 @@ pub struct ExperimentItem {
     /// compare: the two decks; versus: every deck. Empty otherwise.
     pub entrants: Vec<ListDisplay>,
     pub field: Option<FieldInfo>,
-    /// Results so far (null until the first game is in).
+    /// Results so far (null until the first game is in). In a "both" run, phase's half.
     pub summary: Option<Summary>,
+    /// Which engines play the run, and Forge's AI profile.
+    pub engines: Engines,
+    /// A "both" run's Forge half (null otherwise, and until its first game is in).
+    pub summary_forge: Option<Summary>,
+    /// A "both" run: whether the two engines agree, once both have results.
+    pub agreement: Option<super::stats::Agreement>,
+    /// Forge games played and scheduled (runs with Forge games only).
+    pub forge_games: Option<GameCount>,
+    /// The Forge worker, on runs with Forge games still to play (filled in by the handlers).
+    pub forge: Option<forge::ForgeView>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct GameCount {
+    pub done: i64,
+    pub total: i64,
+}
+
+impl ExperimentItem {
+    /// Add the Forge worker's state to a run that still waits for Forge games.
+    pub fn with_forge(&mut self, view: &forge::ForgeView) {
+        if self.forge_games.is_some_and(|g| g.done < g.total) && matches!(self.status.as_str(), "queued" | "running") {
+            self.forge = Some(view.clone());
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1769,10 +2016,19 @@ struct ExpRow {
     display: Option<String>,
     /// Players per game (missing on runs from before 1v1: four).
     pod: Option<i64>,
+    /// The Forge half of a "both" run.
+    summary_forge: Option<String>,
+    /// The run's engines (missing on runs from before Forge).
+    engines: Option<String>,
+    forge_total: i64,
+    forge_done: i64,
 }
 
 const EXP_COLUMNS: &str = "e.id, e.name, e.status, e.games_total, e.games_done, e.engine, e.card_data, e.runner, e.difficulty, e.summary, \
-    e.error, e.created_at, e.started_at, e.finished_at, e.updated_at, json_extract(e.spec, '$.display') AS display, json_extract(e.spec, '$.pod') AS pod";
+    e.error, e.created_at, e.started_at, e.finished_at, e.updated_at, json_extract(e.spec, '$.display') AS display, json_extract(e.spec, '$.pod') AS pod, \
+    e.summary_forge, json_extract(e.spec, '$.engines') AS engines, \
+    (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.engine = 'forge') AS forge_total, \
+    (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.engine = 'forge' AND g.result IS NOT NULL) AS forge_done";
 
 /// The lab's queue as `viewer` may see it: its recent pace and, per unfinished experiment, the
 /// games ahead of it and its own.
@@ -1788,14 +2044,15 @@ async fn queue(pool: &SqlitePool, viewer: &str) -> AppResult<Queue> {
     let admin: bool = sqlx::query_scalar("SELECT is_admin FROM users WHERE id = ?").bind(viewer).fetch_optional(pool).await?.unwrap_or(false);
     let (rate, _) = recent_rate(pool).await?;
     let pending: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT e.id, (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.result IS NULL)
+        "SELECT e.id, (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.result IS NULL AND g.engine = 'phase')
          FROM lab_experiments e WHERE e.status IN ('queued','running') ORDER BY e.created_at, e.rowid",
     )
     .fetch_all(pool)
     .await?;
     let mut ahead = HashMap::new();
     let mut before = 0;
-    for (id, own) in pending {
+    // The pace and the ETA are phase's: a run's Forge games are counted apart (`forge_games`).
+    for (id, own) in pending.into_iter().filter(|(_, own)| *own > 0) {
         ahead.insert(id, (before, own));
         before += own;
     }
@@ -1810,7 +2067,7 @@ async fn recent_rate(pool: &SqlitePool) -> AppResult<(Option<f64>, usize)> {
     let since = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let times: Vec<String> = sqlx::query_scalar(
         "SELECT g.finished_at FROM lab_experiment_games g
-         WHERE g.experiment_id IN (SELECT id FROM lab_experiments WHERE updated_at >= ?) AND g.finished_at >= ?
+         WHERE g.experiment_id IN (SELECT id FROM lab_experiments WHERE updated_at >= ?) AND g.finished_at >= ? AND g.engine = 'phase'
          ORDER BY g.finished_at DESC LIMIT 40",
     )
     .bind(&since)
@@ -1851,7 +2108,15 @@ impl ExpRow {
             None => (None, None),
         };
         let summary: Option<Summary> = self.summary.as_deref().and_then(|s| serde_json::from_str(s).ok());
-        let builds = summary.as_ref().map(|s| s.builds.clone()).unwrap_or_default();
+        let summary_forge: Option<Summary> = self.summary_forge.as_deref().and_then(|s| serde_json::from_str(s).ok());
+        let engines: Engines = self.engines.as_deref().and_then(|e| serde_json::from_str(e).ok()).unwrap_or_default();
+        let mode = display.as_ref().map(|d| d.mode).unwrap_or_default();
+        let agreement = match (&summary, &summary_forge) {
+            (Some(p), Some(f)) => Some(super::stats::agreement(mode == Mode::Versus, mode == Mode::Solo, p, f)),
+            _ => None,
+        };
+        let mut builds = summary.as_ref().map(|s| s.builds.clone()).unwrap_or_default();
+        builds.extend(summary_forge.as_ref().map(|s| s.builds.clone()).unwrap_or_default());
         let (engine, card_data, runner) = if builds.is_empty() {
             (self.engine, self.card_data, self.runner)
         } else {
@@ -1878,7 +2143,12 @@ impl ExpRow {
             },
             progress: Progress { done: self.games_done, total: self.games_total, eta_seconds: eta, games_ahead },
             summary,
-            mode: display.as_ref().map(|d| d.mode).unwrap_or_default(),
+            engines,
+            summary_forge,
+            agreement,
+            forge_games: (self.forge_total > 0).then_some(GameCount { done: self.forge_done, total: self.forge_total }),
+            forge: None,
+            mode,
             base: display.as_ref().map(|d| d.base.clone()),
             variant: display.as_ref().and_then(|d| d.variant.clone()),
             entrants: display.as_ref().map(|d| d.entrants.clone()).unwrap_or_default(),
@@ -2080,7 +2350,17 @@ fn versus_game(game: &str, seats: &[Option<String>], result: &str, finished_at: 
 
 /// The owner's experiment game by game, pod by pod (base and changed list side by side); anyone
 /// else's is "not found".
+#[cfg(test)]
 pub async fn pods(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Vec<PodView>> {
+    pods_for(pool, owner, id, None).await
+}
+
+/// The games of one engine of the run by pod: `engine` "phase" or "forge", or the run's first
+/// engine. Pods are numbered from 1 within each engine.
+pub async fn pods_for(pool: &SqlitePool, owner: &str, id: &str, engine: Option<&str>) -> AppResult<Vec<PodView>> {
+    if engine.is_some_and(|e| e != "phase" && e != "forge") {
+        return Err(AppError::bad("engine: use phase or forge"));
+    }
     let labels: Vec<(String, String)> = sqlx::query_as(
         "SELECT json_extract(o.value, '$.id'), json_extract(o.value, '$.label')
          FROM lab_experiments e, json_each(e.spec, '$.opponents') o WHERE e.id = ? AND e.owner_id = ?
@@ -2101,13 +2381,25 @@ pub async fn pods(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Vec<Pod
     };
     let versus = mode.as_deref() == Some("versus");
     let labels: HashMap<String, String> = labels.into_iter().collect();
-    let rows: Vec<(String, i64, String, Option<String>, Option<String>)> =
-        sqlx::query_as("SELECT game, ord, spec, result, finished_at FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord")
+    let engine: String = match engine {
+        Some(e) => e.to_string(),
+        None => sqlx::query_scalar("SELECT engine FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord LIMIT 1")
             .bind(id)
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or_else(|| "phase".to_string()),
+    };
+    let rows: Vec<(String, i64, String, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT game, ord, spec, result, finished_at FROM lab_experiment_games WHERE experiment_id = ? AND engine = ? ORDER BY ord")
+            .bind(id)
+            .bind(&engine)
             .fetch_all(pool)
             .await?;
+    // A "both" run's Forge games come after its phase games: number each engine's pods from 1.
+    let first = rows.first().map_or(0, |r| r.1 - r.1 % 2);
     let mut out: Vec<PodView> = Vec::new();
     for (game, ord, spec, result, finished_at) in rows {
+        let ord = ord - first;
         let Ok(spec) = serde_json::from_str::<GameSpec>(&spec) else { continue };
         if versus {
             let seats: Vec<Option<String>> = spec.decks.iter().map(|d| Some(labels.get(d).cloned().unwrap_or_else(|| d.clone()))).collect();
@@ -2174,6 +2466,12 @@ pub struct Pace {
     pub game_choices: Vec<u32>,
     /// The smaller allowance of an account that joined without an invite; null for anyone else.
     pub allowance: Option<Allowance>,
+    /// The Forge worker (filled in by the handler): whether Forge can be chosen, and how it is.
+    pub forge: forge::ForgeView,
+    /// Mean length in seconds of the last Forge games (null before any): a Forge game's time.
+    pub forge_seconds_per_game: Option<f64>,
+    /// What a Forge game counts as against the daily allowance.
+    pub forge_weight: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -2210,7 +2508,7 @@ pub async fn pace(pool: &SqlitePool, viewer: &User, threads: usize, available: R
                 "SELECT ms FROM (
                     SELECT CAST(CASE WHEN json_valid(g.result) THEN json_extract(g.result, '$.ms') END AS REAL) AS ms
                     FROM lab_experiment_games g
-                    WHERE g.experiment_id IN (SELECT id FROM lab_experiments ORDER BY created_at DESC LIMIT ?) AND g.result IS NOT NULL
+                    WHERE g.experiment_id IN (SELECT id FROM lab_experiments ORDER BY created_at DESC LIMIT ?) AND g.result IS NOT NULL AND g.engine = 'phase'
                  ) WHERE ms > 0 LIMIT ?",
             )
             .bind(PACE_EXPERIMENTS)
@@ -2227,11 +2525,23 @@ pub async fn pace(pool: &SqlitePool, viewer: &User, threads: usize, available: R
     };
     let your_pending: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM lab_experiment_games g JOIN lab_experiments e ON e.id = g.experiment_id
-         WHERE e.owner_id = ? AND e.status IN ('queued','running') AND g.result IS NULL",
+         WHERE e.owner_id = ? AND e.status IN ('queued','running') AND g.result IS NULL AND g.engine = 'phase'",
     )
     .bind(&viewer.id)
     .fetch_one(pool)
     .await?;
+    // A Forge game's length, from the last few (anyone's: a game's length says nothing about whose).
+    let forge_ms: Vec<f64> = sqlx::query_scalar(
+        "SELECT ms FROM (
+            SELECT CAST(CASE WHEN json_valid(g.result) THEN json_extract(g.result, '$.ms') END AS REAL) AS ms
+            FROM lab_experiment_games g
+            WHERE g.experiment_id IN (SELECT id FROM lab_experiments ORDER BY created_at DESC LIMIT ?) AND g.result IS NOT NULL AND g.engine = 'forge'
+         ) WHERE ms > 0 LIMIT 40",
+    )
+    .bind(PACE_EXPERIMENTS)
+    .fetch_all(pool)
+    .await?;
+    let forge_seconds_per_game = (!forge_ms.is_empty()).then(|| forge_ms.iter().sum::<f64>() / forge_ms.len() as f64 / 1000.0);
     let (available, message) = match available {
         Ok(()) => (true, None),
         Err(m) => (false, Some(m)),
@@ -2243,14 +2553,108 @@ pub async fn pace(pool: &SqlitePool, viewer: &User, threads: usize, available: R
         None => Vec::new(),
     };
     let (seconds_per_game, basis, sample) = if viewer.is_admin { (seconds_per_game, basis.map(String::from), Some(sample)) } else { (None, None, None) };
-    Ok(Pace { available, message, threads, estimates, seconds_per_game, basis, sample, your_pending, game_choices: choices.to_vec(), allowance: None })
+    Ok(Pace {
+        available,
+        message,
+        threads,
+        estimates,
+        seconds_per_game,
+        basis,
+        sample,
+        your_pending,
+        game_choices: choices.to_vec(),
+        allowance: None,
+        forge: forge::ForgeView::default(),
+        forge_seconds_per_game,
+        forge_weight: forge::FORGE_WEIGHT,
+    })
 }
 
 // ── handlers ────────────────────────────────────────────────────────────────
 
-async fn pods_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Vec<PodView>>> {
+#[derive(Debug, Deserialize)]
+pub struct PodsQuery {
+    /// "phase" or "forge": which half of a "both" run (default: the run's first engine).
+    pub engine: Option<String>,
+}
+
+async fn pods_handler(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<PodsQuery>,
+) -> AppResult<Json<Vec<PodView>>> {
     st.lab.check_available()?;
-    Ok(Json(pods(&st.pool, &user.id, &id).await?))
+    Ok(Json(pods_for(&st.pool, &user.id, &id, q.engine.as_deref()).await?))
+}
+
+/// Most extra names in one card-support check, and most lists.
+const MAX_CHECK_NAMES: usize = 400;
+const MAX_CHECK_LISTS: usize = MAX_ENTRANTS;
+
+#[derive(Debug, Deserialize)]
+pub struct EnginesCheck {
+    /// The lists a run would test (yours, precons, pasted).
+    #[serde(default)]
+    pub lists: Vec<BaseChoice>,
+    /// Other names, such as cards a change would add.
+    #[serde(default)]
+    pub names: Vec<String>,
+}
+
+/// The cards one list (or the extra names) has that each engine can't play.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ListSupport {
+    pub label: String,
+    pub phase: Vec<String>,
+    /// Null when Forge's answers can't be had (see `forge_note`).
+    pub forge: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct EngineSupport {
+    pub lists: Vec<ListSupport>,
+    pub extra: ListSupport,
+    pub forge_engine: Option<String>,
+    /// Why Forge's column is missing: not set up here, or the worker is offline.
+    pub forge_note: Option<String>,
+}
+
+/// The card support of the lists a run would test, per engine, before it is made. The lists are
+/// read with the owner's checks, as a run would read them.
+async fn engines_check_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: Bytes) -> AppResult<Json<EngineSupport>> {
+    let sim = st.lab.simulator()?;
+    let req: EnginesCheck = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
+    if req.names.len() > MAX_CHECK_NAMES || req.lists.len() > MAX_CHECK_LISTS {
+        return Err(AppError::bad(format!("at most {MAX_CHECK_LISTS} lists and {MAX_CHECK_NAMES} names")));
+    }
+    let mut lists: Vec<LabList> = Vec::new();
+    for (i, b) in req.lists.iter().enumerate() {
+        lists.push(pick_list(&st.pool, &user.id, b, &format!("e{i}"), Which::Entrant(i)).await?.list);
+    }
+    let mut names: Vec<String> = req.names.into_iter().map(|n| n.trim().to_string()).filter(|n| !n.is_empty() && n.len() <= 200).collect();
+    names.sort();
+    names.dedup();
+    let extra: Vec<LabCard> = names.iter().map(|n| LabCard { name: n.clone(), oracle_id: None, qty: 1, commander: false }).collect();
+    let fa = st.lab.forge_access();
+    let (forge, forge_note) = match (&fa.client, &fa.cards) {
+        (None, _) => (None, Some("Forge isn't set up on this server".to_string())),
+        (Some(_), None) => (None, Some("The Forge worker is offline, so Forge's card support can't be checked right now".to_string())),
+        (Some(client), Some(fc)) => {
+            let all = lists.iter().flat_map(|l| l.cards.iter().map(|c| c.name.clone())).chain(names.iter().cloned());
+            match forge::ensure_cards(client.as_ref(), fc, all.collect::<Vec<_>>()).await {
+                Ok(()) => (Some(Arc::clone(fc)), None),
+                Err(e) => (None, Some(format!("Forge's card support couldn't be checked: {e}"))),
+            }
+        }
+    };
+    let support = |label: String, cards: &[LabCard]| ListSupport { label, phase: sim.unknown(cards), forge: forge.as_ref().map(|f| f.unknown(cards, false)) };
+    Ok(Json(EngineSupport {
+        lists: lists.iter().map(|l| support(l.label.clone(), &l.cards)).collect(),
+        extra: support("Cards added".into(), &extra),
+        forge_engine: fa.engine.clone(),
+        forge_note,
+    }))
 }
 
 /// Never a 503: the page shows why experiments can't start instead.
@@ -2258,19 +2662,26 @@ async fn pace_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser
     let available = st.lab.simulator().map(|_| ()).map_err(|e| e.to_string());
     let mut p = pace(&st.pool, &user, st.lab.threads(), available).await?;
     p.allowance = allowance(&st.pool, &user, &st.cfg.lab_quota).await?;
+    p.forge = st.lab.forge_view();
     Ok(Json(p))
 }
 
 async fn list_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<ExperimentItem>>> {
     st.lab.check_available()?;
-    Ok(Json(list(&st.pool, &user.id).await?))
+    let mut items = list(&st.pool, &user.id).await?;
+    let view = st.lab.forge_view();
+    for i in &mut items {
+        i.with_forge(&view);
+    }
+    Ok(Json(items))
 }
 
 async fn create_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: Bytes) -> AppResult<Json<ExperimentDetail>> {
     let sim = st.lab.simulator()?;
     let req: NewExperiment = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
-    let created = create_with(&st.pool, &user, req, sim.as_ref(), &st.cfg.lab_quota).await?;
+    let created = create_with(&st.pool, &user, req, sim.as_ref(), &st.cfg.lab_quota, &st.lab.forge_access()).await?;
     st.lab.wake();
+    st.lab.wake_forge();
     Ok(Json(created))
 }
 
@@ -2283,14 +2694,17 @@ pub struct Again {
 async fn again_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, body: Bytes) -> AppResult<Json<ExperimentDetail>> {
     let sim = st.lab.simulator()?;
     let req: Again = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
-    let created = again_with(&st.pool, &user, &id, req.games, req.op_id.as_deref(), sim.as_ref(), &st.cfg.lab_quota).await?;
+    let created = again_with(&st.pool, &user, &id, req.games, req.op_id.as_deref(), sim.as_ref(), &st.cfg.lab_quota, &st.lab.forge_access()).await?;
     st.lab.wake();
+    st.lab.wake_forge();
     Ok(Json(created))
 }
 
 async fn detail_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<ExperimentDetail>> {
     st.lab.check_available()?;
-    Ok(Json(detail(&st.pool, &user.id, &id).await?))
+    let mut d = detail(&st.pool, &user.id, &id).await?;
+    d.item.with_forge(&st.lab.forge_view());
+    Ok(Json(d))
 }
 
 async fn cancel_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<ExperimentDetail>> {

@@ -49,6 +49,24 @@ pub struct Config {
     pub lab_quota: LabQuota,
     /// "Ask Claude" (`advisor/`): where the sidecar is, and who may use the server's subscription.
     pub advisor: AdvisorConfig,
+    /// Forge as a second Lab engine (`lab/forge.rs`): where its worker container is.
+    pub forge: ForgeConfig,
+}
+
+/// The Forge worker's settings. Forge runs are off unless both are set.
+#[derive(Clone, Debug, Default)]
+pub struct ForgeConfig {
+    /// The worker's address on the private Docker network (YAMA_FORGE_URL, e.g.
+    /// `http://yama-forge:8791`).
+    pub url: Option<String>,
+    /// Shared with the worker as FORGE_SECRET (YAMA_FORGE_SECRET, at least 32 characters).
+    pub secret: Option<String>,
+}
+
+impl ForgeConfig {
+    pub fn enabled(&self) -> bool {
+        self.url.is_some() && self.secret.is_some()
+    }
 }
 
 /// The advisor's settings. The advisor is off unless both `url` and `secret` are set.
@@ -164,6 +182,10 @@ impl Config {
             key_secret: secret("YAMA_ADVISOR_KEY_SECRET")?,
             tools_url: std::env::var("YAMA_ADVISOR_TOOLS_URL").ok().map(|s| s.trim().to_string()).filter(|s| s.starts_with("http://") || s.starts_with("https://")),
         };
+        let forge = ForgeConfig {
+            url: std::env::var("YAMA_FORGE_URL").ok().map(|s| s.trim().trim_end_matches('/').to_string()).filter(|s| s.starts_with("http://") || s.starts_with("https://")),
+            secret: secret("YAMA_FORGE_SECRET")?,
+        };
         Ok(Self {
             database_url: std::env::var("DATABASE_URL")
                 .unwrap_or_else(|_| format!("sqlite://{}/yama.db", data_dir.display())),
@@ -195,6 +217,7 @@ impl Config {
             trusted_proxies,
             lab_quota,
             advisor,
+            forge,
         })
     }
 }

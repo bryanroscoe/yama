@@ -394,6 +394,18 @@ Bryan (2026-10-22): "we need to work on importing decks. Make that better." Add 
 - **Checking it** (`web/src/decks/importLogic.ts`): count to 100, commander (marked, guessed or picked), colour identity, extra copies, unknown names with "did you mean" buttons. Count, colours and copies warn; only unknown names and a missing name block saving.
 - **Saving:** the deck routes, with the cards and the printings the source named (`prints`, kept in `deck_prints`, migration 0013; exports prefer an owned copy, then this printing, then a paper default). "Update from a list" on a deck's page saves a new version and shows what goes in and out first.
 
+### Forge as a second Lab engine (2026-10-22)
+
+Bryan (2026-10-22): "we also need to allow more engines for running rules. Maybe support Forge too." Every Lab run (Try a change, as is, Compare decks, head to head) now picks its engines: phase (the default), Forge, or both side by side.
+
+- **Separate program, separate container.** Forge (GPL-3.0) runs as its own program in `yama-forge` (deploy/Dockerfile.forge-worker), one JVM per game, through the deck lab's batch runner (`forge-worker/forge_runner.py`, a copy of commander-decks `scripts/sim/forge_runner.py`) behind a small HTTP front (`forge-worker/worker.py`). No Forge code is in Yama. Yama calls the worker, never the other way round, on an internal Docker network (`yama_forge`, no internet) with a shared secret (`x-forge-secret`); the worker publishes no port.
+- **Games and engines** (`server/src/lab/forge.rs`, migration 0017): every scheduled game names its engine (`lab_experiment_games.engine`). The lab threads play phase games only; `LabWorker::run_forge` hands Forge games to the worker up to the slots it reports, oldest run first, one run at a time per person. Forge games get Forge's wall-clock limit (900 s). A "both" run has each pod twice, its Forge copies after every phase game (ids `…-f`, an even ord offset, so pods stay paired in both halves); `summary` holds the phase half and `summary_forge` the Forge half, never pooled. `stats::agreement` says whether the halves agree: opposite verdicts or intervals that don't overlap are a disagreement.
+- **A worker that's down:** nothing is claimed while it doesn't answer, so its games wait; the run page says "Forge worker offline". A game whose request fails goes back in the queue; after 3 failed tries it is written off as an error labelled as Forge.
+- **Cards Forge doesn't know:** the worker checks names against Forge's card scripts (`/check`); Yama keeps the answers per worker version. A tested list with such cards is refused, and precons with them are left out of a Forge field (as phase's unknown cards are). `POST /api/lab/engines/check` shows both engines' gaps before a run.
+- **Seeds:** Yama's seeds are 64-bit; the worker hands Forge the low 63 bits (a negative Java long reads as a flag on Forge's command line) and the result keeps Yama's seed.
+- **Limits:** a Forge game counts as 2 against the daily allowance (`FORGE_WEIGHT`); a "both" run counts 1 + 2 per pod game.
+- **Admin, Server** shows the worker: answering or not, engine, slots, games playing and waiting.
+
 ## 11. Risks
 
 - **Legal and IP:**

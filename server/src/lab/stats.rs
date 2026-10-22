@@ -684,6 +684,95 @@ pub fn versus_verdict(v: &Versus, is_final: bool) -> Verdict {
     }
 }
 
+// ── two engines side by side ────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgreementKind {
+    /// Not enough scored games on one engine or both yet.
+    Waiting,
+    /// The engines point the same way.
+    Agree,
+    /// Beyond noise: opposite verdicts, or intervals that don't overlap.
+    Disagree,
+    /// No contradiction, but at least one engine can't tell yet.
+    Unclear,
+}
+
+/// How a "both" run's two engines compare.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Agreement {
+    pub kind: AgreementKind,
+    pub text: String,
+}
+
+fn overlap(a: [f64; 2], b: [f64; 2]) -> bool {
+    a[0] <= b[1] && b[0] <= a[1]
+}
+
+fn range_text(x: f64, ci: [f64; 2]) -> String {
+    format!("{} ({} to {})", points(x), points(ci[0]), points(ci[1]))
+}
+
+fn share_text(x: f64, ci: [f64; 2]) -> String {
+    format!("{:.0}% ({:.0} to {:.0})", x * 100.0, ci[0] * 100.0, ci[1] * 100.0)
+}
+
+/// Whether a run's phase and Forge summaries agree beyond noise: the paired difference for a
+/// change or a comparison, the win rate for an "as it is" run, and each deck's win share for a
+/// head to head.
+pub fn agreement(versus: bool, solo: bool, phase: &Summary, forge: &Summary) -> Agreement {
+    let waiting = Agreement { kind: AgreementKind::Waiting, text: "Waiting for both engines' results".into() };
+    if phase.scored_games() == 0 || forge.scored_games() == 0 {
+        return waiting;
+    }
+    if versus {
+        let (Some(pv), Some(fv)) = (&phase.versus, &forge.versus) else { return waiting };
+        let mut apart = Vec::new();
+        for (p, f) in pv.entrants.iter().zip(&fv.entrants) {
+            if let (Some(pr), Some(pc), Some(fr), Some(fc)) = (p.win_rate, p.wilson, f.win_rate, f.wilson)
+                && !overlap(pc, fc)
+            {
+                apart.push(format!("{}: {} on phase, {} on Forge", p.label, share_text(pr, pc), share_text(fr, fc)));
+            }
+        }
+        if !apart.is_empty() {
+            return Agreement { kind: AgreementKind::Disagree, text: format!("The engines disagree. {}", apart.join("; ")) };
+        }
+        let leader = |v: &Versus| v.entrants.iter().filter(|e| e.win_rate.is_some()).max_by(|a, b| a.win_rate.partial_cmp(&b.win_rate).unwrap_or(std::cmp::Ordering::Equal)).map(|e| e.label.clone());
+        return match (leader(pv), leader(fv)) {
+            (Some(a), Some(b)) if a == b => Agreement { kind: AgreementKind::Agree, text: format!("Both engines put {a} first") },
+            _ => Agreement { kind: AgreementKind::Unclear, text: "The engines order the decks differently, but within noise".into() },
+        };
+    }
+    if solo {
+        return match (phase.base.win_rate, phase.base.wilson, forge.base.win_rate, forge.base.wilson) {
+            (Some(pr), Some(pc), Some(fr), Some(fc)) if !overlap(pc, fc) => Agreement {
+                kind: AgreementKind::Disagree,
+                text: format!("The engines disagree: {} on phase, {} on Forge", share_text(pr, pc), share_text(fr, fc)),
+            },
+            (Some(_), Some(_), Some(_), Some(_)) => Agreement { kind: AgreementKind::Agree, text: "The engines' win rates overlap".into() },
+            _ => waiting,
+        };
+    }
+    let (pk, fk) = (phase.verdict.kind, forge.verdict.kind);
+    if let (Some(pd), Some(pc), Some(fd), Some(fc)) = (phase.paired.delta_win_rate, phase.paired.delta_ci, forge.paired.delta_win_rate, forge.paired.delta_ci) {
+        let opposite = matches!((pk, fk), (VerdictKind::Better, VerdictKind::Worse) | (VerdictKind::Worse, VerdictKind::Better));
+        if opposite || !overlap(pc, fc) {
+            return Agreement {
+                kind: AgreementKind::Disagree,
+                text: format!("The engines disagree: {} on phase, {} on Forge. Treat this result with caution", range_text(pd, pc), range_text(fd, fc)),
+            };
+        }
+    }
+    match (pk, fk) {
+        (VerdictKind::Better, VerdictKind::Better) => Agreement { kind: AgreementKind::Agree, text: "Both engines say probably better".into() },
+        (VerdictKind::Worse, VerdictKind::Worse) => Agreement { kind: AgreementKind::Agree, text: "Both engines say probably worse".into() },
+        (VerdictKind::Unclear, VerdictKind::Unclear) => Agreement { kind: AgreementKind::Unclear, text: "Neither engine can tell yet".into() },
+        _ => Agreement { kind: AgreementKind::Unclear, text: "One engine sees a difference and the other can't tell yet; they don't contradict each other".into() },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -934,5 +1023,25 @@ mod tests {
         let bad = Outcome::from_row(0, &line, Some("{nope")).unwrap();
         assert_eq!(score(&bad), Score::Unscored);
         assert!(Outcome::from_row(0, &line.replace("variant", "precons/z"), None).is_none());
+    }
+
+    #[test]
+    fn two_engines_agree_disagree_or_cant_tell() {
+        let better = summarize(&pods(10, 20, 4, 66), true);
+        let worse = summarize(&pods(5, 3, 15, 77), true);
+        let unclear = summarize(&pods(10, 8, 7, 75), true);
+        let none = summarize(&[], false);
+        assert_eq!(agreement(false, false, &better, &none).kind, AgreementKind::Waiting);
+        assert_eq!(agreement(false, false, &better, &better).kind, AgreementKind::Agree);
+        let d = agreement(false, false, &better, &worse);
+        assert_eq!(d.kind, AgreementKind::Disagree, "{}", d.text);
+        assert!(d.text.contains("on phase") && d.text.contains("on Forge"), "{}", d.text);
+        assert_eq!(agreement(false, false, &unclear, &unclear).kind, AgreementKind::Unclear);
+        // Intervals that don't overlap are a disagreement even when one engine can't tell...
+        assert_eq!(agreement(false, false, &better, &unclear).kind, AgreementKind::Disagree);
+        // ...but a smaller difference that overlaps "can't tell" isn't.
+        let slightly = summarize(&pods(10, 12, 4, 74), true);
+        assert_eq!(slightly.verdict.kind, VerdictKind::Better, "{}", slightly.verdict.text);
+        assert_eq!(agreement(false, false, &slightly, &unclear).kind, AgreementKind::Unclear);
     }
 }

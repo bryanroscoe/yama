@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api } from "../api";
 import { ErrorText, Pips } from "../components/ui";
+import { engineLine, enginesOf, halfOf } from "./engines";
 import type { ComparePrefill, ExperimentDetail, ExperimentItem, ExperimentMode, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
 import { ConfidenceLine } from "./confidence";
 import {
@@ -74,9 +75,11 @@ function Again({ e }: { e: ExperimentDetail }) {
   const qc = useQueryClient();
   const pace = usePace();
   const choices = gameChoices(pace.data);
-  const bigger = choices.filter((g) => g > e.label.games);
+  // A "both" run's label counts both engines' games; "again" asks for games per engine.
+  const perEngine = enginesOf(e).mode === "both" ? e.label.games / 2 : e.label.games;
+  const bigger = choices.filter((g) => g > perEngine);
   const [games, setGames] = useState<number | null>(null);
-  const pick = games ?? bigger[0] ?? choices[choices.length - 1] ?? e.label.games;
+  const pick = games ?? bigger[0] ?? choices[choices.length - 1] ?? perEngine;
   const again = useMutation({
     mutationFn: () => api<ExperimentDetail>(`/api/lab/experiments/${e.id}/again`, { method: "POST", json: { games: pick, op_id: `${e.id}-again-${pick}-${Date.now()}` } }),
     onSuccess: (d) => {
@@ -95,9 +98,11 @@ function Again({ e }: { e: ExperimentDetail }) {
         ))}
       </div>
       <button className="primary" onClick={() => again.mutate()} disabled={again.isPending}>
-        {again.isPending ? "Starting…" : pick > e.label.games ? `Run again with ${pick} games` : `Run again (${pick} games)`}
+        {again.isPending ? "Starting…" : pick > perEngine ? `Run again with ${pick} games` : `Run again (${pick} games)`}
       </button>
-      <span className="lab-note">Same lists, opponents and AI level, new shuffles. More games give a tighter answer.</span>
+      <span className="lab-note">
+        Same lists, opponents, engines and AI, new shuffles. More games give a tighter answer.{enginesOf(e).mode === "both" ? ` ${pick} games on each engine.` : ""}
+      </span>
       <ErrorText error={again.error} />
     </div>
   );
@@ -112,7 +117,15 @@ function comparePrefill(e: ExperimentDetail): ComparePrefill {
     if (src.kind === "deck" && src.id) return { kind: "deck" as const, id: src.id };
     return { kind: "list" as const, text: listText(l.cards.map((c) => ({ qty: c.qty, name: c.name, board: c.commander ? "commander" : "main" }))), label: l.label };
   });
-  return { mode: modeOf(e) === "versus" ? "versus" : "compare", decks, pod: e.label.pod, field: fieldFrom(e), games: e.label.games, difficulty: e.label.difficulty };
+  return {
+    mode: modeOf(e) === "versus" ? "versus" : "compare",
+    decks,
+    pod: e.label.pod,
+    field: fieldFrom(e),
+    games: enginesOf(e).mode === "both" ? e.label.games / 2 : e.label.games,
+    difficulty: phaseDifficulty(e),
+    engines: enginesOf(e),
+  };
 }
 
 function fieldFrom(e: ExperimentItem): FieldChoice | undefined {
@@ -182,6 +195,7 @@ export function RunPage() {
         </span>
         <h1 style={{ fontSize: "var(--t-xl)" }}>{e.name}</h1>
         <span className="dim small">{MODE_LINE[modeOf(e)]}</span>
+        <span className="dim small">{engineLine(e)}</span>
         {e.base && modeOf(e) !== "versus" && modeOf(e) !== "compare" && (
           <span className="dim small">
             {e.base.commanders.join(" and ")} <Pips identity={e.base.color_identity} /> {identityName(e.base.color_identity)}
@@ -202,8 +216,10 @@ export function RunPage() {
         </p>
       )}
 
-      {scored ? (
-        modeOf(e) === "versus" ? <VersusResults e={e} s={scored} /> : modeOf(e) === "solo" ? <SoloResults e={e} s={scored} /> : <Results e={e} s={scored} />
+      {enginesOf(e).mode === "both" ? (
+        <BothResults e={e} live={live} />
+      ) : scored ? (
+        <ModeResults e={e} s={scored} />
       ) : (
         !live && (
           <p className="dim">
@@ -219,7 +235,14 @@ export function RunPage() {
         <Change e={e} />
       </section>
 
-      {e.progress.done > 0 && <Pods id={e.id} done={e.progress.done} status={e.status} mode={modeOf(e)} />}
+      {enginesOf(e).mode === "both" ? (
+        <>
+          {halfOf(e, "phase").progress.done > 0 && <Pods id={e.id} done={halfOf(e, "phase").progress.done} status={e.status} mode={modeOf(e)} engine="phase" />}
+          {halfOf(e, "forge").progress.done > 0 && <Pods id={e.id} done={halfOf(e, "forge").progress.done} status={e.status} mode={modeOf(e)} engine="forge" />}
+        </>
+      ) : (
+        e.progress.done > 0 && <Pods id={e.id} done={e.progress.done} status={e.status} mode={modeOf(e)} />
+      )}
 
       <section>
         {!live && <Again e={e} />}
@@ -259,7 +282,12 @@ function prefillFrom(e: ExperimentDetail): TryPrefill {
           };
   const copies = (cards: { name: string; qty: number }[]) => cards.flatMap((c) => Array<string>(c.qty).fill(c.name));
   const solo = modeOf(e) === "solo";
-  return { base, add: solo ? [] : copies(e.variant?.added ?? []), cut: solo ? [] : copies(e.variant?.cut ?? []), field: fieldFrom(e), games: e.label.games, difficulty: e.label.difficulty };
+  return { base, add: solo ? [] : copies(e.variant?.added ?? []), cut: solo ? [] : copies(e.variant?.cut ?? []), field: fieldFrom(e), games: enginesOf(e).mode === "both" ? e.label.games / 2 : e.label.games, difficulty: phaseDifficulty(e), engines: enginesOf(e) };
+}
+
+/** The phase AI level a run used (a Forge-only run's label shows its Forge profile instead). */
+function phaseDifficulty(e: ExperimentItem): string {
+  return enginesOf(e).mode === "forge" ? "Easy" : e.label.difficulty;
 }
 
 function Progress({ e }: { e: ExperimentDetail }) {
@@ -276,11 +304,65 @@ function Progress({ e }: { e: ExperimentDetail }) {
         </b>
         {eta_seconds != null ? `, ${durationText(eta_seconds)} left` : e.status === "queued" ? ", waiting for its turn" : ", working out how long"}.
       </p>
+      {e.forge_games && enginesOf(e).mode === "both" && (
+        <p className="lab-note" style={{ margin: "0.2rem 0 0" }}>
+          phase {e.progress.done - e.forge_games.done} of {e.progress.total - e.forge_games.total}, Forge {e.forge_games.done} of {e.forge_games.total}.
+        </p>
+      )}
+      <ForgeWait e={e} />
       <p className="lab-note" style={{ margin: "0.2rem 0 0" }}>
         {e.status === "queued" ? "Waiting for earlier runs to finish" : "Playing"}
         {games_ahead ? ` (${games_ahead} games ahead in the queue)` : ""}. This page checks every 5 seconds; you can leave and come back.
       </p>
     </section>
+  );
+}
+
+/** On a run still waiting for Forge games: whether the Forge worker is there to play them. */
+function ForgeWait({ e }: { e: ExperimentItem }) {
+  const f = e.forge;
+  if (!f) return null;
+  if (!f.configured) return <p className="lab-note lab-warn">Forge isn't set up on this server any more, so this run's Forge games can't play. Cancel the rest to keep what's in.</p>;
+  if (!f.online)
+    return (
+      <p className="lab-note lab-warn">
+        Forge worker offline{f.last_seen ? ` (last answered ${new Date(f.last_seen).toLocaleString("en-US")})` : ""}. The Forge games wait and play when it's back.
+      </p>
+    );
+  return (
+    <p className="lab-note" style={{ margin: "0.2rem 0 0" }}>
+      Forge plays {f.slots} {f.slots === 1 ? "game" : "games"} at a time{f.playing ? `, ${f.playing} playing now` : ""}.
+    </p>
+  );
+}
+
+/** The results view for a run's mode. */
+function ModeResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
+  return modeOf(e) === "versus" ? <VersusResults e={e} s={s} /> : modeOf(e) === "solo" ? <SoloResults e={e} s={s} /> : <Results e={e} s={s} />;
+}
+
+/** A "both" run: whether the engines agree, then each engine's results under its own heading. */
+function BothResults({ e, live }: { e: ExperimentDetail; live: boolean }) {
+  const a = e.agreement;
+  const halves = (["phase", "forge"] as const).map((h) => ({ h, d: halfOf(e, h) }));
+  return (
+    <>
+      {a && a.kind !== "waiting" && (
+        <p className={`lab-agreement ${a.kind}`} role="status">
+          <b>{a.kind === "agree" ? "The engines agree." : a.kind === "disagree" ? "The engines disagree." : "No clear answer yet."}</b> {a.text}.
+        </p>
+      )}
+      {halves.map(({ h, d }) => (
+        <section key={h} className="lab-engine-half" aria-label={h === "phase" ? "Results on phase" : "Results on Forge"}>
+          <h2 className="lab-engine-head">{h === "phase" ? "On phase" : "On Forge"}</h2>
+          {d.summary && hasResults(d.summary) ? (
+            <ModeResults e={d} s={d.summary} />
+          ) : (
+            <p className="dim">{live ? `No ${h === "phase" ? "phase" : "Forge"} results yet: ${d.progress.done} of ${d.progress.total} games played.` : "No scored games on this engine."}</p>
+          )}
+        </section>
+      ))}
+    </>
   );
 }
 
@@ -586,9 +668,14 @@ function changeShort(e: ExperimentItem): string {
 function Change({ e }: { e: ExperimentDetail }) {
   const v = e.variant;
   const mode = modeOf(e);
+  // A "both" run's label counts both engines' games; say them per engine.
+  const both = enginesOf(e).mode === "both";
+  const n = both ? e.label.games / 2 : e.label.games;
+  const each = both ? " on each engine" : "";
+  const ai = `${engineLine(e)}.`;
   if (mode !== "change") {
     const decks = mode === "solo" ? (e.base ? [e.base] : []) : (e.entrants ?? []);
-    const games = mode === "compare" ? `${e.label.games} games (${e.label.games / 2} pods, each played by both decks)` : mode === "solo" ? `${e.label.games} games (each pod once)` : `${e.label.games} games${e.label.pod === 2 ? ", 1v1" : ""}`;
+    const games = mode === "compare" ? `${n} games${each} (${n / 2} pods, each played by both decks)` : mode === "solo" ? `${n} games${each} (each pod once)` : `${n} games${each}${e.label.pod === 2 ? ", 1v1" : ""}`;
     return (
       <>
         <ul className="lab-decks small">
@@ -602,7 +689,7 @@ function Change({ e }: { e: ExperimentDetail }) {
         </ul>
         <p className="small">
           {mode === "versus" ? (e.field?.kind === "none" ? "No other decks at the table." : `Empty seats: ${fieldPhrase(e) ?? "unknown"}.`) : `Opponents: ${fieldPhrase(e) ?? "unknown"}.`}{" "}
-          {e.label.difficulty} AI, {games}. The lists were frozen when the run was made.
+          {ai} {games.replace(/^./, (c) => c.toUpperCase())}. The lists were frozen when the run was made.
         </p>
         <RunNotes e={e} />
       </>
@@ -623,7 +710,7 @@ function Change({ e }: { e: ExperimentDetail }) {
       <p className="small">
         Base: {e.base?.label ?? "unknown"}
         {e.base?.source.kind === "deck" ? " (the deck's version when the run was made)" : e.base?.source.kind === "precon" ? " (the precon's stock list)" : ""}. Opponents:{" "}
-        {fieldPhrase(e) ?? "unknown"}. {e.label.difficulty} AI, {e.label.games} games ({e.label.games / 2} pods, each played by both lists).
+        {fieldPhrase(e) ?? "unknown"}. {ai} {n} games{each} ({n / 2} pods, each played by both lists).
         The lists were frozen when the run was made.
       </p>
       <RunNotes e={e} />
@@ -673,11 +760,11 @@ const MISSING: Record<ExperimentStatus, string> = {
   done: "not played",
 };
 
-function Pods({ id, done, status, mode }: { id: string; done: number; status: ExperimentStatus; mode: ExperimentMode }) {
+function Pods({ id, done, status, mode, engine }: { id: string; done: number; status: ExperimentStatus; mode: ExperimentMode; engine?: "phase" | "forge" }) {
   const [open, setOpen] = useState(false);
   const pods = useQuery({
-    queryKey: ["lab", "pods", id, done],
-    queryFn: () => api<PodView[]>(`/api/lab/experiments/${id}/pods`),
+    queryKey: ["lab", "pods", id, done, engine ?? ""],
+    queryFn: () => api<PodView[]>(`/api/lab/experiments/${id}/pods${engine ? `?engine=${engine}` : ""}`),
     enabled: open,
     placeholderData: (prev) => prev,
   });
@@ -694,7 +781,7 @@ function Pods({ id, done, status, mode }: { id: string; done: number; status: Ex
   return (
     <section>
       <details onToggle={(ev) => setOpen((ev.target as HTMLDetailsElement).open)}>
-        <summary>Every game ({done} played)</summary>
+        <summary>Every game{engine ? (engine === "forge" ? " on Forge" : " on phase") : ""} ({done} played)</summary>
         <ErrorText error={pods.error} />
         {pods.isPending && open && <p className="dim small">Loading…</p>}
         {played.length > 0 && mode === "versus" && (

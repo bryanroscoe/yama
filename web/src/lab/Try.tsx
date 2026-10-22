@@ -16,7 +16,7 @@ import { ConfidenceLine, ConfidenceNote } from "./confidence";
 import { LabHead } from "./LabLayout";
 import { experimentLabel, useBaseConfidence } from "./Run";
 import { baseConfidence, baseConfidenceSentence, cantJudge, caveat, durationText, expectedSeconds, gameChoices, grouped, hasResults, identityQuery, playedCount, pointsRange, pointsWord, type BaseLine } from "./logic";
-import { DeckChooser, defaultField, FieldPicker, fromDeckSummary, GamesPicker, PLAN_STATES, RunBlockers, useField, usePace, usePlanLists, type Chosen, type FieldState } from "./pickers";
+import { DeckChooser, defaultField, EnginePicker, EngineSupportNote, engineFields, engineState, engineText, FieldPicker, forgeSeconds, fromDeckSummary, GamesPicker, PLAN_STATES, RunBlockers, useField, usePace, usePlanLists, type Chosen, type EngineState, type FieldState } from "./pickers";
 import { usePrecons } from "./Precons";
 
 /** A chosen list with its lines loaded. */
@@ -64,7 +64,7 @@ function TryForm() {
     return { kind: f.kind, anchor: f.kind === "precons_near" ? (f.ids[0] ?? "") : "", myDecks: f.kind === "my_decks" ? f.ids : [] };
   });
   const [gamesPicked, setGames] = useState<number | null>(prefill?.games ?? null);
-  const [difficulty, setDifficulty] = useState(prefill?.difficulty === "Medium" ? "Medium" : "Easy");
+  const [engines, setEngines] = useState<EngineState>(() => engineState(prefill));
   const [name, setName] = useState("");
   const [swapping, setSwapping] = useState<string | null>(null);
   const opId = useRef(crypto.randomUUID());
@@ -194,7 +194,9 @@ function TryForm() {
 
   const solo = !!base && !changed;
   const games = gamesPicked != null && choices.includes(gamesPicked) ? gamesPicked : choices.includes(200) ? 200 : (choices[0] ?? 100);
-  const eta = expectedSeconds(pace.data, games);
+  const phaseEta = expectedSeconds(pace.data, games);
+  const forgeEta = forgeSeconds(pace.data, games);
+  const eta = engines.mode === "phase" ? phaseEta : engines.mode === "forge" ? forgeEta : phaseEta != null && forgeEta != null ? Math.max(phaseEta, forgeEta) : null;
 
   const blockers: { text: string; href?: string; link?: string }[] = [];
   if (!chosen) blockers.push({ text: "Choose a list to start from.", href: "#try-1", link: "Step 1" });
@@ -215,7 +217,7 @@ function TryForm() {
         ...(mode === "change" ? { variant: addsAndCuts(swaps) } : {}),
         field: fieldPick.choice,
         games,
-        difficulty,
+        ...engineFields(engines),
         ...(name.trim() ? { name: name.trim() } : {}),
       };
       return api<ExperimentDetail>("/api/lab/experiments", { method: "POST", json: body });
@@ -293,12 +295,12 @@ function TryForm() {
               </p>
             ) : changed ? (
               <p className="small" style={{ margin: 0 }}>
-                <b>{base.label}</b>: {swapText(swaps)}. {games} games against {fieldPick.label}, {difficulty} AI{eta != null ? `, ${durationText(eta)}` : ""}.
+                <b>{base.label}</b>: {swapText(swaps)}. {games} games against {fieldPick.label}, {engineText(engines)}{eta != null ? `, ${durationText(eta)}` : ""}.
               </p>
             ) : (
               <div className="lab-asis">
                 <p className="small" style={{ margin: 0 }}>
-                  <b>No swaps yet.</b> You can run <b>{base.label}</b> as it is against {fieldPick.label} and see its win rate ({games} games, {difficulty} AI{eta != null ? `, ${durationText(eta)}` : ""}).
+                  <b>No swaps yet.</b> You can run <b>{base.label}</b> as it is against {fieldPick.label} and see its win rate ({games} games, {engineText(engines)}{eta != null ? `, ${durationText(eta)}` : ""}).
                 </p>
                 <p className="small dim" style={{ margin: 0 }}>
                   To compare a change, <a href="#try-2">swap a card in step 2</a>. To compare two decks, or play your decks against each other, use <Link to="/decks/lab/compare">Compare decks</Link>.
@@ -317,13 +319,8 @@ function TryForm() {
                 ))}
               </ul>
             )}
-            <label>
-              AI level
-              <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
-                <option>Easy</option>
-                <option>Medium</option>
-              </select>
-            </label>
+            <EnginePicker id="try-engine" value={engines} onChange={setEngines} pace={pace.data} games={games} />
+            {base && <EngineSupportNote lists={[base.choice]} names={changed ? addsAndCuts(swaps).add : []} mode={engines.mode} />}
             <label>
               <span>
                 Name <span className="dim small" style={{ fontWeight: 400 }}>(optional)</span>
@@ -336,7 +333,7 @@ function TryForm() {
               {create.isPending ? "Starting…" : solo ? `Run ${base!.label} as it is` : changed ? "Run the change" : "Run"}
             </button>
             <p className="lab-note" style={{ margin: 0 }}>
-              {solo ? "Every pod is played once." : "Same shuffles and seats for both lists."} Simulated games, not your table. <Link to="/decks/lab/runs">My runs</Link>
+              {solo ? "Every pod is played once." : "Same shuffles and seats for both lists."}{engines.mode === "both" ? " Each engine plays the same pods." : ""} Simulated games, not your table. <Link to="/decks/lab/runs">My runs</Link>
             </p>
           </section>
         </aside>

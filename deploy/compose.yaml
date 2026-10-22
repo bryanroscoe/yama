@@ -17,7 +17,7 @@ services:
     ports:
       # LAN access; the public route goes through the existing Cloudflare tunnel.
       - "<saget-lan-address>:8099:8787"
-    networks: [tunnel, advisor]
+    networks: [tunnel, advisor, forge]
     mem_limit: 3g
   # "Ask Claude" (deploy/Dockerfile.advisor). No published port: only yama reaches it, on the
   # private advisor network. advisor.env (server-local, mode 0600) holds ADVISOR_SECRET, which
@@ -36,6 +36,31 @@ services:
     networks: [advisor]
     mem_limit: 2g
     pids_limit: 256
+  # Forge as a second Lab engine (deploy/Dockerfile.forge-worker, server/src/lab/forge.rs). No published
+  # port and no internet: only yama reaches it, on the internal forge network. forge.env (server-local,
+  # mode 0600) holds FORGE_SECRET, which deploy.sh makes. Each game is a JVM of up to FORGE_XMX: memory is
+  # slots x (heap + 512 MB) + 1 GB, and two CPUs a game, at a low share so Plex and the rest win.
+  yama-forge:
+    image: yama-forge:latest
+    container_name: yama-forge
+    restart: unless-stopped
+    user: "99:100"
+    read_only: true
+    tmpfs:
+      - /work:size=2g,uid=99,gid=100,mode=0700
+      - /tmp:size=1g,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    env_file: forge.env
+    environment:
+      FORGE_SLOTS: "3"
+      FORGE_XMX: 1536m
+      FORGE_JVM_CPUS: "2"
+    networks: [forge]
+    cpus: 6
+    cpu_shares: 256
+    mem_limit: 7g
+    pids_limit: 2048
 networks:
   tunnel:
     external: true
@@ -43,3 +68,7 @@ networks:
   # yama and yama-advisor only. A plain bridge, because the advisor reaches api.anthropic.com.
   advisor:
     name: yama_advisor
+  # yama and yama-forge only, with no way out: Forge needs nothing from the internet.
+  forge:
+    name: yama_forge
+    internal: true

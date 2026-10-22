@@ -36,6 +36,7 @@ pub fn config() -> Config {
         trusted_proxies: vec![],
         lab_quota: crate::config::LabQuota::default(),
         advisor: crate::config::AdvisorConfig::default(),
+        forge: crate::config::ForgeConfig::default(),
     }
 }
 
@@ -50,7 +51,7 @@ pub async fn state() -> AppState {
 /// restarted with new settings would).
 pub async fn state_with(cfg: Config, pool: SqlitePool) -> AppState {
     let play = crate::play::PlayHub::start(None, pool.clone());
-    let lab = crate::lab::worker::LabWorker::start(pool.clone(), cfg.lab_threads, play.clone(), None);
+    let lab = crate::lab::worker::LabWorker::start(pool.clone(), cfg.lab_threads, play.clone(), None, None);
     AppState {
         pool,
         cfg: Arc::new(cfg),

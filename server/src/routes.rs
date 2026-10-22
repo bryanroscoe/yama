@@ -100,7 +100,15 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         crate::deck_checks::spawn_worker(pool.clone(), http_client(), crate::deck_checks::SPELLBOOK_ESTIMATE_URL.into());
     }
     let play = crate::play::PlayHub::start(cfg.engine_card_data.clone(), pool.clone());
-    let lab = crate::lab::worker::LabWorker::start(pool.clone(), cfg.lab_threads, play.clone(), cfg.engine_card_data.clone());
+    // Forge as a second Lab engine, when its worker container is set up (lab/forge.rs).
+    let forge: Option<Arc<dyn crate::lab::forge::ForgeClient>> = match (cfg.forge.enabled(), &cfg.forge.url, &cfg.forge.secret) {
+        (true, Some(url), Some(secret)) => {
+            tracing::info!(url = %url, "Lab: Forge runs go to the Forge worker");
+            Some(Arc::new(crate::lab::forge::HttpForge::new(http_client(), url.clone(), secret.clone())))
+        }
+        _ => None,
+    };
+    let lab = crate::lab::worker::LabWorker::start(pool.clone(), cfg.lab_threads, play.clone(), cfg.engine_card_data.clone(), forge);
     let bind = cfg.bind.clone();
     let cf_keys = match (&cfg.cf_access_team, &cfg.cf_access_aud) {
         (Some(team), Some(_)) => {

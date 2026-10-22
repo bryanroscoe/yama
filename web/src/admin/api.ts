@@ -1,6 +1,7 @@
 // The admin area's server data (server/src/admin). Every route answers non-admins with a 404.
 
 import { api } from "../api";
+import type { ForgeView } from "../lab/api";
 
 export interface Limits {
   lab_games_per_day: number | null;
@@ -90,6 +91,8 @@ export interface ServerInfo {
   backups: { name: string; bytes: number; modified: string | null }[];
   lab: { threads: number; unavailable: string | null; queued: number; running: number; games_waiting: number; global_runs: number };
   watch: WatchItem[];
+  /** The Forge worker (missing on servers from before Forge). */
+  forge?: ForgeView & { games_waiting: number };
   advisor: {
     enabled: boolean;
     reachable: boolean | null;

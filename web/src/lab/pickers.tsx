@@ -10,7 +10,8 @@ import { api, type DeckCard, type DeckSummary } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
 import { ErrorText, Pips } from "../components/ui";
-import type { BaseChoice, FieldChoice, Pace } from "./api";
+import { FORGE_PROFILES, type BaseChoice, type EngineMode, type EngineSupport, type FieldChoice, type Pace } from "./api";
+import { forgeSeconds, type EngineState } from "./engines";
 import { allowanceText, durationText, expectedSeconds, type BaseLine } from "./logic";
 import { usePrecons } from "./Precons";
 
@@ -457,6 +458,108 @@ export function RunBlockers({ items }: { items: { text: string; href?: string; l
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+// ── engines ──────────────────────────────────────────────────────────────────
+
+export { engineFields, engineState, engineText, forgeSeconds, type EngineState } from "./engines";
+
+const ENGINE_OPTIONS: { id: EngineMode; label: string }[] = [
+  { id: "phase", label: "phase" },
+  { id: "forge", label: "Forge" },
+  { id: "both", label: "Both" },
+];
+
+export function EnginePicker({ value, onChange, pace, games, id }: { value: EngineState; onChange: (e: EngineState) => void; pace: Pace | undefined; games: number; id: string }) {
+  const forge = pace?.forge;
+  const forgeOk = !!forge?.configured;
+  const weight = pace?.forge_weight ?? 2;
+  const fs = forgeSeconds(pace, games);
+  const note =
+    value.mode === "phase"
+      ? "phase: Yama's own rules engine. Fast."
+      : value.mode === "forge"
+        ? `Forge: a separate rules engine with its own AI. Its games take longer${fs != null ? ` (this run: ${durationText(fs)})` : ""}, and each counts as ${weight} against your daily games.`
+        : `Every pod on each engine, side by side, with a flag when the two disagree. Each Forge game counts as ${weight} against your daily games.`;
+  return (
+    <div className="lab-games lab-engine">
+      <span id={id} className="lab-games-label">
+        Engine
+      </span>
+      <div className="segmented" role="radiogroup" aria-labelledby={id}>
+        {ENGINE_OPTIONS.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            role="radio"
+            aria-checked={value.mode === o.id}
+            aria-pressed={value.mode === o.id}
+            disabled={o.id !== "phase" && !forgeOk}
+            onClick={() => onChange({ ...value, mode: o.id })}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <span className="lab-note">{forgeOk ? note : "phase: Yama's own rules engine. Forge isn't set up on this server, so phase is the only engine here."}</span>
+      {forgeOk && value.mode !== "phase" && !forge?.online && <span className="lab-note lab-warn">The Forge worker isn't answering right now. You can still start the run; its Forge games wait until the worker is back.</span>}
+      <div className="lab-engine-ai">
+        {value.mode !== "forge" && (
+          <label>
+            {value.mode === "both" ? "phase AI level" : "AI level"}
+            <select value={value.difficulty} onChange={(e) => onChange({ ...value, difficulty: e.target.value })}>
+              <option>Easy</option>
+              <option>Medium</option>
+            </select>
+          </label>
+        )}
+        {value.mode !== "phase" && (
+          <label>
+            Forge AI
+            <select value={value.forgeAi} onChange={(e) => onChange({ ...value, forgeAi: e.target.value })}>
+              {FORGE_PROFILES.map((p) => (
+                <option key={p}>{p}</option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Which cards of the lists a run would test each engine can't play (asked only when Forge plays). */
+export function useEngineSupport(lists: BaseChoice[], names: string[], mode: EngineMode) {
+  const key = JSON.stringify({ lists, names: [...names].sort() });
+  return useQuery({
+    queryKey: ["lab", "engine-support", key],
+    queryFn: () => api<EngineSupport>("/api/lab/engines/check", { method: "POST", json: { lists, names } }),
+    enabled: mode !== "phase" && lists.length > 0,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Before a run: the cards Forge (and phase) can't play in the lists it would test. */
+export function EngineSupportNote({ lists, names, mode }: { lists: BaseChoice[]; names: string[]; mode: EngineMode }) {
+  const q = useEngineSupport(lists, names, mode);
+  if (mode === "phase" || !q.data) return null;
+  const rows = [...q.data.lists, q.data.extra].filter((l) => (l.forge?.length ?? 0) > 0 || l.phase.length > 0);
+  if (!rows.length && !q.data.forge_note) {
+    return <p className="lab-note lab-ok">Forge knows every card in {lists.length === 1 ? "this list" : "these lists"}.</p>;
+  }
+  return (
+    <div className="lab-note lab-support" role="status">
+      {q.data.forge_note && <p>{q.data.forge_note}.</p>}
+      {rows.map((l) => (
+        <p key={l.label}>
+          <b>{l.label}</b>
+          {l.forge?.length ? `: Forge can't play ${l.forge.join(", ")}.` : ""}
+          {l.phase.length ? ` phase can't play ${l.phase.join(", ")}.` : ""}
+        </p>
+      ))}
+      {rows.some((l) => l.forge?.length) && <p>A run with these cards on Forge is refused; swap them out, or run on phase only.</p>}
     </div>
   );
 }

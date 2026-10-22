@@ -84,6 +84,7 @@ export function ServerPage() {
               ]}
             />
           </section>
+          <ForgeSection s={s} />
           <AdvisorSection s={s} />
           <WatchSection games={s.watch} />
         </>
@@ -110,6 +111,28 @@ function EngineSection({ s }: { s: ServerInfo }) {
           ["Card data", e.card_data_file ?? "Not set"],
           ["Lab runner build", e.runner],
           ["Live online games", String(e.live_online_games)],
+        ]}
+      />
+    </section>
+  );
+}
+
+function ForgeSection({ s }: { s: ServerInfo }) {
+  const f = s.forge;
+  if (!f) return null;
+  const state = !f.configured ? "Off (not set up on this server)" : f.online ? "Answering" : "Not answering";
+  return (
+    <section className="admin-section" aria-labelledby="adm-forge">
+      <h2 id="adm-forge">Forge worker</h2>
+      <Facts
+        rows={[
+          ["Worker", f.configured && !f.online ? <span className="admin-bad">{state}{f.error ? `: ${f.error}` : ""}</span> : state],
+          ["Engine", f.engine ?? "Unknown until it answers"],
+          ["Worker build", f.runner ?? "Unknown until it answers"],
+          ["Games at once", f.configured ? String(f.slots) : "None"],
+          ["Playing now", String(f.playing)],
+          ["Forge games waiting", f.games_waiting.toLocaleString("en-US")],
+          ["Last answered", f.last_seen ? ago(f.last_seen) : "Never"],
         ]}
       />
     </section>

@@ -3,6 +3,7 @@
 //! after a restart, cancelling and deleting, and the 503 without engine card data.
 
 use super::experiments::*;
+use super::forge::ForgeAccess;
 use super::pairing::{LIMITS, Limits};
 use super::stats::{VerdictKind, BASE_ID, VARIANT_ID};
 use super::worker::{LabWorker, MAX_ATTEMPTS, SimState, Simulator, store};
@@ -1246,23 +1247,23 @@ async fn accounts_without_an_invite_get_the_smaller_allowance() {
     let newbie = add_open_user(&pool, "newbie").await;
     let quota = crate::config::LabQuota { queue_games: 2_000, open_queue_games: 400, open_daily_games: 200 };
     for g in [200, 400] {
-        assert!(bad(create_with(&pool, &newbie, swap_req(g), sim.as_ref(), &quota).await.unwrap_err()).contains("must be 100"));
+        assert!(bad(create_with(&pool, &newbie, swap_req(g), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap_err()).contains("must be 100"));
     }
-    let first = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota).await.unwrap();
+    let first = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap();
     // One at a time: nothing waits behind it.
-    let e = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota).await.unwrap_err();
+    let e = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap_err();
     assert!(matches!(&e, AppError::Conflict(m) if m.contains("one experiment at a time")), "{e:?}");
     // Deleting a run doesn't hand back the day's games.
     delete(&pool, "newbie", &first.item.id).await.unwrap();
-    let second = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota).await.unwrap();
+    let second = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap();
     cancel(&pool, "newbie", &second.item.id, &idle).await.unwrap();
-    let e = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota).await.unwrap_err();
+    let e = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap_err();
     assert!(matches!(&e, AppError::Conflict(m) if m.contains("200 games a day") && m.contains("asked for 200")), "{e:?}");
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id = 'newbie'").fetch_one(&pool).await.unwrap();
     assert_eq!(n, 1, "refused runs leave nothing behind");
     // The day's count moves on.
     sqlx::query("UPDATE lab_usage SET created_at = '2026-01-01T00:00:00Z'").execute(&pool).await.unwrap();
-    create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota).await.unwrap();
+    create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap();
 
     // The Try page hears what it may offer.
     let p = pace(&pool, &newbie, 2, Ok(())).await.unwrap();
@@ -1279,17 +1280,17 @@ async fn the_queue_is_capped_for_everyone_but_admins_with_a_smaller_share_for_ne
     let sim = FakeSim::new();
     let quota = crate::config::LabQuota { queue_games: 300, open_queue_games: 100, open_daily_games: 1_000 };
     let (a, b) = (add_open_user(&pool, "new-a").await, add_open_user(&pool, "new-b").await);
-    let first = create_with(&pool, &a, swap_req(100), sim.as_ref(), &quota).await.unwrap();
+    let first = create_with(&pool, &a, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap();
     let busy = |r: Result<ExperimentDetail, AppError>| matches!(r, Err(AppError::Conflict(m)) if m.contains("too many games waiting"));
     // New accounts' share is full; members still have room.
-    assert!(busy(create_with(&pool, &b, swap_req(100), sim.as_ref(), &quota).await));
-    create_with(&pool, &user("bryan", false), swap_req(200), sim.as_ref(), &quota).await.unwrap();
+    assert!(busy(create_with(&pool, &b, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await));
+    create_with(&pool, &user("bryan", false), swap_req(200), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap();
     // Now everyone's is full, but not for an admin.
-    assert!(busy(create_with(&pool, &user("other", false), swap_req(100), sim.as_ref(), &quota).await));
-    create_with(&pool, &user("admin", true), swap_req(400), sim.as_ref(), &quota).await.unwrap();
+    assert!(busy(create_with(&pool, &user("other", false), swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await));
+    create_with(&pool, &user("admin", true), swap_req(400), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap();
     // Played games stop counting.
     sqlx::query("UPDATE lab_experiment_games SET result = '{}' WHERE experiment_id = ?").bind(&first.item.id).execute(&pool).await.unwrap();
-    create_with(&pool, &user("other", false), swap_req(100), sim.as_ref(), &quota).await.unwrap();
+    create_with(&pool, &user("other", false), swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap();
 }
 
 #[tokio::test]
@@ -1541,4 +1542,285 @@ async fn a_short_pick_of_your_decks_sits_in_every_pod_with_precons_filling_the_r
     let solo = req(json!({"mode": "solo", "base": {"kind": "deck", "id": riders}, "field": {"kind": "my_decks", "ids": [lorehold]}, "games": 100, "difficulty": "Medium"}));
     let s = create(&pool, &bryan, solo, sim.as_ref()).await.unwrap();
     assert_eq!(s.item.field.unwrap().every_pod, 1);
+}
+
+// ── Forge as a second engine ────────────────────────────────────────────────
+
+use super::forge::{ForgeCards, ForgeClient, ForgePlay, ForgeStatus};
+use futures_util::future::BoxFuture;
+use std::sync::atomic::AtomicBool;
+
+/// A Forge worker in memory: the tested seat wins when seed % 10 < 5 (the changed list never
+/// does better), names in `unknown` are cards Forge doesn't know, and it can be offline or lose
+/// every game it's handed.
+#[derive(Default)]
+struct FakeForge {
+    unknown: HashSet<String>,
+    offline: AtomicBool,
+    lose_games: AtomicBool,
+    played: Mutex<Vec<ForgePlay>>,
+    checked: AtomicUsize,
+}
+
+impl FakeForge {
+    fn new(unknown: &[&str]) -> Arc<Self> {
+        Arc::new(FakeForge { unknown: unknown.iter().map(|s| s.to_string()).collect(), ..Default::default() })
+    }
+    fn status_now(&self) -> ForgeStatus {
+        ForgeStatus { engine: "forge 9.9".into(), card_data: "forge res 9.9".into(), runner: "fake worker".into(), slots: 3, running: 0, profiles: vec!["Default".into()] }
+    }
+}
+
+impl ForgeClient for FakeForge {
+    fn status(&self) -> BoxFuture<'static, Result<ForgeStatus, String>> {
+        let r = if self.offline.load(Ordering::SeqCst) { Err("connection refused".to_string()) } else { Ok(self.status_now()) };
+        Box::pin(async move { r })
+    }
+    fn check(&self, names: Vec<String>) -> BoxFuture<'static, Result<Vec<String>, String>> {
+        self.checked.fetch_add(names.len(), Ordering::SeqCst);
+        let u: Vec<String> = names.into_iter().filter(|n| self.unknown.contains(n)).collect();
+        Box::pin(async move { Ok(u) })
+    }
+    fn play(&self, req: ForgePlay) -> BoxFuture<'static, Result<GameResult, String>> {
+        self.played.lock().unwrap().push(req.clone());
+        if self.lose_games.load(Ordering::SeqCst) {
+            return Box::pin(async move { Err("the Forge worker restarted".to_string()) });
+        }
+        let spec = req.spec;
+        let mut r = GameResult::new(&spec, "forge res 9.9");
+        r.engine = "forge 9.9".into();
+        r.runner = "fake worker".into();
+        r.difficulty = req.profile;
+        let n = spec.decks.len() as u8;
+        let seat = spec.decks.iter().position(|d| d == BASE_ID || d == VARIANT_ID || d == "e0").unwrap_or(0) as u8;
+        let winner = if spec.seed % 10 < 5 { seat } else { (seat + 1) % n };
+        r.end = End::Win;
+        r.winner = Some(winner);
+        r.first_seat = Some(0);
+        r.placements = vec![vec![winner], (0..n).filter(|s| *s != winner).collect()];
+        r.turns = 40;
+        r.ms = 200_000;
+        Box::pin(async move { Ok(r) })
+    }
+}
+
+fn forge_access(f: &Arc<FakeForge>) -> ForgeAccess {
+    ForgeAccess { client: Some(f.clone() as Arc<dyn ForgeClient>), cards: Some(Arc::new(ForgeCards::new("forge 9.9"))), engine: Some("forge 9.9".into()) }
+}
+
+fn with_engine(mut r: NewExperiment, engine: &str) -> NewExperiment {
+    r.engine = Some(engine.into());
+    r
+}
+
+#[tokio::test]
+async fn forge_runs_need_a_forge_worker_and_a_known_profile() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let quota = crate::config::LabQuota::default();
+    let bryan = user("bryan", false);
+    let e = create_with(&pool, &bryan, with_engine(swap_req(100), "forge"), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap_err();
+    assert!(matches!(&e, AppError::Unavailable(m) if m.contains("Forge isn't set up")), "{e:?}");
+    let f = FakeForge::new(&[]);
+    let mut r = with_engine(swap_req(100), "forge");
+    r.forge_ai = Some("Random".into());
+    assert!(bad(create_with(&pool, &bryan, r, sim.as_ref(), &quota, &forge_access(&f)).await.unwrap_err()).contains("forge_ai"));
+    assert!(bad(create_with(&pool, &bryan, with_engine(swap_req(100), "xmage"), sim.as_ref(), &quota, &forge_access(&f)).await.unwrap_err()).contains("phase, forge or both"));
+    let mut r = with_engine(swap_req(100), "forge");
+    r.forge_ai = Some("reckless".into());
+    let d = create_with(&pool, &bryan, r, sim.as_ref(), &quota, &forge_access(&f)).await.unwrap();
+    assert_eq!(d.item.engines.forge_ai.as_deref(), Some("Reckless"));
+    assert_eq!((d.item.label.engine.as_str(), d.item.label.difficulty.as_str()), ("forge 9.9", "Reckless"));
+    assert_eq!(d.item.forge_games.map(|g| (g.done, g.total)), Some((0, 100)));
+    let (engines, max_seconds): (Vec<String>, Vec<i64>) = {
+        let rows: Vec<(String, i64)> = sqlx::query_as("SELECT engine, json_extract(spec, '$.max_seconds') FROM lab_experiment_games WHERE experiment_id = ?")
+            .bind(&d.item.id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        rows.into_iter().unzip()
+    };
+    assert!(engines.iter().all(|e| e == "forge"));
+    assert!(max_seconds.iter().all(|s| *s == super::forge::FORGE_MAX_SECONDS as i64));
+}
+
+#[tokio::test]
+async fn forge_games_go_to_the_forge_worker_and_never_to_the_lab_threads() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let f = FakeForge::new(&[]);
+    let d = create_with(&pool, &user("admin", true), with_engine(swap_req(40), "forge"), sim.as_ref(), &crate::config::LabQuota::default(), &forge_access(&f))
+        .await
+        .unwrap();
+    let worker = LabWorker::new_with_forge(pool.clone(), 2, SimState::Ready(sim.clone()), Some(f.clone() as Arc<dyn ForgeClient>));
+    worker.drain().await;
+    assert!(sim.played().is_empty(), "the lab threads play phase games only");
+    assert_eq!(detail(&pool, "admin", &d.item.id).await.unwrap().item.progress.done, 0);
+    worker.drain_forge().await;
+    let played = f.played.lock().unwrap().clone();
+    assert_eq!(played.len(), 40);
+    // The worker gets each seat's list with the commander marked, and the run's profile.
+    let p = &played[0];
+    assert_eq!(p.decks.len(), p.spec.decks.len());
+    assert_eq!(p.decks.iter().map(|d| d.id.clone()).collect::<Vec<_>>(), p.spec.decks);
+    assert!(p.decks.iter().all(|d| d.cards.iter().filter(|c| c.commander).count() == 1));
+    assert_eq!(p.profile, "Default");
+    assert_eq!(p.key, format!("{}/{}", d.item.id, p.spec.game));
+    let done = detail(&pool, "admin", &d.item.id).await.unwrap();
+    assert_eq!((done.item.status.as_str(), done.item.progress.done), ("done", 40));
+    assert_eq!(done.item.label.engine, "forge 9.9");
+    assert!(done.item.summary_forge.is_none(), "a Forge-only run keeps its one summary");
+    let s = done.item.summary.unwrap();
+    assert_eq!(s.paired.pods, 20);
+    assert_eq!(s.paired.variant_only + s.paired.base_only, 0, "the fake Forge plays both lists alike");
+    assert_eq!(worker.forge_view().engine.as_deref(), Some("forge 9.9"));
+    assert!(worker.forge_view().online);
+}
+
+#[tokio::test]
+async fn both_engines_play_every_pod_and_their_results_stay_apart() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let f = FakeForge::new(&[]);
+    let d = create_with(&pool, &user("bryan", false), with_engine(swap_req(100), "both"), sim.as_ref(), &crate::config::LabQuota::default(), &forge_access(&f))
+        .await
+        .unwrap();
+    assert_eq!(d.item.progress.total, 200);
+    assert_eq!(d.item.label.engine, format!("{ENGINE}, forge 9.9"));
+    // Each phase game has a Forge twin: the same seed and seats, its own id, after every phase game.
+    let rows: Vec<(String, i64, String, String)> = sqlx::query_as("SELECT game, ord, spec, engine FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord")
+        .bind(&d.item.id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    let phase: Vec<_> = rows.iter().filter(|r| r.3 == "phase").collect();
+    let forge: Vec<_> = rows.iter().filter(|r| r.3 == "forge").collect();
+    assert_eq!((phase.len(), forge.len()), (100, 100));
+    assert!(phase.iter().map(|r| r.1).max() < forge.iter().map(|r| r.1).min());
+    assert_eq!(forge[0].1 % 2, 0, "pods stay adjacent in the Forge half");
+    for (p, f) in phase.iter().zip(&forge) {
+        assert_eq!(f.0, format!("{}-f", p.0));
+        let (ps, fs): (GameSpec, GameSpec) = (serde_json::from_str(&p.2).unwrap(), serde_json::from_str(&f.2).unwrap());
+        assert_eq!((ps.seed, &ps.decks), (fs.seed, &fs.decks));
+        assert_eq!(fs.game, f.0);
+    }
+    let worker = LabWorker::new_with_forge(pool.clone(), 2, SimState::Ready(sim.clone()), Some(f.clone() as Arc<dyn ForgeClient>));
+    worker.drain().await;
+    let half = detail(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!((half.item.status.as_str(), half.item.progress.done), ("running", 100));
+    assert!(half.item.summary.as_ref().unwrap().verdict.is_final, "phase's half is complete");
+    assert_eq!(half.item.agreement.as_ref().map(|a| a.kind), Some(super::stats::AgreementKind::Waiting), "nothing to compare until Forge's half has results");
+    // While Forge's half waits, the run shows the worker's state.
+    let mut item = half.item.clone();
+    item.with_forge(&worker.forge_view());
+    assert!(item.forge.is_some());
+    worker.drain_forge().await;
+    let done = detail(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!((done.item.status.as_str(), done.item.progress.done), ("done", 200));
+    let (ps, fs) = (done.item.summary.clone().unwrap(), done.item.summary_forge.clone().unwrap());
+    assert_eq!((ps.paired.pods, fs.paired.pods), (50, 50));
+    assert!(ps.builds.iter().all(|b| b.build.engine == ENGINE));
+    assert!(fs.builds.iter().all(|b| b.build.engine == "forge 9.9"));
+    // Phase says better (the fake sim favours the change); the fake Forge sees no difference.
+    assert_eq!(ps.verdict.kind, VerdictKind::Better);
+    assert_eq!(fs.verdict.kind, VerdictKind::Unclear);
+    let a = done.item.agreement.unwrap();
+    assert_ne!(a.kind, super::stats::AgreementKind::Waiting);
+    assert!(done.item.label.engine.contains("forge 9.9") && done.item.label.engine.contains(ENGINE));
+    // Each engine's pods, numbered from 1.
+    let fp = pods_for(&pool, "bryan", &d.item.id, Some("forge")).await.unwrap();
+    assert_eq!((fp.len(), fp[0].pod, fp.last().unwrap().pod), (50, 1, 50));
+    assert!(fp.iter().all(|p| p.base.is_some() && p.variant.is_some()));
+    let pp = pods_for(&pool, "bryan", &d.item.id, None).await.unwrap();
+    assert_eq!(pp.len(), 50);
+    assert!(pods_for(&pool, "other", &d.item.id, Some("forge")).await.is_err(), "someone else's run is not found");
+    // Again keeps both engines.
+    let again = again_with(&pool, &user("bryan", false), &d.item.id, 100, None, sim.as_ref(), &crate::config::LabQuota::default(), &forge_access(&f)).await.unwrap();
+    assert_eq!((again.item.engines.mode, again.item.progress.total), (super::forge::EngineMode::Both, 200));
+}
+
+#[tokio::test]
+async fn cards_forge_doesnt_know_are_refused_and_left_out_of_a_forge_field() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let quota = crate::config::LabQuota::default();
+    let bryan = user("bryan", false);
+    // Forge doesn't know Grizzly Bears or Atla (p2's commander).
+    let f = FakeForge::new(&["Grizzly Bears", "Atla"]);
+    let mut r = swap_req(100);
+    r.variant.add = vec!["Grizzly Bears".into(), "Elvish Mystic".into()];
+    let (msg, details) = invalid(create_with(&pool, &bryan, with_engine(r, "forge"), sim.as_ref(), &quota, &forge_access(&f)).await.unwrap_err());
+    assert!(msg.contains("Forge can't play") && msg.contains("Grizzly Bears"), "{msg}");
+    assert_eq!(details["engine"], "forge");
+    assert_eq!(details["unknown"]["variant"], json!(["Grizzly Bears"]));
+    // The same change on phase is fine.
+    let mut r = swap_req(100);
+    r.variant.add = vec!["Grizzly Bears".into(), "Elvish Mystic".into()];
+    create_with(&pool, &bryan, r, sim.as_ref(), &quota, &forge_access(&f)).await.unwrap();
+    // A Forge field leaves out the precon Forge can't play, and says so.
+    let d = create_with(&pool, &user("admin", true), with_engine(swap_req(100), "both"), sim.as_ref(), &quota, &forge_access(&f)).await.unwrap();
+    let ids: Vec<&str> = d.opponents.iter().map(|o| o.id.as_str()).collect();
+    assert!(!ids.contains(&"precons/p2"), "{ids:?}");
+    assert!(d.warnings.iter().any(|w| w.contains("Left out") && w.contains("Precon p2")), "{:?}", d.warnings);
+    assert!(f.checked.load(Ordering::SeqCst) > 0);
+    // With the worker offline nothing is checked: the run is made, and says so.
+    let offline = ForgeAccess { cards: None, engine: None, ..forge_access(&f) };
+    let d = create_with(&pool, &user("admin", true), with_engine(swap_req(100), "forge"), sim.as_ref(), &quota, &offline).await.unwrap();
+    assert!(d.warnings.iter().any(|w| w.contains("offline")), "{:?}", d.warnings);
+}
+
+#[tokio::test]
+async fn an_offline_forge_worker_is_handed_nothing_and_a_lost_game_is_written_off_after_three_tries() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let f = FakeForge::new(&[]);
+    let d = create_with(&pool, &user("bryan", false), with_engine(swap_req(100), "forge"), sim.as_ref(), &crate::config::LabQuota::default(), &forge_access(&f))
+        .await
+        .unwrap();
+    let worker = LabWorker::new_with_forge(pool.clone(), 2, SimState::Ready(sim.clone()), Some(f.clone() as Arc<dyn ForgeClient>));
+    f.offline.store(true, Ordering::SeqCst);
+    assert_eq!(worker.forge_tick().await.unwrap(), 0);
+    let view = worker.forge_view();
+    assert!(view.configured && !view.online && view.error.as_deref() == Some("connection refused"), "{view:?}");
+    let attempts: i64 = sqlx::query_scalar("SELECT MAX(attempts) FROM lab_experiment_games WHERE experiment_id = ?").bind(&d.item.id).fetch_one(&pool).await.unwrap();
+    assert_eq!(attempts, 0, "nothing is claimed while the worker doesn't answer");
+    // Back online, but every game it's handed is lost: each goes back in the queue, then is
+    // written off after FORGE_MAX_ATTEMPTS tries.
+    f.offline.store(false, Ordering::SeqCst);
+    f.lose_games.store(true, Ordering::SeqCst);
+    worker.drain_forge().await;
+    let played = f.played.lock().unwrap().clone();
+    let tries = played.iter().filter(|p| p.spec.game == played[0].spec.game).count();
+    assert_eq!(tries as i64, super::forge::FORGE_MAX_ATTEMPTS);
+    let done = detail(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!(done.item.status, "failed");
+    let errors: Vec<Option<String>> = sqlx::query_scalar("SELECT json_extract(result, '$.error') FROM lab_experiment_games WHERE experiment_id = ? LIMIT 3")
+        .bind(&d.item.id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert!(errors.iter().all(|e| e.as_deref().is_some_and(|e| e.contains("handed to the Forge worker 3 times"))), "{errors:?}");
+    let engine: String = sqlx::query_scalar("SELECT json_extract(result, '$.engine') FROM lab_experiment_games WHERE experiment_id = ? LIMIT 1")
+        .bind(&d.item.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(engine, "forge 9.9", "a written-off Forge game is labelled as Forge");
+}
+
+#[tokio::test]
+async fn forge_games_count_double_against_the_daily_allowance() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let f = FakeForge::new(&[]);
+    let newbie = add_open_user(&pool, "newbie").await;
+    let quota = crate::config::LabQuota { queue_games: 2_000, open_queue_games: 400, open_daily_games: 300 };
+    let first = create_with(&pool, &newbie, with_engine(swap_req(100), "forge"), sim.as_ref(), &quota, &forge_access(&f)).await.unwrap();
+    let used: i64 = sqlx::query_scalar("SELECT SUM(games) FROM lab_usage WHERE owner_id = 'newbie'").fetch_one(&pool).await.unwrap();
+    assert_eq!(used, 100 * i64::from(super::forge::FORGE_WEIGHT));
+    cancel(&pool, "newbie", &first.item.id, &idle).await.unwrap();
+    let e = create_with(&pool, &newbie, with_engine(swap_req(100), "forge"), sim.as_ref(), &quota, &forge_access(&f)).await.unwrap_err();
+    assert!(matches!(&e, AppError::Conflict(m) if m.contains("300 games a day")), "{e:?}");
+    // A phase run still fits.
+    create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota, &forge_access(&f)).await.unwrap();
 }

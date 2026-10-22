@@ -6,7 +6,7 @@ import { useMe } from "../auth";
 import type { ComparePrefill, ExperimentDetail, NewExperiment } from "./api";
 import { LabHead } from "./LabLayout";
 import { caveat, durationText, expectedSeconds, gameChoices } from "./logic";
-import { DeckChooser, defaultField, FieldPicker, fromDeckSummary, GamesPicker, RunBlockers, useField, usePace, type Chosen, type FieldState } from "./pickers";
+import { DeckChooser, defaultField, FieldPicker, fromDeckSummary, GamesPicker, RunBlockers, useField, usePace, type Chosen, type FieldState, EnginePicker, EngineSupportNote, engineFields, engineState, engineText, forgeSeconds, type EngineState } from "./pickers";
 import { usePrecons } from "./Precons";
 import { CreateError, PaceNote, RunningNow } from "./Try";
 
@@ -32,13 +32,15 @@ function CompareForm() {
     return { kind: f.kind, anchor: f.kind === "precons_near" ? (f.ids[0] ?? "") : "", myDecks: f.kind === "my_decks" ? f.ids : [] };
   });
   const [gamesPicked, setGames] = useState<number | null>(prefill?.games ?? null);
-  const [difficulty, setDifficulty] = useState(prefill?.difficulty === "Medium" ? "Medium" : "Easy");
+  const [engines, setEngines] = useState<EngineState>(() => engineState(prefill));
   const [name, setName] = useState("");
   const opId = useRef(crypto.randomUUID());
   const pace = usePace();
   const choices = gameChoices(pace.data);
   const games = gamesPicked != null && choices.includes(gamesPicked) ? gamesPicked : choices.includes(200) ? 200 : (choices[0] ?? 100);
-  const eta = expectedSeconds(pace.data, games);
+  const phaseEta = expectedSeconds(pace.data, games);
+  const forgeEta = forgeSeconds(pace.data, games);
+  const eta = engines.mode === "phase" ? phaseEta : engines.mode === "forge" ? forgeEta : phaseEta != null && forgeEta != null ? Math.max(phaseEta, forgeEta) : null;
 
   // "Edit and run again" brings decks back: yours by id, precons by slug (lists can't come back).
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
@@ -88,8 +90,8 @@ function CompareForm() {
   const create = useMutation({
     mutationFn: () => {
       const body: NewExperiment = versus
-        ? { op_id: opId.current, mode: "versus", entrants: chosen.map((c) => c.choice), pod, ...(fillers > 0 ? { field: fieldPick.choice } : {}), games, difficulty }
-        : { op_id: opId.current, mode: "compare", base: chosen[0]!.choice, other: chosen[1]!.choice, field: fieldPick.choice, games, difficulty };
+        ? { op_id: opId.current, mode: "versus", entrants: chosen.map((c) => c.choice), pod, ...(fillers > 0 ? { field: fieldPick.choice } : {}), games, ...engineFields(engines) }
+        : { op_id: opId.current, mode: "compare", base: chosen[0]!.choice, other: chosen[1]!.choice, field: fieldPick.choice, games, ...engineFields(engines) };
       if (name.trim()) body.name = name.trim();
       return api<ExperimentDetail>("/api/lab/experiments", { method: "POST", json: body });
     },
@@ -204,20 +206,15 @@ function CompareForm() {
               {chosen.length >= 2 ? (
                 <>
                   <b>{labels.join(versus ? ", " : " vs ")}</b>
-                  {versus ? (pod === 2 ? ", 1v1" : fillers > 0 ? `, with ${fieldPick.label} filling ${fillers === 1 ? "a seat" : `${fillers} seats`}` : "") : ` against ${fieldPick.label}`}. {games} games, {difficulty} AI
+                  {versus ? (pod === 2 ? ", 1v1" : fillers > 0 ? `, with ${fieldPick.label} filling ${fillers === 1 ? "a seat" : `${fillers} seats`}` : "") : ` against ${fieldPick.label}`}. {games} games, {engineText(engines)}
                   {eta != null ? `, ${durationText(eta)}` : ""}.
                 </>
               ) : (
                 <span className="dim">Pick the decks, then who they play against.</span>
               )}
             </p>
-            <label>
-              AI level
-              <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
-                <option>Easy</option>
-                <option>Medium</option>
-              </select>
-            </label>
+            <EnginePicker id="cmp-engine" value={engines} onChange={setEngines} pace={pace.data} games={games} />
+            {chosen.length >= 2 && <EngineSupportNote lists={chosen.map((c) => c.choice)} names={[]} mode={engines.mode} />}
             <label>
               <span>
                 Name <span className="dim small" style={{ fontWeight: 400 }}>(optional)</span>

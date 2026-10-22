@@ -34,8 +34,9 @@
 //!   its games.
 
 use super::experiments::{ExperimentSpec, LabCard, LabList, NO_CARD_DATA};
+use super::forge::{self, ForgeCards, ForgeClient, ForgeLive, ForgePlay, ForgeView};
 use super::pairing::{LIMITS, Limits};
-use super::stats::{self, Build, Outcome};
+use super::stats::{self, Build, Outcome, Summary};
 use crate::error::{AppError, AppResult};
 use crate::util::now;
 use sqlx::{SqliteConnection, SqlitePool};
@@ -244,6 +245,8 @@ pub enum SimState {
 pub(crate) struct Frozen {
     lists: HashMap<String, Arc<LabList>>,
     limits: Limits,
+    /// The Forge AI profile its Forge games play.
+    profile: String,
 }
 
 #[derive(Default)]
@@ -257,6 +260,8 @@ struct Inner {
     build_checked: HashSet<String>,
     /// Game tasks not finished yet (result stored and the experiment settled).
     tasks: usize,
+    /// Of `in_flight`, the games handed to the Forge worker (they don't use a lab thread).
+    forge_busy: usize,
 }
 
 /// One game handed to a thread.
@@ -267,6 +272,8 @@ pub(crate) struct Job {
     pub limits: Limits,
     /// The seats' lists, or why the game can't be played (stored as its error, unplayed).
     pub decks: Result<Vec<Arc<LabList>>, String>,
+    /// The Forge AI profile (Forge games only; phase games use the schedule line's difficulty).
+    pub profile: String,
 }
 
 pub struct LabWorker {
@@ -275,23 +282,51 @@ pub struct LabWorker {
     sim: RwLock<SimState>,
     wake: Notify,
     inner: Mutex<Inner>,
+    /// The Forge worker, when YAMA_FORGE_URL and YAMA_FORGE_SECRET are set (`forge.rs`).
+    forge: Option<Arc<dyn ForgeClient>>,
+    forge_live: Mutex<ForgeLive>,
+    forge_wake: Notify,
 }
 
 impl LabWorker {
+    #[cfg(test)]
     pub fn new(pool: SqlitePool, threads: usize, state: SimState) -> Arc<Self> {
-        Arc::new(Self { pool, threads, sim: RwLock::new(state), wake: Notify::new(), inner: Mutex::new(Inner::default()) })
+        Self::new_with_forge(pool, threads, state, None)
+    }
+
+    pub fn new_with_forge(pool: SqlitePool, threads: usize, state: SimState, forge: Option<Arc<dyn ForgeClient>>) -> Arc<Self> {
+        Arc::new(Self {
+            pool,
+            threads,
+            sim: RwLock::new(state),
+            wake: Notify::new(),
+            inner: Mutex::new(Inner::default()),
+            forge,
+            forge_live: Mutex::default(),
+            forge_wake: Notify::new(),
+        })
     }
 
     /// The server's worker: waits for the play hub's engine, then plays experiments until the
     /// server stops. With `threads` 0 the lab is off: experiments can be read but not started.
-    pub fn start(pool: SqlitePool, threads: usize, hub: Arc<crate::play::PlayHub>, card_data: Option<std::path::PathBuf>) -> Arc<Self> {
+    pub fn start(
+        pool: SqlitePool,
+        threads: usize,
+        hub: Arc<crate::play::PlayHub>,
+        card_data: Option<std::path::PathBuf>,
+        forge: Option<Arc<dyn ForgeClient>>,
+    ) -> Arc<Self> {
         let Some(path) = card_data.filter(|p| p.exists()) else {
-            let worker = Self::new(pool, threads, SimState::Missing(NO_CARD_DATA.into()));
+            let worker = Self::new_with_forge(pool, threads, SimState::Missing(NO_CARD_DATA.into()), None);
             worker.spawn_settle_left_over();
             return worker;
         };
-        let worker = Self::new(pool, threads, SimState::Starting);
+        let worker = Self::new_with_forge(pool, threads, SimState::Starting, forge);
         worker.spawn_settle_left_over();
+        if worker.forge.is_some() {
+            let w = Arc::clone(&worker);
+            tokio::spawn(async move { w.run_forge().await });
+        }
         let w = Arc::clone(&worker);
         let hash = lab::card_data_hash(&path);
         tokio::spawn(async move {
@@ -430,10 +465,165 @@ impl LabWorker {
         }
     }
 
+    /// Hand Forge games to the Forge worker until the server stops (`forge.rs`).
+    pub async fn run_forge(self: Arc<Self>) {
+        loop {
+            if let Err(e) = self.forge_tick().await {
+                tracing::error!(error = %e, "lab: Forge pass failed; trying again shortly");
+            }
+            tokio::select! {
+                _ = self.forge_wake.notified() => {}
+                _ = tokio::time::sleep(forge::POLL) => {}
+            }
+        }
+    }
+
+    /// Ask the Forge worker how it is, then hand it games for its free slots. Returns how many
+    /// it was handed (written-off games included). Nothing is claimed while it doesn't answer, so
+    /// its games wait.
+    pub(crate) async fn forge_tick(self: &Arc<Self>) -> AppResult<usize> {
+        let Some(client) = self.forge.clone() else { return Ok(0) };
+        let status = match client.status().await {
+            Ok(s) => s,
+            Err(e) => {
+                let mut live = lock(&self.forge_live);
+                if live.error.as_deref() != Some(e.as_str()) {
+                    tracing::warn!(error = %e, "lab: the Forge worker didn't answer; its games wait");
+                }
+                live.error = Some(e);
+                return Ok(0);
+            }
+        };
+        {
+            let mut live = lock(&self.forge_live);
+            if live.cards.as_ref().is_none_or(|c| c.engine() != status.engine) {
+                live.cards = Some(Arc::new(ForgeCards::new(&status.engine)));
+            }
+            if !live.online() {
+                tracing::info!(engine = %status.engine, slots = status.slots, "lab: the Forge worker is online");
+            }
+            live.status = Some(status.clone());
+            live.last_ok = Some(std::time::Instant::now());
+            live.last_seen = Some(now());
+            live.error = None;
+        }
+        let busy = lock(&self.inner).forge_busy;
+        let free = status.slots.saturating_sub(busy);
+        if free == 0 {
+            return Ok(0);
+        }
+        let jobs = self.next_jobs_for("forge", free).await?;
+        if jobs.is_empty() {
+            return Ok(0);
+        }
+        {
+            let mut inner = lock(&self.inner);
+            for job in &jobs {
+                inner.in_flight.insert((job.experiment.clone(), job.game.clone()));
+            }
+            inner.forge_busy += jobs.len();
+        }
+        let active = match self.mark_started(&jobs).await {
+            Ok(active) => active,
+            Err(e) => {
+                self.release_forge(&jobs).await;
+                return Err(e);
+            }
+        };
+        let (go, stopped): (Vec<Job>, Vec<Job>) = jobs.into_iter().partition(|j| active.contains(&j.experiment));
+        if !stopped.is_empty() {
+            self.release_forge(&stopped).await;
+        }
+        let started = go.len();
+        lock(&self.inner).tasks += started;
+        for job in go {
+            let me = Arc::clone(self);
+            let (client, status) = (Arc::clone(&client), status.clone());
+            tokio::spawn(async move { me.play_forge_one(client, status, job).await });
+        }
+        Ok(started)
+    }
+
+    async fn release_forge(&self, jobs: &[Job]) {
+        {
+            let mut inner = lock(&self.inner);
+            inner.forge_busy = inner.forge_busy.saturating_sub(jobs.len());
+        }
+        self.release(jobs).await;
+    }
+
+    async fn play_forge_one(self: Arc<Self>, client: Arc<dyn ForgeClient>, status: forge::ForgeStatus, job: Job) {
+        let result = match &job.decks {
+            Err(why) => Some(forge::failed_result(&job.spec, Some(&status), &job.profile, why.clone())),
+            Ok(decks) => match client.play(ForgePlay::new(&job.experiment, &job.spec, &job.profile, decks)).await {
+                Ok(r) => Some(forge::checked_result(&job.spec, Some(&status), &job.profile, r)),
+                Err(e) => {
+                    // It stays unplayed and goes back in the queue; its attempts are counted, so
+                    // one that never comes back is written off after FORGE_MAX_ATTEMPTS.
+                    tracing::warn!(experiment = %job.experiment, game = %job.game, error = %e, "lab: a Forge game didn't come back; it goes back in the queue");
+                    None
+                }
+            },
+        };
+        if let Some(result) = result
+            && let Err(e) = store(&self.pool, &job.experiment, &job.game, &result).await
+        {
+            tracing::error!(experiment = %job.experiment, game = %job.game, error = %e, "storing a Forge lab result failed");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+        let last = {
+            let mut inner = lock(&self.inner);
+            inner.in_flight.remove(&(job.experiment.clone(), job.game.clone()));
+            inner.forge_busy = inner.forge_busy.saturating_sub(1);
+            !inner.in_flight.iter().any(|(e, _)| *e == job.experiment)
+        };
+        if last && let Err(e) = self.settle(&job.experiment).await {
+            tracing::error!(experiment = %job.experiment, error = %e, "lab: settling an experiment failed");
+        }
+        lock(&self.inner).tasks -= 1;
+        self.forge_wake.notify_one();
+    }
+
+    /// The Forge worker as the Lab and admin pages show it.
+    pub fn forge_view(&self) -> ForgeView {
+        let playing = lock(&self.inner).forge_busy;
+        lock(&self.forge_live).view(self.forge.is_some(), playing)
+    }
+
+    /// The Forge worker, when this server has one.
+    pub fn forge_client(&self) -> Option<Arc<dyn ForgeClient>> {
+        self.forge.clone()
+    }
+
+    /// What the online Forge worker has said about card names so far (none while it is offline).
+    pub fn forge_cards(&self) -> Option<Arc<ForgeCards>> {
+        let live = lock(&self.forge_live);
+        if live.online() { live.cards.clone() } else { None }
+    }
+
+    /// The online Forge worker's engine label ("forge 2.0.15").
+    pub fn forge_engine(&self) -> Option<String> {
+        let live = lock(&self.forge_live);
+        if live.online() { live.status.as_ref().map(|s| s.engine.clone()) } else { None }
+    }
+
+    /// What creating a run needs to know about Forge.
+    pub fn forge_access(&self) -> forge::ForgeAccess {
+        forge::ForgeAccess { client: self.forge_client(), cards: self.forge_cards(), engine: self.forge_engine() }
+    }
+
+    /// Wake the Forge dispatcher (after an experiment with Forge games is created).
+    pub fn wake_forge(&self) {
+        self.forge_wake.notify_one();
+    }
+
     /// Start games on free threads. Returns how many started (written-off games included).
     pub(crate) async fn tick(self: &Arc<Self>) -> AppResult<usize> {
         let Some(sim) = self.ready() else { return Ok(0) };
-        let busy = lock(&self.inner).in_flight.len() + sim.stuck();
+        let busy = {
+            let inner = lock(&self.inner);
+            inner.in_flight.len().saturating_sub(inner.forge_busy) + sim.stuck()
+        };
         let free = self.threads.saturating_sub(busy);
         if free == 0 {
             return Ok(0);
@@ -580,9 +770,16 @@ impl LabWorker {
         self.wake.notify_one();
     }
 
-    /// The next games to play, oldest experiment first, at most `free`, skipping games in flight.
-    /// A disabled account's experiments wait until it is enabled again.
+    /// The next phase games to play (see [`Self::next_jobs_for`]).
     pub(crate) async fn next_jobs(&self, free: usize) -> AppResult<Vec<Job>> {
+        self.next_jobs_for("phase", free).await
+    }
+
+    /// The next games of `engine` ("phase" or "forge") to play, oldest experiment first, at most
+    /// `free`, skipping games in flight. A disabled account's experiments wait until it is enabled
+    /// again.
+    pub(crate) async fn next_jobs_for(&self, engine: &str, free: usize) -> AppResult<Vec<Job>> {
+        let max_attempts = if engine == "forge" { forge::FORGE_MAX_ATTEMPTS } else { MAX_ATTEMPTS };
         let experiments: Vec<(String, String, bool)> = sqlx::query_as(
             "SELECT e.id, e.owner_id, u.is_admin FROM lab_experiments e JOIN users u ON u.id = e.owner_id
              WHERE e.status IN ('queued','running') AND u.disabled_at IS NULL ORDER BY e.created_at, e.rowid",
@@ -604,9 +801,10 @@ impl LabWorker {
             }
             let busy = in_flight.iter().filter(|(e, _)| *e == id).count();
             let rows: Vec<(String, String, i64)> = sqlx::query_as(
-                "SELECT game, spec, attempts FROM lab_experiment_games WHERE experiment_id = ? AND result IS NULL ORDER BY ord LIMIT ?",
+                "SELECT game, spec, attempts FROM lab_experiment_games WHERE experiment_id = ? AND engine = ? AND result IS NULL ORDER BY ord LIMIT ?",
             )
             .bind(&id)
+            .bind(engine)
             .bind((free - jobs.len() + busy) as i64)
             .fetch_all(&self.pool)
             .await?;
@@ -627,12 +825,19 @@ impl LabWorker {
                     Err(e) => {
                         // Store it as failed rather than retrying a line that can't be read.
                         let g = GameSpec { game: game.clone(), seed: 0, decks: vec![], difficulty: String::new(), max_turns: 0, max_actions: 0, max_seconds: 0, pilots: None };
-                        jobs.push(Job { experiment: id.clone(), game, spec: g, limits: LIMITS, decks: Err(format!("unreadable schedule line: {e}")) });
+                        let profile = frozen.as_ref().map_or_else(|_| forge::DEFAULT_PROFILE.to_string(), |f| f.profile.clone());
+                        jobs.push(Job { experiment: id.clone(), game, spec: g, limits: LIMITS, decks: Err(format!("unreadable schedule line: {e}")), profile });
                         continue;
                     }
                 };
                 let limits = frozen.as_ref().map_or(LIMITS, |f| f.limits);
-                let decks = if attempts >= MAX_ATTEMPTS {
+                let profile = frozen.as_ref().map_or_else(|_| forge::DEFAULT_PROFILE.to_string(), |f| f.profile.clone());
+                let decks = if attempts >= max_attempts && engine == "forge" {
+                    Err(format!(
+                        "written off: handed to the Forge worker {attempts} times without a result coming back (it restarted, or the network \
+                         failed each time)"
+                    ))
+                } else if attempts >= max_attempts {
                     Err(format!(
                         "written off without playing it again: started {attempts} times and the server stopped each time before its result \
                          was stored. A crash inside a game (a stack overflow, say) ends the whole server, so a game isn't replayed after \
@@ -644,7 +849,7 @@ impl LabWorker {
                         Ok(f) => spec.decks.iter().map(|d| f.lists.get(d).cloned().ok_or_else(|| format!("{DECK_ERRORS} {d}: not in the experiment"))).collect(),
                     }
                 };
-                jobs.push(Job { experiment: id.clone(), game, spec, limits, decks });
+                jobs.push(Job { experiment: id.clone(), game, spec, limits, decks, profile });
             }
         }
         // Forget the lists of experiments that are finished, cancelled or deleted.
@@ -667,12 +872,29 @@ impl LabWorker {
             Err(e) => return Ok(Err(format!("unreadable experiment: {e}"))),
         };
         let mut lists = HashMap::new();
+        let profile = spec.engines.profile().to_string();
         for list in std::iter::once(spec.base).chain(spec.variant).chain(spec.entrants).chain(spec.opponents.into_iter().map(|o| o.list)) {
             lists.insert(list.id.clone(), Arc::new(list));
         }
-        let frozen = Arc::new(Frozen { lists, limits: spec.limits });
+        let frozen = Arc::new(Frozen { lists, limits: spec.limits, profile });
         lock(&self.inner).frozen.insert(id.to_string(), Arc::clone(&frozen));
         Ok(Ok(frozen))
+    }
+
+    /// Hand Forge games out until none is left to start or playing (tests).
+    #[cfg(test)]
+    pub(crate) async fn drain_forge(self: &Arc<Self>) {
+        loop {
+            self.forge_tick().await.unwrap();
+            let idle = {
+                let inner = lock(&self.inner);
+                inner.forge_busy == 0 && inner.tasks == 0
+            };
+            if idle && self.next_jobs_for("forge", 1).await.unwrap().is_empty() {
+                return;
+            }
+            let _ = tokio::time::timeout(Duration::from_millis(50), self.forge_wake.notified()).await;
+        }
     }
 
     /// Play until nothing is left to start or running (tests).
@@ -717,22 +939,23 @@ pub async fn store(pool: &SqlitePool, experiment: &str, game: &str, result: &Gam
     Ok(true)
 }
 
-/// Clears an experiment's stored games (bind 2, and again bind 3) that came from a build other
+/// Clears an experiment's stored phase games (bind 2, and again bind 3) that came from a build other
 /// than the current one (engine, card data, runner: binds 4 to 6) and whose pod partner is
 /// unplayed or from yet another build, while the experiment is queued or running. A cleared game
 /// starts its attempts again, unless it was written off for them (bind 1). A result line that
 /// isn't valid JSON is never read as JSON (CASE evaluates in order; WHERE terms needn't) and is
-/// left alone: it is an unscored error from an unknown build.
+/// left alone: it is an unscored error from an unknown build. Forge games are never cleared: their
+/// build is the Forge worker's, and a "both" experiment's Forge half is a separate summary.
 const SPLIT_PODS: &str = "WITH b AS (
         SELECT ord, result IS NULL AS pending, result IS NOT NULL AND json_valid(result) AS readable,
                CASE WHEN json_valid(result) THEN json_extract(result, '$.engine') END AS engine,
                CASE WHEN json_valid(result) THEN json_extract(result, '$.card_data') END AS card_data,
                CASE WHEN json_valid(result) THEN json_extract(result, '$.runner') END AS runner
-        FROM lab_experiment_games WHERE experiment_id = ?
+        FROM lab_experiment_games WHERE experiment_id = ? AND engine = 'phase'
     )
     UPDATE lab_experiment_games
     SET result = NULL, end_kind = NULL, finished_at = NULL, attempts = CASE WHEN attempts >= ? THEN attempts ELSE 0 END
-    WHERE experiment_id = ?
+    WHERE experiment_id = ? AND engine = 'phase'
       AND EXISTS (SELECT 1 FROM lab_experiments e WHERE e.id = lab_experiment_games.experiment_id AND e.status IN ('queued','running'))
       AND ord IN (
         SELECT x.ord FROM b x JOIN b p ON p.ord / 2 = x.ord / 2 AND p.ord != x.ord
@@ -750,42 +973,65 @@ pub async fn refresh(conn: &mut SqliteConnection, experiment: &str, settled: boo
     else {
         return Ok(());
     };
-    let rows: Vec<(i64, String, Option<String>)> = sqlx::query_as("SELECT ord, spec, result FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord")
-        .bind(experiment)
-        .fetch_all(&mut *conn)
-        .await?;
-    let done = rows.iter().filter(|r| r.2.is_some()).count() as i64;
-    let complete = done >= total;
-    let is_final = complete || (status == "cancelled" && settled);
-    let (mode, pod): (Option<String>, Option<i64>) =
-        sqlx::query_as("SELECT json_extract(spec, '$.mode'), json_extract(spec, '$.pod') FROM lab_experiments WHERE id = ?").bind(experiment).fetch_one(&mut *conn).await?;
-    let pod = usize::try_from(pod.unwrap_or(4)).unwrap_or(4);
-    let summary = match mode.as_deref() {
-        Some("versus") => {
-            let entrants: Vec<(String, String)> = sqlx::query_as(
-                "SELECT json_extract(value, '$.id'), json_extract(value, '$.label') FROM lab_experiments, json_each(lab_experiments.spec, '$.entrants')
-                 WHERE lab_experiments.id = ? ORDER BY CAST(key AS INTEGER)",
-            )
+    let rows: Vec<(i64, String, Option<String>, String)> =
+        sqlx::query_as("SELECT ord, spec, result, engine FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord")
             .bind(experiment)
             .fetch_all(&mut *conn)
             .await?;
-            let games: Vec<(String, Option<String>)> = rows.iter().map(|(_, spec, result)| (spec.clone(), result.clone())).collect();
-            stats::summarize_versus(&games, &entrants, pod, is_final)
-        }
-        other => {
-            let outcomes: Vec<Outcome> = rows.iter().filter_map(|(ord, spec, result)| Outcome::from_row(*ord, spec, result.as_deref())).collect();
-            let mut s = stats::summarize(&outcomes, is_final);
-            if other == Some("solo") {
-                s.verdict = stats::solo_verdict(&s.base, pod, is_final);
-                s.method = stats::SOLO_METHOD.into();
+    let done = rows.iter().filter(|r| r.2.is_some()).count() as i64;
+    let complete = done >= total;
+    let cancelled_settled = status == "cancelled" && settled;
+    let (mode, pod, engines): (Option<String>, Option<i64>, Option<String>) =
+        sqlx::query_as("SELECT json_extract(spec, '$.mode'), json_extract(spec, '$.pod'), json_extract(spec, '$.engines.mode') FROM lab_experiments WHERE id = ?")
+            .bind(experiment)
+            .fetch_one(&mut *conn)
+            .await?;
+    let pod = usize::try_from(pod.unwrap_or(4)).unwrap_or(4);
+    let entrants: Vec<(String, String)> = if mode.as_deref() == Some("versus") {
+        sqlx::query_as(
+            "SELECT json_extract(value, '$.id'), json_extract(value, '$.label') FROM lab_experiments, json_each(lab_experiments.spec, '$.entrants')
+             WHERE lab_experiments.id = ? ORDER BY CAST(key AS INTEGER)",
+        )
+        .bind(experiment)
+        .fetch_all(&mut *conn)
+        .await?
+    } else {
+        vec![]
+    };
+    // One engine's games, summarized as the mode wants; final when none of them can still change.
+    let summarize_part = |part: &[&(i64, String, Option<String>, String)]| -> Summary {
+        let part_final = part.iter().all(|r| r.2.is_some()) || cancelled_settled;
+        match mode.as_deref() {
+            Some("versus") => {
+                let games: Vec<(String, Option<String>)> = part.iter().map(|(_, spec, result, _)| (spec.clone(), result.clone())).collect();
+                stats::summarize_versus(&games, &entrants, pod, part_final)
             }
-            s
+            other => {
+                let outcomes: Vec<Outcome> = part.iter().filter_map(|(ord, spec, result, _)| Outcome::from_row(*ord, spec, result.as_deref())).collect();
+                let mut s = stats::summarize(&outcomes, part_final);
+                if other == Some("solo") {
+                    s.verdict = stats::solo_verdict(&s.base, pod, part_final);
+                    s.method = stats::SOLO_METHOD.into();
+                }
+                s
+            }
         }
     };
+    let all: Vec<&(i64, String, Option<String>, String)> = rows.iter().collect();
+    // A "both" experiment keeps its phase half in `summary` and its Forge half in `summary_forge`;
+    // any other keeps its one engine's games in `summary`.
+    let (summary, summary_forge) = if engines.as_deref() == Some("both") {
+        let phase: Vec<_> = all.iter().copied().filter(|r| r.3 == "phase").collect();
+        let forge: Vec<_> = all.iter().copied().filter(|r| r.3 == "forge").collect();
+        (summarize_part(&phase), Some(summarize_part(&forge)))
+    } else {
+        (summarize_part(&all), None)
+    };
+    let scored = summary.scored_games() + summary_forge.as_ref().map_or(0, Summary::scored_games);
     let active = status == "queued" || status == "running";
     let (status, error) = if active && complete {
-        if summary.scored_games() == 0 {
-            let first = rows.iter().filter_map(|(_, _, r)| serde_json::from_str::<yama_play::lab::GameResult>(r.as_deref()?).ok()?.error).next();
+        if scored == 0 {
+            let first = rows.iter().filter_map(|(_, _, r, _)| serde_json::from_str::<yama_play::lab::GameResult>(r.as_deref()?).ok()?.error).next();
             ("failed".to_string(), Some(format!("No game ended with a scored result{}", first.map(|e| format!(". First error: {e}")).unwrap_or_default())))
         } else {
             ("done".to_string(), None)
@@ -794,13 +1040,18 @@ pub async fn refresh(conn: &mut SqliteConnection, experiment: &str, settled: boo
         (status, None)
     };
     let stamp = now();
+    let forge_text = match &summary_forge {
+        Some(s) => Some(serde_json::to_string(s).map_err(anyhow::Error::from)?),
+        None => None,
+    };
     sqlx::query(
-        "UPDATE lab_experiments SET games_done = ?, summary = ?, status = ?, error = IFNULL(?, error), updated_at = ?,
+        "UPDATE lab_experiments SET games_done = ?, summary = ?, summary_forge = ?, status = ?, error = IFNULL(?, error), updated_at = ?,
             finished_at = CASE WHEN ? AND finished_at IS NULL THEN ? ELSE finished_at END
          WHERE id = ?",
     )
     .bind(done)
     .bind(serde_json::to_string(&summary).map_err(anyhow::Error::from)?)
+    .bind(forge_text)
     .bind(&status)
     .bind(error)
     .bind(&stamp)

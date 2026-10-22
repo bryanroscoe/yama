@@ -248,9 +248,19 @@ struct ServerInfo {
     database: DatabaseInfo,
     backups: Vec<FileInfo>,
     lab: LabInfo,
+    /// The Forge worker (Forge as a second Lab engine).
+    forge: ForgeInfo,
     watch: Vec<WatchInfo>,
     advisor: AdvisorInfo,
     sign_in: SignInInfo,
+}
+
+#[derive(Serialize)]
+struct ForgeInfo {
+    #[serde(flatten)]
+    worker: crate::lab::forge::ForgeView,
+    /// Forge games waiting to be played, everyone's.
+    games_waiting: i64,
 }
 
 #[derive(Serialize)]
@@ -396,6 +406,12 @@ async fn server(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResul
     .fetch_one(pool)
     .await?;
     let global_runs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_runs WHERE owner_id IS NULL").fetch_one(pool).await?;
+    let forge_waiting: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM lab_experiment_games g JOIN lab_experiments e ON e.id = g.experiment_id
+          WHERE g.engine = 'forge' AND g.result IS NULL AND e.status IN ('queued','running')",
+    )
+    .fetch_one(pool)
+    .await?;
     let owners: HashMap<String, (String, String)> = sqlx::query_as::<_, (String, String, String)>("SELECT id, email, display_name FROM users")
         .fetch_all(pool)
         .await?
@@ -447,6 +463,7 @@ async fn server(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResul
             games_waiting,
             global_runs,
         },
+        forge: ForgeInfo { worker: st.lab.forge_view(), games_waiting: forge_waiting },
         watch,
         advisor,
         sign_in: SignInInfo {

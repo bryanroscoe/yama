@@ -321,6 +321,39 @@ export interface FieldInfo {
   decks: number;
 }
 
+/** Which engines play a run: phase (the server's own), Forge, or both side by side. */
+export type EngineMode = "phase" | "forge" | "both";
+
+/** Forge's fixed AI profiles. */
+export const FORGE_PROFILES = ["Default", "Cautious", "Reckless", "Experimental"] as const;
+
+export interface Engines {
+  mode: EngineMode;
+  /** The Forge AI profile every Forge seat plays (Forge has no Easy or Medium). */
+  forge_ai?: string;
+}
+
+/** The Forge worker, as Yama sees it. */
+export interface ForgeView {
+  /** Set up on this server. */
+  configured: boolean;
+  /** Answered within the last minute. */
+  online: boolean;
+  engine: string | null;
+  runner: string | null;
+  slots: number;
+  /** Games handed to it that haven't come back. */
+  playing: number;
+  profiles: string[];
+  last_seen: string | null;
+  error: string | null;
+}
+
+export interface Agreement {
+  kind: "waiting" | "agree" | "disagree" | "unclear";
+  text: string;
+}
+
 export interface ExperimentItem {
   id: string;
   name: string;
@@ -335,7 +368,18 @@ export interface ExperimentItem {
   /** compare: the two decks; versus: every deck. */
   entrants?: ListDisplay[];
   field: FieldInfo | null;
+  /** In a "both" run, phase's half. */
   summary: Summary | null;
+  /** Missing on runs from before Forge: phase. */
+  engines?: Engines;
+  /** A "both" run's Forge half. */
+  summary_forge?: Summary | null;
+  /** A "both" run: whether the engines agree. */
+  agreement?: Agreement | null;
+  /** Forge games played and scheduled, on runs with Forge games. */
+  forge_games?: { done: number; total: number } | null;
+  /** The Forge worker, on runs still waiting for Forge games. */
+  forge?: ForgeView | null;
 }
 
 export interface LabList {
@@ -407,6 +451,28 @@ export interface Pace {
   game_choices?: number[];
   /** The smaller allowance of an account that joined without an invite; null for anyone else. */
   allowance?: Allowance | null;
+  /** The Forge worker (missing on older servers: no Forge). */
+  forge?: ForgeView;
+  /** Mean length of the last Forge games, in seconds. */
+  forge_seconds_per_game?: number | null;
+  /** What a Forge game counts as against the daily allowance. */
+  forge_weight?: number;
+}
+
+/** One list's cards each engine can't play. `forge` is null when Forge's answers can't be had. */
+export interface ListSupport {
+  label: string;
+  phase: string[];
+  forge: string[] | null;
+}
+
+/** POST /api/lab/engines/check: the lists a run would test (and cards a change adds), per engine. */
+export interface EngineSupport {
+  lists: ListSupport[];
+  extra: ListSupport;
+  forge_engine: string | null;
+  /** Why the Forge column is missing: not set up here, or the worker is offline. */
+  forge_note: string | null;
 }
 
 export interface Allowance {
@@ -445,6 +511,9 @@ export interface NewExperiment {
   field?: FieldChoice;
   games: number;
   difficulty: string;
+  /** Missing: phase. */
+  engine?: EngineMode;
+  forge_ai?: string;
 }
 
 /** What "Try again" carries to the Try a change page. */
@@ -457,6 +526,7 @@ export interface TryPrefill {
   field?: FieldChoice;
   games?: number;
   difficulty?: string;
+  engines?: Engines;
 }
 
 /** What "Edit and run again" carries to the Compare page. */
@@ -467,4 +537,5 @@ export interface ComparePrefill {
   field?: FieldChoice;
   games?: number;
   difficulty?: string;
+  engines?: Engines;
 }

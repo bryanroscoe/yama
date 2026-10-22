@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1.7
+# The Forge worker: Forge as a second engine for Yama's Lab runs (server/src/lab/forge.rs). Forge
+# (https://github.com/Card-Forge/forge, GPL-3.0) is downloaded and run as a separate program, one JVM per
+# game; none of its code is in Yama. forge-worker/ is Yama's own HTTP front for the deck lab's batch runner
+# (forge_runner.py, a copy of commander-decks scripts/sim/forge_runner.py). Private use.
+#
+# Built by deploy/deploy.sh with the context yama/forge-worker. Java 17, not 21: when one of Forge's AI
+# decisions overruns its time and ignores the interrupt, Forge calls Thread.stop(), which Java 20+ refuses
+# (see deploy/Dockerfile.forge and commander-decks docs/lab/forge.md).
+#
+# Read-only friendly: the worker writes only to /work (tmpfs: deck files and one Forge user dir per game) and
+# /tmp (tmpfs, for the JVMs). Forge's card index is built here, at image build, into /opt/forge-index.
+ARG JAVA_IMAGE=eclipse-temurin:17-jre
+
+FROM ${JAVA_IMAGE} AS forge
+ARG FORGE_VERSION=2.0.15
+ARG FORGE_SHA256=4468f182b60f6ca62d89697baa208981085af744f116781af751c611826db600
+RUN apt-get update && apt-get install -y --no-install-recommends bzip2 && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL --retry 3 -o /tmp/forge.tar.bz2 \
+      "https://github.com/Card-Forge/forge/releases/download/forge-${FORGE_VERSION}/forge-installer-${FORGE_VERSION}.tar.bz2" \
+ && echo "${FORGE_SHA256}  /tmp/forge.tar.bz2" | sha256sum -c - \
+ && mkdir -p "/opt/forge/forge-${FORGE_VERSION}" \
+ && tar -xjf /tmp/forge.tar.bz2 -C "/opt/forge/forge-${FORGE_VERSION}" --no-same-owner --no-same-permissions \
+ && rm /tmp/forge.tar.bz2 \
+ && cd "/opt/forge/forge-${FORGE_VERSION}" \
+ && rm -rf docs ./*.exe ./*.cmd ./*.command adventure-editor* forge-gui-mobile-dev-*.jar gdx-particle-editor.jar \
+ && test -f "forge-gui-desktop-${FORGE_VERSION}-jar-with-dependencies.jar" \
+ && test -f res/cardsfolder/cardsfolder.zip \
+ && chmod -R a+rX /opt/forge
+
+FROM ${JAVA_IMAGE}
+ARG FORGE_VERSION=2.0.15
+# A passwd entry for uid 99 gives the JVM a real user.home (/work) instead of "?".
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/* \
+ && useradd -u 99 -g 100 -M -d /work -s /usr/sbin/nologin forge
+COPY --from=forge /opt/forge /opt/forge
+COPY common.py forge_runner.py worker.py /opt/forge-worker/
+ENV FORGE_DIR=/opt/forge/forge-${FORGE_VERSION} \
+    FORGE_JAVA=/opt/java/openjdk/bin/java \
+    FORGE_INDEX=/opt/forge-index \
+    FORGE_WORK=/work \
+    HOME=/work \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+# The card index (every name Forge's card scripts know), built once here so the worker starts at once.
+RUN mkdir -p /opt/forge-index && python3 -c "import sys; sys.path.insert(0, '/opt/forge-worker'); \
+import forge_runner as F; from pathlib import Path; F.CACHE = Path('/opt/forge-index'); \
+print(len(F.card_index(F.Forge('${FORGE_DIR}', '${FORGE_JAVA}'))), 'card names')" \
+ && chmod -R a+rX /opt/forge-index /opt/forge-worker
+ARG FORGE_WORKER_GIT_SHA=
+ENV FORGE_WORKER_GIT_SHA=${FORGE_WORKER_GIT_SHA}
+USER 99:100
+WORKDIR /work
+EXPOSE 8791
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
+  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8791/health', timeout=4)" || exit 1
+ENTRYPOINT ["python3", "/opt/forge-worker/worker.py"]

@@ -12,6 +12,7 @@
 //! its games' worker in [`worker`], its schedule in [`pairing`] and its maths in [`stats`].
 
 pub mod experiments;
+pub mod forge;
 pub mod pairing;
 pub mod stats;
 pub mod worker;

@@ -33,6 +33,19 @@ if ! ssh "$HOST" "cd $DIR/build && docker build -f yama/deploy/Dockerfile.adviso
   ssh "$HOST" "tail -30 $DIR/build/advisor-build.log"; echo "Advisor build failed."; exit 1
 fi
 
+echo "Building yama-forge:$REV on saget (log: $DIR/build/forge-build.log; the first build downloads Forge)…"
+if ! ssh "$HOST" "cd $DIR/build && docker build -f yama/deploy/Dockerfile.forge-worker --build-arg FORGE_WORKER_GIT_SHA=$REV \
+    -t yama-forge:latest -t yama-forge:$REV yama/forge-worker > forge-build.log 2>&1"; then
+  ssh "$HOST" "tail -30 $DIR/build/forge-build.log"; echo "Forge worker build failed."; exit 1
+fi
+
+# The Forge worker's secret, made once on saget and never printed, shared with yama.
+ssh "$HOST" "cd $DIR && umask 077 && touch forge.env && chmod 600 forge.env yama.env && \
+  if ! grep -q '^FORGE_SECRET=' forge.env; then s=\$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \\n'); \
+    printf 'FORGE_SECRET=%s\\n' \"\$s\" >> forge.env; \
+    grep -v '^YAMA_FORGE_SECRET=' yama.env > yama.env.new; printf 'YAMA_FORGE_SECRET=%s\\n' \"\$s\" >> yama.env.new; mv yama.env.new yama.env; fi && \
+  { grep -q '^YAMA_FORGE_URL=' yama.env || printf '\\n# Forge as a second Lab engine (the Forge worker), added by deploy.sh\\nYAMA_FORGE_URL=http://yama-forge:8791\\n' >> yama.env; }"
+
 # The advisor's secrets, made once on saget and never printed: the secret yama and the sidecar
 # share, the key that encrypts users' own API keys, and whose account uses the subscription (the
 # first admin email; Anthropic doesn't allow sharing a subscription with other people). Bryan's

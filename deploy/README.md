@@ -74,9 +74,17 @@ Setting it up:
 
 Checks (read-only): `ssh root@<saget-lan-address> 'docker logs --tail 20 yama-advisor'`.
 
+## Forge (a second engine for Lab runs)
+
+- `deploy.sh` builds `yama-forge` (deploy/Dockerfile.forge-worker; the first build downloads Forge 2.0.15, about 250 MB, and checks its SHA-256) and makes `forge.env` on saget once (`FORGE_SECRET`, mode 0600, never printed), adding `YAMA_FORGE_SECRET` and `YAMA_FORGE_URL=http://yama-forge:8791` to `yama.env`.
+- The worker sits on the internal `yama_forge` network with yama only: no published port, no internet. Read-only, every capability dropped, `/work` and `/tmp` as tmpfs.
+- Size: `FORGE_SLOTS` games at once (3 in compose.yaml), each a JVM of `FORGE_XMX` (1536m) with 2 CPUs; the container gets 6 CPUs at a low share and 7 GB. Change all three together.
+- Without the worker (or without `YAMA_FORGE_URL`/`YAMA_FORGE_SECRET`), the Lab offers phase only. With the worker down, Forge games wait and the run page says so; Admin, Server shows its state.
+- Forge is GPL-3.0 and runs as a separate program; none of its code is in Yama. Private use.
+
 ## Updating
 
-`./deploy/deploy.sh`. It backs up the database first (`data/backups/yama-<time>.db`, written with SQLite's `VACUUM INTO`, which is safe while the server runs), rebuilds both images, and recreates only the `yama` and `yama-advisor` containers.
+`./deploy/deploy.sh`. It backs up the database first (`data/backups/yama-<time>.db`, written with SQLite's `VACUUM INTO`, which is safe while the server runs), rebuilds the images, and recreates only the `yama`, `yama-advisor` and `yama-forge` containers.
 
 ## Phones
 
