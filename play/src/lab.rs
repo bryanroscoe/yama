@@ -413,6 +413,8 @@ struct Progress {
     llm: Vec<LlmSeatStats>,
     /// Wall-clock time spent waiting for LLM replies, which the wall-clock safety net leaves out.
     llm_wait: Duration,
+    /// The first model choice the engine refused after offering it.
+    llm_refused_first: Option<String>,
 }
 
 impl Progress {
@@ -431,6 +433,7 @@ impl Progress {
             loop_guard: false,
             llm: Vec::new(),
             llm_wait: Duration::ZERO,
+            llm_refused_first: None,
         }
     }
 
@@ -895,6 +898,8 @@ fn play(
         }
     }
     let mut history: Vec<GameLogEntry> = Vec::new();
+    // Set when the engine refused a model's choice: the next decision goes to the heuristic AI.
+    let mut skip_llm_once = false;
     let session = AiSession::arc_from_game(&state);
     // Same AI seed derivation as the play crate's matches.
     let mut rng = StdRng::seed_from_u64(job.seed ^ 0x9e37_79b9_7f4a_7c15);
@@ -962,7 +967,8 @@ fn play(
                 // Same choose/verify/apply boundary as phase's run_ai_action and the play crate.
                 let contract = AiDecisionContract::issue(&state, owner);
                 let mut asked = None;
-                if let (Some(setup), Some((seat, idx))) = (llm, llm_seats.get_mut(&actor)) {
+                let ask = !std::mem::take(&mut skip_llm_once);
+                if let (true, Some(setup), Some((seat, idx))) = (ask, llm, llm_seats.get_mut(&actor)) {
                     let stats = &mut p.llm[*idx];
                     match ask_llm(db, setup, seat, stats, &mut p.llm_wait, &state, &contract, &history, &job.game) {
                         Asked::Chosen(a) => asked = Some(a),
@@ -977,6 +983,7 @@ fn play(
                 // which picks from those options. phase documents that a miss should fall
                 // through to "a worse decision, never a stopped game"; a few prompts don't yet.
                 // Live Yama games stop here instead. Games that never hit this are unchanged.
+                let from_llm = asked.is_some();
                 let chosen = asked.or_else(|| choose_action_with_session(&state, owner, &configs[&actor], &mut rng, &session)).or_else(|| {
                     let fallback = phase_ai::search::fallback_action(&state, &configs[&actor], &contract);
                     if fallback.is_some() {
@@ -1004,12 +1011,29 @@ fn play(
                     return Ending::Error(format!("AI for seat {} chose an action outside its options: {action:?} ({})", actor.0, where_in(&state)));
                 }
                 let tried = action.clone();
+                // An engine-issued option the engine then refuses (seen once: CrewVehicle with no
+                // creatures) is an engine bug the heuristic never walks into; for a model's
+                // choice, undo and let the heuristic decide instead of losing the game.
+                let backup = from_llm.then(|| state.clone());
                 let applied = if stack_pass {
                     apply_verified_ai_priority_pass(&mut state, actor, &contract, action)
                 } else {
                     apply_interaction(&mut state, actor, owner, action)
                 };
                 match applied {
+                    Err(e) if backup.is_some() => {
+                        state = backup.expect("checked");
+                        if let Some((_, idx)) = llm_seats.get(&actor) {
+                            let st = &mut p.llm[*idx];
+                            st.chosen = st.chosen.saturating_sub(1);
+                            st.fallback("refused");
+                        }
+                        if p.llm_refused_first.is_none() {
+                            p.llm_refused_first = Some(format!("seat {} {tried:?}: {e} ({})", actor.0, where_in(&state)));
+                        }
+                        skip_llm_once = true;
+                        continue;
+                    }
                     Err(e) => return Ending::Error(format!("engine refused seat {}'s action {tried:?}: {e} ({})", actor.0, where_in(&state))),
                     Ok(r) if !llm_seats.is_empty() => {
                         history.extend(r.log_entries);
@@ -1125,6 +1149,9 @@ pub fn play_game(
                     s.fallbacks
                 ));
             }
+        }
+        if let Some(first) = &progress.llm_refused_first {
+            notes.push(format!("game {}: the engine refused an option it had offered an LLM seat; the heuristic decided instead (first: {first})", spec.game));
         }
         result.llm = Some(progress.llm.clone());
     }
