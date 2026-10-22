@@ -1,7 +1,7 @@
 # Project instructions
 
 - Read README.md and ARCHITECTURE.md before changing plans. ARCHITECTURE.md is the plan of record; update it when a decision changes.
-- Yama is private and free. Keep it invite-only. Ship no card images, mana symbol art, or rules documents; images load from Scryfall at runtime. Keep the "unofficial, not endorsed by Wizards" notice.
+- Yama is free. Anyone with a verified Google account may sign up (Bryan, 22 Oct 2026: open sign-up, Google only, no username/password sign-in on the server); invited accounts get the larger allowance. Keep every user's data private to them. Ship no card images, mana symbol art, or rules documents; images load from Scryfall at runtime. Keep the "unofficial, not endorsed by Wizards" notice.
 - Don't push, deploy, open accounts, or spend money without Bryan asking. The repo lives at github.com/bryanroscoe/yama (private, created 2026-10-18 at Bryan's request); keep it private.
 - The phase fork's local change is kept as `patches/phase/*.patch`. If you change ../yama-phase, export the commit there again (`git format-patch`) so this repo can rebuild it.
 - Prices: a missing price stays missing (never 0). Every price carries its date and source. A Scryfall/TCGplayer market price is not a store quote or proof of availability.
