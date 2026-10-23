@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-22-connect-claude",
+    date: "2026-10-22",
+    title: "Connect your own Claude",
+    items: [
+      "Claude Code and Claude's apps can read your decks, plans, Review, collection and lab runs with Yama's tools. Connect by signing in to Yama and pressing Allow; there's no key to copy.",
+      "In Claude Code, add Yama with the command in Decks, Plans, Settings, then type /mcp. In Claude on the web, add a custom connector with the address shown there.",
+      "It only reads: it can't change anything. Settings lists each connected app, with Disconnect.",
+    ],
+    link: { to: "/decks/plan/settings", label: "Connect Claude" },
+  },
+  {
     id: "2026-10-22-lab-compare",
     date: "2026-10-22",
     title: "Swap cards, and compare decks without changing them",

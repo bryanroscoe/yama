@@ -202,6 +202,9 @@ export function Login() {
       <div className="login-inner">
         <div>
           <h2 className="login-title">Sign in</h2>
+          {location.pathname === "/oauth/authorize" && (
+            <p style={{ margin: "0 0 8px" }}>An app wants to connect to your Yama. Sign in first; you'll see what it asks for before anything is shared.</p>
+          )}
           {config.data?.open_signup ? (
             <p className="dim" style={{ margin: 0 }}>Anyone with a Google account can join. Yama is free, unofficial and private to its users.</p>
           ) : (

@@ -82,6 +82,16 @@ Checks (read-only): `ssh root@<saget-lan-address> 'docker logs --tail 20 yama-ad
 - Without the worker (or without `YAMA_FORGE_URL`/`YAMA_FORGE_SECRET`), the Lab offers phase only. With the worker down, Forge games wait and the run page says so; Admin, Server shows its state.
 - Forge is GPL-3.0 and runs as a separate program; none of its code is in Yama. Private use.
 
+## Claude's tools from outside Yama (OAuth sign-in)
+
+Claude Code and claude.ai's custom connectors reach Yama's tools at `https://yama.saget.org/mcp` and sign in with OAuth, so nobody pastes a key (`server/src/oauth/`, docs/mcp-design.md slice 3).
+
+- **Setting:** `YAMA_PUBLIC_URL`, set to `https://yama.saget.org` in `compose.yaml`. Every OAuth address (issuer, endpoints, the `/mcp` resource) comes from it, never from a request's Host header. Without it OAuth is off and only script keys work.
+- **Where codes may go:** loopback (`http://localhost`, `127.0.0.1`, `[::1]`, any port: Claude Code) and https on `claude.ai` or `claude.com` (claude.ai's callback, `https://claude.ai/api/mcp/auth_callback`; Anthropic says it may move to claude.com). `YAMA_OAUTH_REDIRECT_HOSTS` in `yama.env` replaces that https list. Anything else is refused when the app registers, so a stranger's app can't collect someone's sign-in.
+- **What must stay public:** claude.ai calls `/mcp`, `/.well-known/oauth-*`, `/oauth/register`, `/oauth/token` and `/oauth/revoke` from Anthropic's servers (`160.79.104.0/21`). If Cloudflare Access or a WAF rule is ever put in front of the hostname, leave those paths out of it. Claude Code calls them from the Mac.
+- **Limits:** 30 registrations an hour and 300 token or revocation requests in 10 minutes per address (claude.ai's all come from Anthropic's addresses, so `YAMA_TRUSTED_PROXIES` matters here too), 30 sign-ins in 10 minutes per account, 20 connected apps per account, at most 500 registered apps waiting for a first sign-in. Unused registrations go after a day.
+- **Ending a connection:** the person presses Disconnect in Decks, Plans, Settings. Withdrawing an invite or deleting the account ends its connections too; a disabled account's tokens are refused while it stays disabled.
+
 ## Updating
 
 `./deploy/deploy.sh`. It backs up the database first (`data/backups/yama-<time>.db`, written with SQLite's `VACUUM INTO`, which is safe while the server runs), rebuilds the images, and recreates only the `yama`, `yama-advisor` and `yama-forge` containers.

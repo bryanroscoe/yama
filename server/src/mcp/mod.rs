@@ -1,8 +1,10 @@
 //! Yama's tools for Claude, as an MCP server (docs/mcp-design.md).
 //!
 //! **One toolset, two ways in.** `POST /mcp` speaks MCP's Streamable HTTP transport, stateless,
-//! answering every request with plain JSON (never server-sent events, never a session id). Two
-//! credentials reach it, both `Authorization: Bearer`:
+//! answering every request with plain JSON (never server-sent events, never a session id). Three
+//! credentials reach it, all `Authorization: Bearer`:
+//! - an OAuth access token (`yama_oat_…`, `oauth/`), from Claude Code's or claude.ai's sign-in.
+//!   A 401 here points the client at the OAuth metadata, which is how that sign-in starts;
 //! - a script key with the `mcp` scope (`plan/tokens.rs`), for Claude Code and other clients
 //!   outside Yama; the Claude on the other end is the person's own;
 //! - a one-question token (`yama_ask_…`, [`QuestionToken`]) that the advisor mints for each
@@ -89,6 +91,7 @@ fn ask_token_user(token: &str) -> Option<String> {
 pub enum Via {
     Key,
     Question,
+    OAuth,
 }
 
 async fn caller(st: &AppState, headers: &HeaderMap) -> Result<(User, Via), AppError> {
@@ -99,6 +102,9 @@ async fn caller(st: &AppState, headers: &HeaderMap) -> Result<(User, Via), AppEr
             (owner.id, Via::Key)
         }
         Some(t) if t.starts_with(PREFIX_ASK) => (ask_token_user(t).ok_or(AppError::Unauthorized)?, Via::Question),
+        Some(t) if t.starts_with(crate::oauth::PREFIX_ACCESS) => {
+            (crate::oauth::access_token_user(st, t).await?.ok_or(AppError::Unauthorized)?, Via::OAuth)
+        }
         _ => return Err(AppError::Unauthorized),
     };
     let user = crate::auth::user_by_id(st, &id).await?.ok_or(AppError::Unauthorized)?;
@@ -138,8 +144,10 @@ async fn mcp_route(State(st): State<AppState>, headers: HeaderMap, body: axum::b
     let (user, via) = match caller(&st, &headers).await {
         Ok(c) => c,
         Err(e) => {
+            // Where to sign in (RFC 9728): the metadata address and the scope to ask for.
+            let presented = headers.contains_key(header::AUTHORIZATION);
             let mut r = e.into_response();
-            r.headers_mut().insert(header::WWW_AUTHENTICATE, header::HeaderValue::from_static("Bearer"));
+            r.headers_mut().insert(header::WWW_AUTHENTICATE, crate::oauth::challenge(&st, presented));
             return r;
         }
     };

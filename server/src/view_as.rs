@@ -44,9 +44,10 @@ pub const VIEW_MINUTES: i64 = 30;
 /// Requests allowed while viewing even though they aren't reads: they end the view.
 const ALLOWED_WRITES: [&str; 2] = ["/api/view/stop", "/api/auth/logout"];
 
-/// GETs refused while viewing: script keys, and Ask Claude (its status shows the person's stored
-/// key; asking would spend it, and conversations are theirs to keep private).
-const HIDDEN: [&str; 2] = ["/api/me/tokens", "/api/advisor"];
+/// GETs refused while viewing: script keys, connected apps (`oauth/`), and Ask Claude (its status
+/// shows the person's stored key; asking would spend it, and conversations are theirs to keep
+/// private). The OAuth consent page's own check refuses a view by itself, with its own reason.
+const HIDDEN: [&str; 3] = ["/api/me/tokens", "/api/me/connected-apps", "/api/advisor"];
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -166,7 +167,7 @@ pub async fn guard(State(st): State<AppState>, mut req: Request, next: Next) -> 
         return refuse(StatusCode::FORBIDDEN, format!("Viewing as {who}: read only. Stop viewing to make changes."), false);
     }
     if is_hidden(&path) {
-        return refuse(StatusCode::FORBIDDEN, format!("Viewing as {who}: their script keys and Ask Claude stay private."), false);
+        return refuse(StatusCode::FORBIDDEN, format!("Viewing as {who}: their script keys, connected apps and Ask Claude stay private."), false);
     }
     req.extensions_mut().insert(view);
     next.run(req).await

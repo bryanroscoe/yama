@@ -15,6 +15,7 @@ mod games;
 mod lab;
 mod limits;
 mod mcp;
+mod oauth;
 mod play;
 mod plan;
 mod playgroups;

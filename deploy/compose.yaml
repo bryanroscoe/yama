@@ -12,6 +12,10 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     env_file: yama.env
+    environment:
+      # Yama's public address, for OAuth sign-in from Claude Code and claude.ai's connectors
+      # (server/src/oauth): the issuer, endpoints and /mcp resource are built from it.
+      YAMA_PUBLIC_URL: https://yama.saget.org
     volumes:
       - ./data:/data
     ports:

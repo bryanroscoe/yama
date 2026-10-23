@@ -31,14 +31,14 @@
 <p>You sign in with Google. Yama asks Google only for your basic profile: your email address, your name and Google's ID for your account. Yama uses them to make and recognise your account and to show your name to people you play with. It does not get your password and has no access to your Gmail, contacts, calendar, Drive or anything else in your Google account.</p>
 
 <h2>What you put in</h2>
-<p>Whatever you create in Yama is stored with your account: decks and their versions, your card collection, life totals and logged games, playgroups, online games, deck plans and review answers, simulation runs, and script keys (stored only as a one-way hash).</p>
+<p>Whatever you create in Yama is stored with your account: decks and their versions, your card collection, life totals and logged games, playgroups, online games, deck plans and review answers, simulation runs, script keys, and the apps you connect, such as Claude (their keys and sign-in tokens are stored only as a one-way hash).</p>
 
 <h2>Who can see it</h2>
 <ul>
   <li>Your data is private to your account.</li>
   <li>The exception is what you choose to share with others: people in a playgroup you join, or players in a game you play together, see that game and the names and decks shown in it.</li>
   <li>The person who runs Yama can see the database while maintaining the server, and looks only when needed to keep it working or to answer a request from you.</li>
-  <li>To help with a problem, an admin can view your account as you see it, read only, for up to 30 minutes at a time ("View as"). They can't change anything, and your script keys and Ask Claude (your conversations and any API key you saved) stay hidden. Every view is logged with who looked and when, and you can see the list under Group, You.</li>
+  <li>To help with a problem, an admin can view your account as you see it, read only, for up to 30 minutes at a time ("View as"). They can't change anything, and your script keys, connected apps and Ask Claude (your conversations and any API key you saved) stay hidden. They can't connect an app to your account. Every view is logged with who looked and when, and you can see the list under Group, You.</li>
   <li>Yama doesn't sell, rent or trade your data, shows no ads and uses no analytics or tracking.</li>
 </ul>
 
@@ -51,6 +51,7 @@
   <li><b>Cloudflare</b> carries traffic between your browser and the server, so it sees your IP address and requests.</li>
   <li><b>Scryfall</b> serves card images and card data. Your browser loads images straight from Scryfall, so Scryfall sees your IP address.</li>
   <li><b>Commander Spellbook</b> receives a deck's card list (by card ID, with no account details) when Yama checks a deck for combos and its Commander bracket.</li>
+  <li><b>Apps you connect.</b> If you connect Claude (Claude Code, or a connector in Claude's apps) after Yama asks you to allow it, that app reads your decks, plans, Review, collection and lab runs through Yama's tools, under its own terms. Disconnect it any time in Decks, Plans, Settings.</li>
 </ul>
 
 <h2>IP addresses and logs</h2>

@@ -49,6 +49,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::lab::router())
         .merge(crate::advisor::router())
         .merge(crate::mcp::router())
+        .merge(crate::oauth::router())
         // Unknown API paths are errors, not the web app.
         .route("/api/{*rest}", axum::routing::any(|| async { crate::error::AppError::NotFound("API route") }));
 

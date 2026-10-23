@@ -1,0 +1,79 @@
+/* The OAuth consent page (/oauth/authorize): one surface panel on the night ground, the wordmark
+   above it. Plain text throughout; the caution is the one warm note. */
+
+.oauth {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.oauth-inner {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 24px;
+}
+.oauth-wordmark {
+  height: 40px;
+  width: auto;
+  color: var(--text);
+}
+.oauth-panel {
+  display: grid;
+  gap: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  padding: clamp(20px, 5vw, 32px);
+}
+.oauth-panel h1 {
+  font-size: var(--t-2xl);
+  margin: 0;
+}
+.oauth-panel p {
+  margin: 0;
+}
+.oauth-facts {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+}
+.oauth-facts div {
+  display: grid;
+  gap: 2px;
+}
+.oauth-facts dt,
+.oauth-label {
+  color: var(--dim);
+  font-size: var(--t-sm);
+}
+.oauth-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.oauth-app {
+  font-weight: 700;
+  font-size: var(--t-md);
+}
+.oauth-label {
+  margin: 0 0 6px;
+}
+.oauth-allows {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: 4px;
+}
+.oauth-caution {
+  padding: 10px 12px;
+  border-radius: var(--r-tile);
+  background: var(--warn-tint);
+  color: var(--warn);
+}
+.oauth-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.oauth-actions button {
+  flex: 1 1 8rem;
+}

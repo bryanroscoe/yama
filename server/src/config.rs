@@ -51,6 +51,32 @@ pub struct Config {
     pub advisor: AdvisorConfig,
     /// Forge as a second Lab engine (`lab/forge.rs`): where its worker container is.
     pub forge: ForgeConfig,
+    /// Yama's public address, as people and Claude's connectors reach it (YAMA_PUBLIC_URL, e.g.
+    /// `https://yama.saget.org`): an origin, with no path or trailing slash. OAuth sign-in for
+    /// the tools (`oauth/`) is off without it. Its issuer, endpoints and the `/mcp` resource are
+    /// built from this, never from a request's Host header.
+    pub public_url: Option<String>,
+    /// Hosts an OAuth app may send people back to over https (YAMA_OAUTH_REDIRECT_HOSTS,
+    /// comma-separated; `claude.ai,claude.com` when unset). Loopback `http` redirects (Claude Code)
+    /// are always allowed; everything else is refused at registration (`oauth/redirect.rs`).
+    pub oauth_redirect_hosts: Vec<String>,
+}
+
+/// The https hosts OAuth apps may redirect to when YAMA_OAUTH_REDIRECT_HOSTS isn't set: claude.ai's
+/// connector callback (`https://claude.ai/api/mcp/auth_callback`), and claude.com, where Anthropic
+/// says that callback may move.
+pub const DEFAULT_OAUTH_REDIRECT_HOSTS: [&str; 2] = ["claude.ai", "claude.com"];
+
+/// YAMA_PUBLIC_URL as an origin (`https://host[:port]`, lower case, no default port), or why not.
+pub fn public_origin(raw: &str) -> anyhow::Result<String> {
+    let parsed = url::Url::parse(raw.trim()).map_err(|e| anyhow::anyhow!("YAMA_PUBLIC_URL {raw:?} isn't a URL: {e}"))?;
+    anyhow::ensure!(matches!(parsed.scheme(), "https" | "http"), "YAMA_PUBLIC_URL must start with https:// (or http:// for local testing)");
+    anyhow::ensure!(parsed.host_str().is_some_and(|h| !h.is_empty()), "YAMA_PUBLIC_URL has no host");
+    anyhow::ensure!(
+        matches!(parsed.path(), "" | "/") && parsed.query().is_none() && parsed.fragment().is_none() && parsed.username().is_empty() && parsed.password().is_none(),
+        "YAMA_PUBLIC_URL must be just the address, like https://yama.saget.org (no path, query or login)"
+    );
+    Ok(parsed.origin().ascii_serialization())
 }
 
 /// The Forge worker's settings. Forge runs are off unless both are set.
@@ -182,6 +208,15 @@ impl Config {
             key_secret: secret("YAMA_ADVISOR_KEY_SECRET")?,
             tools_url: std::env::var("YAMA_ADVISOR_TOOLS_URL").ok().map(|s| s.trim().to_string()).filter(|s| s.starts_with("http://") || s.starts_with("https://")),
         };
+        let public_url = match std::env::var("YAMA_PUBLIC_URL") {
+            Ok(v) if !v.trim().is_empty() => Some(public_origin(&v)?),
+            _ => None,
+        };
+        // Unset means the default; set but empty means loopback redirects only.
+        let oauth_redirect_hosts = match std::env::var("YAMA_OAUTH_REDIRECT_HOSTS") {
+            Ok(_) => list("YAMA_OAUTH_REDIRECT_HOSTS"),
+            Err(_) => DEFAULT_OAUTH_REDIRECT_HOSTS.iter().map(|h| h.to_string()).collect(),
+        };
         let forge = ForgeConfig {
             url: std::env::var("YAMA_FORGE_URL").ok().map(|s| s.trim().trim_end_matches('/').to_string()).filter(|s| s.starts_with("http://") || s.starts_with("https://")),
             secret: secret("YAMA_FORGE_SECRET")?,
@@ -218,6 +253,8 @@ impl Config {
             lab_quota,
             advisor,
             forge,
+            public_url,
+            oauth_redirect_hosts,
         })
     }
 }

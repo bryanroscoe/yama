@@ -37,6 +37,9 @@ pub fn config() -> Config {
         lab_quota: crate::config::LabQuota::default(),
         advisor: crate::config::AdvisorConfig::default(),
         forge: crate::config::ForgeConfig::default(),
+        // OAuth is off unless a test turns it on (oauth/tests.rs).
+        public_url: None,
+        oauth_redirect_hosts: crate::config::DEFAULT_OAUTH_REDIRECT_HOSTS.iter().map(|h| h.to_string()).collect(),
     }
 }
 
