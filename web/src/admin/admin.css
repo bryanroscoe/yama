@@ -111,6 +111,56 @@
   opacity: 1;
 }
 
+/* An account's shared-key toggle: its own row under the account's name and actions. */
+.admin-shared {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.admin-shared .admin-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: var(--t-label);
+  white-space: nowrap;
+}
+.admin-shared .admin-check input {
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  padding: 0;
+  flex: none;
+}
+.admin-shared-line {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  flex: 1 1 18rem;
+}
+.admin-shared-cap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.admin-shared-cap label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--t-sm);
+}
+.admin-shared-cap input {
+  width: 10rem;
+  min-height: 44px;
+}
+.admin-shared-cap button {
+  min-height: 44px;
+}
+
 .admin-search input {
   width: 100%;
   max-width: 28rem;

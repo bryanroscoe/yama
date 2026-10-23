@@ -70,7 +70,7 @@ impl ForgeConfig {
 }
 
 /// The advisor's settings. The advisor is off unless both `url` and `secret` are set.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct AdvisorConfig {
     /// The sidecar's address on the private Docker network (YAMA_ADVISOR_URL, e.g.
     /// `http://yama-advisor:8790`).
@@ -88,11 +88,64 @@ pub struct AdvisorConfig {
     /// (YAMA_ADVISOR_TOOLS_URL, e.g. `http://yama:8787/mcp`). Without it Ask Claude answers from
     /// the context alone, with no tools.
     pub tools_url: Option<String>,
+    /// The shared API key (`advisor/shared.rs`): the most its questions may cost together in one
+    /// calendar month, UTC, in USD (YAMA_ADVISOR_SHARED_MONTHLY_USD, default 10). The key itself is
+    /// only in the sidecar; 0 pauses shared questions.
+    pub shared_monthly_usd: f64,
+    /// Models a shared-key question may use (YAMA_ADVISOR_SHARED_MODELS, comma-separated ids from
+    /// `advisor::MODELS`; default Haiku only, the cheapest).
+    pub shared_models: Vec<String>,
+    /// Whose key it is, for "On Bryan's shared key" (YAMA_ADVISOR_SHARED_OWNER_NAME). Without it,
+    /// the display name of the admin who granted the account.
+    pub shared_owner_name: Option<String>,
+}
+
+impl Default for AdvisorConfig {
+    fn default() -> Self {
+        Self {
+            url: None,
+            secret: None,
+            subscription_emails: vec![],
+            key_secret: None,
+            tools_url: None,
+            shared_monthly_usd: 10.0,
+            shared_models: vec![crate::advisor::DEFAULT_MODEL.to_string()],
+            shared_owner_name: None,
+        }
+    }
 }
 
 impl AdvisorConfig {
     pub fn enabled(&self) -> bool {
         self.url.is_some() && self.secret.is_some()
+    }
+}
+
+/// YAMA_ADVISOR_SHARED_MODELS: model ids the advisor offers, or Haiku alone when unset.
+pub(crate) fn shared_models(raw: Option<&str>) -> anyhow::Result<Vec<String>> {
+    let ids: Vec<String> = raw.unwrap_or_default().split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect();
+    if ids.is_empty() {
+        return Ok(vec![crate::advisor::DEFAULT_MODEL.to_string()]);
+    }
+    for id in &ids {
+        anyhow::ensure!(
+            crate::advisor::MODELS.iter().any(|(m, ..)| m == id),
+            "YAMA_ADVISOR_SHARED_MODELS: {id:?} isn't one of {}",
+            crate::advisor::MODELS.iter().map(|m| m.0).collect::<Vec<_>>().join(", ")
+        );
+    }
+    Ok(ids)
+}
+
+/// YAMA_ADVISOR_SHARED_MONTHLY_USD: dollars, at least 0, or 10 when unset.
+pub(crate) fn monthly_usd(raw: Option<&str>) -> anyhow::Result<f64> {
+    match raw.map(str::trim).filter(|s| !s.is_empty()) {
+        None => Ok(10.0),
+        Some(v) => {
+            let n: f64 = v.trim_start_matches('$').parse().with_context(|| format!("YAMA_ADVISOR_SHARED_MONTHLY_USD {v:?} must be a number of dollars"))?;
+            anyhow::ensure!(n.is_finite() && n >= 0.0, "YAMA_ADVISOR_SHARED_MONTHLY_USD can't be negative");
+            Ok(n)
+        }
     }
 }
 
@@ -179,6 +232,9 @@ impl Config {
             url: std::env::var("YAMA_ADVISOR_URL").ok().map(|s| s.trim().trim_end_matches('/').to_string()).filter(|s| !s.is_empty()),
             secret: secret("YAMA_ADVISOR_SECRET")?,
             subscription_emails: list("YAMA_ADVISOR_SUBSCRIPTION_EMAILS"),
+            shared_monthly_usd: monthly_usd(std::env::var("YAMA_ADVISOR_SHARED_MONTHLY_USD").ok().as_deref())?,
+            shared_models: shared_models(std::env::var("YAMA_ADVISOR_SHARED_MODELS").ok().as_deref())?,
+            shared_owner_name: std::env::var("YAMA_ADVISOR_SHARED_OWNER_NAME").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
             key_secret: secret("YAMA_ADVISOR_KEY_SECRET")?,
             tools_url: std::env::var("YAMA_ADVISOR_TOOLS_URL").ok().map(|s| s.trim().to_string()).filter(|s| s.starts_with("http://") || s.starts_with("https://")),
         };

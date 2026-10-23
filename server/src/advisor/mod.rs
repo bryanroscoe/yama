@@ -1,19 +1,26 @@
 //! "Ask Claude": advice about your own decks, plans and lab runs, from Claude through the advisor
 //! sidecar (`advisor/` at the repo root, `deploy/Dockerfile.advisor`).
 //!
-//! **Whose Claude.** Anthropic doesn't allow an app to share one person's Claude subscription with
-//! other people. So an account listed in YAMA_ADVISOR_SUBSCRIPTION_EMAILS (Bryan's own) asks on the
-//! server's subscription token, which only the sidecar holds; anyone else asks only with an
-//! Anthropic API key they saved themselves (`keys.rs`: encrypted, never sent back). Everyone else
-//! sees the advisor as unavailable, with what they could do about it.
+//! **Whose Claude** ([`access`], the one place that decides, in this order):
+//! 1. An account listed in YAMA_ADVISOR_SUBSCRIPTION_EMAILS (Bryan's own) asks on the server's
+//!    subscription token, which only the sidecar holds. Anthropic doesn't allow an app to share one
+//!    person's Claude subscription with other people, so nothing else ever reaches it.
+//! 2. An account with an Anthropic API key it saved itself (`keys.rs`: encrypted, never sent back)
+//!    asks with that key.
+//! 3. An account an admin granted the shared key (`shared.rs`) asks on the owner's pay-per-use API
+//!    key, which only the sidecar holds (ANTHROPIC_SHARED_API_KEY). Never the subscription.
+//! 4. Everyone else sees the advisor as unavailable, with what they could do about it.
 //!
 //! **What it can do.** Read: the conversation's context is rebuilt from the asker's own rows on
-//! every question (`context.rs`), and the sidecar runs Claude with no tools at all. It can't change
-//! anything; the page offers to save a suggested swap as an idea through the planner's own inbox.
+//! every question (`context.rs`), and Claude's only tools are Yama's own read tools for the asker
+//! (`mcp/`, through a one-question token). It can't change anything; the page offers to save a
+//! suggested swap as an idea through the planner's own inbox.
 //!
 //! **Limits.** Six questions a minute per account (`limits.rs`), one at a time, and a daily count
 //! kept in `advisor_usage` (so deleting conversations doesn't reset it): 30 for accounts that joined
-//! without an invite, 150 for invited ones, none for admins.
+//! without an invite, 150 for invited ones, none for admins. On the shared key: the grant's own
+//! daily cap or else 30/150 (admins included), only YAMA_ADVISOR_SHARED_MODELS, and a server-wide
+//! monthly cap in USD from the cost recorded with each answer (`shared.rs`).
 //!
 //! **Streaming.** `POST /api/advisor/ask` answers as server-sent events (`start`, `text`…, then
 //! `done` or `error`). The answer is saved when it ends, also when the browser leaves early (marked
@@ -21,6 +28,7 @@
 
 pub mod context;
 pub mod keys;
+pub mod shared;
 
 use crate::auth::{CurrentUser, User};
 use crate::config::AdvisorConfig;
@@ -68,6 +76,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/advisor/conversations", get(list_route).delete(delete_all_route))
         .route("/api/advisor/conversations/{id}", get(conversation_route).delete(delete_route))
         .route("/api/advisor/ask", post(ask_route))
+        .merge(shared::router())
 }
 
 // ── who may ask, and how ────────────────────────────────────────────────────
@@ -79,15 +88,26 @@ pub enum Mode {
     Subscription,
     /// The asker's own Anthropic API key.
     OwnKey,
+    /// The owner's shared API key, held by the sidecar (granted accounts only, `shared.rs`).
+    Shared,
 }
 
 impl Mode {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Mode::Subscription => "subscription",
             Mode::OwnKey => "own_key",
+            Mode::Shared => "shared",
         }
     }
+}
+
+/// What [`access`] knows about the shared key for one account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SharedGrant {
+    NotGranted,
+    /// An admin granted it; `key_on_sidecar` is false only when the sidecar said it has no key.
+    Granted { key_on_sidecar: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,9 +132,11 @@ impl Access {
     }
 }
 
-/// The one place that decides whose Claude an account uses. Only an exact, listed email gets the
-/// subscription; a saved key is used only when the server can decrypt keys.
-pub fn access(cfg: &AdvisorConfig, user: &User, has_key: bool) -> Access {
+/// The one place that decides whose Claude an account uses: the subscription for an exact, listed
+/// email; else the account's own saved key (only when the server can decrypt keys); else the
+/// shared key, when granted and the sidecar holds one. The shared key never wins over the other
+/// two, and nothing but a listed email ever gets the subscription.
+pub fn access(cfg: &AdvisorConfig, user: &User, has_key: bool, shared: SharedGrant) -> Access {
     if !cfg.enabled() {
         return Access::Off;
     }
@@ -122,14 +144,21 @@ pub fn access(cfg: &AdvisorConfig, user: &User, has_key: bool) -> Access {
     if !email.is_empty() && cfg.subscription_emails.contains(&email) {
         return Access::Ready(Mode::Subscription);
     }
-    if cfg.key_secret.is_none() {
-        return Access::KeysOff;
+    if has_key && cfg.key_secret.is_some() {
+        return Access::Ready(Mode::OwnKey);
     }
-    if has_key { Access::Ready(Mode::OwnKey) } else { Access::NeedsKey }
+    if shared == (SharedGrant::Granted { key_on_sidecar: true }) {
+        return Access::Ready(Mode::Shared);
+    }
+    if cfg.key_secret.is_none() { Access::KeysOff } else { Access::NeedsKey }
 }
 
-fn daily_limit(user: &User) -> Option<i64> {
-    if user.is_admin {
+/// Questions a day for the account in this mode. Admins have no cap on the subscription or their
+/// own key; on the shared key everyone has one (the grant's own, else the usual).
+fn daily_limit(user: &User, mode: Option<Mode>, grant: Option<&shared::Grant>) -> Option<i64> {
+    if mode == Some(Mode::Shared) {
+        Some(shared_daily_limit(user, grant.and_then(|g| g.daily_limit)))
+    } else if user.is_admin {
         None
     } else if user.limited {
         Some(DAILY_LIMITED)
@@ -138,14 +167,69 @@ fn daily_limit(user: &User) -> Option<i64> {
     }
 }
 
+/// The daily cap on shared questions: the grant's own, else 30 or 150 (also for an admin).
+pub(crate) fn shared_daily_limit(user: &User, grant_limit: Option<i64>) -> i64 {
+    grant_limit.unwrap_or(if user.limited { DAILY_LIMITED } else { DAILY_INVITED })
+}
+
+/// The models this mode may use: YAMA_ADVISOR_SHARED_MODELS on the shared key, all of them otherwise.
+fn models_for(cfg: &AdvisorConfig, mode: Option<Mode>) -> Vec<&'static (&'static str, &'static str, &'static str)> {
+    MODELS.iter().filter(|(id, ..)| mode != Some(Mode::Shared) || cfg.shared_models.iter().any(|m| m == id)).collect()
+}
+
+/// The names of the models shared questions may use ("Claude Haiku 5.5").
+pub(crate) fn shared_model_labels(cfg: &AdvisorConfig) -> Vec<&'static str> {
+    models_for(cfg, Some(Mode::Shared)).iter().map(|m| m.1).collect()
+}
+
+fn shared_models_message(cfg: &AdvisorConfig) -> String {
+    format!("On the shared key, Claude answers with {} only.", shared_model_labels(cfg).join(" or "))
+}
+
 async fn used_today(pool: &SqlitePool, owner: &str) -> AppResult<i64> {
     let since = (chrono::Utc::now() - chrono::Duration::hours(24)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     Ok(sqlx::query_scalar("SELECT COUNT(*) FROM advisor_usage WHERE owner_id = ? AND created_at >= ?").bind(owner).bind(since).fetch_one(pool).await?)
 }
 
-async fn model_for(pool: &SqlitePool, owner: &str) -> AppResult<String> {
+/// The account's chosen model when this mode allows it, else the default, else the first allowed.
+async fn model_for(pool: &SqlitePool, owner: &str, allowed: &[&(&str, &str, &str)]) -> AppResult<String> {
     let m: Option<String> = sqlx::query_scalar("SELECT model FROM advisor_settings WHERE user_id = ?").bind(owner).fetch_optional(pool).await?;
-    Ok(m.filter(|m| MODELS.iter().any(|(id, ..)| id == m)).unwrap_or_else(|| DEFAULT_MODEL.to_string()))
+    let ok = |id: &str| allowed.iter().any(|(a, ..)| *a == id);
+    Ok(match m {
+        Some(m) if ok(&m) => m,
+        _ if ok(DEFAULT_MODEL) => DEFAULT_MODEL.to_string(),
+        _ => allowed.first().map_or(DEFAULT_MODEL, |m| m.0).to_string(),
+    })
+}
+
+/// What [`access`] needs about one account, from the database and, only for an account with a
+/// shared grant, the sidecar's health.
+struct Facts {
+    key_hint: Option<String>,
+    grant: Option<shared::Grant>,
+    access: Access,
+}
+
+impl Facts {
+    fn mode(&self) -> Option<Mode> {
+        match self.access {
+            Access::Ready(m) => Some(m),
+            _ => None,
+        }
+    }
+}
+
+async fn facts(st: &AppState, user: &User) -> AppResult<Facts> {
+    let key_hint = keys::hint_for(&st.pool, &user.id).await?;
+    let grant = shared::grant_for(&st.pool, &user.id).await?;
+    let shared = match &grant {
+        None => SharedGrant::NotGranted,
+        // A sidecar that doesn't answer may still have the key; asking says so if it doesn't.
+        Some(_) if st.cfg.advisor.enabled() => SharedGrant::Granted { key_on_sidecar: sidecar_health(st).await.is_none_or(|h| h.shared == Some(true)) },
+        Some(_) => SharedGrant::Granted { key_on_sidecar: false },
+    };
+    let access = access(&st.cfg.advisor, user, key_hint.is_some(), shared);
+    Ok(Facts { key_hint, grant, access })
 }
 
 /// Accounts with a question in flight: one at a time each.
@@ -199,43 +283,59 @@ pub struct Status {
     /// For subscription accounts: whether the sidecar holds the subscription token (null when the
     /// sidecar didn't answer).
     subscription_connected: Option<bool>,
+    /// An admin granted this account the shared key (it's used only when the subscription and the
+    /// account's own key don't apply).
+    shared_granted: bool,
+    /// Whose shared key it is ("Bryan"), when granted.
+    shared_owner: Option<String>,
+    /// Shared mode only: when the month's cap is reached, the time questions start again (UTC).
+    shared_paused_until: Option<String>,
 }
 
-/// The sidecar's health for the admin area: `None` when it didn't answer (2 s at most), otherwise
-/// whether it holds a subscription token (`Some(None)` if it answered without saying).
-pub(crate) async fn sidecar_health(st: &AppState) -> Option<Option<bool>> {
+/// What the sidecar's `/health` says it holds. A field is `None` when it didn't say.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct SidecarHealth {
+    /// The subscription token.
+    pub subscription: Option<bool>,
+    /// The shared API key (never the key, only whether it's there).
+    pub shared: Option<bool>,
+}
+
+/// The sidecar's health: `None` when it didn't answer (2 s at most).
+pub(crate) async fn sidecar_health(st: &AppState) -> Option<SidecarHealth> {
     let (url, secret) = (st.cfg.advisor.url.as_ref()?, st.cfg.advisor.secret.as_ref()?);
     let res = st.http.get(format!("{url}/health")).header("x-advisor-secret", secret).timeout(Duration::from_secs(2)).send().await.ok()?;
     if !res.status().is_success() {
         return None;
     }
-    Some(res.json::<Value>().await.ok().and_then(|v| v["subscription"].as_bool()))
-}
-
-/// Whether the sidecar has a subscription token, from its `/health` (2 s at most).
-async fn subscription_connected(st: &AppState) -> Option<bool> {
-    sidecar_health(st).await.flatten()
+    let v = res.json::<Value>().await.unwrap_or_default();
+    Some(SidecarHealth { subscription: v["subscription"].as_bool(), shared: v["shared"].as_bool() })
 }
 
 async fn status_for(st: &AppState, user: &User) -> AppResult<Status> {
-    let hint = keys::hint_for(&st.pool, &user.id).await?;
-    let acc = access(&st.cfg.advisor, user, hint.is_some());
-    let mode = match acc {
-        Access::Ready(m) => Some(m),
+    let f = facts(st, user).await?;
+    let mode = f.mode();
+    let cfg = &st.cfg.advisor;
+    let allowed = models_for(cfg, mode);
+    let shared_paused_until = match mode {
+        Some(Mode::Shared) => shared::paused_until(&st.pool, cfg).await?.map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
         _ => None,
     };
     Ok(Status {
         available: mode.is_some(),
         mode,
-        reason: acc.reason(),
-        has_key: hint.is_some(),
-        key_hint: hint,
-        can_save_key: st.cfg.advisor.enabled() && st.cfg.advisor.key_secret.is_some(),
-        model: model_for(&st.pool, &user.id).await?,
-        models: MODELS.iter().map(|(id, label, note)| ModelInfo { id, label, note }).collect(),
-        per_day: daily_limit(user),
+        reason: f.access.reason(),
+        has_key: f.key_hint.is_some(),
+        key_hint: f.key_hint.clone(),
+        can_save_key: cfg.enabled() && cfg.key_secret.is_some(),
+        model: model_for(&st.pool, &user.id, &allowed).await?,
+        models: allowed.iter().map(|(id, label, note)| ModelInfo { id, label, note }).collect(),
+        per_day: daily_limit(user, mode, f.grant.as_ref()),
         used_today: used_today(&st.pool, &user.id).await?,
-        subscription_connected: if mode == Some(Mode::Subscription) { subscription_connected(st).await } else { None },
+        subscription_connected: if mode == Some(Mode::Subscription) { sidecar_health(st).await.and_then(|h| h.subscription) } else { None },
+        shared_granted: f.grant.is_some(),
+        shared_owner: f.grant.as_ref().map(|g| shared::owner_name(cfg, Some(g))),
+        shared_paused_until,
     })
 }
 
@@ -275,6 +375,10 @@ struct SettingsBody {
 async fn settings_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<SettingsBody>) -> AppResult<Json<Status>> {
     if !MODELS.iter().any(|(id, ..)| *id == body.model) {
         return Err(AppError::bad(format!("model must be one of {}", MODELS.iter().map(|m| m.0).collect::<Vec<_>>().join(", "))));
+    }
+    let mode = facts(&st, &user).await?.mode();
+    if mode == Some(Mode::Shared) && !models_for(&st.cfg.advisor, mode).iter().any(|(id, ..)| *id == body.model) {
+        return Err(AppError::bad(shared_models_message(&st.cfg.advisor)));
     }
     sqlx::query(
         "INSERT INTO advisor_settings (user_id, model, updated_at) VALUES (?, ?, ?)
@@ -446,17 +550,19 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
     if question.chars().count() > MAX_QUESTION {
         return Err(AppError::bad(format!("Keep a question under {MAX_QUESTION} characters.")));
     }
-    let hint = keys::hint_for(&st.pool, &user.id).await?;
-    let mode = match access(&st.cfg.advisor, &user, hint.is_some()) {
+    let f = facts(&st, &user).await?;
+    let mode = match f.access {
         Access::Ready(m) => m,
         Access::Off => return Err(AppError::Unavailable("Ask Claude isn't set up on this server.".into())),
         Access::KeysOff => return Err(AppError::Forbidden("Ask Claude is only available to the server's owner here.".into())),
         Access::NeedsKey => return Err(AppError::Forbidden("Add your own Anthropic API key in Settings to ask Claude.".into())),
     };
+    let allowed = models_for(&st.cfg.advisor, Some(mode));
     let model = match body.model {
-        Some(m) if MODELS.iter().any(|(id, ..)| *id == m) => m,
+        Some(m) if allowed.iter().any(|(id, ..)| *id == m) => m,
+        Some(m) if mode == Mode::Shared && MODELS.iter().any(|(id, ..)| *id == m) => return Err(AppError::bad(shared_models_message(&st.cfg.advisor))),
         Some(m) => return Err(AppError::bad(format!("\"{m}\" isn't a model the advisor offers."))),
-        None => model_for(&st.pool, &user.id).await?,
+        None => model_for(&st.pool, &user.id, &allowed).await?,
     };
 
     // The conversation and its context: an existing one is the caller's, or a 404.
@@ -479,15 +585,22 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
     let data = context::build(&st.pool, &user, &ctx.kind, ctx.reference.as_deref()).await?;
 
     st.limits.advisor.check_user(&user)?;
-    if let Some(limit) = daily_limit(&user)
+    if let Some(limit) = daily_limit(&user, Some(mode), f.grant.as_ref())
         && used_today(&st.pool, &user.id).await? >= limit
     {
         return Err(AppError::TooManyRequests { message: format!("That's {limit} questions in the last 24 hours, this account's daily allowance. Try again later."), retry_after: 3600 });
     }
+    if mode == Mode::Shared
+        && let Some(until) = shared::paused_until(&st.pool, &st.cfg.advisor).await?
+    {
+        return Err(shared::paused_error(&shared::owner_name(&st.cfg.advisor, f.grant.as_ref()), until));
+    }
     let guard = FlightGuard::take(&user.id)?;
 
+    // Only own-key questions carry a key: the subscription token and the shared key stay in the
+    // sidecar, which picks the credential from `mode` alone.
     let api_key = match mode {
-        Mode::Subscription => None,
+        Mode::Subscription | Mode::Shared => None,
         Mode::OwnKey => {
             let secret = st.cfg.advisor.key_secret.clone().ok_or_else(|| AppError::Forbidden("This server can't use saved keys.".into()))?;
             Some(keys::load(&st.pool, &secret, &user.id).await?.ok_or_else(|| AppError::Forbidden("Add your own Anthropic API key in Settings to ask Claude.".into()))?)
@@ -499,7 +612,11 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
     // Claude may call Yama's tools as this account until the answer ends (`mcp/`).
     let tools = st.cfg.advisor.tools_url.clone().map(|url| (url, crate::mcp::QuestionToken::mint(&user.id)));
     let request = json!({
-        "mode": if mode == Mode::Subscription { "subscription" } else { "api_key" },
+        "mode": match mode {
+            Mode::Subscription => "subscription",
+            Mode::OwnKey => "api_key",
+            Mode::Shared => "shared",
+        },
         "api_key": api_key,
         "model": model,
         "system": context::system_prompt(&user, &data, &today, tools.is_some()),
@@ -557,8 +674,9 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
         .bind(&at)
         .execute(&mut *tx)
         .await?;
+    let usage_id = new_id();
     sqlx::query("INSERT INTO advisor_usage (id, owner_id, mode, model, created_at) VALUES (?, ?, ?, ?, ?)")
-        .bind(new_id())
+        .bind(&usage_id)
         .bind(&user.id)
         .bind(mode.as_str())
         .bind(&model)
@@ -579,6 +697,8 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
         let mut status = "error";
         let mut error: Option<String> = None;
         let mut usage: Option<Value> = None;
+        // What the answer cost, when the sidecar says (API-key and shared modes).
+        let mut cost: Option<f64> = None;
         let mut buf: Vec<u8> = Vec::new();
         let mut stream = resp.bytes_stream();
         let mut gone = false;
@@ -613,14 +733,17 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
                     Some("done") => {
                         status = "done";
                         let mut u = ev["usage"].clone();
-                        if let (Some(obj), Some(cost)) = (u.as_object_mut(), ev["cost_usd"].as_f64()) {
-                            obj.insert("cost_usd".into(), json!(cost));
+                        cost = ev["cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0);
+                        if let (Some(obj), Some(c)) = (u.as_object_mut(), cost) {
+                            obj.insert("cost_usd".into(), json!(c));
                         }
                         usage = Some(u);
                     }
                     Some("error") => {
                         status = "error";
                         error = ev["message"].as_str().map(str::to_string);
+                        // A failed answer can still have cost something.
+                        cost = ev["cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0);
                     }
                     _ => {}
                 }
@@ -656,6 +779,13 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
             tracing::debug!(error = %e, "advisor answer not saved");
         }
         let _ = sqlx::query("UPDATE advisor_conversations SET updated_at = ? WHERE id = ? AND owner_id = ?").bind(&at).bind(&conversation_id).bind(&owner).execute(&pool).await;
+        // The cost stays with the usage row, which outlives the conversation (the shared key's
+        // monthly cap and each account's spend are summed from it).
+        if let Some(c) = cost
+            && let Err(e) = sqlx::query("UPDATE advisor_usage SET cost_usd = ? WHERE id = ?").bind(c).bind(&usage_id).execute(&pool).await
+        {
+            tracing::warn!(error = %e, "advisor answer's cost not recorded");
+        }
         let end = if status == "done" { "done" } else { "error" };
         let _ = send.send(sse(end, &json!({"message_id": message_id, "status": status, "error": error, "usage": usage}))).await;
     });

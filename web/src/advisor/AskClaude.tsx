@@ -11,7 +11,7 @@ import { useMe } from "../auth";
 import { ErrorText, Sheet } from "../components/ui";
 import { deviceId, outbox } from "../plan/outbox";
 import { advisorStatus, ask, conversation, conversations, deleteConversation, type AdvisorStatus } from "./api";
-import { inline, parseAnswer, starters, toolActivity, unavailableText, type Block, type ContextKind, type Suggestion } from "./logic";
+import { inline, parseAnswer, pausedText, possessive, sharedLine, starters, toolActivity, unavailableText, type Block, type ContextKind, type Suggestion } from "./logic";
 import "./advisor.css";
 
 export interface AskContext {
@@ -159,6 +159,8 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
   };
 
   const s = status.data;
+  const onShared = s ? sharedLine(s, model ?? s.model) : null;
+  const paused = s?.mode === "shared" && s.shared_paused_until ? pausedText(s.shared_owner, s.shared_paused_until) : null;
   const saved = detail.data?.items ?? [];
   const items = pending ? saved.slice(0, pending.base) : saved;
   const empty = !current && !pending;
@@ -168,6 +170,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
         <div>
           <h2>Ask Claude</h2>
           <p className="dim small">About {about}</p>
+          {onShared && <p className="ask-mode small">{onShared}</p>}
         </div>
         <button type="button" className="quiet" onClick={onClose}>Close</button>
       </header>
@@ -187,6 +190,16 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
 
       {s?.mode === "subscription" && s.subscription_connected === false && (
         <p className="ask-unavailable">Your Claude subscription isn't connected on the server yet. Run deploy/advisor-token.sh on the Mac to connect it.</p>
+      )}
+      {paused && (
+        <div className="ask-unavailable stack">
+          <p>{paused}</p>
+          {s?.can_save_key && (
+            <p>
+              <Link to="/group#grp-you" onClick={onClose}>Open settings</Link>
+            </p>
+          )}
+        </div>
       )}
       {s?.available && (
         <>
@@ -224,7 +237,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
               <div className="ask-starters">
                 <p className="dim small">Try one of these, or ask your own.</p>
                 {starters(context.kind).map((t) => (
-                  <button key={t} type="button" className="ask-starter" onClick={() => void submit(t)}>
+                  <button key={t} type="button" className="ask-starter" onClick={() => void submit(t)} disabled={!!paused}>
                     {t}
                   </button>
                 ))}
@@ -290,7 +303,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
               {streaming ? (
                 <button type="button" className="outline" onClick={() => abort.current?.abort()}>Stop</button>
               ) : (
-                <button className="primary" disabled={!question.trim()}>Ask</button>
+                <button className="primary" disabled={!question.trim() || !!paused}>Ask</button>
               )}
             </div>
             <ErrorText error={askError} />
@@ -303,8 +316,14 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
 }
 
 function Footnote({ status }: { status: AdvisorStatus }) {
-  const who = status.mode === "subscription" ? "On the server owner's Claude subscription." : `On your own Anthropic API key${status.key_hint ? ` ending ${status.key_hint}` : ""}.`;
-  const used = status.per_day != null ? ` ${status.used_today} of ${status.per_day} questions in the last 24 hours.` : "";
+  const who =
+    status.mode === "subscription"
+      ? "On the server owner's Claude subscription."
+      : status.mode === "shared"
+        ? `On ${possessive(status.shared_owner ?? "")} shared API key, which they pay for per question.`
+        : `On your own Anthropic API key${status.key_hint ? ` ending ${status.key_hint}` : ""}.`;
+  // On the shared key the count is already in the line under the title.
+  const used = status.per_day != null && status.mode !== "shared" ? ` ${status.used_today} of ${status.per_day} questions in the last 24 hours.` : "";
   return (
     <p className="ask-foot faint small">
       Claude can be wrong; check prices and legality before you buy. Simulated results are evidence about the simulation, not your table. {who}

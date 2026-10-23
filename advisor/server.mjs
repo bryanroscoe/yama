@@ -1,14 +1,18 @@
 // Yama's advisor sidecar: an HTTP server on the yama container's private Docker network that runs
-// Claude (through the Agent SDK) with no tools and streams the answer back as NDJSON.
+// Claude (through the Agent SDK) with none of Claude Code's tools and streams the answer back as
+// NDJSON.
 //
 //   POST /advise   x-advisor-secret: <ADVISOR_SECRET>   body: see validateRequest in advisor.mjs
-//   GET  /health   x-advisor-secret: ...                → {"ok":true,"subscription":true|false}
+//   GET  /health   x-advisor-secret: ...                → {"ok":true,"subscription":bool,"shared":bool}
 //   GET  /healthz  (no secret; for Docker)              → ok
 //
 // Environment: ADVISOR_SECRET (required; shared with the yama server as YAMA_ADVISOR_SECRET),
 // CLAUDE_CODE_OAUTH_TOKEN (optional; Bryan's `claude setup-token` token, for subscription mode),
-// ADVISOR_PORT (default 8790), ADVISOR_MAX_CONCURRENT (default 3). Both secrets are read once and
-// removed from this process's environment, so nothing started later can inherit them.
+// ANTHROPIC_SHARED_API_KEY (optional; the owner's pay-per-use API key for accounts an admin
+// granted it, shared mode; deploy/advisor-shared-key.sh writes it), ADVISOR_PORT (default 8790),
+// ADVISOR_MAX_CONCURRENT (default 3). The secrets are read once and removed from this process's
+// environment, so nothing started later can inherit them. /health says whether each credential is
+// there, never what it is.
 //
 // It logs one line per request (mode, model, outcome, time, tokens) and never a prompt, answer,
 // key or token.
@@ -18,12 +22,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { LIMITS, redact, runAdvice, secretMatches, validateRequest } from "./advisor.mjs";
+import { LIMITS, looksLikeApiKey, redact, runAdvice, secretMatches, validateRequest } from "./advisor.mjs";
 
 const SECRET = process.env.ADVISOR_SECRET ?? "";
 const OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "";
+const SHARED_RAW = (process.env.ANTHROPIC_SHARED_API_KEY ?? "").trim();
+// A value that isn't an API key (a pasted subscription token, say) is ignored rather than sent.
+const SHARED_KEY = SHARED_RAW && looksLikeApiKey(SHARED_RAW) ? SHARED_RAW : "";
 delete process.env.ADVISOR_SECRET;
 delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+delete process.env.ANTHROPIC_SHARED_API_KEY;
 delete process.env.ANTHROPIC_API_KEY;
 const PORT = Number(process.env.ADVISOR_PORT ?? 8790);
 const MAX_CONCURRENT = Number(process.env.ADVISOR_MAX_CONCURRENT ?? 3);
@@ -86,6 +94,7 @@ async function advise(req, res) {
       req: r,
       queryFn: query,
       oauthToken: OAUTH_TOKEN,
+      sharedKey: SHARED_KEY,
       home,
       path: CHILD_PATH,
       abortController,
@@ -111,10 +120,10 @@ const server = http.createServer((req, res) => {
     return res.end("ok");
   }
   if (!secretMatches(req.headers["x-advisor-secret"], SECRET)) return json(res, 401, { error: "unauthorized" });
-  if (req.method === "GET" && url.pathname === "/health") return json(res, 200, { ok: true, subscription: OAUTH_TOKEN.length > 0 });
+  if (req.method === "GET" && url.pathname === "/health") return json(res, 200, { ok: true, subscription: OAUTH_TOKEN.length > 0, shared: SHARED_KEY.length > 0 });
   if (req.method === "POST" && url.pathname === "/advise") {
     return advise(req, res).catch((e) => {
-      console.error(`advise failed: ${redact(e?.message, [OAUTH_TOKEN, SECRET])}`);
+      console.error(`advise failed: ${redact(e?.message, [OAUTH_TOKEN, SHARED_KEY, SECRET])}`);
       if (!res.headersSent) json(res, 500, { error: "internal error" });
       else res.end();
     });
@@ -124,6 +133,6 @@ const server = http.createServer((req, res) => {
 
 server.requestTimeout = 10 * 60 * 1000;
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`yama-advisor listening on ${PORT} (subscription token ${OAUTH_TOKEN ? "set" : "not set"})`);
+  console.log(`yama-advisor listening on ${PORT} (subscription token ${OAUTH_TOKEN ? "set" : "not set"}, shared API key ${SHARED_KEY ? "set" : SHARED_RAW ? "ignored: not an API key" : "not set"})`);
 });
 for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => server.close(() => process.exit(0)));

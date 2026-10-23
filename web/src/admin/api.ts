@@ -28,8 +28,11 @@ export interface UsageRow {
   advisor_today: number;
   advisor_total: number;
   advisor_own_key: boolean;
-  /** Whose Claude the account would ask on: the server's subscription, its own key, or none. */
-  advisor_mode: "subscription" | "own_key" | null;
+  /** An admin granted it the shared API key (missing on older servers). */
+  advisor_shared?: boolean;
+  advisor_shared_limit?: number | null;
+  /** Whose Claude the account would ask on: the server's subscription, its own key, the shared key, or none. */
+  advisor_mode: "subscription" | "own_key" | "shared" | null;
   /** Why it can't ask, when it can't. */
   advisor_reason?: "off" | "keys_off" | "needs_key" | null;
   watch_running: number;
@@ -101,8 +104,48 @@ export interface ServerInfo {
     own_keys_enabled: boolean;
     own_keys_saved: number;
     questions_today: number;
+    /** The shared API key (missing on older servers): on the advisor or not, null when unknown. */
+    shared_key?: boolean | null;
+    shared_accounts?: number;
+    shared_spent_this_month?: number;
+    shared_monthly_usd?: number;
+    /** By name ("Claude Haiku 5.5"). */
+    shared_models?: string[];
   };
   sign_in: { google: boolean; open_signup: boolean; password: boolean; dev_login: boolean; cloudflare_access: boolean; admin_emails: number };
+}
+
+/** One account's grant of the shared API key (server/src/advisor/shared.rs). */
+export interface SharedGrant {
+  user_id: string;
+  email: string;
+  display_name: string;
+  granted_by_name: string | null;
+  granted_at: string;
+  /** Its own daily cap; null for the usual allowance. */
+  daily_limit: number | null;
+  /** The cap in effect for its shared questions. */
+  per_day: number;
+  disabled: boolean;
+  spent_this_month: number;
+  questions_this_month: number;
+  /** Whose Claude it asks on now: its own key or the subscription win over the grant; null when it can't ask. */
+  mode: "subscription" | "own_key" | "shared" | null;
+}
+
+export interface SharedOverview {
+  /** The advisor is set up on this server at all. */
+  enabled: boolean;
+  /** The advisor holds the shared key; null when it didn't answer. */
+  key_on_sidecar: boolean | null;
+  owner_name: string | null;
+  monthly_usd: number;
+  spent_this_month: number;
+  month_start: string;
+  next_month: string;
+  /** The models shared questions may use, by name ("Claude Haiku 5.5"). */
+  models: string[];
+  grants: SharedGrant[];
 }
 
 export interface LabRun {
@@ -140,6 +183,11 @@ export const adminApi = {
   deleteAccount: (id: string, confirmEmail: string) =>
     api<DeleteReport>(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE", json: { confirm_email: confirmEmail } }),
   views: () => api<ViewLogRow[]>("/api/admin/views"),
+  sharedOverview: () => api<SharedOverview>("/api/admin/advisor-shared"),
+  /** Turn the shared key on for an account, or change its daily cap (null: the usual allowance). */
+  grantShared: (id: string, dailyLimit: number | null) =>
+    api<SharedOverview>(`/api/admin/users/${encodeURIComponent(id)}/advisor-shared`, { method: "PUT", json: { daily_limit: dailyLimit } }),
+  revokeShared: (id: string) => api<SharedOverview>(`/api/admin/users/${encodeURIComponent(id)}/advisor-shared`, { method: "DELETE" }),
 };
 
 /** One "View as" (server/src/view_as.rs), for the viewing log. */

@@ -4,9 +4,9 @@ import { accountLine } from "../accounts";
 import { api, type AccountInfo } from "../api";
 import { useAuthConfig, useMe } from "../auth";
 import { ErrorText, Sheet } from "../components/ui";
-import { adminApi, type ViewLogRow } from "./api";
+import { adminApi, type SharedGrant, type SharedOverview, type ViewLogRow } from "./api";
 import { startViewing } from "../viewing";
-import { ago, confirms, deleteSummary, searchAccounts } from "./logic";
+import { ago, confirms, deleteSummary, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary } from "./logic";
 
 const signInWays = (a: AccountInfo) => {
   const ways = [a.google && "Google", a.password && "a password"].filter(Boolean);
@@ -25,6 +25,8 @@ export function PeoplePage() {
   const [deleting, setDeleting] = useState<AccountInfo | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const accounts = useQuery({ queryKey: ["admin-users"], queryFn: () => api<AccountInfo[]>("/api/admin/users") });
+  const shared = useQuery({ queryKey: ["admin-shared"], queryFn: adminApi.sharedOverview });
+  const sharing = shared.data?.enabled === true;
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["admin-users"] });
     void qc.invalidateQueries({ queryKey: ["invites"] });
@@ -55,6 +57,7 @@ export function PeoplePage() {
   return (
     <>
       <WhoCanSignIn open={open} />
+      {sharing && <SharedKeySection overview={shared.data!} />}
       {done && (
         <p className="admin-done" role="status">
           {done}
@@ -97,6 +100,7 @@ export function PeoplePage() {
                   </button>
                 </div>
               )}
+              {sharing && a.id !== me.data?.id && <SharedKeyControl account={a} grant={shared.data!.grants.find((g) => g.user_id === a.id)} />}
             </li>
           ))}
         </ul>
@@ -176,6 +180,65 @@ function WhoCanSignIn({ open }: { open: boolean }) {
         </details>
       )}
     </section>
+  );
+}
+
+/** The shared API key: what it is, the month's spend, and whether the advisor holds it. */
+function SharedKeySection({ overview }: { overview: SharedOverview }) {
+  const n = overview.grants.length;
+  return (
+    <section className="admin-section" aria-labelledby="adm-shared">
+      <h2 id="adm-shared">Ask Claude on the shared key</h2>
+      <p className="admin-lead">
+        People you turn on below ask Claude on your shared Anthropic API key, which you pay for per question (never your subscription). Their own key
+        comes first if they add one. {n ? `${n} ${n === 1 ? "account has" : "accounts have"} it.` : "Nobody has it yet."}
+      </p>
+      <p className="admin-lead">{sharedSummary(overview)}</p>
+    </section>
+  );
+}
+
+/** One account's toggle for the shared key, and its daily cap. */
+function SharedKeyControl({ account, grant }: { account: AccountInfo; grant: SharedGrant | undefined }) {
+  const qc = useQueryClient();
+  const [cap, setCap] = useState(grant?.daily_limit != null ? String(grant.daily_limit) : "");
+  const put = (o: SharedOverview) => {
+    qc.setQueryData(["admin-shared"], o);
+    void qc.invalidateQueries({ queryKey: ["admin-usage"] });
+  };
+  const on = useMutation({ mutationFn: (limit: number | null) => adminApi.grantShared(account.id, limit), onSuccess: put });
+  const off = useMutation({ mutationFn: () => adminApi.revokeShared(account.id), onSuccess: put });
+  const parsed = parseDailyCap(cap);
+  const busy = on.isPending || off.isPending;
+  return (
+    <div className="admin-shared">
+      <label className="admin-check">
+        <input type="checkbox" checked={!!grant} disabled={busy} onChange={(e) => (e.target.checked ? on.mutate(parsed === "invalid" ? null : parsed) : off.mutate())} />
+        Ask Claude on the shared key
+      </label>
+      {grant && (
+        <>
+          <span className="admin-shared-line">{sharedGrantLine(grant)}</span>
+          <form
+            className="admin-shared-cap"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (parsed !== "invalid") on.mutate(parsed);
+            }}
+          >
+            <label>
+              <span>Daily cap (blank for the usual)</span>
+              <input inputMode="numeric" value={cap} onChange={(e) => setCap(e.target.value)} placeholder="Usual allowance" aria-invalid={parsed === "invalid"} />
+            </label>
+            <button className="outline" disabled={busy || parsed === "invalid" || parsed === grant.daily_limit}>
+              Save cap
+            </button>
+          </form>
+          {parsed === "invalid" && <span className="error small">A daily cap is a whole number from 1 to 1,000, or blank for the usual allowance.</span>}
+        </>
+      )}
+      <ErrorText error={on.error ?? off.error} />
+    </div>
   );
 }
 
