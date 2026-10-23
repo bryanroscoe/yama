@@ -110,6 +110,8 @@ struct PreviewCard {
     print_image: Option<String>,
     /// The name as the source wrote it, when it was matched loosely ("Lim-Dul's Vault").
     written_as: Option<String>,
+    /// The source marked this copy as a proxy.
+    proxy: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -280,7 +282,9 @@ async fn build_deck(pool: &SqlitePool, index: &mut Option<names::NameIndex>, d: 
         let Some(info) = info_cache.get(&oid).cloned().flatten() else { continue };
         let (print_found, print_image) = printing(pool, &oid, &l).await?;
         // The same card twice (on the same board, same printing) is one row.
-        if let Some(existing) = cards.iter_mut().find(|c| c.card.oracle_id == oid && c.board == l.board && c.maybe == l.maybe && c.set_code == l.set_code && c.collector_number == l.collector_number && c.finish == l.finish) {
+        if let Some(existing) = cards.iter_mut().find(|c| {
+            c.card.oracle_id == oid && c.board == l.board && c.maybe == l.maybe && c.set_code == l.set_code && c.collector_number == l.collector_number && c.finish == l.finish && c.proxy == l.proxy
+        }) {
             existing.qty += l.qty;
             continue;
         }
@@ -295,6 +299,7 @@ async fn build_deck(pool: &SqlitePool, index: &mut Option<names::NameIndex>, d: 
             print_found,
             print_image,
             written_as,
+            proxy: l.proxy,
         });
     }
     // A guessed commander (a block the blank line set apart) that can't lead a deck goes back to
@@ -330,6 +335,51 @@ async fn build_deck(pool: &SqlitePool, index: &mut Option<names::NameIndex>, d: 
     Ok(PreviewDeck { name: d.name, cards, unknown, commander_marked: d.commander_marked, commander_guessed })
 }
 
+/// A list read the way the import screen reads it, as the deck routes would save it. The
+/// `import-decks` command uses it, so a file keeps the same cards and printings as the same list
+/// imported on the web (`toSave` in web/src/decks/importLogic.ts does the same conversion).
+pub struct ReadList {
+    pub cards: Vec<crate::decks::DeckCard>,
+    pub prints: Vec<DeckPrint>,
+    /// Lines that matched no card, as written.
+    pub unknown: Vec<String>,
+}
+
+/// Read a list (any format the import screen reads) and match its names. Unknown lines are left
+/// out and named; the web import makes the person fix them first.
+pub async fn read_list(pool: &SqlitePool, text: &str, file_name: Option<&str>) -> AppResult<Vec<ReadList>> {
+    let parsed = formats::parse_any(text, file_name);
+    let mut index = None;
+    let mut out = Vec::new();
+    for d in parsed.decks {
+        let deck = build_deck(pool, &mut index, d).await?;
+        let mut cards: Vec<crate::decks::DeckCard> = Vec::new();
+        let mut prints: Vec<DeckPrint> = Vec::new();
+        for c in &deck.cards {
+            match cards.iter_mut().find(|x| x.oracle_id == c.card.oracle_id && x.board == c.board) {
+                Some(hit) => hit.qty += c.qty,
+                None => cards.push(crate::decks::DeckCard { oracle_id: c.card.oracle_id.clone(), name: c.card.name.clone(), qty: c.qty, board: c.board.clone() }),
+            }
+            if prints.iter().any(|p| p.oracle_id == c.card.oracle_id) {
+                continue;
+            }
+            let named = c.set_code.is_some() && c.print_found != Some(false);
+            if !named && !c.proxy {
+                continue;
+            }
+            prints.push(DeckPrint {
+                oracle_id: c.card.oracle_id.clone(),
+                set_code: if named { c.set_code.clone().unwrap_or_default() } else { String::new() },
+                collector_number: if named { c.collector_number.clone() } else { None },
+                finish: c.finish.clone().unwrap_or_else(|| "nonfoil".into()),
+                proxy: c.proxy,
+            });
+        }
+        out.push(ReadList { cards, prints, unknown: deck.unknown.into_iter().map(|u| u.name).collect() });
+    }
+    Ok(out)
+}
+
 /// Whether the named printing exists, and its image.
 async fn printing(pool: &SqlitePool, oracle_id: &str, l: &ImportLine) -> AppResult<(Option<bool>, Option<String>)> {
     let Some(set) = &l.set_code else { return Ok((None, None)) };
@@ -361,7 +411,8 @@ async fn printing(pool: &SqlitePool, oracle_id: &str, l: &ImportLine) -> AppResu
 
 // ── printings kept with a deck ─────────────────────────────────────────────
 
-/// The printing a deck names for a card: what an import said (set, number, finish).
+/// The printing a deck names for a card: what an import said (set, number, finish), and whether
+/// the deck's copy is a proxy. A proxy with no printing named has an empty `set_code`.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, sqlx::FromRow)]
 pub struct DeckPrint {
     pub oracle_id: String,
@@ -369,6 +420,8 @@ pub struct DeckPrint {
     pub collector_number: Option<String>,
     /// nonfoil | foil | etched
     pub finish: String,
+    #[serde(default)]
+    pub proxy: bool,
 }
 
 /// Keep these printings for the deck (replacing what it had for the same cards). Called by the
@@ -383,7 +436,8 @@ pub async fn save_prints(pool: &SqlitePool, deck_id: &str, prints: &[DeckPrint])
     let mut tx = pool.begin().await?;
     for p in prints {
         let set = p.set_code.trim().to_lowercase();
-        if set.is_empty() || set.len() > 8 {
+        // No printing is only worth keeping to say the copy is a proxy.
+        if (set.is_empty() && !p.proxy) || set.len() > 8 {
             continue;
         }
         let finish = match p.finish.as_str() {
@@ -391,15 +445,16 @@ pub async fn save_prints(pool: &SqlitePool, deck_id: &str, prints: &[DeckPrint])
             _ => "nonfoil",
         };
         sqlx::query(
-            "INSERT INTO deck_prints (deck_id, oracle_id, set_code, collector_number, finish) VALUES (?,?,?,?,?)
+            "INSERT INTO deck_prints (deck_id, oracle_id, set_code, collector_number, finish, proxy) VALUES (?,?,?,?,?,?)
              ON CONFLICT(deck_id, oracle_id) DO UPDATE SET set_code = excluded.set_code,
-               collector_number = excluded.collector_number, finish = excluded.finish",
+               collector_number = excluded.collector_number, finish = excluded.finish, proxy = excluded.proxy",
         )
         .bind(deck_id)
         .bind(&p.oracle_id)
         .bind(&set)
-        .bind(p.collector_number.as_deref().map(str::trim).filter(|n| !n.is_empty() && n.len() <= 16))
+        .bind(p.collector_number.as_deref().map(str::trim).filter(|n| !set.is_empty() && !n.is_empty() && n.len() <= 16))
         .bind(finish)
+        .bind(p.proxy)
         .execute(&mut *tx)
         .await?;
     }
@@ -408,8 +463,10 @@ pub async fn save_prints(pool: &SqlitePool, deck_id: &str, prints: &[DeckPrint])
 }
 
 pub async fn deck_prints(pool: &SqlitePool, deck_id: &str) -> AppResult<HashMap<String, DeckPrint>> {
-    let rows: Vec<DeckPrint> =
-        sqlx::query_as("SELECT oracle_id, set_code, collector_number, finish FROM deck_prints WHERE deck_id = ?").bind(deck_id).fetch_all(pool).await?;
+    let rows: Vec<DeckPrint> = sqlx::query_as("SELECT oracle_id, set_code, collector_number, finish, proxy FROM deck_prints WHERE deck_id = ?")
+        .bind(deck_id)
+        .fetch_all(pool)
+        .await?;
     Ok(rows.into_iter().map(|p| (p.oracle_id.clone(), p)).collect())
 }
 

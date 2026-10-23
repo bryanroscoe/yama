@@ -28,6 +28,9 @@ pub struct ImportLine {
     pub maybe: bool,
     /// The source marked this card as a commander (section, category or tag).
     pub marked_commander: bool,
+    /// The source marked this copy as a proxy (a CSV's Proxy column, an Archidekt "Proxy"
+    /// category). "Add to my collection" adds it as a proxy.
+    pub proxy: bool,
 }
 
 impl ImportLine {
@@ -41,6 +44,7 @@ impl ImportLine {
             finish: None,
             maybe: false,
             marked_commander: false,
+            proxy: false,
         }
     }
 }
@@ -251,10 +255,12 @@ struct Markers {
     maybe: bool,
     /// Archidekt categories in brackets were read.
     categories: bool,
+    /// An Archidekt "Proxy" category.
+    proxy: bool,
 }
 
 fn take_markers(s: &str) -> (String, Markers) {
-    let mut m = Markers { commander: false, foil: None, side: false, maybe: false, categories: false };
+    let mut m = Markers { commander: false, foil: None, side: false, maybe: false, categories: false, proxy: false };
     let mut s = s.to_string();
     // Archidekt labels: ^Have,#37d67a^
     while let (Some(a), true) = (s.find('^'), s.matches('^').count() >= 2) {
@@ -285,6 +291,7 @@ fn take_markers(s: &str) -> (String, Markers) {
                     "sideboard" | "side" => m.side = true,
                     "maybeboard" | "maybe" | "considering" => m.maybe = true,
                     _ if no_deck => m.maybe = true,
+                    "proxy" | "proxies" => m.proxy = true,
                     _ => {}
                 }
             }
@@ -408,6 +415,7 @@ pub fn parse_text(text: &str) -> Parsed {
         l.finish = markers.foil;
         l.maybe = markers.maybe || section == Section::Maybe;
         l.marked_commander = l.board == Board::Commander;
+        l.proxy = markers.proxy;
         blocks.last_mut().unwrap().push(lines.len());
         lines.push(l);
     }
@@ -532,6 +540,8 @@ pub fn parse_csv(text: &str) -> Parsed {
     let finish_c = col(&headers, &["finish", "foil", "printing", "foil/etched"]);
     let board_c = col(&headers, &["board", "section", "zone", "categories", "category", "deck section"]);
     let cmdr_c = col(&headers, &["commander", "is commander"]);
+    // Moxfield and Mythic Tools export a Proxy column (True/False).
+    let proxy_c = col(&headers, &["proxy"]);
     let ctype_c = col(&headers, &["container type"]);
     let cname_c = col(&headers, &["container name"]);
     let Some(name_c) = name_c else {
@@ -580,6 +590,7 @@ pub fn parse_csv(text: &str) -> Parsed {
             l.board = Board::Commander;
             l.marked_commander = true;
         }
+        l.proxy = get(proxy_c).is_some_and(|v| matches!(v.to_lowercase().as_str(), "true" | "yes" | "1"));
         // Mythic Tools: one deck per container whose type is "deck"; other containers (boxes,
         // binders, lists) aren't decks and are left out.
         let deck_name = match (get(ctype_c), get(cname_c)) {
@@ -663,6 +674,7 @@ pub fn parse_archidekt_json(v: &serde_json::Value) -> Parsed {
         }
         let cats: Vec<String> = c["categories"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(|s| s.to_lowercase())).collect();
         let mut l = ImportLine::new(qty, name, Board::Main);
+        l.proxy = cats.iter().any(|x| x == "proxy" || x == "proxies");
         if cats.iter().any(|x| x == "commander" || x == "commanders") {
             l.board = Board::Commander;
             l.marked_commander = true;

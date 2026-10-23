@@ -177,6 +177,28 @@ async fn every_write_is_refused_while_viewing_known_routes_or_not() {
 }
 
 #[tokio::test]
+async fn add_to_collection_previews_but_never_applies_while_viewing() {
+    let w = world().await;
+    let deck: String = sqlx::query_scalar("SELECT id FROM decks WHERE owner_id = ?").bind(&w.pat_id).fetch_one(&w.pool).await.unwrap();
+    let view = start(&w.app, &w.admin, &w.pat_id).await;
+    let cookies = [("yama_view", view.as_str())];
+    // The preview is a read, so the admin sees what Pat would.
+    let (status, preview, _) = call(&w.app, Method::GET, &format!("/api/decks/{deck}/collect"), Some(&w.admin), &cookies, None, false).await;
+    assert_eq!(status, StatusCode::OK, "{preview}");
+    assert_eq!(preview["deck_name"], "Pat's deck");
+    // Adding is a write: refused, and nothing is made.
+    for (method, path, body) in [
+        (Method::POST, format!("/api/decks/{deck}/collect"), Some(json!({"same": "move"}))),
+        (Method::POST, "/api/collection/import/mythic?dry_run=true".to_string(), None),
+    ] {
+        let (status, answer, _) = call(&w.app, method.clone(), &path, Some(&w.admin), &cookies, body, false).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {path}: {answer}");
+    }
+    assert_eq!(count(&w.pool, "SELECT COUNT(*) FROM containers").await, 0);
+    assert_eq!(count(&w.pool, "SELECT COUNT(*) FROM collection_items").await, 0);
+}
+
+#[tokio::test]
 async fn secrets_stay_hidden_while_viewing() {
     let w = world().await;
     // Pat has a script key.

@@ -102,9 +102,24 @@ describe("saving", () => {
     const s = toSave(d);
     expect(s.cards.find((c) => c.oracle_id === "o-sol")?.qty).toBe(2);
     expect(s.prints).toEqual([
-      { oracle_id: "o-atraxa", set_code: "2x2", collector_number: "190", finish: "nonfoil" },
-      { oracle_id: "o-sol", set_code: "c21", collector_number: "263", finish: "foil" },
+      { oracle_id: "o-atraxa", set_code: "2x2", collector_number: "190", finish: "nonfoil", proxy: false },
+      { oracle_id: "o-sol", set_code: "c21", collector_number: "263", finish: "foil", proxy: false },
     ]);
+  });
+
+  it("keeps a proxy mark, with or without a printing", () => {
+    const d = draftFrom(
+      deck([
+        card(sol, 1, "main", { set_code: "c21", collector_number: "263", print_found: true, proxy: true }),
+        card(bolt, 1, "main", { proxy: true }),
+        card(island, 10, "main"),
+      ]),
+    );
+    expect(toSave(d).prints).toEqual([
+      { oracle_id: "o-sol", set_code: "c21", collector_number: "263", finish: "nonfoil", proxy: true },
+      { oracle_id: "o-bolt", set_code: "", collector_number: null, finish: "nonfoil", proxy: true },
+    ]);
+    expect(printLine({ set_code: "c21", collector_number: "263", finish: "foil", proxy: true })).toBe("C21 263, foil, proxy");
   });
 
   it("a new version shows what goes in and out", () => {

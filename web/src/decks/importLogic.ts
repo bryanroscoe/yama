@@ -30,6 +30,8 @@ export interface ImportCard extends ImportCardInfo {
   print_found: boolean | null;
   print_image: string | null;
   written_as: string | null;
+  /** The source marked this copy as a proxy (a CSV's Proxy column, an Archidekt category). */
+  proxy?: boolean;
 }
 
 export interface UnknownLine {
@@ -170,18 +172,37 @@ export function checks(draft: Draft): Checks {
   return { total, sideboard, identity, offIdentity, duplicates, problems, ready };
 }
 
-/** The deck routes' body: cards (merged by card and board) and the printings to keep. */
-export function toSave(draft: Draft): { cards: DeckCard[]; prints: { oracle_id: string; set_code: string; collector_number: string | null; finish: string }[] } {
+/** A printing kept with a deck (server: deck_import::DeckPrint). A proxy with no printing named
+ *  has an empty set code. */
+export interface SavedPrint {
+  oracle_id: string;
+  set_code: string;
+  collector_number: string | null;
+  finish: string;
+  proxy: boolean;
+}
+
+/** The deck routes' body: cards (merged by card and board) and the printings to keep. The server's
+ *  `deck_import::read_list` does the same for `import-decks`. */
+export function toSave(draft: Draft): { cards: DeckCard[]; prints: SavedPrint[] } {
   const cards: DeckCard[] = [];
   for (const c of draft.cards) {
     const hit = cards.find((x) => x.oracle_id === c.oracle_id && x.board === c.board);
     if (hit) hit.qty += c.qty;
     else cards.push({ oracle_id: c.oracle_id, name: c.name, qty: c.qty, board: c.board });
   }
-  const prints = new Map<string, { oracle_id: string; set_code: string; collector_number: string | null; finish: string }>();
+  const prints = new Map<string, SavedPrint>();
   for (const c of draft.cards) {
-    if (!c.set_code || c.print_found === false || prints.has(c.oracle_id)) continue;
-    prints.set(c.oracle_id, { oracle_id: c.oracle_id, set_code: c.set_code, collector_number: c.collector_number, finish: c.finish ?? "nonfoil" });
+    if (prints.has(c.oracle_id)) continue;
+    const named = !!c.set_code && c.print_found !== false;
+    if (!named && !c.proxy) continue;
+    prints.set(c.oracle_id, {
+      oracle_id: c.oracle_id,
+      set_code: named ? c.set_code! : "",
+      collector_number: named ? c.collector_number : null,
+      finish: c.finish ?? "nonfoil",
+      proxy: !!c.proxy,
+    });
   }
   return { cards, prints: [...prints.values()] };
 }
@@ -222,7 +243,11 @@ export function sharedText(params: URLSearchParams): string {
 }
 
 /** A short line about a card's printing: "C21 263, foil". */
-export function printLine(c: { set_code: string | null; collector_number: string | null; finish: string | null }): string {
-  const parts = [c.set_code ? `${c.set_code.toUpperCase()}${c.collector_number ? ` ${c.collector_number}` : ""}` : "", c.finish && c.finish !== "nonfoil" ? c.finish : ""].filter(Boolean);
+export function printLine(c: { set_code: string | null; collector_number: string | null; finish: string | null; proxy?: boolean }): string {
+  const parts = [
+    c.set_code ? `${c.set_code.toUpperCase()}${c.collector_number ? ` ${c.collector_number}` : ""}` : "",
+    c.finish && c.finish !== "nonfoil" ? c.finish : "",
+    c.proxy ? "proxy" : "",
+  ].filter(Boolean);
   return parts.join(", ");
 }

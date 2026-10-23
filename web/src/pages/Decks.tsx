@@ -26,6 +26,7 @@ import { DeckResults } from "../components/DeckResults";
 import { AskClaude } from "../advisor/AskClaude";
 import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
+import { CollectSheet } from "../decks/CollectSheet";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
  *  "Complete". */
@@ -140,6 +141,18 @@ export function DeckPage() {
   const [goldfish, setGoldfish] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [history, setHistory] = useState(false);
+  // "?collect=1": the end of a deck import offers to add its cards to the collection.
+  const [search, setSearch] = useSearchParams();
+  const offer = search.get("collect") === "1";
+  const [collecting, setCollecting] = useState(offer);
+  const closeCollect = () => {
+    setCollecting(false);
+    if (offer) setSearch((cur) => {
+      const next = new URLSearchParams(cur);
+      next.delete("collect");
+      return next;
+    }, { replace: true });
+  };
   const plan = useDeckPlan(deck.data?.id);
 
   const groups = useMemo(() => {
@@ -197,6 +210,7 @@ export function DeckPage() {
       <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
       <button className="on-art" onClick={() => setEditing(true)}>Edit deck</button>
       <Link className="button on-art" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+      <button className="on-art" onClick={() => setCollecting(true)}>Add to my collection</button>
       <button className="on-art" onClick={() => setExporting(true)}>Export</button>
       <button className="on-art" onClick={() => setHistory(true)}>History</button>
       <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
@@ -280,6 +294,7 @@ export function DeckPage() {
         <div className="row deck-actions-phone">
           <button className="outline" onClick={() => setEditing(true)}>Edit deck</button>
           <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+          <button className="outline" onClick={() => setCollecting(true)}>Add to my collection</button>
           <button className="outline" onClick={() => setExporting(true)}>Export</button>
           <button className="outline" onClick={() => setHistory(true)}>History</button>
           <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
@@ -297,6 +312,7 @@ export function DeckPage() {
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
         {exporting && <DeckExport deck={d} onClose={() => setExporting(false)} />}
         {history && <DeckHistory deckId={d.id} currentVersionId={d.version_id} onClose={() => setHistory(false)} />}
+        {collecting && <CollectSheet deckId={d.id} offer={offer} onClose={closeCollect} />}
 
         <div className="deck-toolbar">
           <div className="deck-show" role="tablist" aria-label="Show">

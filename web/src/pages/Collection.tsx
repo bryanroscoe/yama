@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
-import { api, API_BASE, priceSource, shortDate, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary, type ImportReport } from "../api";
+import { api, API_BASE, priceSource, shortDate, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { CardImage, ErrorText, Sheet } from "../components/ui";
+import { CardImage, Details, ErrorText, Sheet } from "../components/ui";
 import "./collection.css";
+import "../decks/collect.css";
+import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
 
 const KIND_LABEL: Record<string, string> = { binder: "Binder", box: "Box", deck: "Deck box", list: "List" };
 
@@ -300,48 +302,104 @@ export function CollectionPage() {
 
 function ImportSheet({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
-  const [report, setReport] = useState<ImportReport | null>(null);
-  const upload = useMutation({
-    mutationFn: async (file: File) => api<ImportReport>("/api/collection/import/mythic", { method: "POST", body: await file.text(), headers: { "Content-Type": "text/csv" } }),
+  // Each file chosen gets a number, so choosing the same file again previews it again.
+  const [file, setFile] = useState<{ n: number; text: string } | null>(null);
+  const [removeMissing, setRemoveMissing] = useState(false);
+  const [result, setResult] = useState<MythicReport | null>(null);
+  const send = (text: string, dryRun: boolean) =>
+    api<MythicReport>(`/api/collection/import/mythic?dry_run=${dryRun ? 1 : 0}&remove_missing=${removeMissing ? 1 : 0}`, {
+      method: "POST",
+      body: text,
+      headers: { "Content-Type": "text/csv" },
+    });
+  // The preview is a dry run: the server plans the import and writes nothing.
+  const preview = useQuery({
+    queryKey: ["mythic-preview", file?.n, removeMissing],
+    queryFn: () => send(file!.text, true),
+    enabled: !!file && !result,
+    retry: false,
+    staleTime: Infinity,
+  });
+  const apply = useMutation({
+    mutationFn: () => send(file!.text, false),
     onSuccess: (r) => {
-      setReport(r);
-      void qc.invalidateQueries();
+      setResult(r);
+      void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || ["containers", "decks", "deck"].includes(String(q.queryKey[0])) });
     },
   });
+  const choose = async (f: File) => {
+    setResult(null);
+    setRemoveMissing(false);
+    setFile({ n: (file?.n ?? 0) + 1, text: await f.text() });
+  };
+  const r = result ?? preview.data;
   return (
     <Sheet label="Import" onClose={onClose}>
       <div className="stack">
         <div className="sheet-head">
           <h2>Import from Mythic Tools</h2>
-          <button className="quiet" onClick={onClose}>Close</button>
+          <button className="quiet" onClick={onClose}>{result ? "Done" : "Close"}</button>
         </div>
-        <p className="dim">In Mythic Tools, export your collection as CSV, then choose the file here. Importing the same file again won't add anything twice.</p>
+        <p className="dim">
+          In Mythic Tools, export your collection as CSV, then choose the file here. You'll see what changes before anything is saved. A newer export adds only
+          what's new, and cards you've moved in Yama stay where you put them.
+        </p>
         <p className="dim small">
-          Mythic Tools' collection export leaves your decks out. To bring a deck over, export that deck from Mythic Tools (as
-          CSV, or as a text list to paste on the Decks tab). Cards in a deck become a Yama deck, linked to those cards.
+          Mythic Tools' collection export leaves your decks out. To bring a deck over, export that deck from Mythic Tools (as CSV, or as a text list to paste on
+          the Decks tab). Cards in a deck become a Yama deck, linked to those cards.
         </p>
         <label>
           CSV file
-          <input type="file" accept=".csv,text/csv" onChange={(e) => e.target.files?.[0] && upload.mutate(e.target.files[0])} />
+          <input type="file" accept=".csv,text/csv" onChange={(e) => e.target.files?.[0] && void choose(e.target.files[0])} />
         </label>
-        {upload.isPending && <p className="dim">Importing…</p>}
-        <ErrorText error={upload.error} />
-        {report && (
-          <div>
-            <p>
-              Added {report.copies} {report.copies === 1 ? "card" : "cards"} from {report.added_rows} rows.
-              {report.already_imported_rows > 0 && ` ${report.already_imported_rows} rows were already imported.`}
-            </p>
-            {report.containers.length > 0 && <p className="dim">Containers: {report.containers.join(", ")}</p>}
-            {report.decks_created.length > 0 && <p>New decks: {report.decks_created.join(", ")}. Check each one's commander on the Decks tab.</p>}
-            {report.decks_updated.length > 0 && <p className="dim">Updated decks: {report.decks_updated.join(", ")}</p>}
-            {report.unknown_printings.length > 0 && (
-              <p className="dim">Not in our card data yet (kept anyway): {report.unknown_printings.join(", ")}</p>
+        {preview.isFetching && <p className="dim">Checking the file against your collection…</p>}
+        <ErrorText error={preview.error ?? apply.error} />
+        {r && (
+          <>
+            {result ? (
+              <ul className="collect-facts collect-result" role="status">
+                {resultLines(result).map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            ) : (
+              <ul className="collect-facts">
+                {previewLines(r, (d) => shortDate(d) ?? d).map((line) => <li key={line}>{line}</li>)}
+              </ul>
             )}
-            {report.errors.length > 0 && (
-              <ul className="error small">{report.errors.map((e) => <li key={e}>{e}</li>)}</ul>
+            {r.added_cards.length > 0 && (
+              <Details label={result ? "Cards added" : "Cards to add"}>
+                <ul className="collect-cards small">{r.added_cards.map((c, i) => <li key={i}>{changeText(c)}</li>)}</ul>
+              </Details>
             )}
-          </div>
+            {r.kept_cards.length > 0 && (
+              <Details label="Kept where Yama has them">
+                <ul className="collect-cards small">{r.kept_cards.map((c, i) => <li key={i}>{keptText(c)}</li>)}</ul>
+              </Details>
+            )}
+            {r.missing > 0 && (
+              <div className="stack">
+                {!result && <p>{missingText(r)}</p>}
+                <Details label={result?.removed ? "Removed" : "No longer in this export"}>
+                  <ul className="collect-cards small">{r.missing_cards.map((c, i) => <li key={i}>{changeText(c)}</li>)}</ul>
+                </Details>
+                {!result && (
+                  <label className="collect-remove">
+                    <input type="checkbox" checked={removeMissing} onChange={(e) => setRemoveMissing(e.target.checked)} />
+                    {missingLabel(r)}
+                  </label>
+                )}
+              </div>
+            )}
+            {r.unknown_printings.length > 0 && <p className="dim small">Not in our card data yet (kept anyway): {r.unknown_printings.join(", ")}</p>}
+            {r.errors.length > 0 && <ul className="error small">{r.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
+            {!result && (
+              <div className="row">
+                <button className="primary" disabled={apply.isPending || preview.isFetching} onClick={() => apply.mutate()}>
+                  {apply.isPending ? "Importing…" : "Import"}
+                </button>
+                <button className="quiet" onClick={onClose}>Cancel</button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </Sheet>

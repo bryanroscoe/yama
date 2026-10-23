@@ -14,7 +14,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Card sheet | Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history |
 | Release calendar | Upcoming sets on the Cards page (Scryfall's `/sets`: release date, type, cards Scryfall has so far). Watch a set; once MTGJSON publishes a watched set's Commander precon lists, the Cards page names each deck and its commander (Collector's Editions under their deck) and starts a Yama deck from the stock list; four weeks after release the list folds away below the calendar. Refreshed daily with `YAMA_AUTO_IMPORT=1`, or `yama-server import-calendar` |
 | What's new | A page listing what has shipped, in plain sentences, with a notice on each device until it's opened (Group, Account links to it too) |
-| Collection | Binders, boxes, decks and lists; add from card search; move, condition, proxy; idempotent offline ops; Mythic Tools CSV import and export |
+| Collection | Binders, boxes, decks and lists; add from card search; move, condition, proxy; idempotent offline ops; Mythic Tools CSV import (with a preview; a newer export adds only what's new, and cards it no longer lists are removed only if you ask) and export; "Add to my collection" on a deck puts its cards in its deck box, in the printings the list names |
 | Decks | Paste any common list format; edit as text with versions; version history with a diff between any two versions; Commander validation; owned/needed with cheapest market price; sample hands with mulligans; Game Changers count; how many cards online play supports; real-game results per version ("This version: 3-2, 5 games") |
 | Brackets | A declared bracket per deck (chips on the deck list, table setup and online lobby), shown beside Commander Spellbook's estimate for each saved version: its bracket, Game Changers, mass land denial, extra turns and combos. Checked in the background after a save; turn off with `YAMA_DECK_CHECKS=0` |
 | Deck stats and export | Mana curve (creatures and other spells), average mana value with and without lands, land count, colored pips against land sources per color. Export as names only (EDHbots), Moxfield (set and number of your copy) or MTG Arena; copy or download |
@@ -57,7 +57,11 @@ mkdir -p data/engine && curl -o data/engine/card-data-eb309108eb0df708.json \
 Optional:
 
 ```sh
-./target/debug/yama-server import-decks ../commander-decks/decks --owner you@example.com
+./target/debug/yama-server import-decks ../commander-decks/decks --owner you@example.com [--update]
+                                        # --update: a file named like a deck becomes its new version
+./target/debug/yama-server import-mythic export.csv --owner you@example.com --dry-run   # [--remove-missing]
+./target/debug/yama-server collection add-deck --owner you@example.com --deck "Riders of Rohan" --dry-run
+./target/debug/yama-server deck rename --owner you@example.com --deck "riders of rohan" --to "Rohan"   # or: deck archive
 ./target/debug/yama-server import-calendar  # upcoming sets and Commander precon lists, once (daily with YAMA_AUTO_IMPORT=1)
 ./target/debug/yama-server import-plan ../commander-decks/data/planner/yama-plan.json --owner you@example.com --dry-run
                                         # prints the import report; drop --dry-run to import
@@ -93,7 +97,8 @@ npm run typecheck     # core + web
 
 ```
 server/            Rust (Axum, SQLite via sqlx). One binary: serve, import-cards, import-calendar, import-decks, import-plan,
-                   import-precons, import-lab, invite, user (add, remove-password, disable, enable, list).
+                   import-precons, import-lab, import-mythic, collection add-deck, deck (archive, rename), invite,
+                   user (add, remove-password, disable, enable, list).
                    src/limits.rs holds the rate limits and the client address rules.
   migrations/      Schema
   src/cards/       Scryfall import and search

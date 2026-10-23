@@ -308,7 +308,8 @@ export function ImportPage() {
           onSaved={(id) => {
             void qc.invalidateQueries({ queryKey: ["decks"] });
             void qc.invalidateQueries({ queryKey: ["deck", id] });
-            navigate(`/decks/${id}`, { replace: !!precon });
+            // The deck page then offers to add the cards to the collection (CollectSheet).
+            navigate(`/decks/${id}?collect=1`, { replace: !!precon });
           }}
           onSavedMany={() => {
             void qc.invalidateQueries({ queryKey: ["decks"] });
