@@ -1,0 +1,75 @@
+/* "Add to my collection" (CollectSheet.tsx) and the Mythic Tools import preview on the
+   Collection page: counts, a choice, and the cards behind them. */
+
+.collect-facts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.collect-choices {
+  display: grid;
+  gap: 0.4rem;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.collect-choices > legend {
+  margin-bottom: 0.4rem;
+  font-weight: 700;
+}
+.collect-choices label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem 0.6rem;
+  align-items: start;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.collect-choices label:has(input:checked) {
+  border-color: var(--text);
+  background: var(--raised);
+}
+.collect-choices input {
+  width: auto;
+  min-height: 0;
+  margin-top: 0.3rem;
+  grid-row: span 2;
+}
+.collect-choices .hint {
+  grid-column: 2;
+}
+
+.collect-cards {
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+.collect-cards li {
+  display: grid;
+  gap: 0.05rem;
+}
+
+.collect-result {
+  margin: 0;
+  color: var(--good);
+  font-weight: 700;
+}
+
+/* The Mythic import's "no longer in this export" checkbox sits on its own line. */
+.collect-remove {
+  display: flex;
+  gap: 0.6rem;
+  align-items: start;
+}
+.collect-remove input {
+  width: auto;
+  min-height: 0;
+  margin-top: 0.3rem;
+}

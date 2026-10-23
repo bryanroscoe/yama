@@ -56,6 +56,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("lab_experiments", "owner_id"),
     ("lab_runs", "owner_id"),
     ("lab_usage", "owner_id"),
+    ("mythic_imports", "owner_id"),
     ("oauth_codes", "user_id"),
     ("oauth_grants", "user_id"),
     ("online_games", "host_id"),
@@ -123,6 +124,7 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("containers", "owner_id"),
     ("item_aliases", "owner_id"),
     ("applied_ops", "owner_id"),
+    ("mythic_imports", "owner_id"),
     ("decks", "owner_id"),
 ];
 

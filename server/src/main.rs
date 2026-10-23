@@ -49,7 +49,36 @@ USAGE:
                                              card files are given)
   yama-server import-calendar                Refresh upcoming sets (Scryfall) and Commander
                                              precon lists (MTGJSON) once
-  yama-server import-decks DIR --owner EMAIL Import every .txt deck list in DIR
+  yama-server import-decks DIR --owner EMAIL [--update]
+                                             Import every .txt deck list in DIR, each named
+                                             after its file (Riders_of_Rohan.txt is Riders
+                                             of Rohan), with the printings it names. A name
+                                             a deck already has is skipped; with --update it
+                                             becomes a new version of that deck (any case),
+                                             unless the cards are the same
+  yama-server deck archive --owner EMAIL --deck NAME
+                                             Archive a deck (any case; its games stay)
+  yama-server deck rename --owner EMAIL --deck NAME --to NEW
+                                             Rename a deck
+  yama-server collection add-deck --owner EMAIL --deck NAME [--move-same-printing |
+                              --skip-same-printing] [--dry-run] [--json]
+                                             Put the deck's cards in its deck box (made and
+                                             linked if it has none), as Add to my
+                                             collection does on the web: each card in the printing the
+                                             deck names, else a default, proxies as proxies.
+                                             Copies of the same printing in other boxes and
+                                             binders are left there and new copies added,
+                                             unless --move-same-printing moves them in or
+                                             --skip-same-printing leaves those cards out.
+                                             Running it again adds nothing. Prints what it
+                                             does (or would, with --dry-run)
+  yama-server import-mythic FILE --owner EMAIL [--dry-run] [--remove-missing] [--json]
+                                             Import a Mythic Tools CSV export as the web
+                                             does: adds only copies the file has more of
+                                             than Yama (a newer export doesn't double
+                                             anything; the same file adds nothing).
+                                             --remove-missing also removes copies the file
+                                             no longer lists from the containers it names
   yama-server import-plan FILE --owner EMAIL [--dry-run] [--force]
                                              Import a yama-plan/1 file (docs/plan-format.md)
                                              as EMAIL's plan, the same way the web upload
@@ -107,9 +136,45 @@ async fn main() -> anyhow::Result<()> {
         }
         Some("import-calendar") => calendar::run_once(&pool).await,
         Some("import-decks") => {
-            let dir = args.get(1).context("usage: yama-server import-decks DIR --owner EMAIL")?;
+            let dir = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-decks DIR --owner EMAIL [--update]")?;
             let owner = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
-            decks::import_dir(&pool, std::path::Path::new(dir), &owner).await
+            let update = args.iter().any(|a| a == "--update");
+            decks::cli::import_dir(&pool, std::path::Path::new(dir), &owner, update).await.map(|_| ())
+        }
+        Some("deck") => {
+            let owner = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
+            let deck = flag_value(&args, "--deck").context("--deck NAME is required")?;
+            let done = match args.get(1).map(String::as_str) {
+                Some("archive") => decks::cli::archive(&pool, &owner, &deck).await?,
+                Some("rename") => {
+                    let to = flag_value(&args, "--to").context("--to NEW is required")?;
+                    decks::cli::rename(&pool, &owner, &deck, &to).await?
+                }
+                _ => anyhow::bail!("usage: yama-server deck archive|rename --owner EMAIL --deck NAME [--to NEW]"),
+            };
+            println!("{done}");
+            Ok(())
+        }
+        Some("collection") => match args.get(1).map(String::as_str) {
+            Some("add-deck") => collection::deck_box::cli(&pool, &args[2..]).await,
+            _ => anyhow::bail!("usage: yama-server collection add-deck --owner EMAIL --deck NAME [--move-same-printing] [--dry-run]"),
+        },
+        Some("import-mythic") => {
+            let file = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-mythic FILE --owner EMAIL [--dry-run] [--remove-missing] [--json]")?;
+            let owner = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
+            let owner = decks::cli::owner_id(&pool, &owner).await?;
+            let opts = collection::mythic::ImportOptions {
+                dry_run: args.iter().any(|a| a == "--dry-run"),
+                remove_missing: args.iter().any(|a| a == "--remove-missing"),
+            };
+            let text = std::fs::read_to_string(file).with_context(|| format!("reading {file}"))?;
+            let report = collection::mythic::import_mythic_csv(&pool, &owner, &text, opts).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            if args.iter().any(|a| a == "--json") {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", collection::mythic::text(&report));
+            }
+            Ok(())
         }
         Some("import-plan") => {
             let file = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-plan FILE --owner EMAIL [--dry-run] [--force]")?;

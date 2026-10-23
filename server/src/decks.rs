@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{AssertSqlSafe, SqliteConnection, SqlitePool};
 use std::collections::{BTreeMap, HashMap};
 
+pub mod cli;
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/decks", get(list_decks).post(create_deck))
@@ -461,20 +463,69 @@ fn owned_printing(mine: &[&crate::collection::Item], container_id: Option<&str>)
     })
 }
 
-/// One printing of a card, as [`paper_printing`] weighs it.
+/// One printing of a card, as [`paper_printing`] and [`collection_printing`] weigh it.
 #[derive(sqlx::FromRow, Debug, Clone)]
-struct PrintingChoice {
-    set_code: String,
-    collector_number: String,
+pub(crate) struct PrintingChoice {
+    pub(crate) scryfall_id: String,
+    pub(crate) set_code: String,
+    pub(crate) collector_number: String,
     /// JSON array: nonfoil | foil | etched
-    finishes: String,
-    lang: String,
-    released_at: Option<String>,
+    pub(crate) finishes: String,
+    pub(crate) lang: String,
+    pub(crate) released_at: Option<String>,
     /// Scryfall's `digital` (only released in a video game); `None` until the printings import
     /// that reads it has run.
-    digital: Option<bool>,
-    set_type: Option<String>,
-    is_default: bool,
+    pub(crate) digital: Option<bool>,
+    pub(crate) set_type: Option<String>,
+    pub(crate) is_default: bool,
+}
+
+impl PrintingChoice {
+    fn has(&self, finish: &str) -> bool {
+        serde_json::from_str::<Vec<String>>(&self.finishes).is_ok_and(|f| f.iter().any(|x| x == finish))
+    }
+
+    /// A promo, a collectible that isn't a tournament card (gold borders), a box or an Un-set.
+    fn side_product(&self) -> bool {
+        self.set_type.as_deref().is_some_and(|t| SIDE_SET_TYPES.contains(&t)) || RARE_RUN_SETS.contains(&self.set_code.as_str())
+    }
+
+    /// The finish a copy of this printing has unless said otherwise: nonfoil if it comes that way.
+    pub(crate) fn plain_finish(&self) -> &'static str {
+        ["nonfoil", "foil", "etched"].into_iter().find(|f| self.has(f)).unwrap_or("nonfoil")
+    }
+}
+
+/// Every printing of a card, for [`paper_printing`] and [`collection_printing`].
+pub(crate) async fn printing_choices(conn: &mut SqliteConnection, oracle_id: &str) -> AppResult<Vec<PrintingChoice>> {
+    Ok(sqlx::query_as::<_, PrintingChoice>(
+        "SELECT p.scryfall_id, p.set_code, p.collector_number, p.finishes, p.lang, p.released_at, p.digital, p.set_type,
+                (p.scryfall_id IS c.default_printing) AS is_default
+         FROM printings p JOIN cards c ON c.oracle_id = p.oracle_id WHERE p.oracle_id = ?",
+    )
+    .bind(oracle_id)
+    .fetch_all(&mut *conn)
+    .await?)
+}
+
+/// The printing "Add to my collection" adds for a card the deck names no printing for: a paper
+/// printing that isn't a promo, gold-bordered or other side product ([`SIDE_SET_TYPES`],
+/// [`RARE_RUN_SETS`]), with a nonfoil finish, then Scryfall's default printing, English, the
+/// newest. Unlike an export, a side product never wins by being Scryfall's default. Before the
+/// printings import has read `digital`, digital printings can't be told apart and all count.
+pub(crate) fn collection_printing(printings: &[PrintingChoice]) -> Option<&PrintingChoice> {
+    let known = printings.iter().any(|p| p.digital.is_some());
+    printings.iter().filter(|p| !known || p.digital == Some(false)).min_by_key(|p| {
+        (
+            p.side_product(),
+            !p.has("nonfoil"),
+            !p.is_default,
+            p.lang != "en",
+            std::cmp::Reverse(p.released_at.clone()),
+            p.collector_number.len(),
+            p.collector_number.clone(),
+        )
+    })
 }
 
 /// Kinds of set (Scryfall's `set_type`) whose printings are a last resort for an export:
@@ -494,15 +545,12 @@ const RARE_RUN_SETS: [&str; 1] = ["sum"];
 /// nothing is known to be on paper, so it names the default printing as before (with that
 /// printing's finish).
 fn paper_printing(printings: &[PrintingChoice]) -> Option<PrintRef> {
-    let has = |p: &PrintingChoice, finish: &str| {
-        serde_json::from_str::<Vec<String>>(&p.finishes).is_ok_and(|f| f.iter().any(|x| x == finish))
-    };
     let best = if printings.iter().any(|p| p.digital.is_some()) {
         printings.iter().filter(|p| p.digital == Some(false)).min_by_key(|p| {
             (
-                !has(p, "nonfoil"),
+                !p.has("nonfoil"),
                 !p.is_default,
-                p.set_type.as_deref().is_some_and(|t| SIDE_SET_TYPES.contains(&t)) || RARE_RUN_SETS.contains(&p.set_code.as_str()),
+                p.side_product(),
                 p.lang != "en",
                 std::cmp::Reverse(p.released_at.clone()),
                 p.collector_number.len(),
@@ -512,11 +560,10 @@ fn paper_printing(printings: &[PrintingChoice]) -> Option<PrintRef> {
     } else {
         printings.iter().find(|p| p.is_default)?
     };
-    let finish = ["nonfoil", "foil", "etched"].into_iter().find(|f| has(best, f)).unwrap_or("nonfoil");
     Some(PrintRef {
         set_code: best.set_code.clone(),
         collector_number: best.collector_number.clone(),
-        finish: finish.into(),
+        finish: best.plain_finish().into(),
         from: "default",
     })
 }
@@ -616,16 +663,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         });
         let printing = match owned_printing(&mine, container_id.as_deref()).or(chosen_print) {
             Some(p) => Some(p),
-            None => paper_printing(
-                &sqlx::query_as::<_, PrintingChoice>(
-                    "SELECT p.set_code, p.collector_number, p.finishes, p.lang, p.released_at, p.digital, p.set_type,
-                            (p.scryfall_id IS c.default_printing) AS is_default
-                     FROM printings p JOIN cards c ON c.oracle_id = p.oracle_id WHERE p.oracle_id = ?",
-                )
-                .bind(&c.oracle_id)
-                .fetch_all(&st.pool)
-                .await?,
-            ),
+            None => paper_printing(&printing_choices(&mut *st.pool.acquire().await?, &c.oracle_id).await?),
         };
         let produced_mana: Option<String> = sqlx::query_scalar("SELECT produced_mana FROM cards WHERE oracle_id = ?")
             .bind(&c.oracle_id)
@@ -703,10 +741,14 @@ async fn update_deck(
     {
         return Err(AppError::bad("brackets go from 1 to 5"));
     }
+    let name = match body.name {
+        Some(n) => deck_name(&n)?,
+        None => name,
+    };
     let (folder, bracket): (Option<String>, Option<i64>) =
         sqlx::query_as("SELECT folder, bracket FROM decks WHERE id = ?").bind(&id).fetch_one(&st.pool).await?;
     sqlx::query("UPDATE decks SET name = ?, folder = ?, container_id = ?, bracket = ?, updated_at = ? WHERE id = ?")
-        .bind(body.name.unwrap_or(name))
+        .bind(name)
         .bind(body.folder.unwrap_or(folder))
         .bind(body.container_id.unwrap_or(container))
         .bind(body.bracket.unwrap_or(bracket))
@@ -718,9 +760,55 @@ async fn update_deck(
 }
 
 async fn archive_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
-    owned_deck(&st.pool, &user.id, &id).await?;
-    sqlx::query("UPDATE decks SET archived = 1, updated_at = ? WHERE id = ?").bind(now()).bind(&id).execute(&st.pool).await?;
+    archive(&st.pool, &user.id, &id).await
+}
+
+/// Archive one of `owner`'s decks: it leaves the deck list, and its versions and games stay
+/// (`DELETE /api/decks/{id}` and `yama-server deck archive`).
+pub async fn archive(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<()> {
+    owned_deck(pool, owner, id).await?;
+    sqlx::query("UPDATE decks SET archived = 1, updated_at = ? WHERE id = ?").bind(now()).bind(id).execute(pool).await?;
     Ok(())
+}
+
+/// Rename one of `owner`'s decks (`yama-server deck rename`; the web renames through
+/// `PATCH /api/decks/{id}`, with the same name check). Its deck box keeps its own name.
+pub async fn rename(pool: &SqlitePool, owner: &str, id: &str, name: &str) -> AppResult<()> {
+    owned_deck(pool, owner, id).await?;
+    sqlx::query("UPDATE decks SET name = ?, updated_at = ? WHERE id = ?").bind(deck_name(name)?).bind(now()).bind(id).execute(pool).await?;
+    Ok(())
+}
+
+/// A deck name as typed: trimmed, and not empty.
+fn deck_name(name: &str) -> AppResult<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AppError::bad("deck needs a name"));
+    }
+    Ok(name.to_string())
+}
+
+/// The one live (not archived) deck of `owner`'s called `name`, ignoring case: (id, name as
+/// saved). For the command line, where people type deck names. More than one is refused with
+/// their names, so the wrong deck is never picked.
+pub async fn find_by_name(pool: &SqlitePool, owner: &str, name: &str) -> AppResult<Option<(String, String)>> {
+    let hits: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT id, name, created_at FROM decks WHERE owner_id = ? AND archived = 0 AND lower(trim(name)) = lower(trim(?)) ORDER BY created_at",
+    )
+    .bind(owner)
+    .bind(name)
+    .fetch_all(pool)
+    .await?;
+    match &hits[..] {
+        [] => Ok(None),
+        [(id, name, _)] => Ok(Some((id.clone(), name.clone()))),
+        many => Err(AppError::Conflict(format!(
+            "{} decks are called {:?} (made {}). Rename or archive one first.",
+            many.len(),
+            name.trim(),
+            many.iter().map(|(id, _, at)| format!("{} as {id}", &at[..at.len().min(10)])).collect::<Vec<_>>().join(", ")
+        ))),
+    }
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -1073,6 +1161,7 @@ mod tests {
 
     fn printing(set: &str, number: &str, finishes: &str, released: &str, digital: Option<bool>, set_type: &str, is_default: bool) -> PrintingChoice {
         PrintingChoice {
+            scryfall_id: format!("{set}-{number}"),
             set_code: set.into(),
             collector_number: number.into(),
             finishes: finishes.into(),
@@ -1162,39 +1251,29 @@ mod tests {
     }
 }
 
-/// CLI: import every `.txt` deck list in a directory for one user. Skips names that already exist.
-pub async fn import_dir(pool: &SqlitePool, dir: &std::path::Path, owner_email: &str) -> anyhow::Result<()> {
-    let owner: String = match sqlx::query_scalar("SELECT id FROM users WHERE email = ?").bind(owner_email).fetch_optional(pool).await? {
-        Some(id) => id,
-        None => anyhow::bail!("no user {owner_email}; sign in once first"),
-    };
-    let mut paths: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|x| x == "txt")).collect();
-    paths.sort();
-    for path in paths {
-        let name = path.file_stem().unwrap().to_string_lossy().replace('_', " ");
-        let exists: Option<String> = sqlx::query_scalar("SELECT id FROM decks WHERE owner_id = ? AND name = ? AND archived = 0")
-            .bind(&owner)
-            .bind(&name)
-            .fetch_optional(pool)
-            .await?;
-        if exists.is_some() {
-            println!("skip {name}: already imported");
-            continue;
-        }
-        let text = std::fs::read_to_string(&path)?;
-        let parsed = resolve(pool, parse_list(&text, true)).await.map_err(|e| anyhow::anyhow!("{e}"))?;
-        let count: i64 = parsed.cards.iter().map(|c| c.qty).sum();
-        create_deck_with_cards(pool, &owner, &name, Some("commander-decks"), parsed.cards).await.map_err(|e| anyhow::anyhow!("{e}"))?;
-        println!("imported {name}: {count} cards{}", if parsed.unknown.is_empty() { String::new() } else { format!(", unknown: {}", parsed.unknown.join(", ")) });
-    }
-    Ok(())
+/// The folder of decks made from a Mythic Tools deck container; only they follow it.
+const MYTHIC_FOLDER: &str = "Mythic Tools";
+
+/// What [`sync_deck_from_container`] did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ContainerSync {
+    Created,
+    Updated,
+    Unchanged,
+    /// The container's deck wasn't made from a Mythic Tools file, so it was left alone.
+    NotFromMythic,
 }
 
 /// Keep a Yama deck in step with a collection container of kind "deck" (from a Mythic Tools
 /// import): create it the first time, add a version when the cards change. Mythic Tools doesn't
-/// say which card is the commander, so cards go in the main deck; a lone legendary creature or
-/// a card that says it can be your commander is promoted. Returns (deck id, created?).
-pub async fn sync_deck_from_container(pool: &SqlitePool, owner: &str, container_id: &str, name: &str) -> AppResult<(String, bool, bool)> {
+/// say which card is the commander, so cards go in the main deck; the deck's existing commanders
+/// stay while they're in the container, else a lone legendary creature or a card that says it
+/// can be your commander is promoted.
+///
+/// Only decks this made (folder "Mythic Tools") follow their container. A deck made another way
+/// whose box the file happens to name (a deck imported on the web, then "Add to my collection")
+/// keeps its list: the box can hold more than the list, so following it would change the deck.
+pub async fn sync_deck_from_container(pool: &SqlitePool, owner: &str, container_id: &str, name: &str) -> AppResult<ContainerSync> {
     let rows: Vec<(String, String, i64, String, String)> = sqlx::query_as(
         "SELECT c.oracle_id, c.name, SUM(i.qty), c.type_line, c.oracle_text FROM collection_items i
          JOIN printings p ON p.scryfall_id = i.scryfall_id JOIN cards c ON c.oracle_id = p.oracle_id
@@ -1205,50 +1284,74 @@ pub async fn sync_deck_from_container(pool: &SqlitePool, owner: &str, container_
     .bind(container_id)
     .fetch_all(pool)
     .await?;
+    let existing: Option<(String, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT id, current_version_id, folder FROM decks WHERE owner_id = ? AND container_id = ? AND archived = 0 ORDER BY created_at LIMIT 1")
+            .bind(owner)
+            .bind(container_id)
+            .fetch_optional(pool)
+            .await?;
+    if let Some((_, _, folder)) = &existing
+        && folder.as_deref() != Some(MYTHIC_FOLDER)
+    {
+        return Ok(ContainerSync::NotFromMythic);
+    }
+    let existing = existing.map(|(id, version, _)| (id, version));
+    let old = match &existing {
+        Some((_, Some(v))) => Some(load_version_cards(pool, v).await?),
+        _ => None,
+    };
+    // The deck's own commanders stay while they're still in the container (someone may have
+    // picked one of several legends); otherwise a lone candidate is promoted.
+    let kept: Vec<String> = old
+        .iter()
+        .flatten()
+        .filter(|c| c.board == Board::Commander && rows.iter().any(|(id, ..)| id == &c.oracle_id))
+        .map(|c| c.oracle_id.clone())
+        .collect();
     let eligible: Vec<&String> = rows
         .iter()
         .filter(|(_, _, _, t, o)| (t.contains("Legendary") && t.contains("Creature")) || o.to_lowercase().contains("can be your commander"))
         .map(|(id, ..)| id)
         .collect();
-    let commander = (eligible.len() == 1).then(|| eligible[0].clone());
+    let commanders: Vec<String> = if !kept.is_empty() {
+        kept
+    } else if eligible.len() == 1 {
+        vec![eligible[0].clone()]
+    } else {
+        vec![]
+    };
     let cards: Vec<DeckCard> = rows
         .iter()
         .map(|(oracle_id, name, qty, ..)| DeckCard {
             oracle_id: oracle_id.clone(),
             name: name.clone(),
             qty: *qty,
-            board: if Some(oracle_id) == commander.as_ref() { Board::Commander } else { Board::Main },
+            board: if commanders.contains(oracle_id) { Board::Commander } else { Board::Main },
         })
         .collect();
-    let existing: Option<(String, Option<String>)> =
-        sqlx::query_as("SELECT id, current_version_id FROM decks WHERE owner_id = ? AND container_id = ? AND archived = 0 LIMIT 1")
-            .bind(owner)
-            .bind(container_id)
-            .fetch_optional(pool)
-            .await?;
     match existing {
         None => {
-            let id = create_deck_with_cards(pool, owner, name, Some("Mythic Tools"), cards).await?;
+            let id = create_deck_with_cards(pool, owner, name, Some(MYTHIC_FOLDER), cards).await?;
             sqlx::query("UPDATE decks SET container_id = ? WHERE id = ?").bind(container_id).bind(&id).execute(pool).await?;
-            Ok((id, true, true))
+            Ok(ContainerSync::Created)
         }
-        Some((id, version)) => {
-            let same = match &version {
-                Some(v) => {
-                    let old = load_version_cards(pool, v).await?;
+        Some((id, _)) => {
+            let same = match &old {
+                Some(old) => {
                     let key = |c: &[DeckCard]| {
                         let mut k: Vec<(String, i64)> = c.iter().map(|x| (x.oracle_id.clone(), x.qty)).collect();
                         k.sort();
                         k
                     };
-                    key(&old) == key(&cards)
+                    key(old) == key(&cards)
                 }
                 None => false,
             };
-            if !same {
-                insert_version(pool, &id, &cards, Some("updated from a Mythic Tools import")).await?;
+            if same {
+                return Ok(ContainerSync::Unchanged);
             }
-            Ok((id, false, !same))
+            insert_version(pool, &id, &cards, Some("updated from a Mythic Tools import")).await?;
+            Ok(ContainerSync::Updated)
         }
     }
 }

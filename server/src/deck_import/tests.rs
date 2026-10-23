@@ -329,3 +329,31 @@ async fn printings_are_kept_with_the_deck_and_used_for_exports() {
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deck_prints WHERE deck_id = ?").bind(id).fetch_one(&pool).await.unwrap();
     assert_eq!(n, 1);
 }
+
+#[test]
+fn proxies_come_from_a_proxy_column_or_category() {
+    let csv = "\"Count\",\"Name\",\"Edition\",\"Foil\",\"Collector Number\",\"Proxy\"\n\"1\",\"Sol Ring\",\"c21\",\"\",\"263\",\"True\"\n\"1\",\"Arcane Signet\",\"c21\",\"\",\"236\",\"False\"\n";
+    let p = parse_any(csv, Some("deck.csv"));
+    assert!(board_of(&p, "Sol Ring").unwrap().proxy);
+    assert!(!board_of(&p, "Arcane Signet").unwrap().proxy);
+    let p = parse_text("1x Sol Ring (cmm) 410 [Ramp,Proxy]\n1x Arcane Signet (cmm) 371 [Ramp]");
+    assert!(board_of(&p, "Sol Ring").unwrap().proxy);
+    assert!(!board_of(&p, "Arcane Signet").unwrap().proxy);
+}
+
+#[tokio::test]
+async fn a_proxy_is_kept_with_the_deck_even_without_a_printing() {
+    let (app, pool) = app().await;
+    seed(&pool).await;
+    let (_, token) = user(&pool, "a@example.com").await;
+    let cards = json!([{"oracle_id": "o-sol", "name": "Sol Ring", "qty": 1, "board": "main"}]);
+    let prints = json!([{"oracle_id": "o-sol", "set_code": "", "collector_number": null, "finish": "nonfoil", "proxy": true}]);
+    let (status, created) = send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": "Proxies", "cards": cards, "prints": prints }))).await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let id = created["id"].as_str().unwrap();
+    let kept = super::deck_prints(&pool, id).await.unwrap();
+    assert!(kept["o-sol"].proxy && kept["o-sol"].set_code.is_empty());
+    // With no printing named, exports fall back as before.
+    let (_, deck) = send(&app, Method::GET, &format!("/api/decks/{id}"), Some(&token), None).await;
+    assert_ne!(deck["cards"][0]["printing"]["from"], "chosen");
+}

@@ -197,18 +197,6 @@ export interface CollectionSummary {
   purchase_total_usd: number;
 }
 
-export interface ImportReport {
-  rows: number;
-  copies: number;
-  added_rows: number;
-  already_imported_rows: number;
-  containers: string[];
-  unknown_printings: string[];
-  errors: string[];
-  decks_created: string[];
-  decks_updated: string[];
-}
-
 export type Board = "commander" | "main" | "side";
 
 export interface DeckCard {

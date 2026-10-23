@@ -1,0 +1,129 @@
+// "Add to my collection" for a deck: preview what goes into the deck's box, choose what to do
+// with copies of the same printing elsewhere, then add (server/src/collection/deck_box.rs).
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { api } from "../api";
+import { Details, ErrorText, Sheet } from "../components/ui";
+import { isViewing } from "../viewingFlag";
+import { boxText, buttonText, groups, outcomeText, printingText, resultText, SAME_CHOICES, summary, type CollectPreview, type SamePrinting } from "./collect";
+import "./collect.css";
+
+/** `offer`: opened at the end of a deck import, so it asks rather than tells. */
+export function CollectSheet({ deckId, offer = false, onClose }: { deckId: string; offer?: boolean; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [same, setSame] = useState<SamePrinting>("move");
+  const [result, setResult] = useState<CollectPreview | null>(null);
+  const preview = useQuery({
+    queryKey: ["deck-collect", deckId, same],
+    queryFn: () => api<CollectPreview>(`/api/decks/${deckId}/collect?same=${same}`),
+    enabled: !result,
+  });
+  const add = useMutation({
+    mutationFn: () => api<CollectPreview>(`/api/decks/${deckId}/collect`, { method: "POST", json: { same } }),
+    onSuccess: (r) => {
+      setResult(r);
+      void qc.invalidateQueries({ predicate: (q) => ["deck", "decks", "containers", "deck-collect"].includes(String(q.queryKey[0])) || String(q.queryKey[0]).startsWith("collection") });
+    },
+  });
+  const viewing = isViewing();
+  const p = result ?? preview.data;
+  const title = offer && p && !result ? `Add these ${p.cards} cards to your collection?` : "Add to my collection";
+  const g = p ? groups(p) : null;
+
+  return (
+    <Sheet label="Add to my collection" onClose={onClose}>
+      <div className="stack">
+        <div className="sheet-head">
+          <h2>{title}</h2>
+          <button type="button" className="quiet" onClick={onClose}>
+            {result ? "Done" : "Close"}
+          </button>
+        </div>
+        <ErrorText error={preview.error} />
+        {!p && !preview.error && <p className="dim">Checking your collection…</p>}
+        {p && (
+          <>
+            <p className="dim">{boxText(p)}</p>
+            {result ? (
+              <p className="collect-result" role="status">
+                {resultText(result)}
+              </p>
+            ) : (
+              <ul className="collect-facts">
+                {summary(p).map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ul>
+            )}
+            {!result && p.same_elsewhere > 0 && (
+              <fieldset className="collect-choices">
+                <legend>The copies you own in the same printing</legend>
+                {SAME_CHOICES.map((c) => (
+                  <label key={c.value}>
+                    <input type="radio" name="collect-same" checked={same === c.value} onChange={() => setSame(c.value)} />
+                    {c.label}
+                    <span className="hint">
+                      {outcomeText(p.options[c.value])}
+                      {c.value === "move" && " Never from another deck's box."}
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
+            {g && (g.add.length > 0 || g.move.length > 0 || g.leave.length > 0) && (
+              <Details label={result ? "The cards" : "Which cards"}>
+                {g.add.length > 0 && (
+                  <CardList title={result ? "Added" : "To add"} lines={g.add.map((l) => ({ key: l.oracle_id, qty: l.added, name: l.name, note: printingText(l) }))} />
+                )}
+                {g.move.length > 0 && (
+                  <CardList
+                    title={result ? "Moved in" : "To move in"}
+                    lines={g.move.map((l) => ({ key: l.oracle_id, qty: l.moved, name: l.name, note: `${printingText(l)}. From ${l.elsewhere.map((e) => e.place).join(", ")}` }))}
+                  />
+                )}
+                {g.leave.length > 0 && (
+                  <CardList
+                    title="Left out"
+                    lines={g.leave.map((l) => ({ key: l.oracle_id, qty: l.left_out, name: l.name, note: l.elsewhere.length ? `You have it in ${l.elsewhere.map((e) => e.place).join(", ")}` : printingText(l) }))}
+                  />
+                )}
+              </Details>
+            )}
+            <ErrorText error={add.error} />
+            {!result && (
+              <div className="row">
+                <button type="button" className="primary" disabled={viewing || add.isPending || p.added + p.moved === 0} onClick={() => add.mutate()}>
+                  {add.isPending ? "Adding…" : buttonText(p)}
+                </button>
+                <button type="button" className="quiet" onClick={onClose}>
+                  {offer ? "Not now" : "Cancel"}
+                </button>
+                {viewing && <span className="small dim">Read only while viewing as someone.</span>}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
+function CardList({ title, lines }: { title: string; lines: { key: string; qty: number; name: string; note: string }[] }) {
+  return (
+    <section>
+      <h3 className="small">{title}</h3>
+      <ul className="collect-cards">
+        {lines.map((l) => (
+          <li key={l.key}>
+            <span>
+              {l.qty > 1 ? `${l.qty} ` : ""}
+              {l.name}
+            </span>
+            <span className="small dim">{l.note}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}

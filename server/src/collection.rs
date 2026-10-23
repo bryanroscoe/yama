@@ -3,29 +3,36 @@
 //! Every change is an op with a client-generated `op_id`. The server records applied op IDs,
 //! so a phone that retries a sync never double-counts. Quantity changes are deltas, which
 //! merge cleanly when two devices edit the same card; other fields are last-writer-wins.
+//!
+//! Bulk changes the server works out itself (a Mythic Tools import in `mythic.rs`, "Add to my
+//! collection" for a deck in `deck_box.rs`) are planned against the collection as it stands and
+//! applied as the same ops, in one transaction.
+
+pub mod deck_box;
+pub mod mythic;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
-use crate::util::{new_id, now, sha256_hex};
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use crate::util::{new_id, now};
+use axum::extract::{Path, Query, State};
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use sqlx::{Sqlite, SqlitePool, Transaction};
-use std::collections::HashMap;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/collection", get(list_items))
         .route("/api/collection/summary", get(summary))
         .route("/api/collection/ops", post(apply_ops))
-        .route("/api/collection/import/mythic", post(import_mythic).layer(DefaultBodyLimit::max(MYTHIC_MAX_BYTES)))
         .route("/api/collection/export.csv", get(export_csv))
         .route("/api/containers", get(list_containers).post(create_container))
         .route("/api/containers/{id}", patch(rename_container).delete(delete_container))
+        .merge(mythic::router())
+        .merge(deck_box::router())
 }
 
 pub const KINDS: [&str; 4] = ["binder", "deck", "list", "box"];
@@ -51,13 +58,13 @@ pub struct CopyKind {
     pub proxy: bool,
 }
 
-fn nm() -> String {
+pub(crate) fn nm() -> String {
     "NM".into()
 }
-fn nonfoil() -> String {
+pub(crate) fn nonfoil() -> String {
     "nonfoil".into()
 }
-fn en() -> String {
+pub(crate) fn en() -> String {
     "en".into()
 }
 
@@ -286,6 +293,76 @@ async fn resolve_item(tx: &mut Transaction<'_, Sqlite>, owner: &str, id: &str) -
         }
     }
     Ok(id)
+}
+
+/// A number that only grows while `owner`'s collection changes: how many ops have been applied
+/// for them. Ops the server plans itself put it in their ids, so the same plan sent twice (a
+/// retry) applies once, while a plan made after any other change gets fresh ids, even when the
+/// collection is back where it was before (a card taken out and the deck added again).
+pub(crate) async fn op_stamp(tx: &mut Transaction<'_, Sqlite>, owner: &str) -> AppResult<i64> {
+    Ok(sqlx::query_scalar("SELECT COUNT(*) FROM applied_ops WHERE owner_id = ?").bind(owner).fetch_one(&mut **tx).await?)
+}
+
+/// One row of someone's collection with where it is, for the bulk changes that plan against it.
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub(crate) struct OwnedCopy {
+    pub id: String,
+    pub scryfall_id: String,
+    /// `None` if the printing isn't in Yama's card data.
+    pub oracle_id: Option<String>,
+    pub name: Option<String>,
+    pub set_code: Option<String>,
+    pub collector_number: Option<String>,
+    pub qty: i64,
+    pub condition: String,
+    pub finish: String,
+    pub lang: String,
+    pub altered: bool,
+    pub signed: bool,
+    pub misprint: bool,
+    pub proxy: bool,
+    pub container_id: Option<String>,
+    pub container_kind: Option<String>,
+    pub container_name: Option<String>,
+    pub purchase_price: Option<f64>,
+    pub purchase_currency: Option<String>,
+}
+
+impl OwnedCopy {
+    /// Where it is, as people read it: "box: Bulk", or "unfiled".
+    pub fn place(&self) -> String {
+        match (&self.container_kind, &self.container_name) {
+            (Some(k), Some(n)) => format!("{k}: {n}"),
+            _ => "unfiled".into(),
+        }
+    }
+
+    pub fn copy_kind(&self) -> CopyKind {
+        CopyKind {
+            condition: self.condition.clone(),
+            finish: self.finish.clone(),
+            lang: self.lang.clone(),
+            altered: self.altered,
+            signed: self.signed,
+            misprint: self.misprint,
+            proxy: self.proxy,
+        }
+    }
+}
+
+pub(crate) async fn owned_copies(tx: &mut Transaction<'_, Sqlite>, owner: &str) -> AppResult<Vec<OwnedCopy>> {
+    Ok(sqlx::query_as(
+        "SELECT i.id, i.scryfall_id, p.oracle_id, p.name, p.set_code, p.collector_number, i.qty, i.condition, i.finish, i.lang,
+                i.altered, i.signed, i.misprint, i.proxy, i.container_id, ct.kind AS container_kind, ct.name AS container_name,
+                i.purchase_price, i.purchase_currency
+         FROM collection_items i
+         LEFT JOIN printings p ON p.scryfall_id = i.scryfall_id
+         LEFT JOIN containers ct ON ct.id = i.container_id
+         WHERE i.owner_id = ? ORDER BY i.created_at, i.id",
+    )
+    .bind(owner)
+    .fetch_all(&mut **tx)
+    .await?)
 }
 
 fn op_name(op: &OpKind) -> &'static str {
@@ -685,200 +762,6 @@ async fn delete_container(State(st): State<AppState>, CurrentUser(user): Current
     Ok(())
 }
 
-// ── Mythic Tools CSV ───────────────────────────────────────────────────────
-
-/// One row of a Mythic Tools export. Column names are Mythic Tools' own.
-#[derive(Debug, Deserialize)]
-struct MythicRow {
-    #[serde(rename = "Card Name")]
-    name: String,
-    #[serde(rename = "Set Code")]
-    set_code: String,
-    #[serde(rename = "Collector Number")]
-    collector_number: String,
-    #[serde(rename = "Language", default)]
-    lang: String,
-    #[serde(rename = "Quantity")]
-    qty: i64,
-    #[serde(rename = "Condition", default)]
-    condition: String,
-    #[serde(rename = "Finish", default)]
-    finish: String,
-    #[serde(rename = "Altered", default)]
-    altered: Option<bool>,
-    #[serde(rename = "Signed", default)]
-    signed: Option<bool>,
-    #[serde(rename = "Misprint", default)]
-    misprint: Option<bool>,
-    #[serde(rename = "Proxy", default)]
-    proxy: Option<bool>,
-    #[serde(rename = "Scryfall ID", default)]
-    scryfall_id: String,
-    #[serde(rename = "Container Type", default)]
-    container_type: String,
-    #[serde(rename = "Container Name", default)]
-    container_name: String,
-    #[serde(rename = "Purchase Price (USD)", default)]
-    purchase_usd: Option<f64>,
-}
-
-#[derive(Serialize, Debug)]
-pub struct ImportReport {
-    rows: usize,
-    copies: i64,
-    added_rows: usize,
-    already_imported_rows: usize,
-    containers: Vec<String>,
-    /// Rows whose Scryfall ID isn't in our card data (yet). They're imported anyway.
-    unknown_printings: Vec<String>,
-    errors: Vec<String>,
-    /// Decks built from the file's deck containers.
-    decks_created: Vec<String>,
-    decks_updated: Vec<String>,
-}
-
-/// Largest Mythic Tools CSV: about 20,000 rows (an export runs about 210 bytes a row). Larger
-/// bodies get 413.
-pub const MYTHIC_MAX_BYTES: usize = 4 << 20;
-/// The same for an account that joined without an invite: about 5,000 rows.
-pub const OPEN_MYTHIC_MAX_BYTES: usize = 1 << 20;
-
-async fn import_mythic(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: String) -> AppResult<Json<ImportReport>> {
-    st.limits.imports.check_user(&user)?;
-    if user.limited && body.len() > OPEN_MYTHIC_MAX_BYTES {
-        return Err(AppError::bad(format!(
-            "That file is {} KB. Accounts that joined without an invite can import up to {} KB at a time.",
-            body.len() / 1024,
-            OPEN_MYTHIC_MAX_BYTES / 1024
-        )));
-    }
-    Ok(Json(import_mythic_csv(&st.pool, &user.id, &body).await?))
-}
-
-/// Import a Mythic Tools CSV export. Each row becomes an `add` op whose ID is derived from the
-/// file and row, so importing the same file twice changes nothing.
-pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str) -> AppResult<ImportReport> {
-    let text = text.trim_start_matches('\u{feff}');
-    let file_hash = sha256_hex(text);
-    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(text.as_bytes());
-    let mut report = ImportReport {
-        rows: 0,
-        copies: 0,
-        added_rows: 0,
-        already_imported_rows: 0,
-        containers: vec![],
-        unknown_printings: vec![],
-        errors: vec![],
-        decks_created: vec![],
-        decks_updated: vec![],
-    };
-    let mut containers: HashMap<(String, String), String> = HashMap::new();
-    let mut rows = Vec::new();
-    for (i, rec) in reader.deserialize::<MythicRow>().enumerate() {
-        match rec {
-            Ok(r) => rows.push((i, r)),
-            Err(e) => report.errors.push(format!("row {}: {e}", i + 2)),
-        }
-    }
-    for (_, r) in &rows {
-        if !r.container_name.trim().is_empty() {
-            let kind = match r.container_type.to_lowercase().as_str() {
-                k if KINDS.contains(&k) => k.to_string(),
-                _ => "list".to_string(),
-            };
-            let key = (kind.clone(), r.container_name.trim().to_string());
-            if !containers.contains_key(&key) {
-                let id = ensure_container(pool, owner, &kind, &key.1).await?;
-                report.containers.push(format!("{} ({kind})", key.1));
-                containers.insert(key, id);
-            }
-        }
-    }
-
-    let mut tx = pool.begin().await?;
-    for (i, r) in rows {
-        report.rows += 1;
-        if r.qty <= 0 {
-            continue;
-        }
-        let scryfall_id = if !r.scryfall_id.trim().is_empty() {
-            r.scryfall_id.trim().to_string()
-        } else {
-            // Fall back to set + number.
-            let found: Option<String> = sqlx::query_scalar(
-                "SELECT scryfall_id FROM printings WHERE set_code = ? AND collector_number = ? ORDER BY (lang = ?) DESC LIMIT 1",
-            )
-            .bind(r.set_code.to_lowercase())
-            .bind(&r.collector_number)
-            .bind(&r.lang)
-            .fetch_optional(&mut *tx)
-            .await?;
-            match found {
-                Some(id) => id,
-                None => {
-                    report.errors.push(format!("row {}: {} ({} {}) has no Scryfall ID and isn't in our card data", i + 2, r.name, r.set_code, r.collector_number));
-                    continue;
-                }
-            }
-        };
-        let known: Option<String> = sqlx::query_scalar("SELECT scryfall_id FROM printings WHERE scryfall_id = ?")
-            .bind(&scryfall_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-        if known.is_none() {
-            report.unknown_printings.push(format!("{} ({} #{})", r.name, r.set_code.to_uppercase(), r.collector_number));
-        }
-        let container_id = (!r.container_name.trim().is_empty()).then(|| {
-            let kind = if KINDS.contains(&r.container_type.to_lowercase().as_str()) { r.container_type.to_lowercase() } else { "list".into() };
-            containers[&(kind, r.container_name.trim().to_string())].clone()
-        });
-        let op = Op {
-            op_id: format!("mythic:{}:{}", &file_hash[..16], i),
-            device_id: Some("mythic-import".into()),
-            op: OpKind::Add {
-                scryfall_id,
-                qty: r.qty,
-                copy: CopyKind {
-                    condition: if r.condition.is_empty() { nm() } else { r.condition.to_uppercase() },
-                    finish: match r.finish.to_lowercase().as_str() {
-                        "foil" => "foil".into(),
-                        "etched" => "etched".into(),
-                        _ => nonfoil(),
-                    },
-                    lang: if r.lang.is_empty() { en() } else { r.lang.to_lowercase() },
-                    altered: r.altered.unwrap_or(false),
-                    signed: r.signed.unwrap_or(false),
-                    misprint: r.misprint.unwrap_or(false),
-                    proxy: r.proxy.unwrap_or(false),
-                },
-                container_id,
-                // Mythic writes 0 when no purchase price was entered; that's unknown, not free.
-                purchase_price: r.purchase_usd.filter(|p| *p > 0.0),
-                purchase_currency: r.purchase_usd.filter(|p| *p > 0.0).map(|_| "USD".into()),
-            },
-        };
-        if apply_op(&mut tx, owner, &op).await? {
-            report.added_rows += 1;
-            report.copies += r.qty;
-        } else {
-            report.already_imported_rows += 1;
-        }
-    }
-    tx.commit().await?;
-    // Mythic Tools keeps decks as containers of kind "deck": make each one a real Yama deck too.
-    for ((kind, name), container_id) in &containers {
-        if kind == "deck" {
-            let (_, created, changed) = crate::decks::sync_deck_from_container(pool, owner, container_id, name).await?;
-            if created {
-                report.decks_created.push(name.clone());
-            } else if changed {
-                report.decks_updated.push(name.clone());
-            }
-        }
-    }
-    Ok(report)
-}
-
 /// Export in Mythic Tools' column layout, so the file round-trips into Mythic Tools or back into Yama.
 async fn export_csv(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<impl IntoResponse> {
     let items = items_for_owner(&st.pool, &user.id).await?;
@@ -935,27 +818,6 @@ mod tests {
             .await
             .unwrap();
         "u1".into()
-    }
-
-    const CSV: &str = "\u{feff}Card Name,English Name,Set Code,Set Name,Collector Number,Rarity,Language,Quantity,Condition,Finish,Altered,Signed,Misprint,Proxy,Price (USD),Price (EUR),Price (USD Foil),Price (EUR Foil),Price (USD Etched),Price (EUR Etched),Scryfall ID,Container Type,Container Name,Purchase Price (USD),Purchase Price (EUR)
-\"Sol Ring\",\"Sol Ring\",\"cmm\",\"Commander Masters\",\"410\",\"uncommon\",\"en\",2,\"NM\",\"nonfoil\",false,false,false,false,1.5,1.2,0,0,0,0,\"p1\",\"list\",\"bulk\",1.25,0
-\"Sol Ring\",\"Sol Ring\",\"cmm\",\"Commander Masters\",\"410\",\"uncommon\",\"en\",1,\"NM\",\"foil\",false,false,false,false,1.5,1.2,0,0,0,0,\"p1\",\"list\",\"bulk\",0,0
-";
-
-    #[tokio::test]
-    async fn mythic_import_is_idempotent() {
-        let pool = crate::db::test_pool().await;
-        let owner = user(&pool).await;
-        let r = import_mythic_csv(&pool, &owner, CSV).await.unwrap();
-        assert_eq!((r.rows, r.added_rows, r.copies), (2, 2, 3));
-        assert_eq!(r.unknown_printings.len(), 2); // no card data loaded in this test
-        let again = import_mythic_csv(&pool, &owner, CSV).await.unwrap();
-        assert_eq!((again.added_rows, again.already_imported_rows), (0, 2));
-
-        let rows: Vec<(String, i64, Option<f64>)> =
-            sqlx::query_as("SELECT finish, qty, purchase_price FROM collection_items ORDER BY finish").fetch_all(&pool).await.unwrap();
-        // A purchase price of 0 means "not entered" in Mythic Tools.
-        assert_eq!(rows, vec![("foil".into(), 1, None), ("nonfoil".into(), 2, Some(1.25))]);
     }
 
     #[tokio::test]
@@ -1055,37 +917,5 @@ mod tests {
         tx.commit().await.unwrap();
         let rows: Vec<(String, i64)> = sqlx::query_as("SELECT finish, qty FROM collection_items").fetch_all(&pool).await.unwrap();
         assert_eq!(rows, vec![("foil".into(), 4)]);
-    }
-
-    #[tokio::test]
-    async fn the_same_op_id_counts_separately_per_user() {
-        let pool = crate::db::test_pool().await;
-        let a = user(&pool).await;
-        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('u2','b@b.c','B','now')").execute(&pool).await.unwrap();
-        let r1 = import_mythic_csv(&pool, &a, CSV).await.unwrap();
-        let r2 = import_mythic_csv(&pool, "u2", CSV).await.unwrap();
-        assert_eq!((r1.added_rows, r2.added_rows), (2, 2));
-    }
-
-    #[tokio::test]
-    async fn deck_containers_become_decks() {
-        let pool = crate::db::test_pool().await;
-        let owner = user(&pool).await;
-        for (oid, name, tl, sid) in [("o1", "Omo, Queen of Vesuva", "Legendary Creature — Shapeshifter", "p1"), ("o2", "Sol Ring", "Artifact", "p2")] {
-            sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES (?,?,?, 'now')").bind(oid).bind(name).bind(tl).execute(&pool).await.unwrap();
-            sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES (?,?,?,'x','X','1','en','now')")
-                .bind(sid).bind(oid).bind(name).execute(&pool).await.unwrap();
-        }
-        let csv = "Card Name,Set Code,Collector Number,Language,Quantity,Condition,Finish,Scryfall ID,Container Type,Container Name\n\
-Omo,x,1,en,1,NM,nonfoil,p1,deck,Tricky Terrain\n\
-Sol Ring,x,1,en,1,NM,nonfoil,p2,deck,Tricky Terrain\n";
-        let r = import_mythic_csv(&pool, &owner, csv).await.unwrap();
-        assert_eq!(r.decks_created, vec!["Tricky Terrain".to_string()]);
-        let v: String = sqlx::query_scalar("SELECT v.cards FROM decks d JOIN deck_versions v ON v.id = d.current_version_id").fetch_one(&pool).await.unwrap();
-        let cards: Vec<crate::decks::DeckCard> = serde_json::from_str(&v).unwrap();
-        assert!(cards.iter().any(|c| c.name.starts_with("Omo") && c.board == crate::decks::Board::Commander));
-        // Importing the same file again changes nothing.
-        let again = import_mythic_csv(&pool, &owner, csv).await.unwrap();
-        assert!(again.decks_created.is_empty() && again.decks_updated.is_empty());
     }
 }

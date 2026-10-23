@@ -14,6 +14,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-23-collect-deck",
+    date: "2026-10-23",
+    title: "Add a deck's cards to your collection",
+    items: [
+      "Each deck has an Add to my collection button, and adding a deck offers it at the end. Its cards go in a deck box named after the deck, in the printing the list names (or a regular one), so the deck shows them as owned.",
+      "You see what happens first: how many are in the box already, how many are added, and which you already own in the same printing in another box or binder. Move those in, leave them and add new copies, or leave them out. Nothing is ever taken from another deck's box.",
+      "Adding twice adds nothing, and the deck's list never changes.",
+      "Importing a newer Mythic Tools export adds only what's new instead of doubling your collection, and shows the changes before saving. Cards you've moved in Yama stay where you put them; cards the file no longer lists are only removed if you tick the box.",
+    ],
+    link: { to: "/decks", label: "Your decks" },
+  },
+  {
     id: "2026-10-22-connect-claude",
     date: "2026-10-22",
     title: "Connect your own Claude",
