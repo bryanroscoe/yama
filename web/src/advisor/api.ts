@@ -12,7 +12,8 @@ export interface AdvisorModel {
 
 export interface AdvisorStatus {
   available: boolean;
-  mode: "subscription" | "own_key" | null;
+  /** Whose Claude answers: the server's subscription (its owner only), your own key, or the shared key an admin granted you. */
+  mode: "subscription" | "own_key" | "shared" | null;
   reason: "off" | "keys_off" | "needs_key" | null;
   has_key: boolean;
   key_hint: string | null;
@@ -23,6 +24,12 @@ export interface AdvisorStatus {
   used_today: number;
   /** Subscription accounts: whether the server holds the subscription token (null if unknown). */
   subscription_connected: boolean | null;
+  /** An admin let this account ask on the shared key (used when your own key isn't there). Missing on older servers. */
+  shared_granted?: boolean;
+  /** Whose shared key it is ("Bryan"), when granted. */
+  shared_owner?: string | null;
+  /** Shared mode: the month's cap is reached until this time (UTC). */
+  shared_paused_until?: string | null;
 }
 
 export interface Conversation {

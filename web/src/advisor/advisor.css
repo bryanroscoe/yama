@@ -29,6 +29,11 @@
 .ask-head p {
   margin: 0;
 }
+/* Whose key answers, when it's someone else's: said plainly, not as fine print. */
+.ask-head .ask-mode {
+  margin-top: 6px;
+  color: var(--text);
+}
 .ask-unavailable {
   background: var(--raised);
   border-radius: 16px;

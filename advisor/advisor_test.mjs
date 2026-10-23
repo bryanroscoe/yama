@@ -4,17 +4,21 @@ import { buildPrompt, childEnv, looksLikeApiKey, queryOptions, redact, runAdvice
 
 const KEY = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
 const TOKEN = "sk-ant-oat01-subscriptiontoken0123456789abcdef";
+const SHARED = "sk-ant-api03-sharedownerkey-0123456789abcdefghijkl";
 const ok = { mode: "subscription", model: "claude-opus-5-5", system: "Be helpful.", messages: [{ role: "user", content: "Hi" }] };
 
 test("requests are checked field by field", () => {
   assert.equal(validateRequest(ok).ok, true);
   assert.equal(validateRequest({ ...ok, mode: "api_key", api_key: KEY }).ok, true);
+  assert.equal(validateRequest({ ...ok, mode: "shared" }).ok, true);
+  assert.equal(validateRequest({ ...ok, mode: "shared" }).req.apiKey, null);
   const cases = [
     [null, "JSON object"],
     [{ ...ok, mode: "free" }, "mode"],
     [{ ...ok, mode: "api_key" }, "api_key"],
     [{ ...ok, mode: "api_key", api_key: "hello" }, "api_key"],
     [{ ...ok, api_key: KEY }, "only sent with mode api_key"],
+    [{ ...ok, mode: "shared", api_key: KEY }, "only sent with mode api_key"],
     [{ ...ok, model: "gpt-5" }, "model"],
     [{ ...ok, system: " " }, "system"],
     [{ ...ok, messages: [] }, "messages"],
@@ -216,4 +220,58 @@ test("tool use shows as a tool event with its short name, and turns are kept apa
   ]);
   assert.ok(!JSON.stringify(out).includes("Sol Ring"), "tool arguments aren't passed on");
   assert.ok(!JSON.stringify(out).includes(ASK));
+});
+
+test("shared mode: only the sidecar's shared key, never the subscription or a sent key", () => {
+  const env = childEnv({ mode: "shared", apiKey: KEY, oauthToken: TOKEN, sharedKey: SHARED, home: "/tmp/h", path: "/usr/bin" });
+  assert.equal(env.ANTHROPIC_API_KEY, SHARED);
+  assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, undefined, "a shared question never carries the subscription");
+  assert.ok(!JSON.stringify(env).includes(KEY) && !JSON.stringify(env).includes(TOKEN));
+  assert.throws(() => childEnv({ mode: "shared", oauthToken: TOKEN, sharedKey: "", home: "/tmp/h", path: "" }), /no shared key/);
+  assert.throws(() => childEnv({ mode: "other", apiKey: KEY, oauthToken: TOKEN, home: "/tmp/h", path: "" }));
+});
+
+test("shared mode without a shared key says so and never runs Claude", async () => {
+  const out = [];
+  const seen = [];
+  const req = validateRequest({ ...ok, mode: "shared" }).req;
+  const r = await runAdvice({ req, queryFn: fakeQuery([], seen), oauthToken: TOKEN, sharedKey: "", home: "/tmp/h", path: "", write: (e) => out.push(e) });
+  assert.equal(r.status, "error");
+  assert.equal(out[0].code, "no_shared_key");
+  assert.match(out[0].message, /shared API key/);
+  assert.equal(seen.length, 0, "no fallback to the subscription");
+});
+
+test("a shared answer runs on the shared key and reports its cost", async () => {
+  const out = [];
+  const seen = [];
+  const req = validateRequest({ ...ok, mode: "shared", model: "claude-haiku-5-5" }).req;
+  const r = await runAdvice({
+    req,
+    queryFn: fakeQuery([delta("Ramp."), { type: "result", subtype: "success", is_error: false, result: "Ramp.", usage: { input_tokens: 9, output_tokens: 1 }, total_cost_usd: 0.0021 }], seen),
+    oauthToken: TOKEN,
+    sharedKey: SHARED,
+    home: "/tmp/h",
+    path: "",
+    write: (e) => out.push(e),
+  });
+  assert.equal(r.status, "done");
+  assert.deepEqual(out.at(-1), { type: "done", usage: { input_tokens: 9, output_tokens: 1 }, cost_usd: 0.0021 });
+  assert.equal(seen[0].options.env.ANTHROPIC_API_KEY, SHARED);
+  assert.equal(seen[0].options.env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+
+  // A refused answer still reports what it cost, and never shows the key.
+  const out2 = [];
+  await runAdvice({
+    req,
+    queryFn: fakeQuery([{ type: "result", subtype: "success", is_error: true, api_error_status: 400, result: `bad request for ${SHARED}`, total_cost_usd: 0.0005 }], []),
+    oauthToken: TOKEN,
+    sharedKey: SHARED,
+    home: "/tmp/h",
+    path: "",
+    write: (e) => out2.push(e),
+  });
+  assert.equal(out2[0].type, "error");
+  assert.equal(out2[0].cost_usd, 0.0005);
+  assert.ok(!JSON.stringify(out2).includes(SHARED));
 });

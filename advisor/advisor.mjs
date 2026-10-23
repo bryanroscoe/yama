@@ -1,11 +1,22 @@
 // The advisor's logic, kept apart from the HTTP server so it can be tested without a network or
 // a Claude login. See server.mjs for how it is served and README.md for why it exists.
 //
-// One request is one Claude query with no tools: no Bash, files, web, MCP, skills or settings.
-// The yama server decides who may ask and with which credential; this side only checks the
-// request's shape, runs the query in a throwaway home directory and streams the text back.
+// One request is one Claude query with none of Claude Code's own tools (no Bash, files, web, skills
+// or settings), and at most Yama's MCP tools for the asker. The yama server decides who may ask and
+// in which mode; this side only checks the request's shape, picks the one credential that mode
+// uses, runs the query in a throwaway home directory and streams the text back.
+//
+// Modes: "subscription" (Bryan's own account: the OAuth token this sidecar holds), "api_key" (the
+// asker's own key, sent with the request) and "shared" (an account an admin granted: the owner's
+// pay-per-use API key this sidecar holds as ANTHROPIC_SHARED_API_KEY; never the subscription).
 
 import { createHash, timingSafeEqual } from "node:crypto";
+
+/** Whose credential a request uses (see the top of this file). */
+export const MODES = ["subscription", "api_key", "shared"];
+
+/** Modes billed per use, whose answers report what they cost. */
+const PAID = new Set(["api_key", "shared"]);
 
 /** Models the yama server may ask for. */
 export const MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
@@ -28,10 +39,11 @@ export const LIMITS = {
 export function validateRequest(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return bad("expected a JSON object");
   const { mode, api_key: apiKey, model, system, messages, effort } = body;
-  if (mode !== "subscription" && mode !== "api_key") return bad('mode must be "subscription" or "api_key"');
+  if (!MODES.includes(mode)) return bad('mode must be "subscription", "api_key" or "shared"');
   if (mode === "api_key") {
     if (typeof apiKey !== "string" || !looksLikeApiKey(apiKey)) return bad("api_key is missing or isn't an Anthropic API key");
   } else if (apiKey !== undefined && apiKey !== null) {
+    // The subscription token and the shared key are this side's own; a request never brings one.
     return bad("api_key is only sent with mode api_key");
   }
   if (!MODELS.includes(model)) return bad(`model must be one of ${MODELS.join(", ")}`);
@@ -90,10 +102,11 @@ export function buildPrompt(messages) {
 
 /**
  * The Claude process's whole environment. It is built from nothing, never copied from this
- * process, so the shared secret and the other mode's credential can't leak into it: subscription
- * mode carries only the OAuth token, API-key mode only the user's key.
+ * process, so the shared secret and the other modes' credentials can't leak into it: subscription
+ * mode carries only the OAuth token, API-key mode only the user's key, shared mode only the
+ * shared key from this sidecar's own environment.
  */
-export function childEnv({ mode, apiKey, oauthToken, home, path }) {
+export function childEnv({ mode, apiKey, oauthToken, sharedKey, home, path }) {
   const env = {
     PATH: path,
     HOME: home,
@@ -108,9 +121,14 @@ export function childEnv({ mode, apiKey, oauthToken, home, path }) {
   if (mode === "subscription") {
     if (!oauthToken) throw new Error("no subscription token");
     env.CLAUDE_CODE_OAUTH_TOKEN = oauthToken;
-  } else {
+  } else if (mode === "shared") {
+    if (!sharedKey) throw new Error("no shared key");
+    env.ANTHROPIC_API_KEY = sharedKey;
+  } else if (mode === "api_key") {
     if (!apiKey) throw new Error("no API key");
     env.ANTHROPIC_API_KEY = apiKey;
+  } else {
+    throw new Error("unknown mode");
   }
   return env;
 }
@@ -165,18 +183,27 @@ export function secretMatches(given, expected) {
   return timingSafeEqual(a, b);
 }
 
+/** Why a mode's credential is missing: the error code and message. */
+const MISSING = {
+  subscription: ["no_subscription", "The subscription isn't connected on the server yet."],
+  shared: ["no_shared_key", "The shared API key isn't set up on the server yet."],
+  api_key: ["no_key", "No API key was sent."],
+};
+
 /**
  * Run one request and write NDJSON events with `write(obj)`:
  * `{type:"text", text}` as the answer streams, then `{type:"done", usage, cost_usd}` or
- * `{type:"error", message}`. `queryFn` is the SDK's `query` (a fake in tests).
+ * `{type:"error", code, message, cost_usd?}`. `cost_usd` is reported for the modes billed per use
+ * (api_key and shared). `queryFn` is the SDK's `query` (a fake in tests).
  */
-export async function runAdvice({ req, queryFn, oauthToken, home, path, abortController, write }) {
-  const secrets = [oauthToken, req.apiKey, req.tools?.token];
+export async function runAdvice({ req, queryFn, oauthToken, sharedKey, home, path, abortController, write }) {
+  const secrets = [oauthToken, sharedKey, req.apiKey, req.tools?.token];
   let env;
   try {
-    env = childEnv({ mode: req.mode, apiKey: req.apiKey, oauthToken, home, path });
+    env = childEnv({ mode: req.mode, apiKey: req.apiKey, oauthToken, sharedKey, home, path });
   } catch {
-    write({ type: "error", code: req.mode === "subscription" ? "no_subscription" : "no_key", message: req.mode === "subscription" ? "The subscription isn't connected on the server yet." : "No API key was sent." });
+    const [code, message] = MISSING[req.mode] ?? MISSING.api_key;
+    write({ type: "error", code, message });
     return { status: "error" };
   }
   let streamed = 0;
@@ -209,10 +236,12 @@ export async function runAdvice({ req, queryFn, oauthToken, home, path, abortCon
         if (msg.subtype === "success" && !msg.is_error) {
           const text = streamed === 0 ? whole || msg.result : "";
           if (text) write({ type: "text", text });
-          write({ type: "done", usage: usageOf(msg), cost_usd: req.mode === "api_key" ? (msg.total_cost_usd ?? null) : null });
+          write({ type: "done", usage: usageOf(msg), cost_usd: PAID.has(req.mode) ? (msg.total_cost_usd ?? null) : null });
           return { status: "done" };
         }
-        write({ type: "error", code: errorCode(msg), message: friendlyError(msg, secrets) });
+        // A failed answer can still have cost something; the yama server counts it.
+        const cost = PAID.has(req.mode) && typeof msg.total_cost_usd === "number" ? { cost_usd: msg.total_cost_usd } : {};
+        write({ type: "error", code: errorCode(msg), message: friendlyError(msg, secrets), ...cost });
         return { status: "error" };
       }
     }

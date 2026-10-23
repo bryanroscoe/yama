@@ -76,6 +76,13 @@ USAGE:
   yama-server user enable EMAIL              Turn it back on
   yama-server user list                      Every account, how it signs in, and whether
                                              it's invited or turned off
+  yama-server advisor share EMAIL [--daily N] [--by ADMIN_EMAIL]
+                                             Let EMAIL ask Claude on the shared API key
+                                             (advisor/shared.rs), N questions a day (else
+                                             the usual allowance); in the name of --by,
+                                             else the first YAMA_ADMIN_EMAILS account
+  yama-server advisor unshare EMAIL          Take the shared key away from EMAIL
+  yama-server advisor shared                 Who has it, and this month's spend
   yama-server backup FILE                    Write a consistent copy of the database
 
 Configuration comes from the environment; see .env.example.";
@@ -154,6 +161,7 @@ async fn main() -> anyhow::Result<()> {
             println!("invited {email}");
             Ok(())
         }
+        Some("advisor") => advisor::shared::cli(&pool, &cfg, &args[1..]).await,
         Some("user") => match args.get(1).map(String::as_str) {
             Some("add") => {
                 let email = args.get(2).filter(|a| !a.starts_with("--")).context("usage: yama-server user add EMAIL")?;

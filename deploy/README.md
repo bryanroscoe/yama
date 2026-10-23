@@ -65,14 +65,23 @@ Whose Claude answers:
 
 - **Bryan's account** (the first admin email, written to `YAMA_ADVISOR_SUBSCRIPTION_EMAILS` by `deploy.sh`) asks on Bryan's Claude subscription. Anthropic doesn't allow an app to share one person's subscription with other people, so only listed accounts ever use it; keep that list to the subscription owner.
 - **Anyone else** may save their own Anthropic API key (Group, You, Ask Claude). It is stored encrypted with `YAMA_ADVISOR_KEY_SECRET` (ChaCha20-Poly1305, bound to the account), used only for that person's questions, never shown again, and removable. Without a key the advisor says how to get one.
-- Limits: 6 questions a minute and one at a time per account; 150 a day for invited accounts and 30 for accounts that joined without an invite (counted in the database, so deleting conversations doesn't reset it); none for admins.
+- **Friends Bryan chooses** may ask on the **shared key**: a separate Anthropic API key Bryan pays for per use (not his subscription). An admin turns it on per account (Admin, People, "Ask Claude on the shared key", with an optional daily cap) or on saget with `yama-server advisor share EMAIL [--daily N]`. Their own key comes first if they add one. The key lives only in the sidecar.
+- Limits: 6 questions a minute and one at a time per account; 150 a day for invited accounts and 30 for accounts that joined without an invite (counted in the database, so deleting conversations doesn't reset it); none for admins. On the shared key: the grant's daily cap or else 30/150 (admins too), only `YAMA_ADVISOR_SHARED_MODELS` (default `claude-haiku-5-5`), and at most `YAMA_ADVISOR_SHARED_MONTHLY_USD` (default 10) a calendar month (UTC) for everyone together, from the cost each answer reports.
 
 Setting it up:
 
 1. `./deploy/deploy.sh` builds `yama-advisor` too, and on first run writes the advisor's secrets on saget without printing them: `advisor.env` (`ADVISOR_SECRET`, mode 0600) and, in `yama.env`, `YAMA_ADVISOR_URL`, `YAMA_ADVISOR_SECRET`, `YAMA_ADVISOR_KEY_SECRET` and `YAMA_ADVISOR_SUBSCRIPTION_EMAILS`. It never overwrites them; changing `YAMA_ADVISOR_KEY_SECRET` later makes saved keys unreadable (people re-add them).
 2. **Bryan connects his subscription:** `claude setup-token` on the Mac (browser sign-in; prints a token that lasts a year), then `./deploy/advisor-token.sh` and paste it. The token stays hidden, goes to saget over SSH's stdin, lands in `advisor.env` and restarts only `yama-advisor`. `./deploy/advisor-token.sh --remove` takes it off. Until then, Bryan's questions say the subscription isn't connected, and the You section says so too.
 
-Checks (read-only): `ssh root@<saget-lan-address> 'docker logs --tail 20 yama-advisor'`.
+3. **The shared key (optional, only if Bryan wants friends on it):**
+   1. At console.anthropic.com, create an API key (best in a workspace of its own for Yama). It's billed per use to Bryan's Anthropic account.
+   2. Set a monthly spend limit there (the Console's Limits settings, for that workspace or the organization). Yama's own monthly cap (`YAMA_ADVISOR_SHARED_MONTHLY_USD`, $10 unless set in `yama.env`) stops shared questions first; the Console's limit catches anything that slips past, such as an answer stopped before it reported its cost.
+   3. `./deploy/advisor-shared-key.sh` and paste the key. Like the token script: hidden paste, a check that it starts with `sk-ant-api` (a subscription token is refused), over SSH's stdin into `advisor.env` as `ANTHROPIC_SHARED_API_KEY` (mode 0600), and only `yama-advisor` restarts. `--remove` takes it off.
+   4. Grant accounts: Admin, People, the account's "Ask Claude on the shared key". Or on saget: `docker exec yama yama-server advisor share matt@example.com` (`--daily 20` for a cap of its own; `advisor unshare EMAIL` to stop; `advisor shared` lists who has it and this month's spend). Admin, Server shows whether the advisor holds the key and the month's spend.
+
+   Optional settings in `yama.env` (the defaults need nothing): `YAMA_ADVISOR_SHARED_MONTHLY_USD=10`, `YAMA_ADVISOR_SHARED_MODELS=claude-haiku-5-5` (comma-separated), `YAMA_ADVISOR_SHARED_OWNER_NAME=Bryan` (else the granting admin's display name shows: "On Bryan Roscoe's shared key").
+
+Checks (read-only): `ssh root@<saget-lan-address> 'docker logs --tail 20 yama-advisor'` (its start line says whether the subscription token and the shared key are set, never their values).
 
 ## Forge (a second engine for Lab runs)
 

@@ -36,6 +36,9 @@ fn admin_routes() -> Vec<(Method, &'static str, Option<Value>)> {
         (Method::DELETE, "/api/invites/friend@example.com", None),
         (Method::POST, "/api/admin/users/someone/view", None),
         (Method::GET, "/api/admin/views", None),
+        (Method::GET, "/api/admin/advisor-shared", None),
+        (Method::PUT, "/api/admin/users/someone/advisor-shared", Some(json!({"daily_limit": null}))),
+        (Method::DELETE, "/api/admin/users/someone/advisor-shared", None),
     ]
 }
 
@@ -53,6 +56,8 @@ async fn admin_routes_look_like_unknown_routes_to_everyone_else() {
     // Nothing changed on the way.
     let invites: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM invites").fetch_one(&pool).await.unwrap();
     assert_eq!(invites, 0);
+    let grants: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM advisor_shared_access").fetch_one(&pool).await.unwrap();
+    assert_eq!(grants, 0);
 }
 
 #[tokio::test]
@@ -447,6 +452,9 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     let conversation = fill(&pool, "advisor_conversations", &[("owner_id", t(&v))]).await;
     fill(&pool, "advisor_messages", &[("owner_id", t(&v)), ("conversation_id", t(&conversation))]).await;
     fill(&pool, "advisor_usage", &[("owner_id", t(&v))]).await;
+    // The victim's own shared-key grant (goes), and one it made for the bystander (stays, unsigned).
+    fill(&pool, "advisor_shared_access", &[("user_id", t(&v)), ("granted_by", V::Null)]).await;
+    fill(&pool, "advisor_shared_access", &[("user_id", t(&b)), ("granted_by", t(&v))]).await;
     // "View as": the bystander (an admin here) viewed the victim, and the victim viewed the bystander.
     fill(&pool, "view_sessions", &[("admin_id", t(&b)), ("target_id", t(&v))]).await;
     fill(&pool, "view_sessions", &[("admin_id", t(&v)), ("target_id", t(&b))]).await;
@@ -487,6 +495,8 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     // Other people's records still add up.
     assert_eq!(scalar(&pool, "SELECT invited_by FROM invites WHERE email = ?", "friend@example.com").await, None);
     assert_eq!(count(&pool, "invites", "email", "friend@example.com").await, 1);
+    assert_eq!(scalar(&pool, "SELECT granted_by FROM advisor_shared_access WHERE user_id = ?", &b).await, None);
+    assert_eq!(count(&pool, "advisor_shared_access", "user_id", &b).await, 1);
     assert_eq!(scalar(&pool, "SELECT owner_id FROM playgroups WHERE id = ?", &pg_shared).await, Some(b.clone()));
     assert_eq!(count(&pool, "playgroups", "id", &pg_solo).await, 0);
     assert_eq!(count(&pool, "playgroup_members", "id", &guest).await, 0);

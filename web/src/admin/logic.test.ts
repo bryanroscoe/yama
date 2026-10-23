@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { UsageRow } from "./api";
-import { advisorLine, ago, bytes, confirms, deleteSummary, holdings, nearLimits, searchAccounts, today } from "./logic";
+import type { SharedGrant, SharedOverview, UsageRow } from "./api";
+import { advisorLine, ago, bytes, confirms, deleteSummary, holdings, nearLimits, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary, today, usd } from "./logic";
 
 const row = (over: Partial<UsageRow> = {}): UsageRow => ({
   id: "u1",
@@ -83,6 +83,60 @@ describe("admin words", () => {
     expect(advisorLine(row({ advisor_mode: "own_key" }))).toBe("Asks Claude with its own API key.");
     expect(advisorLine(row({ advisor_reason: "off" }))).toBe("Ask Claude is off on this server.");
     expect(advisorLine(row({ advisor_reason: "needs_key" }))).toBe("Can't ask Claude yet: no API key of its own.");
+    expect(advisorLine(row({ advisor_mode: "shared", advisor_shared: true }))).toBe("Asks Claude on the shared key.");
+    expect(advisorLine(row({ advisor_mode: "own_key", advisor_shared: true }))).toContain("also has the shared key");
+    expect(advisorLine(row({ advisor_shared: true, advisor_reason: "needs_key" }))).toBe("Has the shared key, but the advisor doesn't hold one yet.");
+  });
+
+  const grant = (over: Partial<SharedGrant> = {}): SharedGrant => ({
+    user_id: "u1",
+    email: "matt@gmail.com",
+    display_name: "Matt S",
+    granted_by_name: "Bryan",
+    granted_at: "2026-10-22T12:00:00Z",
+    daily_limit: null,
+    per_day: 30,
+    disabled: false,
+    spent_this_month: 0.4213,
+    questions_this_month: 12,
+    mode: "shared",
+    ...over,
+  });
+
+  it("read a daily cap for the shared key toggle", () => {
+    expect(parseDailyCap("")).toBeNull();
+    expect(parseDailyCap(" 20 ")).toBe(20);
+    expect(parseDailyCap("0")).toBe("invalid");
+    expect(parseDailyCap("1001")).toBe("invalid");
+    expect(parseDailyCap("2.5")).toBe("invalid");
+    expect(parseDailyCap("lots")).toBe("invalid");
+  });
+
+  it("describe an account's shared key beside its toggle", () => {
+    expect(sharedGrantLine(grant())).toBe("On: 30 questions a day, the usual allowance. This month: $0.42, 12 questions.");
+    expect(sharedGrantLine(grant({ daily_limit: 5, per_day: 5, spent_this_month: 0, questions_this_month: 1 }))).toBe("On: 5 questions a day. This month: $0.00, 1 question.");
+    expect(sharedGrantLine(grant({ mode: "own_key" }))).toContain("its own API key, which is used first");
+    expect(sharedGrantLine(grant({ disabled: true }))).toContain("turned off");
+    expect(usd(0.002)).toBe("under $0.01");
+    expect(usd(10)).toBe("$10.00");
+  });
+
+  it("sum up the shared key for the People page", () => {
+    const o: SharedOverview = {
+      enabled: true,
+      key_on_sidecar: true,
+      owner_name: null,
+      monthly_usd: 10,
+      spent_this_month: 1.5,
+      month_start: "2026-10-01T00:00:00Z",
+      next_month: "2026-11-01T00:00:00Z",
+      models: ["Claude Haiku 5.5"],
+      grants: [grant()],
+    };
+    expect(sharedSummary(o)).toBe("Spent this month (UTC): $1.50 of $10.00. Models: Claude Haiku 5.5.");
+    expect(sharedSummary({ ...o, spent_this_month: 10.2 })).toContain("paused until 1 November");
+    expect(sharedSummary({ ...o, key_on_sidecar: false })).toContain("deploy/advisor-shared-key.sh");
+    expect(sharedSummary(o)).not.toContain("·");
   });
 
   it("confirm a deletion in sentences", () => {

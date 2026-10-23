@@ -4,7 +4,7 @@
 //! **What goes.** Every row the account owns: sessions, script keys, OAuth connections (grants,
 //! their tokens and codes), its invite, decks and their
 //! versions and checks, the collection and containers, synced ops, plans (every `plan_*` table),
-//! lab runs, experiments and usage, advisor keys, settings, conversations and usage, calendar
+//! lab runs, experiments and usage, advisor keys, settings, conversations, usage and its shared-key grant, calendar
 //! watches, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, and any live online game it is in
 //! ends.
 //!
@@ -21,7 +21,7 @@
 //!   member seat), and seats lose links to its deck versions (the commander name stays).
 //! - Online games it hosted or sat in lose their lobby, replay and log (`online_games`); a game
 //!   kept for others that was still going is marked abandoned.
-//! - Invites it sent stay, without its name on them.
+//! - Invites it sent stay, without its name on them; so do shared-key grants it made as an admin.
 //!
 //! Every column that can hold an account id is listed in [`USER_COLUMNS`]; a test compares that
 //! list with the schema (foreign keys to `users` plus owner-like column names), so a new table
@@ -40,6 +40,8 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("advisor_keys", "user_id"),
     ("advisor_messages", "owner_id"),
     ("advisor_settings", "user_id"),
+    ("advisor_shared_access", "granted_by"),
+    ("advisor_shared_access", "user_id"),
     ("advisor_usage", "owner_id"),
     ("api_tokens", "owner_id"),
     ("applied_ops", "owner_id"),
@@ -95,6 +97,7 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("advisor_usage", "owner_id"),
     ("advisor_keys", "user_id"),
     ("advisor_settings", "user_id"),
+    ("advisor_shared_access", "user_id"),
     // Plans: quotes point at swaps and stores; swaps at decks, orders and items; items at orders;
     // states at decks; plan decks at the account's decks.
     ("plan_quotes", "owner_id"),
@@ -289,6 +292,8 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
 
     // ── invites ────────────────────────────────────────────────────────────
     sqlx::query("UPDATE invites SET invited_by = NULL WHERE invited_by = ?").bind(id).execute(&mut **tx).await?;
+    // Shared-key grants it made stay for the people it granted.
+    sqlx::query("UPDATE advisor_shared_access SET granted_by = NULL WHERE granted_by = ?").bind(id).execute(&mut **tx).await?;
     r.rows_deleted += sqlx::query("DELETE FROM invites WHERE email = ?").bind(&email).execute(&mut **tx).await?.rows_affected();
 
     // ── everything it owns ─────────────────────────────────────────────────

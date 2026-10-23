@@ -6,18 +6,8 @@ import { useState } from "react";
 import { ErrorText } from "../components/ui";
 import { deleteAllConversations, removeKey, saveKey, setModel, type AdvisorStatus } from "./api";
 import { useAdvisorStatus } from "./AskClaude";
+import { modeLine } from "./logic";
 import "./advisor.css";
-
-function modeLine(s: AdvisorStatus): string {
-  if (s.mode === "subscription")
-    return s.subscription_connected === false
-      ? "Your questions use this server's Claude subscription, which isn't connected yet: run deploy/advisor-token.sh on the Mac."
-      : "Your questions use this server's Claude subscription.";
-  if (s.mode === "own_key") return `Your questions use your own Anthropic API key ending ${s.key_hint ?? "…"}, billed to your Anthropic account.`;
-  if (s.reason === "needs_key") return "Add your own Anthropic API key to ask Claude about your decks. Questions are billed to your Anthropic account.";
-  if (s.reason === "keys_off") return "Ask Claude is only available to this server's owner.";
-  return "Ask Claude isn't set up on this server.";
-}
 
 /** A row for the You section (Group). `className` matches the section's own rows. */
 export function AdvisorSettings({ className = "grp-you-row grp-you-stack" }: { className?: string }) {

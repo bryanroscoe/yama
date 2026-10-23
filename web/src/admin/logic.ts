@@ -1,7 +1,7 @@
 // Words and numbers for the admin area. Sentence case, no middle-dot meta strings.
 
 import type { AccountInfo } from "../api";
-import type { DeleteReport, UsageRow } from "./api";
+import type { DeleteReport, SharedGrant, SharedOverview, UsageRow } from "./api";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 
@@ -87,10 +87,50 @@ export function today(a: UsageRow): string {
 /** How the account asks Claude, if it can. */
 export function advisorLine(a: UsageRow): string {
   if (a.advisor_mode === "subscription") return "Asks Claude on the server's subscription.";
-  if (a.advisor_mode === "own_key") return "Asks Claude with its own API key.";
+  if (a.advisor_mode === "own_key") return a.advisor_shared ? "Asks Claude with its own API key (it also has the shared key, used if it removes its own)." : "Asks Claude with its own API key.";
+  if (a.advisor_mode === "shared") return "Asks Claude on the shared key.";
+  if (a.advisor_shared && a.advisor_reason === "needs_key") return "Has the shared key, but the advisor doesn't hold one yet.";
   if (a.advisor_reason === "off") return "Ask Claude is off on this server.";
   if (a.advisor_reason === "keys_off") return "Can't ask Claude: this server doesn't store people's own keys.";
   return "Can't ask Claude yet: no API key of its own.";
+}
+
+/** "$0.42", "$10.00": dollars to the cent (a fraction of a cent shows as "under $0.01"). */
+export function usd(n: number): string {
+  if (n > 0 && n < 0.005) return "under $0.01";
+  return `$${n.toFixed(2)}`;
+}
+
+/**
+ * What an admin typed as a daily cap: a whole number of questions from 1 to 1,000, null for the
+ * usual allowance (left blank), or "invalid".
+ */
+export function parseDailyCap(text: string): number | null | "invalid" {
+  const t = text.trim();
+  if (!t) return null;
+  if (!/^\d+$/.test(t)) return "invalid";
+  const n = Number(t);
+  return n >= 1 && n <= 1000 ? n : "invalid";
+}
+
+/** The shared key, for the top of People: the month's spend against its cap, the models and whether the advisor holds it. */
+export function sharedSummary(o: SharedOverview): string {
+  const parts = [`Spent this month (UTC): ${usd(o.spent_this_month)} of ${usd(o.monthly_usd)}.`];
+  if (o.spent_this_month >= o.monthly_usd) parts.push(`Shared questions are paused until ${new Date(o.next_month).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" })}.`);
+  parts.push(`Models: ${o.models.join(", ")}.`);
+  if (o.key_on_sidecar === false) parts.push("The advisor doesn't hold a shared key yet: run deploy/advisor-shared-key.sh on the Mac.");
+  else if (o.key_on_sidecar == null) parts.push("The advisor didn't say whether it holds the key.");
+  return parts.join(" ");
+}
+
+/** One account's grant, beside its toggle: its cap, this month's use, and whether something else wins. */
+export function sharedGrantLine(g: SharedGrant): string {
+  const cap = g.daily_limit != null ? plural(g.daily_limit, "question") + " a day" : `${plural(g.per_day, "question")} a day, the usual allowance`;
+  const parts = [`On: ${cap}.`, `This month: ${usd(g.spent_this_month)}, ${plural(g.questions_this_month, "question")}.`];
+  if (g.disabled) parts.push("The account is turned off, so this does nothing until it's enabled.");
+  else if (g.mode === "own_key") parts.push("It has its own API key, which is used first.");
+  else if (g.mode === "subscription") parts.push("It asks on the subscription, which is used first.");
+  return parts.join(" ");
 }
 
 /** The confirmation after a deletion. */

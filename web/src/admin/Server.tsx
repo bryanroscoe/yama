@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { ErrorText } from "../components/ui";
 import { adminApi, type ServerInfo, type WatchItem } from "./api";
-import { ago, bytes } from "./logic";
+import { ago, bytes, usd } from "./logic";
 
 const yes = (b: boolean) => (b ? "On" : "Off");
 
@@ -153,10 +153,25 @@ function AdvisorSection({ s }: { s: ServerInfo }) {
           ["Accounts on the subscription", String(a.subscription_accounts)],
           ["People's own API keys", a.own_keys_enabled ? `On, ${a.own_keys_saved} saved` : "Off"],
           ["Questions in the last 24 hours", String(a.questions_today)],
+          ...sharedRows(a),
         ]}
       />
     </section>
   );
+}
+
+/** The shared API key's rows (servers from before it have none). */
+function sharedRows(a: ServerInfo["advisor"]): [string, ReactNode][] {
+  if (!a.enabled || a.shared_accounts == null) return [];
+  const key = a.shared_key == null ? "Unknown" : a.shared_key ? "On the advisor" : "Not on the advisor (run deploy/advisor-shared-key.sh)";
+  const spent = a.shared_spent_this_month ?? 0;
+  const cap = a.shared_monthly_usd ?? 0;
+  return [
+    ["Shared API key", key],
+    ["Accounts on the shared key", String(a.shared_accounts)],
+    ["Shared key this month", spent >= cap ? <span className="admin-warn">{`${usd(spent)} of ${usd(cap)}: paused until next month`}</span> : `${usd(spent)} of ${usd(cap)}`],
+    ["Models on the shared key", (a.shared_models ?? []).join(", ")],
+  ];
 }
 
 function WatchSection({ games }: { games: WatchItem[] }) {

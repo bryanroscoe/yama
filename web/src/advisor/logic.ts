@@ -2,6 +2,8 @@
 // markdown into blocks the panel renders as elements (never as HTML), with each ```suggestion
 // block parsed so the panel can offer to save it as an idea.
 
+import type { AdvisorStatus } from "./api";
+
 export interface StreamEvent {
   event: string;
   data: Record<string, unknown>;
@@ -159,6 +161,40 @@ export function unavailableText(reason: string | null | undefined, canSaveKey: b
   }
 }
 
+/** "Bryan's", "the server owner's". */
+export function possessive(name: string): string {
+  return `${name.trim() || "the server owner"}'s`;
+}
+
+/** "1 November", the day a paused shared key starts again (UTC, as the server counts months). */
+export function resumeDay(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+}
+
+interface ShareView {
+  mode: string | null;
+  shared_owner?: string | null;
+  per_day: number | null;
+  used_today: number;
+  models: { id: string; label: string }[];
+}
+
+/**
+ * The panel's plain line when you ask on the shared key, e.g. "On Bryan's shared key, with Claude
+ * Haiku 5.5. 4 of 30 questions in the last 24 hours." Null in any other mode.
+ */
+export function sharedLine(s: ShareView, model: string): string | null {
+  if (s.mode !== "shared") return null;
+  const label = s.models.find((m) => m.id === model)?.label ?? s.models[0]?.label;
+  const used = s.per_day != null ? ` ${s.used_today} of ${s.per_day} questions in the last 24 hours.` : "";
+  return `On ${possessive(s.shared_owner ?? "")} shared key${label ? `, with ${label}` : ""}.${used}`;
+}
+
+/** Why shared questions are paused, and what to do meanwhile. */
+export function pausedText(owner: string | null | undefined, until: string): string {
+  return `${possessive(owner ?? "")} shared key has reached this month's limit. It's back on ${resumeDay(until)}. Until then you can add your own Anthropic API key in Settings.`;
+}
+
 /** What the panel says while Claude uses one of Yama's tools (server/src/mcp/tools.rs). */
 export function toolActivity(name: string): string {
   switch (name) {
@@ -184,4 +220,25 @@ export function toolActivity(name: string): string {
     default:
       return "Looking something up…";
   }
+}
+
+/**
+ * Settings' line on whose Claude your questions use, in the server's order (advisor/mod.rs,
+ * access): the subscription for its owner, else your own key, else a shared key an admin granted.
+ */
+export function modeLine(s: AdvisorStatus): string {
+  const owner = possessive(s.shared_owner ?? "");
+  if (s.mode === "subscription")
+    return s.subscription_connected === false
+      ? "Your questions use this server's Claude subscription, which isn't connected yet: run deploy/advisor-token.sh on the Mac."
+      : "Your questions use this server's Claude subscription.";
+  if (s.mode === "own_key")
+    return `Your questions use your own Anthropic API key ending ${s.key_hint ?? "…"}, billed to your Anthropic account.${s.shared_granted ? ` Remove it and they use ${owner} shared key instead.` : ""}`;
+  if (s.mode === "shared") {
+    const models = s.models.map((m) => m.label).join(" or ");
+    return `Your questions use ${owner} shared API key${models ? ` (${models})` : ""}, which they pay for. If you add your own Anthropic API key, Yama uses yours instead, billed to your Anthropic account, with every model.`;
+  }
+  if (s.reason === "needs_key") return "Add your own Anthropic API key to ask Claude about your decks. Questions are billed to your Anthropic account.";
+  if (s.reason === "keys_off") return "Ask Claude is only available to this server's owner.";
+  return "Ask Claude isn't set up on this server.";
 }

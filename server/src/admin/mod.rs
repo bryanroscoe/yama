@@ -123,6 +123,9 @@ struct UsageRow {
     advisor_today: i64,
     advisor_total: i64,
     advisor_own_key: bool,
+    /// An admin granted it the shared API key (Admin, People).
+    advisor_shared: bool,
+    advisor_shared_limit: Option<i64>,
     #[sqlx(skip)]
     advisor_mode: Option<&'static str>,
     /// Why the account can't ask, when it can't: off | keys_off | needs_key.
@@ -182,7 +185,9 @@ async fn usage(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult
            (SELECT COUNT(*) FROM lab_experiments e WHERE e.owner_id = u.id AND e.status IN ('queued','running')) AS lab_runs_unfinished,
            (SELECT COUNT(*) FROM advisor_usage a WHERE a.owner_id = u.id AND a.created_at > ?1) AS advisor_today,
            (SELECT COUNT(*) FROM advisor_usage a WHERE a.owner_id = u.id) AS advisor_total,
-           EXISTS (SELECT 1 FROM advisor_keys k WHERE k.user_id = u.id) AS advisor_own_key
+           EXISTS (SELECT 1 FROM advisor_keys k WHERE k.user_id = u.id) AS advisor_own_key,
+           EXISTS (SELECT 1 FROM advisor_shared_access g WHERE g.user_id = u.id) AS advisor_shared,
+           (SELECT g.daily_limit FROM advisor_shared_access g WHERE g.user_id = u.id) AS advisor_shared_limit
          FROM users u ORDER BY u.created_at DESC, u.email LIMIT 500",
         limited = limited_sql!()
     )))
@@ -195,24 +200,36 @@ async fn usage(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult
     }
     let quota = &st.cfg.lab_quota;
     let advisor = &st.cfg.advisor;
+    // Whether the sidecar holds the shared key, asked once and only when someone has a grant.
+    let shared_key = if advisor.enabled() && accounts.iter().any(|a| a.advisor_shared) {
+        crate::advisor::sidecar_health(&st).await.is_none_or(|h| h.shared == Some(true))
+    } else {
+        false
+    };
     let mut t = UsageTotals::default();
     for a in &mut accounts {
         let user = User { id: a.id.clone(), email: a.email.clone(), display_name: a.display_name.clone(), is_admin: a.is_admin, limited: a.limited };
         a.watch_running = watching.get(&a.id).copied().unwrap_or(0);
-        let access = crate::advisor::access(advisor, &user, a.advisor_own_key);
+        let shared = if a.advisor_shared {
+            crate::advisor::SharedGrant::Granted { key_on_sidecar: shared_key }
+        } else {
+            crate::advisor::SharedGrant::NotGranted
+        };
+        let access = crate::advisor::access(advisor, &user, a.advisor_own_key, shared);
         a.advisor_reason = access.reason();
-        a.advisor_mode = match access {
-            crate::advisor::Access::Ready(crate::advisor::Mode::Subscription) => Some("subscription"),
-            crate::advisor::Access::Ready(crate::advisor::Mode::OwnKey) => Some("own_key"),
+        let mode = match access {
+            crate::advisor::Access::Ready(m) => Some(m),
             _ => None,
         };
+        a.advisor_mode = mode.map(crate::advisor::Mode::as_str);
+        let shared_per_day = (mode == Some(crate::advisor::Mode::Shared)).then(|| crate::advisor::shared_daily_limit(&user, a.advisor_shared_limit));
         a.limits = if a.is_admin {
-            Limits::default()
+            Limits { advisor_per_day: shared_per_day, ..Limits::default() }
         } else {
             Limits {
                 lab_games_per_day: a.limited.then_some(quota.open_daily_games),
                 lab_runs_at_a_time: Some(if a.limited { crate::lab::experiments::OPEN_MAX_UNFINISHED } else { crate::lab::experiments::MAX_UNFINISHED }),
-                advisor_per_day: Some(if a.limited { crate::advisor::DAILY_LIMITED } else { crate::advisor::DAILY_INVITED }),
+                advisor_per_day: shared_per_day.or(Some(if a.limited { crate::advisor::DAILY_LIMITED } else { crate::advisor::DAILY_INVITED })),
                 watch_at_a_time: Some((if a.limited { crate::watch::OPEN_MAX_WATCH_GAMES } else { crate::watch::MAX_WATCH_GAMES }) as i64),
             }
         };
@@ -339,6 +356,15 @@ struct AdvisorInfo {
     own_keys_enabled: bool,
     own_keys_saved: i64,
     questions_today: i64,
+    /// The sidecar holds the shared API key (null when it didn't answer).
+    shared_key: Option<bool>,
+    /// Accounts granted the shared key.
+    shared_accounts: i64,
+    /// What shared questions cost this calendar month (UTC), and the cap.
+    shared_spent_this_month: f64,
+    shared_monthly_usd: f64,
+    /// By name ("Claude Haiku 5.5").
+    shared_models: Vec<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -432,7 +458,12 @@ async fn server(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResul
     let advisor = AdvisorInfo {
         enabled: adv.enabled(),
         reachable: health.as_ref().map(Option::is_some),
-        subscription_connected: health.flatten().flatten(),
+        subscription_connected: health.flatten().and_then(|h| h.subscription),
+        shared_key: health.flatten().and_then(|h| h.shared),
+        shared_accounts: sqlx::query_scalar("SELECT COUNT(*) FROM advisor_shared_access").fetch_one(pool).await?,
+        shared_spent_this_month: crate::advisor::shared::spent_this_month(pool).await?,
+        shared_monthly_usd: adv.shared_monthly_usd,
+        shared_models: crate::advisor::shared_model_labels(adv),
         subscription_accounts: adv.subscription_emails.len(),
         own_keys_enabled: adv.enabled() && adv.key_secret.is_some(),
         own_keys_saved: sqlx::query_scalar("SELECT COUNT(*) FROM advisor_keys").fetch_one(pool).await?,
