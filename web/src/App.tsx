@@ -25,6 +25,7 @@ import { BatchPage, RunsPage } from "./lab/Runs";
 import { TryPage } from "./lab/Try";
 import { ComparePage } from "./lab/Compare";
 import { NewsNotice, WhatsNewPage } from "./pages/WhatsNew";
+import { OAuthConsent } from "./oauth/Consent";
 import { Buy } from "./plan/Buy";
 import { DeckPlan } from "./plan/DeckPlan";
 import { Overview } from "./plan/Overview";
@@ -109,6 +110,8 @@ export function App() {
     <>
     {me.data.viewing && <ViewBanner me={me.data} />}
     <Routes>
+      {/* An app (Claude Code, a claude.ai connector) asking to use Yama's tools as you. */}
+      <Route path="/oauth/authorize" element={<OAuthConsent />} />
       {/* The live counter takes the whole screen. */}
       <Route path="/table/play" element={<TablePlay />} />
       <Route path="/table/join/:gameId" element={<GuestTable />} />

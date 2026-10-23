@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Details, ErrorText } from "../components/ui";
+import { ConnectedApps } from "../oauth/ConnectedApps";
 import { createKey, listImports, listKeys, revokeKey, type KeyScope, type ScriptKey } from "./api";
 import { outbox, useOutbox } from "./outbox";
 import { PlansHead, shortHash, usePlanOutlet } from "./PlanLayout";
@@ -11,7 +12,7 @@ import { clearPlanData } from "./store";
 
 const VIA: Record<string, string> = { web: "uploaded in the browser", token: "sent by a script", cli: "imported on the server" };
 
-/** `/decks/plan/settings`: keys for scripts, this device's copy, import history, rules and stores. */
+/** `/decks/plan/settings`: connecting Claude, keys for scripts, this device's copy, import history, rules and stores. */
 export function PlanSettings() {
   const { view, userId } = usePlanOutlet();
   const { b } = view;
@@ -20,6 +21,7 @@ export function PlanSettings() {
   return (
     <div className="plan-settings">
       <PlansHead title="Plan settings" />
+      <ConnectedApps />
       <Keys />
       <ThisDevice userId={userId} />
       <Imports />
@@ -84,7 +86,7 @@ function Keys() {
       <h3>Keys for scripts and Claude</h3>
       <p className="dim small">
         A script key lets commander-decks send your plan file to Yama and pick up your answers. A Claude key lets Claude Code (or another app that speaks MCP) read your decks,
-        plans, collection and lab runs with Yama's tools. Revoke a key if the computer is lost.
+        plans, collection and lab runs with Yama's tools, for apps that can't sign in. Revoke a key if the computer is lost.
       </p>
       <Details>
         <p>

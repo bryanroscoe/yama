@@ -14,17 +14,18 @@ this?" His answers: **both** (Ask Claude inside Yama and outside clients such as
   `ping`, `tools/list`, `tools/call`. `GET /mcp` is 405, as the spec allows for a server that never
   pushes. Hand-written JSON-RPC (about 200 lines) instead of a new crate; the method set is small.
 - **Two ways in, one credential each:**
-  - **Outside clients** (Claude Code, Claude Desktop through `mcp-remote`): a script key with the new
-    scope `mcp` (Decks, Plans, Settings, where `plan:sync` keys are made). For example
-    `claude mcp add --transport http yama https://yama.saget.org/mcp --header "Authorization: Bearer yama_pat_…"`.
-    The key is the person's own; the Claude on the other end is theirs too, so no subscription is shared.
+  - **Outside clients** (Claude Code, claude.ai's connectors, which also reach Claude Desktop and
+    the phone app): OAuth sign-in (slice 3, below): `claude mcp add --transport http yama
+    https://yama.saget.org/mcp`, then `/mcp` and Authenticate, and Allow on Yama's page. Clients that
+    can't sign in use a script key with the scope `mcp` (Decks, Plans, Settings, where `plan:sync`
+    keys are made): `--header "Authorization: Bearer yama_pat_…"`. Either way the credential is the
+    person's own and the Claude on the other end is theirs too, so no subscription is shared.
   - **Ask Claude:** for each question the yama server mints a one-question token (random, stored
     hashed, bound to the account and conversation, expires when the answer ends or after 15 minutes)
     and sends it to the sidecar with the request. The sidecar gives `query()` exactly one MCP server,
     `{type: "http", url: "http://yama:8080/mcp", headers: {Authorization: Bearer <token>}}`, allows
     only its tools, and raises `maxTurns` from 1 to 16. Still no Bash, files, web, settings or skills.
     The subscription rule is unchanged: only listed accounts ask on Bryan's subscription.
-  - The claude.ai web and phone apps need OAuth for a custom connector. That is a later slice.
 - **Who asked is recorded.** Every staged change and every tool call (name, outcome, time; never
   arguments with personal text) is logged per account, like `advisor_usage`.
 
@@ -94,5 +95,61 @@ change to an imported plan goes in as an idea or a review answer and reaches the
    connect with a key.
 2. **Staged writes.** `assistant_changes`, the write tools, Apply and Discard in the panel and on
    the review list, `apply_change` for keys.
-3. **OAuth** for the claude.ai and phone apps' connectors.
+3. **OAuth** for Claude Code and the claude.ai and phone apps' connectors (built 2026-10-22; below,
+   and ARCHITECTURE.md has what shipped).
 4. **`edit_swap`** once Yama-made plans exist (planner slice 7).
+
+## OAuth sign-in (slice 3, built 2026-10-22)
+
+Bryan wanted Claude to connect to Yama without pasting a key, from Claude Code
+(`claude mcp add --transport http yama https://yama.saget.org/mcp`, `/mcp`, Authenticate) and from
+claude.ai (Settings, Connectors, Add custom connector, the same URL). Yama is its own authorization
+server (`server/src/oauth/`); the consent page is the web app's (`web/src/oauth/`).
+
+**What Claude's clients need, and what Yama does** (Anthropic's connector docs,
+claude.com/docs/connectors/building/authentication, and code.claude.com/docs/en/mcp, read
+2026-10-22):
+
+| Claude needs | Yama |
+|---|---|
+| A 401 with `WWW-Authenticate: Bearer resource_metadata=…` | `/mcp` answers that, with `scope="mcp"` |
+| RFC 9728 metadata whose `resource` is exactly the URL typed | `/.well-known/oauth-protected-resource[/mcp]`: `<base>/mcp`, issuer `<base>` |
+| RFC 8414 metadata with S256 advertised | `/.well-known/oauth-authorization-server` |
+| DCR (RFC 7591), or CIMD if advertised | DCR. Claude registers as a public client (`none`); no CIMD |
+| PKCE S256 on every request | required; plain and missing refused |
+| claude.ai callback `https://claude.ai/api/mcp/auth_callback` (may move to claude.com) | https redirects allowed on claude.ai and claude.com |
+| Claude Code's loopback redirect on a random port, `localhost` or `127.0.0.1` | any port, and the loopback hosts match each other |
+| `resource` (RFC 8707) in canonical form | compared canonically with `<base>/mcp` |
+| `iss` in the authorization response matching the issuer | sent (RFC 9207) |
+| Form-encoded token requests; `invalid_grant` for dead refresh tokens; rotation for public clients | yes; `invalid_client` (401) for a client Yama no longer knows, which makes Claude register again |
+| `offline_access` listed to get refresh tokens | listed; refresh tokens are issued either way |
+
+**The redirect allowlist, and why.** An authorization code goes wherever the redirect URI says. If
+any app could register any https address, a stranger could send Bryan a Yama sign-in link for their
+app and collect his grant on their own site. So registration accepts only loopback `http`
+(`localhost`, `127.0.0.1`, `[::1]`: a program on the person's own computer, which the consent page
+says plainly) and https on `YAMA_OAUTH_REDIRECT_HOSTS` (default `claude.ai,claude.com`). Codes sent
+to claude.ai can only be used by claude.ai's own connector flow. The one risk left is the one every
+OAuth server has: someone starts a connector flow for their own Claude account and sends the link;
+the consent page names the account being connected and says to allow only a sign-in you started.
+
+**Choices.**
+
+- Codes, access tokens (`yama_oat_`, 1 hour) and refresh tokens (`yama_ort_`, 30 days) are random
+  and stored as SHA-256, like script keys. A replayed code revokes the grant it made. A reused
+  refresh token revokes the grant, except within 10 seconds of its first use, so two refreshes that
+  race after a 401 don't cut the connection.
+- One grant per app and account: signing in again with the same client replaces the last grant.
+  Disconnect (Settings) and the app's own revoke call (RFC 7009) end it.
+- The consent page refuses while an admin views as someone, and for accounts `may_use_yama`
+  rejects. Allow posts JSON with the session, from Yama's own origin only.
+- OAuth tokens work only on `/mcp`; `CurrentUser` refuses them, so no other route accepts one.
+- No CIMD: it would mean fetching a URL the client names (a server-side request to anywhere), and
+  DCR with the allowlist and the sweep covers both clients.
+- Write tools (slice 2) will need no new scope: they stage changes for review, and `apply_change`
+  is the person's own yes in the conversation.
+
+**Not confirmed against the live claude.ai.** The docs say claude.ai registers with
+`token_endpoint_auth_method: "none"`; Yama also handles the RFC default (`client_secret_basic`) and
+`client_secret_post` in case it doesn't. The flow was tested end to end locally with a scripted
+client standing in for Claude Code; the first real connection from claude.ai happens after deploy.

@@ -32,6 +32,10 @@ uuid = { version = "1.28.0", features = ["v4", "serde"] }
 argon2 = "0.6.0"
 # Encrypts users' own Anthropic API keys for the advisor (advisor/keys.rs).
 chacha20poly1305 = "0.10"
+# OAuth for Claude's connectors (oauth/): PKCE and HTTP Basic client secrets, redirect URIs and
+# form bodies. Both were already in the tree (jsonwebtoken, reqwest).
+base64 = "0.22"
+url = "2.5"
 
 [dev-dependencies]
 tempfile = "3.27.0"

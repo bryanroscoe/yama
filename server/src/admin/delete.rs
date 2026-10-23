@@ -1,7 +1,8 @@
 //! Deleting an account and everything it owns (admin area, People). The public privacy policy
 //! (`web/public/privacy/index.html`) promises this on request.
 //!
-//! **What goes.** Every row the account owns: sessions, script keys, its invite, decks and their
+//! **What goes.** Every row the account owns: sessions, script keys, OAuth connections (grants,
+//! their tokens and codes), its invite, decks and their
 //! versions and checks, the collection and containers, synced ops, plans (every `plan_*` table),
 //! lab runs, experiments and usage, advisor keys, settings, conversations and usage, calendar
 //! watches, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, and any live online game it is in
@@ -53,6 +54,8 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("lab_experiments", "owner_id"),
     ("lab_runs", "owner_id"),
     ("lab_usage", "owner_id"),
+    ("oauth_codes", "user_id"),
+    ("oauth_grants", "user_id"),
     ("online_games", "host_id"),
     ("plan_decks", "owner_id"),
     ("plan_imports", "owner_id"),
@@ -83,6 +86,9 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("view_sessions", "admin_id"),
     ("view_sessions", "target_id"),
     ("api_tokens", "owner_id"),
+    // OAuth: codes, then grants (their tokens go with them). Registered clients hold no account.
+    ("oauth_codes", "user_id"),
+    ("oauth_grants", "user_id"),
     ("calendar_watches", "user_id"),
     ("advisor_messages", "owner_id"),
     ("advisor_conversations", "owner_id"),

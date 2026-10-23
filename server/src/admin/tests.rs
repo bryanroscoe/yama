@@ -431,6 +431,10 @@ async fn deleting_an_account_leaves_nothing_of_it() {
 
     // Keys, watches, the lab and the advisor.
     fill(&pool, "api_tokens", &[("owner_id", t(&v))]).await;
+    let client = fill(&pool, "oauth_clients", &[]).await;
+    let grant = fill(&pool, "oauth_grants", &[("user_id", t(&v)), ("client_id", t(&client))]).await;
+    fill(&pool, "oauth_tokens", &[("grant_id", t(&grant))]).await;
+    fill(&pool, "oauth_codes", &[("user_id", t(&v)), ("client_id", t(&client)), ("grant_id", t(&grant))]).await;
     fill(&pool, "calendar_watches", &[("user_id", t(&v))]).await;
     let run = fill(&pool, "lab_runs", &[("owner_id", t(&v))]).await;
     fill(&pool, "lab_ratings", &[("run_id", t(&run))]).await;

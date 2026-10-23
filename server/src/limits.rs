@@ -121,6 +121,13 @@ pub struct Limits {
     pub advisor: RateLimiter,
     /// New watched all-AI games, per account (each one starts a rules engine thread).
     pub watch_creates: RateLimiter,
+    /// OAuth app registrations (`oauth/`), per address: each one stores a client.
+    pub oauth_register: RateLimiter,
+    /// OAuth token and revocation requests, per address. claude.ai's come from Anthropic's few
+    /// addresses, so this is set for a flood, not for one person.
+    pub oauth_token: RateLimiter,
+    /// Approving or denying an app on the consent page, per account (each yes stores a code).
+    pub oauth_approve: RateLimiter,
 }
 
 impl Default for Limits {
@@ -137,6 +144,9 @@ impl Default for Limits {
             play_creates: RateLimiter::new("new online games", 30, 60 * MINUTE),
             advisor: RateLimiter::new("questions to Claude", 6, MINUTE),
             watch_creates: RateLimiter::new("new watched games", 30, 60 * MINUTE),
+            oauth_register: RateLimiter::new("app registrations from this address", 30, 60 * MINUTE),
+            oauth_token: RateLimiter::new("token requests from this address", 300, 10 * MINUTE),
+            oauth_approve: RateLimiter::new("app sign-ins", 30, 10 * MINUTE),
         }
     }
 }

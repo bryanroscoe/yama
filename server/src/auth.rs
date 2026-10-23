@@ -142,6 +142,11 @@ impl FromRequestParts<AppState> for CurrentUser {
             return Ok(CurrentUser(view.target.clone()));
         }
         let bearer = bearer_token(&parts.headers);
+        // OAuth access and refresh tokens (`oauth/`) are for `/mcp` only. Refuse them here rather
+        // than fall back to the cookie, so a client sending one hears it doesn't work.
+        if bearer.as_deref().is_some_and(crate::oauth::is_oauth_token) {
+            return Err(AppError::Unauthorized);
+        }
         // WebSockets from the native apps can't send headers or share the web cookie, so they
         // pass the token as `?token=`. Only honored on WebSocket upgrades.
         let ws_token = parts
@@ -729,7 +734,7 @@ async fn delete_invite(
 }
 
 /// Withdraw an invite. Unless the email is an admin's, that person is signed out everywhere and
-/// their script keys are revoked; with open sign-up they may sign in again with the smaller
+/// their script keys and connected apps are revoked; with open sign-up they may sign in again with the smaller
 /// allowance.
 pub(crate) async fn remove_invite(st: &AppState, email: &str) -> AppResult<()> {
     let email = email.to_lowercase();
@@ -743,6 +748,7 @@ pub(crate) async fn remove_invite(st: &AppState, email: &str) -> AppResult<()> {
             .bind(&email)
             .execute(&st.pool)
             .await?;
+        crate::oauth::revoke_all_for_email(&st.pool, &email).await?;
     }
     Ok(())
 }
