@@ -609,8 +609,11 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
     let mut messages = if is_new { Vec::new() } else { history(&st.pool, &user.id, &conversation_id).await? };
     messages.push(json!({"role": "user", "content": question}));
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    // The answer's id is made now, so changes Claude stages while answering show under it.
+    let message_id = new_id();
     // Claude may call Yama's tools as this account until the answer ends (`mcp/`).
-    let tools = st.cfg.advisor.tools_url.clone().map(|url| (url, crate::mcp::QuestionToken::mint(&user.id)));
+    let question_ref = crate::mcp::Question { conversation_id: conversation_id.clone(), message_id: message_id.clone() };
+    let tools = st.cfg.advisor.tools_url.clone().map(|url| (url, crate::mcp::QuestionToken::mint(&user.id, question_ref)));
     let request = json!({
         "mode": match mode {
             Mode::Subscription => "subscription",
@@ -756,7 +759,6 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
         } else if status == "error" && error.is_none() {
             error = Some("Claude stopped without finishing the answer.".into());
         }
-        let message_id = new_id();
         let at = now();
         let saved = sqlx::query(
             "INSERT INTO advisor_messages (id, conversation_id, owner_id, role, content, model, mode, status, error, usage, created_at)

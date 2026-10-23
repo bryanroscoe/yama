@@ -34,7 +34,8 @@ describe("the consent page's words", () => {
   });
 
   it("lists what the tools allow today, read only", () => {
-    expect(allows(["mcp"])).toEqual(["Read your decks, plans, Review, collection and lab runs", "Search cards", "Nothing else: it can't change anything in Yama"]);
+    expect(allows(["mcp"])).toHaveLength(3);
+    expect(allows(["mcp"])[2]).toMatch(/waits in Yama for you to apply or discard/);
     expect(allows(["mcp", "offline_access"])).toHaveLength(4);
     expect(allows([])).toEqual([]);
   });

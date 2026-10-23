@@ -45,7 +45,7 @@ Exact first (any face, any case; a card's own name beats another card's face, th
 
 A printing named in the source is kept with the deck (`deck_prints`, migration 0013) and used by exports when you don't own a copy. A printing Yama's card data doesn't know is reported, and the card is kept.
 
-A copy the source marks as a proxy (the Proxy column of a Moxfield or Mythic Tools CSV, or an Archidekt "Proxy" category) is kept the same way (`deck_prints.proxy`, migration 0020), with an empty set code if no printing is named. "Add to my collection" then adds it as a proxy. Plain text lists have no proxy mark.
+A copy the source marks as a proxy (the Proxy column of a Moxfield or Mythic Tools CSV, or an Archidekt "Proxy" category) is kept the same way (`deck_prints.proxy`, migration 0021), with an empty set code if no printing is named. "Add to my collection" then adds it as a proxy. Plain text lists have no proxy mark.
 
 ## Open questions for Bryan
 

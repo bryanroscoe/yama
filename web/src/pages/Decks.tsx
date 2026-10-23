@@ -24,6 +24,7 @@ import { DeckExport } from "../components/DeckExport";
 import { DeckHistory } from "../components/DeckHistory";
 import { DeckResults } from "../components/DeckResults";
 import { AskClaude } from "../advisor/AskClaude";
+import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
 
@@ -66,6 +67,7 @@ export function DecksPage() {
           </Link>
         }
       />
+      <ChangesBanner />
       <ErrorText error={decks.error} />
       {decks.data?.length === 0 && (
         <div className="empty">
