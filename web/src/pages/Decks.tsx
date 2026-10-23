@@ -24,6 +24,7 @@ import { DeckExport } from "../components/DeckExport";
 import { DeckHistory } from "../components/DeckHistory";
 import { DeckResults } from "../components/DeckResults";
 import { AskClaude } from "../advisor/AskClaude";
+import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
@@ -65,6 +66,7 @@ export function DecksPage() {
           </Link>
         }
       />
+      <ChangesBanner />
       <ErrorText error={decks.error} />
       {decks.data?.length === 0 && (
         <div className="empty">

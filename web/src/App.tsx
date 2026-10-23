@@ -5,6 +5,7 @@ import { LabRunsPage } from "./admin/LabRuns";
 import { PeoplePage } from "./admin/People";
 import { ServerPage } from "./admin/Server";
 import { UsagePage } from "./admin/Usage";
+import { ChangesPage } from "./advisor/Changes";
 import { Login, useMe } from "./auth";
 import { RailMe } from "./components/RailMe";
 import { AdminIcon, CardsIcon, CollectionIcon, DecksIcon, GroupIcon, PlayIcon, TableIcon } from "./components/icons";
@@ -144,6 +145,7 @@ export function App() {
           <Route path="runs/batch/:id" element={<BatchPage />} />
           <Route path="runs/:id" element={<RunPage />} />
         </Route>
+        <Route path="decks/changes" element={<ChangesPage />} />
         <Route path="decks/import" element={<ImportPage />} />
         <Route path="decks/:id" element={<DeckPage />} />
         <Route path="group" element={<GroupPage />} />

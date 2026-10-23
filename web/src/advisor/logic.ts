@@ -217,6 +217,17 @@ export function toolActivity(name: string): string {
       return "Reading lab results…";
     case "precon":
       return "Reading a precon…";
+    case "changes":
+      return "Checking changes waiting for you…";
+    case "edit_deck":
+    case "propose_swap":
+    case "answer_review":
+    case "mark_bought":
+    case "mark_installed":
+    case "start_lab_run":
+    case "add_to_collection":
+    case "move_cards":
+      return "Staging a change for your review…";
     default:
       return "Looking something up…";
   }

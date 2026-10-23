@@ -452,6 +452,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     let conversation = fill(&pool, "advisor_conversations", &[("owner_id", t(&v))]).await;
     fill(&pool, "advisor_messages", &[("owner_id", t(&v)), ("conversation_id", t(&conversation))]).await;
     fill(&pool, "advisor_usage", &[("owner_id", t(&v))]).await;
+    fill(&pool, "assistant_changes", &[("owner_id", t(&v)), ("conversation_id", t(&conversation))]).await;
     // The victim's own shared-key grant (goes), and one it made for the bystander (stays, unsigned).
     fill(&pool, "advisor_shared_access", &[("user_id", t(&v)), ("granted_by", V::Null)]).await;
     fill(&pool, "advisor_shared_access", &[("user_id", t(&b)), ("granted_by", t(&v))]).await;

@@ -93,8 +93,10 @@ change to an imported plan goes in as an idea or a review answer and reaches the
 1. **Read tools and the endpoint** (built 2026-10-22; ARCHITECTURE.md has what shipped). `/mcp`, the `mcp` key scope, the read tools, the one-question
    token, and Ask Claude using tools (the context stays as a starting summary). Claude Code can
    connect with a key.
-2. **Staged writes.** `assistant_changes`, the write tools, Apply and Discard in the panel and on
-   the review list, `apply_change` for keys.
+2. **Staged writes** (built 2026-10-23; ARCHITECTURE.md has what shipped). `assistant_changes`, the
+   write tools, Apply and Discard in the panel and on Decks, Changes from Claude, `apply_change` and
+   `discard_change` for keys and OAuth sign-ins. Not built: turning `apply_change` off for keys, the
+   daily tool-call cap for open sign-up accounts.
 3. **OAuth** for Claude Code and the claude.ai and phone apps' connectors (built 2026-10-22; below,
    and ARCHITECTURE.md has what shipped).
 4. **`edit_swap`** once Yama-made plans exist (planner slice 7).
@@ -146,8 +148,8 @@ the consent page names the account being connected and says to allow only a sign
 - OAuth tokens work only on `/mcp`; `CurrentUser` refuses them, so no other route accepts one.
 - No CIMD: it would mean fetching a URL the client names (a server-side request to anywhere), and
   DCR with the allowlist and the sweep covers both clients.
-- Write tools (slice 2) will need no new scope: they stage changes for review, and `apply_change`
-  is the person's own yes in the conversation.
+- Write tools (slice 2) need no new scope: they stage changes for review, and `apply_change` is
+  the person's own yes in the conversation. The consent page says so.
 
 **Not confirmed against the live claude.ai.** The docs say claude.ai registers with
 `token_endpoint_auth_method: "none"`; Yama also handles the RFC default (`client_secret_basic`) and
