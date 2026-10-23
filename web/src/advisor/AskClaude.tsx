@@ -1,7 +1,8 @@
 // "Ask Claude": a button that opens a side sheet (a bottom sheet on phones) for a conversation
 // about what the page shows. The server rebuilds the context from your own data on every
 // question; this side streams the answer and offers to save a suggested swap as an idea for your
-// planner's inbox (plan decks only), the same op "Suggest a change" sends.
+// planner's inbox (plan decks only), the same op "Suggest a change" sends. Changes Claude stages
+// with Yama's tools show under the answer that staged them, with Apply and Discard.
 
 import { opTime } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +11,8 @@ import { Link } from "react-router";
 import { useMe } from "../auth";
 import { ErrorText, Sheet } from "../components/ui";
 import { deviceId, outbox } from "../plan/outbox";
-import { advisorStatus, ask, conversation, conversations, deleteConversation, type AdvisorStatus } from "./api";
+import { advisorStatus, ask, changesKey, conversation, conversations, deleteConversation, stagedChanges, type AdvisorStatus, type StagedChange } from "./api";
+import { ChangeCard } from "./Changes";
 import { inline, parseAnswer, pausedText, possessive, sharedLine, starters, toolActivity, unavailableText, type Block, type ContextKind, type Suggestion } from "./logic";
 import "./advisor.css";
 
@@ -82,6 +84,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
   const [current, setCurrent] = useState<string | null>(null);
   const [chosen, setChosen] = useState(false);
   const detail = useQuery({ queryKey: ["advisor", "conversation", current], queryFn: () => conversation(current!), enabled: !!current });
+  const staged = useQuery({ queryKey: [...changesKey, "conversation", current], queryFn: () => stagedChanges({ conversation: current! }), enabled: !!current });
   const [question, setQuestion] = useState("");
   const [model, setModelChoice] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -129,6 +132,8 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
           } else if (e.event === "tool") {
             const activity = toolActivity(String(e.data.name ?? ""));
             setPending((p) => (p ? { ...p, activity } : p));
+            // A change the last tool staged shows up under the answer while it streams.
+            void qc.invalidateQueries({ queryKey: [...changesKey, "conversation", conversationId] });
           } else if (e.event === "text") {
             const t = String(e.data.text ?? "");
             setPending((p) => (p ? { ...p, answer: p.answer + t, activity: null } : p));
@@ -154,6 +159,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
       if (conversationId) {
         await qc.invalidateQueries({ queryKey: ["advisor", "conversation", conversationId] });
       }
+      void qc.invalidateQueries({ queryKey: changesKey });
       setPending((p) => (p && p.state !== "streaming" ? null : p));
     }
   };
@@ -163,6 +169,8 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
   const paused = s?.mode === "shared" && s.shared_paused_until ? pausedText(s.shared_owner, s.shared_paused_until) : null;
   const saved = detail.data?.items ?? [];
   const items = pending ? saved.slice(0, pending.base) : saved;
+  const savedIds = new Set(saved.map((m) => m.id));
+  const changesFor = (messageId: string | null) => (staged.data ?? []).filter((c) => (messageId ? c.message_id === messageId : !savedIds.has(c.message_id ?? ""))).reverse();
   const empty = !current && !pending;
   return (
     <div className="ask-panel">
@@ -247,7 +255,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
               m.role === "user" ? (
                 <Question key={m.id} text={m.content} />
               ) : (
-                <Answer key={m.id} text={m.content} ideasFor={ideasFor} note={m.status === "stopped" ? "Stopped before the end." : m.status === "error" ? (m.error ?? "Claude couldn't answer.") : null} error={m.status === "error"} />
+                <Answer key={m.id} text={m.content} ideasFor={ideasFor} changes={changesFor(m.id)} onNavigate={onClose} note={m.status === "stopped" ? "Stopped before the end." : m.status === "error" ? (m.error ?? "Claude couldn't answer.") : null} error={m.status === "error"} />
               ),
             )}
             {pending && (
@@ -256,6 +264,8 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
                 <Answer
                   text={pending.answer}
                   ideasFor={ideasFor}
+                  changes={changesFor(null)}
+                  onNavigate={onClose}
                   streaming={pending.state === "streaming"}
                   activity={pending.state === "streaming" ? pending.activity : null}
                   note={pending.state === "stopped" ? "Stopped before the end." : pending.state === "error" ? (pending.error ?? "Claude couldn't answer.") : null}
@@ -344,6 +354,8 @@ function Question({ text }: { text: string }) {
 function Answer({
   text,
   ideasFor,
+  changes = [],
+  onNavigate,
   streaming = false,
   activity = null,
   note,
@@ -351,6 +363,9 @@ function Answer({
 }: {
   text: string;
   ideasFor: string | null;
+  /** Changes this answer staged, waiting for Apply or Discard (or already decided). */
+  changes?: StagedChange[];
+  onNavigate?: () => void;
   streaming?: boolean;
   /** What Claude is doing right now, while it uses a tool. */
   activity?: string | null;
@@ -364,6 +379,13 @@ function Answer({
       {blocks.map((b, i) => (
         <BlockView key={i} block={b} ideasFor={ideasFor} streaming={streaming} />
       ))}
+      {changes.length > 0 && (
+        <div className="ask-changes-list">
+          {changes.map((c) => (
+            <ChangeCard key={c.id} change={c} onNavigate={onNavigate} />
+          ))}
+        </div>
+      )}
       {streaming && (activity || !text) && (
         <p className="dim" role="status">
           {activity ?? "Thinking…"}

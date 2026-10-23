@@ -1,10 +1,11 @@
 //! The tools (docs/mcp-design.md). Each takes the caller and its JSON arguments and returns text for
-//! Claude, built only from the caller's own rows (or shared card and precon data). Read-only in
-//! this slice.
+//! Claude, built only from the caller's own rows (or shared card and precon data). The read tools
+//! are here; the write tools only stage a change for the person to review (`changes.rs`).
 //!
 //! The longer summaries reuse the advisor's context builders (`advisor::context::build`), so a
 //! plan or a lab run reads the same to Ask Claude and to an outside client.
 
+use super::{Via, changes};
 use crate::advisor::context;
 use crate::auth::User;
 use crate::cards::{CARD_COLUMNS, Card, SearchCard};
@@ -21,11 +22,32 @@ const MAX_NAMES: usize = 20;
 /// Lines one `check_list` call may send.
 const MAX_LIST_LINES: usize = 300;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Does {
+    Read,
+    /// Stores a pending change and changes nothing else.
+    Stage,
+    /// Applies or discards a staged change: outside clients only, never Ask Claude.
+    Decide,
+}
+
 struct Tool {
     name: &'static str,
     title: &'static str,
     description: &'static str,
     schema: fn() -> Value,
+    does: Does,
+}
+
+/// Said by every write tool: what staging means.
+macro_rules! staged {
+    ($what:literal) => {
+        concat!(
+            $what,
+            " This only stages the change for their review: it shows in Yama with Apply and Discard, and nothing changes until they apply it. \
+              Stage a change when they ask for it or agree to it, not as a guess."
+        )
+    };
 }
 
 const TOOLS: &[Tool] = &[
@@ -34,6 +56,7 @@ const TOOLS: &[Tool] = &[
         title: "Your decks and plans",
         description: "List this person's decks in Yama (with commanders) and their upgrade plans (with plan keys). Start here.",
         schema: no_args,
+        does: Does::Read,
     },
     Tool {
         name: "deck",
@@ -42,6 +65,7 @@ const TOOLS: &[Tool] = &[
                       (size, singleton, color identity, banned cards), Game Changers and real game results. \
                       Give the deck's name (as `overview` lists it) or its id.",
         schema: || obj(&[("deck", "string", "The deck's name or id.")], &["deck"]),
+        does: Does::Read,
     },
     Tool {
         name: "plan_deck",
@@ -50,12 +74,14 @@ const TOOLS: &[Tool] = &[
                       proposed swap with its reasons and their review answers, their shopping rules, the newest \
                       paired lab run, and real games. Give the plan key from `overview`.",
         schema: || obj(&[("key", "string", "The plan key, for example \"riders-of-rohan\".")], &["key"]),
+        does: Does::Read,
     },
     Tool {
         name: "review_queue",
         title: "Proposals to review",
         description: "Every proposed swap still waiting for their answer, deck by deck.",
         schema: no_args,
+        does: Does::Read,
     },
     Tool {
         name: "find_cards",
@@ -74,6 +100,7 @@ const TOOLS: &[Tool] = &[
                 &["query"],
             )
         },
+        does: Does::Read,
     },
     Tool {
         name: "card",
@@ -92,6 +119,7 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
+        does: Does::Read,
     },
     Tool {
         name: "check_list",
@@ -111,18 +139,21 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
+        does: Does::Read,
     },
     Tool {
         name: "lab_runs",
         title: "Your lab experiments",
         description: "Their simulation experiments (\"Try a change\"), newest first, with ids for `lab_run`.",
         schema: no_args,
+        does: Does::Read,
     },
     Tool {
         name: "lab_run",
         title: "One lab experiment",
         description: "One simulation experiment: the base and changed lists, opponents, and the paired result with its interval and warnings.",
         schema: || obj(&[("id", "string", "The experiment id from `lab_runs`.")], &["id"]),
+        does: Does::Read,
     },
     Tool {
         name: "precon",
@@ -130,6 +161,211 @@ const TOOLS: &[Tool] = &[
         description: "A Commander precon from Yama's catalog: list, real results from playgroup.gg, the simulated rating and matchups. \
                       Give its name (or part of it) or id.",
         schema: || obj(&[("precon", "string", "The precon's name, part of it, or its id.")], &["precon"]),
+        does: Does::Read,
+    },
+    Tool {
+        name: "changes",
+        title: "Changes waiting for review",
+        description: "The changes you (or another Claude) staged that they haven't applied or discarded yet, with ids. \
+                      Check here before staging the same change twice.",
+        schema: no_args,
+        does: Does::Read,
+    },
+    Tool {
+        name: "edit_deck",
+        title: "Change a deck's list",
+        description: staged!(
+            "Change one of their Yama decks: add cards to the main deck and remove cards from it, one copy per name \
+             (name a card twice for two copies). Applying saves a new version of the deck, with your note; the old \
+             version stays in its history. If the deck changes before they apply it, it won't apply."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "deck": {"type": "string", "description": "The deck's name or id."},
+                    "add": {"type": "array", "items": {"type": "string"}, "description": "Card names to add."},
+                    "remove": {"type": "array", "items": {"type": "string"}, "description": "Card names to remove."},
+                    "note": {"type": "string", "description": "Why, in a sentence; saved with the version."},
+                },
+                "required": ["deck"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "propose_swap",
+        title: "Suggest a swap for a plan",
+        description: staged!(
+            "Suggest a swap for one of their upgrade plans: a card to put in and, usually, the card it replaces. \
+             Applying saves it as an idea in the plan, where it goes through their usual review."
+        ),
+        schema: || {
+            obj(
+                &[
+                    ("plan", "string", "The plan key or deck name from `overview`."),
+                    ("card_in", "string", "The card to put in."),
+                    ("card_out", "string", "The card it replaces, if any."),
+                    ("why", "string", "Why, in a sentence or two."),
+                ],
+                &["plan", "card_in"],
+            )
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "answer_review",
+        title: "Answer a proposal in Review",
+        description: staged!(
+            "Answer a swap in one of their plans the way they would on the Review page: want, unsure or no, with an \
+             optional note and a different card to cut. Only when they've told you their answer."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "plan": {"type": "string", "description": "The plan key or deck name."},
+                    "card_in": {"type": "string", "description": "The card the swap puts in."},
+                    "card_out": {"type": "string", "description": "The card it takes out, when several swaps put in the same card."},
+                    "decision": {"type": "string", "enum": ["want", "unsure", "no"]},
+                    "note": {"type": "string"},
+                    "cut": {"type": "string", "description": "A different card to cut instead."},
+                },
+                "required": ["plan", "card_in", "decision"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "mark_bought",
+        title: "Mark a plan card bought",
+        description: staged!(
+            "Mark a swap's card as bought in one of their plans, as \"Bought it\" does: when, how many, the price and \
+             the store. It's their claim, not an order. value false clears the mark."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "plan": {"type": "string"},
+                    "card_in": {"type": "string"},
+                    "card_out": {"type": "string"},
+                    "value": {"type": "boolean", "description": "true (the default) marks it, false clears it."},
+                    "on": {"type": "string", "description": "YYYY-MM-DD; today if left out."},
+                    "qty": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "price_paid": {"type": "number", "minimum": 0},
+                    "store": {"type": "string"},
+                },
+                "required": ["plan", "card_in"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "mark_installed",
+        title: "Mark a plan swap installed",
+        description: staged!("Mark a swap in one of their plans as installed in the real deck (value false clears it)."),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "plan": {"type": "string"},
+                    "card_in": {"type": "string"},
+                    "card_out": {"type": "string"},
+                    "value": {"type": "boolean"},
+                },
+                "required": ["plan", "card_in"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "start_lab_run",
+        title: "Test a change in the lab",
+        description: staged!(
+            "Simulate a change: one of their decks (or a whole list) against the same list with cards added and cut, in \
+             paired games against the strongest precons or their own decks. Applying queues it under their lab \
+             allowance; results come in over the next while (see lab_run)."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "deck": {"type": "string", "description": "One of their decks, by name or id."},
+                    "list": {"type": "string", "description": "Or a whole list, one card per line, commander first."},
+                    "label": {"type": "string", "description": "A name for a pasted list."},
+                    "add": {"type": "array", "items": {"type": "string"}},
+                    "cut": {"type": "array", "items": {"type": "string"}},
+                    "games": {"type": "integer", "description": "100 (the default), 200 or 400."},
+                    "opponents": {"type": "string", "enum": ["strongest", "my_decks"]},
+                },
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "add_to_collection",
+        title: "Add cards to the collection",
+        description: staged!(
+            "Add copies of a card to their collection, in a binder, deck box or list they already have (or loose). \
+             Without a set, Yama's default printing."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "card": {"type": "string"},
+                    "qty": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "set": {"type": "string", "description": "Set code, such as \"cmm\"."},
+                    "number": {"type": "string", "description": "Collector number in that set."},
+                    "container": {"type": "string", "description": "Their binder, deck box or list, by name."},
+                    "proxy": {"type": "boolean"},
+                    "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"]},
+                },
+                "required": ["card"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "move_cards",
+        title: "Move cards between binders and boxes",
+        description: staged!("Move copies of a card from one of their binders, deck boxes or lists to another."),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "card": {"type": "string"},
+                    "qty": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "from": {"type": "string"},
+                    "to": {"type": "string"},
+                },
+                "required": ["card", "from", "to"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "apply_change",
+        title: "Apply a staged change",
+        description: "Apply one staged change. Call it only after they have said yes to that exact change in this conversation; \
+                      otherwise let them apply it in Yama. If the deck or plan moved on, it fails with the reason and stays waiting.",
+        schema: || obj(&[("id", "string", "The change id from staging or `changes`.")], &["id"]),
+        does: Does::Decide,
+    },
+    Tool {
+        name: "discard_change",
+        title: "Discard a staged change",
+        description: "Discard one staged change, when they say no to it or you staged it by mistake.",
+        schema: || obj(&[("id", "string", "The change id.")], &["id"]),
+        does: Does::Decide,
     },
 ];
 
@@ -145,28 +381,60 @@ fn obj(props: &[(&str, &str, &str)], required: &[&str]) -> Value {
     json!({"type": "object", "properties": p, "required": required, "additionalProperties": false})
 }
 
-pub fn list() -> Vec<Value> {
-    TOOLS
-        .iter()
+/// The tools this caller gets: Ask Claude can stage changes but not apply them.
+fn for_caller(via: &Via) -> impl Iterator<Item = &'static Tool> {
+    let decide = via.may_apply();
+    TOOLS.iter().filter(move |t| decide || t.does != Does::Decide)
+}
+
+pub fn list(via: &Via) -> Vec<Value> {
+    for_caller(via)
         .map(|t| {
+            let annotations = match t.does {
+                Does::Read => json!({"readOnlyHint": true, "openWorldHint": false}),
+                // Staging adds a pending row and nothing else: harmless to repeat, never destructive.
+                Does::Stage => json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}),
+                Does::Decide => json!({"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false}),
+            };
             json!({
                 "name": t.name,
                 "title": t.title,
                 "description": t.description,
                 "inputSchema": (t.schema)(),
-                "annotations": {"readOnlyHint": true, "openWorldHint": false},
+                "annotations": annotations,
             })
         })
         .collect()
 }
 
-pub fn exists(name: &str) -> bool {
-    TOOLS.iter().any(|t| t.name == name)
+pub fn offered(name: &str, via: &Via) -> bool {
+    for_caller(via).any(|t| t.name == name)
 }
 
-pub async fn call(st: &AppState, user: &User, name: &str, args: &Value) -> AppResult<String> {
+pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
     match name {
+        "changes" => changes_text(pool, user).await,
+        "edit_deck" => changes::edit_deck(st, user, via, args).await,
+        "propose_swap" => changes::propose_swap(st, user, via, args).await,
+        "answer_review" => changes::answer_review(st, user, via, args).await,
+        "mark_bought" => changes::mark_bought(st, user, via, args).await,
+        "mark_installed" => changes::mark_installed(st, user, via, args).await,
+        "start_lab_run" => changes::start_lab_run(st, user, via, args).await,
+        "add_to_collection" => changes::add_to_collection(st, user, via, args).await,
+        "move_cards" => changes::move_cards(st, user, via, args).await,
+        "apply_change" => {
+            let c = changes::apply(st, user, text_arg(args, "id")?).await?;
+            match (c.status.as_str(), c.error) {
+                ("applied", _) => Ok(format!("Applied: {}. {}", c.summary, c.result.and_then(|r| r["label"].as_str().map(String::from)).unwrap_or_default())),
+                (_, Some(e)) => Err(AppError::Conflict(format!("Not applied: {e}"))),
+                (status, None) => Err(AppError::Conflict(format!("Not applied; the change is {status}."))),
+            }
+        }
+        "discard_change" => {
+            let c = changes::discard(pool, &user.id, text_arg(args, "id")?).await?;
+            Ok(format!("Discarded: {}", c.summary))
+        }
         "overview" => context::build(pool, user, "general", None).await,
         "deck" => deck(pool, user, text_arg(args, "deck")?).await,
         "plan_deck" => context::build(pool, user, "plan_deck", Some(text_arg(args, "key")?)).await,
@@ -187,7 +455,7 @@ pub async fn call(st: &AppState, user: &User, name: &str, args: &Value) -> AppRe
     }
 }
 
-fn text_arg<'a>(args: &'a Value, key: &str) -> AppResult<&'a str> {
+pub(super) fn text_arg<'a>(args: &'a Value, key: &str) -> AppResult<&'a str> {
     args.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && s.len() <= 300).ok_or_else(|| AppError::bad(format!("{key} is missing")))
 }
 
@@ -222,7 +490,7 @@ fn identity(ci: &str) -> String {
 // ── decks ───────────────────────────────────────────────────────────────────
 
 /// The caller's deck by id or (case-insensitive) name. Several matches is a 400 naming them.
-async fn deck_id(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<String> {
+pub(super) async fn deck_id(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<String> {
     let by_id: Option<String> = sqlx::query_scalar("SELECT id FROM decks WHERE id = ? AND owner_id = ? AND archived = 0").bind(wanted).bind(owner).fetch_optional(pool).await?;
     if let Some(id) = by_id {
         return Ok(id);
@@ -243,7 +511,7 @@ async fn deck_id(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<Stri
     }
 }
 
-async fn card_info(pool: &SqlitePool, cards: &[DeckCard]) -> AppResult<HashMap<String, Card>> {
+pub(super) async fn card_info(pool: &SqlitePool, cards: &[DeckCard]) -> AppResult<HashMap<String, Card>> {
     let mut info = HashMap::new();
     for c in cards {
         if info.contains_key(&c.oracle_id) {
@@ -261,7 +529,7 @@ async fn card_info(pool: &SqlitePool, cards: &[DeckCard]) -> AppResult<HashMap<S
 }
 
 /// Legality and Game Changers for a list, as lines.
-fn checks(cards: &[DeckCard], info: &HashMap<String, Card>) -> String {
+pub(super) fn checks(cards: &[DeckCard], info: &HashMap<String, Card>) -> String {
     let v = crate::decks::validate(cards, info);
     let mut out = String::new();
     let _ = writeln!(out, "Cards (commander and main): {}. Color identity: {}.", v.total, identity(&v.color_identity));
@@ -358,7 +626,7 @@ async fn find_cards(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<S
 
 /// Close names for one Yama doesn't know, for "did you mean": the whole name inside a longer one,
 /// else cards sharing one of its longer words (so a typo in one word still finds it).
-async fn near_names(pool: &SqlitePool, name: &str) -> AppResult<Vec<String>> {
+pub(super) async fn near_names(pool: &SqlitePool, name: &str) -> AppResult<Vec<String>> {
     let clean = name.trim().replace(['%', '_'], "");
     let mut out: Vec<String> = sqlx::query_scalar("SELECT name FROM cards WHERE name LIKE ? ORDER BY length(name) LIMIT 5").bind(format!("%{clean}%")).fetch_all(pool).await?;
     for word in clean.split_whitespace().filter(|w| w.chars().count() >= 4).take(4) {
@@ -514,4 +782,22 @@ async fn precon(pool: &SqlitePool, user: &User, wanted: &str) -> AppResult<Strin
         }
     };
     context::build(pool, user, "precon", Some(&id)).await
+}
+
+// ── staged changes ──────────────────────────────────────────────────────────
+
+async fn changes_text(pool: &SqlitePool, user: &User) -> AppResult<String> {
+    let waiting = changes::list(pool, &user.id, true, None).await?;
+    if waiting.is_empty() {
+        return Ok("No changes are waiting for their review.".into());
+    }
+    let mut out = format!("{} change{} waiting for their review, newest first:\n", waiting.len(), if waiting.len() == 1 { " is" } else { "s are" });
+    for c in waiting {
+        let _ = write!(out, "- {} (id {}, staged {}", c.summary, c.id, c.created_at.get(..10).unwrap_or(&c.created_at));
+        if let Some(e) = &c.error {
+            let _ = write!(out, "; the last try to apply it failed: {e}");
+        }
+        out.push_str(")\n");
+    }
+    Ok(out)
 }

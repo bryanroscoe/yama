@@ -206,3 +206,48 @@
     max-width: 440px;
   }
 }
+
+/* Changes Claude staged, waiting for Apply or Discard (Changes.tsx). */
+.ask-change {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-list);
+  padding: 12px 14px;
+  background: var(--ground);
+}
+.ask-change.is-applied,
+.ask-change.is-discarded {
+  border-left-color: var(--line);
+}
+.ask-change.is-discarded .ask-change-what {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.ask-change-detail {
+  white-space: pre-wrap;
+  font: inherit;
+  font-size: var(--t-sm);
+  margin: 0;
+}
+.ask-change-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ask-changes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ask-changes-group {
+  margin-block: 16px;
+}
+.ask-changes-banner {
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+  padding: 10px 14px;
+  margin-block: 0 16px;
+}

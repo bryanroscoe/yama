@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-23-claude-changes",
+    date: "2026-10-23",
+    title: "Claude can suggest changes for you to approve",
+    items: [
+      "Ask Claude, or Claude connected from Claude Code or Claude's apps, can now offer to change things: a deck's list, an idea or answer in a plan, a bought or installed mark, a lab run, or cards in your collection.",
+      "Nothing changes until you say so. Each change appears with Apply and Discard, under Claude's answer and on Decks, Changes from Claude.",
+      "A deck edit that would break the deck (a second copy of a card, or a 100-card deck left short) isn't offered, and one made against an older version of the deck won't apply.",
+    ],
+    link: { to: "/decks/changes", label: "Changes from Claude" },
+  },
+  {
     id: "2026-10-22-connect-claude",
     date: "2026-10-22",
     title: "Connect your own Claude",

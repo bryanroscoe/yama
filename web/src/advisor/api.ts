@@ -111,3 +111,35 @@ export async function ask(input: AskInput, onEvent: (e: StreamEvent) => void, si
     for (const e of events) onEvent(e);
   }
 }
+
+/** A change Claude staged through Yama's tools, waiting for Apply or Discard (server/src/mcp/changes.rs). */
+export interface StagedChange {
+  id: string;
+  kind: "edit_deck" | "propose_swap" | "answer_review" | "mark_bought" | "mark_installed" | "start_lab_run" | "add_to_collection" | "move_cards";
+  summary: string;
+  detail: string | null;
+  /** How it was staged: Ask Claude, a key, or an app signed in with OAuth. */
+  via: "question" | "key" | "oauth";
+  conversation_id: string | null;
+  message_id: string | null;
+  status: "pending" | "applied" | "discarded";
+  /** Why the last apply failed (the change stays pending). */
+  error: string | null;
+  /** What applying made, and the page that shows it. */
+  result: { label?: string; link?: string } | null;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export const changesKey = ["assistant", "changes"] as const;
+
+/** Pending changes; with `conversation`, that conversation's whatever became of them; `all` for decided ones too. */
+export function stagedChanges(opts: { conversation?: string; all?: boolean } = {}) {
+  const q = new URLSearchParams();
+  if (opts.conversation) q.set("conversation", opts.conversation);
+  if (opts.all) q.set("status", "all");
+  const qs = q.toString();
+  return api<StagedChange[]>(`/api/assistant/changes${qs ? `?${qs}` : ""}`);
+}
+export const applyChange = (id: string) => api<StagedChange>(`/api/assistant/changes/${encodeURIComponent(id)}/apply`, { method: "POST" });
+export const discardChange = (id: string) => api<StagedChange>(`/api/assistant/changes/${encodeURIComponent(id)}/discard`, { method: "POST" });

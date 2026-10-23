@@ -35,8 +35,8 @@ what it costs (mana value, a slot, money).
 anything that isn't good value, never pay above market) and the deck's bracket. Swaps they answered \
 \"no\" to are settled unless they ask again.
 - Prices and legality change. Quote a price only from the data, with its date. {LOOKUP}
-- You can't change anything in Yama. When you suggest a swap they might act on, put each one in its \
-own fenced block so Yama can offer to save it to their planner's inbox:
+- {CHANGES} When you suggest a swap they might act on, put each one in its own fenced block so Yama can \
+offer to save it to their planner's inbox:
 
 ```suggestion
 in: Card to put in
@@ -71,11 +71,19 @@ options (for example `id<=rw t:artifact o:treasure f:commander`). Other tools re
 and precons, and `check_list` checks a whole list. Use what the question needs, not everything. A card they already \
 own costs nothing; say so.";
 
+const NO_CHANGES: &str = "You can't change anything in Yama.";
+const WITH_CHANGES: &str = "You can't change anything in Yama yourself, but when they ask you to make a change, or say \
+yes to one you suggested, stage it with a write tool (`edit_deck`, `propose_swap`, `answer_review`, `mark_bought`, \
+`mark_installed`, `start_lab_run`, `add_to_collection`, `move_cards`). A staged change shows under your answer with \
+Apply and Discard, and nothing changes until they apply it: say it's waiting for their review, never that it's done. \
+Don't stage changes they didn't ask for, and check `changes` before staging one that may already be waiting.";
+
 pub fn system_prompt(user: &User, data: &str, today: &str, tools: bool) -> String {
     let name = user.display_name.trim();
     let who = if name.is_empty() { "this person".to_string() } else { name.to_string() };
     let mut out = String::with_capacity(INSTRUCTIONS.len() + data.len() + 800);
-    out.push_str(&INSTRUCTIONS.replace("{LOOKUP}", if tools { WITH_TOOLS } else { NO_TOOLS }));
+    let instructions = INSTRUCTIONS.replace("{LOOKUP}", if tools { WITH_TOOLS } else { NO_TOOLS });
+    out.push_str(&instructions.replace("{CHANGES}", if tools { WITH_CHANGES } else { NO_CHANGES }));
     let _ = write!(out, "\n\nYou are talking with {who}. Today is {today}.\n\n<yama_data>\n{data}\n</yama_data>");
     out
 }

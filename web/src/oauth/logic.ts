@@ -48,10 +48,14 @@ export function returnsTo(host: string, loopback: boolean): string {
   return loopback ? `a program on this computer (${host})` : host;
 }
 
-/** What a connection may do, matching the tools today (read only). */
+/** What a connection may do, matching the tools (server/src/mcp): read, and stage changes for review. */
 export function allows(scopes: string[]): string[] {
   const out = scopes.includes("mcp")
-    ? ["Read your decks, plans, Review, collection and lab runs", "Search cards", "Nothing else: it can't change anything in Yama"]
+    ? [
+        "Read your decks, plans, Review, collection and lab runs",
+        "Search cards",
+        "Suggest changes to your decks, plans, lab and collection. Each one waits in Yama for you to apply or discard, and Claude applies one only after you say yes to it",
+      ]
     : [];
   if (scopes.includes("offline_access")) out.push("Stay connected until you disconnect it, without asking again");
   return out;
