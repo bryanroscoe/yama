@@ -14,8 +14,10 @@
 //!   option buttons. It reports an engine refusal, an `act` refusal of an answer the engine
 //!   offered, a decision nobody can answer, and a game that doesn't settle.
 //!
-//! The tests: smoke.rs (one per card in Bryan's decks, list in smoke_cards.rs).
+//! The tests: smoke.rs (one per card in Bryan's decks, list in smoke_cards.rs) and commanders.rs
+//! (the eight commanders).
 
+mod commanders;
 pub(crate) mod plain;
 mod smoke;
 
