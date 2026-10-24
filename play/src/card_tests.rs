@@ -3,9 +3,9 @@
 //! tests/fixtures/deck-cards.json, the slice of phase's card data with every card in Bryan's decks
 //! and candidates, written by play/src/bin/coverage.rs.
 //!
-//! - [`Board`] sets the table: who sits where, each seat's commander, life totals, and each card
-//!   in a hand, on a battlefield, in a graveyard, in exile or on top of a library. Cards are dealt
-//!   into the decks and moved from there, so two-faced and adventurer cards are whole.
+//! - [`Board`] sets the table: who sits where, each seat's commander, and each card in a hand, on
+//!   a battlefield, in a graveyard or on top of a library. Cards are dealt into the decks and moved
+//!   from there, so two-faced and adventurer cards are whole.
 //! - [`Table`] plays it: cast, activate or play a land as the board does (`Match::act` and the
 //!   option buttons), answer decisions, pass until the stack is empty, and read the outcome
 //!   (zones, life, counters, tokens, power and toughness, the feed's happenings).
@@ -65,17 +65,15 @@ pub(crate) enum At {
     Hand,
     Field,
     Grave,
-    Exile,
     /// On top of its owner's library, the first given on top.
     Top,
 }
 
-/// A table to set: the seats, their commanders and life, and where each card starts. Seat 0 is
+/// A table to set: the seats, their commanders, and where each card starts. Seat 0 is
 /// the active player by default, at its turn 3 precombat main phase with priority.
 pub(crate) struct Board {
     commanders: Vec<String>,
     cards: Vec<(String, u8, At)>,
-    life: Vec<i32>,
     active: u8,
     /// The step the active seat has priority in.
     phase: Phase,
@@ -97,7 +95,6 @@ impl Board {
         Board {
             commanders: vec![DEFAULT_COMMANDER.into(); players],
             cards: vec![],
-            life: vec![40; players],
             active: 0,
             phase: Phase::PreCombatMain,
             filler: ["Plains", "Island", "Swamp", "Mountain", "Forest", "Grizzly Bears"].iter().map(|s| s.to_string()).collect(),
@@ -126,10 +123,6 @@ impl Board {
         self.at(seat, At::Grave, name)
     }
 
-    pub fn exile(self, seat: u8, name: &str) -> Self {
-        self.at(seat, At::Exile, name)
-    }
-
     pub fn top(self, seat: u8, name: &str) -> Self {
         self.at(seat, At::Top, name)
     }
@@ -147,11 +140,6 @@ impl Board {
         for land in ["Plains", "Island", "Swamp", "Mountain", "Forest"] {
             self = self.lands(seat, land, n);
         }
-        self
-    }
-
-    pub fn life(mut self, seat: u8, n: i32) -> Self {
-        self.life[usize::from(seat)] = n;
         self
     }
 
@@ -222,10 +210,6 @@ impl Board {
                     p.graveyard.push_back(id);
                     Zone::Graveyard
                 }
-                At::Exile => {
-                    m.state.exile.push_back(id);
-                    Zone::Exile
-                }
                 At::Top => {
                     tops.push((seat, id));
                     Zone::Library
@@ -246,9 +230,6 @@ impl Board {
         }
         for (seat, id) in tops.into_iter().rev() {
             m.state.players[seat].library.push_front(id);
-        }
-        for (seat, life) in self.life.iter().enumerate() {
-            m.state.players[seat].life = *life;
         }
         evaluate_layers(&mut m.state);
         let active = PlayerId(self.active);
@@ -300,13 +281,6 @@ impl Table {
         self.ids.iter().copied().find(|id| self.m.state.objects[id].name == name).unwrap_or_else(|| panic!("{name} isn't on the board"))
     }
 
-    /// Every object called `name`, wherever it is (tokens and copies included).
-    pub fn all(&self, name: &str) -> Vec<ObjectId> {
-        let mut v: Vec<ObjectId> = self.m.state.objects.iter().filter(|(_, o)| o.name == name).map(|(id, _)| *id).collect();
-        v.sort();
-        v
-    }
-
     pub fn zone(&self, id: ObjectId) -> Zone {
         self.m.state.objects.get(&id).map(|o| o.zone).unwrap_or(Zone::Exile)
     }
@@ -335,11 +309,6 @@ impl Table {
 
     pub fn controller(&self, id: ObjectId) -> u8 {
         self.m.state.objects[&id].controller.0
-    }
-
-    /// Names of the permanents `seat` controls.
-    pub fn field_names(&self, seat: u8) -> Vec<String> {
-        self.m.state.battlefield.iter().map(|id| &self.m.state.objects[id]).filter(|o| o.controller.0 == seat).map(|o| o.name.clone()).collect()
     }
 
     /// Tokens `seat` controls.
@@ -404,10 +373,6 @@ impl Table {
         self.m.decision(seat).unwrap_or_else(|| panic!("seat {seat} doesn't decide; {:?} do ({:?})", self.m.waiting_on(), self.m.state.waiting_for))
     }
 
-    pub fn pending(&self, seat: u8) -> Pending {
-        self.decision(seat).pending.unwrap_or_else(|| panic!("no pending for {:?}", self.m.state.waiting_for))
-    }
-
     /// Send `a` for `seat`, as the board does.
     pub fn try_act(&mut self, seat: u8, a: &Act) -> Result<(), ChoiceError> {
         let d = self.decision(seat);
@@ -444,11 +409,6 @@ impl Table {
         self.choose(seat, |o| o.kind == OptionKind::Land && o.object == Some(id.0));
     }
 
-    /// Aim the spell or ability being cast at `t`.
-    pub fn target(&mut self, seat: u8, t: TargetView) {
-        self.act(seat, Act::ChooseTarget { target: Some(t) });
-    }
-
     /// Every seat passes until `done` holds (at most 60 passes).
     pub fn pass_until(&mut self, done: impl Fn(&Table) -> bool) {
         for _ in 0..60 {
@@ -480,27 +440,6 @@ impl Table {
             Some(Act::ChooseTarget { target: Some(TargetView::Object { id: id.0 }) })
         })
         .unwrap();
-    }
-
-    /// Everyone passes until someone has a decision other than priority (returned), or the
-    /// active seat has priority with an empty stack (`None`).
-    pub fn pass(&mut self) -> Option<u8> {
-        for _ in 0..100 {
-            if self.m.is_over() {
-                return None;
-            }
-            let seat = *self.m.waiting_on().first().expect("someone decides");
-            if self.settled() {
-                return None;
-            }
-            let d = self.decision(seat);
-            if d.pending.is_some() || !matches!(self.m.state.waiting_for, WaitingFor::Priority { .. }) {
-                return Some(seat);
-            }
-            let pass = d.options.iter().find(|o| o.kind == OptionKind::Pass).unwrap_or_else(|| panic!("seat {seat} has no pass: {}", d.prompt));
-            self.m.choose(seat, d.revision, pass.index).unwrap();
-        }
-        panic!("the stack didn't settle");
     }
 
     /// The active seat has priority with nothing on the stack.
@@ -746,6 +685,27 @@ pub(crate) fn pick(state: &GameState, seat: u8, tester: u8, candidates: &[GameAc
         }
     }
     best
+}
+
+/// The answer to `p` that picks its option named with `needle` (a mode, a branch, a word, a card
+/// or a target), in the shape the decision takes. `None` if no option's name has it.
+pub(crate) fn choose_named(p: &Pending, needle: &str) -> Option<Act> {
+    let (i, o) = p.options.iter().enumerate().find(|(_, o)| o.name.to_lowercase().contains(&needle.to_lowercase()))?;
+    let object = || o.id.parse::<u64>().ok();
+    Some(match p.answer {
+        Answer::SelectModes => Act::SelectModes { indices: vec![o.id.parse().unwrap_or(i)] },
+        Answer::ChooseBranch => Act::ChooseBranch { index: o.id.parse().unwrap_or(i) },
+        Answer::ChooseReplacement => Act::ChooseReplacement { index: o.id.parse().unwrap_or(i) },
+        Answer::ChooseOption => Act::ChooseOption { choice: o.id.clone() },
+        Answer::SelectCards => Act::SelectCards { cards: vec![object()?] },
+        Answer::ChooseTarget => Act::ChooseTarget {
+            target: Some(match o.id.strip_prefix('p') {
+                Some(seat) => TargetView::Player { seat: seat.parse().ok()? },
+                None => TargetView::Object { id: object()? },
+            }),
+        },
+        _ => return None,
+    })
 }
 
 /// Ids of the options for `seat` that `keep` likes, by (object, ability).

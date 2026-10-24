@@ -8,7 +8,7 @@ use engine::types::keywords::Keyword;
 use engine::types::phase::Phase;
 use engine::types::zones::Zone;
 
-use super::{Board, big_stack};
+use super::{Board, big_stack, choose_named};
 use crate::act::Answer;
 use crate::{Act, OptionKind, TargetView};
 
@@ -976,5 +976,702 @@ fn mana_confluence_costs_a_life() {
         let action = t.mana_actions(mc).into_iter().next().expect("a mana ability");
         assert_eq!(t.tap_for_mana(action), Ok(1));
         assert_eq!(t.life(0), 39);
+    });
+}
+
+// ── More of the Fantastic Four's upgrades ───────────────────────────────────────────────────
+
+/// "When The Fantastic Four enter and whenever you cast a spell with power, toughness, or mana
+/// value 4, choose one that hasn't been chosen this turn." Draw a card on entering; then Hill
+/// Giant (mana value 4) brings another choice, without "Draw a card".
+#[test]
+fn the_fantastic_four_choose_a_new_mode_each_time() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "The Fantastic Four").hand(0, "Hill Giant").basics(0, 2).build();
+        let (ff, giant) = (t.id("The Fantastic Four"), t.id("Hill Giant"));
+        t.cast(ff);
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            (seat == 0).then(|| choose_named(p, "Draw a card")).flatten()
+        })
+        .unwrap();
+        assert_eq!(t.drawn(0), 1);
+        let mut second = vec![];
+        t.cast(giant);
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            if seat != 0 || !matches!(p.answer, Answer::SelectModes | Answer::ChooseBranch | Answer::ChooseOption) {
+                return None;
+            }
+            second = p.options.iter().filter(|o| o.eligible).map(|o| o.name.clone()).collect();
+            choose_named(p, "damage")
+        })
+        .unwrap();
+        assert!(!second.is_empty(), "the mana value 4 spell triggered a choice");
+        assert!(!second.iter().any(|n| n.contains("Draw a card")), "a mode chosen this turn isn't offered again: {second:?}");
+        assert_eq!(t.life(1), 37);
+    });
+}
+
+/// "Vivid — {T}: For each color among permanents you control, add one mana of that color."
+#[test]
+fn bloom_tender_adds_a_mana_per_colour_among_your_permanents() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Bloom Tender").field(0, "Savannah Lions").field(0, "Lightning Bolt").build();
+        let tender = t.id("Bloom Tender");
+        let action = t.mana_actions(tender).into_iter().next().expect("a mana ability");
+        assert_eq!(t.tap_for_mana(action), Ok(2), "green and white (an instant isn't a permanent)");
+    });
+}
+
+/// "This creature gets +1/+1 for each color among permanents you control. {T}: For each color
+/// among permanents you control, add one mana of that color."
+#[test]
+fn faeburrow_elder_grows_and_taps_for_each_colour() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Faeburrow Elder").field(0, "Elvish Visionary").build();
+        let elder = t.id("Faeburrow Elder");
+        assert_eq!(t.pt(elder), (2, 2), "green and white");
+        let action = t.mana_actions(elder).into_iter().next().expect("a mana ability");
+        assert_eq!(t.tap_for_mana(action), Ok(2));
+    });
+}
+
+/// "{T}: Add one mana of any color that a land an opponent controls could produce." Ben has
+/// only Islands.
+#[test]
+fn fellwar_stone_makes_only_an_opponents_colours() {
+    big_stack(|| {
+        let t = Board::new(2).field(0, "Fellwar Stone").lands(1, "Island", 2).build();
+        let stone = t.id("Fellwar Stone");
+        let actions = t.mana_actions(stone);
+        assert!(!actions.is_empty());
+        for a in &actions {
+            let text = format!("{a:?}");
+            assert!(!["White", "Black", "Red", "Green"].iter().any(|c| text.contains(&format!("mana_type: {c}"))), "only blue: {text}");
+        }
+    });
+}
+
+/// "Exile all the cards from your hand, then draw that many cards. Until the end of your next
+/// turn, you may play cards exiled this way."
+#[test]
+#[ignore = "phase bug: Hex Magic exiles nothing and draws nothing (\"exile all the cards from your hand\" parses with no cards to move)"]
+fn hex_magic_swaps_your_hand_and_lets_you_play_the_old_one() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Hex Magic").hand(0, "Forest").hand(0, "Opt").lands(0, "Mountain", 3).lands(0, "Island", 1).build();
+        let (spell, forest, opt) = (t.id("Hex Magic"), t.id("Forest"), t.id("Opt"));
+        t.cast(spell);
+        t.drive().unwrap();
+        assert_eq!(t.drawn(0), 2);
+        assert_eq!((t.zone(forest), t.zone(opt)), (Zone::Exile, Zone::Exile));
+        let d = t.decision(0);
+        assert!(d.options.iter().any(|o| o.kind == OptionKind::Land && o.object == Some(forest.0)), "the exiled Forest may be played");
+        assert!(d.options.iter().any(|o| o.kind == OptionKind::Spell && o.object == Some(opt.0)), "the exiled Opt may be cast");
+    });
+}
+
+/// "Counter target spell. Its controller may draw up to two cards at the beginning of the next
+/// turn's upkeep. You draw a card at the beginning of the next turn's upkeep."
+#[test]
+fn arcane_denial_counters_and_both_draw_next_upkeep() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Arcane Denial").lands(0, "Island", 2).hand(1, "Divination").lands(1, "Island", 3).active(1).build();
+        let (denial, div) = (t.id("Arcane Denial"), t.id("Divination"));
+        t.cast(div);
+        t.pass_until(|t| t.m.waiting_on().first() == Some(&0));
+        t.cast(denial);
+        t.drive_aiming(&[div]);
+        assert_eq!(t.zone(div), Zone::Graveyard, "countered");
+        // Ana's turn comes next: its upkeep.
+        let (hand0, hand1) = (t.hand(0).len(), t.hand(1).len());
+        t.advance_to(Phase::Upkeep);
+        t.drive_answering(|_, _, d| {
+            let p = d.pending.as_ref()?;
+            match p.answer {
+                Answer::DecideOptionalEffect => Some(Act::DecideOptionalEffect { accept: true }),
+                // "Draw no cards", "Draw 1 card", "Draw 2 cards".
+                Answer::ChooseBranch => choose_named(p, "2 cards"),
+                _ => None,
+            }
+        })
+        .unwrap();
+        assert_eq!(t.hand(0).len(), hand0 + 1, "Ana drew one");
+        assert_eq!(t.hand(1).len(), hand1 + 2, "Ben drew up to two");
+    });
+}
+
+/// "Draw X cards. If X is 5 or more, you may cast a Hero spell from your hand without paying its
+/// mana cost."
+#[test]
+fn west_coast_expansion_draws_x() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "West Coast Expansion").lands(0, "Island", 4).build();
+        let spell = t.id("West Coast Expansion");
+        t.cast(spell);
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            (seat == 0 && p.answer == Answer::ChooseX).then_some(Act::ChooseX { value: 2 })
+        })
+        .unwrap();
+        assert_eq!(t.drawn(0), 2);
+    });
+}
+
+/// "When King Solomon's Frogs enters, if you cast it, for each opponent, exile up to one target
+/// permanent that player controls with mana value 3 or greater. For each permanent exiled this
+/// way, its controller draws a card."
+#[test]
+fn king_solomons_frogs_exiles_a_big_permanent_and_its_controller_draws() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "King Solomon's Frogs").lands(0, "Plains", 4).field(1, "Hill Giant").field(1, "Grizzly Bears").build();
+        let (frogs, giant, bears) = (t.id("King Solomon's Frogs"), t.id("Hill Giant"), t.id("Grizzly Bears"));
+        t.cast(frogs);
+        let mut offered = vec![];
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            if seat == 0 && p.answer == Answer::ChooseTarget {
+                offered = p.options.iter().map(|o| o.id.clone()).collect();
+                return Some(Act::ChooseTarget { target: Some(TargetView::Object { id: giant.0 }) });
+            }
+            None
+        })
+        .unwrap();
+        assert_eq!(t.zone(giant), Zone::Exile);
+        assert!(!offered.contains(&bears.0.to_string()), "mana value 2 isn't a legal target");
+        assert_eq!(t.drawn(1), 1, "its controller drew");
+    });
+}
+
+/// "Instant, sorcery, and Dragon spells you control can't be countered."
+#[test]
+fn taigam_keeps_your_sorcery_from_being_countered() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Taigam, Ojutai Master").hand(0, "Divination").lands(0, "Island", 3).hand(1, "Counterspell").lands(1, "Island", 2).build();
+        let (div, cs) = (t.id("Divination"), t.id("Counterspell"));
+        t.cast(div);
+        t.pass_until(|t| t.m.waiting_on().first() == Some(&1));
+        t.cast(cs);
+        t.tester = 0;
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            (seat == 1 && p.answer == Answer::ChooseTarget).then(|| Act::ChooseTarget { target: Some(TargetView::Object { id: div.0 }) })
+        })
+        .unwrap();
+        assert_eq!(t.drawn(0), 2, "Divination resolved");
+    });
+}
+
+/// "Return target nonland permanent card from your graveyard to the battlefield. Paradigm (Then
+/// exile this spell...)"
+#[test]
+fn restoration_seminar_returns_a_permanent_and_is_exiled() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Restoration Seminar").lands(0, "Plains", 7).grave(0, "Spellbook").build();
+        let (spell, book) = (t.id("Restoration Seminar"), t.id("Spellbook"));
+        t.cast(spell);
+        t.drive_aiming(&[book]);
+        assert!(t.on_field(book));
+        assert_eq!(t.zone(spell), Zone::Exile, "paradigm exiles it");
+    });
+}
+
+/// "Exile cards from the top of your library until you exile cards with total mana value 4 or
+/// greater. You may cast any number of spells from among them without paying their mana
+/// costs."
+#[test]
+fn improvisation_capstone_casts_the_exiled_spells_free() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Improvisation Capstone").lands(0, "Mountain", 7).top(0, "Grizzly Bears").top(0, "Savannah Lions").top(0, "Opt").build();
+        let (spell, bears, lions) = (t.id("Improvisation Capstone"), t.id("Grizzly Bears"), t.id("Savannah Lions"));
+        t.cast(spell);
+        // The free casts are offered as option buttons, one per card ("Selection: <id>").
+        for _ in 0..20 {
+            if t.settled() {
+                break;
+            }
+            let seat = t.m.waiting_on()[0];
+            let d = t.decision(seat);
+            let wanted = [bears, lions].into_iter().find(|id| d.options.iter().any(|o| o.label.contains(&format!("Selection: {}", id.0))));
+            match wanted {
+                Some(id) => t.choose(seat, |o| o.label.contains(&format!("Selection: {}", id.0))),
+                None => {
+                    let mut dr = super::Drove::default();
+                    t.answer_once(&mut dr).unwrap();
+                }
+            }
+        }
+        assert!(t.on_field(bears) && t.on_field(lions), "1 + 1 + 2: both creatures cast free");
+    });
+}
+
+// ── More of Tricky Terrain's upgrades ───────────────────────────────────────────────────────
+
+/// "Other Knights you control have horsemanship."
+#[test]
+fn herald_of_hoofbeats_gives_other_knights_horsemanship() {
+    big_stack(|| {
+        let t = Board::new(2).field(0, "Herald of Hoofbeats").field(0, "Éowyn, Shieldmaiden").field(0, "Grizzly Bears").build();
+        let (eowyn, bears) = (t.id("Éowyn, Shieldmaiden"), t.id("Grizzly Bears"));
+        assert!(t.has(eowyn, Keyword::Horsemanship));
+        assert!(!t.has(bears, Keyword::Horsemanship));
+    });
+}
+
+/// "When this enchantment enters, draw a card, then you may put a land card from your hand onto
+/// the battlefield. ... Lands you control enter untapped."
+#[test]
+fn spelunking_draws_puts_a_land_and_untaps_entering_lands() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Spelunking").hand(0, "Field of the Dead").lands(0, "Forest", 3).build();
+        let (spell, field) = (t.id("Spelunking"), t.id("Field of the Dead"));
+        t.cast(spell);
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            match p.answer {
+                Answer::SelectCards if seat == 0 && p.options.iter().any(|o| o.id == field.0.to_string()) => Some(Act::SelectCards { cards: vec![field.0] }),
+                // Ruling: you order the two; applying the Field's "enters tapped" first leaves
+                // Spelunking's untap last, so it enters untapped.
+                Answer::ChooseReplacement if seat == 0 => choose_named(p, "Field of the Dead"),
+                _ => None,
+            }
+        })
+        .unwrap();
+        assert_eq!(t.drawn(0), 1);
+        assert!(t.on_field(field));
+        assert!(!t.tapped(field), "Field of the Dead enters untapped");
+    });
+}
+
+/// "Return all creatures to their owners' hands except for Krakens, Leviathans, Octopuses, and
+/// Serpents."
+#[test]
+fn whelming_wave_spares_serpents() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Whelming Wave").lands(0, "Island", 4).field(0, "Aesi, Tyrant of Gyre Strait").field(1, "Grizzly Bears").build();
+        let (wave, aesi, bears) = (t.id("Whelming Wave"), t.id("Aesi, Tyrant of Gyre Strait"), t.id("Grizzly Bears"));
+        t.cast(wave);
+        t.drive().unwrap();
+        assert!(t.on_field(aesi), "a Serpent stays");
+        assert_eq!(t.zone(bears), Zone::Hand);
+    });
+}
+
+/// "You may play an additional land on each of your turns. ... You may play lands from the top
+/// of your library."
+#[test]
+fn oracle_of_mul_daya_plays_lands_from_the_top() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Oracle of Mul Daya").hand(0, "Swamp").top(0, "Forest").build();
+        let (swamp, forest) = (t.id("Swamp"), t.id("Forest"));
+        t.play_land(forest);
+        t.drive().unwrap();
+        assert!(t.on_field(forest), "played from the top of the library");
+        t.play_land(swamp);
+        t.drive().unwrap();
+        assert!(t.on_field(swamp), "a second land this turn");
+    });
+}
+
+/// "Equipped creature has haste and shroud. Equip {0}"
+#[test]
+fn lightning_greaves_gives_haste_and_shroud_for_free() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Lightning Greaves").field(0, "Grizzly Bears").build();
+        let (greaves, bears) = (t.id("Lightning Greaves"), t.id("Grizzly Bears"));
+        t.m.state.objects.get_mut(&bears).unwrap().summoning_sick = true;
+        t.activate(greaves, None);
+        t.drive_aiming(&[bears]);
+        assert!(t.has(bears, Keyword::Haste) && t.has(bears, Keyword::Shroud));
+    });
+}
+
+/// "{1}, {T}: Move a counter from target permanent you control onto a second target permanent.
+/// Activate only as a sorcery."
+#[test]
+fn nesting_grounds_moves_a_counter() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Nesting Grounds").lands(0, "Forest", 1).field(0, "Grizzly Bears").field(0, "Savannah Lions").build();
+        let (ng, bears, lions) = (t.id("Nesting Grounds"), t.id("Grizzly Bears"), t.id("Savannah Lions"));
+        t.m.state.objects.get_mut(&bears).unwrap().counters.insert(CounterType::Plus1Plus1, 1);
+        t.activate_labelled(ng, |l| l.contains("Move a counter"));
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            if seat != 0 || p.answer != Answer::ChooseTarget {
+                return None;
+            }
+            // From the Bears (the first target), onto the Lions (the second).
+            let id = if p.slot.is_some_and(|(i, _)| i > 0) { lions } else { bears };
+            Some(Act::ChooseTarget { target: Some(TargetView::Object { id: id.0 }) })
+        })
+        .unwrap();
+        assert_eq!(t.counters(bears, CounterType::Plus1Plus1), 0);
+        assert_eq!(t.counters(lions, CounterType::Plus1Plus1), 1);
+    });
+}
+
+/// "If a land entering causes a triggered ability of a permanent you control to trigger, that
+/// ability triggers an additional time." Tireless Provisioner makes two tokens.
+#[test]
+fn ancient_greenwarden_doubles_landfall() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Ancient Greenwarden").field(0, "Tireless Provisioner").hand(0, "Forest").build();
+        let forest = t.id("Forest");
+        t.play_land(forest);
+        t.drive().unwrap();
+        assert_eq!(t.tokens(0).len(), 2);
+    });
+}
+
+/// "You may play lands from your graveyard." (Ancient Greenwarden)
+#[test]
+fn ancient_greenwarden_plays_lands_from_the_graveyard() {
+    big_stack(|| {
+        let t = Board::new(2).field(0, "Ancient Greenwarden").grave(0, "Forest").build();
+        let forest = t.id("Forest");
+        assert!(t.decision(0).options.iter().any(|o| o.kind == OptionKind::Land && o.object == Some(forest.0)));
+    });
+}
+
+/// "You may play an additional land on each of your turns. Landfall — Whenever a land you
+/// control enters, you may draw a card."
+#[test]
+fn aesi_draws_on_each_of_two_lands() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Aesi, Tyrant of Gyre Strait").hand(0, "Forest").hand(0, "Island").build();
+        let (forest, island) = (t.id("Forest"), t.id("Island"));
+        t.play_land(forest);
+        t.drive().unwrap();
+        t.play_land(island);
+        t.drive().unwrap();
+        assert_eq!(t.drawn(0), 2);
+    });
+}
+
+/// "You may play two additional lands on each of your turns."
+#[test]
+fn azusa_plays_three_lands() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Azusa, Lost but Seeking").hand(0, "Forest").hand(0, "Island").hand(0, "Swamp").hand(0, "Plains").build();
+        for name in ["Forest", "Island", "Swamp"] {
+            let id = t.id(name);
+            t.play_land(id);
+            t.drive().unwrap();
+            assert!(t.on_field(id), "{name}");
+        }
+        let plains = t.id("Plains");
+        assert!(!t.decision(0).options.iter().any(|o| o.kind == OptionKind::Land && o.object == Some(plains.0)), "not a fourth");
+    });
+}
+
+/// "Permanents you control gain hexproof and indestructible until end of turn."
+#[test]
+fn heroic_intervention_protects_your_permanents() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Heroic Intervention").lands(0, "Forest", 2).field(0, "Grizzly Bears").build();
+        let (spell, bears) = (t.id("Heroic Intervention"), t.id("Grizzly Bears"));
+        t.cast(spell);
+        t.drive().unwrap();
+        assert!(t.has(bears, Keyword::Hexproof) && t.has(bears, Keyword::Indestructible));
+    });
+}
+
+/// "Other Treefolk creatures you control get +1/+1. Other Treefolk and Forests you control have
+/// indestructible."
+#[test]
+fn timber_protector_makes_forests_indestructible() {
+    big_stack(|| {
+        let t = Board::new(2).field(0, "Timber Protector").lands(0, "Forest", 1).lands(0, "Island", 1).build();
+        let (forest, island) = (t.id("Forest"), t.id("Island"));
+        assert!(t.has(forest, Keyword::Indestructible));
+        assert!(!t.has(island, Keyword::Indestructible));
+    });
+}
+
+/// "This creature enters with a +1/+1 counter on it. Landfall — Whenever a land you control
+/// enters, double the number of +1/+1 counters on this creature."
+#[test]
+fn mossborn_hydra_doubles_its_counters_on_landfall() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Mossborn Hydra").lands(0, "Forest", 3).hand(0, "Forest").build();
+        let hydra = t.id("Mossborn Hydra");
+        t.cast(hydra);
+        t.drive().unwrap();
+        assert_eq!(t.counters(hydra, CounterType::Plus1Plus1), 1);
+        let forest = t.ids[4];
+        t.play_land(forest);
+        t.drive().unwrap();
+        assert_eq!(t.counters(hydra, CounterType::Plus1Plus1), 2);
+    });
+}
+
+/// "{T}: Put a burden counter on The One Ring, then draw a card for each burden counter on The
+/// One Ring."
+#[test]
+fn the_one_ring_draws_one_per_burden_counter() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "The One Ring").build();
+        let ring = t.id("The One Ring");
+        t.m.state.objects.get_mut(&ring).unwrap().counters.insert(CounterType::Generic("burden".into()), 1);
+        t.activate(ring, None);
+        t.drive().unwrap();
+        assert_eq!(t.drawn(0), 2, "the second burden counter draws two");
+    });
+}
+
+/// "{T}: Add {G} for each creature you control."
+#[test]
+fn gaeas_cradle_counts_your_creatures() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Gaea's Cradle").field(0, "Grizzly Bears").field(0, "Savannah Lions").field(1, "Hill Giant").build();
+        let cradle = t.id("Gaea's Cradle");
+        let action = t.mana_actions(cradle).into_iter().next().expect("a mana ability");
+        assert_eq!(t.tap_for_mana(action), Ok(2));
+    });
+}
+
+/// "As an additional cost to cast this spell, sacrifice a green creature. Search your library for
+/// a green creature card, put it onto the battlefield, then shuffle."
+#[test]
+fn natural_order_trades_a_green_creature_for_any_green_creature() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Natural Order").lands(0, "Forest", 4).field(0, "Grizzly Bears").top(0, "Craw Wurm").build();
+        let (spell, bears, wurm) = (t.id("Natural Order"), t.id("Grizzly Bears"), t.id("Craw Wurm"));
+        t.cast(spell);
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            (seat == 0 && p.answer == Answer::SelectCards && p.options.iter().any(|o| o.id == wurm.0.to_string())).then(|| Act::SelectCards { cards: vec![wurm.0] })
+        })
+        .unwrap();
+        assert_eq!(t.zone(bears), Zone::Graveyard, "the Bears paid for it");
+        assert!(t.on_field(wurm));
+    });
+}
+
+/// "Return target nonland permanent you don't control to its owner's hand. Overload {6}{U}"
+#[test]
+fn cyclonic_rift_overloaded_bounces_everything_they_control() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Cyclonic Rift").lands(0, "Island", 7).field(0, "Grizzly Bears").field(1, "Hill Giant").field(1, "Spellbook").build();
+        let (rift, mine, giant, book) = (t.id("Cyclonic Rift"), t.id("Grizzly Bears"), t.id("Hill Giant"), t.id("Spellbook"));
+        t.cast(rift);
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            (seat == 0 && p.answer == Answer::ChooseAlternativeCast).then_some(Act::ChooseAlternativeCast { alternative: true })
+        })
+        .unwrap();
+        assert_eq!((t.zone(giant), t.zone(book)), (Zone::Hand, Zone::Hand));
+        assert!(t.on_field(mine), "yours stay");
+    });
+}
+
+// ── More of Multiverse Reforged's candidates ────────────────────────────────────────────────
+
+/// "Whenever this creature enters or attacks, create two 2/2 black Zombie creature tokens."
+#[test]
+fn grave_titan_makes_two_zombies_on_entering() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Grave Titan").lands(0, "Swamp", 6).build();
+        let titan = t.id("Grave Titan");
+        t.cast(titan);
+        t.drive().unwrap();
+        let tokens = t.tokens(0);
+        assert_eq!(tokens.len(), 2);
+        assert!(tokens.iter().all(|z| t.pt(*z) == (2, 2)));
+    });
+}
+
+/// "Other creatures you control get +2/+2. Creatures your opponents control get -2/-2."
+#[test]
+fn elesh_norn_pumps_yours_and_shrinks_theirs() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Elesh Norn, Grand Cenobite").field(0, "Grizzly Bears").field(1, "Hill Giant").field(1, "Savannah Lions").build();
+        let (bears, giant, lions) = (t.id("Grizzly Bears"), t.id("Hill Giant"), t.id("Savannah Lions"));
+        assert_eq!(t.pt(bears), (4, 4));
+        assert_eq!(t.pt(giant), (1, 1));
+        assert_eq!(t.pt(lions), (0, -1));
+        // The board was set by hand: state-based actions run once the game moves on.
+        t.choose(0, |o| o.kind == OptionKind::Pass);
+        assert_eq!(t.zone(lions), Zone::Graveyard, "a 2/1 dies at -2/-2");
+    });
+}
+
+/// "Exile target creature. That creature's controller reveals cards from the top of their library
+/// until they reveal a creature card. That player puts that card onto the battlefield."
+#[test]
+fn transmogrify_turns_a_creature_into_the_next_one() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Transmogrify").lands(0, "Mountain", 4).field(0, "Grizzly Bears").top(0, "Opt").top(0, "Craw Wurm").build();
+        let (spell, bears, wurm) = (t.id("Transmogrify"), t.id("Grizzly Bears"), t.id("Craw Wurm"));
+        t.cast(spell);
+        t.drive_aiming(&[bears]);
+        assert_eq!(t.zone(bears), Zone::Exile);
+        assert!(t.on_field(wurm));
+    });
+}
+
+/// "{3}{R}: Exile target creature or planeswalker you control. Reveal cards from the top of your
+/// library until you reveal a creature or planeswalker card. Put that card onto the battlefield."
+#[test]
+fn identity_echo_trades_a_creature_for_the_next_one() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Identity Echo").lands(0, "Mountain", 4).field(0, "Grizzly Bears").top(0, "Opt").top(0, "Craw Wurm").build();
+        let (echo, bears, wurm) = (t.id("Identity Echo"), t.id("Grizzly Bears"), t.id("Craw Wurm"));
+        t.activate(echo, None);
+        t.drive_aiming(&[bears]);
+        assert_eq!(t.zone(bears), Zone::Exile);
+        assert!(t.on_field(wurm));
+    });
+}
+
+/// "The owner of target permanent shuffles it into their library, then reveals the top card of
+/// their library. If it's a permanent card, they put it onto the battlefield."
+#[test]
+fn chaos_warp_shuffles_a_permanent_away() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Chaos Warp").lands(0, "Mountain", 3).field(1, "Hill Giant").build();
+        let (spell, giant) = (t.id("Chaos Warp"), t.id("Hill Giant"));
+        t.cast(spell);
+        t.drive_aiming(&[giant]);
+        assert!(!t.on_field(giant) || t.state().players[1].library.is_empty(), "shuffled into the library (or revealed and put back)");
+    });
+}
+
+/// "When this creature enters, gain control of target permanent."
+#[test]
+fn agent_of_treachery_steals_a_permanent() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Agent of Treachery").lands(0, "Island", 7).field(1, "Hill Giant").build();
+        let (agent, giant) = (t.id("Agent of Treachery"), t.id("Hill Giant"));
+        t.cast(agent);
+        t.drive_aiming(&[giant]);
+        assert_eq!(t.controller(giant), 0);
+    });
+}
+
+/// "Whenever an opponent draws a card, you may draw two cards."
+#[test]
+fn consecrated_sphinx_draws_two_when_they_draw() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Consecrated Sphinx").hand(1, "Opt").lands(1, "Island", 1).active(1).build();
+        let opt = t.id("Opt");
+        t.cast(opt);
+        t.drive().unwrap();
+        assert_eq!(t.drawn(1), 1);
+        assert_eq!(t.drawn(0), 2);
+    });
+}
+
+/// "If you control a commander, you may cast this spell without paying its mana cost. Counter
+/// target noncreature spell."
+#[test]
+fn fierce_guardianship_is_free_with_a_commander_out() {
+    big_stack(|| {
+        let mut t = Board::new(2).commander(0, "Jace, Multiverse Architect").hand(0, "Fierce Guardianship").basics(0, 2).hand(1, "Divination").lands(1, "Island", 3).build();
+        let jace = *t.state().command_zone.iter().find(|id| t.state().objects[*id].owner.0 == 0).unwrap();
+        t.cast(jace);
+        t.drive().unwrap();
+        // Ana's lands are all tapped now.
+        for id in t.state().battlefield.clone() {
+            if t.state().objects[&id].controller.0 == 0 && t.state().objects[&id].card_types.core_types.contains(&engine::types::card_type::CoreType::Land) {
+                t.m.state.objects.get_mut(&id).unwrap().tapped = true;
+            }
+        }
+        t.m.state.active_player = engine::types::player::PlayerId(1);
+        t.m.state.priority_player = engine::types::player::PlayerId(1);
+        t.m.state.waiting_for = engine::types::game_state::WaitingFor::Priority { player: engine::types::player::PlayerId(1) };
+        t.m.remark(None);
+        let (fg, div) = (t.id("Fierce Guardianship"), t.id("Divination"));
+        t.cast(div);
+        t.pass_until(|t| t.m.waiting_on().first() == Some(&0));
+        assert!(t.decision(0).options.iter().any(|o| o.kind == OptionKind::Spell && o.object == Some(fg.0)), "castable with no mana");
+        t.act(0, Act::CastSpell { object: fg.0, payment: crate::pay::PayMode::Auto });
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            if seat != 0 {
+                return None;
+            }
+            match p.answer {
+                Answer::ChooseAlternativeCast => Some(Act::ChooseAlternativeCast { alternative: true }),
+                Answer::ChooseTarget => Some(Act::ChooseTarget { target: Some(TargetView::Object { id: div.0 }) }),
+                _ => None,
+            }
+        })
+        .unwrap();
+        assert_eq!(t.zone(div), Zone::Graveyard, "countered");
+    });
+}
+
+/// "At the beginning of your upkeep, you lose 1 life and create a 1/1 black Faerie Rogue creature
+/// token with flying."
+#[test]
+fn bitterblossom_makes_a_faerie_each_upkeep() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Bitterblossom").phase(Phase::Untap).build();
+        t.advance_to(Phase::Upkeep);
+        t.drive().unwrap();
+        assert_eq!(t.life(0), 39);
+        let tokens = t.tokens(0);
+        assert_eq!(tokens.len(), 1);
+        assert!(t.has(tokens[0], Keyword::Flying));
+    });
+}
+
+/// "When this creature enters, exile up to two target artifacts and/or enchantments."
+#[test]
+fn angel_of_the_ruins_exiles_two_artifacts_or_enchantments() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Angel of the Ruins").lands(0, "Plains", 7).field(1, "Spellbook").field(1, "Ghostly Prison").build();
+        let (angel, book, prison) = (t.id("Angel of the Ruins"), t.id("Spellbook"), t.id("Ghostly Prison"));
+        t.cast(angel);
+        t.drive_aiming(&[book, prison]);
+        assert_eq!((t.zone(book), t.zone(prison)), (Zone::Exile, Zone::Exile));
+    });
+}
+
+/// "At the beginning of each opponent's end step, that player chooses up to two creatures they
+/// control, then sacrifices the rest."
+#[test]
+#[ignore = "phase bug: Archfiend of Depravity's end step trigger asks its controller for a target and sacrifices nothing"]
+fn archfiend_of_depravity_leaves_each_opponent_two_creatures() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Archfiend of Depravity").field(1, "Grizzly Bears").field(1, "Savannah Lions").field(1, "Hill Giant").active(1).build();
+        t.tester = 1;
+        t.advance_to(Phase::End);
+        t.drive().unwrap();
+        let theirs = t.state().battlefield.iter().filter(|id| t.state().objects[*id].controller.0 == 1 && t.is_creature(**id)).count();
+        assert_eq!(theirs, 2);
+    });
+}
+
+/// "When this creature enters, for each opponent, you may put up to one target creature card
+/// from that player's graveyard onto the battlefield under your control."
+#[test]
+#[ignore = "phase bug: Sepulchral Primordial gets one target in all, not one in each opponent's graveyard"]
+fn sepulchral_primordial_takes_a_creature_from_each_opponents_graveyard() {
+    big_stack(|| {
+        let mut t = Board::new(3).hand(0, "Sepulchral Primordial").lands(0, "Swamp", 7).grave(1, "Hill Giant").grave(2, "Craw Wurm").build();
+        let (prim, giant, wurm) = (t.id("Sepulchral Primordial"), t.id("Hill Giant"), t.id("Craw Wurm"));
+        t.cast(prim);
+        t.drive_aiming(&[giant, wurm]);
+        assert!(t.on_field(giant) && t.on_field(wurm));
+        assert_eq!((t.controller(giant), t.controller(wurm)), (0, 0));
+    });
+}
+
+/// "As this land enters, you may reveal a Plains or Island card from your hand. If you don't,
+/// this land enters tapped."
+#[test]
+fn port_town_enters_untapped_when_you_reveal_a_plains() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Port Town").hand(0, "Plains").build();
+        let (town, plains) = (t.id("Port Town"), t.id("Plains"));
+        t.play_land(town);
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            (seat == 0 && p.answer == Answer::SelectCards).then(|| Act::SelectCards { cards: vec![plains.0] })
+        })
+        .unwrap();
+        assert!(!t.tapped(town));
     });
 }
