@@ -14,10 +14,11 @@
 //!   option buttons. It reports an engine refusal, an `act` refusal of an answer the engine
 //!   offered, a decision nobody can answer, and a game that doesn't settle.
 //!
-//! The tests: smoke.rs (one per card in Bryan's decks, list in smoke_cards.rs) and commanders.rs
-//! (the eight commanders).
+//! The tests: smoke.rs (one per card in Bryan's decks, list in smoke_cards.rs), commanders.rs
+//! (the eight commanders) and key_cards.rs (the cards the decks are built around).
 
 mod commanders;
+mod key_cards;
 pub(crate) mod plain;
 mod smoke;
 
@@ -28,13 +29,16 @@ use engine::ai_support::{AiDecisionContract, legal_actions_for_viewer};
 use engine::game::layers::evaluate_layers;
 use engine::types::ability::TargetRef;
 use engine::types::actions::GameAction;
+use engine::types::card_type::CoreType;
 use engine::types::counter::CounterType;
 use engine::types::game_state::{GameState, WaitingFor};
 use engine::types::identifiers::ObjectId;
+use engine::types::keywords::Keyword;
 use engine::types::phase::Phase;
 use engine::types::player::PlayerId;
 use engine::types::zones::Zone;
 
+use crate::act::Answer;
 use crate::feed::What;
 use crate::pay::PayMode;
 use crate::{Act, ChoiceError, Decision, Engine, Match, OptionKind, Pending, SeatDeck, TargetView};
@@ -73,6 +77,8 @@ pub(crate) struct Board {
     cards: Vec<(String, u8, At)>,
     life: Vec<i32>,
     active: u8,
+    /// The step the active seat has priority in.
+    phase: Phase,
     /// The rest of every library: the deal fills each deck to 100 with these, in turn.
     filler: Vec<String>,
 }
@@ -93,6 +99,7 @@ impl Board {
             cards: vec![],
             life: vec![40; players],
             active: 0,
+            phase: Phase::PreCombatMain,
             filler: ["Plains", "Island", "Swamp", "Mountain", "Forest", "Grizzly Bears"].iter().map(|s| s.to_string()).collect(),
         }
     }
@@ -154,9 +161,16 @@ impl Board {
         self
     }
 
+    /// Start in another step of the active seat's turn (the upkeep, to see "beginning of your
+    /// first main phase" triggers).
+    pub fn phase(mut self, phase: Phase) -> Self {
+        self.phase = phase;
+        self
+    }
+
     /// Deal the decks, start the game, then put every card where it's asked for (untapped, none
     /// summoning sick, hands holding only the cards given) and give the active seat priority in
-    /// its turn 3 main phase. Libraries hold the rest of the deal in the order it fell.
+    /// its turn 3 main phase (or the step [`Board::phase`] says). Libraries hold the rest of the deal in the order it fell.
     pub fn build(self) -> Table {
         let players = self.commanders.len();
         let deck = |seat: usize| {
@@ -245,7 +259,7 @@ impl Board {
         m.state.turn_number = 3;
         m.state.active_player = active;
         m.state.priority_player = active;
-        m.state.phase = Phase::PreCombatMain;
+        m.state.phase = self.phase;
         m.state.waiting_for = WaitingFor::Priority { player: active };
         m.remark(None);
         Table { m, ids, tester: 0, mays: HashMap::new() }
@@ -354,6 +368,18 @@ impl Table {
         self.m.state.players[usize::from(seat)].mana_pool.total()
     }
 
+    pub fn has(&self, id: ObjectId, k: Keyword) -> bool {
+        self.m.state.objects[&id].keywords.contains(&k)
+    }
+
+    pub fn subtypes(&self, id: ObjectId) -> Vec<String> {
+        self.m.state.objects[&id].card_types.subtypes.clone()
+    }
+
+    pub fn is_creature(&self, id: ObjectId) -> bool {
+        self.m.state.objects[&id].card_types.core_types.contains(&CoreType::Creature)
+    }
+
     /// What everyone could see happen (the feed a spectator gets), oldest first.
     pub fn happened(&self) -> Vec<What> {
         self.m.events(None).into_iter().map(|h| h.what).collect()
@@ -421,6 +447,39 @@ impl Table {
     /// Aim the spell or ability being cast at `t`.
     pub fn target(&mut self, seat: u8, t: TargetView) {
         self.act(seat, Act::ChooseTarget { target: Some(t) });
+    }
+
+    /// Every seat passes until `done` holds (at most 60 passes).
+    pub fn pass_until(&mut self, done: impl Fn(&Table) -> bool) {
+        for _ in 0..60 {
+            if done(self) {
+                return;
+            }
+            let seat = *self.m.waiting_on().first().expect("someone decides");
+            self.choose(seat, |o| o.kind == OptionKind::Pass);
+        }
+        panic!("never got there: {:?}", self.m.state.waiting_for);
+    }
+
+    /// Activate the ability of `id` whose option label passes `label`.
+    pub fn activate_labelled(&mut self, id: ObjectId, label: impl Fn(&str) -> bool) {
+        let seat = self.controller(id);
+        self.choose(seat, |o| o.kind == OptionKind::Ability && o.object == Some(id.0) && label(&o.label));
+    }
+
+    /// [`Table::drive`], answering the tester's target choices with the first of `wanted` each
+    /// offers.
+    pub fn drive_aiming(&mut self, wanted: &[ObjectId]) {
+        let tester = self.tester;
+        self.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            if seat != tester || p.answer != Answer::ChooseTarget {
+                return None;
+            }
+            let id = wanted.iter().find(|id| p.options.iter().any(|o| o.id == id.0.to_string()))?;
+            Some(Act::ChooseTarget { target: Some(TargetView::Object { id: id.0 }) })
+        })
+        .unwrap();
     }
 
     /// Everyone passes until someone has a decision other than priority (returned), or the

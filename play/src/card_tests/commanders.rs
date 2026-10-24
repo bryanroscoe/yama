@@ -1,7 +1,6 @@
 //! The eight commanders of Bryan's decks, each checked against its Oracle text and rulings
 //! (phase's card data carries the rulings; card-data-eb309108eb0df708.json).
 
-use engine::types::card_type::CoreType;
 use engine::types::counter::CounterType;
 use engine::types::identifiers::ObjectId;
 use engine::types::keywords::Keyword;
@@ -11,50 +10,6 @@ use engine::types::zones::Zone;
 use super::{Board, Table, big_stack};
 use crate::act::Answer;
 use crate::{Act, AttackAt, OptionKind, TargetView};
-
-pub(super) fn has(t: &Table, id: ObjectId, k: Keyword) -> bool {
-    t.state().objects[&id].keywords.contains(&k)
-}
-
-pub(super) fn subtypes(t: &Table, id: ObjectId) -> Vec<String> {
-    t.state().objects[&id].card_types.subtypes.clone()
-}
-
-pub(super) fn is_creature(t: &Table, id: ObjectId) -> bool {
-    t.state().objects[&id].card_types.core_types.contains(&CoreType::Creature)
-}
-
-/// Every seat passes until `done` holds (at most 60 passes).
-pub(super) fn pass_until(t: &mut Table, done: impl Fn(&Table) -> bool) {
-    for _ in 0..60 {
-        if done(t) {
-            return;
-        }
-        let seat = *t.m.waiting_on().first().expect("someone decides");
-        t.choose(seat, |o| o.kind == OptionKind::Pass);
-    }
-    panic!("never got there: {:?}", t.state().waiting_for);
-}
-
-/// Activate the ability of `id` whose option label passes `label`.
-pub(super) fn activate_labelled(t: &mut Table, id: ObjectId, label: impl Fn(&str) -> bool) {
-    let seat = t.controller(id);
-    t.choose(seat, |o| o.kind == OptionKind::Ability && o.object == Some(id.0) && label(&o.label));
-}
-
-/// Answer seat 0's target choices with the first of `wanted` each offers; the drive answers
-/// the rest.
-pub(super) fn drive_aiming(t: &mut Table, wanted: &[ObjectId]) {
-    t.drive_answering(|_, seat, d| {
-        let p = d.pending.as_ref()?;
-        if seat != 0 || p.answer != Answer::ChooseTarget {
-            return None;
-        }
-        let id = wanted.iter().find(|id| p.options.iter().any(|o| o.id == id.0.to_string()))?;
-        Some(Act::ChooseTarget { target: Some(TargetView::Object { id: id.0 }) })
-    })
-    .unwrap();
-}
 
 /// The id of seat `seat`'s commander in the command zone.
 fn in_command_zone(t: &Table, seat: u8) -> ObjectId {
@@ -163,7 +118,7 @@ fn mister_fantastic_copies_a_triggered_ability_twice() {
         let (mf, elf) = (t.id("Mister Fantastic"), t.id("Elvish Visionary"));
         t.cast(elf);
         // The Visionary resolves; its trigger goes on the stack and Ana gets priority.
-        pass_until(&mut t, |t| t.on_field(elf) && t.state().stack.last().is_some_and(|e| e.source_id == elf));
+        t.pass_until(|t| t.on_field(elf) && t.state().stack.last().is_some_and(|e| e.source_id == elf));
         t.activate(mf, None);
         t.drive().unwrap();
         assert_eq!(t.drawn(0), 3, "the trigger and its two copies each drew");
@@ -189,9 +144,9 @@ fn eowyn_makes_two_knights_after_another_human_enters() {
         assert_eq!(tokens.len(), 2, "two Knights");
         for k in tokens {
             assert_eq!(t.pt(k), (2, 2));
-            let types = subtypes(&t, k);
+            let types = t.subtypes(k);
             assert!(types.contains(&"Human".to_string()) && types.contains(&"Knight".to_string()), "{types:?}");
-            assert!(has(&t, k, Keyword::Trample) && has(&t, k, Keyword::Haste));
+            assert!(t.has(k, Keyword::Trample) && t.has(k, Keyword::Haste));
         }
         assert_eq!(t.drawn(0), 0, "four Humans isn't six");
     });
@@ -240,12 +195,12 @@ fn quintorius_makes_a_spirit_when_a_card_leaves_your_graveyard() {
         let mut t = Board::new(2).field(0, "Quintorius, History Chaser").field(0, "Ghost Vacuum").grave(0, "Lightning Bolt").build();
         let (vacuum, bolt) = (t.id("Ghost Vacuum"), t.id("Lightning Bolt"));
         t.activate(vacuum, Some(0));
-        drive_aiming(&mut t, &[bolt]);
+        t.drive_aiming(&[bolt]);
         assert_eq!(t.zone(bolt), Zone::Exile);
         let tokens = t.tokens(0);
         assert_eq!(tokens.len(), 1, "one Spirit");
         assert_eq!(t.pt(tokens[0]), (3, 2));
-        assert!(subtypes(&t, tokens[0]).contains(&"Spirit".to_string()));
+        assert!(t.subtypes(tokens[0]).contains(&"Spirit".to_string()));
     });
 }
 
@@ -278,7 +233,7 @@ fn quintorius_plus_one_loots_and_mills() {
         let mut t = Board::new(2).field(0, "Quintorius, History Chaser").hand(0, "Opt").build();
         let (q, opt) = (t.id("Quintorius, History Chaser"), t.id("Opt"));
         let library = t.library_len(0);
-        activate_labelled(&mut t, q, |l| l.starts_with('+'));
+        t.activate_labelled(q, |l| l.starts_with('+'));
         t.drive_answering(|t, seat, d| {
             let p = d.pending.as_ref()?;
             match p.answer {
@@ -304,9 +259,9 @@ fn quintorius_minus_four_arms_the_spirits() {
         t.activate(vacuum, Some(0));
         t.drive().unwrap();
         let spirit = t.tokens(0)[0];
-        activate_labelled(&mut t, q, |l| l.starts_with('−'));
+        t.activate_labelled(q, |l| l.starts_with('−'));
         t.drive().unwrap();
-        assert!(has(&t, spirit, Keyword::DoubleStrike) && has(&t, spirit, Keyword::Vigilance));
+        assert!(t.has(spirit, Keyword::DoubleStrike) && t.has(spirit, Keyword::Vigilance));
         assert_eq!(t.state().objects[&q].loyalty, Some(1));
     });
 }
@@ -331,8 +286,8 @@ fn rootha_makes_an_elemental_as_big_as_the_biggest_spell() {
         assert_eq!(tokens.len(), 1);
         let e = tokens[0];
         assert_eq!(t.pt(e), (3, 3), "Divination's mana value");
-        assert!(has(&t, e, Keyword::Flying) && has(&t, e, Keyword::Haste));
-        assert!(subtypes(&t, e).contains(&"Elemental".to_string()));
+        assert!(t.has(e, Keyword::Flying) && t.has(e, Keyword::Haste));
+        assert!(t.subtypes(e).contains(&"Elemental".to_string()));
     });
 }
 
@@ -356,12 +311,12 @@ fn terra_mills_two_and_flies_at_combat() {
         let mut t = Board::new(2).field(0, "Terra, Herald of Hope").build();
         let terra = t.id("Terra, Herald of Hope");
         let library = t.library_len(0);
-        assert!(!has(&t, terra, Keyword::Flying));
+        assert!(!t.has(terra, Keyword::Flying));
         t.advance_to(Phase::BeginCombat);
         t.drive().unwrap();
         assert_eq!(t.library_len(0), library - 2);
         assert_eq!(t.graveyard(0).len(), 2);
-        assert!(has(&t, terra, Keyword::Flying));
+        assert!(t.has(terra, Keyword::Flying));
     });
 }
 
@@ -421,7 +376,7 @@ fn hearthhull_sacrifices_a_land_to_draw_two_and_play_another() {
         t.m.state.lands_played_this_turn = 1;
         t.m.state.players[0].lands_played_this_turn = 1;
         assert!(!t.decision(0).options.iter().any(|o| o.kind == OptionKind::Land));
-        activate_labelled(&mut t, h, |l| l.contains("Draw two"));
+        t.activate_labelled(h, |l| l.contains("Draw two"));
         t.drive().unwrap();
         assert_eq!(t.drawn(0), 2);
         let forests = t.state().battlefield.iter().filter(|id| t.state().objects[*id].name == "Forest").count();
@@ -438,7 +393,7 @@ fn hearthhull_drains_each_opponent_for_a_land_at_eight() {
         let mut t = Board::new(3).field(0, "Hearthhull, the Worldseed").lands(0, "Forest", 3).build();
         let h = t.id("Hearthhull, the Worldseed");
         t.m.state.objects.get_mut(&h).unwrap().counters.insert(CounterType::Generic("charge".into()), 8);
-        activate_labelled(&mut t, h, |l| l.contains("Draw two"));
+        t.activate_labelled(h, |l| l.contains("Draw two"));
         t.drive().unwrap();
         assert_eq!(t.drawn(0), 2);
         assert_eq!((t.life(1), t.life(2)), (38, 38), "each opponent lost 2");
@@ -451,15 +406,15 @@ fn hearthhull_is_a_creature_at_eight() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Hearthhull, the Worldseed").field(0, "Craw Wurm").field(0, "Grizzly Bears").build();
         let h = t.id("Hearthhull, the Worldseed");
-        assert!(!is_creature(&t, h), "not a creature below 8");
+        assert!(!t.is_creature(h), "not a creature below 8");
         for _ in 0..2 {
             t.choose(0, |o| o.label.contains("Station"));
             t.drive().unwrap();
         }
         assert_eq!(t.counters(h, CounterType::Generic("charge".into())), 8);
-        assert!(is_creature(&t, h), "a creature at 8");
+        assert!(t.is_creature(h), "a creature at 8");
         assert_eq!(t.pt(h), (6, 7));
-        assert!(has(&t, h, Keyword::Flying) && has(&t, h, Keyword::Vigilance) && has(&t, h, Keyword::Haste));
+        assert!(t.has(h, Keyword::Flying) && t.has(h, Keyword::Vigilance) && t.has(h, Keyword::Haste));
     });
 }
 
@@ -475,11 +430,11 @@ fn omo_makes_a_land_every_land_type_and_a_creature_every_creature_type() {
         let mut t = Board::new(2).hand(0, "Omo, Queen of Vesuva").field(0, "Wastes").field(0, "Grizzly Bears").basics(0, 1).build();
         let (omo, wastes, bears) = (t.id("Omo, Queen of Vesuva"), t.id("Wastes"), t.id("Grizzly Bears"));
         t.cast(omo);
-        drive_aiming(&mut t, &[wastes, bears]);
+        t.drive_aiming(&[wastes, bears]);
         let everything = CounterType::Generic("everything".into());
         assert_eq!(t.counters(wastes, everything.clone()), 1);
         assert_eq!(t.counters(bears, everything), 1);
-        let land_types = subtypes(&t, wastes);
+        let land_types = t.subtypes(wastes);
         for kind in ["Plains", "Island", "Swamp", "Mountain", "Forest", "Desert", "Gate", "Cave"] {
             assert!(land_types.contains(&kind.to_string()), "Wastes is a {kind}: {land_types:?}");
         }
@@ -487,7 +442,7 @@ fn omo_makes_a_land_every_land_type_and_a_creature_every_creature_type() {
         t.refresh(0);
         let ways = t.mana_actions(wastes).len();
         assert!(ways >= 5, "Wastes taps for every colour now ({ways} ways)");
-        let creature_types = subtypes(&t, bears);
+        let creature_types = t.subtypes(bears);
         for kind in ["Bear", "Elf", "Human", "Spirit", "Zombie"] {
             assert!(creature_types.contains(&kind.to_string()), "the Bears are a {kind}: {creature_types:?}");
         }
@@ -502,7 +457,7 @@ fn jace_plus_one_draws_two_and_bottoms_one() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Jace, Multiverse Architect").hand(0, "Opt").build();
         let (jace, opt) = (t.id("Jace, Multiverse Architect"), t.id("Opt"));
-        activate_labelled(&mut t, jace, |l| l.starts_with('+'));
+        t.activate_labelled(jace, |l| l.starts_with('+'));
         t.drive_answering(|_, seat, d| {
             let p = d.pending.as_ref()?;
             (seat == 0 && p.answer == Answer::SelectCards).then(|| Act::SelectCards { cards: vec![opt.0] })
@@ -523,8 +478,8 @@ fn jace_minus_three_trades_a_creature_for_the_next_one_in_the_library() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Jace, Multiverse Architect").field(0, "Grizzly Bears").top(0, "Opt").top(0, "Hill Giant").build();
         let (jace, bears, opt, giant) = (t.id("Jace, Multiverse Architect"), t.id("Grizzly Bears"), t.id("Opt"), t.id("Hill Giant"));
-        activate_labelled(&mut t, jace, |l| l.starts_with('−'));
-        drive_aiming(&mut t, &[bears]);
+        t.activate_labelled(jace, |l| l.starts_with('−'));
+        t.drive_aiming(&[bears]);
         assert_eq!(t.zone(bears), Zone::Exile);
         assert!(t.on_field(giant), "Hill Giant, the first creature revealed, came in");
         assert_eq!(t.state().players[0].library.last(), Some(&opt), "Opt went to the bottom");
