@@ -74,7 +74,7 @@ own costs nothing; say so.";
 const NO_CHANGES: &str = "You can't change anything in Yama.";
 const WITH_CHANGES: &str = "You can't change anything in Yama yourself, but when they ask you to make a change, or say \
 yes to one you suggested, stage it with a write tool (`edit_deck`, `propose_swap`, `answer_review`, `mark_bought`, \
-`mark_installed`, `start_lab_run`, `add_to_collection`, `move_cards`). A staged change shows under your answer with \
+`mark_installed`, `start_lab_run`, `add_to_collection`, `move_cards`, `set_condition`). A staged change shows under your answer with \
 Apply and Discard, and nothing changes until they apply it: say it's waiting for their review, never that it's done. \
 Don't stage changes they didn't ask for, and check `changes` before staging one that may already be waiting.";
 

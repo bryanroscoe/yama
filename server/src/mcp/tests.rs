@@ -71,7 +71,7 @@ async fn the_protocol_basics() {
     let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     assert_eq!(status, StatusCode::OK);
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    for n in ["overview", "deck", "plan_deck", "review_queue", "find_cards", "card", "check_list", "lab_runs", "lab_run", "precon"] {
+    for n in ["overview", "deck", "plan_deck", "review_queue", "find_cards", "card", "check_list", "lab_runs", "lab_run", "precon", "set_condition"] {
         assert!(names.contains(&n), "{n} missing from {names:?}");
     }
     for t in r["result"]["tools"].as_array().unwrap() {
@@ -341,4 +341,17 @@ async fn plan_and_collection_changes_apply_through_their_own_ops() {
     let held: Vec<(Option<String>, i64)> =
         sqlx::query_as("SELECT container_id, qty FROM collection_items WHERE owner_id = ? ORDER BY container_id").bind(&a).fetch_all(&pool).await.unwrap();
     assert_eq!(held, [(Some("Elf Ball Box".to_string()), 2), (Some("Trade Binder".to_string()), 1)]);
+
+    // Condition: grade everything in the binder, leaving the deck box near mint.
+    let (err, text) = call(&app, &mcp, "set_condition", json!({"container": "Trade Binder", "condition": "XX"})).await;
+    assert!(err && text.contains("NM, LP"), "{text}");
+    let (err, text) = call(&app, &mcp, "set_condition", json!({"container": "Trade Binder", "condition": "lp"})).await;
+    assert!(!err && text.contains("Mark 1 cards in Trade Binder lightly played"), "{text}");
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+    assert!(!err, "{text}");
+    let graded: Vec<(Option<String>, String)> =
+        sqlx::query_as("SELECT container_id, condition FROM collection_items WHERE owner_id = ? ORDER BY container_id").bind(&a).fetch_all(&pool).await.unwrap();
+    assert_eq!(graded, [(Some("Elf Ball Box".to_string()), "NM".to_string()), (Some("Trade Binder".to_string()), "LP".to_string())]);
+    let (err, text) = call(&app, &mcp, "set_condition", json!({"container": "Trade Binder", "card": "Sol Ring", "condition": "LP"})).await;
+    assert!(err && text.contains("already lightly played"), "{text}");
 }

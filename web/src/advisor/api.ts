@@ -115,7 +115,7 @@ export async function ask(input: AskInput, onEvent: (e: StreamEvent) => void, si
 /** A change Claude staged through Yama's tools, waiting for Apply or Discard (server/src/mcp/changes.rs). */
 export interface StagedChange {
   id: string;
-  kind: "edit_deck" | "propose_swap" | "answer_review" | "mark_bought" | "mark_installed" | "start_lab_run" | "add_to_collection" | "move_cards";
+  kind: "edit_deck" | "propose_swap" | "answer_review" | "mark_bought" | "mark_installed" | "start_lab_run" | "add_to_collection" | "move_cards" | "set_condition";
   summary: string;
   detail: string | null;
   /** How it was staged: Ask Claude, a key, or an app signed in with OAuth. */
