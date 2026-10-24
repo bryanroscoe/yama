@@ -94,13 +94,17 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
     select: (items) => items.filter((i) => i.oracle_id === oracleId && i.qty > 0),
   });
   const add = useMutation({
-    mutationFn: (v: { p: Printing; finish: string }) =>
+    mutationFn: (v: { p: Printing; finish: string; proxy?: boolean }) =>
       api("/api/collection/ops", {
         method: "POST",
-        json: [{ op_id: crypto.randomUUID(), kind: "add", scryfall_id: v.p.scryfall_id, qty: 1, finish: v.finish }],
+        json: [{ op_id: crypto.randomUUID(), kind: "add", scryfall_id: v.p.scryfall_id, qty: 1, finish: v.finish, proxy: !!v.proxy }],
       }),
     onSuccess: (_, v) => {
-      setAdded(`Added ${v.finish === "nonfoil" ? "a" : `a ${v.finish}`} ${v.p.set_name} copy to your collection.`);
+      setAdded(
+        v.proxy
+          ? `Added a proxy of ${card!.name} (${v.p.set_name} art) to your collection.`
+          : `Added ${v.finish === "nonfoil" ? "a" : `a ${v.finish}`} ${v.p.set_name} copy to your collection.`,
+      );
       void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "search" });
     },
   });
@@ -216,6 +220,9 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
               <div className="cp-actions">
                 <button className="primary" onClick={() => add.mutate({ p: defaultPrinting, finish: addDefault })} disabled={add.isPending}>
                   Add to collection
+                </button>
+                <button className="outline" onClick={() => add.mutate({ p: defaultPrinting, finish: "nonfoil", proxy: true })} disabled={add.isPending}>
+                  Add a proxy
                 </button>
               </div>
             )}

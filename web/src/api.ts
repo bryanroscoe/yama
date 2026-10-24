@@ -190,6 +190,8 @@ export interface Container {
 
 export interface CollectionSummary {
   copies: number;
+  /** Proxies among copies; they have no market value and aren't counted in it. */
+  proxies?: number;
   distinct_printings: number;
   market_value_usd: number;
   copies_without_price: number;
@@ -222,6 +224,8 @@ export interface DeckSummary {
   commander_artist: string | null;
   /** Real copies you own of the main deck and commanders, out of card_count. */
   owned?: number;
+  /** Further copies covered by proxies (real copies count first). */
+  proxies?: number;
   /** Finished games played with any version of this deck. */
   games?: number;
   wins?: number;
@@ -278,7 +282,10 @@ export interface DeckView {
   validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[] };
   ownership: {
     cards: number;
+    /** Real copies. */
     owned: number;
+    /** Copies covered by proxies beyond the real ones; a proxied card isn't needed. */
+    proxies?: number;
     needed: number;
     needed_cost_usd: number;
     needed_without_price: number;

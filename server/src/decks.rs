@@ -183,6 +183,9 @@ struct DeckSummary {
     /// Real (non-proxy) copies you own of the main deck and commanders, out of `card_count`.
     #[sqlx(skip)]
     owned: i64,
+    /// Further copies covered by proxies (a card counts once: real copies first).
+    #[sqlx(skip)]
+    proxies: i64,
     /// Finished games this deck was played in (any version), and how they went.
     #[sqlx(skip)]
     games: i64,
@@ -201,10 +204,11 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
     .fetch_all(&st.pool)
     .await?;
     let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
-    let mut owned_by_oracle: HashMap<&str, i64> = HashMap::new();
-    for i in items.iter().filter(|i| !i.proxy) {
+    let (mut owned_by_oracle, mut proxies_by_oracle): (HashMap<&str, i64>, HashMap<&str, i64>) = (HashMap::new(), HashMap::new());
+    for i in &items {
         if let Some(o) = &i.oracle_id {
-            *owned_by_oracle.entry(o.as_str()).or_insert(0) += i.qty;
+            let m = if i.proxy { &mut proxies_by_oracle } else { &mut owned_by_oracle };
+            *m.entry(o.as_str()).or_insert(0) += i.qty;
         }
     }
     let versions: Vec<String> = decks.iter().filter_map(|d| d.current_version_id.clone()).collect();
@@ -226,11 +230,11 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
         if let Some(v) = &d.current_version_id {
             let cards = load_version_cards(&st.pool, v).await?;
             d.card_count = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
-            d.owned = cards
-                .iter()
-                .filter(|c| c.board != Board::Side)
-                .map(|c| c.qty.min(owned_by_oracle.get(c.oracle_id.as_str()).copied().unwrap_or(0)))
-                .sum();
+            for c in cards.iter().filter(|c| c.board != Board::Side) {
+                let real = c.qty.min(owned_by_oracle.get(c.oracle_id.as_str()).copied().unwrap_or(0));
+                d.owned += real;
+                d.proxies += (c.qty - real).min(proxies_by_oracle.get(c.oracle_id.as_str()).copied().unwrap_or(0));
+            }
             let commanders: Vec<&DeckCard> = cards.iter().filter(|c| c.board == Board::Commander).collect();
             d.commanders = commanders.iter().map(|c| c.name.clone()).collect();
             let mut identity = String::new();
@@ -571,7 +575,10 @@ fn paper_printing(printings: &[PrintingChoice]) -> Option<PrintRef> {
 #[derive(Serialize, Default)]
 struct OwnershipTotals {
     cards: i64,
+    /// Real copies, out of `cards`.
     owned: i64,
+    /// Copies covered by proxies beyond the real ones. A proxied card isn't needed.
+    proxies: i64,
     needed: i64,
     /// Sum of cheapest prices for needed cards that have a price.
     needed_cost_usd: f64,
@@ -625,7 +632,8 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             let label = if i.proxy { format!("{place} (proxy)") } else { place };
             *locations.entry(label).or_insert(0) += i.qty;
         }
-        let needed = (c.qty - owned).max(0);
+        // A proxy covers a card for play: needed is what neither real copies nor proxies cover.
+        let needed = (c.qty - owned - proxies).max(0);
         let (cheapest_usd, price_date): (Option<f64>, Option<String>) = if c.board == Board::Side {
             (None, None)
         } else {
@@ -645,6 +653,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         if c.board != Board::Side {
             totals.cards += c.qty;
             totals.owned += c.qty.min(owned);
+            totals.proxies += (c.qty - c.qty.min(owned)).min(proxies);
             totals.needed += needed;
             if needed > 0 && !is_basic(&c.name) {
                 match cheapest_usd {

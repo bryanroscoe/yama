@@ -74,6 +74,7 @@ Write (staged):
 | `start_lab_run` | An experiment in any mode (change, compare, solo, versus) on phase, Forge or both, under the lab's usual allowance |
 | `more_lab_games`, `run_lab_again`, `cancel_lab_run` | More pods on a finished run, a fresh run of the same experiment, or a cancel |
 | `add_to_collection`, `move_cards`, `set_condition` | Collection ops (by name and printing; a condition for every copy in a container, or one card's) |
+| `swap_in_prints` | When prints arrive: a plan deck's now list to its after-prints list in Yama (the linked deck's new version, prints into its box as proxies, cut cards to the deck that takes them, its swap bag box or Spares, installed ticks), the same as the plan page's "Swap in the prints" (`server/src/plan/swap_in.rs`) |
 
 Plan swaps themselves can't be edited yet: imported plans are managed by the commander-decks repo
 (its `swaps.json` is the source of truth), and Yama-made plans (planner slice 7) aren't built. So a

@@ -258,14 +258,18 @@ struct SwapLine {
     why: Option<String>,
     why_out: Option<String>,
     when: Option<String>,
+    /// Installed in the real deck: a Yama tick, else the plan's own record (data/upgrades.json).
+    installed: bool,
 }
 
 async fn swaps_for(pool: &SqlitePool, owner: &str, deck_key: Option<&str>, stage: Option<&str>) -> AppResult<Vec<(String, SwapLine)>> {
     #[allow(clippy::type_complexity)]
-    let rows: Vec<(String, String, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
+    let rows: Vec<(String, String, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, bool)> =
         sqlx::query_as(
-            "SELECT d.name, s.ext_key, s.stage, s.role, s.src, s.in_name, s.out_name, s.tier, s.group_label, s.why, s.why_out, s.when_text
+            "SELECT d.name, s.ext_key, s.stage, s.role, s.src, s.in_name, s.out_name, s.tier, s.group_label, s.why, s.why_out, s.when_text,
+                    COALESCE(m.value, json_extract(s.upgrade, '$.status') = 'installed', 0)
              FROM plan_swaps s JOIN plan_decks d ON d.id = s.plan_deck_id AND d.owner_id = s.owner_id
+             LEFT JOIN plan_marks m ON m.owner_id = s.owner_id AND m.swap_key = s.ext_key AND m.kind = 'installed'
              WHERE s.owner_id = ? AND s.retired_at IS NULL AND d.status != 'archived'
                AND (?2 IS NULL OR d.key = ?2) AND (?3 IS NULL OR s.stage = ?3)
              ORDER BY d.sort, d.key, s.stage, s.sort, s.ext_key",
@@ -277,8 +281,8 @@ async fn swaps_for(pool: &SqlitePool, owner: &str, deck_key: Option<&str>, stage
         .await?;
     Ok(rows
         .into_iter()
-        .map(|(deck, key, stage, role, src, in_name, out_name, tier, group, why, why_out, when)| {
-            (deck, SwapLine { key, stage, role, src, in_name, out_name, tier, group, why, why_out, when })
+        .map(|(deck, key, stage, role, src, in_name, out_name, tier, group, why, why_out, when, installed)| {
+            (deck, SwapLine { key, stage, role, src, in_name, out_name, tier, group, why, why_out, when, installed })
         })
         .collect())
 }
@@ -307,6 +311,9 @@ fn swap_text(sw: &SwapLine, answers: &Answers) -> String {
     }
     tags.extend(sw.tier.clone());
     tags.extend(sw.group.clone());
+    if sw.stage == "planned" {
+        tags.push(if sw.installed { "installed" } else { "not installed" }.into());
+    }
     let _ = write!(line, " [{}]", tags.join(", "));
     if let Some(w) = sw.why.as_deref().filter(|w| !w.is_empty()) {
         let _ = write!(line, "\n  Why: {w}");

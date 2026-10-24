@@ -42,16 +42,18 @@ export function CollectionPage() {
   const [open, setOpen] = useState<Item | null>(null);
   const [sort, setSort] = useState<"value" | "name">("value");
   const [all, setAll] = useState(false);
+  const [kind, setKind] = useState<"all" | "real" | "proxy">("all");
 
   const summary = useQuery({ queryKey: ["collection-summary"], queryFn: () => api<CollectionSummary>("/api/collection/summary") });
   const containers = useQuery({ queryKey: ["containers"], queryFn: () => api<Container[]>("/api/containers") });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const items = useQuery({
-    queryKey: ["collection", container, filter],
+    queryKey: ["collection", container, filter, kind],
     queryFn: () => {
       const p = new URLSearchParams();
       if (container) p.set("container", container);
       if (filter.trim()) p.set("q", filter.trim());
+      if (kind !== "all") p.set("proxy", kind === "proxy" ? "only" : "none");
       return api<Item[]>(`/api/collection?${p}`);
     },
     placeholderData: (prev) => prev,
@@ -73,6 +75,8 @@ export function CollectionPage() {
   });
 
   const s = summary.data;
+  const proxies = s?.proxies ?? 0;
+  const real = (s?.copies ?? 0) - proxies;
   // A deck box shows its deck's commander; anything else, the most valuable card inside.
   const tiles = (containers.data ?? []).map((c) => {
     const deck = decks.data?.find((d) => d.container_id === c.id && d.commander_image);
@@ -98,8 +102,9 @@ export function CollectionPage() {
               <span className="coll-value">
                 <b className="num">{money(s.market_value_usd)}</b>
                 <span className="coll-wide">
-                  market value of {s.copies.toLocaleString()} {s.copies === 1 ? "card" : "cards"} on {day}.
+                  market value of {real.toLocaleString()} {real === 1 ? "card" : "cards"} on {day}.
                   {s.copies_without_price > 0 ? ` ${s.copies_without_price.toLocaleString()} ${s.copies_without_price === 1 ? "has" : "have"} no price.` : ""}
+                  {proxies > 0 ? ` Your ${proxies.toLocaleString()} ${proxies === 1 ? "proxy isn't" : "proxies aren't"} counted.` : ""}
                 </span>
                 <span className="coll-narrow">
                   {s.copies.toLocaleString()} {s.copies === 1 ? "card" : "cards"}, {day}
@@ -179,6 +184,13 @@ export function CollectionPage() {
             <button aria-pressed={sort === "value"} onClick={() => setSort("value")}>By value</button>
             <button aria-pressed={sort === "name"} onClick={() => setSort("name")}>By name</button>
           </div>
+          {(proxies > 0 || kind !== "all") && (
+            <div className="segmented coll-kind" role="group" aria-label="Real cards or proxies">
+              <button aria-pressed={kind === "all"} onClick={() => setKind("all")}>All</button>
+              <button aria-pressed={kind === "real"} onClick={() => setKind("real")}>Real</button>
+              <button aria-pressed={kind === "proxy"} onClick={() => setKind("proxy")}>Proxies</button>
+            </div>
+          )}
           <label className="coll-filter">
             <span className="visually-hidden">Filter by name</span>
             <input type="search" placeholder="Filter by name" value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -187,12 +199,16 @@ export function CollectionPage() {
         </div>
 
         <ErrorText error={items.error ?? summary.error} />
-        {items.data && items.data.length === 0 && !filter && !container && (
+        {items.data && items.data.length === 0 && !filter && !container && kind === "all" && (
           <div className="empty">
             <p>Your collection is empty. Import your Mythic Tools export to bring everything over, or add cards from the Cards tab.</p>
           </div>
         )}
-        {items.data && items.data.length === 0 && (filter || container) && <p className="empty">Nothing here{filter ? ` called "${filter}"` : ""}.</p>}
+        {items.data && items.data.length === 0 && (filter || container || kind !== "all") && (
+          <p className="empty">
+            {kind === "proxy" ? "No proxies" : kind === "real" ? "No real cards" : "Nothing"} here{filter ? ` called "${filter}"` : ""}.
+          </p>
+        )}
         <ul className="coll-list">
           {shown.map((i) => {
             const place = i.container_name ?? "Not filed";
@@ -441,7 +457,7 @@ function NewContainer({ onClose }: { onClose: () => void }) {
 
 function ScanToCollection({ containers, onClose }: { containers: Container[]; onClose: () => void }) {
   const qc = useQueryClient();
-  const [finish, setFinish] = useState<"nonfoil" | "foil">("nonfoil");
+  const [finish, setFinish] = useState<"nonfoil" | "foil" | "proxy">("nonfoil");
   const [container, setContainer] = useState("");
   const [added, setAdded] = useState<{ name: string; set?: string }[]>([]);
   const [error, setError] = useState<unknown>(null);
@@ -457,7 +473,17 @@ function ScanToCollection({ containers, onClose }: { containers: Container[]; on
       if (!id) throw new Error(`Couldn't find a printing for ${c.name}`);
       await api("/api/collection/ops", {
         method: "POST",
-        json: [{ op_id: crypto.randomUUID(), kind: "add", scryfall_id: id, qty: 1, finish, container_id: container || null }],
+        json: [
+          {
+            op_id: crypto.randomUUID(),
+            kind: "add",
+            scryfall_id: id,
+            qty: 1,
+            finish: finish === "proxy" ? "nonfoil" : finish,
+            proxy: finish === "proxy",
+            container_id: container || null,
+          },
+        ],
       });
       setAdded((a) => [{ name: c.name, set: c.set?.toUpperCase() }, ...a]);
       setError(null);
@@ -471,9 +497,10 @@ function ScanToCollection({ containers, onClose }: { containers: Container[]; on
     <div className="scan-choices">
       <label>
         Finish
-        <select value={finish} onChange={(e) => setFinish(e.target.value as "nonfoil" | "foil")}>
+        <select value={finish} onChange={(e) => setFinish(e.target.value as "nonfoil" | "foil" | "proxy")}>
           <option value="nonfoil">Regular</option>
           <option value="foil">Foil</option>
+          <option value="proxy">Proxy</option>
         </select>
       </label>
       <label>
@@ -494,7 +521,7 @@ function ScanToCollection({ containers, onClose }: { containers: Container[]; on
           onClose={onClose}
           addedCount={added.length}
           recent={added.map((a) => a.name)}
-          finish={finish}
+          finish={finish === "proxy" ? "nonfoil" : finish}
           controls={controls}
           acceptLabel="Add and scan next"
         />

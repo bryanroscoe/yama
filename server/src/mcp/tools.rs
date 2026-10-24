@@ -289,6 +289,26 @@ const TOOLS: &[Tool] = &[
         does: Does::Stage,
     },
     Tool {
+        name: "swap_in_prints",
+        title: "Swap a plan deck's prints in",
+        description: staged!(
+            "When their printed proxies have arrived and they have sleeved them into a deck: take that plan deck from its now list to its \
+             after-prints list in Yama. The linked Yama deck gets the after list as a new version; the prints go into the deck's box as \
+             proxies; cards moving in from another deck come out of that deck's box; each card leaving goes to the deck that takes it next, \
+             the deck's swap bag box (cards that go back in at a lower bracket) or a box called Spares; and the swaps are ticked installed. \
+             The reply previews exactly what applying does."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {"plan": {"type": "string", "description": "The plan key or deck name from `overview`."}},
+                "required": ["plan"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
         name: "mark_installed",
         title: "Mark a plan swap installed",
         description: staged!("Mark a swap in one of their plans as installed in the real deck (value false clears it)."),
@@ -529,6 +549,7 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "answer_review" => changes::answer_review(st, user, via, args).await,
         "mark_bought" => changes::mark_bought(st, user, via, args).await,
         "mark_installed" => changes::mark_installed(st, user, via, args).await,
+        "swap_in_prints" => changes::swap_in_prints(st, user, via, args).await,
         "start_lab_run" => changes::start_lab_run(st, user, via, args).await,
         "more_lab_games" => changes::more_lab_games(st, user, via, args).await,
         "run_lab_again" => changes::run_lab_again(st, user, via, args).await,
