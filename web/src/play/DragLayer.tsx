@@ -1,6 +1,8 @@
 // The board's drag overlay: the card that follows the pointer while you drag it out of your hand,
 // the arrow from an attacker, blocker or spell to the pointer, and the arrows of the attacks and
 // blocks you're building (PP-26, PP-40, PP-41, PP-42). One fixed layer with pointer-events: none.
+// Your arrows are your seat color (--seat-1, blue); other seats' attacks are drawn in their seat
+// colors (design/tokens.md).
 // Moves go straight to the DOM (transform and the path's `d`), never through React state, so a
 // drag stays at frame rate.
 
@@ -8,6 +10,11 @@ import { forwardRef, useImperativeHandle, useLayoutEffect, useReducer, useRef } 
 import { arcPath, centre, type Point } from "./drag";
 
 export type ArrowTone = "attack" | "block" | "aim";
+
+/** Another seat's arrow color (board.css, --seat-N): seat-2 is the first opponent in turn order. */
+export type SeatTone = "seat-2" | "seat-3" | "seat-4" | "seat-5" | "seat-6";
+
+const TONES = ["attack", "block", "aim", "seat-2", "seat-3", "seat-4", "seat-5", "seat-6"] as const;
 
 export interface DragLayerHandle {
   /** Lift a card image from `rect`, held at the pointer's offset inside it. */
@@ -128,7 +135,7 @@ export const DragLayer = forwardRef<DragLayerHandle>(function DragLayer(_props, 
 function ArrowHeads({ prefix }: { prefix: string }) {
   return (
     <defs>
-      {(["attack", "block", "aim"] as const).map((t) => (
+      {TONES.map((t) => (
         <marker key={t} id={`${prefix}-${t}`} viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
           <path d="M0 0 L10 5 L0 10 Z" className={`drag-head ${t}`} />
         </marker>
@@ -137,11 +144,14 @@ function ArrowHeads({ prefix }: { prefix: string }) {
   );
 }
 
-/** One arrow of the attack or blocks being built: from a card to a seat's header or another card. */
+/**
+ * One arrow of the attack or blocks being built (yours, blue), or of another seat's attack (in
+ * its seat color): from a card to a seat (an opponent's header, or your portrait) or a card.
+ */
 export interface PlanArrow {
   from: number;
   to: { seat: number } | { id: number };
-  tone: "attack" | "block";
+  tone: "attack" | "block" | SeatTone;
 }
 
 /** A card's tile on the board (a stack of tokens is one tile holding every id). */
@@ -164,17 +174,25 @@ export function PlanArrows({ arrows, root }: { arrows: PlanArrow[]; root: React.
     const r = root.current;
     if (!el || !r) return;
     const paths: string[] = [];
+    // A stack of identical attackers is one tile: one arrow from it to each place it attacks.
+    const drawn = new Set<string>();
     for (const a of arrows) {
       const from = tileOf(r, a.from);
       const to = "seat" in a.to ? seatHeadOf(r, a.to.seat) : tileOf(r, a.to.id);
       if (!from || !to) continue;
+      const pair = `${from.dataset.ids}>${"seat" in a.to ? `s${a.to.seat}` : a.to.id}>${a.tone}`;
+      if (drawn.has(pair)) continue;
+      drawn.add(pair);
       const fr = from.getBoundingClientRect();
       const tr = to.getBoundingClientRect();
       const start = centre(fr);
-      // Arrows to a player end at the bottom edge of their header; to a card, at its centre.
-      const end = "seat" in a.to ? { x: tr.left + tr.width / 2, y: tr.bottom - 6 } : centre(tr);
-      paths.push(`<path class="plan-arrow ${a.tone}" d="${arcPath(start, end)}" marker-end="url(#pb-plan-head-${a.tone})"/>`);
+      // Arrows to a player end at the near edge of their header or portrait; to a card, at its centre.
+      const end = "seat" in a.to ? { x: tr.left + tr.width / 2, y: start.y < tr.top ? tr.top + 6 : tr.bottom - 6 } : centre(tr);
+      const theirs = a.tone.startsWith("seat-") ? " theirs" : "";
+      paths.push(`<path class="plan-arrow ${a.tone}${theirs}" d="${arcPath(start, end)}" marker-end="url(#pb-plan-head-${a.tone})"/>`);
     }
+    // Other seats' arrows first, so yours are drawn on top.
+    paths.sort((x, y) => Number(y.includes(" theirs")) - Number(x.includes(" theirs")));
     el.querySelector("g")!.innerHTML = paths.join("");
   });
   useLayoutEffect(() => {

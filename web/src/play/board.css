@@ -165,8 +165,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Attacking: the badge in the attacker's seat color (each pane sets --seat). */
 .ft-badge.bad {
-  background: var(--bad);
+  background: var(--seat, var(--seat-1));
   color: var(--ground);
 }
 .ft-badge.block {
@@ -189,31 +190,33 @@
   box-shadow: inset 0 0 0 2px var(--text);
   pointer-events: none;
 }
-/* Has options, or could join the attack or the block: a good-colored ring (and the dot). */
+/* Has options, or could join the attack or the block: you can pick it, so an amber ring (and
+   the dot). Amber marks nothing else on the board. */
 .ft.playable,
 .ft.ready {
-  box-shadow: 0 0 0 2px var(--good);
+  box-shadow: 0 0 0 2px var(--pick);
 }
 .ft.selected {
   box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
 }
 .ft.playable.selected {
-  box-shadow: 0 0 0 2px var(--good), 0 0 0 4px var(--text);
+  box-shadow: 0 0 0 2px var(--pick), 0 0 0 4px var(--text);
 }
-/* Attacking: a bad-colored ring and the badge, lifted toward the opponents. */
+/* Attacking: a ring in the attacker's seat color (design/tokens.md; each pane sets --seat) and
+   the badge, lifted toward the opponents. */
 .ft.attacking {
-  box-shadow: 0 0 0 3px var(--bad);
+  box-shadow: 0 0 0 3px var(--seat, var(--seat-1));
   transform: translateY(-6px);
 }
 .ft.commander.attacking {
-  box-shadow: 0 0 0 3px var(--bad);
+  box-shadow: 0 0 0 3px var(--seat, var(--seat-1));
 }
 .ft.blocking {
   box-shadow: 0 0 0 3px var(--text);
 }
 /* A legal target: an amber ring and a crosshair badge (shape as well as color). */
 .ft.target {
-  box-shadow: 0 0 0 3px var(--warn);
+  box-shadow: 0 0 0 3px var(--pick);
   cursor: crosshair;
 }
 .aim {
@@ -225,14 +228,14 @@
   padding: 2px;
   border-radius: 50%;
   background: var(--ground);
-  color: var(--warn);
+  color: var(--pick);
   pointer-events: none;
 }
 .opp-pane.aimed::after {
-  box-shadow: inset 0 0 0 3px var(--warn);
+  box-shadow: inset 0 0 0 3px var(--pick);
 }
 .opp-tab.aimed::after {
-  box-shadow: inset 0 0 0 3px var(--warn);
+  box-shadow: inset 0 0 0 3px var(--pick);
 }
 .dot {
   position: absolute;
@@ -241,7 +244,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--good);
+  background: var(--pick);
   border: 2px solid var(--ground);
   pointer-events: none;
 }
@@ -282,7 +285,7 @@
   text-align: center;
 }
 .hc.playable {
-  box-shadow: 0 0 0 2px var(--good), 0 0 18px rgb(143 211 168 / 0.25);
+  box-shadow: 0 0 0 2px var(--pick), 0 0 18px rgb(240 180 90 / 0.25);
 }
 .hc.selected {
   box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
@@ -484,6 +487,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A seat's color always sits beside its player's name: a dot before it. */
+.seat-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--seat, var(--seat-1));
+  box-shadow: 0 0 0 1.5px rgb(11 12 14 / 0.8);
+  vertical-align: 0;
+  flex: none;
+}
 .opp-counts {
   font-size: 12px;
   line-height: 1.25;
@@ -527,7 +542,7 @@
 .opp-flag {
   font-size: 12px;
   font-weight: 700;
-  color: var(--warn);
+  color: var(--on-art);
 }
 .opp-flag.turn {
   color: var(--on-art);
@@ -1223,13 +1238,13 @@ button.pile-chip:hover {
   color: var(--dim);
 }
 .combat-list li.in .row-state {
-  color: var(--bad);
+  color: var(--text);
 }
 .combat-list li.in.block .row-state {
   color: var(--text);
 }
 .combat-list li.pending .row-state {
-  color: var(--warn);
+  color: var(--text);
 }
 .row-switch {
   align-self: flex-end;
@@ -1512,7 +1527,7 @@ button.pile-chip:hover {
   color: var(--on-art-dim);
 }
 .tab-flag.warn {
-  color: var(--warn);
+  color: var(--on-art);
 }
 
 .opp-focus {
@@ -1640,7 +1655,7 @@ button.pile-chip:hover {
   width: 100%;
 }
 .peek-card.playable {
-  box-shadow: 0 0 0 2px var(--good);
+  box-shadow: 0 0 0 2px var(--pick);
 }
 .peek-label {
   margin-left: 10px;
@@ -1654,6 +1669,36 @@ button.pile-chip:hover {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+}
+/* A phone's picked card: its name, type and Oracle text above the button that plays it. */
+.dock-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-list);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.dock-card-head {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+  font-size: 14px;
+}
+.dock-card-text {
+  margin: 0;
+  max-height: 7.5em;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+.dock-card button {
+  align-self: flex-start;
 }
 .dock-prompt,
 .dock-hint {
@@ -1795,7 +1840,7 @@ button.pile-chip:hover {
 .watch-note {
   margin: 0;
   font-size: 14px;
-  color: var(--warn);
+  color: var(--text);
 }
 .watch-pov {
   display: flex;
@@ -1952,26 +1997,37 @@ button.pile-chip:hover {
 .plan-arrow {
   stroke-width: 3;
 }
+/* Arrows: yours are your seat color, --seat-1 (attacks, blocks, and the dashed one while you
+   aim); other seats' attacks are in their seat colors (design/tokens.md). */
 .drag-arrow.attack,
-.plan-arrow.attack {
-  stroke: var(--bad);
-}
+.plan-arrow.attack,
 .drag-arrow.block,
-.plan-arrow.block {
-  stroke: var(--text);
+.plan-arrow.block,
+.drag-arrow.aim {
+  stroke: var(--seat-1);
 }
 .drag-arrow.aim {
-  stroke: var(--warn);
   stroke-dasharray: 10 8;
 }
-.drag-head.attack {
-  fill: var(--bad);
-}
-.drag-head.block {
-  fill: var(--text);
-}
+.drag-head.attack,
+.drag-head.block,
 .drag-head.aim {
-  fill: var(--warn);
+  fill: var(--seat-1);
+}
+.plan-arrow.seat-2 { stroke: var(--seat-2); }
+.plan-arrow.seat-3 { stroke: var(--seat-3); }
+.plan-arrow.seat-4 { stroke: var(--seat-4); }
+.plan-arrow.seat-5 { stroke: var(--seat-5); }
+.plan-arrow.seat-6 { stroke: var(--seat-6); }
+.drag-head.seat-2 { fill: var(--seat-2); }
+.drag-head.seat-3 { fill: var(--seat-3); }
+.drag-head.seat-4 { fill: var(--seat-4); }
+.drag-head.seat-5 { fill: var(--seat-5); }
+.drag-head.seat-6 { fill: var(--seat-6); }
+/* Other seats' arrows are thinner and sit under yours. */
+.plan-arrow.theirs {
+  stroke-width: 2.5;
+  opacity: 0.9;
 }
 .drag-ghost {
   position: fixed;
@@ -2034,7 +2090,7 @@ button.pile-chip:hover {
   box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
 }
 .ft.drop-hot {
-  box-shadow: 0 0 0 3px var(--text), 0 0 0 6px var(--warn);
+  box-shadow: 0 0 0 3px var(--text), 0 0 0 6px var(--pick);
 }
 .opp-head.drop-hot {
   box-shadow: inset 0 0 0 3px var(--text);

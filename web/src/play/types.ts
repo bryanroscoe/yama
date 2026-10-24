@@ -38,21 +38,45 @@ export interface PlayerView {
   commander_damage: Record<string, number>;
 }
 
+/** What an option does (play/src/lib.rs, OptionKind). `pay_rest` is the engine's pass while you pay mana by hand. */
+export type OptionKind = "pass" | "pay_rest" | "cancel" | "land" | "spell" | "ability" | "keep" | "mulligan" | "attack" | "block" | "target" | "other";
+
+/** A target on an option or a decision: a card by object id, or a player by seat. */
+export type TargetView = { kind: "object"; id: number } | { kind: "player"; seat: number };
+
 export interface OptionView {
   index: number;
   label: string;
+  /** What the option does (newer servers); older ones are read by their labels. */
+  kind?: OptionKind;
   object: number | null;
+  /** An activated ability's index on its card, so a planeswalker's abilities stay apart. */
+  ability?: number;
   /** A target choice: exactly which card or player it targets (newer servers). */
-  target?: { kind: "object"; id: number } | { kind: "player"; seat: number };
+  target?: TargetView;
+}
+
+/** The opening hand: the sizes the keep and mulligan buttons name. */
+export interface MulliganView {
+  /** Cards you keep if you keep now. */
+  keep: number;
+  /** Cards you'd keep after one more mulligan. */
+  next_keep: number;
+  mulligans: number;
+  /** The next mulligan is free. */
+  free: boolean;
 }
 
 /** An attack target: a player by seat, or a planeswalker or battle by object id. */
 export type AttackAt = { kind: "player"; seat: number } | { kind: "planeswalker"; id: number } | { kind: "battle"; id: number };
 
 export interface Decision {
+  /** When this seat's decision was issued; it holds while other seats act and it doesn't change. */
   revision: number;
   prompt: string;
   options: OptionView[];
+  /** Keeping or mulliganing: the hand sizes (newer servers). */
+  mulligan?: MulliganView;
   /** While declaring attackers: who may attack and whom (newer servers). */
   attack?: { attackers: { id: number; targets: AttackAt[] }[] };
   /** While declaring blockers: who may block and which attackers. */

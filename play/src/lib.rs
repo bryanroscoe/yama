@@ -21,10 +21,11 @@ use engine::game::engine::{apply_interaction, apply_verified_ai_priority_pass, v
 use engine::game::filter_state_for_viewer;
 use engine::game::replay::{ReplayPlayer, reconstruct_initial_state};
 use engine::types::format::FormatConfig;
-use engine::types::game_state::{GameState, WaitingFor};
+use engine::game::mulligan::kept_hand_size_after;
+use engine::types::game_state::{GameState, MulliganDecisionPhase, WaitingFor};
 use engine::types::identifiers::ObjectId;
 use engine::game::combat::AttackTarget;
-use engine::types::ability::TargetRef;
+use engine::types::ability::{AbilityCost, TargetRef};
 use engine::types::actions::{GameAction, MulliganChoice};
 use engine::types::log::{GameLogEntry, LogImportance, LogSegment, LogVisibility};
 use engine::types::match_config::MatchConfig;
@@ -50,6 +51,9 @@ pub const ENGINE_VERSION: &str = "phase-v0.113.0+0571ee32-yama1/cards-eb309108";
 
 /// How many lines of game log each view carries.
 const LOG_LINES: usize = 60;
+
+/// Cards in an opening hand (CR 103.4).
+const STARTING_HAND: usize = 7;
 
 pub struct Engine {
     db: Arc<CardDatabase>,
@@ -246,6 +250,7 @@ impl Engine {
         m.revision = u64::from(n);
         m.state = state;
         m.log = log;
+        m.remark(None);
         Ok(m)
     }
 
@@ -260,7 +265,7 @@ impl Engine {
             .map(|(seat, d)| (PlayerId(*seat), create_config_for_players(*d, Platform::Native, players)))
             .collect();
         let session = AiSession::arc_from_game(&state);
-        Ok(Match {
+        let mut m = Match {
             rng: StdRng::seed_from_u64(header.seed ^ 0x9e37_79b9_7f4a_7c15),
             log: ReplayLog::new(header),
             state,
@@ -270,7 +275,10 @@ impl Engine {
             lines: Vec::new(),
             names: (1..=players).map(|n| format!("Player {n}")).collect(),
             fallback: false,
-        })
+            marks: HashMap::new(),
+        };
+        m.remark(None);
+        Ok(m)
     }
 }
 
@@ -288,6 +296,15 @@ pub struct Match {
     /// When the AI finds no action, answer with phase's `fallback_action` instead of stopping
     /// (as the lab does). Off for games people play in; on for games everyone just watches.
     fallback: bool,
+    /// Each person's current decision: what it looked like and the revision it was issued at.
+    marks: HashMap<u8, Mark>,
+}
+
+/// A person's decision as of its issue (see [`Decision::revision`]).
+#[derive(Debug, Clone, Copy)]
+struct Mark {
+    fingerprint: u64,
+    revision: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -311,10 +328,16 @@ pub struct Stops {
 /// What one seat may do right now.
 #[derive(Debug, Clone, Serialize)]
 pub struct Decision {
+    /// The revision this seat's decision was issued at. It stays the same while other seats act
+    /// and this decision doesn't change (two people mulliganing at once), so an answer to it is
+    /// still taken (PP-06).
     pub revision: u64,
     /// The kind of decision, e.g. "priority" or "declare attackers".
     pub prompt: String,
     pub options: Vec<OptionView>,
+    /// While keeping or mulliganing: the hand sizes the buttons name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mulligan: Option<MulliganView>,
     /// While declaring attackers: every creature that may attack and whom it may attack, so the
     /// board can build any declaration (the option list holds only the engine's sample).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -322,6 +345,20 @@ pub struct Decision {
     /// While declaring blockers: every creature that may block and the attackers it may block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block: Option<BlockChoice>,
+}
+
+/// The opening hand decision, from the engine's mulligan count and the bottom cards it would
+/// take: "Keep 6" after a second mulligan in Commander, where the first one is free.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MulliganView {
+    /// Cards you keep if you keep now.
+    pub keep: usize,
+    /// Cards you'd keep after one more mulligan.
+    pub next_keep: usize,
+    /// Mulligans taken so far.
+    pub mulligans: u8,
+    /// The next mulligan is free (CR 103.5c).
+    pub free: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -378,16 +415,62 @@ pub struct BlockerChoice {
 pub struct OptionView {
     pub index: usize,
     pub label: String,
+    /// What kind of option it is, so the board needn't read labels.
+    pub kind: OptionKind,
     /// The card this option is about, so the board can offer it when you tap that card.
     pub object: Option<u64>,
+    /// For an activated ability, which of the card's abilities (a planeswalker has several), so
+    /// options for different abilities never merge.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ability: Option<usize>,
     /// For a target choice, exactly which card or player it targets, so the board can pick the
     /// right one of several cards with the same name (clicking or dragging onto it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<TargetView>,
 }
 
+/// What an option does, for the board's buttons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OptionKind {
+    /// Pass priority: move on, or let the stack resolve.
+    Pass,
+    /// While paying mana by hand: let Yama pay the rest (the engine's pass during payment).
+    PayRest,
+    /// Back out of a spell or ability being cast.
+    Cancel,
+    Land,
+    Spell,
+    Ability,
+    Keep,
+    Mulligan,
+    Attack,
+    Block,
+    Target,
+    Other,
+}
+
+impl OptionKind {
+    fn of(action: &GameAction, waiting: &WaitingFor) -> Self {
+        match action {
+            GameAction::PassPriority if matches!(waiting, WaitingFor::ManaPayment { .. }) => Self::PayRest,
+            GameAction::PassPriority => Self::Pass,
+            GameAction::CancelCast => Self::Cancel,
+            GameAction::PlayLand { .. } => Self::Land,
+            GameAction::CastSpell { .. } => Self::Spell,
+            GameAction::ActivateAbility { .. } => Self::Ability,
+            GameAction::MulliganDecision { choice: MulliganChoice::Keep } => Self::Keep,
+            GameAction::MulliganDecision { choice: MulliganChoice::Mulligan } => Self::Mulligan,
+            GameAction::DeclareAttackers { .. } => Self::Attack,
+            GameAction::DeclareBlockers { .. } => Self::Block,
+            GameAction::ChooseTarget { .. } | GameAction::SelectTargets { .. } => Self::Target,
+            _ => Self::Other,
+        }
+    }
+}
+
 /// A target on an option: a card by object id, or a player by seat.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum TargetView {
     Object { id: u64 },
@@ -484,13 +567,88 @@ impl Match {
             .map(|(index, c)| OptionView {
                 index,
                 label: self.label(&vs, &c.action),
+                kind: OptionKind::of(&c.action, &vs.waiting_for),
                 object: c.action.source_object().map(|o| o.0),
+                ability: match c.action {
+                    GameAction::ActivateAbility { ability_index, .. } => Some(ability_index),
+                    _ => None,
+                },
                 target: TargetView::of(&c.action),
             })
             .collect();
         self.tell_targets_apart(&vs, me, &mut options);
         let (attack, block) = Self::combat_choices(&vs, me);
-        Some(Decision { revision: self.revision, prompt: self.prompt(&vs), options, attack, block })
+        Some(Decision {
+            revision: self.decision_revision(seat),
+            prompt: self.prompt(&vs),
+            options,
+            mulligan: Self::mulligan_view(&vs, me),
+            attack,
+            block,
+        })
+    }
+
+    /// Hand sizes for the keep and mulligan buttons, from the engine's mulligan count and the
+    /// bottom cards it would ask for (CR 103.5, the free first mulligan of CR 103.5c).
+    fn mulligan_view(vs: &GameState, me: PlayerId) -> Option<MulliganView> {
+        let WaitingFor::MulliganDecision { pending, free_first_mulligan, .. } = &vs.waiting_for else { return None };
+        let entry = pending.iter().find(|e| e.player == me && e.phase == MulliganDecisionPhase::Declare)?;
+        let hand = vs.players.iter().find(|p| p.id == me).map(|p| p.hand.len()).unwrap_or(0);
+        let kept = kept_hand_size_after(entry.mulligan_count, *free_first_mulligan);
+        // Bottom cards already put away count against what's owed (the engine's ledger).
+        let prepaid = usize::from(vs.prepaid_mulligan_bottoms.get(&me).copied().unwrap_or(0));
+        let owed = STARTING_HAND.saturating_sub(kept).saturating_sub(prepaid);
+        Some(MulliganView {
+            keep: hand.saturating_sub(owed),
+            next_keep: kept_hand_size_after(entry.mulligan_count.saturating_add(1), *free_first_mulligan),
+            mulligans: entry.mulligan_count,
+            free: *free_first_mulligan && entry.mulligan_count == 0,
+        })
+    }
+
+    /// The revision `seat`'s current decision was issued at (see [`Decision::revision`]).
+    fn decision_revision(&self, seat: u8) -> u64 {
+        self.marks.get(&seat).map(|m| m.revision).unwrap_or(self.revision)
+    }
+
+    /// Whether an answer sent at `revision` still answers `seat`'s current decision.
+    fn current(&self, seat: u8, revision: u64) -> bool {
+        revision == self.revision || revision == self.decision_revision(seat)
+    }
+
+    /// What `seat`'s decision looks like, to tell whether it changed: the engine's options for
+    /// it, and for a mulligan the seat's own entry (the others' entries change as they decide).
+    fn fingerprint(&self, seat: u8) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let me = PlayerId(seat);
+        let contract = AiDecisionContract::issue(&self.state, me);
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for c in &contract.candidates {
+            serde_json::to_string(&c.action).unwrap_or_default().hash(&mut h);
+        }
+        match &self.state.waiting_for {
+            WaitingFor::MulliganDecision { pending, .. } => {
+                serde_json::to_string(&pending.iter().find(|e| e.player == me)).unwrap_or_default().hash(&mut h);
+            }
+            other => std::mem::discriminant(other).hash(&mut h),
+        }
+        h.finish()
+    }
+
+    /// After an accepted action: keep the issue revision of every person's decision that didn't
+    /// change, and start a new one for any that did. `acted` (the seat that just answered) always
+    /// gets a new one, even if its next decision looks the same.
+    fn remark(&mut self, acted: Option<u8>) {
+        let mut next = HashMap::new();
+        for seat in self.waiting_on() {
+            if self.is_ai(seat) {
+                continue;
+            }
+            let fingerprint = self.fingerprint(seat);
+            let keep = self.marks.get(&seat).filter(|m| m.fingerprint == fingerprint && Some(seat) != acted).map(|m| m.revision);
+            next.insert(seat, Mark { fingerprint, revision: keep.unwrap_or(self.revision) });
+        }
+        self.marks = next;
     }
 
     /// Two target options that would read the same ("Target Savannah Lions") say whose card each
@@ -578,7 +736,7 @@ impl Match {
 
     /// Apply a human choice by its index in [`Match::decision`].
     pub fn choose(&mut self, seat: u8, revision: u64, index: usize) -> Result<(), ChoiceError> {
-        if revision != self.revision {
+        if !self.current(seat, revision) {
             return Err(ChoiceError::Stale);
         }
         let owner = PlayerId(seat);
@@ -591,12 +749,12 @@ impl Match {
         match apply_ai_action_proposal(&mut self.state, &contract, actor, action.clone()) {
             AiProposalApplication::AppliedStackPass { result } => {
                 self.log.push_verified_ai_priority_pass(actor, owner);
-                self.accepted(&result.log_entries);
+                self.accepted(&result.log_entries, Some(seat));
                 Ok(())
             }
             AiProposalApplication::AppliedAction { result } => {
                 self.log.push_action(actor, action);
-                self.accepted(&result.log_entries);
+                self.accepted(&result.log_entries, Some(seat));
                 Ok(())
             }
             AiProposalApplication::Stale => Err(ChoiceError::Stale),
@@ -622,7 +780,7 @@ impl Match {
     }
 
     fn declare(&mut self, seat: u8, revision: u64, action: GameAction, expected: impl Fn(&WaitingFor) -> bool) -> Result<(), ChoiceError> {
-        if revision != self.revision {
+        if !self.current(seat, revision) {
             return Err(ChoiceError::Stale);
         }
         let owner = PlayerId(seat);
@@ -639,7 +797,7 @@ impl Match {
             Ok(result) => {
                 self.state = next;
                 self.log.push_action(actor, action);
-                self.accepted(&result.log_entries);
+                self.accepted(&result.log_entries, Some(seat));
                 Ok(())
             }
             Err(e) => Err(ChoiceError::Rejected(self.plain_reason(owner, &e.to_string()))),
@@ -672,7 +830,7 @@ impl Match {
     }
 
     /// A card's name as `vs` (one seat's filtered view) shows it. Face-down cards stay hidden.
-    fn name_in(vs: &GameState, id: &ObjectId) -> String {
+    pub(crate) fn name_in(vs: &GameState, id: &ObjectId) -> String {
         match vs.objects.get(id) {
             Some(o) if o.face_down => "a face-down card".into(),
             Some(o) if !o.name.is_empty() => o.name.clone(),
@@ -692,6 +850,8 @@ impl Match {
             TargetRef::Player(p) => self.seat_name(*p),
         };
         match action {
+            // While paying mana by hand, the engine's pass means "pay the rest for me".
+            GameAction::PassPriority if matches!(vs.waiting_for, WaitingFor::ManaPayment { .. }) => "Pay the rest".into(),
             GameAction::PassPriority => {
                 if vs.stack.is_empty() { "Pass (move on)".into() } else { "Pass (let it resolve)".into() }
             }
@@ -702,7 +862,7 @@ impl Match {
                 Self::name_in(vs, object_id),
                 targets.iter().map(|t| Self::name_in(vs, t)).collect::<Vec<_>>().join(", ")
             ),
-            GameAction::ActivateAbility { source_id, .. } => format!("Use {}", Self::name_in(vs, source_id)),
+            GameAction::ActivateAbility { source_id, ability_index } => Self::ability_label(vs, source_id, *ability_index),
             GameAction::MulliganDecision { choice: MulliganChoice::Keep } => "Keep this hand".into(),
             GameAction::MulliganDecision { choice: MulliganChoice::Mulligan } => "Mulligan".into(),
             GameAction::DeclareAttackers { attacks, .. } if attacks.is_empty() => "Don't attack".into(),
@@ -768,9 +928,27 @@ impl Match {
         }
     }
 
+    /// An activated ability in its own words: the card's text for it, with its cost ("+1: Draw two
+    /// cards, then put a card from your hand on the bottom of your library."), so a planeswalker's
+    /// abilities read apart (PP-04). The engine writes the card's own name as "~". Falls back to
+    /// the cost, then to "Use <card>".
+    fn ability_label(vs: &GameState, source: &ObjectId, index: usize) -> String {
+        let name = Self::name_in(vs, source);
+        let def = engine::game::casting::activated_ability_definitions(vs, *source).into_iter().find(|(i, _)| *i == index).map(|(_, d)| d);
+        let Some(def) = def else { return format!("Use {name}") };
+        if let Some(text) = def.description.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            return ability_text(text, &name);
+        }
+        match def.cost.as_ref().map(cost_text).filter(|c| !c.is_empty()) {
+            Some(cost) => format!("{cost}: use {name}"),
+            None => format!("Use {name}"),
+        }
+    }
+
     /// Pass priority for people when stopping wouldn't help them, like Arena's smart stops:
-    /// a person stops in their own main phases, whenever the stack has something they could
-    /// respond to, and at an opponent's end step if they could cast a spell. Every other
+    /// a person stops in their own main phases, whenever someone else's spell or ability is on
+    /// top of the stack and they could respond, and at an opponent's end step if they could cast
+    /// a spell. Their own spell on top resolves without asking. Every other
     /// decision (targets, blocks, mulligans) always waits. Seats in `full_control` stop at
     /// every priority; seats with their own `stops` stop at the steps they chose instead of
     /// the main phases and end step. Returns how many passes were made.
@@ -822,8 +1000,11 @@ impl Match {
         if others.peek().is_none() {
             return true; // only land abilities
         }
-        if !self.state.stack.is_empty() {
-            return false; // something to respond to
+        if let Some(top) = self.state.stack.last() {
+            // Your own spell or ability on top resolves without asking you (PP-07; Bryan's
+            // decision 8, 2026-10-23). Everyone else still gets to respond, and if someone does,
+            // you're asked about theirs. Someone else's on top: you could respond, so stop.
+            return top.controller.0 == seat;
         }
         let mine = self.state.active_player.0 == seat;
         if let Some(stops) = stops {
@@ -844,7 +1025,7 @@ impl Match {
         let action = GameAction::Concede { player_id: me };
         let result = engine::game::engine::apply(&mut self.state, me, action.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
         self.log.push_action(me, action);
-        self.accepted(&result.log_entries);
+        self.accepted(&result.log_entries, Some(seat));
         Ok(())
     }
 
@@ -876,14 +1057,17 @@ impl Match {
                 r
             };
             let result = result.map_err(|e| anyhow::anyhow!("AI action for seat {} failed: {e}", actor.0))?;
-            self.accepted(&result.log_entries);
+            self.accepted(&result.log_entries, None);
             steps += 1;
         }
         Ok(steps)
     }
 
-    fn accepted(&mut self, entries: &[GameLogEntry]) {
+    /// Bookkeeping after the engine took an action: the revision, the public log, and which
+    /// people's decisions changed. `acted` is the person who answered, if one did.
+    fn accepted(&mut self, entries: &[GameLogEntry], acted: Option<u8>) {
         self.revision += 1;
+        self.remark(acted);
         for e in entries {
             // Only public, headline entries: detail lines and anything revealing hidden cards stay out.
             if e.presentation.importance != LogImportance::Essential || e.presentation.visibility != LogVisibility::Public {
@@ -909,6 +1093,7 @@ impl Match {
         let ran = phase_ai::contest::settle_headless_contest(&mut self.state, &seats, &mut self.rng);
         if ran {
             self.revision += 1;
+            self.remark(None);
         }
         ran
     }
@@ -1013,6 +1198,37 @@ impl Match {
             over: self.is_over(),
             winner: self.winner(),
         }
+    }
+}
+
+/// An ability's text as a label: its card's name for "~", loyalty costs without brackets
+/// ("[−3]: …" reads "−3: …"), on one line.
+fn ability_text(text: &str, name: &str) -> String {
+    let mut out = phase_llm::render::text::one_line(&text.replace('~', name));
+    if let Some(rest) = out.strip_prefix('[')
+        && let Some(end) = rest.find("]:")
+        && rest[..end].chars().all(|c| matches!(c, '+' | '−' | '-' | '0'..='9' | 'X'))
+    {
+        out = format!("{}{}", &rest[..end], &rest[end + 1..]);
+    }
+    out
+}
+
+/// A cost in printed form where it has one: "{2}{R}", "{T}", "+1", "{1}, {T}". Empty when the
+/// engine's cost has no printed shape here (sacrifice, discard and the like).
+pub(crate) fn cost_text(cost: &AbilityCost) -> String {
+    match cost {
+        AbilityCost::Mana { cost } => phase_llm::render::text::mana_cost_text(cost),
+        AbilityCost::Tap => "{T}".into(),
+        AbilityCost::Untap => "{Q}".into(),
+        AbilityCost::Loyalty { amount } if *amount > 0 => format!("+{amount}"),
+        AbilityCost::Loyalty { amount } if *amount < 0 => format!("−{}", amount.unsigned_abs()),
+        AbilityCost::Loyalty { .. } => "0".into(),
+        AbilityCost::Composite { costs } => {
+            let parts: Vec<String> = costs.iter().map(cost_text).collect();
+            if parts.iter().any(String::is_empty) { String::new() } else { parts.join(", ") }
+        }
+        _ => String::new(),
     }
 }
 
@@ -1136,10 +1352,38 @@ mod tests {
         let two = GameAction::SelectTargets { targets: vec![TargetRef::Player(PlayerId(1)), TargetRef::Player(PlayerId(2))] };
         assert_eq!(TargetView::of(&two), None);
         assert_eq!(TargetView::of(&GameAction::PassPriority), None);
-        let o = OptionView { index: 3, label: "Target Bear".into(), object: None, target: TargetView::of(&card) };
+        let o = OptionView { index: 3, label: "Target Bear".into(), kind: OptionKind::Target, object: None, ability: None, target: TargetView::of(&card) };
         assert_eq!(serde_json::to_value(&o).unwrap()["target"], serde_json::json!({"kind": "object", "id": 77}));
-        let pass = OptionView { index: 0, label: "Pass".into(), object: None, target: None };
+        let pass = OptionView { index: 0, label: "Pass".into(), kind: OptionKind::Pass, object: None, ability: None, target: None };
         assert!(serde_json::to_value(&pass).unwrap().get("target").is_none());
+    }
+
+    #[test]
+    fn ability_labels_drop_loyalty_brackets_and_name_the_card() {
+        assert_eq!(ability_text("[+1]: Add {R}{R}.", "Chandra"), "+1: Add {R}{R}.");
+        assert_eq!(
+            ability_text("[−3]: ~ deals 4 damage to target creature.", "Chandra, Torch of Defiance"),
+            "−3: Chandra, Torch of Defiance deals 4 damage to target creature."
+        );
+        assert_eq!(ability_text("[0]: Draw a card.", "Jace"), "0: Draw a card.");
+        assert_eq!(ability_text("{T}: Add {C}{C}.", "Sol Ring"), "{T}: Add {C}{C}.");
+        assert_eq!(ability_text("[Not a cost]: x", "A"), "[Not a cost]: x");
+        assert_eq!(cost_text(&AbilityCost::Loyalty { amount: -7 }), "−7");
+        assert_eq!(cost_text(&AbilityCost::Composite { costs: vec![AbilityCost::Tap, AbilityCost::Loyalty { amount: 2 }] }), "{T}, +2");
+    }
+
+    #[test]
+    fn paying_mana_by_hand_says_pay_the_rest_and_cancel() {
+        let e = Engine::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/act-cards.json")).unwrap();
+        let deck = SeatDeck { commander: vec!["Combat Celebrant".into()], main: vec!["Mountain".into(); 99] };
+        let mut m = e.new_match(1, vec![deck.clone(), deck], &[]).unwrap();
+        m.state.waiting_for = WaitingFor::ManaPayment { player: PlayerId(0), convoke_mode: None };
+        assert_eq!(m.label(&m.state, &GameAction::PassPriority), "Pay the rest");
+        assert_eq!(OptionKind::of(&GameAction::PassPriority, &m.state.waiting_for), OptionKind::PayRest);
+        assert_eq!(m.label(&m.state, &GameAction::CancelCast), "Cancel");
+        assert_eq!(OptionKind::of(&GameAction::CancelCast, &m.state.waiting_for), OptionKind::Cancel);
+        m.state.waiting_for = WaitingFor::Priority { player: PlayerId(0) };
+        assert_eq!(OptionKind::of(&GameAction::PassPriority, &m.state.waiting_for), OptionKind::Pass);
     }
 
     #[test]
