@@ -39,9 +39,10 @@ button{font:inherit;color:inherit}
         </button>
       </sc-for>
     </div>
+    <span style="font-size: 11px; color: var(--dim)">Art: Shahab Alizadeh, Eren Arik, VEN, Josu Solano, Titus Lunter, Raluca Marinescu. © Wizards of the Coast</span>
     <div style="display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px">
-      <button onClick="{{cancel}}" style="min-height: 52px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Cancel</button>
-      <button onClick="{{confirm}}" style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">{{primary}}</button>
+      <sc-if value="{{showSecondary}}" hint-placeholder-val="{{true}}"><button onClick="{{cancel}}" style="min-height: 52px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button></sc-if>
+      <button onClick="{{confirm}}" style="grid-column: -2; min-height: 54px; border-radius: 999px; border: none; background: {{primaryBg}}; color: {{primaryInk}}; font-weight: 800; font-size: 17px">{{primary}}</button>
     </div>
   </section>
 </div>
@@ -60,7 +61,8 @@ class Component extends DCLogic {
       { id: 'mountain', name: 'Mountain', art: '3bf02968b49b8af680661d10aa4e5547', n: 1, gives: ['R'], each: 'R' },
       { id: 'tower', name: 'Command Tower', art: 'f42c34fc11f085b17d9a7720c94e99fd', n: 1, gives: ['W'], each: 'W' },
       { id: 'sol', name: 'Sol Ring', art: '6eb6974115f1bfa5c775b479771e7166', n: 1, gives: ['C', 'C'], each: '2 colorless' },
-      { id: 'signet', name: 'Arcane Signet', art: 'af66cc45335c7043758a263a745cbd02', n: 1, gives: ['W'], each: 'W' }
+      { id: 'signet', name: 'Arcane Signet', art: 'af66cc45335c7043758a263a745cbd02', n: 1, gives: ['W'], each: 'W' },
+      { id: 'treasure', name: 'Treasure', art: '7f6452cb1b2315875524ebb5b0e1258d', n: 1, gives: ['W'], each: 'Any colour, asks first', sac: true }
     ];
     const taps = this.state.taps;
     const pool = [];
@@ -70,18 +72,22 @@ class Component extends DCLogic {
     const paid = wPaid && gen === 3;
     const pip = (label, f) => ({ label, bg: f ? '#f2efe8' : 'transparent', ink: f ? '#0b0c0e' : '#a9adb3', ring: f ? 'none' : 'inset 0 0 0 2px #2a2e33' });
     return {
-      status: this.state.cast ? 'On the stack.' : paid ? 'Paid in full.' : 'Tap a source to use it. Tap again to undo.',
+      status: this.state.cast ? 'Cast. Opponents may respond.' : this.state.asking ? 'Sacrifice the Treasure for one mana?' : paid ? 'Paid in full.' : 'Tap an amber source to use it. Tap it again to untap.',
       pips: [pip('W', wPaid), pip('1', gen >= 1), pip('1', gen >= 2), pip('1', gen >= 3)],
       pipsLabel: (wPaid ? 'White paid, ' : 'White not paid, ') + gen + ' of 3 generic paid',
       sources: defs.map((d) => {
         const k = taps[d.id] || 0, all = k === d.n;
-        return { name: d.name + (d.n > 1 ? ' ×' + d.n : ''), art: A(d.art), sub: k ? (d.n > 1 ? k + ' tapped' : 'Tapped') : d.each, subInk: k ? '#f0b45a' : '#a9adb3',
-          border: all ? '#2a2e33' : '#8fd3a8', bg: k ? '#1e2125' : 'transparent', tf: all ? 'rotate(90deg)' : 'none', label: d.name + ', ' + (k ? k + ' tapped' : 'untapped'),
-          click: () => this.setState((s) => ({ taps: { ...s.taps, [d.id]: (s.taps[d.id] || 0) < d.n ? (s.taps[d.id] || 0) + 1 : 0 } })) };
+        return { name: d.name + (d.n > 1 ? ' ×' + d.n : ''), art: A(d.art), sub: k ? (d.n > 1 ? k + ' tapped' : 'Tapped') : d.each, subInk: k ? '#f2efe8' : '#a9adb3',
+          border: all || this.state.cast ? '#2a2e33' : '#f0b45a', bg: k ? '#1e2125' : 'transparent', tf: all ? 'rotate(90deg)' : 'none', label: d.name + ', ' + (k ? k + ' tapped' : 'untapped'),
+          click: () => this.setState((s) => s.cast ? null : d.sac ? { asking: true } : ({ taps: { ...s.taps, [d.id]: (s.taps[d.id] || 0) < d.n ? (s.taps[d.id] || 0) + 1 : 0 } })) };
       }),
-      primary: this.state.cast ? 'Cast' : paid ? 'Cast Akroma’s Will' : 'Pay the rest',
-      confirm: () => this.setState(paid ? { cast: true } : { taps: { sol: 1, plains: 2 } }),
-      cancel: () => this.setState({ taps: {}, cast: false })
+      primary: this.state.cast ? 'Waiting for Computer' : this.state.asking ? 'Sacrifice it' : paid ? 'Cast Akroma’s Will' : 'Pay the rest',
+      secondary: this.state.asking ? 'Keep it' : 'Cancel',
+      showSecondary: !this.state.cast,
+      asking: !!this.state.asking,
+      primaryBg: this.state.cast ? '#1e2125' : '#f2efe8', primaryInk: this.state.cast ? '#a9adb3' : '#0b0c0e',
+      confirm: () => this.setState((s) => s.cast ? null : s.asking ? { asking: false, taps: { ...s.taps, treasure: 1 } } : paid ? { cast: true } : { taps: { ...s.taps, sol: 1, plains: 2 } }),
+      cancel: () => this.setState((s) => s.asking ? { asking: false } : { taps: {}, cast: false })
     };
   }
 }

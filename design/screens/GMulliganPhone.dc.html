@@ -49,13 +49,14 @@ button{font:inherit;color:inherit}
     <p style="margin: 0; padding: 10px 12px; border-radius: 12px; border: 1.5px dashed var(--line); font-size: 14px"><b>Bottom:</b> <span style="color: var(--dim)">{{trayText}}</span></p>
   </sc-if>
 
-  <div style="margin-top: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 8px">
+  <span style="margin-top: auto; font-size: 10px; color: var(--dim)">Art: Darren Tan, Marta Nael, Gintas Galvanauskas, Craig Elliott. Card images from Scryfall, © Wizards of the Coast</span>
+  <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 8px">
     <sc-if value="{{deciding}}" hint-placeholder-val="{{true}}">
       <button onClick="{{mulligan}}" style="min-height: 54px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{mulliganLabel}}</button>
       <button onClick="{{keep}}" style="min-height: 56px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 18px">{{keepLabel}}</button>
     </sc-if>
     <sc-if value="{{bottoming}}" hint-placeholder-val="{{false}}">
-      <button onClick="{{reset}}" style="min-height: 54px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Start over</button>
+      <button onClick="{{reset}}" style="min-height: 54px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Clear picks</button>
       <button onClick="{{done}}" style="min-height: 56px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 18px">{{doneLabel}}</button>
     </sc-if>
     <sc-if value="{{kept}}" hint-placeholder-val="{{false}}">
@@ -86,13 +87,13 @@ class Component extends DCLogic {
       opps: [
         { name: 'Computer', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), status: 'Kept 7', ink: '#8fd3a8' },
         { name: 'Sam', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), status: 'Thinking', ink: '#f2efe8' },
-        { name: 'Jules', art: A('383d04a073378ede76b3234038a68757'), status: 'Mulliganed', ink: '#f0b45a' }
+        { name: 'Jules', art: A('383d04a073378ede76b3234038a68757'), status: 'Mulliganed', ink: '#a9adb3' }
       ],
       title: bottoming ? 'Bottom ' + need + (need === 1 ? ' card' : ' cards') : stage === 'kept' ? 'Opening hand' : mulls === 0 ? 'Keep this hand?' : 'Mulligan ' + mulls,
       subtitle: bottoming ? 'Tap a card to put it on the bottom.' : ['2 lands and 2 mana rocks.', 'No lands and no mana rocks.', '2 lands and a mana rock.'][handIdx],
       hand: hands[handIdx].map(([name, id], i) => {
         const picked = bottom.includes(i);
-        return { img: A(id), label: name, picked, disabled: !bottoming, lift: picked ? 'translateY(10px) scale(0.9)' : 'none', ring: picked ? '0 0 0 3px #f0b45a' : 'none',
+        return { img: A(id), label: name, picked, disabled: !bottoming, lift: picked ? 'translateY(10px) scale(0.9)' : 'none', ring: picked ? '0 0 0 3px #f2efe8' : 'none',
           pick: () => this.setState((s) => {
             if (s.stage !== 'bottom') return null;
             if (s.bottom.includes(i)) return { bottom: s.bottom.filter((x) => x !== i) };
@@ -109,7 +110,7 @@ class Component extends DCLogic {
       done: () => ready && this.setState({ stage: 'kept' }),
       doneBg: ready ? '#f2efe8' : '#1e2125', doneInk: ready ? '#0b0c0e' : '#a9adb3',
       doneLabel: 'Done (' + bottom.length + '/' + need + ')',
-      reset: () => this.setState({ stage: 'decide', mulls: 0, bottom: [] })
+      reset: () => this.setState({ bottom: [] })
     };
   }
 }

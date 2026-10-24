@@ -66,7 +66,7 @@ button{font:inherit;color:inherit}
         <button onClick="{{keep}}" style="min-height: 60px; padding: 0 40px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 20px">{{keepLabel}}</button>
       </sc-if>
       <sc-if value="{{bottoming}}" hint-placeholder-val="{{false}}">
-        <button onClick="{{reset}}" style="min-height: 56px; padding: 0 24px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Start over</button>
+        <button onClick="{{reset}}" style="min-height: 56px; padding: 0 24px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Clear picks</button>
         <button onClick="{{done}}" disabled="{{notReady}}" style="min-height: 60px; padding: 0 40px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 20px">{{doneLabel}}</button>
       </sc-if>
       <sc-if value="{{kept}}" hint-placeholder-val="{{false}}">
@@ -101,7 +101,7 @@ class Component extends DCLogic {
         img: A(id), label: name + (picked ? ', going to the bottom' : ''), picked,
         disabled: !bottoming, cursor: bottoming ? 'pointer' : 'default',
         lift: picked ? 'translateY(36px) scale(0.92)' : 'none',
-        ring: picked ? '0 0 0 3px #f0b45a' : (bottoming ? '0 0 0 1px #2a2e33' : 'none'),
+        ring: picked ? '0 0 0 3px #f2efe8' : (bottoming ? '0 0 0 1px #2a2e33' : 'none'),
         pick: () => this.setState((s) => {
           if (s.stage !== 'bottom') return null;
           const has = s.bottom.includes(i);
@@ -115,9 +115,9 @@ class Component extends DCLogic {
     const ready = bottom.length === need;
     return {
       opps: [
-        { name: 'Computer', seat: '#f1e4bc', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', status: 'Kept 7', ink: '#8fd3a8' },
-        { name: 'Sam', seat: '#f08a70', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', status: 'Thinking', ink: '#f2efe8' },
-        { name: 'Jules', seat: '#6fd49a', art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', status: 'Mulliganed once', ink: '#f0b45a' }
+        { name: 'Computer', seat: '#b55af6', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', status: 'Kept 7', ink: '#8fd3a8' },
+        { name: 'Sam', seat: '#e8bae4', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', status: 'Thinking', ink: '#f2efe8' },
+        { name: 'Jules', seat: '#757a8a', art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', status: 'Mulliganed once', ink: '#a9adb3' }
       ],
       title: bottoming ? 'Put ' + need + (need === 1 ? ' card' : ' cards') + ' on the bottom' : stage === 'kept' ? 'Your opening hand' : mulls === 0 ? 'Keep this hand?' : 'New hand, mulligan ' + mulls,
       subtitle: bottoming ? 'Click a card to send it to the bottom. Click it again to take it back.' : stage === 'kept' ? 'The game starts when everyone has kept.' : ['2 lands and 2 mana rocks.', 'No lands and no mana rocks.', '2 lands and a mana rock.'][handIdx],
@@ -133,7 +133,7 @@ class Component extends DCLogic {
       notReady: !ready,
       doneBg: ready ? '#f2efe8' : '#1e2125', doneInk: ready ? '#0b0c0e' : '#a9adb3',
       doneLabel: 'Done (' + bottom.length + '/' + need + ')',
-      reset: () => this.setState({ stage: 'decide', mulls: 0, bottom: [] })
+      reset: () => this.setState({ bottom: [] })
     };
   }
 }

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Playing a card on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+
+  <sc-if value="{{browsing}}" hint-placeholder-val="{{true}}">
+    <span aria-hidden="true" style="position: absolute; left: 12px; right: 12px; top: 590px; border-top: 2px dashed #f2efe8"></span>
+    <span style="position: absolute; left: 12px; top: 566px; padding: 1px 10px; border-radius: 999px; background: var(--text); color: var(--ground); font-size: 11px; font-weight: 800">Or drag a card above this line to play it</span>
+  </sc-if>
+
+  <section aria-label="Your hand" style="position: absolute; left: 0; right: 0; bottom: 0; height: 236px; padding: 12px 10px 14px; border-radius: 22px 22px 0 0; background: var(--surface); box-shadow: 0 -16px 40px rgb(0 0 0 / 0.6); display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 4px"><b style="font-size: 14px">Your hand, 5 cards</b><span style="font-size: 12px; color: var(--dim)">Amber cards can be played now</span></div>
+    <div style="display: flex; gap: 8px; justify-content: center; align-items: end; height: 108px">
+      <sc-for list="{{hand}}" as="h" hint-placeholder-count="5">
+        <button onClick="{{h.tap}}" aria-pressed="{{h.on}}" aria-label="{{h.label}}" style="padding: 0; border: none; background: transparent; border-radius: 5px; box-shadow: {{h.ring}}; transform: translateY({{h.lift}}px); transition: transform 140ms, box-shadow 140ms"><img src="{{h.img}}" alt="" style="display: block; width: 66px; border-radius: 5px"></button>
+      </sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px">
+      <button onClick="{{cancel}}" style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button>
+      <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 16px">{{primary}}</button>
+    </div>
+  </section>
+
+  <sc-if value="{{chosen}}" hint-placeholder-val="{{false}}">
+    <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 0; bottom: 236px; background: rgb(0 0 0 / 0.7)"></div>
+    <figure style="position: absolute; left: 16px; right: 16px; top: 40px; margin: 0; display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 14px; align-items: start">
+      <img src="{{selImg}}" alt="{{selName}}" style="width: 170px; border-radius: 8px; box-shadow: 0 0 0 3px #f2efe8, 0 24px 50px rgb(0 0 0 / 0.8)">
+      <figcaption style="display: flex; flex-direction: column; gap: 8px; padding-top: 4px">
+        <b style="font-family: var(--display); font-weight: 800; font-size: 26px; line-height: 1">{{selName}}</b>
+        <span style="font-size: 12px; color: var(--dim)">{{selType}}</span>
+        <span style="font-size: 13px; line-height: 1.4">{{selText}}</span>
+      </figcaption>
+    </figure>
+    <span style="position: absolute; left: 16px; right: 16px; top: 300px; font-size: 13px; color: var(--dim)">{{selNext}}</span>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sel: 'warp' };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const cards = [
+      { id: 'charm', name: 'Boros Charm', img: A('2d80527eb5c346c24b35ad5381fe99a6'), ok: true, type: 'Instant, {R}{W}', verb: 'Cast', text: 'Choose one — • Boros Charm deals 4 damage to target player or planeswalker. • Permanents you control gain indestructible until end of turn. • Target creature gains double strike until end of turn.', next: 'Next: choose a mode, then a target if it needs one.' },
+      { id: 'warp', name: 'Chaos Warp', img: A('0145ecf81c21d180a7799470623719f7'), ok: true, type: 'Instant, {2}{R}', verb: 'Cast', text: 'The owner of target permanent shuffles it into their library, then reveals the top card of their library. If it’s a permanent card, they put it onto the battlefield.', next: 'Next: choose a target permanent on the board.' },
+      { id: 'will', name: 'Akroma’s Will', img: A('d2df35f8a45cc092aadf237d7374fc27'), ok: true, type: 'Instant, {3}{W}', verb: 'Cast', text: 'Choose one. If you control a commander as you cast this spell, you may choose both instead. • Creatures you control gain flying, vigilance, and double strike until end of turn. • Creatures you control gain lifelink, indestructible, and protection from each color until end of turn.', next: 'Next: choose modes.' },
+      { id: 'fierce', name: 'Fierce Guardianship', img: A('c858d7cf7a488b3218bd7bbf1fe8b79c'), ok: false },
+      { id: 'fortress', name: 'Glacial Fortress', img: A('e25b0374571373f1ab95c0e88cd1758e'), ok: true, type: 'Land', verb: 'Play', text: 'This land enters tapped unless you control a Plains or an Island. {T}: Add {W} or {U}.', next: 'This is your land for the turn.' }
+    ];
+    const sel = this.state.sel;
+    const c = cards.find((x) => x.id === sel);
+    return {
+      browsing: !c, chosen: !!c,
+      hand: cards.map((x) => ({ img: x.img, on: x.id === sel, lift: x.id === sel ? -14 : 0,
+        ring: x.id === sel ? '0 0 0 3px #f2efe8' : x.ok ? '0 0 0 2px #f0b45a' : 'none',
+        label: x.name + (x.ok ? ', can be played' : ', can’t be played now'),
+        tap: x.ok ? () => this.setState((s) => ({ sel: s.sel === x.id ? null : x.id })) : null })),
+      selImg: c ? c.img : '', selName: c ? c.name : '', selType: c ? c.type : '', selText: c ? c.text : '', selNext: c ? c.next + ' Long-press any card to read it without playing.' : '',
+      primary: c ? c.verb + ' ' + c.name : 'To combat',
+      secondary: c ? 'Cancel' : 'End turn',
+      cancel: () => this.setState({ sel: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

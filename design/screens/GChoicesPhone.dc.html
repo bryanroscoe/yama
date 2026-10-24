@@ -21,29 +21,19 @@ button{font:inherit;color:inherit}
   <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
   <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.65)"></div>
 
-  <div role="alert" style="position: absolute; left: 8px; right: 8px; top: 8px; padding: 10px; border-radius: 16px; background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 16px 40px rgb(0 0 0 / 0.6); display: flex; flex-direction: column; gap: 8px">
-    <div style="display: flex; gap: 10px; align-items: center">
-      <img src="/_blob/a3e58275bd2364af6a346bbf2e6a38b9" alt="" style="width: 48px; height: 36px; border-radius: 8px; object-fit: cover">
-      <span style="display: flex; flex-direction: column; line-height: 1.2"><b style="font-size: 15px">Pay {1} for Rhystic Study?</b><span style="font-size: 12px; color: var(--dim)">Otherwise Jules draws. Art: Tatiana Kirgetova</span></span>
-    </div>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
-      <button style="min-height: 44px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; font-size: 14px">Don’t pay</button>
-      <button style="min-height: 44px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 14px">Pay {1}</button>
-    </div>
-  </div>
-  <span style="position: absolute; left: 16px; top: 146px; font-size: 12px; color: var(--dim)">A yes-or-no prompt drops in from the top. A bigger choice opens as a sheet:</span>
 
-  <section role="dialog" aria-label="Discard down to 7" style="position: absolute; left: 0; right: 0; bottom: 0; top: 176px; padding: 8px 14px 16px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
+  <section role="dialog" aria-label="Discard down to 7" style="position: absolute; left: 0; right: 0; bottom: 0; top: 96px; padding: 8px 14px 16px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
     <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 999px; background: var(--line)"></span>
-    <div style="display: flex; justify-content: space-between; align-items: end"><b style="font-family: var(--display); font-size: 28px; font-weight: 800; line-height: 1">Discard down to 7</b><span style="font-size: 13px; color: var(--dim)">Pick 2</span></div>
+    <div style="display: flex; justify-content: space-between; align-items: end"><b style="font-family: var(--display); font-size: 28px; font-weight: 800; line-height: 1">Discard down to 7</b><span style="font-size: 13px; color: var(--dim)">{{discN}} of 2 chosen</span></div>
     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 10px; padding-top: 6px">
       <sc-for list="{{hand}}" as="h" hint-placeholder-count="9">
         <button onClick="{{h.pick}}" aria-pressed="{{h.on}}" aria-label="{{h.name}}" style="position: relative; padding: 0; border: none; background: transparent">
           <img src="{{h.img}}" alt="" style="display: block; width: 100%; border-radius: 5px; box-shadow: {{h.ring}}">
-          <sc-if value="{{h.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); padding: 0 8px; border-radius: 999px; background: var(--warn); color: var(--ground); font-size: 11px; font-weight: 800">Discard</span></sc-if>
+          <sc-if value="{{h.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); padding: 0 8px; border-radius: 999px; background: var(--text); color: var(--ground); font-size: 11px; font-weight: 800">Discard</span></sc-if>
         </button>
       </sc-for>
     </div>
+    <span style="font-size: 12px; color: var(--dim)">Long-press a card to read it. Art and card images from Scryfall, © Wizards of the Coast.</span>
     <button style="margin-top: auto; min-height: 54px; border-radius: 999px; border: none; background: {{discBg}}; color: {{discInk}}; font-weight: 800; font-size: 17px">Discard ({{discN}}/2)</button>
   </section>
 </div>
@@ -67,7 +57,7 @@ class Component extends DCLogic {
     return {
       hand: hand.map(([id, name, img]) => {
         const on = disc.includes(id);
-        return { name, img: A(img), on, ring: on ? '0 0 0 3px #f0b45a' : 'none',
+        return { name, img: A(img), on, ring: on ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a',
           pick: () => this.setState((s) => ({ disc: s.disc.includes(id) ? s.disc.filter((x) => x !== id) : s.disc.length < 2 ? s.disc.concat(id) : s.disc.slice(1).concat(id) })) };
       }),
       discN: disc.length, discBg: disc.length === 2 ? '#f2efe8' : '#1e2125', discInk: disc.length === 2 ? '#0b0c0e' : '#a9adb3'

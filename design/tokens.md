@@ -14,15 +14,28 @@ The idea: a near-black, neutral table, so the commander art and the mana colors 
   --line: #2a2e33;     /* hairlines and outlines */
   --text: #f2efe8;     /* body text, primary buttons (dark text on it); replaces --paper */
   --dim: #a9adb3;      /* secondary text; replaces --paper-dim. 8:1 on ground, 6:1 on raised */
-  --good: #8fd3a8;     /* have it, legal, ready, connected */
-  --warn: #f0b45a;     /* need it, waiting, uploads pending, 25% baselines */
-  --bad: #f07a62;      /* attacking, destructive actions, banned */
+  --good: #8fd3a8;     /* have it, legal, ready, connected; in a game, a result that's good for you */
+  --pick: #f0b45a;     /* in a game: you can pick or play this. Never used for anything else on the board */
+  --warn: #f0b45a;     /* outside games only: need it, waiting, uploads pending, 25% baselines */
+  --bad: #f07a62;      /* destructive actions, banned; in a game, every warning */
 
-  /* Phase stop ladder only: the two kinds differ in hue and in shape (filled dot or outlined square) */
-  --stop-mine: #f0b45a;
-  --stop-opp: #7fb0ff;
+  /* Phase stop ladder: shape and fill tell the kinds apart, not hue */
+  --stop-mine: #f2efe8; /* filled dot */
+  --stop-opp: #a9adb3;  /* outlined square */
+
+  /* Seats, by turn order starting with you. You are always seat 1 */
+  --seat-1: #408abf;   /* you: blue */
+  --seat-2: #b55af6;   /* violet */
+  --seat-3: #e8bae4;   /* orchid */
+  --seat-4: #757a8a;   /* slate */
+  --seat-5: #34b4f4;   /* sky */
+  --seat-6: #f434c4;   /* magenta */
 }
 ```
+
+- **Amber in a game.** On the online board `--pick` means one thing: you can pick or play this. Rings on legal targets, on cards you can play, on sources you can tap. A thing you've picked turns white (`--text` ring) with a number badge when order or count matters. A preview ("will tap"), a status ("survives") or a tag ("You") is never amber.
+- **Warnings in a game** use `--bad` with a word and an icon ("Lethal", "21 commander damage"). Green reports a good result for you ("Dies" on an attacker you block); it never means "you can play this".
+- **Seat colours** were picked by simulating protanopia, deuteranopia and tritanopia (Machado 2009). Seats 1 to 4 stay at least ΔE 21 from each other and from `--bad`, `--good`, `--pick` and `--text` under every one; seats 5 and 6 drop that to ΔE 16. A seat colour always sits beside the player's name or art, never alone. It's used for the seat dot, that player's arrows, and the ring on their attacking creatures.
 
 - `--paper-faint` is retired for text, because it fails 4.5:1. Use `--dim` for text and `--line` for decoration.
 - The mana fills in `packages/core/src/mana.ts` stay as they are, for pips, identity dots and curve bars.
@@ -92,7 +105,7 @@ This is the signature pattern. Use it for life-counter panels, deck headers, dec
    | Text on the left (opponent headers, seat rows) | `linear-gradient(90deg, rgb(11 12 14 / .88), .55 at 60%, .2)` |
 
 4. **Small text over art** (names, badges, the commander damage pill) sits on a near-solid chip: `rgb(0 0 0 / .55–.6)` or `rgb(11 12 14 / .82)`. Big numbers sit straight on the wash, with `text-shadow: 0 2px 18px rgb(0 0 0 / .55)`.
-5. **Credit:** every art crop carries "Art: Name, © Wizards of the Coast" somewhere in the same view, at 10–12 px. Alternatively, show the full card image in that view.
+5. **Credit:** every art crop carries "Art: Name, © Wizards of the Coast" somewhere in the same view, at 10–12 px. Alternatively, show the full card image in that view. On the online board, each battlefield's art credits sit in one line at the foot of that player's area ("Art: Craig Elliott, Bryan Sola, …"), and your portrait's artist is named under your life total.
 6. **No art yet:** a `--raised` block. If the slot is empty (an open seat, no commander picked), use a 2px dashed `--line` border instead.
 7. **Life counter:**
    - The art rotates with the panel, so it faces its player.
@@ -112,8 +125,9 @@ This is the signature pattern. Use it for life-counter panels, deck headers, dec
 
   | State | Look |
   |---|---|
-  | Has options | `0 0 0 2px var(--good)` |
-  | Attacking | `--bad` ring plus an "Attacking" badge |
+  | Has options (you can play or use it) | `0 0 0 2px var(--pick)` |
+  | Picked for the current choice | `0 0 0 3px var(--text)`, plus a number badge when order or count matters |
+  | Attacking | the attacker's seat-colour ring, plus a chip with the defender's art |
   | Commander | inner `--text` ring |
   | Stacked copies | ×N badge |
   | Tapped | rotated 90°, never dimmed with a filter |

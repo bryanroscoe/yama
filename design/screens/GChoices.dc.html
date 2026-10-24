@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
 <style>
-:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--jules:#6fd49a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--jules:#757a8a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
 button{font:inherit;color:inherit}
@@ -21,7 +21,7 @@ button{font:inherit;color:inherit}
 </style>
 </helmet>
 <div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
-  <p style="position: absolute; left: 30px; top: 16px; margin: 0; font-size: 14px; color: var(--dim)">Five prompts that interrupt play. Each one opens over the board, in the same place, with the source card shown and the choice in plain words.</p>
+  <p style="position: absolute; left: 30px; top: 16px; margin: 0; font-size: 14px; color: var(--dim)">Five prompts that interrupt play. Each opens over the board with its source card and the engine’s question; the answer is given with the rail’s buttons, drawn here under each prompt.</p>
 
   <section class="card" role="dialog" aria-label="Pay for Rhystic Study" style="left: 30px; top: 56px; width: 440px">
     <div style="display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; align-items: center">
@@ -29,12 +29,9 @@ button{font:inherit;color:inherit}
       <span style="display: flex; flex-direction: column; line-height: 1.25"><span class="cap">Jules’s Rhystic Study. Art: Tatiana Kirgetova</span><b style="font-size: 20px">Pay {1}, or Jules draws a card?</b></span>
     </div>
     <span style="font-size: 14px; color: var(--dim)">You just cast Chaos Warp. You have 3 untapped mana.</span>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
-      <button style="min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Don’t pay</button>
-      <button style="min-height: 50px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800">Pay {1}</button>
-    </div>
+    <span aria-label="Rail buttons" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 6px; padding: 6px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line)"><span style="min-height: 40px; border-radius: 999px; border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; font-weight: 700">Don’t pay</span><span style="min-height: 44px; border-radius: 999px; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 14px; font-weight: 800">Pay {1}</span></span>
     <div style="display: flex; flex-direction: column; gap: 6px">
-      <span class="cap">For the rest of this game</span>
+      <span class="cap">For the rest of this game. Each automatic answer is logged, and the log line turns it off.</span>
       <span role="radiogroup" aria-label="Rhystic Study answer" style="display: grid; grid-template-columns: repeat(3, 1fr); padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
         <sc-for list="{{rhystic}}" as="o" hint-placeholder-count="3"><button role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" style="min-height: 36px; border: none; border-radius: 999px; background: {{o.bg}}; color: {{o.ink}}; font-size: 13px; font-weight: 700">{{o.label}}</button></sc-for>
       </span>
@@ -52,14 +49,12 @@ button{font:inherit;color:inherit}
         <button role="option" aria-selected="{{n.on}}" onClick="{{n.pick}}" style="display: flex; justify-content: space-between; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 10px; border: none; background: {{n.bg}}; text-align: left"><b style="font-size: 14px">{{n.name}}</b><span style="font-size: 12px; color: {{n.whereInk}}">{{n.where}}</span></button>
       </sc-for>
     </div>
-    <div style="display: flex; justify-content: space-between; align-items: center">
-      <span class="cap">Cards in play come first. Needle stops activated abilities, loyalty ones included.</span>
-      <button style="min-height: 46px; padding: 0 20px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800">Name {{named}}</button>
-    </div>
+    <span class="cap">Names come from Yama’s card list. Cards in play come first.</span>
+    <span aria-label="Rail buttons" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 6px; padding: 6px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line)"><span style="min-height: 40px; border-radius: 999px; border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; font-weight: 700">Cancel</span><span style="min-height: 44px; border-radius: 999px; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 14px; font-weight: 800">Name {{named}}</span></span>
   </section>
 
   <section class="card" role="dialog" aria-label="Choose a color" style="left: 970px; top: 56px; width: 440px">
-    <span style="display: flex; flex-direction: column; line-height: 1.25"><span class="cap">Brave the Elements, on the stack</span><b style="font-size: 20px">Choose a color</b><span style="font-size: 14px; color: var(--dim)">Your white creatures gain protection from it until end of turn.</span></span>
+    <span style="display: flex; flex-direction: column; line-height: 1.25"><span class="cap">Brave the Elements, on the stack</span><b style="font-size: 20px">Choose a color</b><span style="font-size: 14px; color: var(--dim)">Choose a color. White creatures you control gain protection from the chosen color until end of turn.</span></span>
     <div role="radiogroup" aria-label="Colors" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px">
       <sc-for list="{{colors}}" as="c" hint-placeholder-count="5">
         <button role="radio" aria-checked="{{c.on}}" onClick="{{c.pick}}" style="display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0; border-radius: 14px; border: none; background: {{c.bg}}">
@@ -67,8 +62,7 @@ button{font:inherit;color:inherit}
         </button>
       </sc-for>
     </div>
-    <span style="font-size: 13px; color: var(--dim)">{{colorHint}}</span>
-    <button style="align-self: flex-end; min-height: 46px; padding: 0 20px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800">Choose {{colorName}}</button>
+<span aria-label="Rail buttons" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 6px; padding: 6px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line)"><span style="min-height: 40px; border-radius: 999px; border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; font-weight: 700">Cancel</span><span style="min-height: 44px; border-radius: 999px; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 14px; font-weight: 800">Choose {{colorName}}</span></span>
   </section>
 
   <section class="card" role="dialog" aria-label="Discard to hand size" style="left: 30px; top: 470px; width: 910px">
@@ -77,13 +71,13 @@ button{font:inherit;color:inherit}
       <sc-for list="{{hand}}" as="h" hint-placeholder-count="9">
         <button onClick="{{h.pick}}" aria-pressed="{{h.on}}" aria-label="{{h.name}}" style="position: relative; padding: 0; border: none; background: transparent; transform: translateY({{h.lift}}px); transition: transform 140ms">
           <img src="{{h.img}}" alt="" style="display: block; width: 88px; border-radius: 5px; box-shadow: {{h.ring}}">
-          <sc-if value="{{h.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); padding: 0 8px; border-radius: 999px; background: var(--warn); color: var(--ground); font-size: 11px; font-weight: 800; white-space: nowrap">Discard</span></sc-if>
+          <sc-if value="{{h.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); padding: 0 8px; border-radius: 999px; background: var(--text); color: var(--ground); font-size: 11px; font-weight: 800; white-space: nowrap">Discard</span></sc-if>
         </button>
       </sc-for>
     </div>
     <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px">
       <span class="cap">Right-click any card to read it before choosing.</span>
-      <button style="min-height: 48px; padding: 0 22px; border-radius: 999px; border: none; background: {{discBg}}; color: {{discInk}}; font-weight: 800">Discard ({{discN}}/2)</button>
+<span style="width: 340px"><span aria-label="Rail buttons" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 6px; padding: 6px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line)"><span style="min-height: 40px; border-radius: 999px; border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; font-weight: 700">Reset</span><span style="min-height: 44px; border-radius: 999px; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 14px; font-weight: 800">Discard ({{discN}}/2)</span></span></span>
     </div>
   </section>
 
@@ -93,10 +87,7 @@ button{font:inherit;color:inherit}
       <span style="display: flex; flex-direction: column; line-height: 1.25"><span class="cap">Éowyn is going to your graveyard. Art: Craig Elliott</span><b style="font-size: 20px">Put her in the command zone instead?</b></span>
     </div>
     <span style="font-size: 14px; color: var(--dim)">Casting her again would cost {4}{U}{R}{W}, with {2} tax for the one earlier cast.</span>
-    <div style="display: grid; grid-template-columns: 1fr 1.3fr; gap: 8px">
-      <button style="min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Graveyard</button>
-      <button style="min-height: 50px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800">Command zone</button>
-    </div>
+    <span aria-label="Rail buttons" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 6px; padding: 6px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line)"><span style="min-height: 40px; border-radius: 999px; border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; font-weight: 700">Graveyard</span><span style="min-height: 44px; border-radius: 999px; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 14px; font-weight: 800">Command zone</span></span>
     <label style="display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer"><button role="checkbox" aria-checked="{{always}}" onClick="{{toggleAlways}}" style="width: 24px; height: 24px; border-radius: 6px; border: 2px solid var(--text); background: {{alwaysBg}}; color: var(--ground); font-size: 14px; font-weight: 800; padding: 0; display: grid; place-items: center">{{alwaysMark}}</button>Always choose the command zone, and don’t ask</label>
   </section>
 </div>
@@ -123,13 +114,13 @@ class Component extends DCLogic {
     const disc = s.disc;
     return {
       rhystic: seg(['Ask each time', 'Always pay', 'Never pay'], s.rhy, 'rhy'),
-      names: names.map(([name, where], i) => ({ name, where, on: s.name === i, bg: s.name === i ? '#1e2125' : 'transparent', whereInk: i === 0 ? '#f08a70' : '#a9adb3', pick: () => this.setState({ name: i }) })),
+      names: names.map(([name, where], i) => ({ name, where, on: s.name === i, bg: s.name === i ? '#1e2125' : 'transparent', whereInk: i === 0 ? '#e8bae4' : '#a9adb3', pick: () => this.setState({ name: i }) })),
       named: names[s.name][0],
       colors: colors.map(([name, fill], i) => ({ name, fill, on: s.color === i, bg: s.color === i ? '#1e2125' : 'transparent', ring: s.color === i ? '0 0 0 3px #f2efe8, 0 0 0 6px #1e2125' : 'inset 0 0 0 1px rgb(255 255 255 / 0.15)', pick: () => this.setState({ color: i }) })),
-      colorHint: s.color === 2 ? 'Sam’s attackers are black. Damage they would deal to your white creatures is prevented.' : 'Sam is attacking with black creatures: Grave Titan and Zombie ×2.', colorName: colors[s.color][0].toLowerCase(),
+      colorName: colors[s.color][0].toLowerCase(),
       hand: hand.map(([id, name, img]) => {
         const on = disc.includes(id);
-        return { name, img: A(img), on, lift: on ? -12 : 0, ring: on ? '0 0 0 3px #f0b45a' : '0 6px 14px rgb(0 0 0 / 0.4)',
+        return { name, img: A(img), on, lift: on ? -12 : 0, ring: on ? '0 0 0 3px #f2efe8' : '0 6px 14px rgb(0 0 0 / 0.4)',
           pick: () => this.setState((st) => ({ disc: st.disc.includes(id) ? st.disc.filter((x) => x !== id) : st.disc.length < 2 ? st.disc.concat(id) : st.disc.slice(1).concat(id) })) };
       }),
       discN: disc.length, discBg: disc.length === 2 ? '#f2efe8' : '#1e2125', discInk: disc.length === 2 ? '#0b0c0e' : '#a9adb3',

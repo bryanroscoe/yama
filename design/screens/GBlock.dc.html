@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
 <style>
-:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--sam:#f08a70;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--sam:#e8bae4;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
 button{font:inherit;color:inherit}
@@ -40,7 +40,7 @@ button{font:inherit;color:inherit}
   <div style="position: absolute; left: 14px; top: 262px; display: flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--surface); font-weight: 700; font-size: 14px"><img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover">Sam’s turn 9, combat</div>
 
   <section aria-label="Your battlefield" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 438px; border-radius: 16px; background: var(--surface)"></section>
-  <section aria-label="Attacking you" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 150px; border-radius: 16px 16px 0 0; background: rgb(240 138 112 / 0.08); border-bottom: 1px dashed rgb(240 138 112 / 0.5)">
+  <section aria-label="Attacking you" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 150px; border-radius: 16px 16px 0 0; background: rgb(232 186 228 / 0.08); border-bottom: 1px dashed rgb(232 186 228 / 0.5)">
     <span style="position: absolute; left: 14px; top: 12px; display: flex; flex-direction: column; line-height: 1.2"><b style="color: var(--sam)">Attacking you</b><span style="font-size: 13px; color: var(--dim)">From Sam</span></span>
   </section>
 
@@ -59,13 +59,13 @@ button{font:inherit;color:inherit}
 
   <svg aria-hidden="true" width="1440" height="900" viewBox="0 0 1440 900" style="position: absolute; inset: 0; pointer-events: none">
     <sc-for list="{{links}}" as="a" hint-placeholder-count="1">
-      <line x1="{{a.x1}}" y1="{{a.y1}}" x2="{{a.x2}}" y2="{{a.y2}}" stroke="#6cb0f5" stroke-width="4" stroke-linecap="round"></line>
-      <circle cx="{{a.x2}}" cy="{{a.y2}}" r="6" fill="#6cb0f5"></circle>
+      <line x1="{{a.x1}}" y1="{{a.y1}}" x2="{{a.x2}}" y2="{{a.y2}}" stroke="#408abf" stroke-width="4" stroke-linecap="round"></line>
+      <circle cx="{{a.x2}}" cy="{{a.y2}}" r="6" fill="#408abf"></circle>
     </sc-for>
   </svg>
 
   <sc-for list="{{hand}}" as="h" hint-placeholder-count="4"><img src="{{h.img}}" alt="{{h.name}}" style="position: absolute; left: {{h.x}}px; top: 752px; width: 104px; border-radius: 5px; box-shadow: 0 -4px 14px rgb(0 0 0 / 0.5)"></sc-for>
-  <span style="position: absolute; left: 880px; top: 834px; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #6cb0f5"><b style="font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">38</b></span>
+  <span style="position: absolute; left: 880px; top: 834px; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #408abf"><b style="font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">38</b></span>
 
   <div role="status" style="position: absolute; left: 545px; top: 262px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 7px 8px 7px 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 800; box-shadow: 0 12px 30px rgb(0 0 0 / 0.5); white-space: nowrap">
     {{prompt}}
@@ -90,10 +90,6 @@ button{font:inherit;color:inherit}
         </sc-for>
       </div>
 
-      <div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; border-radius: 12px; border: 1px solid var(--line)">
-        <img src="/_blob/1dccd462a02a0872cc11a4d8518c111f" alt="" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover">
-        <span style="font-size: 13px; line-height: 1.35"><b>Grave Titan has deathtouch.</b> Anything that blocks it dies, whatever its toughness.</span>
-      </div>
 
       <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
         <p style="margin: 0; font-size: 12px; color: var(--dim)">Outcomes assume no tricks. Sam still gets a chance to respond after you confirm.</p>
@@ -136,7 +132,7 @@ class Component extends DCLogic {
       if (!a) return null;
       const shared = blockersOf(a.id).length > 1;
       if (a.dt) return { t: 'Dies', bg: '#f07a62' };
-      if (shared) return { t: a.p >= m.t ? 'May die' : 'Survives', bg: a.p >= m.t ? '#f0b45a' : '#8fd3a8' };
+      if (shared) return { t: a.p >= m.t ? 'May die' : 'Survives', bg: a.p >= m.t ? '#f07a62' : '#8fd3a8' };
       return a.p >= m.t ? { t: 'Dies', bg: '#f07a62' } : { t: 'Survives', bg: '#8fd3a8' };
     };
     const attackerDies = (a) => blockersOf(a.id).reduce((n, m) => n + m.p, 0) >= a.t;
@@ -151,7 +147,7 @@ class Component extends DCLogic {
       const bl = blockersOf(a.id);
       const dies = bl.length && attackerDies(a);
       return tile({ name: a.name, art: a.art, pt: a.p + '/' + a.t, x: aX(i), y: aY, s: 96, r: 12, fs: 12,
-        ring: sel ? '0 0 0 3px #f0b45a' : (a.cmd ? '0 0 0 2px #f08a70, inset 0 0 0 2px #f2efe8' : '0 0 0 2px #f08a70'),
+        ring: sel ? '0 0 0 3px #f0b45a' : (a.cmd ? '0 0 0 2px #e8bae4, inset 0 0 0 2px #f2efe8' : '0 0 0 2px #e8bae4'),
         cursor: sel ? 'pointer' : 'default', hasKw: !!a.kw, kw: a.kw,
         hasFate: bl.length > 0, fate: dies ? 'Dies' : bl.length + ' blocking', fateBg: dies ? '#8fd3a8' : '#f2efe8',
         label: a.name + ', attacking you' + (bl.length ? ', blocked by ' + bl.map((m) => m.name).join(' and ') : ', unblocked'),
@@ -161,7 +157,7 @@ class Component extends DCLogic {
       const f = fateOfBlocker(m);
       const isSel = sel === m.id;
       return tile({ name: m.name, art: m.art, pt: m.p + '/' + m.t, x: mX(i), y: mY, s: 96, r: 12, fs: 12, cursor: 'pointer', pressed: isSel || !!f,
-        ring: isSel ? '0 0 0 3px #f2efe8, 0 0 0 8px rgb(242 239 232 / 0.2)' : f ? '0 0 0 3px #6cb0f5' : '0 0 0 1px #2a2e33',
+        ring: isSel ? '0 0 0 3px #f2efe8, 0 0 0 8px rgb(242 239 232 / 0.2)' : f ? '0 0 0 3px #408abf' : '0 0 0 1px #2a2e33',
         hasFate: !!f, fate: f ? f.t : '', fateBg: f ? f.bg : '',
         label: m.name + (f ? ', blocking, ' + f.t.toLowerCase() : isSel ? ', picked to block' : ''),
         click: () => this.setState((s) => {
@@ -182,17 +178,17 @@ class Component extends DCLogic {
     const nBlocks = Object.keys(blocks).length;
     const results = attackers.map((a) => {
       const bl = blockersOf(a.id);
-      if (!bl.length) return { dot: '#f08a70', text: a.name + ' is unblocked: ' + a.p + ' to you.' };
+      if (!bl.length) return { dot: '#e8bae4', text: a.name + ' is unblocked: ' + a.p + ' to you.' };
       const names = bl.map((m) => m.name).join(' and ');
       if (a.dt) return { dot: '#f07a62', text: names + ' block' + (bl.length > 1 ? '' : 's') + ' Grave Titan. Deathtouch kills ' + (bl.length > 1 ? 'one or more of them' : names) + (attackerDies(a) ? ', and the Titan dies too.' : '; the Titan lives.') };
-      return { dot: attackerDies(a) ? '#8fd3a8' : '#f0b45a', text: names + ' block' + (bl.length > 1 ? '' : 's') + ' ' + a.name + (attackerDies(a) ? '. ' + a.name + ' dies.' : '. ' + a.name + ' survives.') };
+      return { dot: attackerDies(a) ? '#8fd3a8' : '#a9adb3', text: names + ' block' + (bl.length > 1 ? '' : 's') + ' ' + a.name + (attackerDies(a) ? '. ' + a.name + ' dies.' : '. ' + a.name + ' survives.') };
     });
     const selM = mine.find((m) => m.id === sel);
     return {
       panes: [
-        { name: 'Computer, medium', seat: '#f1e4bc', x: PX[0], counts: 'Hand 4, library 71', life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', lands: '8 lands', ring: '0 0 0 1px #2a2e33', note: 'Not in this combat', noteInk: '#a9adb3' },
-        { name: 'Sam', seat: '#f08a70', x: PX[1], counts: 'Hand 5, library 73', life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', lands: '7 lands, 2 untapped', ring: '0 0 0 3px #f08a70', note: 'Attacking you with 4 creatures', noteInk: '#f08a70' },
-        { name: 'Jules', seat: '#6fd49a', x: PX[2], counts: 'Hand 2, library 70', life: 36, art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', lands: '7 lands', ring: '0 0 0 1px #2a2e33', note: 'Not in this combat', noteInk: '#a9adb3' }
+        { name: 'Computer, medium', seat: '#b55af6', x: PX[0], counts: 'Hand 4, library 71', life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', lands: '8 lands', ring: '0 0 0 1px #2a2e33', note: 'Not in this combat', noteInk: '#a9adb3' },
+        { name: 'Sam', seat: '#e8bae4', x: PX[1], counts: 'Hand 5, library 73', life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', lands: '7 lands, 2 untapped', ring: '0 0 0 3px #e8bae4', note: 'Attacking you with 4 creatures', noteInk: '#e8bae4' },
+        { name: 'Jules', seat: '#757a8a', x: PX[2], counts: 'Hand 2, library 70', life: 36, art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', lands: '7 lands', ring: '0 0 0 1px #2a2e33', note: 'Not in this combat', noteInk: '#a9adb3' }
       ],
       tiles: [
         land(0, 'Plains', '30df84aecfd8c45546b9a6bdd64b8552', 4), land(1, 'Island', '7a66b1e98da872225edb04cfeb9bd60e', 2), land(2, 'Mountain', '3bf02968b49b8af680661d10aa4e5547'), land(3, 'Battlefield Forge', '3599624673068d143c783b9871cd28b6'), land(4, 'Command Tower', 'f42c34fc11f085b17d9a7720c94e99fd'),
@@ -206,7 +202,7 @@ class Component extends DCLogic {
       prompt: selM ? 'Now click what ' + selM.name + ' blocks' : 'Choose blockers',
       count: nBlocks + ' blocking',
       through, lifeAfter: 38 - through, lifeInk: 38 - through <= 10 ? '#f07a62' : '#f2efe8',
-      cmd, cmdInk: terraThrough ? '#f0b45a' : '#f2efe8',
+      cmd, cmdInk: terraThrough ? '#f07a62' : '#f2efe8',
       results,
       doneLabel: nBlocks ? 'Block (' + nBlocks + ')' : 'No blocks',
       reset: () => this.setState({ sel: null, blocks: {} })

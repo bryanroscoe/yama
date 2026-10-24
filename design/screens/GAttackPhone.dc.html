@@ -47,11 +47,12 @@ button{font:inherit;color:inherit}
             <sc-if value="{{c.many}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 4px; bottom: 4px; padding: 0 4px; border-radius: 4px; background: rgb(11 12 14 / 0.85); font-size: 12px; font-weight: 700">{{c.count}}</span></sc-if>
             <span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 13px; font-weight: 700">{{c.pt}}</span>
           </span>
-          <sc-if value="{{c.on}}" hint-placeholder-val="{{false}}"><img src="{{c.chip}}" alt="" style="position: absolute; left: -7px; top: -9px; width: 28px; height: 28px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #6cb0f5, 0 0 0 5px var(--surface)"></sc-if>
+          <sc-if value="{{c.on}}" hint-placeholder-val="{{false}}"><img src="{{c.chip}}" alt="" style="position: absolute; left: -7px; top: -9px; width: 28px; height: 28px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #408abf, 0 0 0 5px var(--surface)"></sc-if>
         </button>
       </sc-for>
     </div>
     <button onClick="{{all}}" style="align-self: flex-start; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; font-size: 14px">Everything at {{aimName}}</button>
+    <span style="margin-top: auto; font-size: 10px; color: var(--dim)">Art: Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna, Marta Nael, Nils Hamm, Darren Tan, Gintas Galvanauskas. © Wizards of the Coast</span>
   </section>
 
   <div style="margin-top: 8px; background: var(--surface); border-radius: 22px 22px 0 0; padding: 12px 10px 14px; display: flex; flex-direction: column; gap: 10px">
@@ -77,9 +78,9 @@ class Component extends DCLogic {
   renderVals() {
     const A = (id) => '/_blob/' + id;
     const seats = {
-      computer: { name: 'Computer', seat: '#f1e4bc', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), life: 31, blockers: 'Computer can block with Spirit ×2.' },
-      sam: { name: 'Sam', seat: '#f08a70', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), life: 24, blockers: 'Sam can block with Terra, Grave Titan and Zombie ×2.' },
-      jules: { name: 'Jules', seat: '#6fd49a', art: A('383d04a073378ede76b3234038a68757'), life: 36, blockers: 'Jules can block with Mister Fantastic.' }
+      computer: { name: 'Computer', seat: '#b55af6', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), life: 31, blockers: 'Computer can block with Spirit ×2.' },
+      sam: { name: 'Sam', seat: '#e8bae4', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), life: 24, blockers: 'Sam can block with Terra, Grave Titan and Zombie ×2.' },
+      jules: { name: 'Jules', seat: '#757a8a', art: A('383d04a073378ede76b3234038a68757'), life: 36, blockers: 'Jules can block with Mister Fantastic.' }
     };
     const order = ['computer', 'sam', 'jules'];
     const defs = [
@@ -94,8 +95,7 @@ class Component extends DCLogic {
     const plan = order.map((k) => {
       const list = defs.filter((c) => atk[c.id] === k);
       if (!list.length) return null;
-      const adeline = list.some((c) => c.id === 'adeline');
-      const dmg = list.reduce((n, c) => n + c.p * (c.n || 1), 0) + 1 + (adeline ? 3 : 0);
+      const dmg = list.reduce((n, c) => n + c.p * (c.n || 1), 0);
       return { seat: seats[k].seat, who: seats[k].name + ': ' + list.map((c) => c.name + (c.n ? ' ×2' : '')).join(', '), dmg, k };
     }).filter(Boolean);
     const lethal = plan.find((g) => g.dmg >= seats[g.k].life);
@@ -106,7 +106,7 @@ class Component extends DCLogic {
         const on = aim === k;
         return { name: seats[k].name, life: seats[k].life, seat: seats[k].seat, art: seats[k].art, on,
           wash: on ? 0.3 : 0.6, ring: on ? '0 0 0 3px #f2efe8' : 'none',
-          tag: n ? n + ' attacking' : on ? 'Aimed' : 'Tap to aim', tagBg: n ? '#6cb0f5' : on ? '#f2efe8' : 'rgb(11 12 14 / 0.7)', tagInk: n || on ? '#0b0c0e' : '#d5d7db',
+          tag: n ? n + ' attacking' : on ? 'Aimed' : 'Tap to aim', tagBg: n ? '#408abf' : on ? '#f2efe8' : 'rgb(11 12 14 / 0.7)', tagInk: n || on ? '#0b0c0e' : '#d5d7db',
           pick: () => this.setState({ aim: k }) };
       }),
       blockers: seats[aim].blockers,
@@ -115,13 +115,13 @@ class Component extends DCLogic {
         const d = atk[c.id];
         return { name: c.name, art: c.art ? A(c.art) : '', hasArt: !!c.art, pt: c.p + '/' + c.t, count: c.n ? '×' + c.n : '', many: !!c.n,
           on: !!d, chip: d ? seats[d].art : '', lift: d ? -10 : 0,
-          ring: d ? '0 0 0 3px #6cb0f5, 0 12px 24px rgb(0 0 0 / 0.6)' : '0 0 0 1px #2a2e33',
+          ring: d ? '0 0 0 3px #408abf, 0 12px 24px rgb(0 0 0 / 0.6)' : '0 0 0 1px #2a2e33',
           label: c.name + (d ? ', attacking ' + seats[d].name : ', not attacking'),
           click: () => this.setState((s) => { const a = { ...s.atk }; if (a[c.id] === s.aim) delete a[c.id]; else a[c.id] = s.aim; return { atk: a }; }) };
       }),
       all: () => this.setState((s) => ({ atk: Object.fromEntries(defs.map((c) => [c.id, s.aim])) })),
       plan,
-      note: lethal ? 'Lethal on ' + seats[lethal.k].name + ' if nothing is blocked.' : count ? 'Includes Adeline’s attack trigger: a 1/1 at each opponent, and she grows to 9.' : 'No one is attacking yet.',
+      note: lethal ? 'Lethal on ' + seats[lethal.k].name + ' if nothing is blocked.' : count ? 'Damage if nothing is blocked. Attack triggers aren’t counted.' : 'No one is attacking yet.',
       noteInk: lethal ? '#8fd3a8' : '#a9adb3',
       doneLabel: count ? 'Attack (' + count + ')' : 'No attacks',
       clear: () => this.setState({ atk: {} })

@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
 <style>
-:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--sam:#f08a70;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--sam:#e8bae4;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
 button{font:inherit;color:inherit}
@@ -22,7 +22,7 @@ button{font:inherit;color:inherit}
     <span>{{prompt}}</span><span style="padding: 1px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 12px">{{nBlocks}} blocking</span>
   </div>
 
-  <section aria-label="Attacking you" style="margin: 8px 8px 0; padding: 10px; border-radius: 16px; background: rgb(240 138 112 / 0.1); box-shadow: inset 0 0 0 1px rgb(240 138 112 / 0.45); display: flex; flex-direction: column; gap: 8px">
+  <section aria-label="Attacking you" style="margin: 8px 8px 0; padding: 10px; border-radius: 16px; background: rgb(232 186 228 / 0.1); box-shadow: inset 0 0 0 1px rgb(232 186 228 / 0.45); display: flex; flex-direction: column; gap: 8px">
     <span style="display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--sam)"><img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover">Sam attacks you</span>
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px">
       <sc-for list="{{attackers}}" as="a" hint-placeholder-count="4">
@@ -34,7 +34,7 @@ button{font:inherit;color:inherit}
           </span>
           <span style="font-size: 11px; color: {{a.noteInk}}; font-weight: 700; line-height: 1.2; min-height: 26px">{{a.note}}</span>
           <span style="display: flex; gap: 2px; min-height: 22px">
-            <sc-for list="{{a.blockers}}" as="b" hint-placeholder-count="1"><span style="width: 22px; height: 22px; border-radius: 50%; overflow: hidden; background: var(--raised); box-shadow: 0 0 0 2px #6cb0f5; display: grid; place-items: center; font-size: 10px; font-weight: 800"><sc-if value="{{b.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{b.art}}" alt="{{b.name}}" style="width: 100%; height: 100%; object-fit: cover"></sc-if><sc-if value="{{b.noArt}}" hint-placeholder-val="{{false}}">{{b.initial}}</sc-if></span></sc-for>
+            <sc-for list="{{a.blockers}}" as="b" hint-placeholder-count="1"><span style="width: 22px; height: 22px; border-radius: 50%; overflow: hidden; background: var(--raised); box-shadow: 0 0 0 2px #408abf; display: grid; place-items: center; font-size: 10px; font-weight: 800"><sc-if value="{{b.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{b.art}}" alt="{{b.name}}" style="width: 100%; height: 100%; object-fit: cover"></sc-if><sc-if value="{{b.noArt}}" hint-placeholder-val="{{false}}">{{b.initial}}</sc-if></span></sc-for>
           </span>
         </button>
       </sc-for>
@@ -55,6 +55,7 @@ button{font:inherit;color:inherit}
         </button>
       </sc-for>
     </div>
+    <span style="margin-top: auto; font-size: 10px; color: var(--dim)">Art: Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna, Marta Nael, Nils Hamm, Darren Tan, Gintas Galvanauskas. © Wizards of the Coast</span>
   </section>
 
   <div style="margin-top: 8px; background: var(--surface); border-radius: 22px 22px 0 0; padding: 12px 10px 14px; display: flex; flex-direction: column; gap: 10px">
@@ -105,9 +106,9 @@ class Component extends DCLogic {
       attackers: attackers.map((a) => {
         const bl = blockersOf(a.id);
         return { name: a.name, art: a.art ? A(a.art) : '', hasArt: !!a.art, pt: a.p + '/' + a.t,
-          ring: sel ? '0 0 0 3px #f0b45a' : '0 0 0 2px #f08a70',
+          ring: sel ? '0 0 0 3px #f0b45a' : '0 0 0 2px #e8bae4',
           note: bl.length ? (killed(a) ? 'Dies' : 'Blocked') : a.dt ? 'Deathtouch' : a.p + ' to you',
-          noteInk: bl.length ? (killed(a) ? '#8fd3a8' : '#f2efe8') : a.dt ? '#f07a62' : '#f08a70',
+          noteInk: bl.length ? (killed(a) ? '#8fd3a8' : '#f2efe8') : a.dt ? '#f07a62' : '#e8bae4',
           blockers: bl.map((m) => ({ name: m.name, art: m.art ? A(m.art) : '', hasArt: !!m.art, noArt: !m.art, initial: m.name[0] })),
           label: a.name + (bl.length ? ', blocked' : ', unblocked'),
           click: sel ? () => this.setState((s) => ({ sel: null, blocks: { ...s.blocks, [s.sel]: a.id } })) : null };
@@ -117,7 +118,7 @@ class Component extends DCLogic {
         const isSel = sel === m.id;
         const dies = a && (a.dt || a.p >= m.t);
         return { name: m.name, art: m.art ? A(m.art) : '', hasArt: !!m.art, pt: m.p + '/' + m.t, on: isSel || !!a,
-          ring: isSel ? '0 0 0 3px #f2efe8, 0 0 0 8px rgb(242 239 232 / 0.2)' : a ? '0 0 0 3px #6cb0f5' : '0 0 0 1px #2a2e33',
+          ring: isSel ? '0 0 0 3px #f2efe8, 0 0 0 8px rgb(242 239 232 / 0.2)' : a ? '0 0 0 3px #408abf' : '0 0 0 1px #2a2e33',
           hasFate: !!a, fate: a ? (dies ? 'Dies' : 'Survives') + ' vs ' + a.name.split(' ')[0] : '', fateBg: dies ? '#f07a62' : '#8fd3a8',
           label: m.name + (a ? ', blocking ' + a.name : isSel ? ', picked' : ''),
           click: () => this.setState((s) => {
@@ -126,7 +127,7 @@ class Component extends DCLogic {
           }) };
       }),
       through, lifeAfter: 38 - through,
-      cmd: 3 + (terraThrough ? 3 : 0), cmdInk: terraThrough ? '#f0b45a' : '#f2efe8',
+      cmd: 3 + (terraThrough ? 3 : 0), cmdInk: terraThrough ? '#f07a62' : '#f2efe8',
       doneLabel: Object.keys(blocks).length ? 'Block (' + Object.keys(blocks).length + ')' : 'No blocks',
       reset: () => this.setState({ sel: null, blocks: {} })
     };

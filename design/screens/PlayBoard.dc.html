@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
 <style>
-:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--stop-mine:#f0b45a;--stop-opp:#7fb0ff;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--stop-mine:#f2efe8;--stop-opp:#a9adb3;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
 a{color:#f2efe8}a:hover{color:#ffffff}
@@ -190,7 +190,7 @@ class Component extends DCLogic {
     };
     const back = (name, art, count, tapped) => ({ name, art, count: count ? '×' + count : '', many: !!count, tap: tapped ? 'rotate(90deg)' : 'none' });
     const front = (name, art, pt, count, cmdr) => ({ name, art: art || '', hasArt: !!art, pt, count: count ? '×' + count : '', many: !!count, border: cmdr ? 'inset 0 0 0 2px #f2efe8' : 'none' });
-    const ph = (label, now, mine, opp) => ({ label, bg: now ? '#1e2125' : 'transparent', ink: now ? '#f2efe8' : '#a9adb3', weight: now ? 700 : 400, mine: mine ? '#f0b45a' : '#2a2e33', opp: opp ? '#7fb0ff' : '#2a2e33', stops: (mine ? 'Stop on your turns. ' : '') + (opp ? 'Stop on opponents’ turns.' : '') });
+    const ph = (label, now, mine, opp) => ({ label, bg: now ? '#1e2125' : 'transparent', ink: now ? '#f2efe8' : '#a9adb3', weight: now ? 700 : 400, mine: mine ? '#f2efe8' : '#2a2e33', opp: opp ? '#a9adb3' : '#2a2e33', stops: (mine ? 'Stop on your turns. ' : '') + (opp ? 'Stop on opponents’ turns.' : '') });
     return {
       opps: [
         { name: 'Computer, medium', counts: 'Hand 4, library 71, graveyard 6', cmdr: 'Tax +2, 0 to you', life: 31, art: A.quint, artist: 'Darren Tan', ring: 'none', deciding: false,

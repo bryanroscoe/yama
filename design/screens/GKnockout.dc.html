@@ -23,7 +23,7 @@ button{font:inherit;color:inherit}
     <img src="/_blob/042e4cb280a5a896fb249a47c8f4a8a3" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
     <span aria-hidden="true" style="position: absolute; inset: 0; background: rgb(11 12 14 / 0.82)"></span>
     <span style="position: absolute; inset: 0; padding: 0 16px; display: flex; align-items: center; gap: 12px">
-      <span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 2px #f1e4bc"></span>
+      <span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 2px #b55af6"></span>
       <b>Computer</b><span style="color: var(--dim)">Out on turn 9: 21 commander damage from your Éowyn</span>
       <span style="margin-left: auto; font-size: 12px; color: var(--dim)">Final life 26. Art: Darren Tan</span>
     </span>
@@ -86,10 +86,10 @@ class Component extends DCLogic {
     const c = (name, art, pt, ring) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, ring: ring || '0 0 0 1px #2a2e33' });
     return {
       panes: [
-        { name: 'Sam', seat: '#f08a70', x: 10, life: 24, counts: 'Hand 5, library 73. Terra: 3 to you', artist: 'Marta Nael', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), lands: '7 lands', creatures: [c('Terra', '7678674b257c9f2d67041ed3a4ee2ab4', '3/3'), c('Grave Titan', '1dccd462a02a0872cc11a4d8518c111f', '6/6'), c('Zombie ×2', '', '2/2')] },
-        { name: 'Jules', seat: '#6fd49a', x: 554, life: 36, counts: 'Hand 2, library 70', artist: 'Gintas Galvanauskas', art: A('383d04a073378ede76b3234038a68757'), lands: '7 lands', creatures: [c('Mister Fantastic', '383d04a073378ede76b3234038a68757', '2/4')] }
+        { name: 'Sam', seat: '#e8bae4', x: 10, life: 24, counts: 'Hand 5, library 73. Terra: 3 to you', artist: 'Marta Nael', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), lands: '7 lands', creatures: [c('Terra', '7678674b257c9f2d67041ed3a4ee2ab4', '3/3'), c('Grave Titan', '1dccd462a02a0872cc11a4d8518c111f', '6/6'), c('Zombie ×2', '', '2/2')] },
+        { name: 'Jules', seat: '#757a8a', x: 554, life: 36, counts: 'Hand 2, library 70', artist: 'Gintas Galvanauskas', art: A('383d04a073378ede76b3234038a68757'), lands: '7 lands', creatures: [c('Mister Fantastic', '383d04a073378ede76b3234038a68757', '2/4')] }
       ],
-      mine: [c('Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4', '0 0 0 3px #6cb0f5'), c('Adeline', '93443cca264c2d66fac605d8e8311296', '9/4'), c('Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4'), c('Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2'), c('Human ×5', '', '1/1')]
+      mine: [c('Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4', '0 0 0 3px #408abf'), c('Adeline', '93443cca264c2d66fac605d8e8311296', '9/4'), c('Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4'), c('Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2'), c('Human ×5', '', '1/1')]
     };
   }
 }

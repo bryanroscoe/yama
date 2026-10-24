@@ -44,7 +44,7 @@ button{font:inherit;color:inherit}
       <sc-for list="{{theirs}}" as="c" hint-placeholder-count="3">
         <button onClick="{{c.pick}}" aria-label="{{c.label}}" style="position: relative; width: 82px; height: 82px; padding: 0; border: none; border-radius: 12px; background: var(--raised); box-shadow: {{c.ring}}">
           <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden"><sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden">{{c.name}}</span><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">{{c.pt}}</span></span>
-          <span aria-hidden="true" style="position: absolute; right: -7px; top: -7px; width: 22px; height: 22px; border-radius: 50%; background: #f0b45a; color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{c.mark}}</span>
+          <span aria-hidden="true" style="position: absolute; right: -7px; top: -7px; width: 22px; height: 22px; border-radius: 50%; background: {{c.markBg}}; color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{c.mark}}</span>
         </button>
       </sc-for>
     </div>
@@ -59,11 +59,12 @@ button{font:inherit;color:inherit}
         </button>
       </sc-for>
     </div>
+    <span style="margin-top: auto; font-size: 10px; color: var(--dim)">Art: Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna, Marta Nael, Nils Hamm, Darren Tan, Gintas Galvanauskas. © Wizards of the Coast</span>
   </section>
 
   <div style="background: var(--surface); border-radius: 22px 22px 0 0; padding: 12px 12px 16px; display: flex; flex-direction: column; gap: 10px">
     <div style="display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 10px; align-items: center">
-      <img src="/_blob/25cc15a47dce134d446895cd6610ce40" alt="" style="width: 46px; border-radius: 3px; box-shadow: 0 0 0 2px #6cb0f5">
+      <img src="/_blob/25cc15a47dce134d446895cd6610ce40" alt="" style="width: 46px; border-radius: 3px; box-shadow: 0 0 0 2px #408abf">
       <span style="display: flex; flex-direction: column; line-height: 1.2"><b style="font-size: 14px">Casting Swords to Plowshares</b><span style="font-size: 12px; color: var(--dim)">{{detail}}</span></span>
     </div>
     <div style="display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px">
@@ -87,7 +88,7 @@ class Component extends DCLogic {
       { name: 'Jules', art: A('383d04a073378ede76b3234038a68757'), life: 36, cr: [['fant', 'Mister Fantastic', '383d04a073378ede76b3234038a68757', '2/4']] }
     ];
     const { focus, pick } = this.state;
-    const ring = (id) => pick === id ? '0 0 0 3px #f0b45a, 0 0 0 7px rgb(240 180 90 / 0.25)' : '0 0 0 2px #f0b45a';
+    const ring = (id) => pick === id ? '0 0 0 3px #f2efe8, 0 0 0 7px rgb(242 239 232 / 0.2)' : '0 0 0 2px #f0b45a';
     const all = [];
     boards.forEach((b) => b.cr.forEach((c) => all.push({ id: c[0], name: c[1], owner: b.name, pt: c[3] })));
     const myCr = [['eowyn', 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4'], ['adeline', 'Adeline', '93443cca264c2d66fac605d8e8311296', '6/4'], ['aragorn', 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4'], ['faramir', 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2'], ['soldier', 'Soldier', '', '1/1']];
@@ -99,7 +100,7 @@ class Component extends DCLogic {
       count: (chosen ? 1 : 0) + ' of 1',
       tabs: boards.map((b, i) => ({ name: b.name, life: b.life, art: b.art, on: i === focus, wash: i === focus ? 0.35 : 0.6, ring: i === focus ? '0 0 0 2px #f2efe8' : 'none', legal: b.cr.length + (b.cr.length === 1 ? ' target' : ' targets'), pick: () => this.setState({ focus: i }) })),
       focusName: boards[focus].name,
-      theirs: boards[focus].cr.map(([id, name, art, pt]) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, ring: ring(id), mark: pick === id ? '1' : '+', label: name + (pick === id ? ', chosen' : ', legal target'), pick: toggle(id) })),
+      theirs: boards[focus].cr.map(([id, name, art, pt]) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, ring: ring(id), mark: pick === id ? '1' : '+', markBg: pick === id ? '#f2efe8' : '#f0b45a', label: name + (pick === id ? ', chosen' : ', legal target'), pick: toggle(id) })),
       mine: myCr.map(([id, name, art, pt]) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, ring: ring(id), label: name + ', yours', pick: toggle(id) })),
       detail: chosen ? (chosen.owner === 'You' ? 'You gain ' : chosen.owner + ' gains ') + chosen.pt.split('/')[0] + ' life.' : 'Its controller gains life equal to its power.',
       doneBg: chosen ? '#f2efe8' : '#1e2125', doneInk: chosen ? '#0b0c0e' : '#a9adb3',

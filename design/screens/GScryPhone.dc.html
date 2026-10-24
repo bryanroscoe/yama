@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
 <style>
-:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
 button{font:inherit;color:inherit}
@@ -21,36 +21,40 @@ button{font:inherit;color:inherit}
   <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
   <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.65)"></div>
 
-  <section role="dialog" aria-label="Scry 2" style="position: absolute; left: 0; right: 0; bottom: 0; top: 40px; padding: 8px 14px 16px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 12px">
+  <section role="dialog" aria-label="Scry 4" style="position: absolute; left: 0; right: 0; bottom: 0; top: 36px; padding: 8px 12px 14px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
     <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 999px; background: var(--line)"></span>
     <div style="display: flex; align-items: center; gap: 10px">
-      <img src="/_blob/ddbc9031630d9f4c09e7a7f9e77061ea" alt="" style="width: 52px; height: 40px; border-radius: 8px; object-fit: cover">
-      <span style="display: flex; flex-direction: column; line-height: 1.15"><b style="font-family: var(--display); font-size: 28px; font-weight: 800">Scry 2</b><span style="font-size: 12px; color: var(--dim)">Preordain. Then you draw. Art: Svetlin Velinov</span></span>
+      <img src="/_blob/0a45a7364f9ea34d73e0943f9184716f" alt="" style="width: 52px; height: 40px; border-radius: 8px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; line-height: 1.15; flex: 1"><b style="font-family: var(--display); font-size: 28px; font-weight: 800">Scry 4</b><span style="font-size: 12px; color: var(--dim)">Foresee: Scry 4, then draw two cards.</span></span>
+      <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 12px; font-weight: 700">{{onTop}} on top</span>
     </div>
 
-    <div style="padding: 10px; border-radius: 16px; background: var(--raised); display: flex; flex-direction: column; gap: 8px">
-      <span style="display: flex; justify-content: space-between; font-size: 13px"><b>Keep on top</b><span style="color: var(--dim)">First is drawn next</span></span>
-      <div style="display: flex; gap: 10px; min-height: 230px; align-items: start">
-        <sc-for list="{{top}}" as="c" hint-placeholder-count="2">
-          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px">
-            <span style="padding: 0 8px; border-radius: 999px; background: {{c.tagBg}}; color: {{c.tagInk}}; font-size: 11px; font-weight: 800">{{c.tag}}</span>
-            <button onClick="{{c.move}}" aria-label="{{c.name}}. Send to the bottom" style="padding: 0; border: none; background: transparent"><img src="{{c.img}}" alt="{{c.name}}" style="width: 140px; border-radius: 7px"></button>
-            <button onClick="{{c.earlier}}" aria-label="Draw {{c.name}} first" style="min-height: 32px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-size: 12px; font-weight: 700; visibility: {{c.showEarlier}}">Draw this first</button>
+    <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px">
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="4">
+        <li style="display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; border-radius: 14px; background: {{r.bg}}">
+          <img src="{{r.img}}" alt="{{r.name}}" style="width: 62px; border-radius: 4px">
+          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="display: flex; justify-content: space-between; gap: 6px; align-items: baseline"><b style="font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</b><span style="font-size: 12px; color: var(--dim); white-space: nowrap">{{r.where}}</span></span>
+            <span style="display: flex; gap: 6px; align-items: center">
+              <span role="radiogroup" aria-label="{{r.name}} goes" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
+                <button role="radio" aria-checked="{{r.top}}" onClick="{{r.toTop}}" style="min-height: 36px; padding: 0 14px; border: none; border-radius: 999px; background: {{r.topBg}}; color: {{r.topInk}}; font-size: 13px; font-weight: 700">Top</button>
+                <button role="radio" aria-checked="{{r.bottom}}" onClick="{{r.toBottom}}" style="min-height: 36px; padding: 0 14px; border: none; border-radius: 999px; background: {{r.botBg}}; color: {{r.botInk}}; font-size: 13px; font-weight: 700">Bottom</button>
+              </span>
+              <span style="margin-left: auto; display: flex; gap: 4px; visibility: {{r.arrows}}">
+                <button onClick="{{r.up}}" aria-label="Draw {{r.name}} sooner" style="width: 40px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: {{r.upInk}}">↑</button>
+                <button onClick="{{r.down}}" aria-label="Draw {{r.name}} later" style="width: 40px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: {{r.downInk}}">↓</button>
+              </span>
+            </span>
           </div>
-        </sc-for>
-      </div>
-    </div>
+        </li>
+      </sc-for>
+    </ol>
+    <span style="font-size: 12px; color: var(--dim)">Cards kept on top are listed first, in the order you’ll draw them. Long-press a card to read it.</span>
 
-    <div style="padding: 10px; border-radius: 16px; box-shadow: inset 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 8px">
-      <b style="font-size: 13px">Bottom of library</b>
-      <div style="display: flex; gap: 8px; min-height: 100px; align-items: center">
-        <sc-for list="{{bottom}}" as="c" hint-placeholder-count="0"><button onClick="{{c.move}}" aria-label="{{c.name}}. Keep on top" style="padding: 0; border: none; background: transparent"><img src="{{c.img}}" alt="{{c.name}}" style="width: 70px; border-radius: 4px"></button></sc-for>
-        <sc-if value="{{bottomEmpty}}" hint-placeholder-val="{{true}}"><span style="font-size: 13px; color: var(--dim)">Tap a card above to send it here.</span></sc-if>
-      </div>
+    <div style="margin-top: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px">
+      <button onClick="{{reset}}" style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">All on top</button>
+      <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">Done</button>
     </div>
-
-    <span style="margin-top: auto; font-size: 13px; color: var(--dim)">{{summary}}</span>
-    <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">Done, draw</button>
   </section>
 </div>
 </x-dc>
@@ -58,23 +62,34 @@ button{font:inherit;color:inherit}
 class Component extends DCLogic {
   constructor(props) {
     super(props);
-    this.state = { top: ['fortress', 'sunfall'], bottom: [] };
+    this.state = { top: ['rift', 'fortress', 'mentor'], bottom: ['sunfall'] };
   }
   renderVals() {
     const A = (id) => '/_blob/' + id;
     const cards = {
+      rift: { name: 'Cyclonic Rift', img: A('4e274a0a80fefd3f3346bd10c98c1349') },
       fortress: { name: 'Glacial Fortress', img: A('e25b0374571373f1ab95c0e88cd1758e') },
+      mentor: { name: 'Monastery Mentor', img: A('c8765d27dab83eefd46f6647d19b1791') },
       sunfall: { name: 'Sunfall', img: A('4f17f1f93dbb25c0d47e2fcb9b2c0ae6') }
     };
     const { top, bottom } = this.state;
+    const move = (id, toTop) => this.setState((s) => {
+      const t = s.top.filter((x) => x !== id), b = s.bottom.filter((x) => x !== id);
+      return toTop ? { top: t.concat(id), bottom: b } : { top: t, bottom: b.concat(id) };
+    });
+    const swap = (i, d) => this.setState((s) => { const t = s.top.slice(), j = i + d; if (j < 0 || j >= t.length) return null; [t[i], t[j]] = [t[j], t[i]]; return { top: t }; });
+    const row = (id, i, onTop) => ({ ...cards[id], top: onTop, bottom: !onTop,
+      where: onTop ? (i === 0 ? 'Drawn first' : i === 1 ? 'Drawn second' : 'Top, card ' + (i + 1)) : 'Bottom',
+      bg: onTop ? '#1e2125' : 'transparent',
+      topBg: onTop ? '#f2efe8' : 'transparent', topInk: onTop ? '#0b0c0e' : '#a9adb3',
+      botBg: onTop ? 'transparent' : '#f2efe8', botInk: onTop ? '#a9adb3' : '#0b0c0e',
+      arrows: onTop && top.length > 1 ? 'visible' : 'hidden',
+      upInk: onTop && i > 0 ? '#f2efe8' : '#2a2e33', downInk: onTop && i < top.length - 1 ? '#f2efe8' : '#2a2e33',
+      toTop: () => move(id, true), toBottom: () => move(id, false), up: () => swap(i, -1), down: () => swap(i, 1) });
     return {
-      top: top.map((id, i) => ({ ...cards[id], tag: i === 0 ? 'Next draw' : 'Then ' + (i + 1), tagBg: i === 0 ? '#f2efe8' : '#2a2e33', tagInk: i === 0 ? '#0b0c0e' : '#f2efe8',
-        showEarlier: i === 0 ? 'hidden' : 'visible',
-        move: () => this.setState((s) => ({ top: s.top.filter((x) => x !== id), bottom: s.bottom.concat(id) })),
-        earlier: () => this.setState((s) => ({ top: [id].concat(s.top.filter((x) => x !== id)) })) })),
-      bottom: bottom.map((id) => ({ ...cards[id], move: () => this.setState((s) => ({ bottom: s.bottom.filter((x) => x !== id), top: s.top.concat(id) })) })),
-      bottomEmpty: bottom.length === 0,
-      summary: top.length ? 'You’ll draw ' + cards[top[0]].name + '.' : 'Both go to the bottom. You’ll draw an unseen card.'
+      onTop: top.length,
+      rows: top.map((id, i) => row(id, i, true)).concat(bottom.map((id, i) => row(id, i, false))),
+      reset: () => this.setState((s) => ({ top: s.top.concat(s.bottom), bottom: [] }))
     };
   }
 }

@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
 <style>
-:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--sam:#f08a70;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--sam:#e8bae4;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
 button{font:inherit;color:inherit}
@@ -45,24 +45,24 @@ button{font:inherit;color:inherit}
   <sc-for list="{{lands}}" as="l" hint-placeholder-count="5"><span style="position: absolute; left: {{l.x}}px; top: 666px; width: 58px; height: 58px; border-radius: 10px; overflow: hidden"><img src="{{l.art}}" alt="{{l.name}}" style="width: 100%; height: 100%; object-fit: cover"><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 4px; background: rgb(11 12 14 / 0.82); font-size: 10px; font-weight: 700; white-space: nowrap; overflow: hidden">{{l.name}}</span></span></sc-for>
 
   <svg aria-hidden="true" width="1440" height="900" viewBox="0 0 1440 900" style="position: absolute; inset: 0; pointer-events: none">
-    <path d="M 470 420 Q 270 470 70 400" fill="none" stroke="#f08a70" stroke-width="4" stroke-linecap="round"></path>
-    <circle cx="70" cy="400" r="7" fill="#f08a70"></circle>
+    <path d="M 470 420 Q 270 470 70 400" fill="none" stroke="#e8bae4" stroke-width="4" stroke-linecap="round"></path>
+    <circle cx="70" cy="400" r="7" fill="#e8bae4"></circle>
   </svg>
 
   <figure style="position: absolute; left: 470px; top: 300px; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 10px">
-    <img src="/_blob/0145ecf81c21d180a7799470623719f7" alt="Chaos Warp" style="width: 220px; border-radius: 10px; box-shadow: 0 0 0 3px #f08a70, 0 40px 80px rgb(0 0 0 / 0.8)">
+    <img src="/_blob/0145ecf81c21d180a7799470623719f7" alt="Chaos Warp" style="width: 220px; border-radius: 10px; box-shadow: 0 0 0 3px #e8bae4, 0 40px 80px rgb(0 0 0 / 0.8)">
     <figcaption style="display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--ground); box-shadow: 0 0 0 1px var(--line); font-weight: 700; white-space: nowrap"><img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="" style="width: 26px; height: 26px; border-radius: 50%; object-fit: cover">Sam casts Chaos Warp on Éowyn</figcaption>
   </figure>
 
   <sc-for list="{{hand}}" as="h" hint-placeholder-count="5"><img src="{{h.img}}" alt="{{h.label}}" style="position: absolute; left: {{h.x}}px; top: {{h.y}}px; width: 104px; border-radius: 5px; box-shadow: {{h.glow}}"></sc-for>
-  <span style="position: absolute; left: 404px; top: 726px; padding: 1px 8px; border-radius: 999px; background: #8fd3a8; color: var(--ground); font-size: 11px; font-weight: 800">Free right now</span>
-  <span style="position: absolute; left: 880px; top: 834px; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #6cb0f5"><span style="display: flex; flex-direction: column; line-height: 1"><b style="font-family: var(--display); font-weight: 700; font-size: 36px">38</b><span style="font-size: 12px; color: var(--text); font-weight: 700">Your priority</span></span></span>
+  <span style="position: absolute; left: 404px; top: 726px; padding: 1px 8px; border-radius: 999px; background: var(--text); color: var(--ground); font-size: 11px; font-weight: 800">Costs {0} now</span>
+  <span style="position: absolute; left: 880px; top: 834px; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #408abf"><span style="display: flex; flex-direction: column; line-height: 1"><b style="font-family: var(--display); font-weight: 700; font-size: 36px">38</b><span style="font-size: 12px; color: var(--text); font-weight: 700">Your priority</span></span></span>
 
   <aside style="position: absolute; left: 1100px; top: 0; width: 340px; height: 900px; border-left: 1px solid var(--line); display: flex; flex-direction: column">
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line)"><span style="font-weight: 700; color: var(--dim)">Leave</span><span style="padding: 6px 14px; border-radius: 999px; background: var(--surface); font-weight: 700; font-size: 14px">Game log</span></div>
     <section aria-label="Stack" style="padding: 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px">
       <h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 20px">Stack</h2>
-      <div style="padding: 10px; border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px rgb(240 138 112 / 0.6); display: flex; flex-direction: column; gap: 8px">
+      <div style="padding: 10px; border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px rgb(232 186 228 / 0.6); display: flex; flex-direction: column; gap: 8px">
         <div style="display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: center">
           <img src="/_blob/0145ecf81c21d180a7799470623719f7" alt="" style="width: 52px; border-radius: 3px">
           <span style="display: flex; flex-direction: column; line-height: 1.25"><b>Chaos Warp</b><span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim)"><img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="" style="width: 16px; height: 16px; border-radius: 50%; object-fit: cover">Sam's, resolves next</span></span>
@@ -93,26 +93,26 @@ button{font:inherit;color:inherit}
 class Component extends DCLogic {
   renderVals() {
     const A = (id) => '/_blob/' + id;
-    const glow = '0 0 0 2px #8fd3a8, 0 -4px 14px rgb(0 0 0 / 0.5)';
+    const glow = '0 0 0 2px #f0b45a, 0 -4px 14px rgb(0 0 0 / 0.5)';
     return {
       panes: [
-        { name: 'Computer', seat: '#f1e4bc', x: 10, life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', lands: '8 lands', status: 'Passed', statusInk: '#a9adb3', ring: 'none', cr: [{ name: 'Spirit ×2', art: '', hasArt: false, pt: '3/2' }] },
-        { name: 'Sam', seat: '#f08a70', x: 374, life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', lands: '7 lands, 3 untapped', status: 'Cast Chaos Warp', statusInk: '#f08a70', ring: '0 0 0 3px #f08a70', cr: [{ name: 'Terra', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), hasArt: true, pt: '3/3' }, { name: 'Grave Titan', art: A('1dccd462a02a0872cc11a4d8518c111f'), hasArt: true, pt: '6/6' }, { name: 'Zombie ×2', art: '', hasArt: false, pt: '2/2' }] },
-        { name: 'Jules', seat: '#6fd49a', x: 738, life: 36, art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', lands: '7 lands', status: 'Passed', statusInk: '#a9adb3', ring: 'none', cr: [{ name: 'Mister Fantastic', art: A('383d04a073378ede76b3234038a68757'), hasArt: true, pt: '2/4' }] }
+        { name: 'Computer', seat: '#b55af6', x: 10, life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', lands: '8 lands', status: 'Passed', statusInk: '#a9adb3', ring: 'none', cr: [{ name: 'Spirit ×2', art: '', hasArt: false, pt: '3/2' }] },
+        { name: 'Sam', seat: '#e8bae4', x: 374, life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', lands: '7 lands, 3 untapped', status: 'Cast Chaos Warp', statusInk: '#e8bae4', ring: '0 0 0 3px #e8bae4', cr: [{ name: 'Terra', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), hasArt: true, pt: '3/3' }, { name: 'Grave Titan', art: A('1dccd462a02a0872cc11a4d8518c111f'), hasArt: true, pt: '6/6' }, { name: 'Zombie ×2', art: '', hasArt: false, pt: '2/2' }] },
+        { name: 'Jules', seat: '#757a8a', x: 738, life: 36, art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', lands: '7 lands', status: 'Passed', statusInk: '#a9adb3', ring: 'none', cr: [{ name: 'Mister Fantastic', art: A('383d04a073378ede76b3234038a68757'), hasArt: true, pt: '2/4' }] }
       ],
-      creatures: [['Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4', true], ['Adeline', '93443cca264c2d66fac605d8e8311296', '6/4'], ['Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4'], ['Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2'], ['Soldier ×2', '', '1/1']].map(([name, art, pt, t], i) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, x: 22 + i * 106, targeted: !!t, ring: t ? '0 0 0 3px #f08a70, inset 0 0 0 2px #f2efe8' : 'none' })),
+      creatures: [['Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4', true], ['Adeline', '93443cca264c2d66fac605d8e8311296', '6/4'], ['Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4'], ['Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2'], ['Soldier ×2', '', '1/1']].map(([name, art, pt, t], i) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, x: 22 + i * 106, targeted: !!t, ring: t ? '0 0 0 3px #e8bae4, inset 0 0 0 2px #f2efe8' : 'none' })),
       lands: [['Plains ×4', '30df84aecfd8c45546b9a6bdd64b8552'], ['Island ×2', '7a66b1e98da872225edb04cfeb9bd60e'], ['Mountain', '3bf02968b49b8af680661d10aa4e5547'], ['Battlefield Forge', '3599624673068d143c783b9871cd28b6'], ['Command Tower', 'f42c34fc11f085b17d9a7720c94e99fd']].map(([name, id], i) => ({ name, art: A(id), x: 22 + i * 64 })),
       hand: [
         { label: 'Boros Charm, can cast', img: A('2d80527eb5c346c24b35ad5381fe99a6'), x: 340, y: 752, glow },
-        { label: 'Fierce Guardianship, free right now', img: A('c858d7cf7a488b3218bd7bbf1fe8b79c'), x: 404, y: 740, glow: '0 0 0 3px #8fd3a8, 0 -8px 20px rgb(0 0 0 / 0.6)' },
+        { label: 'Fierce Guardianship, costs {0} now', img: A('c858d7cf7a488b3218bd7bbf1fe8b79c'), x: 404, y: 740, glow: '0 0 0 3px #f0b45a, 0 -8px 20px rgb(0 0 0 / 0.6)' },
         { label: 'Cyclonic Rift, can cast', img: A('4e274a0a80fefd3f3346bd10c98c1349'), x: 468, y: 752, glow },
         { label: 'Akroma’s Will', img: A('d2df35f8a45cc092aadf237d7374fc27'), x: 532, y: 752, glow: '0 -4px 14px rgb(0 0 0 / 0.5)' },
         { label: 'Glacial Fortress', img: A('e25b0374571373f1ab95c0e88cd1758e'), x: 596, y: 752, glow: '0 -4px 14px rgb(0 0 0 / 0.5)' }
       ],
       responses: [
-        { name: 'Fierce Guardianship', note: 'Counter it. Free, because you control your commander.', art: A('c858d7cf7a488b3218bd7bbf1fe8b79c'), border: '#8fd3a8', bg: '#1e2125' },
-        { name: 'Boros Charm', note: '{R}{W}. You have 4 lands untapped.', art: A('f279aaa76497b626853a97f9a71aab53'), border: '#2a2e33', bg: 'transparent' },
-        { name: 'Cyclonic Rift', note: '{1}{U}. Return target nonland permanent.', art: A('e9cdfcd4ca473d2d07e135917fc6bcee'), border: '#2a2e33', bg: 'transparent' }
+        { name: 'Fierce Guardianship', note: 'Costs {0} now', art: A('c858d7cf7a488b3218bd7bbf1fe8b79c'), border: '#f0b45a', bg: '#1e2125' },
+        { name: 'Boros Charm', note: 'Costs {R}{W}', art: A('f279aaa76497b626853a97f9a71aab53'), border: '#f0b45a', bg: 'transparent' },
+        { name: 'Cyclonic Rift', note: 'Costs {1}{U}', art: A('e9cdfcd4ca473d2d07e135917fc6bcee'), border: '#f0b45a', bg: 'transparent' }
       ]
     };
   }

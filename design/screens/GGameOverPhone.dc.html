@@ -40,11 +40,11 @@ button{font:inherit;color:inherit}
     </sc-for>
   </div>
 
-  <label style="margin: 10px 12px 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--surface)"><span role="switch" aria-checked="true" style="width: 44px; height: 26px; flex: none; padding: 3px; border-radius: 999px; background: var(--good); display: flex; justify-content: flex-end"><span style="width: 20px; height: 20px; border-radius: 50%; background: var(--ground)"></span></span><span style="font-size: 14px; font-weight: 700">Count toward group stats</span></label>
+  <span style="margin: 10px 12px 0; padding: 10px 12px; border-radius: 14px; background: var(--surface); font-size: 14px; font-weight: 700">Counts toward group stats</span>
 
   <div style="margin-top: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px">
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
-      <button style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; font-size: 14px">Replay</button>
+      <button style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; font-size: 14px">Game log</button>
       <button style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; font-size: 14px">Back to lobby</button>
     </div>
     <button style="min-height: 56px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 18px">Rematch</button>
@@ -57,10 +57,10 @@ class Component extends DCLogic {
     const A = (id) => '/_blob/' + id;
     return {
       rows: [
-        { place: 1, name: 'You', how: 'Winner', seat: '#6cb0f5', art: A('c19490e7c081fb35071c85147c01bed4'), life: 17, bg: '#1e2125' },
-        { place: 2, name: 'Jules', how: 'Out turn 14, combat damage', seat: '#6fd49a', art: A('383d04a073378ede76b3234038a68757'), life: 0, bg: '#15171a' },
-        { place: 3, name: 'Sam', how: 'Out turn 11, combat damage', seat: '#f08a70', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), life: 0, bg: '#15171a' },
-        { place: 4, name: 'Computer', how: 'Out turn 9, 21 commander damage', seat: '#f1e4bc', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), life: 26, bg: '#15171a' }
+        { place: 1, name: 'You', how: 'Winner', seat: '#408abf', art: A('c19490e7c081fb35071c85147c01bed4'), life: 17, bg: '#1e2125' },
+        { place: 2, name: 'Jules', how: 'Out turn 14, at 0 life', seat: '#757a8a', art: A('383d04a073378ede76b3234038a68757'), life: 0, bg: '#15171a' },
+        { place: 3, name: 'Sam', how: 'Out turn 11, at 0 life', seat: '#e8bae4', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), life: 0, bg: '#15171a' },
+        { place: 4, name: 'Computer', how: 'Out turn 9, 21 commander damage', seat: '#b55af6', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), life: 26, bg: '#15171a' }
       ]
     };
   }

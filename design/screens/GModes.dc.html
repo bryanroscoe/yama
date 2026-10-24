@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
 <style>
-:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
 button{font:inherit;color:inherit}
@@ -19,88 +19,106 @@ button{font:inherit;color:inherit}
 </style>
 </helmet>
 <div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
-  <dc-import name="BoardBase" title="Choosing how to cast" body="Pick a mode or a value. Nothing is cast until you confirm." primary="Next" secondary="Cancel" hint-size="1440px,900px"></dc-import>
+  <dc-import name="BoardBase" title="{{railTitle}}" body="{{railBody}}" primary="{{primary}}" secondary="Cancel" hint-size="1440px,900px"></dc-import>
   <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.55)"></div>
+  <span aria-hidden="true" style="position: absolute; left: 1114px; top: 826px; width: 312px; height: 60px; border-radius: 999px; box-shadow: 0 0 0 3px #f2efe8, 0 0 0 7px rgb(242 239 232 / 0.2); pointer-events: none"></span>
 
-  <section role="dialog" aria-label="Boros Charm, choose one" style="position: absolute; left: 40px; top: 120px; width: 500px; padding: 20px; border-radius: 22px; background: var(--surface); box-shadow: 0 30px 70px rgb(0 0 0 / 0.7), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 14px">
-    <div style="display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 14px; align-items: center">
-      <img src="/_blob/2d80527eb5c346c24b35ad5381fe99a6" alt="Boros Charm" style="width: 82px; border-radius: 4px">
-      <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--dim)">Boros Charm, {R}{W}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1">Choose one</h2></span>
-    </div>
-    <div role="radiogroup" aria-label="Modes" style="display: flex; flex-direction: column; gap: 8px">
-      <sc-for list="{{modes}}" as="m" hint-placeholder-count="3">
-        <button role="radio" aria-checked="{{m.on}}" onClick="{{m.pick}}" style="display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; padding: 14px; border-radius: 14px; border: 1px solid {{m.border}}; background: {{m.bg}}; text-align: left">
-          <span aria-hidden="true" style="width: 24px; height: 24px; border-radius: 50%; box-shadow: inset 0 0 0 2px {{m.border}}; display: grid; place-items: center"><span style="width: 12px; height: 12px; border-radius: 50%; background: {{m.dot}}"></span></span>
-          <span style="display: flex; flex-direction: column; line-height: 1.35"><b>{{m.title}}</b><span style="font-size: 14px; color: var(--dim)">{{m.text}}</span></span>
-        </button>
-      </sc-for>
-    </div>
-    <div style="display: flex; justify-content: space-between; align-items: center">
-      <span style="font-size: 13px; color: var(--dim)">{{modeNext}}</span>
-      <button style="min-height: 48px; padding: 0 22px; border-radius: 999px; border: none; background: {{modeBg}}; color: {{modeInk}}; font-weight: 800">Next</button>
-    </div>
-  </section>
+  <div role="tablist" aria-label="Example" style="position: absolute; left: 40px; top: 40px; display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--surface); box-shadow: 0 0 0 1px var(--line)">
+    <sc-for list="{{examples}}" as="e" hint-placeholder-count="3"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 36px; padding: 0 14px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 13px; font-weight: 700">{{e.label}}</button></sc-for>
+  </div>
 
-  <section role="dialog" aria-label="Fireball, choose X" style="position: absolute; left: 570px; top: 120px; width: 500px; padding: 20px; border-radius: 22px; background: var(--surface); box-shadow: 0 30px 70px rgb(0 0 0 / 0.7), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 16px">
-    <div style="display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 14px; align-items: center">
-      <img src="/_blob/a08c916127f412daefde4b295294e4ee" alt="Fireball" style="width: 82px; border-radius: 4px">
-      <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--dim)">Fireball, {X}{R}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1">How much damage?</h2></span>
-    </div>
-    <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center">
-      <span style="display: flex; flex-direction: column"><b>X</b><span style="font-size: 13px; color: var(--dim)">Largest you can pay: {{maxX}}</span></span>
-      <span style="display: flex; align-items: center; gap: 6px">
-        <button onClick="{{xDown}}" aria-label="X minus one" style="width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--raised); font-size: 22px">−</button>
-        <output aria-live="polite" style="width: 64px; text-align: center; font-family: var(--display); font-weight: 800; font-size: 46px; line-height: 1">{{x}}</output>
-        <button onClick="{{xUp}}" aria-label="X plus one" style="width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--raised); font-size: 22px">+</button>
-        <button onClick="{{xMax}}" style="min-height: 48px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Max</button>
-      </span>
-    </div>
-    <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center">
-      <span style="display: flex; flex-direction: column"><b>Targets</b><span style="font-size: 13px; color: var(--dim)">Each extra target costs 1 more. Damage splits evenly.</span></span>
-      <span role="group" aria-label="Number of targets" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
-        <sc-for list="{{targetCounts}}" as="t" hint-placeholder-count="3"><button onClick="{{t.pick}}" aria-pressed="{{t.on}}" style="width: 44px; height: 40px; border: none; border-radius: 999px; background: {{t.bg}}; color: {{t.ink}}; font-weight: 700">{{t.n}}</button></sc-for>
-      </span>
-    </div>
-    <div style="padding: 14px; border-radius: 14px; background: var(--ground); display: flex; justify-content: space-between; align-items: center">
-      <span style="display: flex; flex-direction: column; line-height: 1.3"><b>{{summary}}</b><span style="font-size: 13px; color: var(--dim)">You have 10 mana available.</span></span>
-      <span style="font-family: var(--display); font-weight: 800; font-size: 28px">{{cost}}</span>
-    </div>
-    <div style="display: flex; justify-content: space-between; align-items: center">
-      <span style="font-size: 13px; color: var(--dim)">Digit keys type X. Next, choose {{tCount}}.</span>
-      <button style="min-height: 48px; padding: 0 22px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800">Choose targets</button>
-    </div>
-  </section>
+  <sc-if value="{{showModes}}" hint-placeholder-val="{{true}}">
+    <section role="dialog" aria-label="{{cardName}}, choose modes" style="position: absolute; left: 160px; top: 110px; width: 780px; padding: 22px; border-radius: 22px; background: var(--surface); box-shadow: 0 30px 70px rgb(0 0 0 / 0.7), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 14px">
+      <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 16px; align-items: center">
+        <img src="{{cardImg}}" alt="{{cardName}}" style="width: 96px; border-radius: 5px">
+        <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--dim)">{{cardName}}, {{cardCost}}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1">{{question}}</h2><span style="font-size: 14px; color: var(--dim)">{{rule}}</span></span>
+        <span style="padding: 4px 12px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700">{{count}}</span>
+      </div>
+      <div role="group" aria-label="Modes" style="display: flex; flex-direction: column; gap: 8px">
+        <sc-for list="{{modes}}" as="m" hint-placeholder-count="3">
+          <button role="{{m.role}}" aria-checked="{{m.on}}" onClick="{{m.pick}}" style="display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: center; padding: 14px; border-radius: 14px; border: none; background: {{m.bg}}; box-shadow: {{m.ring}}; text-align: left; font-size: 16px">
+            <span aria-hidden="true" style="width: 24px; height: 24px; border-radius: {{m.shape}}; box-shadow: inset 0 0 0 2px {{m.mark}}; display: grid; place-items: center; color: var(--ground); font-size: 14px; font-weight: 800; background: {{m.fill}}">{{m.tick}}</span>
+            <span>{{m.text}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <span style="font-size: 12px; color: var(--dim)">Mode text is the card’s Oracle text. Amber modes can be chosen. Card image from Scryfall, © Wizards of the Coast.</span>
+    </section>
+  </sc-if>
 
-  <p style="position: absolute; left: 40px; top: 820px; margin: 0; font-size: 12px; color: var(--dim)">Two separate moments shown side by side. Card images from Scryfall, © Wizards of the Coast.</p>
+  <sc-if value="{{showX}}" hint-placeholder-val="{{false}}">
+    <section role="dialog" aria-label="Fireball, choose X" style="position: absolute; left: 160px; top: 110px; width: 780px; padding: 22px; border-radius: 22px; background: var(--surface); box-shadow: 0 30px 70px rgb(0 0 0 / 0.7), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 16px">
+      <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; align-items: center">
+        <img src="/_blob/a08c916127f412daefde4b295294e4ee" alt="Fireball" style="width: 96px; border-radius: 5px">
+        <span style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: var(--dim)">Fireball, {X}{R}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1">Choose X</h2><span style="font-size: 14px; color: var(--dim)">This spell costs {1} more to cast for each target beyond the first. Fireball deals X damage divided evenly, rounded down, among any number of targets.</span></span>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
+        <span style="font-size: 13px; color: var(--dim)">Targets chosen:</span>
+        <span style="display: flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700"><img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover">Sam</span>
+        <span style="display: flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700"><img src="/_blob/1dccd462a02a0872cc11a4d8518c111f" alt="" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover">Grave Titan</span>
+      </div>
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px; border-radius: 16px; background: var(--raised)">
+        <span style="display: flex; flex-direction: column"><b>X</b><span style="font-size: 13px; color: var(--dim)">From {{minX}} to {{maxX}}. {{maxNote}}</span></span>
+        <span style="display: flex; align-items: center; gap: 6px">
+          <button onClick="{{xDown}}" aria-label="X minus one" style="width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--ground); font-size: 22px">−</button>
+          <output aria-live="polite" style="width: 64px; text-align: center; font-family: var(--display); font-weight: 800; font-size: 46px; line-height: 1">{{x}}</output>
+          <button onClick="{{xUp}}" aria-label="X plus one" style="width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--ground); font-size: 22px">+</button>
+          <button onClick="{{xMax}}" style="min-height: 48px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Max</button>
+        </span>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 4px">
+        <span style="font-size: 14px; color: var(--dim)">Total cost, from the engine’s preview</span>
+        <b style="font-family: var(--display); font-weight: 800; font-size: 30px">{{cost}}</b>
+      </div>
+      <span style="font-size: 12px; color: var(--dim)">Digit keys type X. Yama asks X after targets, as the engine does. Card images from Scryfall, © Wizards of the Coast.</span>
+    </section>
+  </sc-if>
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
 class Component extends DCLogic {
   constructor(props) {
     super(props);
-    this.state = { mode: null, x: 7, t: 1 };
+    this.state = { ex: 0, picked: [], x: 7 };
   }
   renderVals() {
-    const modes = [
-      ['Deal 4 damage', 'To a player or a planeswalker. You choose which next.'],
-      ['Your permanents can’t be destroyed', 'Until end of turn. Good against a board wipe.'],
-      ['Give a creature double strike', 'Until end of turn. You choose the creature next.']
+    const A = (id) => '/_blob/' + id;
+    const { ex, picked, x } = this.state;
+    const cards = [
+      { name: 'Boros Charm', cost: '{R}{W}', img: A('2d80527eb5c346c24b35ad5381fe99a6'), max: 1, rule: 'Choose one —',
+        modes: ['Boros Charm deals 4 damage to target player or planeswalker.', 'Permanents you control gain indestructible until end of turn.', 'Target creature gains double strike until end of turn.'] },
+      { name: 'Akroma’s Will', cost: '{3}{W}', img: A('d2df35f8a45cc092aadf237d7374fc27'), max: 2, rule: 'Choose one. If you control a commander as you cast this spell, you may choose both instead.',
+        modes: ['Creatures you control gain flying, vigilance, and double strike until end of turn.', 'Creatures you control gain lifelink, indestructible, and protection from each color until end of turn.'] }
     ];
-    const m = this.state.mode;
-    const { x, t } = this.state;
-    const avail = 10;
-    const maxX = avail - 1 - (t - 1);
-    const each = Math.floor(x / t);
-    const clamp = (v) => Math.max(0, Math.min(maxX, v));
+    const c = cards[Math.min(ex, 1)];
+    const multi = c.max > 1;
+    const toggle = (i) => this.setState((s) => {
+      if (!multi) return { picked: [i] };
+      return { picked: s.picked.includes(i) ? s.picked.filter((k) => k !== i) : s.picked.concat(i).slice(-c.max) };
+    });
+    const minX = 0, maxX = 9;
+    const clamp = (v) => Math.max(minX, Math.min(maxX, v));
+    const showX = ex === 2;
+    const n = picked.length;
     return {
-      modes: modes.map(([title, text], i) => ({ title, text, on: m === i, border: m === i ? '#f2efe8' : '#2a2e33', bg: m === i ? '#1e2125' : 'transparent', dot: m === i ? '#f2efe8' : 'transparent', pick: () => this.setState({ mode: i }) })),
-      modeNext: m === 0 ? 'Next: choose the player or planeswalker.' : m === 2 ? 'Next: choose the creature.' : m === 1 ? 'No targets needed.' : 'Pick one mode.',
-      modeBg: m === null ? '#1e2125' : '#f2efe8', modeInk: m === null ? '#a9adb3' : '#0b0c0e',
-      x, maxX, tCount: t === 1 ? 'one target' : t + ' targets',
+      examples: ['Boros Charm: choose one', 'Akroma’s Will: one or both', 'Fireball: X after targets'].map((label, i) => ({ label, on: ex === i, bg: ex === i ? '#f2efe8' : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i, picked: [] }) })),
+      showModes: !showX, showX,
+      cardName: c.name, cardCost: c.cost, cardImg: c.img, rule: c.rule,
+      question: multi ? 'Choose one or both' : 'Choose one',
+      count: n + ' of ' + (multi ? '1 or 2' : '1') + ' chosen',
+      modes: c.modes.map((text, i) => {
+        const on = picked.includes(i);
+        return { text, on, role: multi ? 'checkbox' : 'radio', shape: multi ? '6px' : '50%',
+          bg: on ? '#1e2125' : 'transparent', ring: on ? '0 0 0 2px #f2efe8' : '0 0 0 2px #f0b45a',
+          mark: on ? '#f2efe8' : '#f0b45a', fill: on ? '#f2efe8' : 'transparent', tick: on ? (multi ? '✓' : '') : '',
+          pick: () => toggle(i) };
+      }),
+      x, minX, maxX, maxNote: 'Max counts your Treasure, so it would ask to sacrifice it.',
       xDown: () => this.setState({ x: clamp(x - 1) }), xUp: () => this.setState({ x: clamp(x + 1) }), xMax: () => this.setState({ x: maxX }),
-      targetCounts: [1, 2, 3].map((n) => ({ n, on: n === t, bg: n === t ? '#f2efe8' : 'transparent', ink: n === t ? '#0b0c0e' : '#a9adb3', pick: () => this.setState((s) => ({ t: n, x: Math.min(s.x, avail - 1 - (n - 1)) })) })),
-      summary: t === 1 ? x + ' damage to one target' : each + ' damage to each of ' + t + ' targets' + (x % t ? ', ' + (x % t) + ' lost to rounding' : ''),
-      cost: '{' + (x + t - 1) + '}{R}'
+      cost: '{' + (x + 1) + '}{R}',
+      railTitle: showX ? 'Fireball' : c.name,
+      railBody: showX ? 'Two targets are chosen. Now choose X.' : 'Choose ' + (multi ? 'one mode, or both if you control a commander.' : 'one mode.') + ' Targets come next if the mode needs one.',
+      primary: showX ? 'Cast for X = ' + x : n ? 'Next' : 'Choose a mode'
     };
   }
 }

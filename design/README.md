@@ -38,36 +38,43 @@ Each screen has a laptop artboard and a phone artboard.
 
 The canvas page "Game interactions" designs every decision in an online game, in the same Night table style. The requirements are in [play-polish-requirements.md](../docs/play-polish-requirements.md); the PP column names the requirement each board answers. Most boards are clickable on the canvas.
 
-Five rules run through all of them:
-- One main button in the rail always says what happens next (GButtons lists every state).
-- Choices happen on the board: rings on what you can pick, arrows to what you picked. A dialog opens only when the choice isn't about something on the board.
-- Amber means you can pick it. Your own arrows are blue (#6cb0f5); everyone else's use their seat color.
-- Nothing is committed until you press the button. Esc, or right-click, backs out.
-- Every image of a card shows the card's own art and credits the artist.
+The rules every board follows (updated 2026-10-23 with Bryan's answers in [the design backlog](../docs/game-interactions-design-backlog.md)):
+- **One main button confirms.** It sits in the rail on a laptop and in the dock on a phone, and always says what happens next (GButtons lists every state). A dialog never has its own confirm button; it may have Cancel. Space presses the main button and does nothing else.
+- **Choices happen on the board:** rings on what you can pick, arrows to what you picked. A dialog or sheet opens only when the choice isn't about something on the board.
+- **Amber means you can pick or play it**, everywhere on the board (`--pick` in [tokens.md](tokens.md)). Something you've picked turns white, with a number when order or count matters. Warnings use red with a word. Green only reports a result that's good for you.
+- **Seat colours** come from a fixed colour-blind-safe palette (`--seat-1` to `--seat-6`). You're always blue. Arrows and attack rings use the colour of the player who made them.
+- **Nothing commits until the main button.** Esc backs out. Right-click, or a long-press on a phone, reads a card.
+- **Only the engine's words.** Card text is the card's Oracle text; prompts, mode descriptions and trigger descriptions are the engine's; the log is a list of events. No summaries, advice or invented titles.
+- **Remembered answers are fine** ("Always pay for Rhystic Study", "Always send my commander to the command zone"). Yama answers for you, logs each automatic answer, and the log line turns it off.
+- **Your own spell resolves without asking** unless another player can respond (PP-07).
+- **Playing a card on a phone:** tap it in your hand, then Play. Dragging it up past the play line also works.
+- **Every art crop credits its artist** in the same view: a line under each battlefield, and your portrait's artist under your life.
 
-| Interaction | Laptop | Phone | PP |
-|---|---|---|---|
-| Mulligan | GMulligan | GMulliganPhone | 51 |
-| Priority, passing, stops | GPriority | (dock on every phone board) | 33, 34, 36 |
-| The main button, every state | GButtons | | 32 |
-| Playing a card, using a permanent | GCast | | 25, 28 |
-| Paying mana | GPay | GPayPhone | 29, 30, 31 |
-| Choosing targets | GTarget | GTargetPhone | 26 |
-| Modes and X | GModes | | 27 |
-| Responding to an opponent's spell | GRespond | GRespondPhone | 45, 46, 47 |
-| Ordering triggers | GTriggers | | 48 |
-| Reading a card | GInspector | GInspectorPhone | 23, 24 |
-| Declaring attackers | GAttack | GAttackPhone | 40, 44 |
-| Declaring blockers | GBlock | GBlockPhone | 41, 44 |
-| Combat damage assignment | GDamage | | 43 |
-| Watching other players' combat | GCombatView | | 42 |
-| Scry | GScry | GScryPhone | 49 |
-| Library search | GSearch | | 50 |
-| Other choices: pay or not, name a card, a color, discard, command zone | GChoices | GChoicesPhone | 35, 52 |
-| Graveyard, exile and reveals | GZones | | 22 |
-| A player knocked out | GKnockout | | 18, 61 |
-| Game over | GGameOver | GGameOverPhone | 61 |
-| Game log, since your last turn | GLog | | 58, 59 |
+The Engine column names the phase decision (`WaitingFor` variant, or `GameAction` for priority actions) each board answers. Line numbers are in [the review](../docs/game-interactions-review-2026-10-23.md).
+
+| Interaction | Laptop | Phone | PP | Engine decision |
+|---|---|---|---|---|
+| Mulligan | GMulligan | GMulliganPhone | 51 | `MulliganDecision`; the bottom step answers `SelectCards` |
+| Priority, passing, stops | GPriority | (dock on every phone board) | 7, 33, 34, 36 | `Priority`; `PassPriority`, `SetAutoPass`, `SetPhaseStops` |
+| The main button, every state | GButtons |  | 32 | label from `WaitingFor`, phase, stack and combat |
+| Playing a card, using a permanent | GCast | GPlayPhone | 25, 28, 68 | `CastSpell`, `PlayLand`, `ActivateAbility` at `Priority` |
+| Paying mana | GPay | GPayPhone | 29, 30, 31 | `ManaPayment`, `ManaSourceSelection` |
+| Choosing targets | GTarget | GTargetPhone | 26 | `TargetSelection`, `TriggerTargetSelection` |
+| Modes and X | GModes |  | 27 | `ModeChoice`, `AbilityModeChoice`, `ChooseXValue` |
+| Responding to an opponent's spell | GRespond | GRespondPhone | 46, 47 | `Priority` with a non-empty stack |
+| Ordering triggers | GTriggers |  | 48 | `OrderTriggers` |
+| Reading a card | GInspector | GInspectorPhone | 23, 24 | none (read-only) |
+| Declaring attackers | GAttack | GAttackPhone | 40, 44 | `DeclareAttackers` |
+| Declaring blockers | GBlock | GBlockPhone | 41, 44 | `DeclareBlockers` |
+| Combat damage assignment | GDamage |  | 43 | `AssignCombatDamage` |
+| Watching other players' combat | GCombatView |  | 42 | none (`state.combat`) |
+| Scry | GScry | GScryPhone | 49 | `ScryChoice` |
+| Library search | GSearch |  | 50 | `SearchChoice` |
+| Other choices: pay or not, name a card, a colour, discard, command zone | GChoices | GChoicesPhone | 35, 52 | `UnlessPayment`, `NamedChoice`, `DiscardToHandSize`, `CommanderZoneChoice` |
+| Graveyard, exile and reveals | GZones |  | 22 | none (zones, `revealed_cards`) |
+| A player knocked out | GKnockout |  | 18, 61 | none (`PlayerEliminated` event) |
+| Game over | GGameOver | GGameOverPhone | 61 | `GameOver` |
+| Game log | GLog |  | 58, 59 | none (`GameLogEntry`) |
 
 BoardBase and BoardBasePhone are the boards drawn behind the dialogs. The boards where rings and arrows must land on exact cards (GTarget, GPay, GRespond, GAttack, GBlock) draw their own board at fixed positions instead.
 
@@ -180,6 +187,15 @@ The table maps each image id prefix to its Scryfall card. a = art_crop, n = norm
 | 25cc15a4 | n Swords to Plowshares |
 | ed088f5c | n Goblin Rabblemaster (a second upload of 457b4872) |
 | b2dc590a | n Legion Warboss (a second upload of 0f5e5aef) |
+| 7f6452cb | a Treasure token (Raluca Marinescu) |
+| 0a45a736 | a Foresee (Ron Spears) |
+| 6f792d5b | a Cultivate (Darius Zablockis) |
+| f39761ca | n Foresee |
+| 146958f3 | n Cultivate |
+| e7d636d9 | n Forest (Samuele Bandini) |
+| ebcbd90f | n Plains (Shahab Alizadeh) |
+| e4f3b606 | n Island (Eren Arik) |
+| 58f2586f | n Mountain (VEN) |
 
 ## Sample data
 

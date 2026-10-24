@@ -29,30 +29,28 @@ button{font:inherit;color:inherit}
         <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1">Éowyn, Shieldmaiden</h2>
         <span style="font-size: 13px; color: var(--dim)">Legendary Creature, Human Knight</span>
         <span style="display: flex; flex-wrap: wrap; gap: 6px">
-          <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700">5/4</span>
-          <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700; color: var(--good)">Ready</span>
-          <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700; color: var(--warn)">Commander, tax {2}</span>
+          <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700">5/4, first strike</span>
+          <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700">Untapped</span>
+          <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700">Commander, tax {2}</span>
         </span>
         <span style="font-size: 11px; color: var(--dim)">Art: Craig Elliott, © Wizards of the Coast</span>
       </span>
     </div>
     <button style="min-height: 44px; border-radius: 12px; border: 1px solid var(--line); background: transparent; font-size: 14px; font-weight: 700">Show the card full screen</button>
 
-    <div style="display: flex; flex-direction: column; gap: 10px">
-      <b style="font-size: 15px">In plain words</b>
-      <sc-for list="{{plain}}" as="p" hint-placeholder-count="3">
-        <span style="display: flex; flex-direction: column; padding-bottom: 8px; border-bottom: 1px solid var(--line); line-height: 1.35"><span style="font-size: 12px; color: var(--dim)">{{p.k}}</span><span style="font-size: 14px">{{p.v}}</span></span>
-      </sc-for>
+    <div style="display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.45">
+      <sc-for list="{{oracle}}" as="o" hint-placeholder-count="2"><p style="margin: 0">{{o}}</p></sc-for>
+      <span style="font-size: 12px; color: var(--dim)">Oracle text, from Scryfall.</span>
     </div>
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px">
       <span style="color: var(--dim)">Controller<br><b style="color: var(--text)">You</b></span>
-      <span style="color: var(--dim)">Came in<br><b style="color: var(--text)">Turn 6, command zone</b></span>
+      <span style="color: var(--dim)">Counters<br><b style="color: var(--text)">None</b></span>
     </div>
 
-    <span style="margin-top: auto; font-size: 11px; color: var(--dim)">Yama’s summary can be wrong; the printed card wins. Swipe down or tap outside to close.</span>
+    <span style="margin-top: auto; font-size: 11px; color: var(--dim)">Nothing to do with it right now; a card with options lists them here. Swipe down or tap outside to close.</span>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
-      <button style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Point at it</button>
+      <button style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Rulings</button>
       <button style="min-height: 52px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800">Close</button>
     </div>
   </section>
@@ -62,11 +60,7 @@ button{font:inherit;color:inherit}
 class Component extends DCLogic {
   renderVals() {
     return {
-      plain: [
-        { k: 'Each combat', v: 'At the start of combat on your turn, if another Human came in under you this turn, you make Human Knight tokens.' },
-        { k: 'The tokens', v: 'Two 2/2 Human Knights with trample and haste.' },
-        { k: 'Watch for', v: 'Play a Human before combat to turn this on.' }
-      ]
+      oracle: ['First strike', 'At the beginning of combat on your turn, if another Human entered the battlefield under your control this turn, create two 2/2 red Human Knight creature tokens with trample and haste. Then if you control six or more Humans, draw a card.']
     };
   }
 }

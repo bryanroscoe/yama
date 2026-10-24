@@ -57,10 +57,11 @@ button{font:inherit;color:inherit}
 
   <sc-for list="{{hand}}" as="h" hint-placeholder-count="4"><img src="{{h.img}}" alt="{{h.name}}" style="position: absolute; left: {{h.x}}px; top: 752px; width: 104px; border-radius: 5px; box-shadow: 0 -4px 14px rgb(0 0 0 / 0.5)"></sc-for>
   <div style="position: absolute; left: 470px; top: 500px; display: flex; flex-direction: column; align-items: center; gap: 6px">
-    <img src="/_blob/25cc15a47dce134d446895cd6610ce40" alt="Swords to Plowshares, being cast" style="width: 132px; border-radius: 6px; box-shadow: 0 0 0 2px #6cb0f5, 0 24px 50px rgb(0 0 0 / 0.7)">
-    <span style="padding: 2px 10px; border-radius: 999px; background: #6cb0f5; color: var(--ground); font-size: 12px; font-weight: 800">Casting</span>
+    <img src="/_blob/25cc15a47dce134d446895cd6610ce40" alt="Swords to Plowshares, being cast" style="width: 132px; border-radius: 6px; box-shadow: 0 0 0 2px #408abf, 0 24px 50px rgb(0 0 0 / 0.7)">
+    <span style="padding: 2px 10px; border-radius: 999px; background: #408abf; color: var(--ground); font-size: 12px; font-weight: 800">Casting</span>
   </div>
-  <span style="position: absolute; left: 880px; top: 834px; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #6cb0f5"><b style="font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">38</b></span>
+  <span style="position: absolute; left: 22px; top: 726px; width: 1060px; font-size: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Art: Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna, Shahab Alizadeh, Eren Arik, VEN, Thomas Stoop, Josu Solano, Titus Lunter, Victor Adame Minguez; opponents’ tiles: Nils Hamm, Tatiana Kirgetova. © Wizards of the Coast</span>
+  <span style="position: absolute; left: 880px; top: 834px; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #408abf"><span style="display: flex; flex-direction: column; line-height: 1"><b style="font-family: var(--display); font-weight: 700; font-size: 36px">38</b><span style="font-size: 10px; color: var(--dim)">Art: Craig Elliott</span></span></span>
 
   <svg aria-hidden="true" width="1440" height="900" viewBox="0 0 1440 900" style="position: absolute; inset: 0; pointer-events: none">
     <sc-for list="{{arrows}}" as="a" hint-placeholder-count="1">
@@ -89,18 +90,18 @@ button{font:inherit;color:inherit}
       <p style="margin: 0; font-size: 14px; color: var(--dim)">{{railBody}}</p>
       <sc-if value="{{chosen}}" hint-placeholder-val="{{false}}">
         <div style="display: grid; grid-template-columns: 26px 48px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; border-radius: 12px; background: var(--surface)">
-          <span style="width: 22px; height: 22px; border-radius: 50%; background: var(--warn); color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800">1</span>
+          <span style="width: 22px; height: 22px; border-radius: 50%; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800">1</span>
           <img src="{{pickArt}}" alt="" style="width: 48px; height: 36px; border-radius: 6px; object-fit: cover">
           <span style="display: flex; flex-direction: column; line-height: 1.2"><b style="font-size: 14px">{{pickName}}</b><span style="font-size: 12px; color: var(--dim)">{{pickWhose}}</span></span>
         </div>
       </sc-if>
       <details style="font-size: 14px">
         <summary style="cursor: pointer; color: var(--dim); font-weight: 700">All {{legalCount}} legal targets as a list</summary>
-        <p style="margin: 6px 0 0; color: var(--dim)">Terra, Grave Titan, Zombie ×2, Mister Fantastic, Spirit ×2, and your own creatures.</p>
+        <p style="margin: 6px 0 0; color: var(--dim)">Spirit, Spirit, Terra, Grave Titan, Zombie, Zombie, Mister Fantastic, Éowyn, Adeline, Aragorn, Faramir, Soldier, Soldier. Stacked tokens open up into single tiles while you choose.</p>
       </details>
       <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
-        <p style="margin: 0; font-size: 12px; color: var(--dim)">Esc or right-click backs out. Nothing is cast until you press the button.</p>
-        <button onClick="{{cancel}}" style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Cancel</button>
+        <p style="margin: 0; font-size: 12px; color: var(--dim)">Esc backs out of the pick. Cancel the spell undoes the whole cast.</p>
+        <button onClick="{{cancel}}" style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Cancel the spell</button>
         <button style="min-height: 60px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 20px">{{doneLabel}}</button>
       </div>
     </section>
@@ -125,23 +126,26 @@ class Component extends DCLogic {
     const small = (p, i, name, art) => tile({ name, art, x: PX[p] + 352 - 10 - (i + 1) * 50, y: 96, s: 44, r: 8, fs: 9 });
 
     const creatures = [
-      opp(0, 0, 'Spirit', '', '3/2', { count: 2, id: 'spirit', whose: 'Computer’s token' }),
+      opp(0, 0, 'Spirit', '', '3/2', { id: 'spirit1', whose: 'Computer’s token' }),
+      opp(0, 1, 'Spirit', '', '3/2', { id: 'spirit2', whose: 'Computer’s token' }),
       opp(1, 0, 'Terra', '7678674b257c9f2d67041ed3a4ee2ab4', '3/3', { id: 'terra', whose: 'Sam’s commander', cmd: true }),
       opp(1, 1, 'Grave Titan', '1dccd462a02a0872cc11a4d8518c111f', '6/6', { id: 'titan', whose: 'Sam’s' }),
-      opp(1, 2, 'Zombie', '', '2/2', { count: 2, id: 'zombie', whose: 'Sam’s tokens' }),
+      opp(1, 2, 'Zombie', '', '2/2', { id: 'zombie1', whose: 'Sam’s token' }),
+      opp(1, 3, 'Zombie', '', '2/2', { id: 'zombie2', whose: 'Sam’s token' }),
       opp(2, 0, 'Mister Fantastic', '383d04a073378ede76b3234038a68757', '2/4', { id: 'fant', whose: 'Jules’s commander', cmd: true }),
       mine(0, 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4', { id: 'eowyn', whose: 'Yours', cmd: true }),
       mine(1, 'Adeline', '93443cca264c2d66fac605d8e8311296', '6/4', { id: 'adeline', whose: 'Yours' }),
       mine(2, 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4', { id: 'aragorn', whose: 'Yours' }),
       mine(3, 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2', { id: 'faramir', whose: 'Yours' }),
-      mine(4, 'Human Soldier', '', '1/1', { count: 2, id: 'soldier', whose: 'Your tokens' })
+      mine(4, 'Soldier', '', '1/1', { id: 'soldier1', whose: 'Your token' }),
+      mine(5, 'Soldier', '', '1/1', { id: 'soldier2', whose: 'Your token' })
     ];
     const pick = this.state.pick;
     const legalTiles = creatures.map((c) => {
       const chosen = pick === c.id;
-      const ring = chosen ? '0 0 0 3px #f0b45a, 0 0 0 7px rgb(240 180 90 / 0.25)' : '0 0 0 2px #f0b45a';
+      const ring = chosen ? '0 0 0 3px #f2efe8, 0 0 0 7px rgb(242 239 232 / 0.2)' : '0 0 0 2px #f0b45a';
       const cmdRing = c.cmd && !chosen ? ', inset 0 0 0 2px #f2efe8' : '';
-      return { ...c, legal: true, ring: ring + cmdRing, cursor: 'pointer', hasMark: true, mark: chosen ? '1' : '+', markBg: '#f0b45a',
+      return { ...c, legal: true, ring: ring + cmdRing, cursor: 'pointer', hasMark: true, mark: chosen ? '1' : '+', markBg: chosen ? '#f2efe8' : '#f0b45a',
         label: c.name + ', ' + c.whose + (chosen ? ', chosen target 1' : ', legal target'),
         click: () => this.setState({ pick: chosen ? null : c.id }) };
     });
@@ -160,16 +164,16 @@ class Component extends DCLogic {
     let arrows;
     if (chosenTile) {
       const tx = chosenTile.x + chosenTile.s / 2, ty = chosenTile.y + chosenTile.s / 2;
-      arrows = [{ d: curve(sx, sy, tx, ty), c: '#6cb0f5', dash: 'none', ex: tx, ey: ty }];
+      arrows = [{ d: curve(sx, sy, tx, ty), c: '#408abf', dash: 'none', ex: tx, ey: ty }];
     } else {
-      arrows = [{ d: curve(sx, sy, 520, 236), c: '#6cb0f5', dash: '2 10', ex: 520, ey: 236 }];
+      arrows = [{ d: curve(sx, sy, 520, 236), c: '#408abf', dash: '2 10', ex: 520, ey: 236 }];
     }
     const whoGains = chosenTile ? (chosenTile.whose.startsWith('Sam') ? 'Sam' : chosenTile.whose.startsWith('Jules') ? 'Jules' : chosenTile.whose.startsWith('Computer') ? 'Computer' : 'You') : '';
     return {
       panes: [
-        { name: 'Computer, medium', seat: '#f1e4bc', x: PX[0], counts: 'Hand 4, library 71', cmdr: 'Tax +2, 0 to you', life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', lands: '8 lands', ring: 'none' },
-        { name: 'Sam', seat: '#f08a70', x: PX[1], counts: 'Hand 6, library 74', cmdr: 'Tax +0, 3 to you', life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', lands: '7 lands', ring: 'none' },
-        { name: 'Jules', seat: '#6fd49a', x: PX[2], counts: 'Hand 2, library 70', cmdr: 'Tax +2, 0 to you', life: 36, art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', lands: '7 lands', ring: 'none' }
+        { name: 'Computer, medium', seat: '#b55af6', x: PX[0], counts: 'Hand 4, library 71', cmdr: 'Tax +2, 0 to you', life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', lands: '8 lands', ring: 'none' },
+        { name: 'Sam', seat: '#e8bae4', x: PX[1], counts: 'Hand 6, library 74', cmdr: 'Tax +0, 3 to you', life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', lands: '7 lands', ring: 'none' },
+        { name: 'Jules', seat: '#757a8a', x: PX[2], counts: 'Hand 2, library 70', cmdr: 'Tax +2, 0 to you', life: 36, art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', lands: '7 lands', ring: 'none' }
       ],
       tiles: nonCreatures.concat(legalTiles),
       hand: [['Boros Charm', '2d80527eb5c346c24b35ad5381fe99a6'], ['Chaos Warp', '0145ecf81c21d180a7799470623719f7'], ['Akroma’s Will', 'd2df35f8a45cc092aadf237d7374fc27'], ['Fierce Guardianship', 'c858d7cf7a488b3218bd7bbf1fe8b79c']].map(([name, id], i) => ({ name, img: A(id), x: 360 + i * 64 + (i >= 2 ? 120 : 0) })),

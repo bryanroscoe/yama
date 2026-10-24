@@ -25,7 +25,7 @@ button{font:inherit;color:inherit}
     <div style="position: absolute; left: 60px; bottom: 36px; display: flex; flex-direction: column; gap: 6px">
       <span style="font-size: 16px; color: #e6e3dc">Commander game, 4 players, ended on turn 14</span>
       <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 120px; line-height: 0.9">You won</h1>
-      <span style="font-size: 18px">With Éowyn, Shieldmaiden. Last one out: Jules, to combat damage.</span>
+      <span style="font-size: 18px">With Éowyn, Shieldmaiden. Last one out: Jules, at 0 life.</span>
     </div>
     <span style="position: absolute; right: 24px; bottom: 16px; font-size: 12px; color: rgb(255 255 255 / 0.75)">Art: Craig Elliott, © Wizards of the Coast</span>
   </header>
@@ -50,11 +50,8 @@ button{font:inherit;color:inherit}
         <span style="padding: 12px 14px; border-radius: 16px; background: var(--surface); display: flex; flex-direction: column; line-height: 1.2"><b style="font-family: var(--display); font-weight: 800; font-size: 36px">{{s.v}}</b><span style="font-size: 13px; color: var(--dim)">{{s.k}}</span></span>
       </sc-for>
     </div>
-    <label style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 16px; background: var(--surface); cursor: pointer"><button role="switch" aria-checked="{{counts}}" onClick="{{toggle}}" style="width: 48px; height: 28px; flex: none; padding: 3px; border-radius: 999px; border: none; background: {{trackBg}}; display: flex; justify-content: {{knobSide}}"><span style="width: 22px; height: 22px; border-radius: 50%; background: {{knobBg}}"></span></button><span style="display: flex; flex-direction: column; line-height: 1.25"><b style="font-size: 15px">Count toward your group’s stats</b><span style="font-size: 13px; color: var(--dim)">{{countsNote}}</span></span></label>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
-      <button style="min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Watch the replay</button>
-      <button style="min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Game log</button>
-    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 16px; background: var(--surface)"><b style="font-size: 15px">Counts toward your group’s stats</b><span style="font-size: 13px; color: var(--dim)">Chosen when the game was made. Games with a computer player are marked.</span></div>
+    <button style="min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Game log</button>
     <div style="display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px">
       <button style="min-height: 56px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Back to lobby</button>
       <button style="min-height: 60px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 20px">Rematch</button>
@@ -74,10 +71,10 @@ class Component extends DCLogic {
     const on = this.state.counts;
     return {
       rows: [
-        { place: 1, name: 'You', deck: 'Éowyn, Shieldmaiden', seat: '#6cb0f5', art: A('c19490e7c081fb35071c85147c01bed4'), how: 'Winner', howInk: '#8fd3a8', life: 17, bg: '#1e2125' },
-        { place: 2, name: 'Jules', deck: 'Mister Fantastic', seat: '#6fd49a', art: A('383d04a073378ede76b3234038a68757'), how: 'Out on turn 14, combat damage', howInk: '#a9adb3', life: 0, bg: '#15171a' },
-        { place: 3, name: 'Sam', deck: 'Terra, Herald of Hope', seat: '#f08a70', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), how: 'Out on turn 11, combat damage', howInk: '#a9adb3', life: 0, bg: '#15171a' },
-        { place: 4, name: 'Computer, medium', deck: 'Quintorius, History Chaser', seat: '#f1e4bc', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), how: 'Out on turn 9, 21 commander damage', howInk: '#a9adb3', life: 26, bg: '#15171a' }
+        { place: 1, name: 'You', deck: 'Éowyn, Shieldmaiden', seat: '#408abf', art: A('c19490e7c081fb35071c85147c01bed4'), how: 'Winner', howInk: '#8fd3a8', life: 17, bg: '#1e2125' },
+        { place: 2, name: 'Jules', deck: 'Mister Fantastic', seat: '#757a8a', art: A('383d04a073378ede76b3234038a68757'), how: 'Out on turn 14, at 0 life', howInk: '#a9adb3', life: 0, bg: '#15171a' },
+        { place: 3, name: 'Sam', deck: 'Terra, Herald of Hope', seat: '#e8bae4', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), how: 'Out on turn 11, at 0 life', howInk: '#a9adb3', life: 0, bg: '#15171a' },
+        { place: 4, name: 'Computer, medium', deck: 'Quintorius, History Chaser', seat: '#b55af6', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), how: 'Out on turn 9, 21 commander damage', howInk: '#a9adb3', life: 26, bg: '#15171a' }
       ],
       stats: [{ v: '1 h 12', k: 'Length' }, { v: '14', k: 'Turns' }, { v: '58', k: 'Damage Éowyn dealt' }],
       counts: on, trackBg: on ? '#8fd3a8' : '#2a2e33', knobSide: on ? 'flex-end' : 'flex-start', knobBg: on ? '#0b0c0e' : '#a9adb3',

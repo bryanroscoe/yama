@@ -75,7 +75,7 @@ body{margin:0}
       <span style="margin-left: 10px; font-size: 13px; font-weight: 700; color: #a9adb3">Hand 5</span>
     </span>
     <div style="display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px; align-items: center">
-      <span style="display: flex; align-items: center; gap: 6px"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #6cb0f5"><b style="font-family: 'Big Shoulders', sans-serif; font-weight: 700; font-size: 34px">38</b></span>
+      <span style="display: flex; align-items: center; gap: 6px"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #408abf"><b style="font-family: 'Big Shoulders', sans-serif; font-weight: 700; font-size: 34px">38</b></span>
       <span style="min-height: 50px; border-radius: 999px; border: 1px solid #2a2e33; display: grid; place-items: center; font-weight: 700; font-size: 14px">End turn</span>
       <span style="min-height: 50px; border-radius: 999px; background: #f2efe8; color: #0b0c0e; display: grid; place-items: center; font-weight: 800; font-size: 17px">To combat</span>
     </div>
@@ -89,9 +89,9 @@ class Component extends DCLogic {
     const c = (name, art, pt, count, cmdr) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, count: count ? '×' + count : '', many: !!count, ring: cmdr ? 'inset 0 0 0 2px #f2efe8' : 'none' });
     return {
       tabs: [
-        { name: 'Computer', life: 31, seat: '#f1e4bc', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), wash: 0.6, ring: 'none' },
-        { name: 'Sam', life: 24, seat: '#f08a70', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), wash: 0.35, ring: '0 0 0 2px #f2efe8' },
-        { name: 'Jules', life: 36, seat: '#6fd49a', art: A('383d04a073378ede76b3234038a68757'), wash: 0.6, ring: 'none' }
+        { name: 'Computer', life: 31, seat: '#b55af6', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), wash: 0.6, ring: 'none' },
+        { name: 'Sam', life: 24, seat: '#e8bae4', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), wash: 0.35, ring: '0 0 0 2px #f2efe8' },
+        { name: 'Jules', life: 36, seat: '#757a8a', art: A('383d04a073378ede76b3234038a68757'), wash: 0.6, ring: 'none' }
       ],
       samCreatures: [c('Terra', '7678674b257c9f2d67041ed3a4ee2ab4', '3/3', 0, true), c('Grave Titan', '1dccd462a02a0872cc11a4d8518c111f', '6/6'), c('Zombie', '', '2/2', 2)],
       mine: [c('Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4', 0, true), c('Adeline', '93443cca264c2d66fac605d8e8311296', '6/4'), c('Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4'), c('Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2'), c('Soldier', '', '1/1', 2)],
