@@ -14,8 +14,8 @@
 //!   at once and sends them in that order.
 //! - **Loop shortcuts** (CR 732.2): proposing one with the engine's own counts, and each other
 //!   player accepting or shortening it in turn; "you may repeat this process" is a yes or no.
-//!   phase raises loop shortcuts only when its loop detection is on (`LoopDetectionMode`), which
-//!   Yama's games leave at the engine's default, off.
+//!   phase raises loop shortcuts only with its loop detection on (`LoopDetectionMode`), which
+//!   games people play have (`crate::PLAY_LOOPS`) and the lab leaves off.
 //! - **The command zone** (CR 903.9a): a commander going to a graveyard or exile, a yes or no
 //!   that Yama can remember (remember.rs).
 //! - **Special actions at priority** (CR 116.2): ninjutsu, turning a face-down permanent face up,

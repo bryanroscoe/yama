@@ -481,7 +481,7 @@ mod tests {
 
     #[test]
     fn your_own_stops_replace_the_usual_ones() {
-        let own = Controls { stops: Some(Stops { own: ["Upkeep".to_string()].into(), others: HashSet::new() }), ..Controls::default() };
+        let own = Controls { stops: Some(Stops { own: ["Upkeep".to_string()].into(), others: Default::default() }), ..Controls::default() };
         assert_eq!(verdict(&window("Upkeep", true, None), &own), Verdict::Stop);
         assert_eq!(verdict(&window("PreCombatMain", true, None), &own), Verdict::Pass);
         assert_eq!(verdict(&window("End", false, None), &own), Verdict::Pass);

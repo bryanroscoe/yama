@@ -259,9 +259,10 @@ impl Feed {
         self.tally(events, state, conceded);
         if events.iter().any(worth_telling) {
             let seats = state.players.iter().map(|p| Some(p.id.0));
+            let mut public = None;
             for viewer in seats.chain(std::iter::once(None)) {
                 let shown = filter_events_for_viewer(events, state, viewer_id(viewer));
-                let mut lens = Lens { state, viewer, vs: None };
+                let mut lens = Lens { state, viewer, vs: None, public: &mut public };
                 let (whats, arrivals) = convert(&shown, events, state, &mut lens, start);
                 let came = self.came.entry(viewer).or_default();
                 for (id, arrived) in arrivals {
@@ -373,7 +374,8 @@ impl Feed {
         if now.is_some() && now != self.look {
             let (seat, ids) = now.clone().unwrap();
             // Names as the seat looking sees them: the engine shows them the cards it's looking at.
-            let mut lens = Lens { state, viewer: Some(seat), vs: None };
+            let mut public = None;
+            let mut lens = Lens { state, viewer: Some(seat), vs: None, public: &mut public };
             let cards: Vec<Seen> = ids.iter().map(|id| lens.seen(*id, &HashMap::new())).collect();
             let whose = ids.first().and_then(|id| state.objects.get(id)).map(|o| o.owner.0);
             self.push(Some(seat), state.turn_number, state.active_player.0, What::Looked { seat, whose, cards });
@@ -439,27 +441,37 @@ fn worth_telling(e: &GameEvent) -> bool {
     }
 }
 
-/// One viewer's projection of the game, made only when a name is needed.
+/// The game as one viewer sees it, for naming the cards in what happened. Each projection is
+/// one of the engine's filtered copies of the game, which is most of what telling a batch costs,
+/// so they're made only when a name is needed, and most cards are looked up in the spectator's
+/// (`public`), made once for every viewer of the batch: a card a spectator can name is public,
+/// and every seat names it the same way. Only a card the spectator can't name (in the viewer's
+/// own hand, face down under their control, shown to them alone) needs the viewer's own copy.
 struct Lens<'a> {
     state: &'a GameState,
     viewer: Viewer,
     vs: Option<GameState>,
+    public: &'a mut Option<GameState>,
 }
 
 impl Lens<'_> {
-    fn get(&mut self) -> &GameState {
-        let (state, viewer) = (self.state, self.viewer);
-        self.vs.get_or_insert_with(|| match viewer {
-            Some(seat) => filter_state_for_viewer(state, PlayerId(seat)),
-            None => filter_state_for_unseated_viewer(state),
-        })
+    fn public(&mut self) -> &GameState {
+        let state = self.state;
+        self.public.get_or_insert_with(|| filter_state_for_unseated_viewer(state))
+    }
+
+    fn own(&mut self) -> &GameState {
+        let Some(seat) = self.viewer else { return self.public() };
+        let state = self.state;
+        self.vs.get_or_insert_with(|| filter_state_for_viewer(state, PlayerId(seat)))
     }
 
     /// A card as this viewer knows it now. `known` holds names fixed earlier in the batch by a
     /// move seen face up (a card that has since left keeps the name it had).
     fn seen(&mut self, id: ObjectId, known: &HashMap<ObjectId, String>) -> Seen {
         let viewer = self.viewer;
-        let vs = self.get();
+        let named = |vs: &GameState| vs.objects.get(&id).is_some_and(|o| !o.name.is_empty() && o.name != HIDDEN);
+        let vs = if named(self.public()) { self.public() } else { self.own() };
         let o = vs.objects.get(&id);
         let visible = o.is_some_and(|o| !o.name.is_empty() && o.name != HIDDEN);
         let here = o.is_some_and(|o| visible && (o.zone.is_public() || (o.zone == Zone::Hand && viewer == Some(o.owner.0))));
@@ -468,8 +480,12 @@ impl Lens<'_> {
         Seen { id: here.then_some(id.0), name, face_down: face_down && !known.contains_key(&id) }
     }
 
+    /// Who controls a card: public wherever the card is.
     fn controller(&mut self, id: ObjectId) -> Option<u8> {
-        self.get().objects.get(&id).map(|o| o.controller.0)
+        if let Some(o) = self.public().objects.get(&id) {
+            return Some(o.controller.0);
+        }
+        self.own().objects.get(&id).map(|o| o.controller.0)
     }
 }
 
