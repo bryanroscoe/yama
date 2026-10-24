@@ -33,6 +33,104 @@ export interface CardView {
   tax?: number;
   /** A creature that can't attack or tap yet (haste counted). */
   sick?: boolean;
+  /** Face down; its name is "Face-down card" unless you may look at it (newer servers). */
+  face_down?: boolean;
+  /** How a card in a graveyard, exile or the command zone got there, as you saw it. */
+  came?: Came;
+  /** Auras, Equipment and other permanents attached to it. */
+  attachments?: number[];
+  /** A two-faced card showing its back face. */
+  transformed?: boolean;
+  /** Its power and toughness before anything changed them, when something has. */
+  base_power?: number;
+  base_toughness?: number;
+  /** The turn it entered the battlefield. */
+  entered?: number;
+}
+
+// ── what happened (play/src/feed.rs) ──────────────────────────────────────
+
+/** A card as you may know it: its id while it's where you can see it, its name unless hidden. */
+export interface Seen {
+  id?: number;
+  name?: string;
+  face_down?: boolean;
+}
+
+/** What something was done to: a player or a card. */
+export type Hit = { kind: "player"; seat: number } | { kind: "card"; card: Seen };
+
+/** The engine's reason for a move between zones, where it gives one. */
+export type How = "moved" | "destroyed" | "sacrificed" | "discarded" | "milled" | "countered" | "left";
+
+export type ZoneWord = "library" | "hand" | "battlefield" | "graveyard" | "stack" | "exile" | "command";
+
+/** How a card got where it is. */
+export interface Came {
+  turn: number;
+  how: How;
+  from?: ZoneWord;
+}
+
+/** One thing that happened, as you may know it (play/src/feed.rs, Happening). */
+export type Happening = { seq: number; turn: number; active: number } & (
+  | { kind: "turn"; seat: number }
+  | { kind: "cast"; seat: number; card: Seen }
+  | { kind: "land"; seat: number; card: Seen }
+  | { kind: "activated"; seat: number; card: Seen }
+  | { kind: "moved"; card: Seen; owner: number; from?: ZoneWord; to: ZoneWord; how: How; by?: Seen; creature?: boolean }
+  | { kind: "damage"; source: Seen; by?: number; to: Hit; amount: number; combat?: boolean; life?: [number, number] }
+  | { kind: "life"; seat: number; delta: number; total?: number }
+  | { kind: "poison"; seat: number; delta: number }
+  | { kind: "attack"; seat: number; attacks: { card: Seen; at: Hit }[] }
+  | { kind: "block"; seat: number; blocks: [Seen, Seen][] }
+  | { kind: "token"; seat: number; card: Seen; count: number }
+  | { kind: "counters"; card: Seen; counter: string; delta: number }
+  | { kind: "control"; card: Seen; from: number; to: number }
+  | { kind: "transformed"; card: Seen }
+  | { kind: "revealed"; seat: number; cards: Seen[] }
+  | { kind: "looked"; seat: number; whose?: number; cards: Seen[] }
+  | { kind: "drew"; seat: number; count: number; cards: Seen[] }
+  | { kind: "automatic"; seat: number; name: string; accept: boolean; answer: string }
+  | { kind: "out"; seat: number }
+  | { kind: "over"; winner?: number }
+);
+
+/** Why a player is out. All but a concession are read from the board as they went out. */
+export type Why =
+  | { kind: "conceded" }
+  | { kind: "commander"; name: string; seat: number; damage: number }
+  | { kind: "poison"; count: number }
+  | { kind: "life"; life: number }
+  | { kind: "library" }
+  | { kind: "unknown" };
+
+/** A player knocked out, in the order they went out. */
+export interface Out {
+  seat: number;
+  turn: number;
+  life: number;
+  why: Why;
+  /** The cause is Yama's reading of the board, not something the engine stated. */
+  inferred: boolean;
+  /** Players with the same batch went out at the same moment. */
+  batch: number;
+}
+
+export interface SeatStats {
+  seat: number;
+  spells: number;
+  lands: number;
+  drew: number;
+  /** Damage this seat's sources dealt to players. */
+  damage: number;
+  /** Combat damage this seat's commanders dealt to players. */
+  commander_damage: number;
+}
+
+export interface Stats {
+  turns: number;
+  seats: SeatStats[];
 }
 
 export interface PlayerView {
@@ -463,6 +561,12 @@ export interface View {
   turns?: TurnsView;
   /** Resolve all is being asked (newer servers). */
   resolve_all?: ResolveAllView;
+  /** The newest things that happened, as you may know them, oldest first (newer servers). */
+  events?: Happening[];
+  /** Players knocked out, in order, each with its cause. */
+  outs?: Out[];
+  /** The game's numbers, once it's over. */
+  stats?: Stats;
 }
 
 export interface SeatInfo {
@@ -537,4 +641,9 @@ export interface OnlineGame {
   /** The playgroup whose stats it counts toward. */
   playgroup?: string | null;
   missing_cards: Record<string, string[]>;
+  /** When play started and, once over, ended (newer servers). */
+  started_at?: string | null;
+  ended_at?: string | null;
+  /** The rematch the host started from this finished game, for its players: the lobby to join. */
+  rematch?: { id: string; code: string; deck_id: string | null };
 }

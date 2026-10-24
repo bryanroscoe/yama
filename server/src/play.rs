@@ -36,6 +36,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/play/join", post(join))
         .route("/api/play/{id}", get(detail))
         .route("/api/play/{id}/start", post(start))
+        .route("/api/play/{id}/rematch", post(rematch))
         .route("/api/play/{id}/ws", get(connect))
         .route("/api/play/{id}/view", get(final_view))
         .route("/api/decks/{id}/online-support", get(online_support))
@@ -518,6 +519,20 @@ struct OnlineGame {
     playgroup: Option<String>,
     /// Deck name → cards the engine can't play yet (left out of the game).
     missing_cards: HashMap<String, Vec<String>>,
+    /// When play started and, once it's over, when it ended (for the game's length).
+    started_at: Option<String>,
+    ended_at: Option<String>,
+    /// The rematch the host started from this game, for the people in it (game detail only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rematch: Option<Rematch>,
+}
+
+/// A rematch lobby: its id, the code to join it, and the deck you played here, to join with.
+#[derive(Serialize)]
+struct Rematch {
+    id: String,
+    code: String,
+    deck_id: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -532,10 +547,14 @@ struct Row {
     winner_seat: Option<i64>,
     turns: Option<i64>,
     playgroup: Option<String>,
+    started_at: Option<String>,
+    ended_at: Option<String>,
+    rematch_id: Option<String>,
 }
 
 /// The columns a [`Row`] reads; `o` is online_games, `g` games, `p` playgroups.
-const ROW_SELECT: &str = "SELECT o.game_id, o.code, o.host_id, o.stage, o.seats, o.created_at, o.updated_at, g.winner_seat, g.turns, p.name AS playgroup
+const ROW_SELECT: &str = "SELECT o.game_id, o.code, o.host_id, o.stage, o.seats, o.created_at, o.updated_at, g.winner_seat, g.turns, p.name AS playgroup,
+     g.started_at, g.ended_at, o.rematch_id
      FROM online_games o LEFT JOIN games g ON g.id = o.game_id LEFT JOIN playgroups p ON p.id = g.playgroup_id";
 
 impl Row {
@@ -628,7 +647,20 @@ fn summarize(
         turns: if r.stage == "over" { r.turns } else { None },
         playgroup: r.playgroup.clone(),
         missing_cards,
+        started_at: (r.stage != "lobby").then(|| r.started_at.clone()).flatten(),
+        ended_at: if r.stage == "over" { r.ended_at.clone() } else { None },
+        rematch: None,
     }
+}
+
+/// The rematch started from a finished game, for someone who played in it: the new lobby's code
+/// is an invitation, so only the game's own players get it.
+async fn rematch_for(pool: &SqlitePool, r: &Row, user: &str) -> AppResult<Option<Rematch>> {
+    let seats = r.seats();
+    let mine = seats.iter().find(|s| s.user_id.as_deref() == Some(user));
+    let Some(id) = r.rematch_id.as_ref().filter(|_| mine.is_some() || r.host_id == user) else { return Ok(None) };
+    let code: Option<String> = sqlx::query_scalar("SELECT code FROM online_games WHERE game_id = ?").bind(id).fetch_optional(pool).await?;
+    Ok(code.map(|code| Rematch { id: id.clone(), code, deck_id: mine.and_then(|s| s.deck_id.clone()) }))
 }
 
 async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<OnlineGame>> {
@@ -646,7 +678,9 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
     }
     let estimates = seat_estimates(&st.pool, &[&r]).await?;
     let arts = commander_arts(&st.pool, r.seats().iter()).await?;
-    Ok(Json(summarize(&r, &user.id, missing, &estimates, &arts)))
+    let mut game = summarize(&r, &user.id, missing, &estimates, &arts);
+    game.rematch = rematch_for(&st.pool, &r, &user.id).await?;
+    Ok(Json(game))
 }
 
 pub(crate) fn deck_lines(cards: &[DeckCard]) -> Vec<DeckLine<'_>> {
@@ -796,8 +830,61 @@ async fn create(
     CurrentUser(user): CurrentUser,
     Json(body): Json<CreateRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
-    st.limits.play_creates.check_user(&user)?;
-    check_open_games(&st.pool, &user).await?;
+    let id = create_game(&st, &user, &body).await?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+/// Start a rematch of a finished game (GGameOver): a new lobby with the same seats, the host's
+/// deck and the computer's decks and levels, and the same playgroup. Other people's seats are open
+/// for them to join, from their own game-over screen or with the code. Only the host may; asking
+/// again returns the rematch already made.
+async fn rematch(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
+    let r = load_visible(&st.pool, &id, &user.id).await?;
+    if r.host_id != user.id {
+        return Err(AppError::Forbidden("only the host starts a rematch".into()));
+    }
+    if r.stage != "over" {
+        return Err(AppError::Conflict("that game isn't over yet".into()));
+    }
+    if let Some(existing) = &r.rematch_id {
+        return Ok(Json(serde_json::json!({ "id": existing })));
+    }
+    let seats = r
+        .seats()
+        .into_iter()
+        .map(|s| SeatRequest {
+            kind: if s.kind == "ai" {
+                "ai".into()
+            } else if s.user_id.as_deref() == Some(user.id.as_str()) {
+                "me".into()
+            } else {
+                "friend".into()
+            },
+            deck_id: (s.kind == "ai" || s.user_id.as_deref() == Some(user.id.as_str())).then_some(s.deck_id).flatten(),
+            difficulty: s.difficulty,
+        })
+        .collect();
+    let playgroup_id: Option<String> =
+        sqlx::query_scalar("SELECT playgroup_id FROM games WHERE id = ?").bind(&id).fetch_optional(&st.pool).await?.flatten();
+    let new = create_game(&st, &user, &CreateRequest { seats, playgroup_id }).await?;
+    // Two quick taps make one rematch: the first one recorded wins.
+    let set = sqlx::query("UPDATE online_games SET rematch_id = ? WHERE game_id = ? AND rematch_id IS NULL")
+        .bind(&new)
+        .bind(&id)
+        .execute(&st.pool)
+        .await?
+        .rows_affected();
+    if set == 0 {
+        let first: Option<String> = sqlx::query_scalar("SELECT rematch_id FROM online_games WHERE game_id = ?").bind(&id).fetch_one(&st.pool).await?;
+        return Ok(Json(serde_json::json!({ "id": first.unwrap_or(new) })));
+    }
+    Ok(Json(serde_json::json!({ "id": new })))
+}
+
+/// Make a game from the lobby's seats; it starts at once when there's no friend to wait for.
+async fn create_game(st: &AppState, user: &User, body: &CreateRequest) -> AppResult<String> {
+    st.limits.play_creates.check_user(user)?;
+    check_open_games(&st.pool, user).await?;
     st.play.engine()?;
     if !(2..=6).contains(&body.seats.len()) {
         return Err(AppError::bad("a game has 2 to 6 seats"));
@@ -872,9 +959,9 @@ async fn create(
     tx.commit().await?;
     // With no friends to wait for, start right away.
     if !seats.iter().any(|s| s.kind == "human" && s.user_id.is_none()) {
-        start_game(&st, &id, &user.id).await?;
+        start_game(st, &id, &user.id).await?;
     }
-    Ok(Json(serde_json::json!({ "id": id })))
+    Ok(id)
 }
 
 #[derive(Deserialize)]
@@ -1073,8 +1160,9 @@ pub(crate) struct CardMeta {
     oracle_text: String,
 }
 
-/// Every card name the view shows (board, hand, stack, graveyards, exile, command zone), and the
-/// cards in the viewer's own decision (library cards they scry or search, triggers to order).
+/// Every card name the view shows (board, hand, stack, graveyards, exile, command zone), the
+/// cards in the viewer's own decision (library cards they scry or search, triggers to order) and
+/// the cards in what they were told happened.
 /// A view only carries its own seat's decision, read from that seat's view of the game, so
 /// nobody else's library card is ever named here.
 pub(crate) fn view_names(view: &View) -> Vec<String> {
@@ -1089,6 +1177,9 @@ pub(crate) fn view_names(view: &View) -> Vec<String> {
         .map(|c| c.name.clone())
         .chain(view.stack.iter().map(|s| s.name.clone()))
         .chain(view.decision.iter().filter_map(|d| d.pending.as_ref()).flat_map(|p| p.card_names()))
+        // Cards named in what this viewer was told happened (already filtered for them), for the
+        // log's art and the reveal panel's images.
+        .chain(view.events.iter().flat_map(|h| h.card_names()))
         .collect();
     names.sort();
     names.dedup();

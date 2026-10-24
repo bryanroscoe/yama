@@ -38,7 +38,7 @@ use engine::types::game_state::{ActionResult, PriorityPassingMode, StackEntry, S
 use engine::types::log::{LogImportance, LogSegment, LogVisibility};
 use engine::types::match_config::MatchConfig;
 use engine::types::player::PlayerId;
-use engine::types::replay::{ReplayHeader, ReplayLog};
+use engine::types::replay::{RecordedActionKind, ReplayHeader, ReplayLog};
 use phase_ai::auto_play::eligible_ai_decision;
 use phase_ai::config::{AiConfig, AiDifficulty, Platform, create_config_for_players};
 use phase_ai::search::choose_action_with_session;
@@ -50,12 +50,14 @@ use serde::{Deserialize, Serialize};
 pub use phase_ai::config::AiDifficulty as Difficulty;
 
 pub mod act;
+pub mod feed;
 pub mod lab;
 pub mod pay;
 pub mod pilot;
 pub mod turns;
 
 pub use act::{Act, Pending};
+pub use feed::{Came, Happening, Out, Stats, Why};
 pub use pay::{PayMode, PaymentView};
 pub use turns::{Controls, PassMode, ResolveAllView, TurnsView};
 
@@ -255,14 +257,34 @@ impl Engine {
         let mut m = self.start(log.header.clone(), ai)?;
         let mut player = ReplayPlayer::load(log.clone(), Some(&self.db)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let n = player.len();
-        let mut state = player.seek(n).map_err(|e| anyhow::anyhow!("replay diverged: {e:?}"))?.clone();
-        state.debug_mode = false;
-        state.all_card_names = self.db.card_names().into();
-        engine::game::install_card_db(&mut state, Arc::clone(&self.db));
-        m.session = AiSession::arc_from_game(&state);
+        if log.resolve_all_boundaries.is_empty() {
+            // Step through the log exactly as the replayer does (`ReplayPlayer::seek`), keeping each
+            // action's events, so the feed, the knockouts and the stats come back too (feed.rs).
+            m.state = player.seek(0).map_err(|e| anyhow::anyhow!("replay diverged: {e:?}"))?.clone();
+            for recorded in &log.actions {
+                let applied = match recorded.kind {
+                    RecordedActionKind::Submitted => engine::game::engine::apply(&mut m.state, recorded.actor, recorded.action.clone()),
+                    RecordedActionKind::VerifiedAiPriorityPass { semantic_owner } => {
+                        let contract = AiDecisionContract::issue(&m.state, semantic_owner);
+                        apply_verified_ai_priority_pass(&mut m.state, recorded.actor, &contract, recorded.action.clone())
+                    }
+                };
+                let result = applied.map_err(|e| anyhow::anyhow!("replay diverged at action {}: {e}", recorded.seq))?;
+                if let GameAction::Concede { player_id } = &recorded.action {
+                    m.conceded.insert(player_id.0);
+                }
+                m.replayed(&result);
+            }
+        } else {
+            // Resolve All boundaries need the replayer's own handling; Yama never writes them.
+            m.state = player.seek(n).map_err(|e| anyhow::anyhow!("replay diverged: {e:?}"))?.clone();
+        }
+        m.state.debug_mode = false;
+        m.state.all_card_names = self.db.card_names().into();
+        engine::game::install_card_db(&mut m.state, Arc::clone(&self.db));
+        m.session = AiSession::arc_from_game(&m.state);
         m.rng = StdRng::seed_from_u64(log.header.seed ^ u64::from(n));
         m.revision = u64::from(n);
-        m.state = state;
         // Conceding leaves no mark in the engine's state; the log says who did.
         m.conceded = log
             .actions
@@ -304,6 +326,7 @@ impl Engine {
             conceded: BTreeSet::new(),
             auto_watch: Vec::new(),
             kept: HashMap::new(),
+            feed: feed::Feed::default(),
         };
         m.remark(None);
         Ok(m)
@@ -335,6 +358,8 @@ pub struct Match {
     /// Mana sources each person tapped by hand during the payment in progress that can't be
     /// undone (a painland's damage, a sacrificed Treasure), for the payment's note (pay.rs).
     kept: HashMap<u8, Vec<pay::Kept>>,
+    /// What happened, for each viewer, with the knockouts and the game's numbers (feed.rs).
+    feed: feed::Feed,
 }
 
 /// A person's decision as of its issue (see [`Decision::revision`]).
@@ -1408,6 +1433,16 @@ impl Match {
             }
             self.lines.push(LogLine::public(e.turn, segments_text(&e.segments)));
         }
+        self.feed.record(&result.events, &self.state, &self.conceded);
+        self.note_automatic_answers(result);
+        if self.lines.len() > LOG_LINES * 4 {
+            self.lines.drain(..self.lines.len() - LOG_LINES);
+        }
+    }
+
+    /// The answers the engine just gave for people from memory: a log line and a feed line for
+    /// each, seen only by the person it answered for. Then watch for the next ones.
+    fn note_automatic_answers(&mut self, result: &ActionResult) {
         let resolved: HashSet<u64> = result
             .events
             .iter()
@@ -1419,6 +1454,7 @@ impl Match {
         for w in std::mem::take(&mut self.auto_watch) {
             if resolved.contains(&w.entry) {
                 let answer = if w.accept { "yes" } else { "no" };
+                self.feed.automatic(w.seat, &w.name, w.accept, &w.id, &self.state);
                 self.lines.push(LogLine {
                     turn: self.state.turn_number,
                     text: format!("Yama answered {answer} for {}, as you asked.", w.name),
@@ -1428,9 +1464,14 @@ impl Match {
             }
         }
         self.auto_watch = self.watch_automatic_answers();
-        if self.lines.len() > LOG_LINES * 4 {
-            self.lines.drain(..self.lines.len() - LOG_LINES);
-        }
+    }
+
+    /// Bookkeeping for an action replayed from the log on resume: the revision, the feed and the
+    /// remembered answers, as [`Match::accepted`] keeps them. Log lines come back from storage.
+    fn replayed(&mut self, result: &ActionResult) {
+        self.revision += 1;
+        self.feed.record(&result.events, &self.state, &self.conceded);
+        self.note_automatic_answers(result);
     }
 
     /// Answer with phase's `fallback_action` when the AI finds no action (see the field).
@@ -1516,9 +1557,21 @@ impl Match {
         let obj = |id: &ObjectId| -> Option<CardView> {
             let o = state.objects.get(id)?;
             let on_field = o.zone == Zone::Battlefield;
+            // A face-down card in exile keeps its name for a seat that may look at it (a card it
+            // foretold); the projection hides it from everyone else (GZones).
+            let may_look = viewer.is_some() && o.zone == Zone::Exile && !o.name.is_empty() && o.name != "Hidden Card";
+            let base = (o.base_power, o.base_toughness);
+            let reshaped = on_field && base != (o.power, o.toughness);
             Some(CardView {
                 id: id.0,
-                name: if o.face_down { "Face-down card".into() } else { o.name.clone() },
+                name: if o.face_down && !may_look { "Face-down card".into() } else { o.name.clone() },
+                face_down: o.face_down,
+                came: if matches!(o.zone, Zone::Graveyard | Zone::Exile | Zone::Command) { self.feed.came(viewer, id.0) } else { None },
+                attachments: if on_field { o.attachments.iter().map(|a| a.0).collect() } else { vec![] },
+                transformed: o.transformed && !o.face_down,
+                base_power: base.0.filter(|_| reshaped),
+                base_toughness: base.1.filter(|_| reshaped),
+                entered: o.entered_battlefield_turn.filter(|_| on_field),
                 controller: o.controller.0,
                 owner: o.owner.0,
                 tapped: o.tapped,
@@ -1635,7 +1688,21 @@ impl Match {
             winner: self.winner(),
             turns: viewer.filter(|seat| !self.is_ai(*seat)).map(|seat| self.turns_view(state, seat)),
             resolve_all: self.resolve_all_view(),
+            events: self.feed.recent(viewer, feed::SHOWN),
+            outs: self.feed.outs().to_vec(),
+            stats: self.is_over().then(|| self.feed.stats(&self.state)),
         }
+    }
+
+    /// Everything `viewer` may know happened that the feed still holds, oldest first (tests and
+    /// the soak run read it whole; views carry the newest [`feed::SHOWN`]).
+    pub fn events(&self, viewer: Option<u8>) -> Vec<Happening> {
+        self.feed.recent(viewer, feed::KEEP)
+    }
+
+    /// The players knocked out so far, in order, each with its cause.
+    pub fn outs(&self) -> &[Out] {
+        self.feed.outs()
     }
 }
 
@@ -1758,6 +1825,13 @@ pub struct View {
     /// Someone asked to resolve the whole stack: who, and who has agreed (everyone sees it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolve_all: Option<ResolveAllView>,
+    /// The newest things that happened, as this viewer may know them, oldest first (feed.rs).
+    pub events: Vec<Happening>,
+    /// Players knocked out, in the order they went out, each with its cause.
+    pub outs: Vec<Out>,
+    /// The game's numbers, once it's over.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<Stats>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1819,6 +1893,26 @@ pub struct CardView {
     /// A creature that can't attack or tap yet (haste counted).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub sick: bool,
+    /// Face down. Its name is "Face-down card" unless this viewer may look at it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub face_down: bool,
+    /// How a card in a graveyard, exile or the command zone got there, as this viewer saw it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub came: Option<Came>,
+    /// Auras, Equipment and other permanents attached to it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<u64>,
+    /// A double-faced card showing its back face.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub transformed: bool,
+    /// Its power and toughness before anything changed them, when something has.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_power: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_toughness: Option<i32>,
+    /// The turn it entered the battlefield.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entered: Option<u32>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -1871,6 +1965,9 @@ pub struct StackTarget {
 
 #[cfg(test)]
 mod view_tests;
+
+#[cfg(test)]
+mod feed_tests;
 
 #[cfg(test)]
 mod pay_tests;
