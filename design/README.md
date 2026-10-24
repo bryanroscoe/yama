@@ -93,6 +93,10 @@ The Engine column names the phase decision (`WaitingFor` variant, or `GameAction
 | Combat extras: attack taxes, must and can't attack, planeswalker defenders, exert, enlist, crew, saddle | GCombatMore | GCombatMorePhone | 40, 44 | `CombatTaxPayment`, `DeclareAttackers` (`attacker_constraints`), `ExertChoice`, `EnlistChoice`, `CrewVehicle`, `SaddleMount` |
 | Everyone takes part: votes, piles, villainous choice, coin and die, Resolve-all consent | GTogether | GTogetherPhone (vote, Resolve all) | 35, 52 | `VoteChoice`, `SeparatePilesPartition`, `SeparatePilesChoice`, `ChooseOneOfBranch`, `CoinFlipKeepChoice`, `DieKeepChoice`, `ResolveAllConsent` |
 | Game settings: trigger yields, automatic answers, hand order, concede | GSettings | GSettingsPhone | 35 | `SetPriorityYield`, `SetMayTriggerAutoChoice` plus Yama's remembered answers, `ReorderHand`, `Concede` |
+| Rarer cards: morph, manifest dread, foretell, ninjutsu, companion, meld, cipher | GRareCards | GRareCardsPhone (face down, ninjutsu) | 21, 25, 52 | `PlayFaceDown`, `TurnFaceUp`, `ManifestDreadChoice`, foretell, `ActivateNinjutsu`, `CompanionReveal`, `DeclareCompanion`, `CompanionToHand`, `MeldPairChoice`, `CipherEncodeChoice` |
+| Rarer rules: dungeons, time travel, clash, choosing a player, loop shortcuts, Serum Powder, your knockout, a draw | GRareRules | GRareRulesPhone (loop, player) | 51, 52, 61 | `ChooseDungeon`, `ChooseDungeonRoom`, `TimeTravelChoice`, `ClashChooseOpponent`, `ClashCardPlacement`, `ChooseGiftRecipient`, `EntryControllerChoice`, `ChooseFromZoneOpponentChooser`, `LoopShortcut`, `RespondToShortcut`, `RepeatDecision`, `UseSerumPowder`, `PlayerEliminated`, `GameOver { winner: None }` |
+
+Not designed, because Commander doesn't use them: between-games choices, Alchemy, Planechase and Tiny Leaders.
 
 ### Generic decision widgets
 
@@ -331,6 +335,43 @@ The table maps each image id prefix to its Scryfall card. a = art_crop, n = norm
 | a5d76678 | n Krark's Thumb |
 | 706046b4 | a Krark's Other Thumb (Jeff Miracola) |
 | e3346d21 | n Krark's Other Thumb |
+| 305da8d1 | a Exalted Angel (Michael Sutfin) |
+| 56080e6b | n Exalted Angel |
+| 49e34a11 | a Abhorrent Oculus (Bryan Sola) |
+| e3b996e4 | n Abhorrent Oculus |
+| f33f5c5c | a Saw It Coming (Randy Vargas) |
+| e1c8bf89 | n Saw It Coming |
+| a6bfbfac | a Ninja of the Deep Hours (Dan Murayama Scott) |
+| 06a45f75 | n Ninja of the Deep Hours |
+| 550b138f | a Yorion, Sky Nomad (Steven Belledin) |
+| acff23d9 | n Yorion, Sky Nomad |
+| 9f59d38a | a Bruna, the Fading Light (Clint Cearley) |
+| 4de99ba9 | n Bruna, the Fading Light |
+| 871a8783 | a Gisela, the Broken Blade (Clint Cearley) |
+| 0a623ef9 | n Gisela, the Broken Blade |
+| f0bcaf31 | a Brisela, Voice of Nightmares (Clint Cearley) |
+| 6e6d12a7 | n Brisela, Voice of Nightmares |
+| dbb9e580 | a Hidden Strings (Daarken) |
+| 6035c296 | n Hidden Strings |
+| d0bbf20c | a Acererak the Archlich (Andrey Kuzinskiy) |
+| 2bbab5fd | a Ancestral Vision (John Avon) |
+| cad189d1 | n Ancestral Vision |
+| 5188d0e9 | a Dewdrop Cure (Chris Rallis) |
+| 10eba2b4 | n Dewdrop Cure |
+| 294ee810 | a Kiki-Jiki, Mirror Breaker (Steven Belledin) |
+| 794cd8e9 | n Kiki-Jiki, Mirror Breaker |
+| f2a8c5e5 | a Lash Out (Scott Hampton) |
+| 899cba8b | n Lash Out |
+| e7df9c75 | a Pestermite (Christopher Moeller) |
+| 8e872830 | n Pestermite |
+| cc437f7a | a Rotating Fireplace (Daniel Correia) |
+| be67ea6e | n Rotating Fireplace |
+| 092df66e | a Serum Powder (Matt Thompson) |
+| 08e74730 | n Serum Powder |
+| 3008414c | a Wibbly-wobbly, Timey-wimey (Skinnyelbows) |
+| ae9e4b3a | n Dungeon of the Mad Mage |
+| afefc7c9 | n Lost Mine of Phandelver |
+| 59b49c5d | n Tomb of Annihilation |
 
 ## Sample data
 

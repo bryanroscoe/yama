@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rarer decisions</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="{{railTitle}}" body="{{railBody}}" primary="{{primary}}" secondary="{{secondary}}" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.62)"></div>
+
+  <section role="dialog" aria-label="{{title}}" style="position: absolute; left: 40px; top: 24px; width: 1020px; height: 852px; padding: 20px 22px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 14px">
+    <div role="tablist" aria-label="Example" style="display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; border-radius: 999px; background: var(--ground); width: fit-content">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="7"><button role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="min-height: 32px; padding: 0 12px; border: none; border-radius: 999px; background: {{t.bg}}; color: {{t.ink}}; font-size: 12px; font-weight: 700">{{t.label}}</button></sc-for>
+    </div>
+    <sc-if value="{{hasMoments}}" hint-placeholder-val="{{true}}">
+      <div role="tablist" aria-label="Moment" style="display: flex; gap: 6px; align-items: center">
+        <span style="font-size: 12px; color: var(--dim)">Moment:</span>
+        <sc-for list="{{moments}}" as="m" hint-placeholder-count="2"><button role="tab" aria-selected="{{m.on}}" onClick="{{m.pick}}" style="min-height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid {{m.border}}; background: transparent; color: {{m.ink}}; font-size: 12px; font-weight: 700">{{m.label}}</button></sc-for>
+      </div>
+    </sc-if>
+
+    <div style="display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 14px; align-items: center">
+      <img src="{{srcArt}}" alt="" style="width: 84px; height: 62px; border-radius: 12px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 12px; color: var(--dim)">{{srcLine}}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 32px; line-height: 1">{{title}}</h2><span style="font-size: 13px; color: var(--dim)">{{oracle}}</span></span>
+      <span style="padding: 4px 12px; border-radius: 999px; background: var(--raised); font-size: 12px; font-weight: 700; white-space: nowrap">{{counter}}</span>
+    </div>
+
+    <!-- 1. Dungeons -->
+    <sc-if value="{{isDungeonPick}}" hint-placeholder-val="{{false}}">
+      <div role="radiogroup" aria-label="Dungeons" style="display: flex; gap: 14px">
+        <sc-for list="{{dungeons}}" as="d" hint-placeholder-count="3">
+          <button role="radio" aria-checked="{{d.on}}" onClick="{{d.pick}}" style="flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 10px; border: none; border-radius: 16px; background: {{d.bg}}; box-shadow: {{d.ring}}; text-align: left">
+            <img src="{{d.img}}" alt="{{d.name}}" style="width: 100%; border-radius: 8px">
+            <b style="font-size: 15px">{{d.name}}</b>
+            <span style="font-size: 12px; color: var(--dim)">First room: <b style="color: var(--text)">{{d.entry}}</b>. {{d.entryText}}</span>
+          </button>
+        </sc-for>
+      </div>
+    </sc-if>
+    <sc-if value="{{isDungeonRoom}}" hint-placeholder-val="{{false}}">
+      <div style="display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 22px; align-items: start">
+        <span style="display: flex; flex-direction: column; gap: 6px"><img src="/_blob/afefc7c94ede72ca37f6dd6a3a3f5115" alt="Lost Mine of Phandelver" style="width: 250px; border-radius: 10px"><span style="font-size: 11px; color: var(--dim)">Dungeon card image from Scryfall, © Wizards of the Coast.</span></span>
+        <div style="position: relative; height: 520px">
+          <svg aria-hidden="true" width="620" height="520" viewBox="0 0 620 520" style="position: absolute; inset: 0">
+            <sc-for list="{{edges}}" as="e" hint-placeholder-count="8"><line x1="{{e.x1}}" y1="{{e.y1}}" x2="{{e.x2}}" y2="{{e.y2}}" stroke="{{e.c}}" stroke-width="3" stroke-linecap="round"></line></sc-for>
+          </svg>
+          <sc-for list="{{rooms}}" as="r" hint-placeholder-count="7">
+            <button onClick="{{r.pick}}" aria-pressed="{{r.on}}" aria-label="{{r.label}}" style="position: absolute; left: {{r.x}}px; top: {{r.y}}px; width: 186px; min-height: 92px; padding: 8px 10px; border: none; border-radius: 14px; background: {{r.bg}}; box-shadow: {{r.ring}}; text-align: left; display: flex; flex-direction: column; gap: 2px; cursor: {{r.cursor}}">
+              <span style="display: flex; justify-content: space-between; gap: 6px"><b style="font-size: 13px">{{r.name}}</b><span style="font-size: 10px; font-weight: 800; color: {{r.tagInk}}">{{r.tag}}</span></span>
+              <span style="font-size: 12px; color: var(--dim); line-height: 1.3">{{r.text}}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- 2. Time travel -->
+    <sc-if value="{{isTime}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span style="font-size: 13px; color: var(--dim)">Each suspended card you own and each permanent you control with a time counter. The engine asks in two steps, removing first and then adding; Yama collects both here and sends them in that order.</span>
+        <sc-for list="{{timeRows}}" as="t" hint-placeholder-count="2">
+          <div style="display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 12px; border-radius: 16px; background: var(--raised)">
+            <img src="{{t.img}}" alt="{{t.name}}" style="width: 120px; border-radius: 6px">
+            <span style="display: flex; flex-direction: column; gap: 4px"><b style="font-size: 17px">{{t.name}}</b><span style="font-size: 13px; color: var(--dim)">{{t.where}}</span><span style="font-size: 15px">Time counters: <b style="font-family: var(--display); font-size: 26px">{{t.before}}</b> → <b style="font-family: var(--display); font-size: 26px">{{t.after}}</b></span></span>
+            <span role="radiogroup" aria-label="{{t.name}}" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
+              <sc-for list="{{t.opts}}" as="o" hint-placeholder-count="3"><button role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" style="min-height: 44px; padding: 0 16px; border: none; border-radius: 999px; background: {{o.bg}}; color: {{o.ink}}; font-weight: 700; box-shadow: {{o.ring}}">{{o.label}}</button></sc-for>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <!-- 3/4. Seat pickers (clash opponent, gift recipient) -->
+    <sc-if value="{{isSeats}}" hint-placeholder-val="{{false}}">
+      <div role="radiogroup" aria-label="Players" style="display: flex; gap: 14px">
+        <sc-for list="{{seats}}" as="s" hint-placeholder-count="3">
+          <button role="radio" aria-checked="{{s.on}}" onClick="{{s.pick}}" style="position: relative; flex: 1; height: 220px; padding: 0; border: none; border-radius: 18px; overflow: hidden; background: var(--raised); box-shadow: {{s.ring}}; text-align: left">
+            <img src="{{s.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+            <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.15) 0%, rgb(11 12 14 / 0.88) 100%)"></span>
+            <span style="position: absolute; left: 14px; right: 14px; bottom: 12px; display: flex; flex-direction: column; gap: 2px; line-height: 1.2">
+              <b style="display: flex; align-items: center; gap: 8px; font-size: 20px"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 50%; background: {{s.seat}}"></span>{{s.name}}</b>
+              <span style="font-size: 13px; color: #d5d7db">{{s.meta}}</span>
+              <span style="font-size: 10px; color: rgb(255 255 255 / 0.75)">Art: {{s.artist}}, © Wizards of the Coast</span>
+            </span>
+            <span style="position: absolute; right: 12px; top: 12px; font-family: var(--display); font-weight: 700; font-size: 40px; line-height: 1; text-shadow: 0 2px 18px rgb(0 0 0 / 0.55)">{{s.life}}</span>
+            <sc-if value="{{s.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 12px; top: 12px; padding: 2px 10px; border-radius: 999px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 800">Chosen</span></sc-if>
+          </button>
+        </sc-for>
+      </div>
+      <span style="font-size: 13px; color: var(--dim)">{{seatNote}}</span>
+    </sc-if>
+
+    <!-- 3b. Clash reveal and placement -->
+    <sc-if value="{{isClashPlace}}" hint-placeholder-val="{{false}}">
+      <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 20px; align-items: center">
+        <sc-for list="{{reveals}}" as="v" hint-placeholder-count="2">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 8px">
+            <span style="display: flex; align-items: center; gap: 8px; font-weight: 700"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{v.seat}}"></span>{{v.who}}</span>
+            <img src="{{v.img}}" alt="{{v.name}}" style="width: 200px; border-radius: 10px; box-shadow: {{v.ring}}">
+            <span style="font-size: 14px">Mana value <b style="font-family: var(--display); font-size: 24px">{{v.mv}}</b></span>
+            <span style="font-size: 13px; color: var(--dim)">{{v.status}}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: center; gap: 12px">
+        <span style="font-size: 14px">Your card goes on the</span>
+        <span role="radiogroup" aria-label="Your card goes" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
+          <sc-for list="{{placeOpts}}" as="o" hint-placeholder-count="2"><button role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" style="min-height: 44px; padding: 0 20px; border: none; border-radius: 999px; background: {{o.bg}}; color: {{o.ink}}; font-weight: 700; box-shadow: {{o.ring}}">{{o.label}}</button></sc-for>
+        </span>
+        <span style="font-size: 14px">of your library.</span>
+      </div>
+    </sc-if>
+
+    <!-- 5. Loop shortcut -->
+    <sc-if value="{{isLoopPropose}}" hint-placeholder-val="{{false}}">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
+        <div style="padding: 16px; border-radius: 16px; background: var(--raised); display: flex; flex-direction: column; gap: 10px">
+          <b>The loop the engine found</b>
+          <span style="display: flex; gap: 10px"><img src="/_blob/794cd8e9f6fb6dcbb7628600984be704" alt="Kiki-Jiki, Mirror Breaker" style="width: 120px; border-radius: 6px"><img src="/_blob/8e872830577c0ff671593f75e0197396" alt="Pestermite" style="width: 120px; border-radius: 6px"></span>
+          <span style="font-size: 13px; color: var(--dim)">Grows without limit: <b style="color: var(--text)">Pestermite token copies</b>. No single winner is predicted, so the loop needs a count.</span>
+        </div>
+        <div style="padding: 16px; border-radius: 16px; background: var(--raised); display: flex; flex-direction: column; gap: 12px">
+          <b>Repeat how many times?</b>
+          <span style="display: flex; align-items: center; gap: 8px">
+            <button onClick="{{loopDown}}" aria-label="Fewer" style="width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--ground); font-size: 22px">−</button>
+            <output aria-live="polite" style="width: 90px; text-align: center; font-family: var(--display); font-weight: 800; font-size: 52px; line-height: 1">{{loopN}}</output>
+            <button onClick="{{loopUp}}" aria-label="More" style="width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--ground); font-size: 22px">+</button>
+          </span>
+          <span style="font-size: 13px; color: var(--dim)">The engine pins each repeated choice to what you just did. Every other player then accepts or shortens it, in turn order; nothing happens until the last one answers.</span>
+        </div>
+      </div>
+    </sc-if>
+    <sc-if value="{{isLoopRespond}}" hint-placeholder-val="{{false}}">
+      <div style="padding: 16px; border-radius: 16px; background: var(--raised); display: flex; flex-direction: column; gap: 12px">
+        <span style="display: flex; align-items: center; gap: 10px"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 50%; background: #408abf"></span><b style="font-size: 17px">Bryan proposes a shortcut: repeat 20 times</b></span>
+        <span style="font-size: 14px; color: var(--dim)">Kiki-Jiki, Mirror Breaker and Pestermite. Grows without limit: Pestermite token copies.</span>
+        <span style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+          <span style="font-size: 14px">Shorten it to stop after</span>
+          <button onClick="{{shortDown}}" aria-label="Fewer" style="width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--ground); font-size: 20px">−</button>
+          <output style="width: 64px; text-align: center; font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1">{{shortN}}</output>
+          <button onClick="{{shortUp}}" aria-label="More" style="width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--ground); font-size: 20px">+</button>
+          <span style="font-size: 14px">times, and take priority there.</span>
+        </span>
+        <span style="display: flex; gap: 8px; flex-wrap: wrap">
+          <sc-for list="{{responders}}" as="p" hint-placeholder-count="3"><span style="display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--ground); font-size: 12px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{p.seat}}"></span>{{p.text}}</span></sc-for>
+        </span>
+      </div>
+      <span style="font-size: 13px; color: var(--dim)">This is what Sam sees. “You may repeat this process” effects (RepeatDecision) use the yes-or-no strip instead.</span>
+    </sc-if>
+
+    <!-- 6. Serum Powder -->
+    <sc-if value="{{isPowder}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; gap: 10px; justify-content: center; padding-top: 6px">
+        <sc-for list="{{hand}}" as="h" hint-placeholder-count="7">
+          <span style="position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px">
+            <img src="{{h.img}}" alt="{{h.name}}" style="width: 126px; border-radius: 6px; box-shadow: {{h.ring}}">
+            <sc-if value="{{h.powder}}" hint-placeholder-val="{{false}}"><button onClick="{{h.use}}" style="min-height: 40px; padding: 0 12px; border-radius: 999px; border: 1px solid #f0b45a; background: transparent; font-size: 13px; font-weight: 700">{{h.useLabel}}</button></sc-if>
+          </span>
+        </sc-for>
+      </div>
+      <span style="font-size: 13px; color: var(--dim); text-align: center">{{powderNote}}</span>
+    </sc-if>
+
+    <!-- 7. Your knockout, or a draw -->
+    <sc-if value="{{isOut}}" hint-placeholder-val="{{false}}">
+      <div style="position: relative; height: 330px; border-radius: 18px; overflow: hidden">
+        <img src="{{outArt}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 25%">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.3) 0%, rgb(11 12 14 / 0.9) 100%)"></span>
+        <span style="position: absolute; left: 28px; bottom: 24px; display: flex; flex-direction: column; gap: 4px">
+          <b style="font-family: var(--display); font-weight: 800; font-size: 84px; line-height: 0.9">{{outTitle}}</b>
+          <span style="font-size: 17px">{{outLine}}</span>
+        </span>
+        <span style="position: absolute; right: 14px; bottom: 10px; font-size: 11px; color: rgb(255 255 255 / 0.75)">Art: {{outArtist}}, © Wizards of the Coast</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <sc-for list="{{standings}}" as="s" hint-placeholder-count="4">
+          <span style="display: grid; grid-template-columns: 28px 12px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 12px; background: var(--raised); font-size: 14px"><b style="font-family: var(--display); font-size: 22px">{{s.place}}</b><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{s.seat}}"></span><span>{{s.name}}</span><span style="color: var(--dim)">{{s.how}}</span></span>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <span style="margin-top: auto; font-size: 12px; color: var(--dim)">The rail confirms. Driven by: {{driven}}. Card text is Oracle text; images from Scryfall, © Wizards of the Coast.</span>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 0, moment: 0, dungeon: 'lost', room: null, time: { vision: 'remove', fireplace: 'add' }, clashFoe: 'sam', place: 'bottom', gift: null, loopN: 20, shortN: 20, powderUsed: false, outKind: 0 };
+  }
+  pending() {
+    const A = (id) => '/_blob/' + id;
+    const seats = [
+      { id: 'computer', name: 'Computer', seat: '#b55af6', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', life: 31, meta: 'Hand 4, library 71' },
+      { id: 'sam', name: 'Sam', seat: '#e8bae4', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', life: 24, meta: 'Hand 5, library 73' },
+      { id: 'jules', name: 'Jules', seat: '#757a8a', art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', life: 36, meta: 'Hand 2, library 70' }
+    ];
+    return {
+      seats,
+      dungeon: { kind: 'dungeon', engine: 'ChooseDungeon { options: [DungeonPreview { name, entry_room }] }, then ChooseDungeonRoom { dungeon_name, options: [RoomPreview { index, name, text }] }',
+        source: { name: 'Acererak the Archlich', art: A('d0bbf20c38e2cc293d8f18482a0b0d40'), artist: 'Andrey Kuzinskiy' },
+        oracle: 'When Acererak enters, if you haven’t completed Tomb of Annihilation, return Acererak to its owner’s hand and venture into the dungeon.',
+        options: [
+          { id: 'lost', name: 'Lost Mine of Phandelver', img: A('afefc7c94ede72ca37f6dd6a3a3f5115'), entry: 'Cave Entrance', entryText: 'Scry 1.' },
+          { id: 'mad', name: 'Dungeon of the Mad Mage', img: A('ae9e4b3aa4d98d18945167f47a730a15'), entry: 'Yawning Portal', entryText: 'You gain 1 life.' },
+          { id: 'tomb', name: 'Tomb of Annihilation', img: A('59b49c5d5f3767718ac3d38116755c25'), entry: 'Trapped Entry', entryText: 'Each player loses 1 life.' }
+        ],
+        rooms: [
+          { id: 'cave', name: 'Cave Entrance', text: 'Scry 1.', x: 217, y: 0, next: ['goblin', 'tunnels'] },
+          { id: 'goblin', name: 'Goblin Lair', text: 'Create a 1/1 red Goblin creature token.', x: 110, y: 140, next: ['store', 'pool'] },
+          { id: 'tunnels', name: 'Mine Tunnels', text: 'Create a Treasure token.', x: 324, y: 140, next: ['pool', 'fungi'] },
+          { id: 'store', name: 'Storeroom', text: 'Put a +1/+1 counter on target creature.', x: 0, y: 280, next: ['temple'] },
+          { id: 'pool', name: 'Dark Pool', text: 'Each opponent loses 1 life and you gain 1 life.', x: 217, y: 280, next: ['temple'] },
+          { id: 'fungi', name: 'Fungi Cavern', text: 'Target creature gets -4/-0 until your next turn.', x: 434, y: 280, next: ['temple'] },
+          { id: 'temple', name: 'Temple of Dumathoin', text: 'Draw a card.', x: 217, y: 420, next: [] }
+        ], current: 'cave' },
+      time: { kind: 'timeTravel', engine: 'TimeTravelChoice { eligible, phase: Remove, then Add }',
+        source: { name: 'Wibbly-wobbly, Timey-wimey', art: A('3008414c3706ddadfb79e32d30d5b4c1'), artist: 'Skinnyelbows' },
+        oracle: 'Time travel. (For each suspended card you own and each permanent you control with a time counter on it, you may add or remove a time counter.) Draw a card.',
+        options: [
+          { id: 'vision', name: 'Ancestral Vision', img: A('cad189d1c441c05fbf67f7800efecf4e'), where: 'Suspended, in exile', counters: 3 },
+          { id: 'fireplace', name: 'Rotating Fireplace', img: A('be67ea6e22758af11ef1034146810b0c'), where: 'On the battlefield. {T}: Add {C} for each time counter.', counters: 1 }
+        ] },
+      clash: { kind: 'clash', engine: 'ClashChooseOpponent { candidates }, then ClashCardPlacement { card, remaining }',
+        source: { name: 'Lash Out', art: A('f2a8c5e5b0a42f3d7f341278a795a126'), artist: 'Scott Hampton' },
+        oracle: 'Lash Out deals 3 damage to target creature. Clash with an opponent. If you win, Lash Out deals 3 damage to that creature’s controller. (Each clashing player reveals the top card of their library, then puts that card on their choice of the top or bottom. A player wins if their card had a greater mana value.)' },
+      gift: { kind: 'player', engine: 'ChooseGiftRecipient { candidates, gift_kind }',
+        source: { name: 'Dewdrop Cure', art: A('5188d0e90a93735bc65c3156c0b7c1ca'), artist: 'Chris Rallis' },
+        oracle: 'Gift a card (You may promise an opponent a gift as you cast this spell. If you do, they draw a card before its other effects.) Return up to two target creature cards each with mana value 2 or less from your graveyard to the battlefield. If the gift was promised, instead return up to three target creature cards each with mana value 2 or less from your graveyard to the battlefield.' },
+      loop: { kind: 'shortcut', engine: 'LoopShortcut { proposer, predicted_winner, certificate, schema }, then RespondToShortcut { remaining_players, proposal { count } }',
+        source: { name: 'Kiki-Jiki, Mirror Breaker', art: A('294ee810ae176fe607b34b93d4a56d88'), artist: 'Steven Belledin' },
+        oracle: 'Haste. {T}: Create a token that’s a copy of target nonlegendary creature you control, except it has haste. Sacrifice it at the beginning of the next end step.' },
+      powder: { kind: 'mulligan', engine: 'MulliganDecision, answered with MulliganChoice::UseSerumPowder { object_id }',
+        source: { name: 'Serum Powder', art: A('092df66e87c7da2ed6c448535dfdd733'), artist: 'Matt Thompson' },
+        oracle: '{T}: Add {C}. Any time you could mulligan and this card is in your hand, you may exile all the cards from your hand, then draw that many cards. (You can do this in addition to taking mulligans.)',
+        hand: [['powder', 'Serum Powder', '08e747306822912a66a1d48bd50e130b'], ['sunfall', 'Sunfall', '4f17f1f93dbb25c0d47e2fcb9b2c0ae6'], ['rift', 'Cyclonic Rift', '4e274a0a80fefd3f3346bd10c98c1349'], ['mentor', 'Monastery Mentor', 'c8765d27dab83eefd46f6647d19b1791'], ['will', 'Akroma’s Will', 'd2df35f8a45cc092aadf237d7374fc27'], ['charm', 'Boros Charm', '2d80527eb5c346c24b35ad5381fe99a6'], ['fortress', 'Glacial Fortress', 'e25b0374571373f1ab95c0e88cd1758e']],
+        redraw: [['plains', 'Plains', 'ebcbd90fea26c85faf08808dd0e2fa6c'], ['island', 'Island', 'e4f3b606664e1f6c0a9df858f142ccfd'], ['mountain', 'Mountain', '58f2586f1f674762deaebec2ec8a6f01'], ['warp', 'Chaos Warp', '0145ecf81c21d180a7799470623719f7'], ['fierce', 'Fierce Guardianship', 'c858d7cf7a488b3218bd7bbf1fe8b79c'], ['clifftop', 'Clifftop Retreat', '4b6f8a8ccbd66b04717e915e9e659b37'], ['sentinel', 'Esper Sentinel', 'f91dfa789f2b0816a79359bb277f07b0']] }
+    };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const P = this.pending();
+    const s = this.state;
+    const pickRing = (on) => on ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a';
+    const seg = (opts, cur, set) => opts.map(([k, label]) => ({ label, on: cur === k, bg: cur === k ? '#f2efe8' : 'transparent', ink: cur === k ? '#0b0c0e' : '#a9adb3', ring: cur === k ? 'none' : 'inset 0 0 0 1px #f0b45a', pick: () => set(k) }));
+    const labels = ['Dungeons', 'Time travel', 'Clash', 'Choose a player', 'Loop shortcut', 'Serum Powder', 'You’re out, or a draw'];
+    const momentSets = [['Choose a dungeon', 'Choose a room'], null, ['Choose an opponent', 'Top or bottom'], null, ['You propose', 'What Sam sees'], null, ['You’re out', 'Drawn game']];
+    const v = {
+      tabs: labels.map((label, i) => ({ label, on: s.tab === i, bg: s.tab === i ? '#f2efe8' : 'transparent', ink: s.tab === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ tab: i, moment: 0 }) })),
+      hasMoments: !!momentSets[s.tab],
+      moments: (momentSets[s.tab] || []).map((label, i) => ({ label, on: s.moment === i, border: s.moment === i ? '#f2efe8' : '#2a2e33', ink: s.moment === i ? '#f2efe8' : '#a9adb3', pick: () => this.setState({ moment: i }) })),
+      isDungeonPick: false, isDungeonRoom: false, isTime: false, isSeats: false, isClashPlace: false, isLoopPropose: false, isLoopRespond: false, isPowder: false, isOut: false,
+      dungeons: [], rooms: [], edges: [], timeRows: [], seats: [], seatNote: '', reveals: [], placeOpts: [], responders: [], hand: [], standings: [],
+      loopN: s.loopN, shortN: s.shortN, loopDown: null, loopUp: null, shortDown: null, shortUp: null, powderNote: '', outArt: '', outTitle: '', outLine: '', outArtist: '', counter: '', secondary: ''
+    };
+    const src = (d) => ({ srcArt: d.source.art, srcLine: d.source.name + '. Art: ' + d.source.artist + ', © Wizards of the Coast', oracle: d.oracle, driven: d.engine });
+
+    if (s.tab === 0) {
+      const d = P.dungeon;
+      if (s.moment === 0) {
+        const pick = d.options.find((o) => o.id === s.dungeon);
+        return { ...v, ...src(d), isDungeonPick: true, title: 'Venture into a dungeon', counter: '1 of 3',
+          dungeons: d.options.map((o) => ({ ...o, on: o.id === s.dungeon, bg: o.id === s.dungeon ? '#1e2125' : 'transparent', ring: pickRing(o.id === s.dungeon), pick: () => this.setState({ dungeon: o.id }) })),
+          railTitle: 'Venture into the dungeon', railBody: 'Choose a dungeon. Your marker goes on its first room, and that room’s ability triggers.',
+          primary: 'Venture into ' + pick.name };
+      }
+      const cur = d.rooms.find((r) => r.id === d.current);
+      const byId = Object.fromEntries(d.rooms.map((r) => [r.id, r]));
+      const choice = s.room || 'goblin';
+      const edges = [];
+      d.rooms.forEach((r) => r.next.forEach((n) => { const t = byId[n]; const live = r.id === d.current; edges.push({ x1: r.x + 93, y1: r.y + 92, x2: t.x + 93, y2: t.y, c: live ? (n === choice ? '#f2efe8' : '#f0b45a') : '#2a2e33' }); }));
+      return { ...v, srcArt: d.source.art, srcLine: 'Venturing again. Art: Andrey Kuzinskiy, © Wizards of the Coast', oracle: 'Lost Mine of Phandelver. Your marker is on Cave Entrance; it leads to two rooms.', driven: d.engine,
+        isDungeonRoom: true, title: 'Choose the next room', counter: 'Room 2 of 4',
+        edges,
+        rooms: d.rooms.map((r) => { const isCur = r.id === d.current, isOpt = cur.next.includes(r.id), on = r.id === choice;
+          return { ...r, on, label: r.name + (isCur ? ', you are here' : isOpt ? ', can be chosen' : ''),
+            bg: isCur ? '#2a2e33' : on ? '#1e2125' : 'var(--ground)', ring: isCur ? '0 0 0 2px #408abf' : isOpt ? pickRing(on) : '0 0 0 1px #2a2e33',
+            tag: isCur ? 'You are here' : on ? 'Next' : isOpt ? 'Can go' : '', tagInk: isCur ? '#408abf' : on ? '#f2efe8' : '#f0b45a',
+            cursor: isOpt ? 'pointer' : 'default', pick: isOpt ? () => this.setState({ room: r.id }) : null }; }),
+        railTitle: 'Lost Mine of Phandelver', railBody: 'Move your marker to a room. Its ability triggers.', primary: 'Go to ' + byId[choice].name };
+    }
+
+    if (s.tab === 1) {
+      const d = P.time;
+      const delta = { remove: -1, leave: 0, add: 1 };
+      const rows = d.options.map((o) => { const c = s.time[o.id]; return { ...o, before: o.counters, after: o.counters + delta[c],
+        opts: seg([['remove', 'Remove one'], ['leave', 'Leave'], ['add', 'Add one']], c, (k) => this.setState((st) => ({ time: { ...st.time, [o.id]: k } }))) }; });
+      const n = Object.values(s.time).filter((c) => c !== 'leave').length;
+      return { ...v, ...src(d), isTime: true, title: 'Time travel', counter: n + ' of ' + d.options.length + ' changed',
+        timeRows: rows, railTitle: 'Time travel', railBody: 'For each, you may add or remove one time counter.', primary: 'Done', secondary: 'Leave all' };
+    }
+
+    if (s.tab === 2) {
+      const d = P.clash;
+      if (s.moment === 0) {
+        const foe = P.seats.find((x) => x.id === s.clashFoe);
+        return { ...v, ...src(d), isSeats: true, title: 'Clash with an opponent', counter: '1 of 1',
+          seats: P.seats.map((x) => ({ ...x, on: x.id === s.clashFoe, ring: pickRing(x.id === s.clashFoe), pick: () => this.setState({ clashFoe: x.id }) })),
+          seatNote: 'You both reveal the top card of your library.',
+          railTitle: 'Clash', railBody: 'Choose which opponent clashes with you.', primary: 'Clash with ' + foe.name };
+      }
+      return { ...v, ...src(d), isClashPlace: true, title: 'Sam wins the clash', counter: 'Your card first',
+        reveals: [
+          { who: 'You', seat: '#408abf', name: 'Sunfall', img: A('4f17f1f93dbb25c0d47e2fcb9b2c0ae6'), mv: 5, status: 'Choose where it goes.', ring: '0 0 0 3px #f2efe8' },
+          { who: 'Sam', seat: '#e8bae4', name: 'Ashen Rider', img: A('dc22f2e32cfd4e29fe4da92f2ad86ec6'), mv: 8, status: 'Sam chooses after you.', ring: 'none' }
+        ],
+        placeOpts: seg([['top', 'Top'], ['bottom', 'Bottom']], s.place, (k) => this.setState({ place: k })),
+        railTitle: 'Clash: you lost', railBody: 'Ashen Rider’s mana value is greater, so Lash Out deals no extra damage. Each player chooses top or bottom, in turn order.', primary: 'Put it on the ' + s.place };
+    }
+
+    if (s.tab === 3) {
+      const d = P.gift;
+      const chosen = P.seats.find((x) => x.id === s.gift);
+      return { ...v, ...src(d), isSeats: true, title: 'Choose who gets the gift', counter: (s.gift ? 1 : 0) + ' of 1 chosen',
+        seats: P.seats.map((x) => ({ ...x, on: x.id === s.gift, ring: pickRing(x.id === s.gift), pick: () => this.setState({ gift: x.id }) })),
+        seatNote: 'The same seat picker serves EntryControllerChoice (who a permanent enters under) and ChooseFromZoneOpponentChooser (which opponent chooses).',
+        railTitle: 'Gift a card', railBody: 'You promised a gift. Choose the opponent who draws a card.', primary: chosen ? 'Give the gift to ' + chosen.name : 'Choose an opponent' };
+    }
+
+    if (s.tab === 4) {
+      const d = P.loop;
+      if (s.moment === 0) {
+        return { ...v, ...src(d), isLoopPropose: true, title: 'Propose a shortcut', counter: 'Repeat ' + s.loopN,
+          loopDown: () => this.setState((st) => ({ loopN: Math.max(1, st.loopN - 1) })), loopUp: () => this.setState((st) => ({ loopN: Math.min(999, st.loopN + 1) })),
+          railTitle: 'Loop found', railBody: 'Instead of doing each step by hand, propose repeating it.', primary: 'Propose: repeat ' + s.loopN + ' times', secondary: 'Keep playing it out' };
+      }
+      return { ...v, ...src(d), isLoopRespond: true, title: 'Accept the shortcut?', counter: 'Your answer',
+        shortDown: () => this.setState((st) => ({ shortN: Math.max(0, st.shortN - 1) })), shortUp: () => this.setState((st) => ({ shortN: Math.min(20, st.shortN + 1) })),
+        responders: [{ seat: '#b55af6', text: 'Computer accepted' }, { seat: '#e8bae4', text: 'Sam deciding' }, { seat: '#757a8a', text: 'Jules is next' }],
+        railTitle: 'Bryan’s shortcut', railBody: 'Accept it, or shorten it so the loop stops early and you get priority there.',
+        primary: s.shortN < 20 ? 'Shorten to ' + s.shortN : 'Accept 20', secondary: s.shortN < 20 ? 'Accept 20 instead' : '' };
+    }
+
+    if (s.tab === 5) {
+      const d = P.powder;
+      const cards = s.powderUsed ? d.redraw : d.hand;
+      return { ...v, ...src(d), isPowder: true, title: s.powderUsed ? 'Your new hand' : 'Keep this hand?', counter: '7 cards',
+        hand: cards.map(([id, name, img]) => ({ name, img: A(img), powder: id === 'powder', ring: id === 'powder' ? '0 0 0 2px #f0b45a' : 'none', useLabel: 'Exile hand, draw 7', use: () => this.setState({ powderUsed: true }) })),
+        powderNote: s.powderUsed ? 'All seven were exiled and you drew seven. That wasn’t a mulligan: your next mulligan is still free.' : 'Serum Powder’s option sits on the card itself. It isn’t a mulligan.',
+        railTitle: 'Opening hand', railBody: s.powderUsed ? 'Seven cards were exiled. Keep or mulligan as usual.' : 'Keep, mulligan, or use Serum Powder.', primary: 'Keep 7', secondary: 'Mulligan (free)' };
+    }
+
+    if (s.moment === 0) {
+      return { ...v, srcArt: A('7678674b257c9f2d67041ed3a4ee2ab4'), srcLine: 'Turn 12. Art: Marta Nael, © Wizards of the Coast', oracle: 'Sam’s Terra dealt you 21 commander damage.', driven: 'PlayerEliminated event; the cause is worked out by Yama from commander damage, life, poison or a concession',
+        isOut: true, title: 'You’re out', counter: '4th of 4',
+        outArt: A('c19490e7c081fb35071c85147c01bed4'), outArtist: 'Craig Elliott', outTitle: 'You’re out', outLine: 'Turn 12. Your cards have left the game; the others play on.',
+        standings: [{ place: '', seat: '#e8bae4', name: 'Sam', how: 'Playing, 18 life' }, { place: '', seat: '#757a8a', name: 'Jules', how: 'Playing, 22 life' }, { place: '4', seat: '#408abf', name: 'You', how: 'Out on turn 12, 21 commander damage from Terra' }, { place: '3', seat: '#b55af6', name: 'Computer', how: 'Out on turn 9' }],
+        railTitle: 'You’re out', railBody: 'Keep watching with every hand hidden, or leave. Leaving doesn’t end the game for anyone else.', primary: 'Keep watching', secondary: 'Leave' };
+    }
+    return { ...v, srcArt: A('c19490e7c081fb35071c85147c01bed4'), srcLine: 'Turn 15. Art: Craig Elliott, © Wizards of the Coast', oracle: 'Sam and you reached 0 life at the same time.', driven: 'GameOver { winner: None }',
+      isOut: true, title: 'Drawn game', counter: 'No winner',
+      outArt: A('383d04a073378ede76b3234038a68757'), outArtist: 'Gintas Galvanauskas', outTitle: 'Drawn game', outLine: 'The last two players lost at the same time, so no one wins.',
+      standings: [{ place: '=1', seat: '#408abf', name: 'You', how: '0 life, turn 15' }, { place: '=1', seat: '#e8bae4', name: 'Sam', how: '0 life, turn 15' }, { place: '3', seat: '#757a8a', name: 'Jules', how: 'Out on turn 13' }, { place: '4', seat: '#b55af6', name: 'Computer', how: 'Out on turn 9' }],
+      railTitle: 'Game over', railBody: 'No one wins. The game is over for everyone.', primary: 'Back to Play online', secondary: 'Game log' };
+  }
+}
+</script>
+</body>
+</html>
