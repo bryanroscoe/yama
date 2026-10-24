@@ -26,11 +26,15 @@ use engine::types::format::FormatConfig;
 use engine::game::mulligan::kept_hand_size_after;
 use engine::types::game_state::{GameState, MulliganDecisionPhase, WaitingFor};
 use engine::types::identifiers::ObjectId;
-use engine::game::combat::AttackTarget;
+use engine::game::ability_utils::declared_targets_in_chain;
+use engine::game::combat::{AttackTarget, CombatRequirement, compute_attack_tax};
+use engine::game::derived_views::derive_filtered_views;
 use engine::types::ability::{AbilityCost, TargetRef};
+use engine::types::keywords::Keyword;
+use engine::types::zones::Zone;
 use engine::types::actions::{GameAction, MulliganChoice, ResolveAllConsentDecision};
 use engine::types::events::GameEvent;
-use engine::types::game_state::{ActionResult, PriorityPassingMode, StackEntryKind};
+use engine::types::game_state::{ActionResult, PriorityPassingMode, StackEntry, StackEntryKind};
 use engine::types::log::{LogImportance, LogSegment, LogVisibility};
 use engine::types::match_config::MatchConfig;
 use engine::types::player::PlayerId;
@@ -410,6 +414,9 @@ pub struct MulliganView {
 #[derive(Debug, Clone, Serialize)]
 pub struct AttackChoice {
     pub attackers: Vec<AttackerChoice>,
+    /// Creatures something says can't attack (CR 508.1c: Pacifism and the like), for their badge.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cant: Vec<Held>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -417,6 +424,25 @@ pub struct AttackerChoice {
     pub id: u64,
     /// Whom this creature may attack, as the engine lists them.
     pub targets: Vec<AttackAt>,
+    /// It attacks this combat if able (CR 508.1d): the defenders it must attack, or an empty list
+    /// when any of `targets` will do. The engine refuses a declaration that leaves it home.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub must: Option<Vec<AttackAt>>,
+    /// The cards that make it attack, by name (empty for goad, which names no card).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub because: Vec<String>,
+    /// What attacking each target costs, where something taxes it (Propaganda, Ghostly Prison;
+    /// CR 508.1d), printed: "{2}". The engine asks for the total once the attack is declared.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub taxes: Vec<(AttackAt, String)>,
+}
+
+/// A creature a restriction holds back (it can't attack, or can't block), and the cards that do.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Held {
+    pub id: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub because: Vec<String>,
 }
 
 /// An attack target as the board names it: a player by seat, or a planeswalker or battle.
@@ -448,6 +474,12 @@ impl AttackAt {
 #[derive(Debug, Clone, Serialize)]
 pub struct BlockChoice {
     pub blockers: Vec<BlockerChoice>,
+    /// Attackers that need more than one blocker, and how many (menace, CR 702.111b).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub needs: Vec<(u64, u32)>,
+    /// Creatures something says can't block (CR 509.1b), for their badge.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cant: Vec<Held>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -455,6 +487,9 @@ pub struct BlockerChoice {
     pub id: u64,
     /// The attacking creatures this one may block.
     pub attackers: Vec<u64>,
+    /// It blocks this combat if able (CR 509.1c).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub must: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -730,35 +765,74 @@ impl Match {
     /// The engine's own lists of who may attack (and whom) or block (and what), when `me` is
     /// declaring. They come from the seat's filtered view and name only public permanents.
     fn combat_choices(vs: &GameState, me: PlayerId) -> (Option<AttackChoice>, Option<BlockChoice>) {
+        let names = |ids: &[ObjectId]| -> Vec<String> { ids.iter().map(|id| Self::name_in(vs, id)).collect() };
         match &vs.waiting_for {
-            WaitingFor::DeclareAttackers { player, valid_attacker_ids, valid_attack_targets, valid_attack_targets_by_attacker, .. }
-                if *player == me =>
+            WaitingFor::DeclareAttackers {
+                player, valid_attacker_ids, valid_attack_targets, valid_attack_targets_by_attacker, attacker_constraints, ..
+            } if *player == me =>
             {
                 let attackers = valid_attacker_ids
                     .iter()
                     .map(|id| {
                         // Older states have no per-attacker map; fall back to the shared list.
-                        let targets = match valid_attack_targets_by_attacker {
-                            Some(by) => by.get(id).map(|ts| ts.iter().map(AttackAt::from_engine).collect()).unwrap_or_default(),
-                            None => valid_attack_targets.iter().map(AttackAt::from_engine).collect(),
+                        let targets: Vec<AttackTarget> = match valid_attack_targets_by_attacker {
+                            Some(by) => by.get(id).cloned().unwrap_or_default(),
+                            None => valid_attack_targets.clone(),
                         };
-                        AttackerChoice { id: id.0, targets }
+                        let (must, because) = match attacker_constraints.get(id) {
+                            Some(CombatRequirement::MustAttack { defenders, sources }) => {
+                                (Some(defenders.iter().map(AttackAt::from_engine).collect()), names(sources))
+                            }
+                            _ => (None, vec![]),
+                        };
+                        // Each target's tax on its own: the engine's per-creature breakdown, so the
+                        // board can total it as the attack is aimed.
+                        let taxes = targets
+                            .iter()
+                            .filter_map(|t| {
+                                let (total, _) = compute_attack_tax(vs, &[(*id, *t)])?;
+                                let printed = phase_llm::render::text::mana_cost_text(&total);
+                                (!printed.is_empty()).then(|| (AttackAt::from_engine(t), printed))
+                            })
+                            .collect();
+                        AttackerChoice { id: id.0, targets: targets.iter().map(AttackAt::from_engine).collect(), must, because, taxes }
                     })
                     .filter(|a| !a.targets.is_empty())
                     .collect();
-                (Some(AttackChoice { attackers }), None)
+                let mut cant: Vec<Held> = attacker_constraints
+                    .iter()
+                    .filter_map(|(id, c)| match c {
+                        CombatRequirement::CantAttack { sources } => Some(Held { id: id.0, because: names(sources) }),
+                        _ => None,
+                    })
+                    .collect();
+                cant.sort_by_key(|h| h.id);
+                (Some(AttackChoice { attackers, cant }), None)
             }
-            WaitingFor::DeclareBlockers { player, valid_blocker_ids, valid_block_targets, .. } if *player == me => {
+            WaitingFor::DeclareBlockers { player, valid_blocker_ids, valid_block_targets, block_requirements, blocker_constraints, .. }
+                if *player == me =>
+            {
                 let blockers = valid_blocker_ids
                     .iter()
                     .map(|id| {
                         let mut attackers: Vec<u64> = valid_block_targets.get(id).map(|a| a.iter().map(|o| o.0).collect()).unwrap_or_default();
                         attackers.sort_unstable();
-                        BlockerChoice { id: id.0, attackers }
+                        let must = matches!(blocker_constraints.get(id), Some(CombatRequirement::MustBlock { .. }));
+                        BlockerChoice { id: id.0, attackers, must }
                     })
                     .filter(|b| !b.attackers.is_empty())
                     .collect();
-                (None, Some(BlockChoice { blockers }))
+                let mut needs: Vec<(u64, u32)> = block_requirements.iter().filter(|(_, r)| r.count > 1).map(|(id, r)| (id.0, r.count)).collect();
+                needs.sort_unstable();
+                let mut cant: Vec<Held> = blocker_constraints
+                    .iter()
+                    .filter_map(|(id, c)| match c {
+                        CombatRequirement::CantBlock { sources } => Some(Held { id: id.0, because: names(sources) }),
+                        _ => None,
+                    })
+                    .collect();
+                cant.sort_by_key(|h| h.id);
+                (None, Some(BlockChoice { blockers, needs, cant }))
             }
             _ => (None, None),
         }
@@ -1336,9 +1410,51 @@ impl Match {
         self.view_of(&self.state, None, true)
     }
 
+    /// What a stack entry targets (CR 115.1), as `vs` (one seat's board) shows it: the targets
+    /// chosen for the spell or ability and the rest of its chain, in order, each once. None while
+    /// it's still being cast, when the targets aren't chosen yet, and none for what an entry
+    /// holds without targeting it ("return it to the battlefield").
+    fn stack_targets(&self, vs: &GameState, entry: &StackEntry, viewer: Option<u8>, all_hands: bool) -> Vec<StackTarget> {
+        let Some(ability) = entry.ability() else { return vec![] };
+        let mut seen = HashSet::new();
+        declared_targets_in_chain(ability)
+            .into_iter()
+            .filter(|t| seen.insert(t.clone()))
+            .map(|t| self.stack_target(vs, &t, viewer, all_hands))
+            .collect()
+    }
+
+    /// One target as `viewer` may see it. A card in a hidden zone (a library, someone else's
+    /// hand) is only "a card", without its id, so nothing can follow it there.
+    fn stack_target(&self, vs: &GameState, t: &TargetRef, viewer: Option<u8>, all_hands: bool) -> StackTarget {
+        match t {
+            TargetRef::Player(p) => StackTarget { target: Some(TargetView::Player { seat: p.0 }), name: self.seat_name(*p), controller: Some(p.0) },
+            TargetRef::Object(id) => {
+                let o = vs.objects.get(id);
+                let seen = o.is_some_and(|o| match o.zone {
+                    Zone::Hand => all_hands || viewer == Some(o.owner.0),
+                    zone => zone.is_public(),
+                });
+                match o.filter(|_| seen) {
+                    Some(o) => StackTarget { target: Some(TargetView::Object { id: id.0 }), name: Self::name_in(vs, id), controller: Some(o.controller.0) },
+                    None => StackTarget { target: None, name: "a card".into(), controller: None },
+                }
+            }
+        }
+    }
+
     fn view_of(&self, state: &GameState, viewer: Option<u8>, all_hands: bool) -> View {
+        // The engine's presentation of this seat's board: keyword badges, blocks, and each stack
+        // entry's words and chosen modes. Built from `state`, the board as this seat may see it.
+        let derived = derive_filtered_views(&self.state, state, viewer.map(PlayerId));
+        let mut blocks: HashMap<ObjectId, Vec<u64>> = HashMap::new();
+        for (blocker, attacker) in &derived.blocker_assignment_pairs {
+            blocks.entry(*blocker).or_default().push(attacker.0);
+        }
+        let attacker = |id: &ObjectId| state.combat.as_ref().and_then(|c| c.attackers.iter().find(|a| a.object_id == *id));
         let obj = |id: &ObjectId| -> Option<CardView> {
             let o = state.objects.get(id)?;
+            let on_field = o.zone == Zone::Battlefield;
             Some(CardView {
                 id: id.0,
                 name: if o.face_down { "Face-down card".into() } else { o.name.clone() },
@@ -1352,9 +1468,16 @@ impl Match {
                 counters: o.counters.iter().map(|(k, v)| (format!("{k:?}").to_lowercase(), *v)).collect(),
                 types: o.card_types.core_types.iter().map(|t| format!("{t:?}")).collect(),
                 attached_to: o.attached_to.as_ref().and_then(|a| serde_json::to_value(a).ok()),
-                attacking: state.combat.as_ref().is_some_and(|c| c.attackers.iter().any(|a| a.object_id == *id)),
-                attacks: state.combat.as_ref().and_then(|c| c.attackers.iter().find(|a| a.object_id == *id)).map(|a| a.defending_player.0),
+                attacking: attacker(id).is_some(),
+                attacks: attacker(id).map(|a| a.defending_player.0),
+                attacks_card: attacker(id).and_then(|a| match a.attack_target {
+                    AttackTarget::Planeswalker(t) | AttackTarget::Battle(t) => Some(t.0),
+                    AttackTarget::Player(_) => None,
+                }),
+                blocked: attacker(id).is_some_and(|a| a.blocked),
                 blocking: state.combat.as_ref().is_some_and(|c| c.blocker_to_attacker.contains_key(id)),
+                blocks: if on_field { blocks.get(id).cloned().unwrap_or_default() } else { vec![] },
+                keywords: if on_field { derived.battlefield_keyword_badges.get(id).map(|ks| keyword_labels(ks)).unwrap_or_default() } else { vec![] },
                 commander: o.is_commander && !o.face_down,
                 tax: if o.is_commander && !o.face_down { engine::game::commander::commander_tax(&state, *id) } else { 0 },
                 sick: engine::game::combat::has_summoning_sickness(o),
@@ -1398,16 +1521,25 @@ impl Match {
                         Some(o) if !o.name.is_empty() => o.name.clone(),
                         _ => "An ability".into(),
                     };
-                    let (trigger, text) = match &s.kind {
-                        StackEntryKind::TriggeredAbility { description, .. } => (true, description.as_deref().map(|d| ability_text(d, &name))),
-                        _ => (false, None),
-                    };
+                    let detail = derived.stack_entry_details.get(&s.id);
+                    let trigger = matches!(s.kind, StackEntryKind::TriggeredAbility { .. });
+                    // An ability's own words, from the engine. A spell's are its Oracle text,
+                    // which the board has from the card.
+                    let ability = matches!(s.kind, StackEntryKind::TriggeredAbility { .. } | StackEntryKind::ActivatedAbility { .. });
+                    let face_down = state.objects.get(&s.source_id).is_some_and(|o| o.face_down);
+                    let text = detail
+                        .and_then(|d| d.ability_description.as_deref())
+                        .filter(|t| ability && !face_down && !t.trim().is_empty())
+                        .map(|d| ability_text(d, &name));
                     StackView {
                         id: s.id.0,
                         source: s.source_id.0,
-                        controller: s.controller.0,
+                        controller: detail.map_or(s.controller.0, |d| d.controller.0),
                         trigger,
                         text,
+                        modes: detail.map(|d| d.selected_mode_labels.iter().map(|m| ability_text(m, &name)).collect()).unwrap_or_default(),
+                        casting: detail.is_some_and(|d| d.is_pending),
+                        targets: self.stack_targets(state, s, viewer, all_hands),
                         // The viewer passes for it while it's on top (a trigger yield).
                         yielded: viewer.is_some_and(|seat| {
                             self.state.stack.iter().find(|e| e.id == s.id).is_some_and(|e| self.state.is_priority_yielded(PlayerId(seat), e))
@@ -1453,6 +1585,46 @@ fn ability_text(text: &str, name: &str) -> String {
         out = format!("{}{}", &rest[..end], &rest[end + 1..]);
     }
     out
+}
+
+/// The engine's battlefield keyword badges in words, sentence case: "Flying", "First strike",
+/// "Toxic 2". Keywords with no plain name of their own keep their first word ("Ward").
+fn keyword_labels(keywords: &[Keyword]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for k in keywords {
+        let label = keyword_label(k);
+        if !label.is_empty() && !out.contains(&label) {
+            out.push(label);
+        }
+    }
+    out
+}
+
+fn keyword_label(k: &Keyword) -> String {
+    // phase's Display writes the common ones in words and falls back to Debug for the rest
+    // ("Toxic(2)", "TrampleOverPlaneswalkers", "Ward(Mana(..))").
+    let shown = k.to_string();
+    let (head, arg) = match shown.split_once('(') {
+        Some((head, rest)) => (head.to_string(), rest.trim_end_matches(')').to_string()),
+        None => (shown.clone(), String::new()),
+    };
+    // "TrampleOverPlaneswalkers" and "First Strike" both become words: "Trample over planeswalkers".
+    let mut words = String::new();
+    for (i, c) in head.chars().enumerate() {
+        if c.is_uppercase() && i > 0 && !words.ends_with(' ') {
+            words.push(' ');
+        }
+        words.push(c);
+    }
+    let mut words = words.split_whitespace().map(str::to_lowercase).collect::<Vec<_>>().join(" ");
+    if let Some(first) = words.get(0..1) {
+        words = format!("{}{}", first.to_uppercase(), &words[1..]);
+    }
+    // A plain number is part of the keyword ("Toxic 2", "Afflict 3"); anything else stays out.
+    if !arg.is_empty() && arg.chars().all(|c| c.is_ascii_digit()) {
+        words = format!("{words} {arg}");
+    }
+    words
 }
 
 /// A cost in printed form where it has one: "{2}{R}", "{T}", "+1", "{1}, {T}". Empty when the
@@ -1535,7 +1707,7 @@ pub struct PlayerView {
     pub commander_damage: BTreeMap<String, u32>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct CardView {
     pub id: u64,
     pub name: String,
@@ -1554,9 +1726,21 @@ pub struct CardView {
     /// The player it attacks (the planeswalker's or battle's controller, for those).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attacks: Option<u8>,
+    /// The planeswalker or battle it attacks, when it attacks one (`attacks` is its controller).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attacks_card: Option<u64>,
+    /// An attacker that was blocked; it stays blocked even if its blockers leave (CR 509.1h).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub blocked: bool,
     /// Declared as a blocker in the current combat.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub blocking: bool,
+    /// The attackers it blocks (the engine's blocker assignments; public, CR 509.1g).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<u64>,
+    /// Its keyword abilities as the engine badges them on the battlefield ("Deathtouch").
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
     /// A commander (public in Commander; never set on a face-down card).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub commander: bool,
@@ -1583,13 +1767,38 @@ pub struct StackView {
     /// A triggered ability (the kind a seat may yield to).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub trigger: bool,
-    /// A trigger's own words, from the engine.
+    /// A triggered or activated ability's own words, from the engine. A spell's words are its
+    /// Oracle text, which the board has from the card.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// The modes chosen for a modal spell or ability, in the card's words.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub modes: Vec<String>,
+    /// What it targets, as the viewer may see it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<StackTarget>,
+    /// Still being cast or activated: its targets and costs aren't settled yet.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub casting: bool,
     /// The viewer yielded to it: Yama passes for them while it's on top.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub yielded: bool,
 }
+
+/// A stack entry's target as one seat may see it: a card by id or a player by seat, with its
+/// name. A card in a hidden zone has no `target`, only "a card".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StackTarget {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<TargetView>,
+    pub name: String,
+    /// The card's controller, or the player targeted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub controller: Option<u8>,
+}
+
+#[cfg(test)]
+mod view_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1671,20 +1880,40 @@ mod tests {
             counters: BTreeMap::new(),
             types: vec!["Creature".into()],
             attached_to: None,
-            attacking: false,
-            attacks: None,
-            blocking: false,
-            commander: false,
-            tax: 0,
-            sick: false,
+            ..Default::default()
         };
         let v = serde_json::to_value(&c).unwrap();
-        for key in ["attacks", "blocking", "commander", "tax", "sick"] {
+        for key in ["attacks", "attacks_card", "blocked", "blocking", "blocks", "keywords", "commander", "tax", "sick"] {
             assert!(v.get(key).is_none(), "{key} should be left out");
         }
-        let v = serde_json::to_value(CardView { commander: true, tax: 4, attacks: Some(3), ..c }).unwrap();
+        let v = serde_json::to_value(CardView {
+            commander: true,
+            tax: 4,
+            attacks: Some(3),
+            attacks_card: Some(40),
+            blocks: vec![9],
+            keywords: vec!["Deathtouch".into()],
+            ..c
+        })
+        .unwrap();
         assert_eq!(v["commander"], true);
         assert_eq!(v["tax"], 4);
         assert_eq!(v["attacks"], 3);
+        assert_eq!(v["attacks_card"], 40);
+        assert_eq!(v["blocks"], serde_json::json!([9]));
+        assert_eq!(v["keywords"], serde_json::json!(["Deathtouch"]));
+    }
+
+    #[test]
+    fn keywords_read_as_words() {
+        let labels = keyword_labels(&[
+            Keyword::Flying,
+            Keyword::FirstStrike,
+            Keyword::Deathtouch,
+            Keyword::TrampleOverPlaneswalkers,
+            Keyword::Toxic(2),
+            Keyword::Flying,
+        ]);
+        assert_eq!(labels, ["Flying", "First strike", "Deathtouch", "Trample over planeswalkers", "Toxic 2"]);
     }
 }

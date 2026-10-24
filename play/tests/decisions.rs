@@ -246,6 +246,17 @@ fn every_answer_round_trips_through_the_engines_action() {
         Act::ChooseReplacementAndRemember { choice: RememberedReplacement::Optional { index: 1 } },
         Act::ChoosePair { partner: Some(7) },
         Act::ChoosePair { partner: None },
+        // Targets beyond one card and combat extras (GTargetsMore, GCombatMore).
+        Act::RetargetSpell { new_targets: vec![Some(TargetView::Object { id: 8 })] },
+        Act::RetargetSpell { new_targets: vec![Some(TargetView::Player { seat: 1 }), None] },
+        Act::KeepAllCopyTargets,
+        Act::PayCombatTax { accept: true },
+        Act::PayCombatTax { accept: false },
+        Act::ChooseExert { exert: true },
+        Act::ChooseEnlist { target: Some(14) },
+        Act::ChooseEnlist { target: None },
+        Act::CrewVehicle { vehicle: 20, creatures: vec![21, 22] },
+        Act::SaddleMount { mount: 30, creatures: vec![31] },
         // A seat's own settings and Resolve all (play/src/turns.rs).
         Act::SetPriorityYield { change: YieldChange::Add { source: 12, every: true } },
         Act::SetPriorityYield { change: YieldChange::Remove { target: YieldTarget::ThisObject { source_id: ObjectId(12), incarnation: Some(2), trigger_description: None } } },
@@ -261,6 +272,17 @@ fn every_answer_round_trips_through_the_engines_action() {
         let json = serde_json::to_string(&a).unwrap();
         assert_eq!(serde_json::from_str::<Act>(&json).unwrap(), a, "{json}");
     }
+    // The wire forms the board sends for the new kinds.
+    let wire = |a: Act| serde_json::to_value(a).unwrap();
+    assert_eq!(wire(Act::CrewVehicle { vehicle: 20, creatures: vec![21] }), serde_json::json!({ "kind": "crew_vehicle", "vehicle": 20, "creatures": [21] }));
+    assert_eq!(
+        wire(Act::RetargetSpell { new_targets: vec![Some(TargetView::Player { seat: 1 })] }),
+        serde_json::json!({ "kind": "retarget_spell", "new_targets": [{ "kind": "player", "seat": 1 }] })
+    );
+    assert_eq!(wire(Act::KeepAllCopyTargets), serde_json::json!({ "kind": "keep_all_copy_targets" }));
+    // Nothing outside the whitelist parses, a debug action least of all.
+    assert!(serde_json::from_value::<Act>(serde_json::json!({ "kind": "debug", "action": {} })).is_err());
+    assert!(serde_json::from_value::<Act>(serde_json::json!({ "kind": "declare_attackers", "attacks": [] })).is_err());
 }
 
 #[test]
