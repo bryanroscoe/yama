@@ -4851,3 +4851,530 @@ button.portrait:hover {
 .pb.phone .pb-mine .ft.attacking {
   transform: translateY(-6px);
 }
+
+/* ── Paying by hand (GPay, GPayPhone, GCast's source menu; PaymentPanel.tsx) ──────────────
+   Sources you can tap are amber; ones you've tapped are white with "Tapped". The cost's pips
+   fill white as the pool covers them. What can't be undone is in red. */
+.pay-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pay-rail.summary {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.pay-status {
+  margin: 0;
+  font-size: 14px;
+  color: var(--dim);
+}
+.pay-pips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pay-pip {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 2px var(--line);
+  color: var(--dim);
+  font: 800 15px/1 var(--display);
+}
+.pay-pips.big .pay-pip {
+  width: 38px;
+  height: 38px;
+  font-size: 18px;
+}
+.pay-pip.paid {
+  background: var(--text);
+  box-shadow: none;
+  color: var(--ground);
+}
+.pay-pool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+}
+.pay-chip {
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  font-size: 13px;
+}
+.pay-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--dim);
+}
+.pay-setting select {
+  min-height: 42px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+}
+.pay-delve {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pay-delve-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.pay-delve-card {
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+}
+.pay-delve-card.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.pay-delve-card img {
+  display: block;
+  width: 100%;
+  border-radius: 6px;
+}
+/* The phone's payment sheet (GPayPhone): sources as buttons, two to a row. */
+.pay-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pay-sheet-head {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+.pay-sheet-head img {
+  width: 56px;
+  border-radius: 3px;
+}
+.pay-sheet-head > span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.pay-sheet .pay-pips {
+  justify-content: center;
+}
+.pay-sources {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.pay-source {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 52px;
+  padding: 5px 10px 5px 5px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: transparent;
+  text-align: left;
+}
+.pay-source.pick {
+  border-color: var(--pick);
+}
+.pay-source.tapped {
+  background: var(--raised);
+}
+.pay-source img,
+.pay-source .blank {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--raised);
+}
+.pay-source.tapped img {
+  transform: rotate(90deg);
+}
+.pay-source > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+.pay-source b {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pay-source .small {
+  color: var(--dim);
+}
+.pay-source.tapped .small {
+  color: var(--text);
+}
+.pb.phone.pay-open::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 26;
+  background: rgb(0 0 0 / 0.45);
+  pointer-events: none;
+}
+.pb.phone.pay-open .pb-dock {
+  position: fixed;
+  z-index: 27;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 86dvh;
+  margin: 0;
+  border-radius: 24px 24px 0 0;
+}
+.pb.phone.pay-open .hand-peek,
+.pb.phone.pay-open .dock-links {
+  display: none;
+}
+/* A source's choices: GCast's menu over the tile on a laptop, rows in the sheet on a phone. */
+.mana-menu {
+  position: fixed;
+  z-index: 30;
+  width: 250px;
+  padding: 8px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.7), 0 0 0 1px var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mana-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 8px;
+}
+.mana-menu-head img,
+.mana-menu-head .blank {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--raised);
+}
+.mana-menu-head > span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.mana-menu-head .dim {
+  font-size: 10px;
+}
+.mana-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mana-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: 0 0 0 1px var(--pick);
+  text-align: left;
+  font-weight: 700;
+}
+.mana-choice:hover {
+  background: var(--raised);
+}
+.mana-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.mana-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.3);
+}
+.mana-choice-text {
+  flex: 1;
+  min-width: 0;
+}
+.mana-choice-cost {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.mana-choice-cost.bad {
+  color: var(--bad);
+  font-weight: 700;
+}
+/* GCast's "Will tap": what paying automatically would tap. A preview, never a choice, so a white
+   dashed outline and a neutral chip, not amber. */
+.ft.will-tap::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: calc(var(--r-tile) + 4px);
+  border: 2px dashed var(--text);
+  pointer-events: none;
+}
+.will-chip {
+  position: absolute;
+  left: 50%;
+  top: -11px;
+  z-index: 4;
+  transform: translateX(-50%);
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.6;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Warnings while paying (ward, what cancelling won't undo): red with a mark. */
+.dw-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--bad-tint);
+  color: var(--bad);
+  font-size: 14px;
+  font-weight: 700;
+}
+.dw-warn > span[aria-hidden] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--bad);
+  color: var(--ground);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* A colour of mana (GMana): a tile per colour, amber when you can choose it, white once chosen. */
+.dw-mana {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dw-mana-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.dw-mana-tile {
+  width: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+}
+.dw-mana-tile.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-mana-tile.picked {
+  background: var(--raised);
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-swatches {
+  display: flex;
+  gap: 4px;
+}
+.dw-swatch.big {
+  width: 52px;
+  height: 52px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2);
+}
+.dw-swatches .dw-swatch.big:not(:only-child) {
+  width: 36px;
+  height: 36px;
+}
+.dw-mana.compact .dw-mana-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.dw-mana.compact .dw-mana-tile {
+  width: auto;
+  min-height: 84px;
+}
+.dw-mana.compact .dw-swatch.big {
+  width: 34px;
+  height: 34px;
+}
+
+/* Phyrexian mana (GMana): a switch per symbol, then life and mana after. */
+.dw-phyrexian {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dw-shards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dw-shard {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--raised);
+}
+.dw-shard-pip {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--ground);
+  font: 800 14px/1 var(--display);
+}
+.dw-shard-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.dw-shard-text > span {
+  font-size: 13px;
+  color: var(--dim);
+}
+.dw-shard .dw-seg {
+  background: var(--ground);
+}
+.dw-shard-sum {
+  margin: 0;
+  font-size: 14px;
+}
+.dw-phyrexian.compact .dw-shard {
+  grid-template-columns: 40px minmax(0, 1fr);
+}
+.dw-phyrexian.compact .dw-shard .dw-seg {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+.dw-phyrexian.compact .dw-shard-pip {
+  width: 36px;
+  height: 36px;
+}
+
+/* Extra costs (GCosts): kicker's two rows with what the spell costs either way. */
+.dw-costs {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dw-costs .dw-head.image {
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: start;
+}
+.dw-costs .dw-head.image .dw-row-img,
+.dw-costs .dw-head.image img {
+  width: 150px;
+}
+.dw-cost-list {
+  display: grid;
+  gap: 12px;
+}
+.dw-cost-list.two {
+  grid-template-columns: 1fr 1fr;
+}
+.dw-cost {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  text-align: left;
+  font-size: 17px;
+}
+.dw-cost.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-cost.picked {
+  background: var(--raised);
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-cost-mana {
+  font: 700 26px/1 var(--display);
+}
+.dw-costs.compact .dw-head.image {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dw-costs.compact .dw-cost-list.two {
+  grid-template-columns: 1fr;
+}
+.gs-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gs-radio {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 0 14px;
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px var(--line);
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.gs-radio input[type="radio"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--text);
+}
+.gs-radio.on {
+  background: var(--raised);
+  box-shadow: 0 0 0 2px var(--text);
+}
+.dw-cost > b:first-child {
+  font: 700 17px/1.2 var(--body);
+}

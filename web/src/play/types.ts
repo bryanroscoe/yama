@@ -102,7 +102,14 @@ export type AnswerKind =
   | "choose_exert"
   | "choose_enlist"
   | "crew_vehicle"
-  | "saddle_mount";
+  | "saddle_mount"
+  // Paying (play/src/pay.rs): the sacrificial-source question, mana colours, Phyrexian mana and extra costs.
+  | "tap_mana"
+  | "choose_mana_color"
+  | "pay_mana_ability_mana"
+  | "pay_phyrexian"
+  | "decide_optional_cost"
+  | "choose_cost_branch";
 
 /** The card asking; the server adds its art, image and artist. */
 export interface DecisionSource {
@@ -132,6 +139,8 @@ export interface DecisionOption {
   lethal?: number;
   /** What it adds toward the decision's `need` when picked (crew or saddle power). */
   power?: number;
+  /** What choosing it costs, printed: a kicker row ("{4}{R}"), the mana that pays a Phyrexian symbol. */
+  cost?: string;
 }
 
 /**
@@ -175,7 +184,7 @@ export interface Pending {
   /** Combat damage may all be assigned as though the attacker weren't blocked. */
   unblocked?: boolean;
   /** What a split divides; damage gets a lethal hint. */
-  unit?: "damage" | "counters" | "life";
+  unit?: "damage" | "counters" | "life" | "mana";
   /** Targets chosen one at a time: this one's place (from 0) and how many there are. */
   slot?: [number, number];
   /** The targets already chosen for the earlier ones, by option id, in order. */
@@ -186,6 +195,10 @@ export interface Pending {
   keepRest?: boolean;
   /** Crew or saddle: the total power the picked creatures must reach. */
   need?: number;
+  /** What not paying means, in red (ward: "If you don't pay, your Swords to Plowshares is countered."). */
+  warn?: string;
+  /** Phyrexian mana: the rest of the cost, printed, paid with mana either way. */
+  rest?: string;
 }
 
 /** An answer sent with `{type: "act"}` (play/src/act.rs, Act). */
@@ -223,7 +236,69 @@ export type Act =
   | { kind: "set_replacement_auto_choice"; id: string | null }
   | { kind: "set_priority_yield"; change: { op: "add"; source: number; every: boolean } | { op: "remove"; target: unknown } | { op: "clear_all" } }
   | { kind: "reorder_hand"; order: number[] }
-  | { kind: "resolve_all" };
+  | { kind: "resolve_all" }
+  // Paying (play/src/pay.rs).
+  /** Cast a spell the engine offers, paying as "Tap mana for me" says. */
+  | { kind: "cast_spell"; object: number; payment: TapMana }
+  /** Use a mana source while paying: a choice's key from the payment's sources, or its first. */
+  | { kind: "tap_mana"; source: number; choice?: string }
+  /** Untap a source tapped by hand that just makes mana. */
+  | { kind: "untap_mana"; source: number }
+  /** Don't sacrifice a source for mana; pay by hand (the Treasure prompt's "Keep it"). */
+  | { kind: "keep_mana" }
+  /** The mana to add: one colour, or one letter per mana with `combination`. */
+  | { kind: "choose_mana_color"; mana: string[]; combination?: boolean }
+  | { kind: "pay_mana_ability_mana"; mana: string[] }
+  /** Phyrexian mana: for each Phyrexian symbol in order, whether it's paid with 2 life. */
+  | { kind: "pay_phyrexian"; life: boolean[] }
+  | { kind: "decide_optional_cost"; pay: boolean }
+  | { kind: "choose_cost_branch"; index: number };
+
+/** "Tap mana for me" (GPay): automatic but ask before sacrificing, always automatic, or by hand. */
+export type TapMana = "ask" | "auto" | "manual";
+
+/** What using a mana source costs beyond the tap (play/src/pay.rs, Penalty). */
+export interface ManaPenalty {
+  kind: "damage" | "life" | "sacrifice" | "other";
+  amount?: number;
+}
+
+/** One way to use a mana source. */
+export interface ManaChoiceView {
+  key: string;
+  kind: "tap" | "ability" | "source" | "convoke" | "delve";
+  /** What it adds: "W", "U", "B", "R", "G", "C", or "any" when a colour is chosen after. */
+  mana: string[];
+  /** "Add {W}", the ability's own text, "Tap it to pay {1}". */
+  text: string;
+  penalty?: ManaPenalty;
+}
+
+/** A card that can help pay now: a land or rock, a creature for convoke, a graveyard card for delve. */
+export interface ManaSourceView {
+  id: number;
+  name: string;
+  zone: string;
+  choices: ManaChoiceView[];
+}
+
+/** The payment in progress (play/src/pay.rs, PaymentView). */
+export interface PaymentView {
+  payingFor?: { id: number; name: string; ability: boolean };
+  /** The cost as printed; empty while a mana ability pays its own cost. */
+  cost: string;
+  /** Each symbol, coloured ones first, and whether the pool covers it. */
+  pips: { symbol: string; paid: boolean }[];
+  pool: { mana: string; source?: number; name: string; convoke?: boolean }[];
+  sources: ManaSourceView[];
+  /** Sources tapped by hand that can be untapped. */
+  untap: number[];
+  /** Taps made by hand that can't be undone. */
+  kept: { id: number; name: string; penalty: ManaPenalty }[];
+  convoke?: "convoke" | "improvise" | "waterbend" | "delve";
+  payRest: boolean;
+  cancel: boolean;
+}
 
 /** A way to pass more than once (GPriority): until something happens, the rest of this turn, end your turn, to your next turn. */
 export type PassMode = "until" | "turn" | "end" | "mine";
@@ -267,6 +342,8 @@ export interface TurnsView {
   hold?: boolean;
   yields: YieldView[];
   answers: AnswerView[];
+  /** "Tap mana for me" (newer servers). */
+  tap_mana?: TapMana;
 }
 
 /** Someone asked to resolve the whole stack: who, and who has agreed (GTogether). */
@@ -325,6 +402,8 @@ export interface Decision {
   attack?: AttackChoice;
   /** While declaring blockers: who may block and which attackers. */
   block?: BlockChoice;
+  /** While paying: the cost, the pool and the sources you can use (newer servers). */
+  payment?: PaymentView;
 }
 
 /** A creature a restriction holds back (can't attack, can't block), and the cards that do. */
@@ -438,7 +517,9 @@ export type ServerMessage =
   | { type: "view"; you: number | null; seats: SeatInfo[]; cards: Record<string, CardMeta>; view: View; watch?: WatchStatus }
   | { type: "error"; message: string }
   /** Sent on connecting: whether your account has saved turn controls yet. */
-  | { type: "prefs"; saved: boolean };
+  | { type: "prefs"; saved: boolean }
+  /** The sources paying automatically would tap to cast `object` (GCast's "Will tap"). */
+  | { type: "preview"; revision: number; object: number; sources: number[] };
 
 export interface OnlineGame {
   id: string;

@@ -268,7 +268,7 @@ fn every_answer_round_trips_through_the_engines_action() {
         Act::ResolveAll,
     ];
     for a in answers {
-        assert_eq!(Act::from_action(&a.to_action()), Some(a.clone()));
+        assert_eq!(Act::from_action(&a.to_action().unwrap()), Some(a.clone()));
         let json = serde_json::to_string(&a).unwrap();
         assert_eq!(serde_json::from_str::<Act>(&json).unwrap(), a, "{json}");
     }

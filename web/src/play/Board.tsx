@@ -57,7 +57,7 @@ import {
 } from "./model";
 import { promptText, shortName } from "./text";
 import { COLOR_NAME, counterName, FieldTile, HandCard, ManaDot, type TileHandlers, type TileLook } from "./Tiles";
-import type { Act, AttackAt, CardMeta, CardView, Decision, OptionView, PassMode, Pending, PlayerView, SeatInfo, ServerMessage, StackItem, View, WatchStatus } from "./types";
+import type { Act, AttackAt, CardMeta, CardView, Decision, ManaSourceView, OptionView, PassMode, Pending, PlayerView, SeatInfo, ServerMessage, StackItem, TapMana, View, WatchStatus } from "./types";
 import { WatchControls, type WatchMessage } from "./WatchControls";
 import { seatLabel, seatName } from "./watch";
 import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayLine, readDrop, targetDrop, targetIndex, type Point } from "./drag";
@@ -82,6 +82,8 @@ import {
 import { motionScale } from "./motion";
 import { answerOf, modeChip, passChoices, passKey, priorityPartner, settingsButtons, stopMapOf, waitingPartner, type Partner, type PassChoice, type SettingsSection } from "./turns";
 import { ConsentBody, GameSettings, ModeChip, PassList, PassMenu } from "./TurnControls";
+import { PreviewCache, paymentButtons, paymentTitle, sourceChip, sourceClick, sourceIn } from "./pay";
+import { ManaMenu, PaymentRail, PaymentSheet } from "./PaymentPanel";
 import "./board.css";
 
 type ViewMessage = Extract<ServerMessage, { type: "view" }>;
@@ -247,6 +249,14 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const [sentAt, setSentAt] = useState<number | null>(null);
   const [landsOpen, setLandsOpen] = useState(false);
   const [othersOpen, setOthersOpen] = useState(false);
+  // Paying by hand (pay.ts): the menu of a source that makes more than one thing, where it opened.
+  const [manaMenu, setManaMenu] = useState<{ source: ManaSourceView; at: { left: number; top: number } } | null>(null);
+  // The auto-tap preview (GCast's "Will tap"): the card being pointed at or dragged, and the
+  // server's answers for this board.
+  const [previewFor, setPreviewFor] = useState<number | null>(null);
+  const [previews, setPreviews] = useState<{ revision: number; by: Record<number, number[]> }>({ revision: -1, by: {} });
+  const previewCache = useRef(new PreviewCache());
+  const previewTimer = useRef<number | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const hoverTimer = useRef<number | null>(null);
   // Space presses the big button (PP-32); kept in a ref so the listener sees the latest one.
@@ -307,6 +317,11 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           localStorage.removeItem("yama.play.fullControl");
           return;
         }
+        if (data.type === "preview") {
+          previewCache.current.put(data.revision, data.object, data.sources);
+          setPreviews((cur) => (cur.revision === data.revision ? { revision: cur.revision, by: { ...cur.by, [data.object]: data.sources } } : { revision: data.revision, by: { [data.object]: data.sources } }));
+          return;
+        }
         if (data.type === "view") {
           setMsg(data);
           // The server re-sends the board after refusing a move; keep the reason up until the
@@ -348,6 +363,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   useEffect(() => {
     setSelected(null);
     setSentAt(null);
+    setManaMenu(null);
     setAttackPlan(new Map());
     setBlockPlan(new Map());
     setPendingBlocker(null);
@@ -494,8 +510,10 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     socket.current.send(JSON.stringify(data));
     return true;
   };
-  const savePrefs = (nextStops: StopMap | null, nextFull: boolean) => {
-    if (savedTurns) return sendRaw({ type: "prefs", stops: stopsMessage(nextStops), full_control: nextFull });
+  // "Tap mana for me" (GPay), saved with the stops and full control on newer servers.
+  const tapMana: TapMana | undefined = savedTurns?.tap_mana;
+  const savePrefs = (nextStops: StopMap | null, nextFull: boolean, nextTap: TapMana | undefined = tapMana) => {
+    if (savedTurns) return sendRaw({ type: "prefs", stops: stopsMessage(nextStops), full_control: nextFull, ...(nextTap ? { tap_mana: nextTap } : {}) });
     setStops(nextStops);
     if (nextStops) localStorage.setItem("yama.play.stops", JSON.stringify(nextStops));
     else localStorage.removeItem("yama.play.stops");
@@ -506,6 +524,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   };
   const saveStops = (next: StopMap | null) => savePrefs(next, fullOn);
   const setFull = (on: boolean) => savePrefs(stopsNow, on);
+  const setTapMana = (t: TapMana) => savePrefs(stopsNow, fullOn, t);
   const toggleStop = (label: string, which: "mine" | "opp") => {
     const base = stopsNow ?? DEFAULT_STOPS;
     const cur = base[label] ?? { mine: false, opp: false };
@@ -629,6 +648,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const setDraft = (d: Draft) => decision && setDraftState({ key: decision.revision, draft: d });
   // Where it's answered (answer.ts stageOf): on the board, on its targets, in a dialog or a sheet.
   const stage = pend ? stageOf(pend, wide, splitFits(pend, view)) : null;
+  // Paying by hand (GPay; pay.ts, PaymentPanel.tsx): the decision's payment. Its sources are tapped
+  // on the board (laptop) or from the dock's sheet (phone); a question while paying (the Treasure
+  // prompt, a colour) is a widget like any other, with the payment shown beside it.
+  const payment = decision && !decision.attack && !decision.block ? decision.payment ?? null : null;
+  const paying = !!payment && !pend;
+  // GCast's "Will tap": the sources paying automatically would tap for the card being pointed at.
+  const willTap = new Set(previewFor !== null && previews.revision === view.revision ? previews.by[previewFor] ?? [] : []);
   const boardPick = stage === "board" && draft?.kind === "pick";
   // What can be picked on the board: cards by id, players by seat, spells on the stack by id.
   const eligible = boardPick ? pend!.options.filter((o) => o.eligible) : [];
@@ -665,7 +691,12 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   };
   const choose = (o: OptionView) => {
     if (!decision || pending) return;
-    if (send({ type: "choose", revision: decision.revision, index: o.index })) {
+    // A spell is cast through `act`, paying as "Tap mana for me" says (newer servers).
+    const data =
+      o.kind === "spell" && o.object !== null && tapMana
+        ? { type: "act", revision: decision.revision, action: { kind: "cast_spell", object: o.object, payment: tapMana } satisfies Act }
+        : { type: "choose", revision: decision.revision, index: o.index };
+    if (send(data)) {
       setSelected(null);
       setInspect(null);
       setSheet((cur) => (cur === "hand" ? null : cur));
@@ -746,8 +777,26 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
 
   /** The click a browser sends at the end of a drag isn't a click. */
   const justDragged = () => performance.now() - lastDragEnd.current < 400;
+  /** Use a source while paying: tap it, untap it, or open its menu beside its tile. */
+  const useSource = (ids: number[]): boolean => {
+    if (!payment || !paying) return false;
+    const click = sourceClick(payment, ids);
+    if (!click) return false;
+    if (click.does !== "menu") {
+      setManaMenu(null);
+      sendAct(click.act);
+      return true;
+    }
+    const el = boardRoot.current ? tileOf(boardRoot.current, click.source.id) : null;
+    const r = el?.getBoundingClientRect();
+    const left = r ? Math.max(8, Math.min(window.innerWidth - 270, r.left + r.width / 2 - 125)) : 200;
+    const top = r ? Math.max(8, r.top - 12 - (56 + click.source.choices.length * 46)) : 200;
+    setManaMenu((cur) => (cur?.source.id === click.source.id ? null : { source: click.source, at: { left, top } }));
+    return true;
+  };
   const pick = (p: Pile) => {
     if (justDragged()) return;
+    if (paying && useSource(p.ids)) return;
     if (boardPick && draft?.kind === "pick") {
       // A stack of tokens: the next one not yet picked, or the last picked one back.
       const ids = p.ids.filter((i) => pickable.has(i)).map(String);
@@ -782,9 +831,28 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     setSelected((cur) => (cur && cur[0] === p.ids[0] ? null : p.ids));
   };
   const double = (p: Pile) => {
-    if (attack || block || justDragged()) return;
+    if (attack || block || paying || justDragged()) return;
     const os = optionsFor(p.ids);
     if (os.length === 1) choose(os[0]!);
+  };
+  /**
+   * Ask which sources paying automatically would tap to cast `object` (GCast's "Will tap"), a
+   * moment after the pointer settles, once per card and board. Not with "I'll tap", and not on a
+   * phone (no pointer to settle).
+   */
+  const askPreview = (object: number | null) => {
+    if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
+    previewTimer.current = null;
+    const castable = object !== null && !!decision?.options.some((o) => o.kind === "spell" && o.object === object);
+    if (!castable || !wide || !canHover || tapMana === undefined || tapMana === "manual") {
+      setPreviewFor(null);
+      return;
+    }
+    setPreviewFor(object);
+    const revision = view.revision;
+    previewTimer.current = window.setTimeout(() => {
+      if (previewCache.current.shouldAsk(revision, object, performance.now())) sendRaw({ type: "preview", revision, object });
+    }, 120);
   };
   const h: TileHandlers = {
     onPick: pick,
@@ -792,6 +860,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     onRead: setInspect,
     onHover: (c, el) => {
       if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
+      // Pointing at a card in your hand you could cast: which sources paying would tap.
+      if (!dragRef.current?.started) askPreview(c && el?.closest(".hc") ? c.id : null);
       if (!c || !canHover || !el || dragRef.current?.started) return setHover(null);
       // Right beside the card: above it in the hand, to its side on the battlefield.
       const at = previewPlace(el.getBoundingClientRect(), window.innerWidth, window.innerHeight);
@@ -801,9 +871,14 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   };
   const look = (p: Pile, extra: TileLook = {}): TileLook => {
     const any = (s: { has: (n: number) => boolean }) => p.ids.some((i) => s.has(i));
+    // While paying, a source you can tap is amber with what it makes under it; one you've tapped
+    // is white ("Tapped"), and a click gives it back where the engine can (GPay).
+    const chip = paying ? sourceChip(payment!, p.ids) : null;
+    const combat = combatLook(p);
     return {
       ...extra,
       playable: !attack && !block && any(optionObjects),
+      will: any(willTap),
       selected: (!!selected && p.ids.some((i) => selected.includes(i))) || (block?.pending !== null && block?.pending !== undefined && p.ids.includes(block.pending)),
       attacking: !!attack && any(attack.plan),
       blocking: !!block && any(block.plan),
@@ -811,8 +886,10 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       target: !!targetFor(p.ids, p.card.name),
       pick: boardPick && p.ids.some((i) => pickable.has(i) && !pickedIds.includes(String(i))),
       picked: boardPick ? p.ids.map((i) => pickNo(String(i))).find((n) => n !== undefined) : undefined,
-      chosen: any(splitIds),
-      ...combatLook(p),
+      chosen: any(splitIds) || !!chip?.tapped,
+      ...combat,
+      ...(chip && !combat.under ? { under: { text: chip.text, tone: chip.tapped ? "rule" : "plain" } as const } : {}),
+      ...(paying ? { playable: false, pick: !!sourceIn(payment!, p.ids) } : {}),
     };
   };
   /** A planeswalker or battle in this pile that some creature may attack, as an attack target. */
@@ -1043,6 +1120,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   /** Stop tracking a press: listeners, highlights and the live arrow. */
   const endDrag = (s: DragSession) => {
     s.cleanup();
+    if (s.kind === "hand") askPreview(null);
     if (dragRef.current === s) dragRef.current = null;
     document.body.classList.remove("pb-dragging");
     s.el?.classList.remove("drag-from");
@@ -1073,6 +1151,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       setHover(null);
       document.body.classList.add("pb-dragging");
       if (kind === "hand" && el && pile) {
+        askPreview(pile.card.id);
         el.classList.add("drag-src");
         layer.current?.lift(meta[pile.card.name]?.image ?? null, pile.card.name, el.getBoundingClientRect(), x, y);
       } else if (el) el.classList.add("drag-from");
@@ -1316,6 +1395,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             return void setDraft({ kind: "pick", ids: pend.options.filter((o) => o.eligible).map((o) => o.id).slice(0, pend.max) });
           case "keep-rest":
             return sendAct({ kind: "keep_all_copy_targets" });
+          case "keep-mana":
+            // The Treasure prompt's "Keep it": pay by hand instead.
+            return sendAct({ kind: "keep_mana" });
           case "clear":
             return void setDraft({ kind: "pick", ids: [] });
           case "reset":
@@ -1368,7 +1450,17 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         secondary: { label: "Cancel", run: () => setSelected(null) },
       };
     }
-    // Paying mana by hand: the engine's pass pays the rest, so the button never says Resolve.
+    // Paying by hand (GPay): "Pay the rest" until the pool covers the cost, then "Cast <spell>"
+    // (both pay whatever is left); Cancel backs out, untapping what the engine can give back.
+    if (paying) {
+      const b = paymentButtons(payment!);
+      const rest = optionOf(decision, "pay_rest");
+      return {
+        primary: b.primary && rest ? { label: b.primary, run: () => choose(rest), disabled: pending } : { label: "Tap a source to pay", disabled: true },
+        secondary: b.secondary ? { label: b.secondary, run: () => (setManaMenu(null), sendAct({ kind: "cancel_cast" })), disabled: pending } : null,
+      };
+    }
+    // Paying mana by hand on an older server: the engine's pass pays the rest, so the button never says Resolve.
     const payRest = optionOf(decision, "pay_rest");
     if (payRest) {
       const cancel = optionOf(decision, "cancel");
@@ -1387,6 +1479,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   })();
   escRef.current = () => {
     if (dragRef.current?.started || inspect || sheet) return false;
+    if (manaMenu) return (setManaMenu(null), true);
     if (passMenu) return (setPassMenu(false), true);
     if (settingsOpen) return (setSettings(null), true);
     if (pend && draft && draftChanged(pend, draft)) return (setDraft(initialDraft(pend)), true);
@@ -1475,6 +1568,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       ? "Resolve all?"
       : decision?.pending && !attack && !block
       ? decision.pending.prompt
+      : paying
+      ? paymentTitle(payment!)
       : decision
       ? decisionTitle(decision, view, you, Who, promptText)
       : you === null
@@ -1500,6 +1595,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             zone: zoneOf(pend, view, you, Who),
             damageOf: (id: number) => cardById.get(id)?.damage ?? 0,
             inPlay: [...new Map(view.battlefield.map((c) => [c.name, { name: c.name, seat: c.controller }])).values()],
+            life: view.players.find((x) => x.seat === you)?.life,
           } satisfies WidgetContext,
         }
       : null;
@@ -1746,6 +1842,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         whose={(n) => (n === you ? "Your" : `${Who(n)}'s`)}
         tone={(n) => tones.get(n)}
         onAct={sendPref}
+        onTapMana={setTapMana}
         disabled={!connected}
         compact={compact}
         buttons={foot}
@@ -2044,7 +2141,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
               )}
             </div>
             <div className="pb-back">
-              <LandRow piles={myRows.lands} lands={myLands} meta={meta} look={look} h={h} limit={8} open={landsOpen} onToggle={() => setLandsOpen((o) => !o)} optionObjects={optionObjects} />
+              <LandRow piles={myRows.lands} lands={myLands} meta={meta} look={look} h={h} limit={8} open={landsOpen || paying} onToggle={() => setLandsOpen((o) => !o)} optionObjects={optionObjects} />
               <div className="pb-row others" aria-label="Your other permanents">
                 {myRows.others.map((p) => <FieldTile key={p.key} pile={p} meta={meta[p.card.name]} look={look(p)} h={h} />)}
               </div>
@@ -2109,7 +2206,17 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
                 ? watchControls(false)
                 : settingsOpen
                   ? <p className="rail-empty">{settingsButtons(settings!).body}</p>
-                  : consentBody(false) ?? chooserBody ?? decisionBody}
+                  : consentBody(false) ??
+                    (chooserBody ? (
+                      <>
+                        {chooserBody}
+                        {payment && <PaymentRail p={payment} meta={meta} tapMana={undefined} onTapMana={setTapMana} onAct={sendAct} disabled={pending} summary />}
+                      </>
+                    ) : paying ? (
+                      <PaymentRail p={payment!} meta={meta} tapMana={tapMana} onTapMana={setTapMana} onAct={sendAct} disabled={pending || !connected} />
+                    ) : (
+                      decisionBody
+                    ))}
             </div>
             <div className="rail-foot">
               {recent.length > 0 && (
@@ -2142,6 +2249,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         </aside>
         <PlanArrows arrows={planArrows} root={boardRoot} />
         {stageOverlay}
+        {manaMenu && paying && (
+          <ManaMenu source={manaMenu.source} meta={meta} at={manaMenu.at} onPick={(a) => (sendAct(a), setManaMenu(null))} onClose={() => setManaMenu(null)} disabled={pending} />
+        )}
         {settingsOpen && (
           <div className="gs-overlay">
             <section className="gs-dialog" role="dialog" aria-label="Game settings">
@@ -2234,7 +2344,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         </span>
       </div>
     ) : null;
-  const phoneHint = pend
+  const phoneHint = pend || paying
     ? null
     : attack
     ? `Tap creatures to attack ${attack.defender?.kind === "player" ? who(attack.defender.seat) : "their target"}${new Set([...attack.valid.values()].flat().filter((t) => t.kind === "player").map((t) => (t as { seat: number }).seat)).size > 1 ? ", or tap a tab for someone else." : "."}`
@@ -2246,7 +2356,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         ? "Tap a card or player with an amber ring, or pick one below."
         : null;
   const phoneSelected = selectedOptions.length ? cardById.get(selected![0]!) : undefined;
-  const phoneChoices = pend
+  const phoneChoices = pend || paying
     ? []
     : phoneSelected
     ? selectedOptions.length > 1
@@ -2257,7 +2367,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       : [];
   return (
     <MotionContext.Provider value={scale}>
-    <div className={`pb phone${scale === 0 ? " motion-off" : ""}${stage === "sheet" ? " sheet-open" : stage === "strip" ? " strip-open" : ""}`} ref={boardRoot}>
+    <div className={`pb phone${scale === 0 ? " motion-off" : ""}${stage === "sheet" ? " sheet-open" : stage === "strip" ? " strip-open" : paying ? " pay-open" : ""}`} ref={boardRoot}>
       {banner && <div className="phone-banner">{banner}</div>}
       <nav className="opp-tabs" aria-label="Opponents">
         {opponents.map((p) => {
@@ -2378,6 +2488,20 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         )}
         {phoneSheet}
         {phonePick}
+        {paying && (
+          <div className="dock-sheet">
+            <PaymentSheet
+              p={payment!}
+              meta={meta}
+              onAct={sendAct}
+              menu={manaMenu?.source ?? null}
+              onMenu={(src) => setManaMenu(src ? { source: src, at: { left: 0, top: 0 } } : null)}
+              disabled={pending}
+              cardName={(id) => cardById.get(id)?.name}
+              onField={(id) => view.battlefield.some((c) => c.id === id)}
+            />
+          </div>
+        )}
         {phoneCombat}
         {phoneRespond}
         {meOut && !view.over && (
@@ -2388,9 +2512,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         )}
         {view.resolve_all && !watch && <div className="dock-decision">{agree && <p className="dock-prompt"><b>{title}</b></p>}{consentBody(true)}</div>}
         {modeChipEl}
-        {!view.resolve_all && (phoneHint || phoneChoices.length > 0 || (decision && !decision.prompt.startsWith("Priority") && !attack && !block && !widget)) && (
+        {!view.resolve_all && (phoneHint || phoneChoices.length > 0 || (decision && !decision.prompt.startsWith("Priority") && !attack && !block && !widget && !paying)) && (
           <div className="dock-decision">
-            {decision && !decision.prompt.startsWith("Priority") && !attack && !block && !widget && <p className="dock-prompt"><b>{title}</b></p>}
+            {decision && !decision.prompt.startsWith("Priority") && !attack && !block && !widget && !paying && <p className="dock-prompt"><b>{title}</b></p>}
             {phoneHint && <p className="dock-hint">{phoneHint}</p>}
             {phoneChoices.length > 0 && (
               <div className="chips">

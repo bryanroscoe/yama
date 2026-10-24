@@ -51,10 +51,12 @@ pub use phase_ai::config::AiDifficulty as Difficulty;
 
 pub mod act;
 pub mod lab;
+pub mod pay;
 pub mod pilot;
 pub mod turns;
 
 pub use act::{Act, Pending};
+pub use pay::{PayMode, PaymentView};
 pub use turns::{Controls, PassMode, ResolveAllView, TurnsView};
 
 /// Engine build plus the card data it was built against. Stored with every game, because a
@@ -301,6 +303,7 @@ impl Engine {
             controls: HashMap::new(),
             conceded: BTreeSet::new(),
             auto_watch: Vec::new(),
+            kept: HashMap::new(),
         };
         m.remark(None);
         Ok(m)
@@ -329,6 +332,9 @@ pub struct Match {
     conceded: BTreeSet<u8>,
     /// Remembered answers the engine is about to give for people (turns.rs, `AutoWatch`).
     auto_watch: Vec<turns::AutoWatch>,
+    /// Mana sources each person tapped by hand during the payment in progress that can't be
+    /// undone (a painland's damage, a sacrificed Treasure), for the payment's note (pay.rs).
+    kept: HashMap<u8, Vec<pay::Kept>>,
 }
 
 /// A person's decision as of its issue (see [`Decision::revision`]).
@@ -395,6 +401,9 @@ pub struct Decision {
     /// While declaring blockers: every creature that may block and the attackers it may block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block: Option<BlockChoice>,
+    /// While paying: the cost, the pool and the sources this seat can use (pay.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payment: Option<PaymentView>,
 }
 
 /// The opening hand decision, from the engine's mulligan count and the bottom cards it would
@@ -675,6 +684,7 @@ impl Match {
             options,
             mulligan: Self::mulligan_view(&vs, me),
             pending: Pending::of(&vs, me, &candidates, &self.names),
+            payment: PaymentView::of(&self.state, &vs, me, &candidates, self.kept.get(&seat).map(Vec::as_slice).unwrap_or_default()),
             attack,
             block,
         })
@@ -955,10 +965,21 @@ impl Match {
         if !preference && !self.current(seat, revision) {
             return Err(ChoiceError::Stale);
         }
+        // A tap by hand that can't be undone is noted for the payment (a painland's damage, a
+        // sacrificed Treasure): what the engine would do, read before it does it.
+        let kept = match answer {
+            Act::TapMana { source, choice } => self.kept_by(seat, *source, choice.as_deref()),
+            _ => None,
+        };
         match act::answer(&mut self.state, PlayerId(seat), answer) {
             Ok(done) => {
-                self.log.push_action(done.actor, done.action);
+                for action in done.actions {
+                    self.log.push_action(done.actor, action);
+                }
                 self.accepted(&done.result, (!preference).then_some(seat));
+                if let Some(k) = kept {
+                    self.kept.entry(seat).or_default().push(k);
+                }
                 // Asking to resolve everything lets go of holding priority, so the engine's
                 // session passes your windows too once everyone agrees.
                 if matches!(answer, Act::ResolveAll) && self.controls.get(&seat).is_some_and(|c| c.hold) {
@@ -970,6 +991,34 @@ impl Match {
             Err(act::Refusal::DoesntFit(why)) => Err(ChoiceError::DoesntFit(why)),
             Err(act::Refusal::Engine(why)) => Err(ChoiceError::Rejected(self.plain_reason(PlayerId(seat), &why))),
         }
+    }
+
+    /// What tapping `source` (its `key` choice, or its first) would leave behind for `seat` that
+    /// can't be undone, if anything.
+    fn kept_by(&self, seat: u8, source: u64, key: Option<&str>) -> Option<pay::Kept> {
+        let me = PlayerId(seat);
+        let contract = AiDecisionContract::issue(&self.state, me);
+        let candidates: Vec<GameAction> = contract.candidates.iter().map(|c| c.action.clone()).collect();
+        let action = pay::find_mana_action(&candidates, source, key)?;
+        let penalty = pay::action_penalty(&self.state, me, action)?;
+        let vs = filter_state_for_viewer(&self.state, me);
+        Some(pay::Kept { id: source, name: Self::name_in(&vs, &ObjectId(source)), penalty })
+    }
+
+    /// The sources paying automatically would tap to cast `object` now (GCast's "Will tap"), as
+    /// the engine's own preview finds them on a copy of the game. Empty when it isn't `seat`'s
+    /// priority, the card can't be cast, or the engine would stop to ask (an X, a sacrifice).
+    pub fn auto_tap_preview(&self, seat: u8, object: u64) -> Vec<u64> {
+        let me = PlayerId(seat);
+        if !matches!(self.state.waiting_for, WaitingFor::Priority { player } if player == me) {
+            return vec![];
+        }
+        let contract = AiDecisionContract::issue(&self.state, me);
+        let candidates: Vec<GameAction> = contract.candidates.iter().map(|c| c.action.clone()).collect();
+        let Some(action) = pay::cast_action(&candidates, object, PayMode::Ask) else { return vec![] };
+        let ids = engine::game::preview::preview_auto_payment_sources(&self.state, me, &action).unwrap_or_default();
+        // Sources are permanents on the battlefield, which everyone sees.
+        ids.into_iter().filter(|id| self.state.battlefield.contains(id)).map(|id| id.0).collect()
     }
 
     /// The engine's refusal in words a player can read: "Invalid action: ObjectId(114) must be
@@ -1106,7 +1155,7 @@ impl Match {
     /// cards, then put a card from your hand on the bottom of your library."), so a planeswalker's
     /// abilities read apart (PP-04). The engine writes the card's own name as "~". Falls back to
     /// the cost, then to "Use <card>".
-    fn ability_label(vs: &GameState, source: &ObjectId, index: usize) -> String {
+    pub(crate) fn ability_label(vs: &GameState, source: &ObjectId, index: usize) -> String {
         let name = Self::name_in(vs, source);
         let def = engine::game::casting::activated_ability_definitions(vs, *source).into_iter().find(|(i, _)| *i == index).map(|(_, d)| d);
         let Some(def) = def else { return format!("Use {name}") };
@@ -1215,6 +1264,11 @@ impl Match {
         c.stops = stops;
         c.full_control = full_control;
         self.sync_passing_mode(seat);
+    }
+
+    /// `seat`'s "Tap mana for me" setting, saved with their account.
+    pub fn set_tap_mana(&mut self, seat: u8, mode: PayMode) {
+        self.controls.entry(seat).or_default().tap_mana = mode;
     }
 
     /// Full control on or off, keeping `seat`'s stops.
@@ -1343,6 +1397,10 @@ impl Match {
     fn accepted(&mut self, result: &ActionResult, acted: Option<u8>) {
         self.revision += 1;
         self.remark(acted);
+        // A payment ends (cast, cancelled or abandoned) with its spell or ability.
+        if self.state.pending_cast.is_none() {
+            self.kept.clear();
+        }
         for e in &result.log_entries {
             // Only public, headline entries: detail lines and anything revealing hidden cards stay out.
             if e.presentation.importance != LogImportance::Essential || e.presentation.visibility != LogVisibility::Public {
@@ -1813,6 +1871,9 @@ pub struct StackTarget {
 
 #[cfg(test)]
 mod view_tests;
+
+#[cfg(test)]
+mod pay_tests;
 
 #[cfg(test)]
 mod tests {

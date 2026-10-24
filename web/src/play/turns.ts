@@ -141,7 +141,7 @@ export function moved(order: number[], from: number, to: number): number[] {
 }
 
 /** GSettings' sections, in order. */
-export type SettingsSection = "yields" | "answers" | "hand" | "concede";
+export type SettingsSection = "yields" | "answers" | "hand" | "pay" | "concede";
 
 /** The rail (or the sheet's buttons) while the settings are open: Close, Done, or Concede with Cancel. */
 export function settingsButtons(section: SettingsSection): { title: string; body: string; primary: string; secondary: string | null } {

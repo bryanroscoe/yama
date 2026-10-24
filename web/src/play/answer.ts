@@ -38,8 +38,11 @@ export function chooserCovers(p: Pending | undefined | null): p is Pending {
 const TARGETING = new Set(["target", "targets", "copy", "retarget"]);
 export const isTargeting = (p: Pending | null | undefined): boolean => !!p && TARGETING.has(p.purpose);
 
-/** Tapping your own creatures for crew, saddle or enlist (GCombatMore), picked on the board. */
-const TAPPING = new Set(["crew", "saddle", "enlist"]);
+/**
+ * Tapping your own creatures for crew, saddle or enlist (GCombatMore), and the source to
+ * sacrifice for mana (GPay's Treasure prompt): picked on the board, on a phone too.
+ */
+const TAPPING = new Set(["crew", "saddle", "enlist", "mana_source"]);
 export const isTapping = (p: Pending | null | undefined): boolean => !!p && TAPPING.has(p.purpose);
 
 /** Crew or saddle: the power the picked creatures add up to, as the engine counts it. */
@@ -53,6 +56,18 @@ const shownReversed = (p: Pending) => p.answer === "order_triggers";
 
 /** A scry or surveil: the picked cards stay on top, in order, and the rest go to the other pile. */
 export const isScry = (p: Pending) => p.purpose === "scry" || p.purpose === "surveil";
+
+/** Phyrexian mana (GMana): life paid now, two for each symbol paid with life. */
+export function phyrexianLife(p: Pending, d: Draft): number {
+  return d.kind === "pick" && p.answer === "pay_phyrexian" ? d.ids.length * 2 : 0;
+}
+
+/** Phyrexian mana: what's still paid with mana, printed ("{1}{W}"); empty when nothing is. */
+export function phyrexianMana(p: Pending, d: Draft): string {
+  const rest = p.rest === "{0}" ? "" : p.rest ?? "";
+  const shards = d.kind === "pick" ? p.options.filter((o) => !d.ids.includes(o.id)).map((o) => o.cost ?? "") : [];
+  return `${rest}${shards.join("")}`;
+}
 
 /** A fresh draft: the engine's default answer where it has one. */
 export function initialDraft(p: Pending): Draft {
@@ -196,7 +211,7 @@ export function keypad(p: Pending): number[] | null {
 export function ready(p: Pending, d: Draft): boolean {
   switch (d.kind) {
     case "pick":
-      if (isScry(p)) return true;
+      if (isScry(p) || p.answer === "pay_phyrexian") return true;
       if (p.need !== undefined && powerOf(p, d) < p.need) return false;
       return d.ids.length >= p.min && d.ids.length <= p.max;
     case "order":
@@ -298,6 +313,25 @@ export function toAct(p: Pending, d: Draft, yes = true): Act | null {
       return d.kind === "pick" && p.source ? { kind: "crew_vehicle", vehicle: p.source.id, creatures: d.ids.map(Number) } : null;
     case "saddle_mount":
       return d.kind === "pick" && p.source ? { kind: "saddle_mount", mount: p.source.id, creatures: d.ids.map(Number) } : null;
+    case "tap_mana":
+      // The Treasure prompt's yes: sacrifice the picked source for mana. "Keep it" is keep_mana.
+      return d.kind === "pick" && d.ids[0] !== undefined ? { kind: "tap_mana", source: Number(d.ids[0]) } : null;
+    case "choose_mana_color":
+      if (d.kind === "split") {
+        // Several mana: one letter per mana, by colour.
+        const mana = p.options.flatMap((o) => Array.from({ length: d.amounts[o.id] ?? 0 }, () => o.id));
+        return { kind: "choose_mana_color", mana, combination: true };
+      }
+      if (d.kind !== "pick" || d.ids[0] === undefined) return null;
+      return p.purpose === "combo" ? { kind: "choose_mana_color", mana: d.ids[0].split(""), combination: true } : { kind: "choose_mana_color", mana: [d.ids[0]] };
+    case "pay_mana_ability_mana":
+      return d.kind === "pick" && d.ids[0] !== undefined ? { kind: "pay_mana_ability_mana", mana: d.ids[0].split("") } : null;
+    case "pay_phyrexian":
+      return d.kind === "pick" ? { kind: "pay_phyrexian", life: p.options.map((o) => d.ids.includes(o.id)) } : null;
+    case "decide_optional_cost":
+      return d.kind === "pick" && d.ids[0] !== undefined ? { kind: "decide_optional_cost", pay: d.ids[0] === "pay" } : null;
+    case "choose_cost_branch":
+      return d.kind === "pick" && d.ids[0] !== undefined ? { kind: "choose_cost_branch", index: Number(d.ids[0]) } : null;
   }
 }
 
@@ -353,15 +387,18 @@ export function pickVerb(p: Pending): string {
     case "bottom":
       return "Done";
     default: {
-      const first = p.prompt.split(" ")[0] ?? "";
-      return ["Sacrifice", "Return", "Exile", "Destroy", "Tap", "Untap", "Reveal"].includes(first) ? first : "Choose";
+      // Ward names its cost after "Ward:" ("Ward: discard a card").
+      const words = p.prompt.replace(/^Ward: /, "").split(" ");
+      const first = words[0] ?? "";
+      const verb = first ? `${first[0]!.toUpperCase()}${first.slice(1)}` : "";
+      return ["Discard", "Sacrifice", "Return", "Exile", "Destroy", "Tap", "Untap", "Reveal"].includes(verb) ? verb : "Choose";
     }
   }
 }
 
 const optionName = (p: Pending, id: string | undefined) => p.options.find((o) => o.id === id)?.name ?? "";
 
-export type SecondaryDoes = "no" | "cancel" | "clear" | "none" | "reset" | "ask" | "all-top" | "all" | "keep-rest";
+export type SecondaryDoes = "no" | "cancel" | "clear" | "none" | "reset" | "ask" | "all-top" | "all" | "keep-rest" | "keep-mana";
 
 /** The main and second buttons' words for a decision (design/screens/GButtons and each widget's board). */
 export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell: boolean }): { primary: string; secondary: string | null; secondaryDoes: SecondaryDoes | null } {
@@ -389,6 +426,8 @@ export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell:
       if (p.answer === "choose_pair") {
         return { primary: n ? `Pair with ${optionName(p, d.ids[0])}` : "Choose a creature", ...(p.min === 0 ? { secondary: "Don't pair", secondaryDoes: "none" as const } : none) };
       }
+      const paying = payButtons(p, d);
+      if (paying) return { ...paying, ...(paying.secondary === undefined ? (cancel ?? none) : {}) } as ReturnType<typeof buttons>;
       const picks = targetButtons(p, d, opts.spell);
       if (picks) return { ...picks, ...(picks.secondary === undefined ? (cancel ?? none) : {}) } as ReturnType<typeof buttons>;
       // A search that may find nothing says so on its own button (GSearch); Done waits for a card.
@@ -406,6 +445,10 @@ export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell:
     }
     case "split": {
       const rest = left(p, d);
+      if (p.unit === "mana") {
+        const mana = p.options.flatMap((o) => Array.from({ length: d.amounts[o.id] ?? 0 }, () => `{${o.id}}`)).join("");
+        return { primary: rest > 0 ? `${rest} left to choose` : `Add ${mana}`, ...(cancel ?? none) };
+      }
       return { primary: rest > 0 ? `${rest} left to assign` : "Done", ...(cancel ?? none) };
     }
     case "number": {
@@ -421,6 +464,51 @@ export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell:
       return { primary: v ? `${named ? "Name" : "Choose"} ${v}` : `Choose a ${p.choiceType ?? "word"}`, ...(cancel ?? none) };
     }
   }
+}
+
+/**
+ * The buttons while paying (GPay, GMana, GCosts): "Sacrifice it" and "Keep it" for a Treasure,
+ * "Add {R}" for a colour, "Pay 2 life, then {1}" for Phyrexian mana, "Kick it" or "Don't kick",
+ * "Discard Glacial Fortress" for a cost. The second button is left `undefined` where Cancel (when
+ * there is one) belongs.
+ */
+function payButtons(p: Pending, d: Draft): { primary: string; secondary?: string | null; secondaryDoes?: SecondaryDoes | null } | null {
+  if (d.kind !== "pick") return null;
+  const n = d.ids.length;
+  const name = optionName(p, d.ids[0]);
+  switch (p.answer) {
+    case "tap_mana": {
+      const one = p.options.filter((o) => o.eligible).length === 1;
+      return { primary: n ? (one ? "Sacrifice it" : `Sacrifice ${name}`) : "Choose what to sacrifice", secondary: one ? "Keep it" : "Keep them", secondaryDoes: "keep-mana" };
+    }
+    case "choose_mana_color":
+      return { primary: n ? `Add ${p.purpose === "combo" ? name : `{${d.ids[0]}}`}` : "Choose a colour" };
+    case "pay_mana_ability_mana":
+      return { primary: n ? name : "Choose how to pay" };
+    case "pay_phyrexian": {
+      const life = phyrexianLife(p, d);
+      const mana = phyrexianMana(p, d);
+      const primary = life ? `Pay ${life} life${mana ? `, then ${mana}` : ""}` : mana ? `Pay ${mana}` : "Pay";
+      return { primary };
+    }
+    case "decide_optional_cost": {
+      const pick = d.ids[0];
+      if (pick === undefined) return { primary: "Choose" };
+      if (p.purpose === "kicker") {
+        if (name === "Kicked") return { primary: "Kick it" };
+        if (name === "Not kicked") return { primary: "Don't kick" };
+      }
+      return { primary: name };
+    }
+    case "choose_cost_branch":
+      return { primary: n ? `Pay: ${name}` : "Choose a cost" };
+  }
+  // One card or permanent as a cost: the button names it (GCosts, "Discard Glacial Fortress").
+  if ((p.purpose === "cost" || p.purpose === "ward") && p.max === 1 && p.answer === "select_cards") {
+    const verb = pickVerb(p);
+    return { primary: n ? `${verb} ${name}` : verb === "Choose" ? "Choose" : `Choose what to ${verb.toLowerCase()}` };
+  }
+  return null;
 }
 
 /**
@@ -477,6 +565,8 @@ export function counter(p: Pending, d: Draft): string {
     if (p.purpose === "targets") return p.min === 0 && p.max >= p.options.length ? `${n} chosen, any number` : `${n} of up to ${p.max} chosen`;
     if (p.purpose === "copy" || p.purpose === "retarget") return p.slot ? `Target ${p.slot[0] + 1} of ${p.slot[1]}` : "Target 1 of 1";
     if (p.need !== undefined) return `${powerOf(p, d)} of ${p.need} power`;
+    if (p.answer === "pay_phyrexian") return n ? `${n} with life` : "All with mana";
+    if (p.answer === "decide_optional_cost" || p.answer === "choose_cost_branch" || p.answer === "choose_mana_color" || p.answer === "pay_mana_ability_mana" || p.answer === "tap_mana") return "";
     if (p.answer === "select_modes" && p.min !== p.max) return `${n} of ${p.max - p.min === 1 ? `${p.min} or ${p.max}` : `up to ${p.max}`} chosen`;
     return p.upTo || p.min !== p.max ? `${n} of up to ${p.max} chosen` : `${n} of ${p.max} chosen`;
   }
@@ -493,7 +583,7 @@ export function orderTag(p: Pending, i: number, n: number): string {
   return i === n - 1 ? "Very bottom" : i === 0 ? "Highest of these" : "Then";
 }
 
-const BOARD_ANSWERS = new Set(["select_cards", "choose_pair", "choose_target", "retarget_spell", "choose_enlist", "crew_vehicle", "saddle_mount"]);
+const BOARD_ANSWERS = new Set(["select_cards", "choose_pair", "choose_target", "retarget_spell", "choose_enlist", "crew_vehicle", "saddle_mount", "tap_mana"]);
 
 /**
  * Picks can be made on the board when every option is a card in your hand or on the battlefield;

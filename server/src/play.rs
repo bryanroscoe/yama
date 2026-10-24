@@ -27,7 +27,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, watch};
-use yama_play::{Act, AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, PassMode, SeatDeck, Stops, View};
+use yama_play::{Act, AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, PassMode, PayMode, SeatDeck, Stops, View};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -87,6 +87,8 @@ enum Cmd {
     Passing { seat: u8, revision: u64, mode: Option<PassMode>, reply: oneshot::Sender<Result<(), String>> },
     /// "Hold priority" with your own spell on the stack (GButtons).
     Hold { seat: u8, on: bool },
+    /// The sources paying automatically would tap to cast `object` (GCast's "Will tap").
+    Preview { seat: u8, object: u64, reply: oneshot::Sender<Vec<u64>> },
     /// End the game thread now without saving (an account in it is being deleted).
     Stop,
 }
@@ -264,6 +266,7 @@ fn run_game(
     for (seat, p) in prefs {
         if humans.contains(seat) {
             m.set_prefs(*seat, p.stops.clone(), p.full_control);
+            m.set_tap_mana(*seat, p.tap_mana);
         }
     }
     publish(&m);
@@ -313,6 +316,7 @@ fn run_game(
             Cmd::Prefs { seat, prefs } => {
                 let was = m.controls(seat).full_control;
                 m.set_prefs(seat, prefs.stops, prefs.full_control);
+                m.set_tap_mana(seat, prefs.tap_mana);
                 if was && !prefs.full_control {
                     ai_turns(&mut m);
                 }
@@ -340,6 +344,11 @@ fn run_game(
             Cmd::Hold { seat, on } => {
                 m.set_hold(seat, on);
                 save(&m);
+            }
+            // Only reads the game: nothing to publish or save.
+            Cmd::Preview { seat, object, reply } => {
+                let _ = reply.send(m.auto_tap_preview(seat, object));
+                continue;
             }
             Cmd::Stop => return,
         }
@@ -1021,8 +1030,13 @@ enum ClientMessage {
     Act { revision: u64, action: Act },
     Concede,
     /// Your stops (`null` for the usual ones) and full control, saved to your account and applied
-    /// to this game.
-    Prefs { stops: Option<Stops>, full_control: bool },
+    /// to this game; and "Tap mana for me", which older boards leave out (the saved one stays).
+    Prefs {
+        stops: Option<Stops>,
+        full_control: bool,
+        #[serde(default)]
+        tap_mana: Option<PayMode>,
+    },
     /// Older boards: full control for this game only.
     FullControl { on: bool },
     /// Older boards: your own stops by step for this game only; `null` for the usual ones.
@@ -1031,6 +1045,9 @@ enum ClientMessage {
     Pass { revision: u64, mode: Option<PassMode> },
     /// Hold priority while your own spell is on the stack, or stop holding it.
     Hold { on: bool },
+    /// Which sources paying automatically would tap to cast `object` (GCast's "Will tap"), while
+    /// you drag or point at it. Answered with a `preview` message; asked at most every 100 ms.
+    Preview { revision: u64, object: u64 },
 }
 
 async fn connect(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, ws: WebSocketUpgrade) -> AppResult<Response> {
@@ -1142,10 +1159,13 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
     let arts = commander_arts(&pool, seats.iter()).await.unwrap_or_default();
     let infos = serde_json::to_value(seat_infos(&seats, &HashMap::new(), &arts)).unwrap_or_default();
     let (err_tx, mut err_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    // Answers to the board's own questions (the auto-tap preview).
+    let (note_tx, mut note_rx) = tokio::sync::mpsc::unbounded_channel::<serde_json::Value>();
 
     // Incoming choices go to the game thread; refusals come back as error messages.
     let cmds = live.cmds.clone();
     let reader = tokio::spawn(async move {
+        let mut last_preview: Option<std::time::Instant> = None;
         while let Some(Ok(msg)) = stream.next().await {
             let Message::Text(text) = msg else { continue };
             let (Some(seat), Ok(m)) = (you, serde_json::from_str::<ClientMessage>(&text)) else { continue };
@@ -1189,8 +1209,13 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                 ClientMessage::Concede => {
                     let _ = cmds.send(Cmd::Concede { seat });
                 }
-                ClientMessage::Prefs { stops, full_control } => {
-                    let prefs = PlayPrefs { stops: stops.map(clean_stops), full_control };
+                ClientMessage::Prefs { stops, full_control, tap_mana } => {
+                    // An older board doesn't send "Tap mana for me": keep the saved one.
+                    let tap_mana = match tap_mana {
+                        Some(t) => t,
+                        None => load_prefs(&reader_pool, &user).await.ok().flatten().map(|p| p.tap_mana).unwrap_or_default(),
+                    };
+                    let prefs = PlayPrefs { stops: stops.map(clean_stops), full_control, tap_mana };
                     if let Err(e) = save_prefs(&reader_pool, &user, &prefs).await {
                         tracing::error!(error = %e, "saving play settings failed");
                         let _ = err_tx.send("Your settings couldn't be saved; they apply to this game only.".into());
@@ -1208,6 +1233,21 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                 }
                 ClientMessage::Hold { on } => {
                     let _ = cmds.send(Cmd::Hold { seat, on });
+                }
+                ClientMessage::Preview { revision, object } => {
+                    // A preview is a convenience: one every 100 ms at most, the rest dropped.
+                    let now = std::time::Instant::now();
+                    if last_preview.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(100)) {
+                        continue;
+                    }
+                    last_preview = Some(now);
+                    let (tx, rx) = oneshot::channel();
+                    if cmds.send(Cmd::Preview { seat, object, reply: tx }).is_err() {
+                        break;
+                    }
+                    if let Ok(sources) = rx.await {
+                        let _ = note_tx.send(serde_json::json!({ "type": "preview", "revision": revision, "object": object, "sources": sources }));
+                    }
                 }
                 ClientMessage::FullControl { on } => {
                     let _ = cmds.send(Cmd::FullControl { seat, on });
@@ -1229,6 +1269,10 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                     if sink.send(Message::Text(msg.into())).await.is_err() { break }
                     continue;
                 }
+                Some(note) = note_rx.recv() => {
+                    if sink.send(Message::Text(note.to_string().into())).await.is_err() { break }
+                    continue;
+                }
             }
         }
         first = false;
@@ -1247,11 +1291,14 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
 
 // ── saved turn controls ────────────────────────────────────────────────────
 
-/// A person's saved turn controls (`play_prefs`): their stops and full control, for every game.
+/// A person's saved turn controls (`play_prefs`): their stops, full control and "Tap mana for me",
+/// for every game.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct PlayPrefs {
     pub(crate) stops: Option<Stops>,
     pub(crate) full_control: bool,
+    #[serde(default)]
+    pub(crate) tap_mana: PayMode,
 }
 
 /// The steps a stop can name (phase's names). Anything else a client sends is dropped.
@@ -1268,24 +1315,28 @@ fn clean_stops(mut s: Stops) -> Stops {
 }
 
 pub(crate) async fn load_prefs(pool: &SqlitePool, user: &str) -> sqlx::Result<Option<PlayPrefs>> {
-    let row: Option<(Option<String>, i64)> =
-        sqlx::query_as("SELECT stops, full_control FROM play_prefs WHERE user_id = ?").bind(user).fetch_optional(pool).await?;
-    Ok(row.map(|(stops, full)| PlayPrefs {
+    let row: Option<(Option<String>, i64, Option<String>)> =
+        sqlx::query_as("SELECT stops, full_control, tap_mana FROM play_prefs WHERE user_id = ?").bind(user).fetch_optional(pool).await?;
+    Ok(row.map(|(stops, full, tap_mana)| PlayPrefs {
         // Unreadable stops fall back to the usual ones rather than failing the game.
         stops: stops.and_then(|s| serde_json::from_str::<Stops>(&s).ok()).map(clean_stops),
         full_control: full != 0,
+        tap_mana: tap_mana.as_deref().and_then(PayMode::parse).unwrap_or_default(),
     }))
 }
 
 pub(crate) async fn save_prefs(pool: &SqlitePool, user: &str, prefs: &PlayPrefs) -> sqlx::Result<()> {
     let stops = prefs.stops.as_ref().map(|s| serde_json::to_string(s).unwrap_or_default());
     sqlx::query(
-        "INSERT INTO play_prefs (user_id, stops, full_control, updated_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(user_id) DO UPDATE SET stops = excluded.stops, full_control = excluded.full_control, updated_at = excluded.updated_at",
+        "INSERT INTO play_prefs (user_id, stops, full_control, tap_mana, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET stops = excluded.stops, full_control = excluded.full_control, tap_mana = excluded.tap_mana,
+           updated_at = excluded.updated_at",
     )
     .bind(user)
     .bind(stops)
     .bind(i64::from(prefs.full_control))
+    // The usual setting is stored as NULL.
+    .bind((prefs.tap_mana != PayMode::Ask).then(|| prefs.tap_mana.as_str()))
     .bind(now())
     .execute(pool)
     .await?;

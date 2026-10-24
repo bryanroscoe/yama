@@ -7,8 +7,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { artCredits } from "../components/ArtPanel";
 import { useReorder } from "./Decide";
 import type { SeatTone } from "./model";
+import { TAP_MANA } from "./pay";
 import { answerBy, moved, shift, type PassChoice, type SettingsSection } from "./turns";
-import type { Act, CardMeta, CardView, ResolveAllView, StackItem, TurnsView } from "./types";
+import type { Act, CardMeta, CardView, ResolveAllView, StackItem, TapMana, TurnsView } from "./types";
 
 const seatDot = (tone: SeatTone | undefined) => (tone ? ({ ["--seat" as string]: `var(--${tone})` } as React.CSSProperties) : undefined);
 
@@ -118,6 +119,7 @@ const SECTIONS: { id: SettingsSection; label: string; short: string }[] = [
   { id: "yields", label: "Trigger yields", short: "Yields" },
   { id: "answers", label: "Automatic answers", short: "Answers" },
   { id: "hand", label: "Hand order", short: "Hand" },
+  { id: "pay", label: "Paying mana", short: "Mana" },
   { id: "concede", label: "Concede", short: "Concede" },
 ];
 
@@ -126,10 +128,12 @@ const SECTIONS: { id: SettingsSection; label: string; short: string }[] = [
  * for you, your hand's order and conceding. Changes go to the game at once; conceding is confirmed
  * only with the main button (the rail's on a laptop, `buttons` at the foot of the sheet on a phone).
  */
-export function GameSettings({ section, onSection, turns, hand, meta, whose, tone, onAct, disabled, compact, buttons }: {
+export function GameSettings({ section, onSection, turns, hand, meta, whose, tone, onAct, onTapMana, disabled, compact, buttons }: {
   section: SettingsSection;
   onSection: (s: SettingsSection) => void;
   turns: TurnsView;
+  /** "Tap mana for me", saved with your account. */
+  onTapMana?: (t: TapMana) => void;
   hand: CardView[];
   meta: Record<string, CardMeta>;
   whose: (seat: number) => string;
@@ -168,6 +172,7 @@ export function GameSettings({ section, onSection, turns, hand, meta, whose, ton
         {section === "yields" && <Yields turns={turns} meta={meta} whose={whose} tone={tone} onAct={onAct} disabled={disabled} compact={compact} />}
         {section === "answers" && <Answers turns={turns} meta={meta} onAct={onAct} disabled={disabled} />}
         {section === "hand" && <HandOrder hand={hand} meta={meta} onAct={onAct} disabled={disabled} compact={compact} />}
+        {section === "pay" && <Paying value={turns.tap_mana} onChange={onTapMana} disabled={disabled} />}
         {section === "concede" && <Concede compact={compact} />}
       </div>
       {buttons}
@@ -301,6 +306,27 @@ function HandOrder({ hand, meta, onAct, disabled, compact }: { hand: CardView[];
         </span>
       )}
       {hand.length > 0 && <p className="pb-credit">Card images from Scryfall, ™ & © Wizards of the Coast.</p>}
+    </>
+  );
+}
+
+/** "Tap mana for me" (GPay's setting): how your spells pay, saved for every game. */
+function Paying({ value, onChange, disabled }: { value?: TapMana; onChange?: (t: TapMana) => void; disabled: boolean }) {
+  return (
+    <>
+      <p className="gs-lede">
+        <b>Tap mana for me</b>
+        How your spells pay. Saved for every game. Paying by hand, you tap lands and rocks on the board, and Pay the rest taps what's still needed.
+      </p>
+      <div role="radiogroup" aria-label="Tap mana for me" className="gs-radios">
+        {TAP_MANA.map((t) => (
+          <label key={t.id} className={`gs-radio${value === t.id ? " on" : ""}`}>
+            <input type="radio" name="tap-mana" checked={value === t.id} disabled={disabled || !onChange || !value} onChange={() => onChange?.(t.id)} />
+            {t.label}
+          </label>
+        ))}
+      </div>
+      {!value && <p className="gs-empty">This server doesn't keep this setting yet.</p>}
     </>
   );
 }

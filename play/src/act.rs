@@ -17,17 +17,28 @@
 //! `Act` also spells a seat's own settings (turning off a remembered answer, trigger yields,
 //! hand order: [`Act::is_preference`]), which aren't answers and may be sent at any time, and
 //! Resolve all (play/src/turns.rs).
+//!
+//! Paying (play/src/pay.rs, the review's build plan section 9) adds the cast with the seat's
+//! "Tap mana for me" setting, each tap, untap and convoke while paying, the sacrificial-source
+//! question, mana colours, Phyrexian mana, and the extra costs of GCosts (kicker and other optional
+//! costs, a cost paid with cards, an activation's alternative costs, ward).
 
 use engine::ai_support::AiDecisionContract;
 use engine::game::engine::apply_interaction;
 use engine::game::filter_state_for_viewer;
-use engine::types::ability::{AbilityCost, FreeEntry, TargetRef};
+use engine::types::ability::{
+    AbilityCost, AdditionalCost, AdditionalCostOrigin, CardSelectionMode, DiscardSelfScope, Effect, FreeEntry, QuantityExpr, SacrificeRequirement,
+    TapCreaturesSelectionMode, TargetRef,
+};
+use engine::types::events::GameEvent;
 use engine::types::actions::{GameAction, MayTriggerAutoChoiceOp, PriorityYieldOp, ReplacementAutoChoice, ResolveAllScope};
 use engine::types::game_state::{
-    ActionResult, AutoMayChoice, CombatDamageAssignmentMode, CombatTaxContext, DistributionUnit, GameState, MayTriggerAutoChoiceScope,
-    MayTriggerAutoChoiceSelector, MulliganDecisionPhase, ReplacementAutoChoiceId, ReplacementChoiceKind, RetargetScope, WaitingFor, YieldScope,
+    ActionResult, AutoMayChoice, CombatDamageAssignmentMode, CombatTaxContext, CostResume, DistributionUnit, GameState, ManaChoice,
+    ManaChoiceContext, ManaChoicePrompt, MayTriggerAutoChoiceScope, MayTriggerAutoChoiceSelector, MulliganDecisionPhase, PayCostKind,
+    ReplacementAutoChoiceId, ReplacementChoiceKind, RetargetScope, ShardChoice, ShardOptions, WaitingFor, YieldScope,
     YieldTarget,
 };
+use engine::types::mana::{ManaCost, ManaType};
 use engine::types::identifiers::ObjectId;
 use engine::types::player::PlayerId;
 use phase_llm::render::action::humanize_identifier;
@@ -35,6 +46,7 @@ use phase_llm::render::text::{mana_cost_text, one_line};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::pay::{self, PayMode, mana_code, mana_type};
 use crate::{Match, TargetView, cost_text};
 
 /// The widget shape a decision takes (the design's `kind`).
@@ -85,6 +97,18 @@ pub enum Answer {
     CrewVehicle,
     /// The creatures that saddle a Mount (CR 702.171a).
     SaddleMount,
+    /// Use a mana source: here, sacrifice one for mana, or keep it (`Act::KeepMana`).
+    TapMana,
+    /// The colour or colours of mana a source or effect adds (CR 106.3).
+    ChooseManaColor,
+    /// Which mana pays a mana ability's own hybrid cost (CR 605.3a).
+    PayManaAbilityMana,
+    /// Phyrexian mana: each symbol with its colour of mana or 2 life (CR 107.4f).
+    PayPhyrexian,
+    /// Pay an optional additional cost, such as kicker, or don't (CR 601.2b).
+    DecideOptionalCost,
+    /// Which of an activation's alternative costs to pay (CR 118.12a).
+    ChooseCostBranch,
 }
 
 /// The card asking. The server adds its art, image and artist from Yama's card data.
@@ -135,6 +159,9 @@ pub struct Choice {
     /// engine works out (it can differ from the creature's power).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub power: Option<i32>,
+    /// What choosing it costs, printed ("{4}{R}"): a kicker row, one of several costs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<String>,
     /// It names a card, so the server sends that card's details.
     #[serde(skip)]
     pub card: bool,
@@ -193,7 +220,10 @@ pub struct Pending {
     pub answer: Answer,
     /// What the decision is for: "scry", "surveil", "search", "dig", "discard", "bottom",
     /// "choose", "target", "modes", "replacement", "triggers", "x", "may", "pay", "name",
-    /// "damage" or "divide".
+    /// "damage" or "divide"; while paying, "mana_source" (sacrifice it for mana?), "color",
+    /// "combo" and "colors" (mana to add), "hybrid" (a mana ability's hybrid cost), "phyrexian",
+    /// "kicker", "optional" and "either" (extra costs), "cost" (cards or permanents as a cost),
+    /// "cost_branch", "cost_type", "ward" and "return".
     pub purpose: &'static str,
     /// The order picked is the order they end up in (scry and surveil: the first is on top).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -207,7 +237,7 @@ pub struct Pending {
     /// Combat damage may all be assigned as though the attacker weren't blocked.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub unblocked: bool,
-    /// What a split divides: "damage", "counters" or "life" (damage gets a lethal hint).
+    /// What a split divides: "damage", "counters", "life" or "mana" (damage gets a lethal hint).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit: Option<&'static str>,
     /// The engine can also remember a "may" answer for every copy of the card (not only this
@@ -232,9 +262,19 @@ pub struct Pending {
     /// Crew or saddle: the total power the picked creatures must reach.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub need: Option<u32>,
+    /// What happens if the cost isn't paid, in red (ward: "If you don't pay, your Swords to
+    /// Plowshares is countered.").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warn: Option<String>,
+    /// Phyrexian mana: the rest of the cost, printed, which is paid with mana either way.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rest: Option<String>,
     /// `current` isn't one of the engine's alternatives, so picking it is sent as keeping it.
     #[serde(skip)]
     keeps_current: bool,
+    /// Phyrexian mana: how each symbol may be paid, to check an answer against.
+    #[serde(skip)]
+    shards: Vec<ShardOptions>,
 }
 
 impl Pending {
@@ -273,7 +313,10 @@ impl Pending {
             current: None,
             keep_rest: false,
             need: None,
+            warn: None,
+            rest: None,
             keeps_current: false,
+            shards: vec![],
         }
     }
 
@@ -323,6 +366,7 @@ fn card(vs: &GameState, id: &ObjectId, eligible: bool) -> Choice {
         toughness: o.and_then(|o| o.toughness),
         lethal: None,
         power: None,
+        cost: None,
         card: true,
     }
 }
@@ -346,6 +390,7 @@ fn word(id: impl Into<String>, name: impl Into<String>) -> Choice {
         toughness: None,
         lethal: None,
         power: None,
+        cost: None,
         card: false,
     }
 }
@@ -421,13 +466,33 @@ fn choice_type_name(value: &Value) -> Option<String> {
     Some(humanize_identifier(raw).to_lowercase())
 }
 
-/// An unless-cost in words: its printed form, else phase's own description of it.
+/// A cost in words, for a question or a button: printed for mana ("{2}"), the common shapes in
+/// plain words ("discard a card", "pay 3 life", "sacrifice a permanent"), anything else in
+/// phase's own description of it.
 fn unless_cost_text(vs: &GameState, cost: &AbilityCost) -> String {
     let printed = cost_text(cost);
     if !printed.is_empty() {
         return printed;
     }
-    serde_json::to_value(cost).map(|v| phase_llm::render::action::describe_tagged(vs, &v)).unwrap_or_else(|_| "the cost".into())
+    let fixed = |q: &QuantityExpr| match q {
+        QuantityExpr::Fixed { value } => Some((*value).max(0) as usize),
+        _ => None,
+    };
+    match cost {
+        AbilityCost::Discard { self_scope: DiscardSelfScope::SourceCard, .. } => "discard this card".into(),
+        AbilityCost::Discard { count, selection, .. } => {
+            let what = format!("discard {}", a_or(fixed(count).unwrap_or(1), "card", "cards"));
+            if *selection == CardSelectionMode::Random { format!("{what} at random") } else { what }
+        }
+        AbilityCost::PayLife { amount } => fixed(amount).map_or_else(|| "pay life".into(), |n| format!("pay {n} life")),
+        AbilityCost::PayEnergy { amount } => fixed(amount).map_or_else(|| "pay energy".into(), |n| format!("pay {n} energy")),
+        AbilityCost::Sacrifice(s) => match &s.requirement {
+            SacrificeRequirement::Count { count } => format!("sacrifice {}", a_or(*count as usize, "permanent", "permanents")),
+            SacrificeRequirement::Aggregate { .. } => "sacrifice permanents".into(),
+        },
+        AbilityCost::Exile { count, .. } => format!("exile {}", a_or(*count as usize, "card", "cards")),
+        _ => serde_json::to_value(cost).map(|v| phase_llm::render::action::describe_tagged(vs, &v)).unwrap_or_else(|_| "the cost".into()),
+    }
 }
 
 /// "A", "A and B", "A, B and C".
@@ -437,6 +502,84 @@ fn and_list(names: &[String]) -> String {
         [one] => one.clone(),
         [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
+}
+
+/// "a card", "2 cards".
+fn a_or(n: usize, one: &str, many: &str) -> String {
+    if n == 1 { format!("a {one}") } else { format!("{n} {many}") }
+}
+
+/// The first letter in capitals: "discard a card" reads "Discard a card".
+fn capitalised(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(c) => format!("{}{}", c.to_uppercase(), chars.as_str()),
+        None => String::new(),
+    }
+}
+
+/// A colour of mana as an option: its letter ("W") and its name.
+fn mana_option(t: ManaType) -> Choice {
+    let name = match t {
+        ManaType::White => "White",
+        ManaType::Blue => "Blue",
+        ManaType::Black => "Black",
+        ManaType::Red => "Red",
+        ManaType::Green => "Green",
+        ManaType::Colorless => "Colourless",
+    };
+    word(mana_code(t), name)
+}
+
+/// Several mana at once as an option: "WU", named "{W}{U}".
+fn combo(v: &[ManaType]) -> Choice {
+    let codes: Vec<&str> = v.iter().map(|t| mana_code(*t)).collect();
+    word(codes.concat(), pay::symbols(&codes))
+}
+
+/// The keyword an optional additional cost comes from, for its question (CR 601.2b).
+fn origin_name(origin: AdditionalCostOrigin) -> &'static str {
+    match origin {
+        AdditionalCostOrigin::Kicker => "Kicker",
+        AdditionalCostOrigin::Casualty => "Casualty",
+        AdditionalCostOrigin::Offspring => "Offspring",
+        AdditionalCostOrigin::Squad => "Squad",
+        AdditionalCostOrigin::Replicate => "Replicate",
+        AdditionalCostOrigin::Bargain => "Bargain",
+        AdditionalCostOrigin::Teamwork => "Teamwork",
+        AdditionalCostOrigin::Gift => "Gift",
+        AdditionalCostOrigin::Other => "Extra cost",
+    }
+}
+
+/// What a counter effect held back by an unpaid cost would counter: "your Swords to Plowshares"
+/// (ward, CR 702.21a: the spell or ability that targeted, from the trigger's event). `None` for
+/// any other effect.
+fn countered(vs: &GameState, me: PlayerId, effect: &engine::types::ability::ResolvedAbility, event: Option<&GameEvent>) -> Option<String> {
+    if !matches!(effect.effect, Effect::Counter { .. }) {
+        return None;
+    }
+    let target = effect
+        .targets
+        .iter()
+        .find_map(|t| match t {
+            TargetRef::Object(id) => Some(*id),
+            TargetRef::Player(_) => None,
+        })
+        .or(match event {
+            Some(GameEvent::BecomesTarget { source_id, .. }) => Some(*source_id),
+            _ => None,
+        })?;
+    let entry = vs.stack.iter().find(|e| e.id == target || e.source_id == target);
+    let spell = entry.is_none_or(|e| matches!(e.kind, engine::types::game_state::StackEntryKind::Spell { .. }));
+    let (source, controller) = match (entry, vs.objects.get(&target)) {
+        (Some(e), _) => (e.source_id, e.controller),
+        (None, Some(o)) => (target, o.controller),
+        (None, None) => return None,
+    };
+    let name = Match::name_in(vs, &source);
+    let what = if spell { name } else { format!("{name}'s ability") };
+    Some(if controller == me { format!("your {what}") } else { what })
 }
 
 /// Crew or saddle (CR 702.122a, 702.171a): pick creatures to tap whose power, as the engine
@@ -691,16 +834,29 @@ impl Pending {
             WaitingFor::SaddleMount { player, mount_id, saddle_power, eligible_creatures, contributions } if *player == me => {
                 tap_for(vs, Answer::SaddleMount, "saddle", *mount_id, *saddle_power, eligible_creatures, contributions)
             }
-            WaitingFor::UnlessPayment { player, cost, effect_description, pending_effect, .. } if *player == me => {
-                let cost = unless_cost_text(vs, cost);
-                let prompt = match effect_description {
-                    Some(effect) => format!("Pay {cost}? If you don't: {}", one_line(effect)),
-                    None => format!("Pay {cost}?"),
+            WaitingFor::UnlessPayment { player, cost, effect_description, pending_effect, trigger_event, .. } if *player == me => {
+                let printed = !cost_text(cost).is_empty();
+                let words = unless_cost_text(vs, cost);
+                // A mana cost is paid ("Pay {2}"); any other cost is done ("Discard a card").
+                let (ask, yes, no) = if printed {
+                    (format!("Pay {words}?"), format!("Pay {words}"), "Don't pay".to_string())
+                } else {
+                    let verb = words.split_whitespace().next().unwrap_or("pay").to_lowercase();
+                    (question(&words), capitalised(&words), format!("Don't {verb}"))
                 };
-                // The card asking (Rhystic Study, Mana Leak) is the source of the effect it holds back.
-                Pending::new(Kind::Yesno, Answer::PayUnlessCost, "pay", prompt, vec![])
-                    .yes_no(format!("Pay {cost}"), "Don't pay")
-                    .from(vs, Some(pending_effect.source_id))
+                let prompt = match effect_description {
+                    Some(effect) => format!("{ask} If you don't: {}", one_line(effect)),
+                    None => ask,
+                };
+                // The card asking (Rhystic Study, Mana Leak, a ward creature) is the source of the
+                // effect it holds back.
+                let mut p = Pending::new(Kind::Yesno, Answer::PayUnlessCost, "pay", prompt, vec![]).yes_no(yes, no).from(vs, Some(pending_effect.source_id));
+                // Ward and the like: not paying counters something of yours (CR 702.21a).
+                p.warn = countered(vs, me, pending_effect, trigger_event.as_ref()).map(|what| {
+                    let verb = if printed { "pay".to_string() } else { words.split_whitespace().next().unwrap_or("pay").to_lowercase() };
+                    format!("If you don't {verb}, {what} is countered.")
+                });
+                p
             }
             WaitingFor::OptionalEffectChoice { player, source_id, description, may_trigger_key, same_card_may_trigger_choice_available, .. }
                 if *player == me =>
@@ -859,6 +1015,247 @@ impl Pending {
                     _ => Value::Null,
                 });
                 p
+            }
+            WaitingFor::ManaSourceSelection { player, options, .. } if *player == me => {
+                // Paying automatically reached a source that sacrifices itself, such as a Treasure
+                // (CR 601.2g-h): sacrifice it for mana, or keep it and pay by hand (`Act::KeepMana`).
+                let mut ids: Vec<ObjectId> = Vec::new();
+                for o in options {
+                    if !ids.contains(&o.source.object_id) {
+                        ids.push(o.source.object_id);
+                    }
+                }
+                let prompt = match ids.as_slice() {
+                    [one] => format!("Sacrifice {} for mana?", Match::name_in(vs, one)),
+                    _ => "Choose what to sacrifice for mana".to_string(),
+                };
+                let mut p = Pending::new(Kind::Pick, Answer::TapMana, "mana_source", prompt, cards(vs, &ids))
+                    .range(1, 1, false)
+                    .from(vs, vs.pending_cast.as_ref().map(|c| c.object_id));
+                p.default_answer = (ids.len() == 1).then(|| json!([ids[0].0.to_string()]));
+                p
+            }
+            WaitingFor::ChooseManaColor { player, choice, context } if *player == me => {
+                let source = match context {
+                    ManaChoiceContext::ManaAbility(m) => m.source_id,
+                    ManaChoiceContext::ResolvingEffect(r) => r.source_id,
+                };
+                match choice {
+                    ManaChoicePrompt::SingleColor { options } => {
+                        Pending::new(Kind::Pick, Answer::ChooseManaColor, "color", "Choose a colour of mana", options.iter().map(|t| mana_option(*t)).collect())
+                            .range(1, 1, false)
+                            .from(vs, Some(source))
+                    }
+                    // A filter land: one whole combination ("{W}{U}").
+                    ManaChoicePrompt::Combination { options } => {
+                        let combos = options.iter().map(|v| combo(v)).collect();
+                        Pending::new(Kind::Pick, Answer::ChooseManaColor, "combo", "Choose the mana to add", combos).range(1, 1, false).from(vs, Some(source))
+                    }
+                    // Several mana, each of any of these colours: a split of the total.
+                    ManaChoicePrompt::AnyCombination { count: n, options } => {
+                        let mut p = Pending::new(Kind::Split, Answer::ChooseManaColor, "colors", format!("Choose the colours of {}", count(*n, "mana", "mana")), options.iter().map(|t| mana_option(*t)).collect())
+                            .from(vs, Some(source));
+                        p.min = 0;
+                        p.max = *n;
+                        p.total = Some(*n as u32);
+                        p.per_option_min = Some(0);
+                        p.unit = Some("mana");
+                        p
+                    }
+                }
+            }
+            WaitingFor::PayManaAbilityMana { player, options, pending_mana_ability } if *player == me => {
+                // A mana ability's own hybrid cost, where the pool could pay it more than one way.
+                let ways = options
+                    .iter()
+                    .map(|v| {
+                        let mut c = combo(v);
+                        c.name = format!("Pay {}", c.name);
+                        c
+                    })
+                    .collect();
+                Pending::new(Kind::Pick, Answer::PayManaAbilityMana, "hybrid", "Choose how to pay its cost", ways).range(1, 1, false).from(vs, Some(pending_mana_ability.source_id))
+            }
+            WaitingFor::PhyrexianPayment { player, spell_object, shards } if *player == me => {
+                // CR 107.4f: each Phyrexian symbol is paid with its colour or 2 life. The pick is
+                // the symbols paid with life; a symbol only one way can pay is fixed.
+                let cost = vs.pending_cast.as_ref().map(|c| c.cost.clone());
+                let printed: Vec<&'static str> = match &cost {
+                    Some(ManaCost::Cost { shards, .. }) => shards.iter().map(|s| s.symbol()).collect(),
+                    _ => vec![],
+                };
+                let options: Vec<Choice> = shards
+                    .iter()
+                    .enumerate()
+                    .map(|(i, sh)| {
+                        let symbol = printed.get(sh.shard_index).copied().unwrap_or("P");
+                        let mut c = word(i.to_string(), format!("{{{symbol}}}"));
+                        c.eligible = sh.options == ShardOptions::ManaOrLife;
+                        // The mana that pays it instead of life: "{W}", or "{W/U}" for a hybrid.
+                        c.cost = Some(format!("{{{}}}", symbol.trim_end_matches("/P")));
+                        c.text = Some(
+                            match sh.options {
+                                ShardOptions::ManaOrLife => "Mana or 2 life",
+                                ShardOptions::ManaOnly => "Only mana",
+                                ShardOptions::LifeOnly => "Only 2 life",
+                            }
+                            .to_string(),
+                        );
+                        c
+                    })
+                    .collect();
+                let mut p = Pending::new(Kind::Pick, Answer::PayPhyrexian, "phyrexian", "Pay the Phyrexian mana", options).from(vs, Some(*spell_object));
+                p.min = 0;
+                p.max = shards.len();
+                p.up_to = true;
+                p.shards = shards.iter().map(|s| s.options).collect();
+                // Of the routes the engine lists, the one that can be paid for the least life is
+                // the default.
+                let fewest = candidates
+                    .iter()
+                    .filter_map(|a| match a {
+                        GameAction::SubmitPhyrexianChoices { choices } => Some(choices),
+                        _ => None,
+                    })
+                    .filter(|c| engine::game::casting::pending_phyrexian_route_is_payable(vs, me, *spell_object, c))
+                    .min_by_key(|c| c.iter().filter(|x| **x == ShardChoice::PayLife).count());
+                p.default_answer = Some(match fewest {
+                    Some(route) => json!(route.iter().enumerate().filter(|(_, x)| **x == ShardChoice::PayLife).map(|(i, _)| i.to_string()).collect::<Vec<_>>()),
+                    None => json!(shards.iter().enumerate().filter(|(_, s)| s.options == ShardOptions::LifeOnly).map(|(i, _)| i.to_string()).collect::<Vec<_>>()),
+                });
+                // What's paid with mana either way.
+                p.rest = cost.map(|c| match c {
+                    ManaCost::Cost { shards, generic } => {
+                        phase_llm::render::text::mana_cost_text(&ManaCost::Cost { shards: shards.into_iter().filter(|s| !s.symbol().ends_with("/P")).collect(), generic })
+                    }
+                    other => mana_cost_text(&other),
+                });
+                p
+            }
+            WaitingFor::OptionalCostChoice { player, cost, times_kicked, origin, pending_cast, .. } if *player == me => {
+                // CR 601.2b: an additional cost the caster may pay. Kicker shows what the spell costs
+                // either way; a multikicker asks again after each kick (CR 702.33c).
+                let base = mana_cost_text(&pending_cast.cost);
+                let mana_of = |c: &AbilityCost| match c {
+                    AbilityCost::Mana { cost } => Some(cost.clone()),
+                    _ => None,
+                };
+                let (prompt, purpose, pay, skip) = match cost {
+                    AdditionalCost::Kicker { costs, .. } => {
+                        let kick = costs.iter().map(|c| unless_cost_text(vs, c)).collect::<Vec<_>>().join(" and ");
+                        let total = costs.iter().try_fold(pending_cast.cost.clone(), |t, c| mana_of(c).map(|m| t.plus(&m))).map(|t| mana_cost_text(&t));
+                        if *times_kicked == 0 {
+                            (format!("Pay the kicker, {kick}?"), "kicker", ("Kicked".to_string(), total), ("Not kicked".to_string(), Some(base.clone())))
+                        } else {
+                            let so_far = if *times_kicked == 1 { "once".to_string() } else { format!("{times_kicked} times") };
+                            (format!("Kicked {so_far}. Kick it again for {kick}?"), "kicker", ("Kick again".to_string(), Some(kick.clone())), ("Stop kicking".to_string(), None))
+                        }
+                    }
+                    AdditionalCost::Optional { cost, .. } => {
+                        let what = unless_cost_text(vs, cost);
+                        let ask = if cost_text(cost).is_empty() { question(&what) } else { format!("Pay {what}?") };
+                        (format!("{}: {ask}", origin_name(*origin)), "optional", ("Pay it".to_string(), Some(what)), ("Don't pay it".to_string(), None))
+                    }
+                    AdditionalCost::Choice(a, b) => {
+                        let (a, b) = (unless_cost_text(vs, a), unless_cost_text(vs, b));
+                        ("Pay one of these costs".to_string(), "either", (capitalised(&a), None), (capitalised(&b), None))
+                    }
+                    AdditionalCost::Required(_) => return None,
+                };
+                let mut yes = word("pay", pay.0);
+                yes.cost = pay.1;
+                let mut no = word("skip", skip.0);
+                no.cost = skip.1;
+                let mut p = Pending::new(Kind::Pick, Answer::DecideOptionalCost, purpose, prompt, vec![yes, no]).range(1, 1, false).from(vs, Some(pending_cast.object_id));
+                p.default_answer = first(|a| matches!(a, GameAction::DecideOptionalCost { .. })).map(|a| match a {
+                    GameAction::DecideOptionalCost { pay: true } => json!(["pay"]),
+                    _ => json!(["skip"]),
+                });
+                p
+            }
+            WaitingFor::ActivationCostOneOfChoice { player, costs, pending_cast } if *player == me => {
+                // CR 118.12a: one of the ability's costs, among those that can be paid now.
+                let options = costs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        let mut o = word(i.to_string(), capitalised(&unless_cost_text(vs, c)));
+                        o.eligible = candidates.iter().any(|a| matches!(a, GameAction::ChooseActivationCostBranch { index } if *index == i));
+                        o
+                    })
+                    .collect();
+                Pending::new(Kind::Pick, Answer::ChooseCostBranch, "cost_branch", "Choose which cost to pay", options).range(1, 1, false).from(vs, Some(pending_cast.object_id))
+            }
+            WaitingFor::CostTypeChoice { player, choice_type, options, pending_cast } if *player == me => {
+                // A creature type to behold (Celestial Reunion), from the engine's list.
+                let what = serde_json::to_value(choice_type).ok().as_ref().and_then(choice_type_name).unwrap_or_else(|| "type".into());
+                let mut p = Pending::new(Kind::Text, Answer::ChooseOption, "cost_type", format!("Choose a {what}"), options.iter().map(|o| word(o.clone(), o.clone())).collect())
+                    .from(vs, Some(pending_cast.object_id));
+                p.min = 1;
+                p.max = 1;
+                p.free_entry = Some(false);
+                p.choice_type = Some(what);
+                p
+            }
+            WaitingFor::PayCost { player, kind, choices, count: n, min_count, resume } if *player == me => {
+                // CR 601.2h: cards or permanents chosen to pay a cost ("As an additional cost to
+                // cast this spell, discard a card"). Costs measured another way keep the buttons.
+                let (verb, one, many) = match kind {
+                    PayCostKind::Discard => ("Discard", "card", "cards"),
+                    PayCostKind::Reveal => ("Reveal", "card", "cards"),
+                    PayCostKind::Sacrifice => ("Sacrifice", "permanent", "permanents"),
+                    PayCostKind::ReturnToHand => ("Return", "permanent", "permanents"),
+                    PayCostKind::ExileFromZone { .. } | PayCostKind::ExileFromManaZone { .. } => ("Exile", "card", "cards"),
+                    PayCostKind::ExilePermanent { .. } => ("Exile", "permanent", "permanents"),
+                    PayCostKind::TapCreatures { mode: TapCreaturesSelectionMode::Fixed | TapCreaturesSelectionMode::VariableX } => ("Tap", "creature", "creatures"),
+                    _ => return None,
+                };
+                let source = match resume {
+                    CostResume::Spell { spell } | CostResume::SpellCost { spell, .. } => Some((spell.object_id, spell.activation_ability_index.is_some())),
+                    CostResume::ManaAbility { mana_ability } => Some((mana_ability.source_id, true)),
+                    CostResume::Resolution => None,
+                };
+                // An exact count, or at least `min_count` (CR 118.3).
+                let (lo, up) = if *min_count > 0 && *min_count < *n { (*min_count, true) } else { (*n, false) };
+                let what = if up { format!("up to {}", count(*n, one, many)) } else { a_or(*n, one, many) };
+                let why = match source {
+                    Some((id, false)) => format!(" to cast {}", Match::name_in(vs, &id)),
+                    Some((id, true)) => format!(" to activate {}", Match::name_in(vs, &id)),
+                    None => String::new(),
+                };
+                Pending::new(Kind::Pick, Answer::SelectCards, "cost", format!("{verb} {what}{why}"), cards(vs, choices)).range(lo, *n, up).from(vs, source.map(|s| s.0))
+            }
+            WaitingFor::WardDiscardChoice { player, cards: ids, pending_effect, remaining, .. } if *player == me => {
+                // Ward is being paid (the yes came first): the card to discard, one at a time.
+                let more = if *remaining > 1 { format!(", {remaining} to go") } else { String::new() };
+                Pending::new(Kind::Pick, Answer::SelectCards, "ward", format!("Ward: discard a card{more}"), cards(vs, ids)).range(1, 1, false).from(vs, Some(pending_effect.source_id))
+            }
+            WaitingFor::WardSacrificeChoice { player, permanents, pending_effect, remaining, min_total_power } if *player == me => {
+                let mut options = cards(vs, permanents);
+                match min_total_power {
+                    // Permanents whose total power reaches the threshold (CR 118.12a).
+                    Some(need) => {
+                        for o in &mut options {
+                            o.power = vs.objects.get(&ObjectId(o.id.parse().unwrap_or(0))).and_then(|c| c.power);
+                        }
+                        let n = options.len();
+                        let mut p = Pending::new(Kind::Pick, Answer::SelectCards, "ward", format!("Ward: sacrifice permanents with total power {need} or more"), options)
+                            .range(usize::from(*need > 0), n, true)
+                            .from(vs, Some(pending_effect.source_id));
+                        p.need = Some((*need).max(0) as u32);
+                        p
+                    }
+                    None => {
+                        let more = if *remaining > 1 { format!(", {remaining} to go") } else { String::new() };
+                        Pending::new(Kind::Pick, Answer::SelectCards, "ward", format!("Ward: sacrifice a permanent{more}"), options).range(1, 1, false).from(vs, Some(pending_effect.source_id))
+                    }
+                }
+            }
+            WaitingFor::UnlessBounceChoice { player, permanents, pending_effect, remaining } if *player == me => {
+                let more = if *remaining > 1 { format!(", {remaining} to go") } else { String::new() };
+                Pending::new(Kind::Pick, Answer::SelectCards, "return", format!("Return a permanent to its owner's hand{more}"), cards(vs, permanents))
+                    .range(1, 1, false)
+                    .from(vs, Some(pending_effect.source_id))
             }
             _ => return None,
         };
@@ -1039,6 +1436,38 @@ impl Pending {
                     _ => Ok(()),
                 }
             }
+            (Answer::TapMana, Act::TapMana { source, .. }) => {
+                if self.eligible(&source.to_string()) { Ok(()) } else { Err("That can't be sacrificed for this.".into()) }
+            }
+            (Answer::TapMana, Act::KeepMana) => Ok(()),
+            (Answer::ChooseManaColor, Act::ChooseManaColor { mana, combination }) => {
+                let ok = match self.purpose {
+                    "color" => !combination && mana.len() == 1 && self.eligible(&mana[0]),
+                    "combo" => *combination && self.eligible(&mana.concat()),
+                    _ => *combination && Some(mana.len() as u32) == self.total && mana.iter().all(|m| self.eligible(m)),
+                };
+                if ok { Ok(()) } else { Err("Choose from the colours offered.".into()) }
+            }
+            (Answer::PayManaAbilityMana, Act::PayManaAbilityMana { mana }) => {
+                if self.eligible(&mana.concat()) { Ok(()) } else { Err("That isn't one of the ways to pay it.".into()) }
+            }
+            (Answer::PayPhyrexian, Act::PayPhyrexian { life }) => {
+                if life.len() != self.shards.len() {
+                    return Err("Choose mana or life for each Phyrexian symbol.".into());
+                }
+                for (paid_life, how) in life.iter().zip(&self.shards) {
+                    match (how, paid_life) {
+                        (ShardOptions::ManaOnly, true) => return Err("That symbol can only be paid with mana.".into()),
+                        (ShardOptions::LifeOnly, false) => return Err("That symbol can only be paid with 2 life.".into()),
+                        _ => {}
+                    }
+                }
+                Ok(())
+            }
+            (Answer::DecideOptionalCost, Act::DecideOptionalCost { .. }) => Ok(()),
+            (Answer::ChooseCostBranch, Act::ChooseCostBranch { index }) => {
+                if self.eligible(&index.to_string()) { Ok(()) } else { Err("That cost can't be paid now.".into()) }
+            }
             _ => Err("That answer doesn't fit this decision.".into()),
         }
     }
@@ -1213,6 +1642,50 @@ pub enum Act {
     /// Ask everyone to let the whole stack resolve (GTogether's consent tab). Each other player
     /// agrees or keeps priority; AI seats agree at once.
     ResolveAll,
+    // Paying (play/src/pay.rs, GPay, GMana, GCosts).
+    /// Cast a spell the engine offers, paying as the seat's "Tap mana for me" setting says.
+    CastSpell {
+        object: u64,
+        #[serde(default)]
+        payment: PayMode,
+    },
+    /// Use a mana source while paying: tap a land, activate a mana ability, sacrifice a source,
+    /// tap a creature for convoke or exile a card for delve. `choice` is a key from
+    /// `PaymentView::sources` (`pay::mana_key`); without one, the source's first.
+    TapMana {
+        source: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        choice: Option<String>,
+    },
+    /// Untap a source tapped by hand whose mana is still in the pool (CR 605.3b): only sources
+    /// that just make mana.
+    UntapMana {
+        source: u64,
+    },
+    /// Don't sacrifice a source for mana; pay by hand instead (the Treasure prompt's "Keep it").
+    KeepMana,
+    /// The mana a source or effect adds: one colour, or (`combination`) one letter per mana.
+    ChooseManaColor {
+        mana: Vec<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        combination: bool,
+    },
+    /// The mana that pays a mana ability's own hybrid cost, one letter per hybrid symbol.
+    PayManaAbilityMana {
+        mana: Vec<String>,
+    },
+    /// Phyrexian mana: for each Phyrexian symbol in order, whether it's paid with 2 life.
+    PayPhyrexian {
+        life: Vec<bool>,
+    },
+    /// Pay an optional additional cost such as kicker (or the first of two costs), or don't.
+    DecideOptionalCost {
+        pay: bool,
+    },
+    /// Which of an activation's alternative costs to pay.
+    ChooseCostBranch {
+        index: usize,
+    },
 }
 
 /// How a trigger yield changes (`Act::SetPriorityYield`).
@@ -1261,9 +1734,10 @@ impl TargetView {
 }
 
 impl Act {
-    /// The engine action this answer stands for.
-    pub fn to_action(&self) -> GameAction {
-        match self {
+    /// The engine action this answer stands for. `None` for a cast and a mana tap, which are
+    /// matched to the engine's own options when they're answered (`answer`).
+    pub fn to_action(&self) -> Option<GameAction> {
+        Some(match self {
             Act::SelectCards { cards } => GameAction::SelectCards { cards: cards.iter().map(|c| ObjectId(*c)).collect() },
             Act::OrderTriggers { order } => GameAction::OrderTriggers { order: order.clone() },
             Act::SelectModes { indices } => GameAction::SelectModes { indices: indices.clone() },
@@ -1321,7 +1795,23 @@ impl Act {
             Act::ReorderHand { order } => GameAction::ReorderHand { order: order.iter().map(|c| ObjectId(*c)).collect() },
             // No cap on how much resolves (phase's 0); the table-wide form, which asks everyone.
             Act::ResolveAll => GameAction::BeginResolveAll { max_resolutions: 0, scope: ResolveAllScope::Shared },
-        }
+            Act::CastSpell { .. } | Act::TapMana { .. } => return None,
+            Act::UntapMana { source } => GameAction::UntapLandForMana { object_id: ObjectId(*source) },
+            Act::KeepMana => GameAction::BackToManaPayment,
+            Act::ChooseManaColor { mana, combination } => {
+                let types = mana.iter().map(|m| mana_type(m)).collect::<Option<Vec<_>>>()?;
+                GameAction::ChooseManaColor {
+                    choice: if *combination { ManaChoice::Combination(types) } else { ManaChoice::SingleColor(*types.first()?) },
+                    count: 1,
+                }
+            }
+            Act::PayManaAbilityMana { mana } => GameAction::PayManaAbilityMana { payment: mana.iter().map(|m| mana_type(m)).collect::<Option<Vec<_>>>()? },
+            Act::PayPhyrexian { life } => GameAction::SubmitPhyrexianChoices {
+                choices: life.iter().map(|l| if *l { ShardChoice::PayLife } else { ShardChoice::PayMana }).collect(),
+            },
+            Act::DecideOptionalCost { pay } => GameAction::DecideOptionalCost { pay: *pay },
+            Act::ChooseCostBranch { index } => GameAction::ChooseActivationCostBranch { index: *index },
+        })
     }
 
     /// A seat's own setting, which the engine takes in any state from that seat (it changes
@@ -1389,8 +1879,34 @@ impl Act {
             },
             GameAction::ReorderHand { order } => Act::ReorderHand { order: order.iter().map(|c| c.0).collect() },
             GameAction::BeginResolveAll { max_resolutions: 0, scope: ResolveAllScope::Shared } => Act::ResolveAll,
+            // The seat's own setting is the engine's choice ("ask") when it's what the engine offered.
+            GameAction::CastSpell { object_id, .. } => Act::CastSpell { object: object_id.0, payment: PayMode::Ask },
+            GameAction::TapLandForMana { .. } | GameAction::ActivateManaSource { .. } | GameAction::TapForConvoke { .. } => {
+                let (source, key) = pay::mana_key(action)?;
+                Act::TapMana { source, choice: Some(key) }
+            }
+            GameAction::UntapLandForMana { object_id } => Act::UntapMana { source: object_id.0 },
+            GameAction::BackToManaPayment => Act::KeepMana,
+            // Several sources at once (`count` > 1) keep the buttons.
+            GameAction::ChooseManaColor { choice, count: 1 } => match choice {
+                ManaChoice::SingleColor(t) => Act::ChooseManaColor { mana: vec![mana_code(*t).into()], combination: false },
+                ManaChoice::Combination(v) => Act::ChooseManaColor { mana: v.iter().map(|t| mana_code(*t).into()).collect(), combination: true },
+            },
+            GameAction::PayManaAbilityMana { payment } => Act::PayManaAbilityMana { mana: payment.iter().map(|t| mana_code(*t).into()).collect() },
+            GameAction::SubmitPhyrexianChoices { choices } => Act::PayPhyrexian { life: choices.iter().map(|c| *c == ShardChoice::PayLife).collect() },
+            GameAction::DecideOptionalCost { pay } => Act::DecideOptionalCost { pay: *pay },
+            GameAction::ChooseActivationCostBranch { index } => Act::ChooseCostBranch { index: *index },
             _ => return None,
         })
+    }
+
+    /// A mana ability used while paying is answered as a tap (`TapMana`); anywhere else it's an
+    /// ordinary option.
+    pub fn from_payment_action(action: &GameAction) -> Option<Act> {
+        match action {
+            GameAction::ActivateAbility { .. } => pay::mana_key(action).map(|(source, key)| Act::TapMana { source, choice: Some(key) }),
+            other => Act::from_action(other),
+        }
     }
 
     /// Short name for counts and messages ("select_cards").
@@ -1423,6 +1939,15 @@ impl Act {
             Act::SetPriorityYield { .. } => "set_priority_yield",
             Act::ReorderHand { .. } => "reorder_hand",
             Act::ResolveAll => "resolve_all",
+            Act::CastSpell { .. } => "cast_spell",
+            Act::TapMana { .. } => "tap_mana",
+            Act::UntapMana { .. } => "untap_mana",
+            Act::KeepMana => "keep_mana",
+            Act::ChooseManaColor { .. } => "choose_mana_color",
+            Act::PayManaAbilityMana { .. } => "pay_mana_ability_mana",
+            Act::PayPhyrexian { .. } => "pay_phyrexian",
+            Act::DecideOptionalCost { .. } => "decide_optional_cost",
+            Act::ChooseCostBranch { .. } => "choose_cost_branch",
         }
     }
 }
@@ -1442,7 +1967,9 @@ pub enum Refusal {
 pub struct Answered {
     /// Who submitted it (differs from the deciding seat when someone controls that player).
     pub actor: PlayerId,
-    pub action: GameAction,
+    /// The engine actions it took, in order (cancelling a payment untaps what it can first).
+    pub actions: Vec<GameAction>,
+    /// The last action's result, with the earlier ones' events and log lines before its own.
     pub result: ActionResult,
 }
 
@@ -1490,14 +2017,15 @@ fn check_preference(state: &GameState, owner: PlayerId, act: &Act) -> Result<(),
 /// A seat's own settings ([`Act::is_preference`]) aren't answers: they're checked against the
 /// seat's own records and applied whoever is deciding, as the engine allows.
 pub fn answer(state: &mut GameState, owner: PlayerId, act: &Act) -> Result<Answered, Refusal> {
+    let doesnt_fit = |why: &str| Refusal::DoesntFit(why.to_string());
     if act.is_preference() {
         check_preference(state, owner, act).map_err(Refusal::DoesntFit)?;
-        let action = act.to_action();
+        let action = act.to_action().ok_or_else(|| doesnt_fit("That setting can't be changed."))?;
         let mut next = state.clone();
         return match engine::game::engine::apply(&mut next, owner, action.clone()) {
             Ok(result) => {
                 *state = next;
-                Ok(Answered { actor: owner, action, result })
+                Ok(Answered { actor: owner, actions: vec![action], result })
             }
             Err(e) => Err(Refusal::Engine(e.to_string())),
         };
@@ -1507,39 +2035,89 @@ pub fn answer(state: &mut GameState, owner: PlayerId, act: &Act) -> Result<Answe
     }
     let contract = AiDecisionContract::issue(state, owner);
     let candidates: Vec<GameAction> = contract.candidates.iter().map(|c| c.action.clone()).collect();
-    if matches!(act, Act::ResolveAll) {
-        // Only from the seat holding priority, with something to resolve (CR 117.3d).
-        if !matches!(state.waiting_for, WaitingFor::Priority { player } if player == owner) {
-            return Err(Refusal::DoesntFit("You can ask to resolve everything only when it's your priority.".into()));
+    let actions: Vec<GameAction> = match act {
+        Act::ResolveAll => {
+            // Only from the seat holding priority, with something to resolve (CR 117.3d).
+            if !matches!(state.waiting_for, WaitingFor::Priority { player } if player == owner) {
+                return Err(doesnt_fit("You can ask to resolve everything only when it's your priority."));
+            }
+            if state.stack.is_empty() {
+                return Err(doesnt_fit("There's nothing on the stack to resolve."));
+            }
+            vec![GameAction::BeginResolveAll { max_resolutions: 0, scope: ResolveAllScope::Shared }]
         }
-        if state.stack.is_empty() {
-            return Err(Refusal::DoesntFit("There's nothing on the stack to resolve.".into()));
+        Act::CancelCast => {
+            // Cancelling is allowed exactly where the engine offers it.
+            if !candidates.iter().any(|a| matches!(a, GameAction::CancelCast)) {
+                return Err(doesnt_fit("There's nothing to cancel now."));
+            }
+            // Backing out of a cast while paying by hand untaps first what the engine can give
+            // back, so their mana leaves the pool (CR 601.2, 605.3b); a painland's damage or a
+            // sacrificed Treasure stays (`PaymentView::kept`).
+            let mut out = Vec::new();
+            if matches!(state.waiting_for, WaitingFor::ManaPayment { player, .. } if player == owner) {
+                let mut ids = state.lands_tapped_for_mana.get(&owner).cloned().unwrap_or_default();
+                ids.dedup();
+                out.extend(ids.into_iter().map(|object_id| GameAction::UntapLandForMana { object_id }));
+            }
+            out.push(GameAction::CancelCast);
+            out
         }
-    } else if matches!(act, Act::CancelCast) {
-        // Cancelling is allowed exactly where the engine offers it.
-        if !candidates.iter().any(|a| matches!(a, GameAction::CancelCast)) {
-            return Err(Refusal::DoesntFit("There's nothing to cancel now.".into()));
+        Act::CastSpell { object, payment } => {
+            if !matches!(state.waiting_for, WaitingFor::Priority { player } if player == owner) {
+                return Err(doesnt_fit("You can cast a spell when it's your priority."));
+            }
+            vec![pay::cast_action(&candidates, *object, *payment).ok_or_else(|| doesnt_fit("That card can't be cast now."))?]
         }
-    }
-    let mut act = act.clone();
-    if !matches!(act, Act::ResolveAll | Act::CancelCast) {
-        let vs = filter_state_for_viewer(state, owner);
-        let Some(pending) = Pending::of(&vs, owner, &candidates, &[]) else {
-            return Err(Refusal::DoesntFit("Answer this one with the buttons.".into()));
-        };
-        pending.admits(&act).map_err(Refusal::DoesntFit)?;
-        act = pending.normalize(&act);
-    }
+        Act::TapMana { source, choice } => {
+            if !pay::paying(&state.waiting_for, owner) {
+                return Err(doesnt_fit("There's nothing to pay for now."));
+            }
+            vec![pay::find_mana_action(&candidates, *source, choice.as_deref()).cloned().ok_or_else(|| doesnt_fit("That can't be used for mana now."))?]
+        }
+        Act::UntapMana { source } => {
+            let tapped = state.lands_tapped_for_mana.get(&owner).is_some_and(|ids| ids.contains(&ObjectId(*source)));
+            if !matches!(state.waiting_for, WaitingFor::ManaPayment { player, .. } if player == owner) || !tapped {
+                return Err(doesnt_fit("Only a source that just makes mana, tapped while you pay, can be untapped."));
+            }
+            vec![GameAction::UntapLandForMana { object_id: ObjectId(*source) }]
+        }
+        _ => {
+            let vs = filter_state_for_viewer(state, owner);
+            let Some(pending) = Pending::of(&vs, owner, &candidates, &[]) else {
+                return Err(doesnt_fit("Answer this one with the buttons."));
+            };
+            pending.admits(act).map_err(Refusal::DoesntFit)?;
+            let action = pending.normalize(act).to_action().ok_or_else(|| doesnt_fit("That answer doesn't fit this decision."))?;
+            // Phyrexian mana: only a way the mana on hand can pay.
+            if let (GameAction::SubmitPhyrexianChoices { choices }, WaitingFor::PhyrexianPayment { spell_object, .. }) = (&action, &state.waiting_for)
+                && !engine::game::casting::pending_phyrexian_route_is_payable(state, owner, *spell_object, choices)
+            {
+                return Err(doesnt_fit("There isn't the mana to pay that way."));
+            }
+            vec![action]
+        }
+    };
     let actor = contract.authorized_actor;
-    let action = act.to_action();
     let mut next = state.clone();
-    match apply_interaction(&mut next, actor, owner, action.clone()) {
-        Ok(result) => {
-            *state = next;
-            Ok(Answered { actor, action, result })
+    let mut result: Option<ActionResult> = None;
+    for action in &actions {
+        match apply_interaction(&mut next, actor, owner, action.clone()) {
+            Ok(r) => {
+                result = Some(match result {
+                    None => r,
+                    Some(mut before) => {
+                        before.events.extend(r.events);
+                        before.log_entries.extend(r.log_entries);
+                        ActionResult { events: before.events, log_entries: before.log_entries, ..r }
+                    }
+                });
+            }
+            Err(e) => return Err(Refusal::Engine(e.to_string())),
         }
-        Err(e) => Err(Refusal::Engine(e.to_string())),
     }
+    *state = next;
+    Ok(Answered { actor, actions, result: result.expect("an answer is at least one action") })
 }
 
 #[cfg(test)]
@@ -1694,7 +2272,7 @@ mod tests {
         assert_eq!(json, json!({ "kind": "decide_optional_effect_and_remember", "accept": true }));
         assert_eq!(
             remember(true).to_action(),
-            GameAction::DecideOptionalEffectAndRemember { choice: AutoMayChoice::Accept, scope: MayTriggerAutoChoiceScope::SameCard }
+            Some(GameAction::DecideOptionalEffectAndRemember { choice: AutoMayChoice::Accept, scope: MayTriggerAutoChoiceScope::SameCard })
         );
     }
 
@@ -1766,7 +2344,7 @@ mod tests {
         assert!(p.admits(&Act::ChoosePair { partner: Some(other.0) }).is_ok());
         assert!(p.admits(&Act::ChoosePair { partner: None }).is_ok());
         assert!(p.admits(&Act::ChoosePair { partner: Some(src.0) }).is_err());
-        assert_eq!(Act::ChoosePair { partner: Some(other.0) }.to_action(), GameAction::ChoosePair { partner: Some(other) });
+        assert_eq!(Act::ChoosePair { partner: Some(other.0) }.to_action(), Some(GameAction::ChoosePair { partner: Some(other) }));
     }
 
     #[test]
