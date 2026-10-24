@@ -228,6 +228,11 @@ pub struct Paired {
     /// Pods where both games were scored but on different builds: left out of the difference.
     #[serde(default)]
     pub split_builds: u32,
+    /// While the verdict can't tell: about how many paired pods in all would settle it if the
+    /// difference stayed where it is ([`pods_to_settle`]). None when it is settled, too close to
+    /// zero for any sensible number of games, or too early to say.
+    #[serde(default)]
+    pub settle_pods: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -337,6 +342,30 @@ pub fn verdict(paired: &Paired, is_final: bool) -> Verdict {
     }
 }
 
+/// Most pods [`pods_to_settle`] will name; beyond that it says nothing.
+const SETTLE_MAX: f64 = 20_000.0;
+
+/// About how many paired pods in all an unclear difference needs before its interval clears zero by
+/// the verdict's whole point, if the difference and the share of pods where only one list won stay
+/// as they are: n >= Z^2 (p - d^2) / (|d| - 0.0075)^2, where p is that share and d the difference
+/// (the normal interval for matched pairs, aiming a quarter point past the half point that rounds
+/// to +1, so Agresti-Min's half pods don't keep it just short). A projection, not a
+/// promise: a real difference smaller than this one needs more games. None while the verdict
+/// can't tell for fewer than [`MIN_PODS`] pods, for a difference under 2 points, or past
+/// [`SETTLE_MAX`].
+pub fn pods_to_settle(paired: &Paired) -> Option<u32> {
+    let d = paired.delta_win_rate?;
+    if paired.pods < MIN_PODS || d.abs() < 0.02 {
+        return None;
+    }
+    let n = f64::from(paired.pods);
+    let p = f64::from(paired.variant_only + paired.base_only) / n;
+    let need = (Z * Z * (p - d * d).max(0.0) / (d.abs() - 0.0075).powi(2)).ceil();
+    // The half pods the interval adds can keep it unclear a little past the plain formula.
+    let need = need.max(n + 10.0);
+    (need <= SETTLE_MAX).then_some(need as u32)
+}
+
 /// The experiment's summary from its games so far, in play order. `is_final` marks a summary no
 /// later game can change.
 pub fn summarize(outcomes: &[Outcome], is_final: bool) -> Summary {
@@ -417,6 +446,9 @@ pub fn summarize(outcomes: &[Outcome], is_final: bool) -> Summary {
         paired.delta_avg_place_ci = ci;
     }
     let verdict = verdict(&paired, is_final);
+    if verdict.kind == VerdictKind::Unclear {
+        paired.settle_pods = pods_to_settle(&paired);
+    }
     Summary {
         level: LEVEL,
         pods: pods.len() as u32,
@@ -855,6 +887,32 @@ mod tests {
         assert!(lo < -0.01 && hi > 0.01 && (lo + hi).abs() < 1e-12);
         assert_eq!(matched_difference(0, 0, 0), None);
         assert_eq!(matched_difference(3, 3, 5), None);
+    }
+
+    #[test]
+    fn pods_to_settle_projects_the_difference_as_it_is() {
+        let paired = |pods, variant_only, base_only| {
+            let mut p = Paired { pods, variant_only, base_only, ..Paired::default() };
+            p.delta_win_rate = matched_difference(variant_only, base_only, pods).map(|(d, _)| d);
+            p
+        };
+        // Run 7cc7910c (2026-10-23): +6 points on 83 phase pods and on 94 Forge pods, both unclear.
+        assert_eq!(pods_to_settle(&paired(83, 14, 9)), Some(267));
+        assert_eq!(pods_to_settle(&paired(94, 22, 16)), Some(342));
+        // At that size, with the same shares, the interval clears zero by the verdict's point.
+        for (n, b, c) in [(83u32, 14u32, 9u32), (94, 22, 16)] {
+            let need = pods_to_settle(&paired(n, b, c)).unwrap();
+            let scale = |x: u32| (f64::from(x) * f64::from(need) / f64::from(n)).round() as u32;
+            let (_, [lo, _]) = matched_difference(scale(b), scale(c), need).unwrap();
+            assert!(whole_points(lo) >= 1, "{need} pods: low end {lo}");
+        }
+        // Too early, or too close to zero to name a number.
+        assert_eq!(pods_to_settle(&paired(8, 3, 1)), None);
+        assert_eq!(pods_to_settle(&paired(100, 11, 10)), None);
+        assert_eq!(pods_to_settle(&Paired::default()), None);
+        // A summary names it only while the verdict can't tell.
+        let unclear = summarize(&[], true);
+        assert_eq!(unclear.paired.settle_pods, None);
     }
 
     /// The closed-form interval against analyze.py's method (percentile bootstrap over pods, 2000

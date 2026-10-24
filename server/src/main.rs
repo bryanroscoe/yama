@@ -38,6 +38,14 @@ use anyhow::Context;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
+/// mimalloc, as the lab's batch runner uses. On glibc's malloc the server held 2.5 GB with one lab
+/// game playing (it starts at 0.7 GB), reached its 3 GB container cap, and every allocation then
+/// waited on the kernel reclaiming pages: games that play in a minute or two on the batch runner
+/// ran out of CPU time at turn 7 or were written off as hung (2026-10-23, run 7cc7910c). glibc
+/// keeps freed memory in per-thread arenas; mimalloc gives it back.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 const USAGE: &str = "\
 yama-server — Yama backend
 

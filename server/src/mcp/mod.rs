@@ -25,7 +25,7 @@
 //! tool name and outcome only, never arguments or results.
 
 pub mod changes;
-mod tools;
+pub(crate) mod tools;
 
 use crate::auth::User;
 use crate::error::AppError;

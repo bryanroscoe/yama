@@ -214,6 +214,7 @@ export function toolActivity(name: string): string {
       return "Checking a list…";
     case "lab_runs":
     case "lab_run":
+    case "lab_games":
       return "Reading lab results…";
     case "precon":
       return "Reading a precon…";
@@ -225,6 +226,9 @@ export function toolActivity(name: string): string {
     case "mark_bought":
     case "mark_installed":
     case "start_lab_run":
+    case "more_lab_games":
+    case "run_lab_again":
+    case "cancel_lab_run":
     case "add_to_collection":
     case "move_cards":
       return "Staging a change for your review…";

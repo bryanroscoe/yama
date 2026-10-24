@@ -85,6 +85,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/lab/experiments/{id}", get(detail_handler).delete(delete_handler))
         .route("/api/lab/experiments/{id}/cancel", post(cancel_handler))
         .route("/api/lab/experiments/{id}/again", post(again_handler))
+        .route("/api/lab/experiments/{id}/more", post(more_handler))
         .route("/api/lab/experiments/{id}/pods", get(pods_handler))
         .route("/api/lab/pace", get(pace_handler))
         .route("/api/lab/engines/check", post(engines_check_handler))
@@ -258,7 +259,8 @@ fn copies(qty: i64) -> u32 {
     u32::try_from(qty).unwrap_or(u32::MAX)
 }
 
-fn list_text(cards: &[LabCard]) -> String {
+/// A list in the lab runner's deck format (`yama_play::lab::parse_deck`).
+pub fn list_text(cards: &[LabCard]) -> String {
     let line = |c: &LabCard| format!("{} {}\n", c.qty, c.name);
     let commanders: String = cards.iter().filter(|c| c.commander).map(line).collect();
     let main: String = cards.iter().filter(|c| !c.commander).map(line).collect();
@@ -650,6 +652,13 @@ pub(crate) struct EngineGame {
 /// "both" run they get their own ids ("…-f") and come after every phase game, at an even offset,
 /// so a pod's two games stay adjacent in both halves.
 pub(crate) fn for_engines(games: Vec<pairing::ScheduledGame>, mode: EngineMode) -> Vec<EngineGame> {
+    let offset = (games.iter().map(|g| g.ord).max().unwrap_or(-1) + 2) & !1;
+    for_engines_at(games, mode, offset)
+}
+
+/// [`for_engines`] with a "both" run's Forge copies `forge_offset` (even) after their phase games
+/// in play order: the offset the run was made with, when games are added to it later.
+fn for_engines_at(games: Vec<pairing::ScheduledGame>, mode: EngineMode, forge_offset: i64) -> Vec<EngineGame> {
     let forge_copy = |mut g: pairing::ScheduledGame| {
         g.spec.max_seconds = forge::FORGE_MAX_SECONDS;
         g
@@ -658,7 +667,7 @@ pub(crate) fn for_engines(games: Vec<pairing::ScheduledGame>, mode: EngineMode) 
         EngineMode::Phase => games.into_iter().map(|game| EngineGame { game, engine: "phase" }).collect(),
         EngineMode::Forge => games.into_iter().map(|g| EngineGame { game: forge_copy(g), engine: "forge" }).collect(),
         EngineMode::Both => {
-            let offset = (games.iter().map(|g| g.ord).max().unwrap_or(-1) + 2) & !1;
+            let offset = forge_offset;
             let forge: Vec<EngineGame> = games
                 .iter()
                 .cloned()
@@ -1133,7 +1142,7 @@ async fn by_op_id(pool: &SqlitePool, user: &User, op_id: Option<&str>) -> AppRes
 }
 
 /// Whether `user` may ask for `games` games.
-fn check_games(user: &User, games: u32) -> AppResult<()> {
+pub(crate) fn check_games(user: &User, games: u32) -> AppResult<()> {
     let ok = if user.is_admin { games >= 2 && games <= ADMIN_MAX_GAMES && games % 2 == 0 } else { game_choices(user).contains(&games) };
     if ok {
         return Ok(());
@@ -1644,6 +1653,13 @@ async fn store_new(
         .bind(&stamp)
         .execute(&mut *tx)
         .await?;
+    insert_games(&mut tx, id, games).await?;
+    tx.commit().await?;
+    detail(pool, &user.id, id).await
+}
+
+/// Write an experiment's scheduled games, unplayed.
+async fn insert_games(conn: &mut SqliteConnection, id: &str, games: &[EngineGame]) -> AppResult<()> {
     const COLS: usize = 5;
     const CHUNK: usize = 200;
     for chunk in games.chunks(CHUNK) {
@@ -1655,10 +1671,9 @@ async fn store_new(
         for g in chunk {
             q = q.bind(id).bind(&g.game.game).bind(g.game.ord).bind(serde_json::to_string(&g.game.spec).map_err(anyhow::Error::from)?).bind(g.engine);
         }
-        q.execute(&mut *tx).await?;
+        q.execute(&mut *conn).await?;
     }
-    tx.commit().await?;
-    detail(pool, &user.id, id).await
+    Ok(())
 }
 
 /// A run's name without a " (N games)" ending that an earlier "again" added.
@@ -1786,6 +1801,158 @@ pub async fn again_with(
     let name = format!("{}{suffix}", stem.chars().take(MAX_NAME.saturating_sub(suffix.chars().count())).collect::<String>());
     let games = for_engines(scheduled, engines.mode);
     store_new(pool, user, &new_id, op_id, &name, &spec, &games, cost, sim, quota, fa.engine.as_deref()).await
+}
+
+/// Most games one engine plays in a run that games are added to.
+pub const MAX_RUN_GAMES: usize = 4_000;
+
+/// [`more_with`] under the default lab caps (tests).
+#[cfg(test)]
+pub async fn more(pool: &SqlitePool, user: &User, id: &str, games: u32, seen_pods: usize, sim: &dyn Simulator) -> AppResult<ExperimentDetail> {
+    more_with(pool, user, id, games, seen_pods, sim, &LabQuota::default(), &ForgeAccess::default()).await
+}
+
+/// Add `games` games (per engine) to one of the owner's finished experiments: more pods on the
+/// same frozen lists, opponents, AI level and engines, continuing its schedule from the same seed
+/// (new pods, new shuffles), so the results so far and the new ones make one summary. `seen_pods`
+/// is the pod count the caller saw: a request repeated after it was applied changes nothing.
+/// Change, compare and solo runs only, and only while the engine that played them is the one
+/// this server has (results from another engine are never pooled; run it again instead).
+/// Anyone else's experiment is "not found".
+#[allow(clippy::too_many_arguments)]
+pub async fn more_with(
+    pool: &SqlitePool,
+    user: &User,
+    id: &str,
+    games: u32,
+    seen_pods: usize,
+    sim: &dyn Simulator,
+    quota: &LabQuota,
+    fa: &ForgeAccess,
+) -> AppResult<ExperimentDetail> {
+    let (status, text): (String, String) = sqlx::query_as("SELECT status, spec FROM lab_experiments WHERE id = ? AND owner_id = ?")
+        .bind(id)
+        .bind(&user.id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(AppError::NotFound("experiment"))?;
+    let old: ExperimentSpec = serde_json::from_str(&text).map_err(anyhow::Error::from)?;
+    if old.pods != seen_pods {
+        // Applied already (a retried request), or changed since the page loaded.
+        return detail(pool, &user.id, id).await;
+    }
+    if status != "done" {
+        return Err(AppError::Conflict(match status.as_str() {
+            "queued" | "running" => "This run is still playing. Add games once it has finished.".into(),
+            _ => "Only a finished run takes more games. Run this one again instead.".into(),
+        }));
+    }
+    if old.mode == Mode::Versus {
+        return Err(AppError::bad("A head-to-head run can't take more games yet. Run it again with more games instead."));
+    }
+    check_games(user, games)?;
+    if !user.is_admin && !USER_DIFFICULTIES.contains(&old.difficulty.as_str()) {
+        return Err(AppError::bad("difficulty must be Easy or Medium"));
+    }
+    let engines = old.engines.clone();
+    if engines.mode.forge() && fa.client.is_none() {
+        return Err(AppError::Unavailable("Forge isn't set up on this server any more; start a new run on phase".into()));
+    }
+    let new_pods = if old.mode == Mode::Solo { games as usize } else { (games / 2) as usize };
+    let pods = old.pods + new_pods;
+    let per_engine = if old.mode == Mode::Solo { pods } else { pods * 2 };
+    if per_engine > MAX_RUN_GAMES {
+        return Err(AppError::bad(format!("A run holds at most {MAX_RUN_GAMES} games on each engine; run it again instead")));
+    }
+    // Pool results from one engine only: games played on an earlier engine say nothing about this one.
+    let played: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT DISTINCT engine, CASE WHEN json_valid(result) THEN json_extract(result, '$.engine') END
+         FROM lab_experiment_games WHERE experiment_id = ? AND result IS NOT NULL",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await?;
+    let earlier = |which: &str, now: &str| played.iter().any(|(e, label)| e == which && label.as_deref().is_some_and(|l| l != now));
+    if engines.mode.phase() && earlier("phase", ENGINE) {
+        return Err(AppError::Conflict(format!(
+            "This run's games were played on an earlier phase engine than this server's ({ENGINE}), so new games can't join them. Run it again instead."
+        )));
+    }
+    if let Some(now) = fa.engine.as_deref()
+        && engines.mode.forge()
+        && earlier("forge", now)
+    {
+        return Err(AppError::Conflict(format!(
+            "This run's Forge games were played on another Forge version than the worker's ({now}), so new games can't join them. Run it again instead."
+        )));
+    }
+    let cost = engines.mode.cost(games);
+    check_allowance(&mut *pool.acquire().await?, user, cost, quota, false).await?;
+    let chk = Check { sim, phase: engines.mode.phase(), forge: if engines.mode.forge() { fa.cards.as_deref() } else { None } };
+    let mut tested: Vec<(Which, &LabList, &[String])> = vec![(Which::Base, &old.base, &[])];
+    if let Some(v) = &old.variant {
+        tested.push((Which::Variant, v, &[]));
+    }
+    refuse_unknown(&tested, &chk)?;
+    let field: Vec<LabList> = old.opponents.iter().map(|o| o.list.clone()).collect();
+    let unplayable: Vec<String> = field.iter().filter(|l| !chk.unknown(&l.cards).is_empty()).map(|l| l.label.clone()).collect();
+    if !unplayable.is_empty() {
+        return Err(AppError::bad(format!("Some opponents now have cards the simulator can't play: {}", shown(&unplayable))));
+    }
+    if field.len() < MIN_FIELD {
+        return Err(AppError::bad("This run's field is too small to fill new pods; start a new run instead"));
+    }
+    // The schedule continues: the same seed's templates past the ones already played.
+    let field_ids: Vec<String> = field.iter().map(|l| l.id.clone()).collect();
+    let every = old.display.field.every_pod.min(field.len()).min(POD - 1);
+    let templates: Vec<pairing::Template> = pairing::templates_with(field.len(), every, pods, old.seed).split_off(old.pods);
+    let prefix: String = id.chars().take(8).collect();
+    let scheduled = if old.mode == Mode::Solo {
+        pairing::schedule_solo(&prefix, &templates, &field_ids, &old.difficulty, &old.limits)
+    } else {
+        pairing::schedule(&prefix, &templates, &field_ids, &old.difficulty, &old.limits)
+    };
+    let per_pod = old.mode != Mode::Solo;
+    let mut spec = old;
+    for o in &mut spec.opponents {
+        o.pods += scheduled.iter().filter(|g| (!per_pod || g.ord % 2 == 0) && g.spec.decks.contains(&o.list.id)).count();
+    }
+    spec.pods = pods;
+    let forge_offset: Option<i64> =
+        sqlx::query_scalar("SELECT MIN(ord) FROM lab_experiment_games WHERE experiment_id = ? AND engine = 'forge'").bind(id).fetch_one(pool).await?;
+    let added = for_engines_at(scheduled, engines.mode, forge_offset.unwrap_or(0));
+    let stamp = now();
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    // Only the run as the caller saw it, finished: a concurrent add, cancel or delete wins.
+    let updated = sqlx::query(
+        "UPDATE lab_experiments SET spec = ?, games_total = games_total + ?, status = 'queued', finished_at = NULL, error = NULL, updated_at = ?
+         WHERE id = ? AND owner_id = ? AND status = 'done' AND json_extract(spec, '$.pods') = ?",
+    )
+    .bind(serde_json::to_string(&spec).map_err(anyhow::Error::from)?)
+    .bind(added.len() as i64)
+    .bind(&stamp)
+    .bind(id)
+    .bind(&user.id)
+    .bind(seen_pods as i64)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        drop(tx);
+        return detail(pool, &user.id, id).await;
+    }
+    check_allowance(&mut tx, user, cost, quota, true).await?;
+    sqlx::query("INSERT INTO lab_usage (experiment_id, owner_id, games, created_at) VALUES (?,?,?,?)")
+        .bind(format!("{id}+{seen_pods}"))
+        .bind(&user.id)
+        .bind(i64::from(cost))
+        .bind(&stamp)
+        .execute(&mut *tx)
+        .await?;
+    insert_games(&mut tx, id, &added).await?;
+    super::worker::refresh(&mut tx, id, false).await?;
+    tx.commit().await?;
+    detail(pool, &user.id, id).await
 }
 
 /// The owner's queued and running experiments.
@@ -2698,6 +2865,24 @@ async fn again_handler(State(st): State<AppState>, CurrentUser(user): CurrentUse
     st.lab.wake();
     st.lab.wake_forge();
     Ok(Json(created))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct More {
+    /// Games per engine, as for a new run.
+    pub games: u32,
+    /// The run's pods as the page saw them (`label.games` / 2, or the games of a solo run).
+    pub seen_pods: usize,
+}
+
+async fn more_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, body: Bytes) -> AppResult<Json<ExperimentDetail>> {
+    let sim = st.lab.simulator()?;
+    let req: More = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
+    let mut d = more_with(&st.pool, &user, &id, req.games, req.seen_pods, sim.as_ref(), &st.cfg.lab_quota, &st.lab.forge_access()).await?;
+    st.lab.wake();
+    st.lab.wake_forge();
+    d.item.with_forge(&st.lab.forge_view());
+    Ok(Json(d))
 }
 
 async fn detail_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<ExperimentDetail>> {

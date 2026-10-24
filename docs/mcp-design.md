@@ -58,7 +58,8 @@ Read (no review needed):
 | `plans`, `plan_deck` | Plan decks; one plan's stock, now and after lists, swaps with reasons, review answers, orders and prints |
 | `review_queue` | Proposals still to answer, by deck |
 | `spares` | Cards you own outside any deck, and what a plan would free |
-| `lab_runs`, `lab_run` | Experiments and rating runs, with the paired difference and its interval (and the lab's caveats) |
+| `lab_runs`, `lab_run` | Experiments and rating runs, with the paired difference and its interval (and the lab's caveats), per engine, with unscored games by reason and the settle estimate |
+| `lab_games` | One run's games pod by pod; one game's schedule line, result line and lists, to replay it |
 | `precon` | A precon's list, playgroup.gg data and the global rating |
 | `games` | Real game results for a deck |
 
@@ -70,7 +71,8 @@ Write (staged):
 | `propose_swap` | A planner idea for a plan deck (the existing `idea` op), so it goes through Review and the repo's pull |
 | `answer_review` | A review answer (`review` op) |
 | `mark_bought`, `mark_installed` | The existing `bought` and `installed` ops |
-| `start_lab_run` | A paired experiment: a deck or list against the same deck with adds and cuts, under the lab's usual allowance |
+| `start_lab_run` | An experiment in any mode (change, compare, solo, versus) on phase, Forge or both, under the lab's usual allowance |
+| `more_lab_games`, `run_lab_again`, `cancel_lab_run` | More pods on a finished run, a fresh run of the same experiment, or a cancel |
 | `add_to_collection`, `move_cards` | Collection ops (by name and printing) |
 
 Plan swaps themselves can't be edited yet: imported plans are managed by the commander-decks repo
@@ -82,7 +84,7 @@ change to an imported plan goes in as an idea or a review answer and reaches the
 
 - Tool calls count toward the asker's allowance: Ask Claude's daily question count, plus at most
   200 tool calls a day for open sign-up accounts (none for admins).
-- `start_lab_run` uses the lab's own allowance and queue caps.
+- `start_lab_run`, `more_lab_games` and `run_lab_again` use the lab's own allowance and queue caps.
 - Results are capped (a list is at most 300 lines, a search 60 cards) so one call can't fill the
   context window.
 - Everything returned is the person's own data, marked as data: deck names, notes and reasons are

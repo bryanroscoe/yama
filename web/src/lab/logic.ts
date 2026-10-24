@@ -261,6 +261,109 @@ export function verdictText(status: ExperimentStatus, s: Summary): string {
   return s.verdict.text;
 }
 
+/** Which engine played a run's games (a "both" run's halves each say theirs). */
+export type HalfEngine = "phase" | "forge";
+
+/** Forge's own wall-clock limit on a game (server `forge::FORGE_MAX_SECONDS`). */
+export const FORGE_MAX_SECONDS = 900;
+
+/** "10 minutes", "15 minutes", "90 seconds". */
+function limitText(seconds: number): string {
+  if (seconds % 60 !== 0) return `${seconds} seconds`;
+  const m = seconds / 60;
+  return `${m} ${m === 1 ? "minute" : "minutes"}`;
+}
+
+/** "1 game", "3 games". */
+function count(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * How a paired run's games count, in plain sentences: how many pods each list played, how many
+ * are left out because a game didn't finish (and why), and how many of the rest decide the
+ * difference. `a` and `b` name the base and the changed list (or the two decks).
+ */
+export function podCountText(s: Summary, o: { a: string; b: string; finished: boolean; noun?: "lists" | "decks" }): string[] {
+  const noun = o.noun ?? "lists";
+  const p = s.paired;
+  const out: string[] = [];
+  const games = s.pods * 2;
+  out.push(`Both ${noun} played the same ${count(s.pods, "pod")} (${games} games), with the same opponents, seats and shuffles.`);
+  const pending = s.base.pending + s.variant.pending;
+  const left = s.pods - p.pods - p.split_builds;
+  const u = s.unscored;
+  if (u.total > 0) {
+    const why = [
+      u.time_cap ? `${u.time_cap} ran out of time` : "",
+      u.error ? `${u.error} stopped with an error` : "",
+      u.panic ? `${u.panic} crashed` : "",
+    ].filter(Boolean);
+    const lead = `${count(u.total, "game")} didn't finish (${why.join(", ")})`;
+    out.push(
+      o.finished || pending === 0
+        ? `${lead}, so ${left === 1 ? "its pod is" : `${left} pods are`} left out: a pod counts only when both ${noun}' games finished.`
+        : `${lead}; a pod counts only when both ${noun}' games finished.`,
+    );
+  }
+  if (p.split_builds > 0) out.push(`${count(p.split_builds, "pod")} played on two different builds ${p.split_builds === 1 ? "is" : "are"} left out too.`);
+  if (p.pods > 0) {
+    const same = p.both_won + p.neither;
+    const differ = p.variant_only + p.base_only;
+    out.push(
+      `Of the ${count(p.pods, "pod")} that count, both did the same in ${same} (both won ${p.both_won}, neither won ${p.neither}). ` +
+        (differ === 0
+          ? "No pod went differently, so there is nothing to tell them apart yet."
+          : `The answer rests on the other ${differ}: ${o.b} won ${p.variant_only} that ${o.a} lost, and ${o.a} won ${p.base_only} that ${o.b} lost.`),
+    );
+  }
+  return out;
+}
+
+/** What "ran out of time" and "error" mean for a game, for the engine that played it. */
+export function unscoredText(engine: HalfEngine, maxSeconds: number): string {
+  const limit =
+    engine === "forge"
+      ? `Out of time: Forge stops a game after ${limitText(FORGE_MAX_SECONDS)}.`
+      : `Out of time: the server stops a game once it has used ${limitText(maxSeconds)} of computer time, so one very long or stuck game can't hold up the run.`;
+  return (
+    `${limit} Error: the game stopped making moves for 5 minutes (stuck inside one AI decision) or couldn't go on. ` +
+    "These games aren't counted, because whether a game gets stopped depends on how busy the server is, not on the decks."
+  );
+}
+
+/**
+ * Games to add (per engine) so that the counted pods reach `settle_pods`, allowing for the share
+ * of pods lost so far, and the smallest of `choices` that covers it (else the largest). Null when
+ * the run doesn't say how many it needs.
+ */
+export function gamesToSettle(s: Summary, choices: number[]): { pods: number; games: number; pick: number } | null {
+  const target = s.paired.settle_pods;
+  if (!target || s.pods === 0 || s.paired.pods === 0 || target <= s.paired.pods) return null;
+  const kept = s.paired.pods / s.pods;
+  const pods = Math.ceil((target - s.paired.pods) / kept);
+  const games = pods * 2;
+  const sorted = [...choices].sort((x, y) => x - y);
+  const pick = sorted.find((c) => c >= games) ?? sorted[sorted.length - 1] ?? games;
+  return { pods, games, pick };
+}
+
+/** The sentence beside "Add games" while a paired verdict can't tell. */
+export function settleText(s: Summary): string | null {
+  const d = s.paired.delta_win_rate;
+  const target = s.paired.settle_pods;
+  if (s.verdict.kind !== "unclear" || d == null) return null;
+  if (!target) {
+    return s.paired.pods >= 10 && Math.abs(d) < 0.02
+      ? "The lists are within a couple of points of each other here; telling them apart would take thousands of games, if there is a difference at all."
+      : null;
+  }
+  return (
+    `If the difference stays near ${pointsWord(d)}, about ${target} counted pods would settle it (${s.paired.pods} so far). ` +
+    "A smaller real difference needs more; a bigger one, fewer."
+  );
+}
+
 /** A finished game for the tested list, in a few words. */
 export function gameText(g: { end: string; won: boolean; place: number | null; turns: number }): string {
   switch (g.end) {

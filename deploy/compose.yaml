@@ -22,7 +22,9 @@ services:
       # LAN access; the public route goes through the existing Cloudflare tunnel.
       - "<saget-lan-address>:8099:8787"
     networks: [tunnel, advisor, forge]
-    mem_limit: 3g
+    # The rules engine (about 0.7 GB) plus the lab's game threads and live games. At 3 GB the lab
+    # filled it on 2026-10-23 and every game slowed to a crawl while the kernel reclaimed pages.
+    mem_limit: 5g
   # "Ask Claude" (deploy/Dockerfile.advisor). No published port: only yama reaches it, on the
   # private advisor network. advisor.env (server-local, mode 0600) holds ADVISOR_SECRET, which
   # deploy.sh makes, Bryan's CLAUDE_CODE_OAUTH_TOKEN, which deploy/advisor-token.sh writes, and

@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { api } from "../api";
 import { ErrorText, Pips } from "../components/ui";
 import { engineLine, enginesOf, halfOf } from "./engines";
+import type { HalfEngine } from "./logic";
 import type { ComparePrefill, ExperimentDetail, ExperimentItem, ExperimentMode, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
 import { ConfidenceLine } from "./confidence";
 import {
@@ -15,17 +16,21 @@ import {
   durationText,
   fmtDate,
   gameText,
+  gamesToSettle,
   hasResults,
   moreOften,
   pct,
   pctRange,
   points,
   pointsRange,
+  podCountText,
   pointsWord,
   rateCeiling,
+  settleText,
   shortHash,
   simDetails,
   simLabel,
+  unscoredText,
   verdictText,
 } from "./logic";
 import { AskClaude } from "../advisor/AskClaude";
@@ -105,6 +110,56 @@ function Again({ e }: { e: ExperimentDetail }) {
       </span>
       <ErrorText error={again.error} />
     </div>
+  );
+}
+
+/** "Add games": more pods for this run, counted together with the ones played. */
+function MoreGames({ e }: { e: ExperimentDetail }) {
+  const qc = useQueryClient();
+  const pace = usePace();
+  const choices = gameChoices(pace.data);
+  const both = enginesOf(e).mode === "both";
+  const halves = (both ? [e.summary, e.summary_forge] : [e.summary]).filter((s): s is Summary => s != null);
+  const needs = halves.map((s) => gamesToSettle(s, choices)).filter((n): n is NonNullable<typeof n> => n != null);
+  const need = needs.sort((x, y) => y.games - x.games)[0] ?? null;
+  const unclear = halves.some((s) => s.verdict.kind === "unclear");
+  const [games, setGames] = useState<number | null>(null);
+  const pick = games ?? need?.pick ?? choices[0] ?? 100;
+  const seenPods = e.summary?.pods ?? (modeOf(e) === "solo" ? e.label.games : e.label.games / 2);
+  const more = useMutation({
+    mutationFn: () => api<ExperimentDetail>(`/api/lab/experiments/${e.id}/more`, { method: "POST", json: { games: pick, seen_pods: seenPods } }),
+    onSuccess: (d) => {
+      qc.setQueryData(["lab", "experiment", e.id], d);
+      void qc.invalidateQueries({ queryKey: ["lab", "experiments"] });
+    },
+  });
+  const each = both ? " on each engine" : "";
+  return (
+    <section className="lab-more">
+      <h2>{unclear ? "Get a clearer answer" : "Add games"}</h2>
+      <p className="small" style={{ marginTop: 0 }}>
+        {need
+          ? `About ${need.games} more games${each} would get there, at the rate pods have been left out so far.`
+          : unclear
+            ? "More games give a tighter answer."
+            : "More games tighten the interval further."}{" "}
+        New games play more pods on the same lists, opponents and AI with new shuffles, and count together with the ones above.
+      </p>
+      <div className="lab-again">
+        <span className="lab-games-label">Add</span>
+        <div className="segmented" role="radiogroup" aria-label="Games to add">
+          {choices.map((g) => (
+            <button key={g} type="button" role="radio" aria-checked={pick === g} aria-pressed={pick === g} onClick={() => setGames(g)}>
+              {g}
+            </button>
+          ))}
+        </div>
+        <button className="primary" onClick={() => more.mutate()} disabled={more.isPending}>
+          {more.isPending ? "Adding…" : `Add ${pick} games${each}`}
+        </button>
+      </div>
+      <ErrorText error={more.error} />
+    </section>
   );
 }
 
@@ -230,6 +285,8 @@ export function RunPage() {
         )
       )}
 
+      {e.status === "done" && modeOf(e) !== "versus" && <MoreGames e={e} />}
+
       <section>
         <h2>{modeOf(e) === "change" ? "The change" : modeOf(e) === "solo" ? "The list" : "The decks"}</h2>
         <Change e={e} />
@@ -337,8 +394,9 @@ function ForgeWait({ e }: { e: ExperimentItem }) {
 }
 
 /** The results view for a run's mode. */
-function ModeResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
-  return modeOf(e) === "versus" ? <VersusResults e={e} s={s} /> : modeOf(e) === "solo" ? <SoloResults e={e} s={s} /> : <Results e={e} s={s} />;
+function ModeResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine?: HalfEngine }) {
+  const on = engine ?? (enginesOf(e).mode === "forge" ? "forge" : "phase");
+  return modeOf(e) === "versus" ? <VersusResults e={e} s={s} /> : modeOf(e) === "solo" ? <SoloResults e={e} s={s} engine={on} /> : <Results e={e} s={s} engine={on} />;
 }
 
 /** A "both" run: whether the engines agree, then each engine's results under its own heading. */
@@ -356,7 +414,7 @@ function BothResults({ e, live }: { e: ExperimentDetail; live: boolean }) {
         <section key={h} className="lab-engine-half" aria-label={h === "phase" ? "Results on phase" : "Results on Forge"}>
           <h2 className="lab-engine-head">{h === "phase" ? "On phase" : "On Forge"}</h2>
           {d.summary && hasResults(d.summary) ? (
-            <ModeResults e={d} s={d.summary} />
+            <ModeResults e={d} s={d.summary} engine={h} />
           ) : (
             <p className="dim">{live ? `No ${h === "phase" ? "phase" : "Forge"} results yet: ${d.progress.done} of ${d.progress.total} games played.` : "No scored games on this engine."}</p>
           )}
@@ -373,7 +431,7 @@ export function useBaseConfidence(e: ExperimentItem) {
   return e.base ? baseConfidence(precons.data?.precons ?? [], { precon: src?.kind === "precon" ? src.id : null, commanders: e.base.commanders }) : null;
 }
 
-function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
+function Results({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine: HalfEngine }) {
   const level = `${Math.round(s.level * 100)}%`;
   const conf = useBaseConfidence(e);
   const cancelled = e.status === "cancelled";
@@ -430,6 +488,16 @@ function Results({ e, s }: { e: ExperimentDetail; s: Summary }) {
             : "Not enough pods where both lists finished yet."}
         {cancelled ? " The rest of the games were cancelled." : !s.verdict.final ? " More games are still to come." : ""}
       </p>
+      <div className="lab-counts">
+        <h3>How the games count</h3>
+        {podCountText(s, compare ? { a: nameA, b: nameB, finished: s.verdict.final, noun: "decks" } : { a: "the base", b: "the changed list", finished: s.verdict.final }).map((line) => (
+          <p key={line} className="small">
+            {line}
+          </p>
+        ))}
+        {s.unscored.total > 0 && <p className="lab-note">{unscoredText(engine, e.limits.max_seconds)}</p>}
+        {s.verdict.final && settleText(s) && <p className="small">{settleText(s)}</p>}
+      </div>
 
       {d != null && ci && (
         <IntervalChart
@@ -504,7 +572,7 @@ function compareVerdict(status: ExperimentStatus, s: Summary, a: string, b: stri
 }
 
 /** One list as it is: its win rate against the field, beside the no-edge share. */
-function SoloResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
+function SoloResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine: HalfEngine }) {
   const level = `${Math.round(s.level * 100)}%`;
   const conf = useBaseConfidence(e);
   const st = s.base;
@@ -548,6 +616,12 @@ function SoloResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
         ticks={ticks}
       />
       <p className="lab-note">The line marks a quarter: what a list with no edge over its three opponents would win.</p>
+      {s.unscored.total > 0 && (
+        <p className="lab-note">
+          {s.unscored.total} of {s.pods} games didn't finish and aren't counted ({[s.unscored.time_cap ? `${s.unscored.time_cap} out of time` : "", s.unscored.error ? `${s.unscored.error} errors` : "", s.unscored.panic ? `${s.unscored.panic} crashed` : ""].filter(Boolean).join(", ")}).{" "}
+          {unscoredText(engine, e.limits.max_seconds)}
+        </p>
+      )}
       <details>
         <summary>Unscored games and the method</summary>
         <table className="plain small" style={{ maxWidth: "36rem" }}>

@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { Confidence, Pace, PreconItem, Summary } from "./api";
 import {
   allowanceText,
+  gamesToSettle,
+  podCountText,
+  settleText,
+  unscoredText,
   gameChoices,
   baseConfidence,
   baseConfidenceSentence,
@@ -321,5 +325,45 @@ describe("the smaller lab allowance", () => {
       "Accounts that joined without an invite run 100-game experiments, one at a time, up to 300 games a day (200 left today). An invite from the host lifts this.",
     );
     expect(allowanceText({ games: 100, at_a_time: 1, games_per_day: 300, used_today: 400 })).toContain("(0 left today)");
+  });
+});
+
+describe("how a paired run's games count", () => {
+  // Run 7cc7910c's phase half (2026-10-23): 100 pods, 22 games cut short, 83 pods counted.
+  const run = {
+    level: 0.9,
+    pods: 100,
+    base: { games: 90, wins: 15, pending: 0 },
+    variant: { games: 88, wins: 21, pending: 0 },
+    paired: { pods: 83, both_won: 6, variant_only: 14, base_only: 9, neither: 54, delta_win_rate: 5 / 83, delta_ci: [-0.035, 0.153], split_builds: 0, settle_pods: 267 },
+    unscored: { time_cap: 19, panic: 0, error: 3, total: 22 },
+    verdict: { kind: "unclear", text: "Can't tell yet: run more games", final: true },
+  } as unknown as Summary;
+
+  it("says how many pods each list played, which are left out and which decide it", () => {
+    const lines = podCountText(run, { a: "the base", b: "the changed list", finished: true });
+    expect(lines[0]).toBe("Both lists played the same 100 pods (200 games), with the same opponents, seats and shuffles.");
+    expect(lines[1]).toBe("22 games didn't finish (19 ran out of time, 3 stopped with an error), so 17 pods are left out: a pod counts only when both lists' games finished.");
+    expect(lines[2]).toBe(
+      "Of the 83 pods that count, both did the same in 60 (both won 6, neither won 54). The answer rests on the other 23: the changed list won 14 that the base lost, and the base won 9 that the changed list lost.",
+    );
+    const clean = { ...run, unscored: { time_cap: 0, panic: 0, error: 0, total: 0 }, paired: { ...run.paired, pods: 100 } } as Summary;
+    expect(podCountText(clean, { a: "A", b: "B", finished: true })).toHaveLength(2);
+  });
+
+  it("explains what out of time means on each engine", () => {
+    expect(unscoredText("phase", 600)).toContain("once it has used 10 minutes of computer time");
+    expect(unscoredText("forge", 600)).toContain("Forge stops a game after 15 minutes");
+  });
+
+  it("works out the games that would settle it, allowing for pods that get lost", () => {
+    // 184 more counted pods at 83 in 100 kept: 222 pods, 444 games; the smallest choice that covers it.
+    expect(gamesToSettle(run, [100, 200, 400, 1000])).toEqual({ pods: 222, games: 444, pick: 1000 });
+    expect(gamesToSettle(run, [100, 200, 400])?.pick).toBe(400);
+    expect(gamesToSettle({ ...run, paired: { ...run.paired, settle_pods: null } } as Summary, [100])).toBeNull();
+    expect(settleText(run)).toBe("If the difference stays near +6 points, about 267 counted pods would settle it (83 so far). A smaller real difference needs more; a bigger one, fewer.");
+    const close = { ...run, paired: { ...run.paired, delta_win_rate: 0.01, settle_pods: null } } as Summary;
+    expect(settleText(close)).toContain("thousands of games");
+    expect(settleText({ ...run, verdict: { ...run.verdict, kind: "better" } } as Summary)).toBeNull();
   });
 });

@@ -266,6 +266,21 @@ impl GameResult {
     pub fn to_line(&self) -> String {
         serde_json::to_string(self).expect("result serializes")
     }
+
+    /// Whether the machine, not the game, may have ended it: the CPU-time cap, a hang (no move
+    /// for a while) or the wall-clock safety net. On a starved machine each comes far sooner than
+    /// it would on a healthy one. Without an LLM seat a game replays move for move from its
+    /// schedule line, so playing it again on a healthy machine gives its real result.
+    pub fn cut_short_by_machine(&self) -> bool {
+        if self.pilots.iter().flatten().any(|p| p.starts_with("llm:")) {
+            return false;
+        }
+        match self.end {
+            End::TimeCap => true,
+            End::Error => self.error.as_deref().is_some_and(|e| e.starts_with("hung:") || e.starts_with("wall-clock safety limit:")),
+            _ => false,
+        }
+    }
 }
 
 /// Best to worst, ties grouped: the winner alone; then anyone still in the game who didn't win
@@ -1385,6 +1400,36 @@ mod tests {
         for end in [End::Win, End::Draw, End::TurnCap, End::ActionCap, End::TimeCap, End::Panic, End::Error] {
             assert_eq!(serde_json::to_string(&end).unwrap(), format!("\"{}\"", end.as_str()));
         }
+    }
+
+    #[test]
+    fn only_the_machine_s_limits_count_as_cut_short_by_it() {
+        let spec = GameSpec {
+            game: "g".into(),
+            seed: 7,
+            decks: vec!["a".into(), "b".into()],
+            difficulty: "Easy".into(),
+            max_turns: 40,
+            max_actions: 100,
+            max_seconds: 60,
+            pilots: None,
+        };
+        let with = |end: End, error: Option<&str>| {
+            let mut r = GameResult::new(&spec, "x");
+            r.end = end;
+            r.error = error.map(String::from);
+            r
+        };
+        assert!(with(End::TimeCap, None).cut_short_by_machine());
+        assert!(with(End::Error, Some("hung: no move for 300s, stuck inside one engine or AI step")).cut_short_by_machine());
+        assert!(with(End::Error, Some("wall-clock safety limit: 2400s elapsed")).cut_short_by_machine());
+        for (end, error) in [(End::Win, None), (End::TurnCap, None), (End::ActionCap, None), (End::Panic, Some("boom")), (End::Error, Some("deck errors: x")), (End::Error, Some("AI for seat 1 found no action"))] {
+            assert!(!with(end, error).cut_short_by_machine(), "{end:?} {error:?}");
+        }
+        // A game with an LLM seat doesn't replay move for move.
+        let mut r = with(End::TimeCap, None);
+        r.pilots = Some(vec!["llm:m".into(), "easy".into()]);
+        assert!(!r.cut_short_by_machine());
     }
 
     #[test]

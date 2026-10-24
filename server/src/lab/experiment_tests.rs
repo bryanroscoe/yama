@@ -1824,3 +1824,349 @@ async fn forge_games_count_double_against_the_daily_allowance() {
     // A phase run still fits.
     create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota, &forge_access(&f)).await.unwrap();
 }
+
+// ── games the machine cut short, and adding games to a run (2026-10-23) ─────
+
+use super::worker::EarlierTry;
+
+/// Plays as [`FakeSim`] does, except: games whose ids end in a key of `first_try` end that way on
+/// their first try (then play normally), games ending in `always` time out every time, and
+/// `earlier` answers [`Simulator::earlier_try`] for the game ids it names.
+struct CutSim {
+    inner: Arc<FakeSim>,
+    first_try: HashMap<String, (End, Option<String>)>,
+    always: Vec<String>,
+    earlier: Mutex<HashMap<String, EarlierTry>>,
+    tries: Mutex<HashMap<String, usize>>,
+}
+
+impl CutSim {
+    fn new(first_try: &[(&str, End, Option<&str>)], always: &[&str]) -> Arc<Self> {
+        Arc::new(CutSim {
+            inner: FakeSim::new(),
+            first_try: first_try.iter().map(|(g, e, why)| (g.to_string(), (*e, why.map(String::from)))).collect(),
+            always: always.iter().map(|s| s.to_string()).collect(),
+            earlier: Mutex::default(),
+            tries: Mutex::default(),
+        })
+    }
+    fn tries(&self, suffix: &str) -> usize {
+        self.tries.lock().unwrap().iter().filter(|(g, _)| g.ends_with(suffix)).map(|(_, n)| *n).sum()
+    }
+}
+
+impl Simulator for CutSim {
+    fn card_data(&self) -> String {
+        self.inner.card_data()
+    }
+    fn unknown(&self, cards: &[LabCard]) -> Vec<String> {
+        self.inner.unknown(cards)
+    }
+    fn earlier_try(&self, game: &str) -> EarlierTry {
+        self.earlier.lock().unwrap().remove(game).unwrap_or(EarlierTry::Unknown)
+    }
+    fn play(&self, spec: &GameSpec, decks: &[Arc<LabList>], limits: &Limits) -> GameResult {
+        let n = {
+            let mut tries = self.tries.lock().unwrap();
+            let n = tries.entry(spec.game.clone()).or_default();
+            *n += 1;
+            *n
+        };
+        let mut r = self.inner.play(spec, decks, limits);
+        let cut = |r: &mut GameResult, end: End, why: Option<String>| {
+            r.end = end;
+            r.error = why;
+            r.winner = None;
+            r.placements = vec![];
+            r.turns = 7;
+        };
+        if self.always.iter().any(|s| spec.game.ends_with(s.as_str())) {
+            cut(&mut r, End::TimeCap, None);
+        } else if n == 1
+            && let Some((end, why)) = self.first_try.iter().find(|(s, _)| spec.game.ends_with(s.as_str())).map(|(_, v)| v.clone())
+        {
+            cut(&mut r, end, why);
+        }
+        r
+    }
+}
+
+#[tokio::test]
+async fn games_the_machine_cut_short_play_once_more_after_the_rest() {
+    let pool = fixture().await;
+    let sim = CutSim::new(
+        &[
+            ("-3-base", End::TimeCap, None),
+            ("-5-variant", End::Error, Some("hung: no move for 300s, stuck inside one engine or AI step")),
+            ("-6-base", End::Error, Some("wall-clock safety limit: 2400s elapsed")),
+            // Not the machine: a game that can't be played is stored at once, never replayed.
+            ("-8-base", End::Error, Some("AI for seat 1 found no action")),
+        ],
+        &["-7-variant"],
+    );
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    assert_eq!((sim.tries("-3-base"), sim.tries("-5-variant"), sim.tries("-6-base")), (2, 2, 2));
+    assert_eq!((sim.tries("-7-variant"), sim.tries("-8-base"), sim.tries("-9-base")), (2, 1, 1));
+    // The retries came after every other game.
+    let played = sim.inner.played();
+    assert_eq!(played.len(), 104);
+    assert!(played[100..].iter().all(|(s, _)| ["-3-base", "-5-variant", "-6-base", "-7-variant"].iter().any(|x| s.game.ends_with(x))));
+    let done = detail(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!((done.item.status.as_str(), done.item.progress.done), ("done", 100));
+    let s = done.item.summary.unwrap();
+    // Only the game that times out every time and the unplayable one are left unscored.
+    assert_eq!((s.unscored.time_cap, s.unscored.error, s.paired.pods), (1, 1, 48));
+    let end_of = |suffix: &str| {
+        let pool = pool.clone();
+        let game = format!("{}{suffix}", &d.item.id[..8]);
+        async move { sqlx::query_scalar::<_, String>("SELECT end_kind FROM lab_experiment_games WHERE game = ?").bind(game).fetch_one(&pool).await.unwrap() }
+    };
+    assert_eq!(end_of("-3-base").await, "win");
+    assert_eq!(end_of("-7-variant").await, "time_cap");
+}
+
+#[tokio::test]
+async fn a_hung_games_retry_keeps_its_late_result_and_isnt_replayed_while_still_stuck() {
+    let pool = fixture().await;
+    let hung = Some("hung: no move for 300s, stuck inside one engine or AI step");
+    let sim = CutSim::new(&[("-1-base", End::Error, hung), ("-2-base", End::Error, hung)], &[]);
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let prefix = d.item.id[..8].to_string();
+    // The first try of pod 1's base game finished after all, as a win at turn 77; pod 2's is
+    // still stuck.
+    let spec: String = sqlx::query_scalar("SELECT spec FROM lab_experiment_games WHERE game = ?").bind(format!("{prefix}-1-base")).fetch_one(&pool).await.unwrap();
+    let spec: GameSpec = serde_json::from_str(&spec).unwrap();
+    let mut late = GameResult::new(&spec, "fakecarddata0000");
+    let seat = spec.decks.iter().position(|x| x == BASE_ID).unwrap() as u8;
+    late.end = End::Win;
+    late.winner = Some(seat);
+    late.placements = vec![vec![seat], (0..4).filter(|s| *s != seat).collect()];
+    late.turns = 77;
+    sim.earlier.lock().unwrap().insert(format!("{prefix}-1-base"), EarlierTry::Finished(late));
+    sim.earlier.lock().unwrap().insert(format!("{prefix}-2-base"), EarlierTry::Playing);
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    assert_eq!((sim.tries("-1-base"), sim.tries("-2-base")), (1, 1), "neither is played a second time");
+    let row = |g: String| {
+        let pool = pool.clone();
+        async move { sqlx::query_as::<_, (String, String)>("SELECT end_kind, result FROM lab_experiment_games WHERE game = ?").bind(g).fetch_one(&pool).await.unwrap() }
+    };
+    let (end, line) = row(format!("{prefix}-1-base")).await;
+    assert_eq!(end, "win");
+    assert_eq!(serde_json::from_str::<GameResult>(&line).unwrap().turns, 77);
+    let (end, line) = row(format!("{prefix}-2-base")).await;
+    assert_eq!(end, "error");
+    assert!(serde_json::from_str::<GameResult>(&line).unwrap().error.unwrap().contains("still stuck"));
+    assert_eq!(detail(&pool, "bryan", &d.item.id).await.unwrap().item.status, "done");
+}
+
+#[tokio::test]
+async fn more_games_continue_the_schedule_and_pool_with_the_results_so_far() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let bryan = user("bryan", false);
+    let d = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
+    let id = d.item.id.clone();
+    // Not while it plays.
+    assert!(matches!(more(&pool, &bryan, &id, 100, 50, sim.as_ref()).await.unwrap_err(), AppError::Conflict(_)));
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    let before = detail(&pool, "bryan", &id).await.unwrap();
+    let seeds_before: HashSet<u64> = sim.played().iter().map(|(s, _)| s.seed).collect();
+    assert!(matches!(more(&pool, &user("other", false), &id, 100, 50, sim.as_ref()).await.unwrap_err(), AppError::NotFound(_)));
+    assert!(bad(more(&pool, &bryan, &id, 150, 50, sim.as_ref()).await.unwrap_err()).contains("games must be"));
+    let added = more(&pool, &bryan, &id, 200, 50, sim.as_ref()).await.unwrap();
+    assert_eq!((added.item.status.as_str(), added.item.progress.done, added.item.progress.total), ("queued", 100, 300));
+    assert_eq!(added.item.label.games, 300);
+    assert!(!added.item.summary.as_ref().unwrap().verdict.is_final, "the summary waits for the new games");
+    assert_eq!(added.item.label.finished_at, None);
+    // The same request again (the page retried it) adds nothing.
+    let again = more(&pool, &bryan, &id, 200, 50, sim.as_ref()).await.unwrap();
+    assert_eq!(again.item.progress.total, 300);
+    worker.drain().await;
+    let played = sim.played();
+    assert_eq!(played.len(), 300);
+    // New pods 50 to 149: new ids and shuffles, the same pairing.
+    let ids: HashSet<&str> = played.iter().map(|(s, _)| s.game.as_str()).collect();
+    assert_eq!(ids.len(), 300);
+    for t in 50..150 {
+        assert!(ids.contains(format!("{}-{t}-base", &id[..8]).as_str()) && ids.contains(format!("{}-{t}-variant", &id[..8]).as_str()));
+    }
+    let new_seeds: HashSet<u64> = played[100..].iter().map(|(s, _)| s.seed).collect();
+    assert!(new_seeds.is_disjoint(&seeds_before));
+    let done = detail(&pool, "bryan", &id).await.unwrap();
+    assert_eq!((done.item.status.as_str(), done.item.progress.done), ("done", 300));
+    let s = done.item.summary.unwrap();
+    assert_eq!((s.pods, s.paired.pods), (150, 150));
+    assert!(s.verdict.is_final);
+    assert_eq!(done.opponents.iter().map(|o| o.pods).sum::<usize>(), 150 * 3);
+    assert_eq!(before.item.summary.unwrap().pods, 50);
+    let pods = pods_for(&pool, "bryan", &id, None).await.unwrap();
+    assert_eq!((pods.len(), pods.last().unwrap().pod), (150, 150));
+    // A run played on another phase engine can't take more games.
+    sqlx::query("UPDATE lab_experiment_games SET result = json_set(result, '$.engine', 'phase-rs v0.112.0') WHERE experiment_id = ? AND ord = 0")
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let e = more(&pool, &bryan, &id, 100, 150, sim.as_ref()).await.unwrap_err();
+    assert!(matches!(&e, AppError::Conflict(m) if m.contains("earlier phase engine")), "{e:?}");
+}
+
+#[tokio::test]
+async fn more_games_on_both_engines_keep_each_engines_pods_in_order() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let f = FakeForge::new(&[]);
+    let quota = crate::config::LabQuota::default();
+    let bryan = user("bryan", false);
+    let d = create_with(&pool, &bryan, with_engine(swap_req(100), "both"), sim.as_ref(), &quota, &forge_access(&f)).await.unwrap();
+    let id = d.item.id.clone();
+    let worker = LabWorker::new_with_forge(pool.clone(), 2, SimState::Ready(sim.clone()), Some(f.clone() as Arc<dyn ForgeClient>));
+    worker.drain().await;
+    worker.drain_forge().await;
+    let added = more_with(&pool, &bryan, &id, 100, 50, sim.as_ref(), &quota, &forge_access(&f)).await.unwrap();
+    assert_eq!(added.item.progress.total, 400);
+    worker.drain().await;
+    worker.drain_forge().await;
+    let done = detail(&pool, "bryan", &id).await.unwrap();
+    assert_eq!((done.item.status.as_str(), done.item.progress.done), ("done", 400));
+    let (ps, fs) = (done.item.summary.unwrap(), done.item.summary_forge.unwrap());
+    assert_eq!((ps.pods, ps.paired.pods, fs.pods, fs.paired.pods), (100, 100, 100, 100));
+    for engine in ["phase", "forge"] {
+        let pods = pods_for(&pool, "bryan", &id, Some(engine)).await.unwrap();
+        assert_eq!(pods.iter().map(|p| p.pod).collect::<Vec<_>>(), (1..=100).collect::<Vec<_>>(), "{engine}");
+        assert!(pods.iter().all(|p| p.base.is_some() && p.variant.is_some()), "{engine}");
+    }
+    // Every Forge game is its phase twin's copy.
+    let rows: Vec<(String, i64, String)> = sqlx::query_as("SELECT game, ord, engine FROM lab_experiment_games WHERE experiment_id = ?").bind(&id).fetch_all(&pool).await.unwrap();
+    let ord: HashMap<&str, i64> = rows.iter().map(|(g, o, _)| (g.as_str(), *o)).collect();
+    for (g, o, e) in &rows {
+        if e == "phase" {
+            assert_eq!(ord[format!("{g}-f").as_str()], o + 100, "{g}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn finished_summaries_from_before_the_settle_estimate_are_rewritten_once() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    let has_key = || {
+        let pool = pool.clone();
+        let id = d.item.id.clone();
+        async move {
+            sqlx::query_scalar::<_, Option<String>>("SELECT json_type(summary, '$.paired.settle_pods') FROM lab_experiments WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap()
+        }
+    };
+    assert!(has_key().await.is_some());
+    assert_eq!(worker.resummarize_old().await.unwrap(), 0);
+    sqlx::query("UPDATE lab_experiments SET summary = json_remove(summary, '$.paired.settle_pods')").execute(&pool).await.unwrap();
+    assert!(has_key().await.is_none());
+    assert_eq!(worker.resummarize_old().await.unwrap(), 1);
+    assert!(has_key().await.is_some());
+    let after = detail(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!(after.item.status, "done");
+    assert!(after.item.summary.unwrap().verdict.is_final);
+}
+
+/// Claude's lab tools (mcp/tools.rs, mcp/changes.rs) on the fake engine: staged runs of each kind,
+/// what lab_run and lab_games read back, and adding games, running again and cancelling.
+#[tokio::test]
+async fn claude_can_start_read_extend_repeat_and_cancel_lab_runs() {
+    use crate::mcp::{Via, changes, tools};
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let mut st = crate::testutil::state_with(crate::testutil::config(), pool.clone()).await;
+    st.lab = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    let bryan = user("bryan", false);
+    let call = |name: &'static str, args: Value| {
+        let (st, bryan) = (st.clone(), bryan.clone());
+        async move { tools::call(&st, &bryan, &Via::Key, name, &args).await }
+    };
+    let change_id = |text: &str| text.lines().find_map(|l| l.strip_prefix("Change id: ")).unwrap().to_string();
+    let payload = |id: String| {
+        let pool = pool.clone();
+        async move {
+            let p: String = sqlx::query_scalar("SELECT payload FROM assistant_changes WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap();
+            serde_json::from_str::<Value>(&p).unwrap()
+        }
+    };
+
+    // Each mode stages the request the lab's pages would send; nothing is made yet.
+    let compare = call("start_lab_run", json!({"mode": "compare", "deck": "p1", "other": "Precon p2", "engine": "phase", "ai": "Medium"})).await.unwrap();
+    assert!(compare.contains("Lab run, Precon p1 against Precon p2"), "{compare}");
+    let p = payload(change_id(&compare)).await;
+    assert_eq!((p["mode"].as_str(), p["base"]["id"].as_str(), p["other"]["id"].as_str(), p["difficulty"].as_str()), (Some("compare"), Some("p1"), Some("p2"), Some("Medium")));
+    let versus = call("start_lab_run", json!({"mode": "versus", "entrants": ["p1", "p2"], "pod": 2})).await.unwrap();
+    let p = payload(change_id(&versus)).await;
+    assert_eq!((p["entrants"].as_array().unwrap().len(), p["pod"].as_u64(), p.get("field")), (2, Some(2), None));
+    let solo = call("start_lab_run", json!({"mode": "solo", "deck": "p1", "opponents": "similar", "near": "p3"})).await.unwrap();
+    assert_eq!(payload(change_id(&solo)).await["field"], json!({"kind": "precons_near", "n": DEFAULT_FIELD, "ids": ["p3"]}));
+    assert!(call("start_lab_run", json!({"mode": "solo", "deck": "p1", "add": ["Sol Ring"]})).await.unwrap_err().to_string().contains("as it is"));
+    assert!(call("start_lab_run", json!({"deck": "No Such Deck", "add": ["Sol Ring"]})).await.unwrap_err().to_string().contains("No deck of theirs"));
+    assert!(call("start_lab_run", json!({"deck": "p1", "add": ["Sol Ring"], "games": 150})).await.unwrap_err().to_string().contains("games must be"));
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments").fetch_one(&pool).await.unwrap();
+    assert_eq!(n, 0);
+
+    // A change, applied and played.
+    let staged = call(
+        "start_lab_run",
+        json!({"deck": "p1", "add": ["Llanowar Elves", "Elvish Mystic"], "cut": ["Forest", "Forest"], "opponents": "strongest", "games": 100}),
+    )
+    .await
+    .unwrap();
+    let applied = changes::apply(&st, &bryan, &change_id(&staged)).await.unwrap();
+    assert_eq!(applied.status, "applied", "{:?}", applied.error);
+    let id = applied.result.unwrap()["link"].as_str().unwrap().rsplit('/').next().unwrap().to_string();
+    st.lab.drain().await;
+
+    let run = call("lab_run", json!({"id": id})).await.unwrap();
+    for part in ["Mode: try a change", "Engines: phase, Easy AI", "Results on phase:", "50 pods scheduled; 50 count in the difference", "Difference (the changed list minus the base list)", "Every game played so far was scored.", "Verdict: "] {
+        assert!(run.contains(part), "{part:?} missing from:\n{run}");
+    }
+    assert!(!run.contains("\"wilson\""), "plain words, not the summary's JSON");
+
+    let games = call("lab_games", json!({"id": id})).await.unwrap();
+    assert!(games.starts_with("50 pods on phase."), "{games}");
+    assert!(games.contains(&format!("- Pod 1 (tested seat ")) && games.contains(&format!("[{}-0-base]", &id[..8])), "{games}");
+    assert!(call("lab_games", json!({"id": id, "only": "unscored"})).await.unwrap().starts_with("0 pods on phase with a game that wasn't scored (of 50)."));
+    let one = call("lab_games", json!({"id": id, "game": format!("{}-0-variant", &id[..8])})).await.unwrap();
+    for part in ["Schedule line:\n{", "Result line:\n{", "Seat 1: ", "Commander\n1 Ghave\n", "To replay:"] {
+        assert!(one.contains(part), "{part:?} missing from:\n{one}");
+    }
+    let other = user("other", false);
+    assert!(matches!(tools::call(&st, &other, &Via::Key, "lab_games", &json!({"id": id})).await.unwrap_err(), AppError::NotFound(_)));
+    assert!(matches!(tools::call(&st, &other, &Via::Key, "more_lab_games", &json!({"id": id})).await.unwrap_err(), AppError::NotFound(_)));
+
+    // More games: staged against the pods it saw, so a second change staged at the same time can't
+    // add them twice.
+    let more1 = call("more_lab_games", json!({"id": id, "games": 200})).await.unwrap();
+    let more2 = call("more_lab_games", json!({"id": id, "games": 200})).await.unwrap();
+    assert!(more1.contains("50 pods so far, then 100 more"), "{more1}");
+    assert_eq!(changes::apply(&st, &bryan, &change_id(&more1)).await.unwrap().status, "applied");
+    let stale = changes::apply(&st, &bryan, &change_id(&more2)).await.unwrap();
+    assert_eq!(stale.status, "pending");
+    assert!(stale.error.unwrap().contains("150 pods now"));
+    assert!(call("more_lab_games", json!({"id": id})).await.unwrap_err().to_string().contains("this one is queued"));
+    st.lab.drain().await;
+    assert!(call("lab_run", json!({"id": id})).await.unwrap().contains("150 pods scheduled; 150 count"));
+
+    // Again: a new run with the same lists; cancelling it.
+    let again = call("run_lab_again", json!({"id": id})).await.unwrap();
+    assert!(again.contains(": 400 games"), "300 isn't a choice, so the next one up: {again}");
+    let again = changes::apply(&st, &bryan, &change_id(&again)).await.unwrap();
+    let new_id = again.result.unwrap()["link"].as_str().unwrap().rsplit('/').next().unwrap().to_string();
+    assert_ne!(new_id, id);
+    let cancel = call("cancel_lab_run", json!({"id": new_id})).await.unwrap();
+    let cancelled = changes::apply(&st, &bryan, &change_id(&cancel)).await.unwrap();
+    assert_eq!(cancelled.status, "applied", "{:?}", cancelled.error);
+    st.lab.drain().await;
+    assert_eq!(detail(&pool, "bryan", &new_id).await.unwrap().item.status, "cancelled");
+    assert!(call("cancel_lab_run", json!({"id": new_id})).await.unwrap_err().to_string().contains("nothing to cancel"));
+}
