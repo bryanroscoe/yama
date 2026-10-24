@@ -237,6 +237,41 @@
 .opp-tab.aimed::after {
   box-shadow: inset 0 0 0 3px var(--pick);
 }
+/* Picking for a choice (Chooser.tsx): an amber ring on what you may pick; a white ring and its
+   number on what you've picked. */
+.ft.pick,
+.hc.pick,
+.zone-pick.pick,
+.chooser-row.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.ft.picked,
+.hc.picked,
+.zone-pick.picked,
+.chooser-row.picked {
+  box-shadow: 0 0 0 3px var(--text);
+}
+.hc.picked {
+  transform: translateY(-10px);
+}
+.pick-badge {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--ground);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--ground);
+  pointer-events: none;
+}
 .dot {
   position: absolute;
   top: -5px;
@@ -2301,4 +2336,231 @@ body.pb-dragging .pb-preview {
 .pb.motion-off .opp-pane.active::after,
 .pb.motion-off .portrait.active > img {
   animation: none;
+}
+
+/* The plain chooser for decisions answered in full (Chooser.tsx). The polished widgets come from
+   design/screens/GYesNo, GPickN, GOrder, GSplit, GNumber and GName. */
+.chooser {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.chooser-source {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 48px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: left;
+  font-weight: 400;
+}
+.chooser-source img {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.chooser-oracle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--dim);
+  white-space: pre-line;
+}
+.chooser-count {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+.chooser-list li {
+  position: relative;
+}
+.chooser-row {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: left;
+  font-weight: 400;
+}
+.chooser-row .row-text b {
+  white-space: normal;
+}
+.chooser-row .pick-badge {
+  position: static;
+  box-shadow: none;
+}
+.order-row {
+  display: grid;
+  grid-template-columns: 22px 40px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+.order-row .pick-badge {
+  position: static;
+  box-shadow: none;
+}
+.order-row img {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.order-row .row-text b,
+.order-row .row-text span {
+  white-space: normal;
+}
+.order-edge {
+  font-weight: 700;
+  color: var(--text) !important;
+}
+.order-moves {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.order-moves button {
+  min-height: 28px;
+  padding: 0 10px;
+}
+.split-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.stepper button {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+.stepper b {
+  min-width: 2ch;
+  text-align: center;
+  font: 700 22px/1 var(--display);
+}
+.stepper.big input {
+  width: 5ch;
+  text-align: center;
+  font: 700 28px/1 var(--display);
+}
+.number-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.text-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.text-pick .picked {
+  box-shadow: inset 0 0 0 2px var(--text);
+}
+/* The zone view: cards that aren't on the board (the top of your library, a search), over the
+   table on a laptop and as a strip in the dock on a phone. */
+.chooser-zone {
+  position: fixed;
+  z-index: 25;
+  left: 24px;
+  right: 364px;
+  top: 96px;
+  max-height: calc(100dvh - 300px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line), 0 24px 60px rgb(0 0 0 / 0.6);
+}
+.chooser-zone header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.chooser-zone p {
+  margin: 0;
+}
+.chooser-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 10px 6px 6px;
+}
+.zone-pick {
+  position: relative;
+  flex: 0 0 auto;
+  width: 168px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+}
+.zone-pick:hover {
+  background: transparent;
+}
+.zone-pick img,
+.zone-pick .hc-name {
+  display: block;
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  object-fit: cover;
+  background: var(--raised);
+}
+.zone-pick .hc-name {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  color: var(--text);
+  font-size: var(--t-sm);
+}
+.zone-pick.picked {
+  transform: translateY(-6px);
+}
+/* A card you can't pick, or one waiting on the server, is never faded: only its ring changes. */
+.zone-pick:disabled,
+.zone-pick:disabled:hover {
+  opacity: 1;
+  cursor: default;
+}
+.chooser-zone.compact {
+  position: static;
+  max-height: none;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.chooser-zone.compact .chooser-cards {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 10px;
+}
+.chooser-zone.compact .zone-pick {
+  width: 104px;
 }

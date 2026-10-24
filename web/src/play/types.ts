@@ -70,6 +70,106 @@ export interface MulliganView {
 /** An attack target: a player by seat, or a planeswalker or battle by object id. */
 export type AttackAt = { kind: "player"; seat: number } | { kind: "planeswalker"; id: number } | { kind: "battle"; id: number };
 
+/** The widget shape a decision takes (design/README.md, "Generic decision widgets"). */
+export type DecisionKind = "yesno" | "pick" | "order" | "pair" | "split" | "number" | "text";
+
+/** Which `act` answers a decision (play/src/act.rs, Answer). */
+export type AnswerKind =
+  | "select_cards"
+  | "order_triggers"
+  | "select_modes"
+  | "choose_x"
+  | "choose_target"
+  | "pay_unless_cost"
+  | "decide_optional_effect"
+  | "choose_option"
+  | "choose_replacement"
+  | "assign_combat_damage"
+  | "distribute_among";
+
+/** The card asking; the server adds its art, image and artist. */
+export interface DecisionSource {
+  id: number;
+  name: string;
+  controller: number;
+  art?: string | null;
+  image?: string | null;
+  artist?: string | null;
+}
+
+/** One option. `id` is what the answer names: an object id ("123"), a player ("p2"), an index ("0") or a word. */
+export interface DecisionOption {
+  id: string;
+  name: string;
+  /** A trigger's own text, or a replacement's. */
+  text?: string;
+  img?: string | null;
+  art?: string | null;
+  artist?: string | null;
+  /** "hand", "library", "battlefield"…, or "player". */
+  zone?: string;
+  controller?: number;
+  eligible: boolean;
+  toughness?: number;
+  /** Combat damage that counts as lethal for it. */
+  lethal?: number;
+}
+
+/**
+ * The seat's decision in the shape the design's generic widgets read (play/src/act.rs, Pending),
+ * plus Yama's own fields for building the answer (`answer` onward).
+ */
+export interface Pending {
+  kind: DecisionKind;
+  source?: DecisionSource;
+  /** The engine's question. */
+  prompt: string;
+  /** The source's Oracle text. */
+  oracle?: string;
+  options: DecisionOption[];
+  min: number;
+  max: number;
+  upTo: boolean;
+  /** The engine's own answer: ids for a pick, ids in order, amounts by id for a split, a number. */
+  defaultAnswer?: string[] | Record<string, number> | number | null;
+  yesLabel?: string;
+  noLabel?: string;
+  remember?: "engine" | "yama";
+  zone?: string;
+  filter?: string;
+  destination?: "top" | "bottom";
+  total?: number;
+  perOptionMin?: number;
+  freeEntry?: boolean;
+  choiceType?: string;
+  answer: AnswerKind;
+  /** scry, surveil, search, dig, discard, bottom, choose, target, modes, replacement, triggers, x, may, pay, name, damage or divide. */
+  purpose: string;
+  /** The order picked is the order they end up in (the first is on top). */
+  ordered?: boolean;
+  /** A mode may be chosen more than once. */
+  repeat?: boolean;
+  /** The total cost for each X. */
+  previews?: [number, string][];
+  /** Combat damage may all be assigned as though the attacker weren't blocked. */
+  unblocked?: boolean;
+}
+
+/** An answer sent with `{type: "act"}` (play/src/act.rs, Act). */
+export type Act =
+  | { kind: "select_cards"; cards: number[] }
+  | { kind: "order_triggers"; order: number[] }
+  | { kind: "select_modes"; indices: number[] }
+  | { kind: "choose_x"; value: number }
+  | { kind: "choose_target"; target: TargetView | null }
+  | { kind: "cancel_cast" }
+  | { kind: "pay_unless_cost"; pay: boolean }
+  | { kind: "decide_optional_effect"; accept: boolean }
+  | { kind: "choose_option"; choice: string }
+  | { kind: "choose_replacement"; index: number }
+  | { kind: "assign_combat_damage"; assignments: [number, number][]; trample: number; controller: number; unblocked?: boolean }
+  | { kind: "distribute_among"; distribution: [TargetView, number][] };
+
 export interface Decision {
   /** When this seat's decision was issued; it holds while other seats act and it doesn't change. */
   revision: number;
@@ -77,6 +177,8 @@ export interface Decision {
   options: OptionView[];
   /** Keeping or mulliganing: the hand sizes (newer servers). */
   mulligan?: MulliganView;
+  /** The decision in the generic widgets' shape, when `act` answers it (newer servers). */
+  pending?: Pending;
   /** While declaring attackers: who may attack and whom (newer servers). */
   attack?: { attackers: { id: number; targets: AttackAt[] }[] };
   /** While declaring blockers: who may block and which attackers. */

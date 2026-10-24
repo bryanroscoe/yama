@@ -4,8 +4,10 @@
 //! The server owns one [`Match`] per live game. Humans and AI choose from the same
 //! engine-issued option list (`AiDecisionContract`), so a person can never submit an action
 //! the engine wouldn't offer, and every applied action goes through the engine's own
-//! re-validation. Each accepted action is appended to a replay log that reproduces the game
-//! from its seed.
+//! re-validation. Where that list is only a sample (attacks, blocks, scry, search, trigger
+//! order, X and the like), a person declares or answers in full instead (`declare_*`, and
+//! [`act`] with the decision's [`Pending`]), checked and applied to a copy of the game first.
+//! Each accepted action is appended to a replay log that reproduces the game from its seed.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -42,8 +44,11 @@ use serde::{Deserialize, Serialize};
 
 pub use phase_ai::config::AiDifficulty as Difficulty;
 
+pub mod act;
 pub mod lab;
 pub mod pilot;
+
+pub use act::{Act, Pending};
 
 /// Engine build plus the card data it was built against. Stored with every game, because a
 /// replay only reproduces under the same pair.
@@ -338,6 +343,12 @@ pub struct Decision {
     /// While keeping or mulliganing: the hand sizes the buttons name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mulligan: Option<MulliganView>,
+    /// The decision in Yama's own small types, for the kinds answered with [`Match::act`]
+    /// (cards to pick, triggers to order, X, modes, targets, may prompts, damage splits). Read
+    /// from this seat's view, so it names only cards this seat may see. Absent for decisions
+    /// only the option buttons answer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending: Option<Pending>,
     /// While declaring attackers: every creature that may attack and whom it may attack, so the
     /// board can build any declaration (the option list holds only the engine's sample).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -498,6 +509,8 @@ pub enum ChoiceError {
     Stale,
     BadIndex,
     Rejected(String),
+    /// An answer that doesn't fit the decision, in a sentence a player can read.
+    DoesntFit(String),
 }
 
 impl std::fmt::Display for ChoiceError {
@@ -507,6 +520,7 @@ impl std::fmt::Display for ChoiceError {
             Self::Stale => f.write_str("the game moved on; pick again"),
             Self::BadIndex => f.write_str("that option doesn't exist"),
             Self::Rejected(why) => write!(f, "the engine refused that: {why}"),
+            Self::DoesntFit(why) => f.write_str(why),
         }
     }
 }
@@ -578,11 +592,13 @@ impl Match {
             .collect();
         self.tell_targets_apart(&vs, me, &mut options);
         let (attack, block) = Self::combat_choices(&vs, me);
+        let candidates: Vec<GameAction> = contract.candidates.iter().map(|c| c.action.clone()).collect();
         Some(Decision {
             revision: self.decision_revision(seat),
             prompt: self.prompt(&vs),
             options,
             mulligan: Self::mulligan_view(&vs, me),
+            pending: Pending::of(&vs, me, &candidates, &self.names),
             attack,
             block,
         })
@@ -801,6 +817,25 @@ impl Match {
                 Ok(())
             }
             Err(e) => Err(ChoiceError::Rejected(self.plain_reason(owner, &e.to_string()))),
+        }
+    }
+
+    /// Answer `seat`'s decision with `answer` (the client's `act` message). It must fit the
+    /// decision's [`Pending`] (or be a cancel the engine offers), and is applied to a copy of the
+    /// game first, so a refused answer leaves the game exactly as it was.
+    pub fn act(&mut self, seat: u8, revision: u64, answer: &Act) -> Result<(), ChoiceError> {
+        if !self.current(seat, revision) {
+            return Err(ChoiceError::Stale);
+        }
+        match act::answer(&mut self.state, PlayerId(seat), answer) {
+            Ok(done) => {
+                self.log.push_action(done.actor, done.action);
+                self.accepted(&done.result.log_entries, Some(seat));
+                Ok(())
+            }
+            Err(act::Refusal::NotYours) => Err(ChoiceError::NotYourTurn),
+            Err(act::Refusal::DoesntFit(why)) => Err(ChoiceError::DoesntFit(why)),
+            Err(act::Refusal::Engine(why)) => Err(ChoiceError::Rejected(self.plain_reason(PlayerId(seat), &why))),
         }
     }
 

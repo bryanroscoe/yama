@@ -94,6 +94,10 @@ export interface TileLook {
   tag?: string;
   /** A legal target for the spell or ability being cast. */
   target?: boolean;
+  /** You can pick it for the current choice (an amber ring). */
+  pick?: boolean;
+  /** Picked for the current choice: its place in the picks (a white ring and the number). */
+  picked?: number;
 }
 
 /** Engine counter keys in words: "plus1plus1" is "+1/+1". */
@@ -125,6 +129,8 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
     look.ready && !attacking && !blocking && "ready",
     look.playable && "has options",
     look.target && "can be targeted",
+    look.pick && "can be chosen",
+    look.picked && `chosen ${look.picked}`,
     extraLabel,
   ]
     .filter(Boolean)
@@ -136,6 +142,8 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
     look.ready && "ready",
     look.selected && "selected",
     look.target && "target",
+    look.pick && "pick",
+    look.picked && "picked",
     attacking && "attacking",
     blocking && "blocking",
     c.commander && "commander",
@@ -180,6 +188,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
       {badge && <span className={`ft-badge${attacking ? " bad" : blocking ? " block" : badge === "Sick" ? " sick" : ""}`}>{badge}</span>}
       {count > 1 && <span className="ft-count num">×{count}</span>}
       {look.playable && !look.target && <span className="dot" aria-hidden="true" />}
+      {look.picked && <span className="pick-badge num" aria-hidden="true">{look.picked}</span>}
       {look.target && (
         <svg className="aim" viewBox="0 0 16 16" aria-hidden="true">
           <circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" strokeWidth="1.8" />
@@ -201,11 +210,13 @@ export function HandCard({ card, meta, look, h, style, caption }: {
 }) {
   const press = usePress(card, h);
   const pile: Pile = { key: String(card.id), card, ids: [card.id] };
-  const label = [card.name, look.tag, look.playable && "can play", caption && typeof caption === "string" ? caption : null].filter(Boolean).join(", ");
+  const label = [card.name, look.tag, look.playable && "can play", look.pick && "can be chosen", look.picked && `chosen ${look.picked}`, caption && typeof caption === "string" ? caption : null]
+    .filter(Boolean)
+    .join(", ");
   return (
     <button
       type="button"
-      className={`hc${look.playable ? " playable" : ""}${look.selected ? " selected" : ""}`}
+      className={`hc${look.playable ? " playable" : ""}${look.selected ? " selected" : ""}${look.pick ? " pick" : ""}${look.picked ? " picked" : ""}`}
       style={style}
       data-id={card.id}
       aria-label={label}
@@ -226,6 +237,7 @@ export function HandCard({ card, meta, look, h, style, caption }: {
     >
       {meta?.image ? <img src={meta.image} alt="" loading="lazy" draggable={false} /> : <span className="hc-name">{card.name}</span>}
       {caption && <span className="hc-caption">{caption}</span>}
+      {look.picked && <span className="pick-badge num" aria-hidden="true">{look.picked}</span>}
     </button>
   );
 }

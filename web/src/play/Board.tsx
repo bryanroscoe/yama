@@ -48,12 +48,14 @@ import {
 } from "./model";
 import { promptText, shortName } from "./text";
 import { COLOR_NAME, counterName, FieldTile, HandCard, ManaDot, type TileHandlers, type TileLook } from "./Tiles";
-import type { AttackAt, CardMeta, CardView, Decision, OptionView, PlayerView, SeatInfo, ServerMessage, View, WatchStatus } from "./types";
+import type { Act, AttackAt, CardMeta, CardView, Decision, OptionView, PlayerView, SeatInfo, ServerMessage, View, WatchStatus } from "./types";
 import { WatchControls, type WatchMessage } from "./WatchControls";
 import { seatLabel, seatName } from "./watch";
 import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayLine, readDrop, targetDrop, targetIndex, type Point } from "./drag";
 import { DragLayer, PlanArrows, seatHeadOf, tileOf, type ArrowTone, type DragLayerHandle, type PlanArrow } from "./DragLayer";
 import { MotionContext, Tick, useBoardMotion, type MotionOptions } from "./BoardMotion";
+import { ChooserBody, ChooserZone } from "./Chooser";
+import { buttons as chooserButtons, changed as draftChanged, chooserCovers, initialDraft, onBoard as pickOnBoard, ready as draftReady, toAct, togglePick, type Draft } from "./answer";
 import { motionScale } from "./motion";
 import "./board.css";
 
@@ -203,6 +205,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const [defender, setDefender] = useState<AttackAt | null>(null);
   const [blockPlan, setBlockPlan] = useState<Map<number, number>>(new Map());
   const [pendingBlocker, setPendingBlocker] = useState<number | null>(null);
+  // The answer being put together for a decision `act` answers (Chooser.tsx), kept with the
+  // decision it's for, so a new board that leaves that decision alone keeps it (PP-06).
+  const [draftState, setDraftState] = useState<{ key: number; draft: Draft } | null>(null);
   // A choice is on its way: buttons wait for the next board, so a double tap can't send twice.
   const [sentAt, setSentAt] = useState<number | null>(null);
   const [landsOpen, setLandsOpen] = useState(false);
@@ -503,6 +508,20 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     ? { valid: new Map(decision.block.blockers.map((b) => [b.id, b.attackers])), plan: blockPlan, pending: pendingBlocker }
     : null;
 
+  // A decision answered in full through `act` (play/src/act.rs): a pick, an order, a split, a
+  // number, a word or a yes or no. Targets keep the board's own targeting.
+  const pend = decision && !decision.attack && !decision.block && chooserCovers(decision.pending) ? decision.pending : null;
+  const draft: Draft | null = pend && decision ? (draftState?.key === decision.revision ? draftState.draft : initialDraft(pend)) : null;
+  const setDraft = (d: Draft) => decision && setDraftState({ key: decision.revision, draft: d });
+  // Cards in your hand or on the battlefield are picked where they are (laptop); others in a zone view.
+  const boardPick = !!pend && draft?.kind === "pick" && wide && pickOnBoard(pend);
+  const zonePick = !!pend && draft?.kind === "pick" && pend.answer === "select_cards" && !boardPick;
+  const pickable = new Set(boardPick ? pend!.options.filter((o) => o.eligible).map((o) => Number(o.id)) : []);
+  const picked = boardPick && draft?.kind === "pick" ? draft.ids.map(Number) : [];
+  const sendAct = (a: Act | null) => {
+    if (!decision || pending || !a) return;
+    send({ type: "act", revision: decision.revision, action: a });
+  };
   const choose = (o: OptionView) => {
     if (!decision || pending) return;
     if (send({ type: "choose", revision: decision.revision, index: o.index })) {
@@ -574,6 +593,12 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const justDragged = () => performance.now() - lastDragEnd.current < 400;
   const pick = (p: Pile) => {
     if (justDragged()) return;
+    if (boardPick && draft?.kind === "pick") {
+      // A stack of tokens: the next one not yet picked, or the last picked one back.
+      const ids = p.ids.filter((i) => pickable.has(i)).map(String);
+      const id = ids.find((i) => !draft.ids.includes(i)) ?? ids.filter((i) => draft.ids.includes(i)).pop();
+      if (id !== undefined) return setDraft(togglePick(pend!, draft, id));
+    }
     const asTarget = targetFor(p.ids, p.card.name);
     if (asTarget) return choose(asTarget);
     if (attack && p.ids.some((i) => attack.valid.has(i))) return toggleAttack(p.ids);
@@ -626,6 +651,11 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       blocking: !!block && any(block.plan),
       ready: (!!attack && any(attack.valid) && !any(attack.plan)) || (!!block && any(block.valid) && !any(block.plan)),
       target: !!targetFor(p.ids, p.card.name),
+      pick: boardPick && p.ids.some((i) => pickable.has(i) && !picked.includes(i)),
+      picked: boardPick ? (() => {
+        const at = picked.findIndex((i) => p.ids.includes(i));
+        return at >= 0 ? at + 1 : undefined;
+      })() : undefined,
     };
   };
   const onSeat = (seat: number) => {
@@ -912,6 +942,29 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         secondary: null,
       };
     }
+    if (pend && draft) {
+      const cancel = optionOf(decision, "cancel");
+      const sourceCard = pend.source ? cardById.get(pend.source.id) : undefined;
+      const b = chooserButtons(pend, draft, { canCancel: !!cancel, spell: !sourceCard || !view.battlefield.some((c) => c.id === sourceCard.id) });
+      const second = (): void => {
+        switch (b.secondaryDoes) {
+          case "no":
+            return sendAct(toAct(pend, draft, false));
+          case "cancel":
+            return cancel ? choose(cancel) : undefined;
+          case "clear":
+            return void setDraft({ kind: "pick", ids: [] });
+          case "reset":
+            return void setDraft(initialDraft(pend));
+          case "none":
+            return sendAct({ kind: "select_cards", cards: [] });
+        }
+      };
+      return {
+        primary: { label: b.primary, run: () => sendAct(toAct(pend, draft, true)), disabled: pending || !draftReady(pend, draft) },
+        secondary: b.secondary ? { label: b.secondary, run: second, disabled: pending } : null,
+      };
+    }
     if (attack) {
       const n = attack.plan.size;
       const left = [...attack.valid.keys()].filter((i) => !attack.plan.has(i)).length;
@@ -965,6 +1018,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   })();
   escRef.current = () => {
     if (dragRef.current?.started || inspect || sheet) return false;
+    if (pend && draft && draftChanged(pend, draft)) return (setDraft(initialDraft(pend)), true);
     if (pendingBlocker !== null) return (setPendingBlocker(null), true);
     if (block && blockPlan.size) return (setBlockPlan(new Map()), true);
     if (attack && attackPlan.size) return (setAttackPlan(new Map()), true);
@@ -1025,12 +1079,33 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         : `${Who(view.active)}'s turn ${view.turn}`
       : meOut
       ? "You're out"
+      : decision?.pending && !attack && !block
+      ? decision.pending.prompt
       : decision
       ? decisionTitle(decision, view, you, Who, promptText)
       : you === null
         ? "Watching"
         : `Waiting for ${view.waiting_on.filter((s) => s !== you).map(who).join(" and ") || "the game"}`;
 
+  const readByName = (name: string) => setInspect({ ...emptyCard, name });
+  const chooserBody =
+    pend && draft ? (
+      <ChooserBody
+        p={pend}
+        draft={draft}
+        onDraft={setDraft}
+        meta={meta}
+        who={who}
+        place={boardPick ? "board" : zonePick ? "zone" : "list"}
+        onRead={setInspect}
+        cardById={cardById}
+        disabled={pending}
+      />
+    ) : null;
+  const chooserZone =
+    zonePick && pend && draft?.kind === "pick" ? (
+      <ChooserZone p={pend} draft={draft} onDraft={setDraft} meta={meta} onRead={readByName} compact={!wide} disabled={pending} />
+    ) : null;
   const decisionBody = (
     <DecisionBody
       decision={decision}
@@ -1341,7 +1416,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           <section className="rail-decision" aria-live="polite" aria-labelledby="pb-dec-h">
             <h2 id="pb-dec-h">{title}</h2>
             {/* The choices scroll; the big button below them never leaves the screen. */}
-            <div className="rail-body">{watch ? watchControls(false) : decisionBody}</div>
+            <div className="rail-body">{watch ? watchControls(false) : chooserBody ?? decisionBody}</div>
             <div className="rail-foot">
               {recent.length > 0 && (
                 <section className="rail-recent" aria-label="Recent">
@@ -1364,6 +1439,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           </section>
         </aside>
         <PlanArrows arrows={planArrows} root={boardRoot} />
+        {chooserZone}
         <DragLayer ref={layer} />
         <div className="motion-layer" ref={motionLayer} aria-hidden="true" />
         {dragNote && <p className="drag-toast" role="status">{dragNote}</p>}
@@ -1380,7 +1456,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     opponents.find((p) => p.seat === view.active) ??
     opponents[0];
   const handPlayable = view.hand.some((c) => optionObjects.has(c.id)) || myCommanders.some((c) => optionObjects.has(c.id));
-  const phoneHint = attack
+  const phoneHint = pend
+    ? null
+    : attack
     ? `Tap creatures to attack ${attack.defender?.kind === "player" ? who(attack.defender.seat) : "their target"}${new Set([...attack.valid.values()].flat().filter((t) => t.kind === "player").map((t) => (t as { seat: number }).seat)).size > 1 ? ", or tap a tab for someone else." : "."}`
     : block
       ? block.pending !== null
@@ -1390,7 +1468,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         ? "Tap a card or player with an amber ring, or pick one below."
         : null;
   const phoneSelected = selectedOptions.length ? cardById.get(selected![0]!) : undefined;
-  const phoneChoices = phoneSelected
+  const phoneChoices = pend
+    ? []
+    : phoneSelected
     ? selectedOptions.length > 1
       ? selectedOptions
       : []
@@ -1508,6 +1588,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           <div className="dock-decision">
             {decision && !decision.prompt.startsWith("Priority") && !attack && !block && <p className="dock-prompt"><b>{title}</b></p>}
             {phoneHint && <p className="dock-hint">{phoneHint}</p>}
+            {chooserBody}
+            {chooserZone}
             {phoneChoices.length > 0 && (
               <div className="chips">
                 {phoneChoices.map((o) => {

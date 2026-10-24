@@ -5,7 +5,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use yama_play::{Decision, Difficulty, Engine, Match, OptionKind, SeatDeck};
+use yama_play::act::{Answer, Kind};
+use yama_play::{Act, ChoiceError, Decision, Difficulty, Engine, Match, OptionKind, SeatDeck, TargetView};
 
 fn engine() -> Engine {
     Engine::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/act-cards.json")).unwrap()
@@ -121,4 +122,125 @@ fn your_own_spell_resolves_without_asking_unless_you_want_full_control() {
     // Otherwise Yama passes for you, and the spell goes on to resolve once the others pass.
     assert!(m.auto_pass(&[0], &HashSet::new(), &HashMap::new()) >= 1);
     assert_ne!(m.waiting_on(), vec![0], "the opponent gets their chance to respond");
+}
+
+/// Seat 0's current decision, if it's described by `purpose`.
+fn pending(m: &Match, purpose: &str) -> Option<yama_play::Pending> {
+    m.decision(0).and_then(|d| d.pending).filter(|p| p.purpose == purpose)
+}
+
+#[test]
+fn a_scry_is_answered_in_full_and_only_by_its_seat() {
+    let e = engine();
+    let me = deck(&[("Island", 50), ("Opt", 49)]);
+    let them = deck(&[("Forest", 99)]);
+    let mut m = e.new_match_first(4, vec![me, them], &[(1, Difficulty::Easy)], Some(0)).unwrap();
+    drive(&mut m, 4000, lands_then("Opt"), |m| pending(m, "scry").is_some());
+    let p = pending(&m, "scry").unwrap();
+    assert_eq!((p.kind, p.answer, p.min, p.max, p.up_to, p.ordered, p.destination), (Kind::Pick, Answer::SelectCards, 0, 1, true, true, Some("top")));
+    assert_eq!(p.prompt, "Scry 1");
+    let looked = &p.options[0];
+    // The deciding seat sees the library card it scries; nobody else is asked or told.
+    assert!(looked.name == "Island" || looked.name == "Opt", "{looked:?}");
+    assert_eq!(looked.zone.as_deref(), Some("library"));
+    assert!(m.view(Some(1)).decision.is_none());
+    assert!(m.view(None).decision.is_none());
+
+    let revision = m.decision(0).unwrap().revision;
+    let before = m.revision;
+    // Another seat, a card that isn't offered, an answer of the wrong kind: refused, game unchanged.
+    assert!(matches!(m.act(1, revision, &Act::SelectCards { cards: vec![] }), Err(ChoiceError::NotYourTurn)));
+    let id: u64 = looked.id.parse().unwrap();
+    let err = m.act(0, revision, &Act::SelectCards { cards: vec![id + 100_000] }).unwrap_err();
+    assert_eq!(err.to_string(), "That card isn't one of the choices.");
+    let err = m.act(0, revision, &Act::OrderTriggers { order: vec![0] }).unwrap_err();
+    assert_eq!(err.to_string(), "That answer doesn't fit this decision.");
+    assert_eq!(m.revision, before);
+    // Keep it on top.
+    m.act(0, revision, &Act::SelectCards { cards: vec![id] }).unwrap();
+    assert!(m.revision > before);
+    assert!(pending(&m, "scry").is_none());
+}
+
+#[test]
+fn x_and_a_target_are_answered_with_act() {
+    let e = engine();
+    let me = deck(&[("Mountain", 50), ("Blaze", 49)]);
+    let them = deck(&[("Forest", 99)]);
+    let mut m = e.new_match_first(9, vec![me, them], &[(1, Difficulty::Easy)], Some(0)).unwrap();
+    // Cast Blaze once three Mountains are out.
+    let mountains = |m: &Match| m.view(Some(0)).battlefield.iter().filter(|c| c.controller == 0 && c.name == "Mountain" && !c.tapped).count();
+    let blaze = move |m: &Match, d: &Decision| option(d, OptionKind::Land).or_else(|| (mountains(m) >= 3).then(|| d.options.iter().find(|o| o.label.starts_with("Cast Blaze")).map(|o| o.index)).flatten());
+    drive(&mut m, 4000, blaze, |m| pending(m, "x").is_some() || pending(m, "target").is_some());
+    // The engine may ask for the target or X first; answer whichever comes, then the other.
+    for _ in 0..2 {
+        let d = m.decision(0).unwrap();
+        let p = d.pending.clone().unwrap();
+        match p.purpose {
+            "x" => {
+                assert_eq!((p.kind, p.answer), (Kind::Number, Answer::ChooseX));
+                assert_eq!(p.source.as_ref().map(|s| s.name.as_str()), Some("Blaze"));
+                let too_many = (p.max + 1) as u32;
+                assert!(m.act(0, d.revision, &Act::ChooseX { value: too_many }).unwrap_err().to_string().starts_with("X must be between"));
+                m.act(0, d.revision, &Act::ChooseX { value: 1 }).unwrap();
+            }
+            "target" => {
+                assert_eq!((p.kind, p.answer), (Kind::Pick, Answer::ChooseTarget));
+                assert!(p.options.iter().any(|o| o.id == "p1" && o.zone.as_deref() == Some("player")), "{:?}", p.options);
+                m.act(0, d.revision, &Act::ChooseTarget { target: Some(TargetView::Player { seat: 1 }) }).unwrap();
+            }
+            other => panic!("unexpected {other}"),
+        }
+        if pending(&m, "x").is_none() && pending(&m, "target").is_none() {
+            break;
+        }
+    }
+    // Blaze is on the stack, cast with X = 1 at the opponent.
+    assert!(m.view(Some(0)).stack.iter().any(|s| s.name == "Blaze"));
+}
+
+#[test]
+fn a_search_offers_only_what_it_may_find() {
+    let e = engine();
+    let me = deck(&[("Forest", 40), ("Rampant Growth", 59)]);
+    let them = deck(&[("Mountain", 99)]);
+    let mut m = e.new_match_first(2, vec![me, them], &[(1, Difficulty::Easy)], Some(0)).unwrap();
+    let forests = |m: &Match| m.view(Some(0)).battlefield.iter().filter(|c| c.controller == 0 && c.name == "Forest" && !c.tapped).count();
+    let growth = move |m: &Match, d: &Decision| option(d, OptionKind::Land).or_else(|| (forests(m) >= 2).then(|| d.options.iter().find(|o| o.label.starts_with("Cast Rampant Growth")).map(|o| o.index)).flatten());
+    drive(&mut m, 4000, growth, |m| pending(m, "search").is_some());
+    let d = m.decision(0).unwrap();
+    let p = d.pending.unwrap();
+    assert_eq!((p.kind, p.max), (Kind::Pick, 1));
+    assert!(p.options.iter().all(|o| o.name == "Forest" && o.zone.as_deref() == Some("library")), "only basic lands: {:?}", p.options);
+    // Rampant Growth isn't a basic land, so it isn't a choice, even though it's in the library.
+    let hand_card = m.view(Some(0)).hand.iter().find(|c| c.name == "Rampant Growth").map(|c| c.id).unwrap();
+    assert!(m.act(0, d.revision, &Act::SelectCards { cards: vec![hand_card] }).is_err());
+    let forest: u64 = p.options[0].id.parse().unwrap();
+    let lands = m.view(Some(0)).battlefield.iter().filter(|c| c.controller == 0 && c.name == "Forest").count();
+    m.act(0, d.revision, &Act::SelectCards { cards: vec![forest] }).unwrap();
+    assert_eq!(m.view(Some(0)).battlefield.iter().filter(|c| c.controller == 0 && c.name == "Forest").count(), lands + 1);
+}
+
+#[test]
+fn every_answer_round_trips_through_the_engines_action() {
+    let answers = [
+        Act::SelectCards { cards: vec![3, 1] },
+        Act::OrderTriggers { order: vec![1, 0] },
+        Act::SelectModes { indices: vec![0, 2] },
+        Act::ChooseX { value: 4 },
+        Act::ChooseTarget { target: Some(TargetView::Object { id: 9 }) },
+        Act::ChooseTarget { target: None },
+        Act::CancelCast,
+        Act::PayUnlessCost { pay: true },
+        Act::DecideOptionalEffect { accept: false },
+        Act::ChooseOption { choice: "Goblin".into() },
+        Act::ChooseReplacement { index: 1 },
+        Act::AssignCombatDamage { assignments: vec![(5, 2), (6, 1)], trample: 3, controller: 0, unblocked: false },
+        Act::DistributeAmong { distribution: vec![(TargetView::Player { seat: 2 }, 2), (TargetView::Object { id: 4 }, 1)] },
+    ];
+    for a in answers {
+        assert_eq!(Act::from_action(&a.to_action()), Some(a.clone()));
+        let json = serde_json::to_string(&a).unwrap();
+        assert_eq!(serde_json::from_str::<Act>(&json).unwrap(), a, "{json}");
+    }
 }
