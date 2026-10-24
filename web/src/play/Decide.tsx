@@ -18,6 +18,8 @@ import {
   canRememberOrder,
   counter,
   isScry,
+  isTapping,
+  isTargeting,
   keepOnTop,
   keypad,
   left,
@@ -1091,7 +1093,15 @@ export function PickBanner({ p, draft }: { p: Pending; draft: Draft }) {
  * The rail's body (laptop) for a decision these widgets answer: the source card with its art
  * credit, and what the stage over the table doesn't already say.
  */
-export function DecisionRail({ p, draft, ctx, stage, disabled, onReset }: { p: Pending; draft: Draft; ctx: WidgetContext; stage: Stage; disabled: boolean; onReset: () => void }) {
+export function DecisionRail({ p, draft, ctx, stage, disabled, onReset, onDraft }: {
+  p: Pending;
+  draft: Draft;
+  ctx: WidgetContext;
+  stage: Stage;
+  disabled: boolean;
+  onReset: () => void;
+  onDraft?: (d: Draft) => void;
+}) {
   const s = p.source;
   const { handlers, consumed } = useRead(() => s && ctx.onRead(s.name, s.id));
   const rest = draft.kind === "split" ? left(p, draft) : 0;
@@ -1113,9 +1123,40 @@ export function DecisionRail({ p, draft, ctx, stage, disabled, onReset }: { p: P
           {p.oracle && <p className="chooser-oracle">{p.oracle}</p>}
           <p className="chooser-count" aria-live="polite">{counter(p, draft)}</p>
           <p className="rail-help">
-            {p.answer === "choose_pair" ? "Click the creature to pair it with." : "Click the cards with an amber ring."}
+            {p.answer === "choose_pair"
+              ? "Click the creature to pair it with."
+              : isTargeting(p)
+                ? "Click a card or player with an amber ring. Esc takes the pick back."
+                : isTapping(p)
+                  ? "Click the creatures to tap."
+                  : "Click the cards with an amber ring."}
             {names.length > 0 && ` Chosen: ${names.join(", ")}.`}
           </p>
+          {/* Every choice as a list too, for anything hard to reach on the board. */}
+          {draft.kind === "pick" && onDraft && (isTargeting(p) || isTapping(p)) && (
+            <details className="chooser-list">
+              <summary>All {p.options.filter((o) => o.eligible).length} choices as a list</summary>
+              <ul>
+                {p.options
+                  .filter((o) => o.eligible)
+                  .map((o) => {
+                    const at = draft.ids.indexOf(o.id);
+                    return (
+                      <li key={o.id}>
+                        <button type="button" className={`chooser-row${at >= 0 ? " picked" : ""}`} aria-pressed={at >= 0} disabled={disabled} onClick={() => onDraft(togglePick(p, draft, o.id))}>
+                          {o.art ? <img src={o.art} alt="" /> : <span className="row-blank" />}
+                          <span>
+                            {o.name}
+                            {o.zone === "player" || o.controller === undefined ? "" : `, ${ctx.whose(o.controller) === "Your" ? "yours" : ctx.whose(o.controller)}`}
+                            {o.id === p.current ? ", its target now" : ""}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </details>
+          )}
         </>
       )}
       {stage === "steppers" && (

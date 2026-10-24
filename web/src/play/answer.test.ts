@@ -13,8 +13,11 @@ import {
   move,
   moveTo,
   nameMatches,
+  isTapping,
+  isTargeting,
   noneAct,
   onBoard,
+  powerOf,
   orderTag,
   ready,
   rememberLabels,
@@ -88,8 +91,8 @@ describe("picking cards", () => {
 });
 
 describe("what the chooser answers", () => {
-  it("leaves targets to the board, and shows nothing without a decision of yours", () => {
-    expect(chooserCovers(pending({ purpose: "target", answer: "choose_target" }))).toBe(false);
+  it("answers targets too, and shows nothing without a decision of yours", () => {
+    expect(chooserCovers(pending({ purpose: "target", answer: "choose_target" }))).toBe(true);
     // Another seat's board carries no pending decision at all, so nothing is shown there.
     expect(chooserCovers(undefined)).toBe(false);
     expect(chooserCovers(null)).toBe(false);
@@ -381,5 +384,122 @@ describe("pairing", () => {
     expect(buttons(pair, d, noCancel)).toMatchObject({ primary: "Pair with Aragorn", secondary: "Don't pair", secondaryDoes: "none" });
     expect(toAct(pair, d)).toEqual({ kind: "choose_pair", partner: 5 });
     expect(noneAct(pair)).toEqual({ kind: "choose_pair", partner: null });
+  });
+});
+
+describe("choosing targets on the board (GTarget, GTargetsMore)", () => {
+  const players = [option("p1", { zone: "player", controller: 1, name: "Sam" }), option("p0", { zone: "player", controller: 0, name: "You" })];
+  const bolt = pending({
+    purpose: "target",
+    answer: "choose_target",
+    prompt: "Choose a target",
+    min: 1,
+    max: 1,
+    options: [option("40", { zone: "battlefield", controller: 1, name: "Grizzly Bears" }), ...players],
+  });
+  it("picks targets on the board, players and spells included, and waits for the main button", () => {
+    expect(isTargeting(bolt)).toBe(true);
+    expect(onBoard(bolt)).toBe(true);
+    expect(stageOf(bolt, true, false)).toBe("board");
+    // On a phone too (GTargetPhone), unlike other picks.
+    expect(stageOf(bolt, false, false)).toBe("board");
+    expect(stageOf(pending({ purpose: "discard", options: [option("1", { zone: "hand" })] }), false, false)).toBe("sheet");
+    // A counterspell's target is a spell on the stack; a graveyard card needs the dialog.
+    expect(onBoard(pending({ ...bolt, options: [option("9", { zone: "stack" })] }))).toBe(true);
+    expect(onBoard(pending({ ...bolt, options: [option("9", { zone: "graveyard" })] }))).toBe(false);
+    let d = initialDraft(bolt);
+    expect(counter(bolt, d)).toBe("0 of 1");
+    expect(ready(bolt, d)).toBe(false);
+    expect(buttons(bolt, d, { canCancel: true, spell: true })).toMatchObject({ primary: "Done (0/1)", secondary: "Cancel", secondaryDoes: "cancel" });
+    d = togglePick(bolt, d, "p1");
+    // A second click on another target switches to it.
+    d = togglePick(bolt, d, "40");
+    expect(d).toEqual({ kind: "pick", ids: ["40"] });
+    expect(counter(bolt, d)).toBe("1 of 1");
+    expect(buttons(bolt, d, { canCancel: true, spell: true }).primary).toBe("Cast it");
+    expect(buttons(bolt, d, { canCancel: false, spell: false }).primary).toBe("Done");
+    expect(toAct(bolt, d)).toEqual({ kind: "choose_target", target: { kind: "object", id: 40 } });
+    expect(toAct(bolt, togglePick(bolt, initialDraft(bolt), "p1"))).toEqual({ kind: "choose_target", target: { kind: "player", seat: 1 } });
+  });
+  it("confirms one slot at a time, counting the ones already chosen", () => {
+    const second = pending({ ...bolt, slot: [1, 2], picked: ["40"], min: 0 });
+    const d = initialDraft(second);
+    expect(counter(second, d)).toBe("1 of 2");
+    // The second target is optional: the main button sends no target.
+    expect(buttons(second, d, { canCancel: true, spell: true }).primary).toBe("No target");
+    expect(noneAct(second)).toEqual({ kind: "choose_target", target: null });
+    const first = pending({ ...bolt, slot: [0, 2] });
+    expect(buttons(first, togglePick(first, initialDraft(first), "p1"), { canCancel: true, spell: true }).primary).toBe("Next target");
+  });
+  it("picks any number of targets, or all of them", () => {
+    const many = pending({ purpose: "targets", answer: "select_cards", min: 0, max: 3, upTo: true, options: [option("1", { zone: "battlefield" }), option("2", { zone: "battlefield" }), option("3", { zone: "battlefield" })] });
+    let d = initialDraft(many);
+    expect(counter(many, d)).toBe("0 chosen, any number");
+    expect(buttons(many, d, noCancel)).toMatchObject({ primary: "No targets", secondary: "Choose all", secondaryDoes: "all" });
+    d = togglePick(many, togglePick(many, d, "1"), "3");
+    expect(buttons(many, d, noCancel).primary).toBe("Done, 2 targets");
+    expect(toAct(many, d)).toEqual({ kind: "select_cards", cards: [1, 3] });
+  });
+  it("keeps or changes a copy's target, and changes a spell's", () => {
+    const options = [option("40", { zone: "battlefield", name: "Éowyn" }), option("41", { zone: "battlefield", name: "Adeline" })];
+    const copy = pending({ purpose: "copy", answer: "choose_target", min: 1, max: 1, options, current: "40", defaultAnswer: ["40"], keepRest: true });
+    let d = initialDraft(copy);
+    expect(d).toEqual({ kind: "pick", ids: ["40"] });
+    expect(buttons(copy, d, noCancel)).toMatchObject({ primary: "Keep Éowyn", secondary: null });
+    expect(toAct(copy, d)).toEqual({ kind: "choose_target", target: { kind: "object", id: 40 } });
+    d = togglePick(copy, d, "41");
+    expect(buttons(copy, d, noCancel)).toMatchObject({ primary: "Copy targets Adeline", secondary: "Back to Éowyn", secondaryDoes: "reset" });
+    // Several targets on the copy: the rest can be kept at once.
+    const two = pending({ ...copy, slot: [0, 2] });
+    expect(buttons(two, initialDraft(two), noCancel)).toMatchObject({ secondary: "Keep all targets", secondaryDoes: "keep-rest" });
+    expect(counter(two, initialDraft(two))).toBe("Target 1 of 2");
+    const retarget = pending({ ...copy, purpose: "retarget", answer: "retarget_spell", keepRest: false });
+    expect(buttons(retarget, initialDraft(retarget), noCancel).primary).toBe("Leave it on Éowyn");
+    const moved = togglePick(retarget, initialDraft(retarget), "41");
+    expect(buttons(retarget, moved, noCancel).primary).toBe("Change to Adeline");
+    expect(toAct(retarget, moved)).toEqual({ kind: "retarget_spell", new_targets: [{ kind: "object", id: 41 }] });
+  });
+});
+
+describe("tapping creatures for crew and enlist (GCombatMore)", () => {
+  const crew = pending({
+    purpose: "crew",
+    answer: "crew_vehicle",
+    min: 1,
+    max: 3,
+    upTo: true,
+    need: 3,
+    source: { id: 70, name: "Skysovereign", controller: 0 },
+    options: [option("1", { zone: "battlefield", power: 2 }), option("2", { zone: "battlefield", power: 1 }), option("3", { zone: "battlefield", power: 5 })],
+  });
+  it("adds up the engine's crew power and crews once it reaches the need", () => {
+    expect(isTapping(crew)).toBe(true);
+    expect(stageOf(crew, false, false)).toBe("board");
+    let d = togglePick(crew, initialDraft(crew), "1");
+    expect(powerOf(crew, d)).toBe(2);
+    expect(counter(crew, d)).toBe("2 of 3 power");
+    expect(ready(crew, d)).toBe(false);
+    expect(buttons(crew, d, { canCancel: true, spell: false })).toMatchObject({ primary: "2 of 3 power", secondary: "Cancel" });
+    d = togglePick(crew, d, "2");
+    expect(ready(crew, d)).toBe(true);
+    expect(buttons(crew, d, { canCancel: true, spell: false }).primary).toBe("Crew (2 tapped)");
+    expect(toAct(crew, d)).toEqual({ kind: "crew_vehicle", vehicle: 70, creatures: [1, 2] });
+  });
+  it("enlists one creature or none", () => {
+    const enlist = pending({ purpose: "enlist", answer: "choose_enlist", min: 0, max: 1, upTo: true, options: [option("5", { zone: "battlefield", name: "Faramir" })] });
+    expect(buttons(enlist, initialDraft(enlist), noCancel)).toMatchObject({ primary: "Choose a creature", secondary: "Don't enlist", secondaryDoes: "none" });
+    expect(noneAct(enlist)).toEqual({ kind: "choose_enlist", target: null });
+    const d = togglePick(enlist, initialDraft(enlist), "5");
+    expect(buttons(enlist, d, noCancel).primary).toBe("Enlist Faramir");
+    expect(toAct(enlist, d)).toEqual({ kind: "choose_enlist", target: 5 });
+  });
+  it("pays an attack tax and exerts with the engine's yes and no", () => {
+    const tax = pending({ kind: "yesno", purpose: "tax", answer: "pay_combat_tax", prompt: "Pay {4} to attack with Éowyn and Adeline?", yesLabel: "Pay {4}", noLabel: "Don't pay", min: 1, max: 1 });
+    expect(buttons(tax, initialDraft(tax), noCancel)).toMatchObject({ primary: "Pay {4}", secondary: "Don't pay" });
+    expect(toAct(tax, initialDraft(tax), true)).toEqual({ kind: "pay_combat_tax", accept: true });
+    expect(toAct(tax, initialDraft(tax), false)).toEqual({ kind: "pay_combat_tax", accept: false });
+    const exert = pending({ kind: "yesno", purpose: "exert", answer: "choose_exert", prompt: "Exert Glorybringer as it attacks?", yesLabel: "Exert", noLabel: "Don't exert", min: 1, max: 1 });
+    expect(buttons(exert, initialDraft(exert), noCancel)).toMatchObject({ primary: "Exert", secondary: "Don't exert" });
+    expect(toAct(exert, initialDraft(exert), false)).toEqual({ kind: "choose_exert", exert: false });
   });
 });

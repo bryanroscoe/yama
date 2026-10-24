@@ -1061,6 +1061,9 @@ impl Match {
             GameAction::PayUnlessCost { pay } => if *pay { "Pay the cost".into() } else { "Don't pay".into() },
             GameAction::ChooseX { value } => format!("X = {value}"),
             GameAction::Equip { equipment_id, target_id } => format!("Equip {} to {}", Self::name_in(vs, equipment_id), Self::name_in(vs, target_id)),
+            // Starting to crew or saddle; the creatures are chosen next (`Pending`, "crew").
+            GameAction::CrewVehicle { vehicle_id, creature_ids } if creature_ids.is_empty() => format!("Crew {}", Self::name_in(vs, vehicle_id)),
+            GameAction::SaddleMount { mount_id, creature_ids } if creature_ids.is_empty() => format!("Saddle {}", Self::name_in(vs, mount_id)),
             GameAction::ChooseOption { choice } => choice.clone(),
             GameAction::CancelCast => "Cancel".into(),
             GameAction::RespondResolveAllConsent { decision: ResolveAllConsentDecision::Grant, .. } => "Agree".into(),
@@ -1523,19 +1526,23 @@ impl Match {
                     };
                     let detail = derived.stack_entry_details.get(&s.id);
                     let trigger = matches!(s.kind, StackEntryKind::TriggeredAbility { .. });
-                    // An ability's own words, from the engine. A spell's are its Oracle text,
-                    // which the board has from the card.
-                    let ability = matches!(s.kind, StackEntryKind::TriggeredAbility { .. } | StackEntryKind::ActivatedAbility { .. });
+                    // An ability's own words, from the engine (a keyword action like crew is just
+                    // its keyword). A spell's are its Oracle text, which the board has from the card.
+                    let ability = !matches!(s.kind, StackEntryKind::Spell { .. });
                     let face_down = state.objects.get(&s.source_id).is_some_and(|o| o.face_down);
-                    let text = detail
-                        .and_then(|d| d.ability_description.as_deref())
-                        .filter(|t| ability && !face_down && !t.trim().is_empty())
-                        .map(|d| ability_text(d, &name));
+                    let text = match &s.kind {
+                        StackEntryKind::KeywordAction { .. } | StackEntryKind::CombatDamage { .. } => detail.map(|d| d.kind_label.clone()),
+                        _ => detail
+                            .and_then(|d| d.ability_description.as_deref())
+                            .filter(|t| ability && !face_down && !t.trim().is_empty())
+                            .map(|d| ability_text(d, &name)),
+                    };
                     StackView {
                         id: s.id.0,
                         source: s.source_id.0,
                         controller: detail.map_or(s.controller.0, |d| d.controller.0),
                         trigger,
+                        ability,
                         text,
                         modes: detail.map(|d| d.selected_mode_labels.iter().map(|m| ability_text(m, &name)).collect()).unwrap_or_default(),
                         casting: detail.is_some_and(|d| d.is_pending),
@@ -1602,11 +1609,16 @@ fn keyword_labels(keywords: &[Keyword]) -> Vec<String> {
 
 fn keyword_label(k: &Keyword) -> String {
     // phase's Display writes the common ones in words and falls back to Debug for the rest
-    // ("Toxic(2)", "TrampleOverPlaneswalkers", "Ward(Mana(..))").
+    // ("Toxic(2)", "TrampleOverPlaneswalkers", "Crew { power: 1, .. }", "Ward(Mana(..))").
     let shown = k.to_string();
-    let (head, arg) = match shown.split_once('(') {
-        Some((head, rest)) => (head.to_string(), rest.trim_end_matches(')').to_string()),
-        None => (shown.clone(), String::new()),
+    let cut = shown.find(['(', '{']).unwrap_or(shown.len());
+    let head = shown[..cut].trim().to_string();
+    let inner = shown[cut..].trim_start_matches(['(', '{']).trim_end_matches([')', '}']).trim();
+    // A keyword's own number ("Toxic 2", "Crew 1"); a nested value (Ward's cost) stays out.
+    let arg = if inner.contains(['(', '{']) {
+        String::new()
+    } else {
+        inner.split(|c: char| !c.is_ascii_digit()).find(|n| !n.is_empty()).unwrap_or("").to_string()
     };
     // "TrampleOverPlaneswalkers" and "First Strike" both become words: "Trample over planeswalkers".
     let mut words = String::new();
@@ -1620,8 +1632,7 @@ fn keyword_label(k: &Keyword) -> String {
     if let Some(first) = words.get(0..1) {
         words = format!("{}{}", first.to_uppercase(), &words[1..]);
     }
-    // A plain number is part of the keyword ("Toxic 2", "Afflict 3"); anything else stays out.
-    if !arg.is_empty() && arg.chars().all(|c| c.is_ascii_digit()) {
+    if !arg.is_empty() {
         words = format!("{words} {arg}");
     }
     words
@@ -1767,6 +1778,9 @@ pub struct StackView {
     /// A triggered ability (the kind a seat may yield to).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub trigger: bool,
+    /// An ability (triggered, activated, or a keyword action such as crew), not a spell.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub ability: bool,
     /// A triggered or activated ability's own words, from the engine. A spell's words are its
     /// Oracle text, which the board has from the card.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1915,5 +1929,7 @@ mod tests {
             Keyword::Flying,
         ]);
         assert_eq!(labels, ["Flying", "First strike", "Deathtouch", "Trample over planeswalkers", "Toxic 2"]);
+        let crew: Keyword = "Crew:1".parse().unwrap();
+        assert_eq!(keyword_labels(&[crew]), ["Crew 1"]);
     }
 }

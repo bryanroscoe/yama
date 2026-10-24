@@ -17,8 +17,16 @@ export interface CardView {
   attacking?: boolean;
   /** The seat it attacks (a planeswalker's or battle's controller, for those). */
   attacks?: number;
+  /** The planeswalker or battle it attacks, when it attacks one. */
+  attacks_card?: number;
+  /** An attacker that was blocked (it stays blocked if its blockers leave). */
+  blocked?: boolean;
   /** Declared as a blocker in the current combat. */
   blocking?: boolean;
+  /** The attackers it blocks (newer servers). */
+  blocks?: number[];
+  /** Its keyword abilities as the engine badges them on the battlefield: "Flying", "Deathtouch". */
+  keywords?: string[];
   /** A commander (never set on a face-down card). */
   commander?: boolean;
   /** Commander tax: 2 for each earlier cast from the command zone. */
@@ -88,7 +96,13 @@ export type AnswerKind =
   | "choose_replacement"
   | "assign_combat_damage"
   | "distribute_among"
-  | "choose_pair";
+  | "choose_pair"
+  | "retarget_spell"
+  | "pay_combat_tax"
+  | "choose_exert"
+  | "choose_enlist"
+  | "crew_vehicle"
+  | "saddle_mount";
 
 /** The card asking; the server adds its art, image and artist. */
 export interface DecisionSource {
@@ -116,6 +130,8 @@ export interface DecisionOption {
   toughness?: number;
   /** Combat damage that counts as lethal for it. */
   lethal?: number;
+  /** What it adds toward the decision's `need` when picked (crew or saddle power). */
+  power?: number;
 }
 
 /**
@@ -160,6 +176,16 @@ export interface Pending {
   unblocked?: boolean;
   /** What a split divides; damage gets a lethal hint. */
   unit?: "damage" | "counters" | "life";
+  /** Targets chosen one at a time: this one's place (from 0) and how many there are. */
+  slot?: [number, number];
+  /** The targets already chosen for the earlier ones, by option id, in order. */
+  picked?: string[];
+  /** What a copy or a spell on the stack targets now, by option id; picking it keeps it. */
+  current?: string;
+  /** Every remaining target of a copy may be kept at once. */
+  keepRest?: boolean;
+  /** Crew or saddle: the total power the picked creatures must reach. */
+  need?: number;
 }
 
 /** An answer sent with `{type: "act"}` (play/src/act.rs, Act). */
@@ -182,6 +208,15 @@ export type Act =
   | { kind: "choose_replacement_and_remember"; choice: { type: "order"; order: number[] } | { type: "optional"; index: number } }
   /** Soulbond: the creature to pair with, or none. */
   | { kind: "choose_pair"; partner: number | null }
+  /** New targets for a spell on the stack, one for each it has. */
+  | { kind: "retarget_spell"; new_targets: (TargetView | null)[] }
+  /** Keep every remaining target of a copy. */
+  | { kind: "keep_all_copy_targets" }
+  | { kind: "pay_combat_tax"; accept: boolean }
+  | { kind: "choose_exert"; exert: boolean }
+  | { kind: "choose_enlist"; target: number | null }
+  | { kind: "crew_vehicle"; vehicle: number; creatures: number[] }
+  | { kind: "saddle_mount"; mount: number; creatures: number[] }
   // A seat's own settings (any time) and Resolve all (play/src/turns.rs). Selectors and targets
   // are the engine's, echoed back as the view lists them.
   | { kind: "set_may_trigger_auto_choice"; change: { op: "remove"; selector: unknown } | { op: "clear_all" } }
@@ -240,6 +275,14 @@ export interface ResolveAllView {
   seats: { seat: number; agreed: boolean; deciding: boolean }[];
 }
 
+/** What a stack item targets, as you may see it: a card or a player, or only "a card" when it's hidden. */
+export interface StackTarget {
+  target?: TargetView;
+  name: string;
+  /** The card's controller, or the player targeted. */
+  controller?: number;
+}
+
 /** One item on the stack. Newer servers say which entry and source it is, and whether it's a trigger. */
 export interface StackItem {
   id?: number;
@@ -247,8 +290,16 @@ export interface StackItem {
   name: string;
   controller: number;
   trigger?: boolean;
-  /** A trigger's own words. */
+  /** An ability (triggered, activated or a keyword action such as crew), not a spell (newer servers). */
+  ability?: boolean;
+  /** A triggered or activated ability's own words (a spell's are its Oracle text). */
   text?: string;
+  /** The modes chosen for a modal spell or ability. */
+  modes?: string[];
+  /** What it targets (newer servers). */
+  targets?: StackTarget[];
+  /** Still being cast: its targets aren't chosen yet. */
+  casting?: boolean;
   /** You yielded to it: Yama passes for you while it's on top. */
   yielded?: boolean;
 }
@@ -271,9 +322,43 @@ export interface Decision {
   /** The decision in the generic widgets' shape, when `act` answers it (newer servers). */
   pending?: Pending;
   /** While declaring attackers: who may attack and whom (newer servers). */
-  attack?: { attackers: { id: number; targets: AttackAt[] }[] };
+  attack?: AttackChoice;
   /** While declaring blockers: who may block and which attackers. */
-  block?: { blockers: { id: number; attackers: number[] }[] };
+  block?: BlockChoice;
+}
+
+/** A creature a restriction holds back (can't attack, can't block), and the cards that do. */
+export interface Held {
+  id: number;
+  because?: string[];
+}
+
+export interface AttackChoice {
+  attackers: {
+    id: number;
+    targets: AttackAt[];
+    /** It attacks this combat if able: the defenders it must attack, or [] when anyone will do. */
+    must?: AttackAt[];
+    /** The cards that make it attack. */
+    because?: string[];
+    /** What attacking each taxed target costs, printed ("{2}"). */
+    taxes?: [AttackAt, string][];
+  }[];
+  /** Creatures that can't attack. */
+  cant?: Held[];
+}
+
+export interface BlockChoice {
+  blockers: {
+    id: number;
+    attackers: number[];
+    /** It blocks this combat if able. */
+    must?: boolean;
+  }[];
+  /** Attackers that need more than one blocker (menace), and how many. */
+  needs?: [number, number][];
+  /** Creatures that can't block. */
+  cant?: Held[];
 }
 
 export interface View {

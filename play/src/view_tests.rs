@@ -228,6 +228,7 @@ fn a_vehicle_is_crewed_with_act() {
     // Crewing starts from priority, as one of the engine's options for the Copter.
     let d = m.decision(0).unwrap();
     let crew = d.options.iter().find(|o| o.object == Some(copter.0)).expect("the Copter can be crewed");
+    assert_eq!(crew.label, "Crew Smuggler's Copter");
     m.choose(0, d.revision, crew.index).unwrap();
     let d = m.decision(0).expect("choosing the crew");
     let p = d.pending.clone().expect("crew is a pick");
