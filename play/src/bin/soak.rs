@@ -170,16 +170,26 @@ fn run() {
         };
         let turn_before = state.turn_number;
         // The AI's answer as a person would send it, where `act` covers it.
-        let as_person = Act::from_action(&action).and_then(|a| {
+        // While paying, a mana ability is a tap, and every tap and cast goes through `act` too.
+        let paying = yama_play::pay::paying(&state.waiting_for, owner);
+        let as_act = if paying { Act::from_payment_action(&action) } else { Act::from_action(&action) };
+        let as_person = as_act.and_then(|a| {
             let vs = filter_state_for_viewer(&state, owner);
             let candidates: Vec<_> = contract.candidates.iter().map(|c| c.action.clone()).collect();
-            (matches!(a, Act::CancelCast) || yama_play::Pending::of(&vs, owner, &candidates, &[]).is_some()).then_some(a)
+            let covered = match a {
+                Act::CancelCast | Act::CastSpell { .. } => true,
+                Act::TapMana { .. } | Act::UntapMana { .. } | Act::KeepMana => paying,
+                _ => yama_play::Pending::of(&vs, owner, &candidates, &[]).is_some(),
+            };
+            covered.then_some(a)
         });
         let result = if let Some(a) = as_person {
             match answer(&mut state, owner, &a) {
                 Ok(done) => {
                     *acted.entry(a.kind()).or_default() += 1;
-                    log.push_action(done.actor, done.action);
+                    for a in done.actions {
+                        log.push_action(done.actor, a);
+                    }
                     Ok(done.result)
                 }
                 Err(why) => {

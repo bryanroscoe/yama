@@ -92,6 +92,8 @@ pub struct Controls {
     /// "Hold priority": stop whenever they get priority while the stack isn't empty, even for
     /// their own spell, until they pass with their own spell on top (or the stack empties).
     pub hold: bool,
+    /// "Tap mana for me" (pay.rs), saved per account: the board casts with it.
+    pub tap_mana: crate::PayMode,
 }
 
 impl Stops {
@@ -204,6 +206,8 @@ pub struct TurnsView {
     pub yields: Vec<YieldView>,
     /// Answers the engine gives for them (GSettings, "Automatic answers").
     pub answers: Vec<AnswerView>,
+    /// How their spells pay (GPay's "Tap mana for me").
+    pub tap_mana: crate::PayMode,
 }
 
 /// A trigger yield (GSettings).
@@ -340,6 +344,7 @@ impl Match {
             hold: c.hold,
             yields,
             answers,
+            tap_mana: c.tap_mana,
         }
     }
 

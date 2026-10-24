@@ -112,6 +112,11 @@ export interface TileLook {
   by?: string;
   /** Show its keyword badges under it (creatures in combat). */
   keywords?: boolean;
+  /**
+   * Paying automatically would tap it for the card you're pointing at (GCast's "Will tap"): a
+   * white dashed outline and a neutral chip, never amber, since it isn't a choice.
+   */
+  will?: boolean;
 }
 
 /** Engine counter keys in words: "plus1plus1" is "+1/+1". */
@@ -147,6 +152,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
     look.picked && `chosen ${look.picked}`,
     look.chosen && "chosen",
     look.defender && `attacking ${look.defender.name}`,
+    look.will && "will tap",
     look.under?.text,
     c.keywords?.length && c.keywords.join(", "),
     extraLabel,
@@ -167,6 +173,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
     c.commander && "commander",
     !meta?.art && "no-art",
     look.by && "targeted",
+    look.will && "will-tap",
   ]
     .filter(Boolean)
     .join(" ");
@@ -218,6 +225,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
         </span>
       )}
       {under && <span className={`ft-under ${under.tone}`} title={under.text}>{under.text}</span>}
+      {look.will && <span className="will-chip" aria-hidden="true">Will tap</span>}
       {look.target && (
         <svg className="aim" viewBox="0 0 16 16" aria-hidden="true">
           <circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" strokeWidth="1.8" />

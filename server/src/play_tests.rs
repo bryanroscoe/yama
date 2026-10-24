@@ -94,6 +94,26 @@ fn only_whitelisted_answers_parse() {
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"set_auto_pass","mode":{"type":"UntilStackEmpty"}}}"#));
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"concede"}}"#));
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_replacement_and_remember","choice":{"type":"forget"}}}"#));
+    // Paying (play/src/pay.rs): a cast with the seat's setting, taps, untaps, the Treasure
+    // prompt's "Keep it", colours, Phyrexian mana and extra costs.
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"cast_spell","object":40,"payment":"manual"}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"tap_mana","source":41,"choice":"tap:0:W"}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"tap_mana","source":41}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"untap_mana","source":41}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"keep_mana"}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_mana_color","mana":["R"]}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"pay_phyrexian","life":[true,false]}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"decide_optional_cost","pay":true}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_cost_branch","index":1}}"#));
+    // Not a payment mode the setting doesn't have, nor the engine's raw mana actions.
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"cast_spell","object":40,"payment":"free"}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"tap_land_for_mana","selection":{}}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"submit_phyrexian_choices","choices":[]}}"#));
+    // The auto-tap preview, and "Tap mana for me" with the other settings (older boards leave it out).
+    assert!(ok(r#"{"type":"preview","revision":3,"object":40}"#));
+    assert!(ok(r#"{"type":"prefs","stops":null,"full_control":false,"tap_mana":"manual"}"#));
+    assert!(ok(r#"{"type":"prefs","stops":null,"full_control":false}"#));
+    assert!(!ok(r#"{"type":"prefs","stops":null,"full_control":false,"tap_mana":"sometimes"}"#));
     // Turn controls.
     assert!(ok(r#"{"type":"pass","revision":3,"mode":"mine"}"#));
     assert!(ok(r#"{"type":"pass","revision":3,"mode":null}"#));
@@ -209,7 +229,7 @@ async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
     assert_eq!(load_prefs(&pool, &user).await.unwrap(), None);
     // Only steps phase has are kept.
     let sent = Stops { own: ["Upkeep".to_string(), "Teatime".to_string()].into(), others: ["End".to_string()].into() };
-    let prefs = PlayPrefs { stops: Some(clean_stops(sent)), full_control: true };
+    let prefs = PlayPrefs { stops: Some(clean_stops(sent)), full_control: true, tap_mana: PayMode::Manual };
     save_prefs(&pool, &user, &prefs).await.unwrap();
     let back = load_prefs(&pool, &user).await.unwrap().unwrap();
     assert_eq!(back, prefs);
@@ -221,12 +241,14 @@ async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
     // A live game starts with each seat's saved settings, and its board says what they are.
     let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()) });
     let m = engine().new_match_first(5, vec![deck(&[("Mountain", 99)]), deck(&[("Forest", 99)])], &[], Some(0)).unwrap();
-    let saved = HashMap::from([(0u8, PlayPrefs { stops: None, full_control: true })]);
+    let saved = HashMap::from([(0u8, PlayPrefs { stops: None, full_control: true, tap_mana: PayMode::Auto })]);
     hub.spawn_game("game-turns-1".into(), m, vec![seat(0, "Ana"), seat(1, "Ben")], saved, pool.clone());
     let live = hub.live("game-turns-1").unwrap();
     let mine = board(&live, 0).await.turns.expect("a person's board has their controls");
     assert!(mine.full_control);
+    assert_eq!(mine.tap_mana, PayMode::Auto, "and how their spells pay");
     assert!(!board(&live, 1).await.turns.unwrap().full_control);
+    assert_eq!(board(&live, 1).await.turns.unwrap().tap_mana, PayMode::Ask);
 
     // A way to pass while it isn't your priority is kept for when it is.
     choose(&live, 0, OptionKind::Keep).await;
@@ -242,5 +264,9 @@ async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert_eq!(passing, Some(PassMode::Mine));
+    // The auto-tap preview answers, even when there's nothing to preview (no priority yet).
+    let (tx, rx) = oneshot::channel();
+    live.cmds.send(Cmd::Preview { seat: 0, object: 1, reply: tx }).unwrap();
+    assert_eq!(rx.await.unwrap(), Vec::<u64>::new());
     let _ = live.cmds.send(Cmd::Stop);
 }

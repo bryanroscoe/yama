@@ -28,6 +28,8 @@ import {
   moveTo,
   nameMatches,
   orderTag,
+  phyrexianLife,
+  phyrexianMana,
   rememberLabels,
   restHere,
   setNumber,
@@ -59,6 +61,8 @@ export interface WidgetContext {
   damageOf: (id: number) => number;
   /** Cards on the battlefield, for a name widget's "in play first". */
   inPlay: { name: string; seat: number }[];
+  /** Your life now, for Phyrexian mana's "Life: 38 → 36". */
+  life?: number;
 }
 
 interface Props {
@@ -73,6 +77,17 @@ interface Props {
 
 const COPYRIGHT = "© Wizards of the Coast";
 const IMAGES = "Card images from Scryfall, © Wizards of the Coast.";
+
+/** What not paying means, in red with a mark (ward's "your spell is countered"). */
+export function Warn({ text }: { text?: string }) {
+  if (!text) return null;
+  return (
+    <span className="dw-warn" role="note">
+      <span aria-hidden="true">!</span>
+      {text}
+    </span>
+  );
+}
 
 /** "Your Reveillark", "Sam's Smothering Tithe". */
 function sourceLine(p: Pending, ctx: WidgetContext): string {
@@ -159,9 +174,15 @@ function Head({ p, ctx, count, compact, image = false, extra }: { p: Pending; ct
         )}
         <h2>{p.prompt}</h2>
         {!compact && p.oracle && <span className="dw-oracle">{p.oracle}</span>}
+        {!compact && <Warn text={p.warn} />}
       </span>
       {extra ?? (count ? <span className="dw-count" aria-live="polite">{count}</span> : null)}
       {compact && p.oracle && <span className="dw-oracle wide">{p.oracle}</span>}
+      {compact && p.warn && (
+        <span className="wide">
+          <Warn text={p.warn} />
+        </span>
+      )}
       {/* A phone has no room beside the art, so its credit goes under the question. */}
       {compact && s?.artist && art && !image && <span className="dw-credit wide">Art: {s.artist}, {COPYRIGHT}</span>}
     </div>
@@ -193,6 +214,7 @@ export function YesNoStrip({ p, draft, onDraft, ctx, compact, disabled }: Props)
         )}
         <b className="dw-question">{p.prompt}</b>
         {p.oracle && <span className="dw-oracle">{p.oracle}</span>}
+        <Warn text={p.warn} />
         {/* Only where the engine itself can remember the answer; Yama's own remembering comes later. */}
         {p.remember === "engine" && draft.kind === "yesno" && (
           <span className="dw-remember">
@@ -629,7 +651,7 @@ export function SplitRows({ p, draft, onDraft, ctx, compact, disabled }: Props) 
         })}
       </div>
       <p className="dw-foot">
-        Starts at the engine's split.{min > 0 ? ` Each gets at least ${min}.` : ""} {artists.length ? `Art: ${artists.join(", ")}, ${COPYRIGHT}.` : ""}
+        {p.unit === "mana" ? "One colour for each mana." : "Starts at the engine's split."}{min > 0 ? ` Each gets at least ${min}.` : ""} {artists.length ? `Art: ${artists.join(", ")}, ${COPYRIGHT}.` : ""}
       </p>
     </div>
   );
@@ -1076,15 +1098,162 @@ export function PairList({ p, draft, onDraft, ctx, compact, disabled }: Props) {
   );
 }
 
+// ── paying (GMana, GCosts) ─────────────────────────────────────────────────
+
+/** A mana symbol's colour, for a swatch: the first colour of "W", "WU" or "W/U". */
+function manaFill(code: string): string {
+  const k = code.replace(/[^WUBRGC]/g, "")[0] as keyof typeof MANA | undefined;
+  return k ? MANA[k].fill : MANA.C.fill;
+}
+
+/** The ink that reads on that colour. */
+function manaInk(code: string): string {
+  const k = code.replace(/[^WUBRGC]/g, "")[0] as keyof typeof MANA | undefined;
+  return k ? MANA[k].ink : MANA.C.ink;
+}
+
+/**
+ * A colour of mana (GMana's first tab): a tile per colour the engine offers, or per whole
+ * combination for a filter land, or per way to pay a mana ability's hybrid cost.
+ */
+export function ManaColorPick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  const single = p.purpose === "color";
+  return (
+    <div className={`dw-mana${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} compact={compact} />
+      <div className="dw-mana-list" role="radiogroup" aria-label={p.prompt}>
+        {p.options.map((o) => {
+          const on = draft.ids.includes(o.id);
+          const codes = single ? [o.id] : o.id.split("");
+          return (
+            <button
+              key={o.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              className={`dw-mana-tile${on ? " picked" : o.eligible ? " pick" : ""}`}
+              disabled={disabled || !o.eligible}
+              onClick={() => onDraft(togglePick(p, draft, o.id))}
+            >
+              <span className="dw-swatches" aria-hidden="true">
+                {codes.map((c, i) => (
+                  <span key={i} className="dw-swatch big" style={{ background: manaFill(c) }} />
+                ))}
+              </span>
+              <b>{o.name}</b>
+            </button>
+          );
+        })}
+      </div>
+      {single && <p className="dw-note">The colours the engine offers for this source.</p>}
+    </div>
+  );
+}
+
+/**
+ * Phyrexian mana (GMana): one switch per Phyrexian symbol, mana or 2 life, with what that leaves
+ * your life at and the mana still to pay. A symbol only one way can pay shows that way, fixed.
+ */
+export function PhyrexianPick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  const life = phyrexianLife(p, draft);
+  const mana = phyrexianMana(p, draft);
+  const set = (id: string, withLife: boolean) => {
+    const on = draft.ids.includes(id);
+    if (on !== withLife) onDraft(togglePick(p, draft, id));
+  };
+  return (
+    <div className={`dw-phyrexian${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} compact={compact} />
+      <div className="dw-shards">
+        {p.options.map((o) => {
+          const withLife = draft.ids.includes(o.id);
+          return (
+            <div key={o.id} className="dw-shard">
+              <span className="dw-shard-pip" style={{ background: manaFill(o.name), color: manaInk(o.name) }} aria-hidden="true">{o.name.replace(/[{}]/g, "")}</span>
+              <span className="dw-shard-text">
+                <b>{o.name} in the cost</b>
+                <span>{o.eligible ? `Pay with ${o.cost ?? "mana"} or 2 life.` : o.text}</span>
+              </span>
+              <span className="dw-seg" role="radiogroup" aria-label={`Pay ${o.name} with`}>
+                <button type="button" role="radio" aria-checked={!withLife} className={withLife ? "" : "on"} disabled={disabled || !o.eligible} onClick={() => set(o.id, false)}>
+                  {o.cost ?? "Mana"}
+                </button>
+                <button type="button" role="radio" aria-checked={withLife} className={withLife ? "on" : ""} disabled={disabled || !o.eligible} onClick={() => set(o.id, true)}>
+                  2 life
+                </button>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="dw-shard-sum">
+        {ctx.life !== undefined && (
+          <>
+            Life: <b className="num">{ctx.life} → {ctx.life - life}</b>.{" "}
+          </>
+        )}
+        Mana still to pay: <b>{mana || "none"}</b>.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * An extra cost (GCosts): kicker as two rows with what the spell costs either way, another
+ * optional cost as pay or don't, or an activation's alternative costs. The card is shown whole.
+ */
+export function CostRows({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  const s = p.source;
+  const image = s?.image ?? (s ? ctx.meta[s.name]?.image ?? null : null);
+  return (
+    <div className={`dw-costs${compact ? " compact" : ""}`}>
+      <div className="dw-head image">
+        {image && s && !compact && <ReadImg src={image} name={s.name} onRead={() => ctx.onRead(s.name, s.id)} />}
+        <span className="dw-head-text">
+          {s && <span className="dw-source-line">{sourceLine(p, ctx)}</span>}
+          <h2>{p.prompt}</h2>
+          {!compact && p.oracle && <span className="dw-oracle">{p.oracle}</span>}
+        </span>
+      </div>
+      <div className={`dw-cost-list${p.options.length === 2 ? " two" : ""}`} role="radiogroup" aria-label={p.prompt}>
+        {p.options.map((o) => {
+          const on = draft.ids.includes(o.id);
+          return (
+            <button
+              key={o.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              className={`dw-cost${on ? " picked" : o.eligible ? " pick" : ""}`}
+              disabled={disabled || !o.eligible}
+              onClick={() => onDraft(togglePick(p, draft, o.id))}
+            >
+              <b>{o.name}</b>
+              {o.cost && <b className="dw-cost-mana">{o.cost}</b>}
+              {!o.eligible && <span className="dw-note">Can't be paid now.</span>}
+            </button>
+          );
+        })}
+      </div>
+      {p.purpose === "kicker" && p.options[0]?.name === "Kick again" && <p className="dw-note">A multikicker card asks again after each kick.</p>}
+      {image && !compact && <p className="dw-foot">{IMAGES}</p>}
+    </div>
+  );
+}
+
 // ── the rail and the banner ────────────────────────────────────────────────
 
 /** The status pill over the battlefield while you pick on the board or split onto targets. */
 export function PickBanner({ p, draft }: { p: Pending; draft: Draft }) {
+  const count = counter(p, draft);
   return (
     <div className="dw-banner" role="status">
       {p.source?.art && <img src={p.source.art} alt="" />}
       <span>{p.prompt}</span>
-      <span className="dw-banner-count">{counter(p, draft)}</span>
+      {count && <span className="dw-banner-count">{count}</span>}
     </div>
   );
 }
@@ -1118,7 +1287,14 @@ export function DecisionRail({ p, draft, ctx, stage, disabled, onReset, onDraft 
         </button>
       )}
       {stage === "strip" && <p className="rail-help">Answer with the buttons below.</p>}
-      {stage === "board" && (
+      {p.warn && <Warn text={p.warn} />}
+      {/* The Treasure prompt (GPay): paying automatically needs a source that's sacrificed. */}
+      {p.answer === "tap_mana" && (
+        <p className="rail-help">
+          Paying automatically needs {p.options.length === 1 ? "it" : "one of these"}, and your setting asks before sacrificing anything. Keep {p.options.length === 1 ? "it" : "them"} to pay by hand instead.
+        </p>
+      )}
+      {stage === "board" && p.answer !== "tap_mana" && (
         <>
           {p.oracle && <p className="chooser-oracle">{p.oracle}</p>}
           <p className="chooser-count" aria-live="polite">{counter(p, draft)}</p>
@@ -1188,6 +1364,9 @@ export function DecisionStage(props: Props) {
   if (draft.kind === "number") return <NumberPick {...props} />;
   if (draft.kind === "text") return <NamePick {...props} />;
   if (isScry(p)) return <ScryPiles {...props} />;
+  if (p.answer === "choose_mana_color" || p.answer === "pay_mana_ability_mana") return <ManaColorPick {...props} />;
+  if (p.answer === "pay_phyrexian") return <PhyrexianPick {...props} />;
+  if (p.answer === "decide_optional_cost" || p.answer === "choose_cost_branch") return <CostRows {...props} />;
   if (p.answer === "select_modes") return <ModePick {...props} />;
   if (p.answer === "choose_replacement") return <ReplacePick {...props} />;
   if (p.answer === "choose_pair") return <PairList {...props} />;
