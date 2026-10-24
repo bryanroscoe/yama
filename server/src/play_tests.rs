@@ -274,7 +274,7 @@ fn decisions_get_their_cards_details() {
     let d = m.decision(0).unwrap();
     m.choose(0, d.revision, d.options.iter().find(|o| o.kind == OptionKind::Keep).unwrap().index).unwrap();
     let mut view = m.view(Some(0));
-    let cards = HashMap::from([("Island".to_string(), meta("Island"))]);
+    let cards = BTreeMap::from([("Island".to_string(), meta("Island"))]);
     dress_pending(&mut view, &cards);
     let p = view.decision.unwrap().pending.unwrap();
     assert!(p.options.iter().all(|o| o.img.as_deref() == Some("https://img/Island.jpg") && o.artist.as_deref() == Some("An Artist")));
@@ -485,4 +485,35 @@ async fn remembered_answers_are_saved_with_the_game() {
     persist(&pool, "g", &m).await.unwrap();
     let (saved,): (Option<String>,) = sqlx::query_as("SELECT answers FROM online_games WHERE game_id = 'g'").fetch_one(&pool).await.unwrap();
     assert_eq!(saved, None);
+}
+
+#[tokio::test]
+async fn online_games_start_with_loop_detection_and_save_it() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()) });
+    let hub = st.play.clone();
+    let pool = st.pool.clone();
+    let app = crate::routes::app(st);
+    let (host, token) = user(&pool, "ana@example.com").await;
+    let cards = || {
+        let mut cards = vec![crate::decks::DeckCard { oracle_id: "x-celebrant".into(), name: "Combat Celebrant".into(), qty: 1, board: Board::Commander }];
+        cards.push(crate::decks::DeckCard { oracle_id: "x-mountain".into(), name: "Mountain".into(), qty: 99, board: Board::Main });
+        cards
+    };
+    let mine = crate::decks::create_deck_with_cards(&pool, &host, "Ana's deck", None, cards()).await.unwrap();
+    let theirs = crate::decks::create_deck_with_cards(&pool, &host, "Computer's deck", None, cards()).await.unwrap();
+    let body = serde_json::json!({ "seats": [{ "kind": "me", "deck_id": mine }, { "kind": "ai", "deck_id": theirs, "difficulty": "Easy" }] });
+    let (status, made) = request(&app, Method::POST, "/api/play", Some(&token), Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let id = made["id"].as_str().unwrap().to_string();
+    // With no one to wait for, it started at once; its replay log's header carries the setting, so
+    // a restart or a replay plays it the same way.
+    let (replay,): (Option<String>,) = sqlx::query_as("SELECT replay FROM online_games WHERE game_id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    let replay: serde_json::Value = serde_json::from_str(&replay.expect("saved when it started")).unwrap();
+    assert_eq!(replay["header"]["match_config"]["loop_detection"], serde_json::json!({ "type": "Interactive" }));
+    let resumed = engine().resume(&replay.to_string(), &[(1, Difficulty::Easy)]).unwrap();
+    assert_eq!(resumed.loops(), yama_play::LoopDetectionMode::Interactive);
+    hub.stop(&id);
 }

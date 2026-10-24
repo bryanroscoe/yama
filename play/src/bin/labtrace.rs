@@ -17,9 +17,11 @@
 //! Usage:
 //!   labtrace --card-data <file> --decks-root <dir> --schedule <file.jsonl> --game <id>
 //!            [--focus <deck id substring>] [--difficulty Easy|Medium|Hard] [--all-log]
-//!            [--expect <results.jsonl>]
+//!            [--expect <results.jsonl>] [--loops]
 //!
 //! --difficulty overrides the schedule line's level (the replay is then a different game).
+//! --loops plays with the engine's loop detection on, as `lab --loops` and live games do (a
+//! different game too, once a loop is found).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -60,6 +62,7 @@ struct Args {
     difficulty: Option<String>,
     all_log: bool,
     expect: Option<PathBuf>,
+    loops: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -73,6 +76,7 @@ fn parse_args() -> Result<Args, String> {
         difficulty: None,
         all_log: false,
         expect: None,
+        loops: false,
     };
     let mut it = argv.iter().skip(1);
     while let Some(flag) = it.next() {
@@ -86,6 +90,7 @@ fn parse_args() -> Result<Args, String> {
             "--difficulty" => a.difficulty = Some(v()?),
             "--expect" => a.expect = Some(PathBuf::from(v()?)),
             "--all-log" => a.all_log = true,
+            "--loops" => a.loops = true,
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -278,7 +283,10 @@ fn run() -> i32 {
     let deck_list = DeckList { player: it.next().unwrap(), opponent: it.next().unwrap(), ai_decks: it.collect(), ..Default::default() };
     let header = ReplayHeader {
         format_config: FormatConfig::commander(),
-        match_config: MatchConfig::default(),
+        match_config: MatchConfig {
+            loop_detection: if args.loops { yama_play::PLAY_LOOPS } else { yama_play::LoopDetectionMode::Off },
+            ..MatchConfig::default()
+        },
         player_count: players,
         first_player: Some(0),
         seed: spec.seed,
@@ -390,7 +398,8 @@ fn run() -> i32 {
                         _ => {}
                     }
                 }
-                let stack_pass = verified_ai_stack_pass_player(&state, &action).is_some();
+                // With --loops, ordinary passes, as live games and `lab --loops` have them.
+                let stack_pass = !args.loops && verified_ai_stack_pass_player(&state, &action).is_some();
                 let applied = if stack_pass {
                     apply_verified_ai_priority_pass(&mut state, actor, &contract, action)
                 } else {

@@ -867,7 +867,8 @@ async fn start(st: &AppState, user: &User, body: CreateRequest) -> AppResult<Arc
     }
     let ai: Vec<(u8, Difficulty)> = seats.iter().map(|s| (s.cfg.seat, Difficulty::from_label(s.cfg.difficulty.as_deref().unwrap_or("Medium")))).collect();
     let seed: u64 = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
-    let mut m = engine.new_match_first(seed, decks, &ai, first).map_err(AppError::Other)?;
+    // Loops follow the rules as in online games (CR 732), not the lab's way.
+    let mut m = engine.new_match_with(seed, decks, &ai, yama_play::Setup { first, loops: yama_play::PLAY_LOOPS }).map_err(AppError::Other)?;
     m.set_names(seats.iter().map(|s| s.cfg.name.clone()).collect());
     // Nobody is playing, so a prompt the AI can't answer gets phase's fallback (as in the lab)
     // instead of stopping the game.

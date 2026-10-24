@@ -6,7 +6,7 @@
 //!
 //! Usage:
 //!   lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl>
-//!       --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart]
+//!       --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--loops]
 //!       [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL]
 //!        [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache]]
 //!
@@ -50,12 +50,17 @@
 //! and no restart was possible (--no-restart, or MAX_RESTARTS reached): run again with
 //! --skip-done; 4 some games not played because their decks didn't load.
 //!
-//! Three differences from live Yama games: seat 0 always takes the first turn (live games roll a
+//! Four differences from live Yama games: seat 0 always takes the first turn (live games roll a
 //! d20), so a schedule's seat rotation is a rotation of turn order; when the AI returns no
-//! action, phase's own `fallback_action` answers from the engine-issued options; and a turn with
-//! more than MAX_TURN_ACTIONS AI actions is treated as a loop and ends the game as an action cap.
-//! The last two happen only where a live game would stop or loop, and are logged on stderr with
-//! what caused them.
+//! action, phase's own `fallback_action` answers from the engine-issued options; a turn with
+//! more than MAX_TURN_ACTIONS AI actions is treated as a loop and ends the game as an action cap;
+//! and the engine's loop detection (CR 732) is off. The second and third happen only where a live
+//! game would stop or loop, and are logged on stderr with what caused them.
+//!
+//! --loops plays every game with the engine's loop detection on, as live games have it (a loop
+//! nobody can break that wins ends the game, one somebody could break is offered as a shortcut,
+//! a mandatory loop nobody wins is a draw). Its result lines carry the engine label with
+//! "+loops", so they're never pooled with results played without it.
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -71,7 +76,7 @@ use std::time::{Duration, Instant};
 
 use phase_ai::config::AiDifficulty;
 use yama_play::lab::{
-    self, DECK_ERRORS, ENGINE, GameOptions, GameResult, GameSpec, Live, MAX_TURN_ACTIONS, RUNNER, STACK, card_data_hash, load_deck,
+    self, DECK_ERRORS, GameOptions, GameResult, GameSpec, Live, MAX_TURN_ACTIONS, RUNNER, STACK, card_data_hash, load_deck,
     thread_cpu_secs,
 };
 use yama_play::{Engine, SeatDeck};
@@ -112,6 +117,8 @@ struct Args {
     skip_done: bool,
     retry_errors: bool,
     no_restart: bool,
+    /// Loop detection on (`GameOptions::loops`).
+    loops: bool,
     llm: Option<LlmArgs>,
 }
 
@@ -125,7 +132,7 @@ struct LlmArgs {
     prompt_cache: bool,
 }
 
-const USAGE: &str = "usage: lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl> --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL] [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache]]";
+const USAGE: &str = "usage: lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl> --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--loops] [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL] [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache]]";
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut card_data = None;
@@ -136,6 +143,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut skip_done = false;
     let mut retry_errors = false;
     let mut no_restart = false;
+    let mut loops = false;
     let mut llm = false;
     let mut llm_args = LlmArgs { concurrency: 4, timeout_secs: 90, max_calls: 400, effort: None, log: None, object_key: false, prompt_cache: false };
     let mut llm_flags = false;
@@ -154,6 +162,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--skip-done" => skip_done = true,
             "--retry-errors" => retry_errors = true,
             "--no-restart" => no_restart = true,
+            "--loops" => loops = true,
             "--llm" => llm = true,
             "--llm-concurrency" | "--llm-timeout" | "--llm-max-calls" => {
                 llm_flags = true;
@@ -205,6 +214,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         skip_done,
         retry_errors,
         no_restart,
+        loops,
         llm: llm.then_some(llm_args),
     })
 }
@@ -301,6 +311,8 @@ struct Shared {
     fault: Option<(Fault, String)>,
     /// Per-turn loop guard (MAX_TURN_ACTIONS unless overridden).
     turn_action_cap: usize,
+    /// Loop detection on (--loops).
+    loops: bool,
     /// How LLM seats reach their model (--llm).
     llm: Option<Arc<lab::LlmSetup>>,
 }
@@ -385,6 +397,7 @@ fn run_job(shared: &Shared, index: usize, job: &Job, difficulty: AiDifficulty, l
     if !problems.is_empty() {
         problems.dedup();
         let mut result = GameResult::new(job, &shared.card_data);
+        result.engine = lab::engine_label(shared.loops);
         result.error = Some(format!("{DECK_ERRORS} {}", problems.join(" | ")));
         result.ms = started.elapsed().as_millis() as u64;
         return Finished { index, line: result.to_line(), end: result.end.as_str(), turns: 0, secs: started.elapsed().as_secs_f64() };
@@ -396,6 +409,7 @@ fn run_job(shared: &Shared, index: usize, job: &Job, difficulty: AiDifficulty, l
         panic_after: (fault == Some(Fault::Panic)).then_some(50),
         hang_after: (fault == Some(Fault::Hang)).then_some(30),
         llm: shared.llm.clone(),
+        loops: shared.loops,
     };
     let report = lab::play_game_isolated(&shared.engine, job, difficulty, decks, &shared.card_data, &opts, live);
     for note in &report.notes {
@@ -406,8 +420,10 @@ fn run_job(shared: &Shared, index: usize, job: &Job, difficulty: AiDifficulty, l
 }
 
 /// The line written for a game the watchdog gave up on, with everything its thread had shown.
-fn hung_line(job: &Job, card_data: &str, live: &Live, hang_secs: u64) -> String {
-    lab::hung_result(job, card_data, live, hang_secs).to_line()
+fn hung_line(job: &Job, card_data: &str, live: &Live, hang_secs: u64, loops: bool) -> String {
+    let mut result = lab::hung_result(job, card_data, live, hang_secs);
+    result.engine = lab::engine_label(loops);
+    result.to_line()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -570,7 +586,8 @@ fn run_batch(args: &Args) -> anyhow::Result<Exit> {
     }
     let restarted = if restarts > 0 { format!(" (restart {restarts} after hung games)") } else { String::new() };
     eprintln!(
-        "lab: runner {RUNNER}, {ENGINE}{restarted}; {scheduled} games scheduled, {skipped} already done, {} to play on {} threads",
+        "lab: runner {RUNNER}, {}{restarted}; {scheduled} games scheduled, {skipped} already done, {} to play on {} threads",
+        lab::engine_label(args.loops),
         jobs.len(),
         args.threads
     );
@@ -678,6 +695,7 @@ fn run_batch(args: &Args) -> anyhow::Result<Exit> {
         hang_secs,
         fault: read_fault(),
         turn_action_cap: std::env::var("YAMA_LAB_MAX_TURN_ACTIONS").ok().and_then(|v| v.parse().ok()).unwrap_or(MAX_TURN_ACTIONS),
+        loops: args.loops,
         llm,
     });
 
@@ -717,7 +735,7 @@ fn run_batch(args: &Args) -> anyhow::Result<Exit> {
         };
         for (i, live) in hung {
             let job = &shared.jobs[i].0;
-            let line = hung_line(job, &shared.card_data, &lock(&live), shared.hang_secs);
+            let line = hung_line(job, &shared.card_data, &lock(&live), shared.hang_secs, shared.loops);
             write(&mut tally.out, &line)?;
             tally.count("error");
             let first = !shared.draining.swap(true, Ordering::SeqCst);
