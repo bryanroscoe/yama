@@ -1073,8 +1073,9 @@ pub(crate) struct CardMeta {
     oracle_text: String,
 }
 
-/// Every card name the view shows (board, hand, stack, graveyards, exile, command zone), and the
-/// cards in the viewer's own decision (library cards they scry or search, triggers to order).
+/// Every card name the view shows (board, hand, stack, graveyards, exile, command zone), the
+/// cards in the viewer's own decision (library cards they scry or search, triggers to order) and
+/// the cards in what they were told happened.
 /// A view only carries its own seat's decision, read from that seat's view of the game, so
 /// nobody else's library card is ever named here.
 pub(crate) fn view_names(view: &View) -> Vec<String> {
@@ -1089,6 +1090,9 @@ pub(crate) fn view_names(view: &View) -> Vec<String> {
         .map(|c| c.name.clone())
         .chain(view.stack.iter().map(|s| s.name.clone()))
         .chain(view.decision.iter().filter_map(|d| d.pending.as_ref()).flat_map(|p| p.card_names()))
+        // Cards named in what this viewer was told happened (already filtered for them), for the
+        // log's art and the reveal panel's images.
+        .chain(view.events.iter().flat_map(|h| h.card_names()))
         .collect();
     names.sort();
     names.dedup();

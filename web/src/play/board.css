@@ -1437,20 +1437,6 @@ button.pile-chip:hover {
   background: var(--raised);
   object-fit: cover;
 }
-.inspector {
-  display: grid;
-  gap: 0.75rem;
-}
-.inspector-card img {
-  width: min(320px, 80vw);
-  border-radius: var(--card-radius);
-  display: block;
-}
-.inspector-facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 .inspector-options {
   display: flex;
   flex-wrap: wrap;
@@ -5377,4 +5363,381 @@ button.portrait:hover {
 }
 .dw-cost > b:first-child {
   font: 700 17px/1.2 var(--body);
+}
+
+/* ── reading cards, zones and reveals ───────────────────────────────────────
+   GInspector, GZones and the reveal panel. */
+
+/* A dialog over the table on a laptop (the rail stays usable beside it). */
+.gi-overlay {
+  position: fixed;
+  z-index: 26;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  right: 340px;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 0.6);
+}
+.gi-dialog,
+.gz-dialog {
+  max-height: 100%;
+  overflow: auto;
+  padding: 24px;
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line);
+  scrollbar-width: thin;
+}
+.gi-dialog {
+  width: min(900px, 100%);
+}
+.gz-dialog {
+  width: min(780px, 100%);
+  height: min(820px, 100%);
+  display: flex;
+  flex-direction: column;
+}
+.gi-close {
+  width: 44px;
+  height: 44px;
+  min-height: 0;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--raised);
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* GInspector: the card on the left, its words and state on the right. */
+.gi {
+  display: grid;
+  gap: 16px;
+}
+.gi.wide {
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 28px;
+}
+.gi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.gi-card img,
+.gi-blank {
+  width: 100%;
+  max-width: 340px;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.6);
+  display: block;
+}
+.gi-blank {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--raised);
+  text-align: center;
+  font-weight: 700;
+}
+.gi:not(.wide) .gi-card {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: end;
+}
+.gi:not(.wide) .gi-card img,
+.gi:not(.wide) .gi-blank {
+  width: 150px;
+  grid-row: span 2;
+}
+.gi-credit {
+  font-size: 12px;
+  color: var(--dim);
+}
+.gi-flip {
+  min-height: 40px;
+}
+.gi-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.gi-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+.gi-head h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 1;
+}
+.gi-head > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gi-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.gi-chip {
+  padding: 3px 12px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  font-size: 13px;
+  font-weight: 700;
+}
+.gi-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--ground);
+  width: fit-content;
+  max-width: 100%;
+}
+.gi-tabs button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--dim);
+  font-weight: 700;
+  font-size: 14px;
+}
+.gi-tabs button.on {
+  background: var(--text);
+  color: var(--ground);
+}
+.gi-tabs button:disabled {
+  opacity: 1;
+  color: var(--dim);
+  cursor: default;
+}
+.gi-panel {
+  min-height: 120px;
+}
+.gi-oracle p {
+  margin: 0 0 10px;
+  white-space: pre-wrap;
+  max-width: 62ch;
+}
+.gi-facts {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.gi-facts > div {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.gi-facts dt {
+  color: var(--dim);
+}
+.gi-facts dd {
+  margin: 0;
+}
+.gi-rulings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  max-height: 340px;
+  overflow: auto;
+}
+.gi-rulings p {
+  margin: 0 0 2px;
+}
+.gi-do {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gi-nothing {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--ground);
+  font-size: 14px;
+  color: var(--dim);
+}
+
+/* GZones: whose cards, a tab per zone, type filters, the cards with how they got there. */
+.gz {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+}
+.gz-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.gz-head h2 {
+  margin: 0;
+  flex: 1;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 34px;
+  line-height: 1;
+}
+.gz-art {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 2px var(--seat, var(--line));
+}
+.gz-art.blank {
+  background: var(--raised);
+}
+.gz-seats,
+.gz-types {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.gz-seat,
+.gz-type {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+}
+.gz-seat.on,
+.gz-type.on {
+  border-color: var(--text);
+}
+.gz-types input {
+  max-width: 220px;
+  min-height: 34px;
+}
+.gz-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 14px 16px;
+  align-content: start;
+  scrollbar-width: thin;
+}
+.gz-card {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gz-card .zone-card {
+  position: relative;
+}
+.gz-card figcaption {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--dim);
+}
+.gz-down {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  background: var(--art-chip);
+  color: var(--on-art);
+  font-size: 11px;
+  font-weight: 700;
+}
+.gz-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.gz-foot {
+  margin: 0;
+}
+.pb.phone ~ .sheet .gz-grid,
+.sheet .gz-grid {
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+}
+
+/* A reveal: who showed what, until dismissed. */
+.reveal {
+  position: fixed;
+  z-index: 24;
+  right: 356px;
+  top: 40px;
+  width: 300px;
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+  padding: 16px;
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.reveal:not(.wide) {
+  right: 12px;
+  left: 12px;
+  top: 12px;
+  width: auto;
+  max-height: calc(100dvh - 210px);
+  z-index: 36;
+}
+.reveal-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 15px;
+}
+.reveal-head b {
+  flex: 1;
+}
+.reveal-cards {
+  display: grid;
+  gap: 8px;
+}
+.reveal-cards.many {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+}
+.reveal:not(.wide) .reveal-cards {
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+}
+.reveal:not(.wide) .reveal-cards:not(.many) .zone-card {
+  max-width: 180px;
+}
+.reveal-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.reveal-tag {
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  font-size: 12px;
 }

@@ -270,3 +270,17 @@ async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
     assert_eq!(rx.await.unwrap(), Vec::<u64>::new());
     let _ = live.cmds.send(Cmd::Stop);
 }
+
+#[test]
+fn card_details_cover_what_the_viewer_was_told_happened() {
+    let e = engine();
+    let m = e.new_match_first(5, vec![deck(&[("Island", 99)]), deck(&[("Island", 99)])], &[], Some(0)).unwrap();
+    let mut view = m.view(Some(0));
+    view.events.push(yama_play::Happening {
+        seq: 1,
+        turn: 1,
+        active: 0,
+        what: yama_play::feed::What::Revealed { seat: 1, cards: vec![yama_play::feed::Seen { id: None, name: Some("Preordain".into()), face_down: false }] },
+    });
+    assert!(view_names(&view).contains(&"Preordain".to_string()));
+}

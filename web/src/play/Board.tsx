@@ -17,7 +17,6 @@ import { Link } from "react-router";
 import { api, API_BASE } from "../api";
 import { artCredits } from "../components/ArtPanel";
 import { Sheet } from "../components/ui";
-import { CardRulings } from "../components/Rulings";
 import { useCardArt } from "../components/useCardArt";
 import {
   addCosts,
@@ -84,6 +83,10 @@ import { answerOf, modeChip, passChoices, passKey, priorityPartner, settingsButt
 import { ConsentBody, GameSettings, ModeChip, PassList, PassMenu } from "./TurnControls";
 import { PreviewCache, paymentButtons, paymentTitle, sourceChip, sourceClick, sourceIn } from "./pay";
 import { ManaMenu, PaymentRail, PaymentSheet } from "./PaymentPanel";
+import { revealGroups, type Names } from "./feed";
+import { CardReader } from "./Inspector";
+import { ZoneBrowser, type BrowsedZone } from "./Zones";
+import { RevealPanel } from "./Reveal";
 import "./board.css";
 
 type ViewMessage = Extract<ServerMessage, { type: "view" }>;
@@ -160,7 +163,7 @@ function useSeatArt(gameId: string, view: View | undefined, seats: SeatInfo[]): 
   return out;
 }
 
-type Zone = "graveyard" | "exile" | "hand";
+type Zone = BrowsedZone | "hand";
 type SheetKind = null | "log" | "stops" | "stack" | "hand" | { seat: number; zone: Zone };
 
 interface AttackState {
@@ -225,6 +228,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const [passMenu, setPassMenu] = useState(false);
   // A stack item being read, so a trigger can be yielded to from the card reader.
   const [inspectStack, setInspectStack] = useState<StackItem | null>(null);
+  // The newest reveal already shown (Reveal.tsx): null until the first board, so a reconnect
+  // doesn't replay old reveals.
+  const [revealSeen, setRevealSeen] = useState<number | null>(null);
   // Older servers: full control and stops kept on this device. Newer ones keep them per account
   // (the view's `turns`); these then only carry settings over to the account once.
   const [fullControl, setFullControl] = useState(() => localStorage.getItem("yama.play.fullControl") === "1");
@@ -433,6 +439,11 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   useEffect(() => () => dragRef.current?.cleanup(), []);
 
   const seatArt = useSeatArt(id, view, seats);
+  // The first board sets where reveals start: what happened before it isn't played again (PP-02:
+  // a reconnect shows the board as it is).
+  useEffect(() => {
+    if (view && revealSeen === null) setRevealSeen(Math.max(0, ...(view.events ?? []).map((h) => h.seq)));
+  }, [view, revealSeen]);
   useBoardMotion(boardRoot, motionLayer, view, motionOpts);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -588,6 +599,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const opponents = turnOrder(view.players, bottom);
   /** The turn a seat was knocked out, from the log while it still holds the line. */
   const outTurn = (seat: number) => view.log.find((l) => l.text === `Player ${seat + 1} is eliminated` || l.text === `Player ${seat + 1} loses the game`)?.turn;
+  /** How the board names seats in what happened (feed.ts). */
+  const names: Names = { you, Who: (n: number) => Who(n) };
   const meOut = !!view.players.find((p) => p.seat === you)?.eliminated;
   const me = view.players.find((p) => p.seat === bottom);
   const cardById = new Map<number, CardView>(
@@ -1353,6 +1366,11 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       };
   const partnerControl = (p: Partner | null): Control | null => (p ? { label: p.label, run: () => runPartner(p), pressed: p.pressed } : null);
 
+  // Reveals waiting to be shown (to everyone, or to you alone), oldest first (Reveal.tsx).
+  const reveals = revealSeen === null ? [] : revealGroups(view.events ?? [], revealSeen);
+  const revealNow = reveals[0];
+  const dismissReveal = () => revealNow && setRevealSeen(revealNow[revealNow.length - 1]!.seq);
+
   const payingByHand = !!decision && !!optionOf(decision, "pay_rest");
   const selectedOptions = selected && decision && !attack && !block ? optionsFor(selected) : [];
   // The big button and its partner.
@@ -1479,6 +1497,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   })();
   escRef.current = () => {
     if (dragRef.current?.started || inspect || sheet) return false;
+    if (revealNow) return (dismissReveal(), true);
     if (manaMenu) return (setManaMenu(null), true);
     if (passMenu) return (setPassMenu(false), true);
     if (settingsOpen) return (setSettings(null), true);
@@ -1579,6 +1598,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   // The decision widgets (Decide.tsx): what they need from the board, the rail's part, and the
   // stage over the table (laptop) or the dock's sheet (phone).
   const readCard = (name: string, id?: number) => setInspect((id !== undefined ? cardById.get(id) : undefined) ?? { ...emptyCard, name });
+  const closeReader = () => (setInspect(null), setInspectStack(null));
   const widget =
     pend && draft
       ? {
@@ -2034,34 +2054,52 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           </div>
         </Sheet>
       )}
-      {typeof sheet === "object" && sheet !== null && (
+      {typeof sheet === "object" && sheet !== null && sheet.zone === "hand" && (
         <ZoneSheet
-          title={`${Who(sheet.seat) === "You" ? "Your" : `${Who(sheet.seat)}'s`} ${sheet.zone}`}
-          cards={
-            sheet.zone === "hand"
-              ? handOf(sheet.seat)
-              : sheet.zone === "graveyard"
-                ? [...(view.players.find((p) => p.seat === sheet.seat)?.graveyard ?? [])].reverse()
-                : view.exile.filter((c) => c.owner === sheet.seat).reverse()
-          }
-          newestFirst={sheet.zone !== "hand"}
+          title={`${Who(sheet.seat) === "You" ? "Your" : `${Who(sheet.seat)}'s`} hand`}
+          cards={handOf(sheet.seat)}
+          newestFirst={false}
           meta={meta}
           onRead={setInspect}
           onClose={() => setSheet(null)}
         />
       )}
+      {typeof sheet === "object" && sheet !== null && sheet.zone !== "hand" && (
+        <ZoneBrowser
+          view={view}
+          seat={sheet.seat}
+          zone={sheet.zone}
+          names={names}
+          meta={meta}
+          art={art}
+          tone={(n) => tones.get(n)}
+          wide={wide}
+          canHover={canHover}
+          onPick={(seat, zone) => setSheet({ seat, zone })}
+          onRead={setInspect}
+          onHover={h.onHover}
+          onClose={() => setSheet(null)}
+          paused={!!inspect}
+        />
+      )}
       {inspect && (
-        <Sheet label={inspect.name} onClose={() => (setInspect(null), setInspectStack(null))}>
-          <Inspector
-            card={inspect}
-            meta={meta[inspect.name]}
-            options={attack || block ? [] : optionsFor(selected && selected.includes(inspect.id) ? selected : [inspect.id])}
-            onChoose={choose}
-            onClose={() => (setInspect(null), setInspectStack(null))}
-            disabled={pending}
-            extra={yieldExtra}
-          />
-        </Sheet>
+        <CardReader
+          card={inspect}
+          meta={meta[inspect.name]}
+          view={view}
+          names={names}
+          cardById={cardById}
+          options={attack || block ? [] : optionsFor(selected && selected.includes(inspect.id) ? selected : [inspect.id])}
+          onChoose={choose}
+          onClose={closeReader}
+          disabled={pending}
+          extra={yieldExtra}
+          wide={wide}
+        />
+      )}
+      {/* Cards revealed to everyone, or shown to you alone: up until dismissed (Reveal.tsx). */}
+      {revealNow && !inspect && (
+        <RevealPanel group={revealNow} more={reveals.length - 1} names={names} meta={meta} tone={(n) => tones.get(n)} onRead={(name) => readCard(name)} onClose={dismissReveal} wide={wide} />
       )}
     </>
   );
@@ -3351,57 +3389,5 @@ function ZoneSheet({ title, cards, meta, onRead, onClose, newestFirst = true }: 
         {newestFirst && <p className="small dim">Newest first.</p>}
       </div>
     </Sheet>
-  );
-}
-
-function Inspector({ card, meta, options, onChoose, onClose, disabled, extra }: {
-  card: CardView;
-  meta?: CardMeta;
-  options: OptionView[];
-  onChoose: (o: OptionView) => void;
-  onClose: () => void;
-  disabled: boolean;
-  /** More things to do with it (a trigger on the stack: always pass for it). */
-  extra?: React.ReactNode;
-}) {
-  const [back, setBack] = useState(false);
-  const counters = Object.entries(card.counters);
-  return (
-    <div className="inspector">
-      <div className="sheet-head">
-        <div>
-          <h2 style={{ marginBottom: 0 }}>{card.name}</h2>
-          {meta && <p className="dim small" style={{ margin: 0 }}>{meta.type_line}{meta.mana_cost ? `, ${meta.mana_cost.replace(/[{}]/g, "")}` : ""}</p>}
-        </div>
-        <button className="quiet" onClick={onClose}>Close</button>
-      </div>
-      {/* Options first: on a phone the card image fills the screen below them. */}
-      {options.length > 0 && (
-        <div className="inspector-options">
-          {options.map((o, i) => (
-            <button key={o.index} type="button" className={i === 0 && options.length === 1 ? "primary" : "outline"} onClick={() => onChoose(o)} disabled={disabled}>{o.label}</button>
-          ))}
-        </div>
-      )}
-      {extra}
-      {meta?.image && (
-        <div className="inspector-card">
-          <img src={back && meta.back_image ? meta.back_image : meta.image} alt={card.name} />
-          {meta.back_image && <button className="quiet small" onClick={() => setBack((b) => !b)}>Show the other face</button>}
-        </div>
-      )}
-      <div className="inspector-facts small">
-        {card.commander && <span className="tag">Commander{card.tax ? `, tax +${card.tax}` : ""}</span>}
-        {card.tapped && <span className="tag">Tapped</span>}
-        {card.sick && <span className="tag">Summoning sick</span>}
-        {card.attacking && <span className="tag bad">Attacking</span>}
-        {card.blocking && <span className="tag">Blocking</span>}
-        {card.power !== null && <span className="tag">{card.power}/{card.toughness}{card.damage ? `, ${card.damage} damage` : ""}</span>}
-        {card.loyalty !== null && <span className="tag">Loyalty {card.loyalty}</span>}
-        {counters.map(([k, v]) => <span key={k} className="tag">{v} {counterName(k)}</span>)}
-      </div>
-      {meta?.oracle_text && <p className="oracle">{meta.oracle_text}</p>}
-      {meta?.oracle_id && <CardRulings oracleId={meta.oracle_id} />}
-    </div>
   );
 }
