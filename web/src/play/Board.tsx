@@ -68,10 +68,14 @@ import {
   changed as draftChanged,
   chooserCovers,
   initialDraft,
+  isCastOffer,
+  isPermanentPick,
   isTapping,
   isTargeting,
   noneAct,
   onBoard,
+  objectOf,
+  pickTag,
   ready as draftReady,
   stageOf,
   toAct,
@@ -706,15 +710,18 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const pickStackItem = (id: number) => {
     if (draft?.kind === "pick" && pend) setDraft(togglePick(pend, draft, String(id)));
   };
-  // While targets or creatures to tap are chosen, a stack of tokens opens up (GTarget); a card a
-  // spell on the stack targets stands apart from its pile too, so its line names the right one.
-  const apart = new Set([...targeted.cards.keys(), ...(boardPick && (targeting || isTapping(pend)) ? [...pickable, ...pickedIds.map(Number), ...earlier.map(Number)] : [])]);
+  // While targets, creatures to tap or permanents are chosen, a stack of tokens opens up (GTarget,
+  // GPermanents: two Jace tokens apart); a card a spell on the stack targets stands apart from its
+  // pile too, so its line names the right one.
+  const apart = new Set([...targeted.cards.keys(), ...(boardPick && (targeting || isTapping(pend) || isPermanentPick(pend)) ? [...pickable, ...pickedIds.map(Number), ...earlier.map(Number)] : [])]);
   // A split on its targets: they get a white ring and a stepper (SplitSteppers).
   const splitIds = new Set(stage === "steppers" ? pend!.options.filter((o) => o.zone !== "player").map((o) => Number(o.id)) : []);
   const splitSeats = new Set(stage === "steppers" ? pend!.options.filter((o) => o.zone === "player" && o.controller !== undefined).map((o) => o.controller!) : []);
   const sendAct = (a: Act | null) => {
     if (!decision || pending || !a) return;
-    send({ type: "act", revision: decision.revision, action: a });
+    // Madness and miracle are cast paying as "Tap mana for me" says, like any spell.
+    const action: Act = a.kind === "cast_offer" && a.cast && tapMana ? { ...a, payment: tapMana } : a;
+    send({ type: "act", revision: decision.revision, action });
   };
   const choose = (o: OptionView) => {
     if (!decision || pending) return;
@@ -904,7 +911,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     const combat = combatLook(p);
     return {
       ...extra,
-      playable: !attack && !block && any(optionObjects),
+      // A pick on the board has its own ring; the option dot would only repeat it.
+      playable: !attack && !block && !boardPick && any(optionObjects),
       will: any(willTap),
       selected: (!!selected && p.ids.some((i) => selected.includes(i))) || (block?.pending !== null && block?.pending !== undefined && p.ids.includes(block.pending)),
       attacking: !!attack && any(attack.plan),
@@ -956,8 +964,16 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     else if (boardPick && pend?.need !== undefined) {
       const o = pend.options.find((x) => p.ids.includes(Number(x.id)));
       if (o?.power !== undefined) out.under = { text: `Power ${o.power}`, tone: "plain" };
-    } else if (boardPick && pend?.current !== undefined && p.ids.includes(Number(pend.current))) {
+    } else if (boardPick && (pend?.purpose === "copy" || pend?.purpose === "retarget") && pend.current !== undefined && p.ids.includes(Number(pend.current))) {
       out.under = { text: pend.purpose === "copy" ? "Its target now" : "Targeted now", tone: "dim" };
+    } else if (boardPick && pend && draft) {
+      // The legend kept and the ones that go, the Ring-bearer, a Jace's loyalty, proliferate's counters.
+      const o = pend.options.find((x) => p.ids.includes(Number(x.id)));
+      const tag = o ? pickTag(pend, draft, o.id) : null;
+      if (tag) out.under = tag;
+    } else if (stage === "steppers" && pend?.origin !== undefined && p.ids.includes(Number(pend.origin))) {
+      // Where counters move from (GCounters).
+      out.under = { text: "From", tone: "plain" };
     }
     out.keywords = isCreature(c) && (combatStep || c.attacking || c.blocking);
     return out;
@@ -1287,9 +1303,15 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       ? [{ from: pend.source.id, to: { id: Number(draft.ids[0]) }, tone: "block" } as PlanArrow]
       : []),
     // A divided spell's targets, each with its share on it (GTargetsMore).
-    ...(stage === "steppers" && pendFrom !== null ? pend!.options.map((o): PlanArrow => ({ from: pendFrom, to: toTarget(o.id), tone: "attack" })) : []),
+    ...(stage === "steppers" && pendFrom !== null && pend!.unit !== "counters" ? pend!.options.map((o): PlanArrow => ({ from: pendFrom, to: toTarget(o.id), tone: "attack" })) : []),
     // Creatures tapped for crew, saddle or enlist: white lines to them from what they serve.
     ...(boardPick && isTapping(pend) && pend?.source ? pickedIds.map((id): PlanArrow => ({ from: pend.source!.id, to: { id: Number(id) }, tone: "block" })) : []),
+    // Equip: from the Equipment to the creature that will carry it (GPermanents).
+    ...(boardPick && pend?.answer === "equip" && pend.source ? pickedIds.map((id): PlanArrow => ({ from: pend.source!.id, to: { id: Number(id) }, tone: "attack" })) : []),
+    // Counters on the move: from the permanent they come off to each one they go onto (GCounters).
+    ...(stage === "steppers" && pend?.answer === "move_counters" && pend.origin !== undefined && draft?.kind === "split"
+      ? pend.options.filter((o) => (draft.amounts[o.id] ?? 0) > 0).map((o): PlanArrow => ({ from: Number(pend.origin), to: { id: objectOf(o.id) }, tone: "attack" }))
+      : []),
   ];
 
   // What you'd be attacked by or attacking, for the strip.
@@ -1575,6 +1597,10 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   };
   const myLands = view.battlefield.filter((c) => c.controller === bottom && c.types.includes("Land") && !c.types.includes("Creature"));
   const myCommanders = view.command_zone.filter((c) => c.owner === bottom);
+  // Cards you can cast or use from exile or your graveyard sit beside your hand (PP-21): an
+  // adventurer back from its adventure, a foretold card, flashback, abilities from the graveyard.
+  const elsewhere = [...view.exile, ...(me?.graveyard ?? [])].filter((c) => c.owner === bottom && optionObjects.has(c.id));
+  const elsewhereCaption = (c: CardView) => (view.exile.some((x) => x.id === c.id) ? "Exile" : "Graveyard");
   const commanderWhere = (() => {
     if (myCommanders.length) return null;
     if (view.battlefield.some((c) => c.commander && c.owner === bottom)) return "Commander on the battlefield";
@@ -1988,7 +2014,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
 
   const sheets = (
     <>
-      {hover && meta[hover.card.name]?.image && (
+      {/* A dialog over the table covers what the pointer was resting on. */}
+      {hover && stage !== "dialog" && meta[hover.card.name]?.image && (
         <div className="pb-preview" style={{ left: hover.left, top: hover.top }} aria-hidden="true">
           <img src={meta[hover.card.name]!.image!} alt="" />
         </div>
@@ -2058,6 +2085,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             <div className="hand-grid">
               {myCommanders.map((c) => (
                 <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c), { tag: "Commander" })} h={h} caption={c.tax ? `Commander, tax +${c.tax}` : "Commander"} />
+              ))}
+              {elsewhere.map((c) => (
+                <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c))} h={h} caption={elsewhereCaption(c)} />
               ))}
               {handCards.map((c) => (
                 <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c))} h={h} />
@@ -2223,6 +2253,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
                 <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c), { tag: "Commander" })} h={h} caption={c.tax ? `Tax +${c.tax}` : undefined} />
               ))}
               {commanderWhere && <span className="cmdr-away">{commanderWhere}</span>}
+              {elsewhere.map((c) => (
+                <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c))} h={h} caption={elsewhereCaption(c)} />
+              ))}
             </span>
             <HandFan
               seat={bottom}
@@ -2336,7 +2369,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     opponents.find((p) => p.seat === focusSeat) ??
     opponents.find((p) => p.seat === view.active) ??
     opponents[0];
-  const handPlayable = view.hand.some((c) => optionObjects.has(c.id)) || myCommanders.some((c) => optionObjects.has(c.id));
+  const handPlayable = view.hand.some((c) => optionObjects.has(c.id)) || myCommanders.some((c) => optionObjects.has(c.id)) || elsewhere.length > 0;
   // How many things each opponent offers to pick right now (GTargetPhone's tab chips).
   const pickCount = (seat: number) => view.battlefield.filter((c) => c.controller === seat && pickable.has(c.id)).length + (pickSeats.has(seat) ? 1 : 0);
   const phoneCombat = attack ? (
@@ -2680,6 +2713,8 @@ function zoneOf(p: Pending, view: View, you: number | null, Who: (n: number) => 
 
 /** How wide a decision's dialog is: card grids are wide, lists of words narrower (the boards' widths). */
 function dialogSize(p: Pending, d: Draft): "wide" | "mid" | "narrow" {
+  // A card offered alone (madness, miracle) needs less room than a cascade's run.
+  if (isCastOffer(p)) return p.options.length > 1 ? "wide" : "mid";
   if (d.kind === "split" || d.kind === "number" || p.answer === "choose_replacement") return "mid";
   if (p.answer === "select_modes" || p.answer === "order_triggers") return "narrow";
   return "wide";

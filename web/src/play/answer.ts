@@ -45,6 +45,30 @@ export const isTargeting = (p: Pending | null | undefined): boolean => !!p && TA
 const TAPPING = new Set(["crew", "saddle", "enlist", "mana_source"]);
 export const isTapping = (p: Pending | null | undefined): boolean => !!p && TAPPING.has(p.purpose);
 
+/**
+ * A card the engine offers to cast (GCastWays): what cascade, discover or ripple found, or a card
+ * with madness or miracle. A yes or no over the card, in a dialog or the dock's sheet.
+ */
+export const isCastOffer = (p: Pending | null | undefined): boolean => !!p && p.answer === "cast_offer";
+
+/** The engine offers the cast only when it can be paid; otherwise only the no is left. */
+export const castable = (p: Pending): boolean => p.options.some((o) => o.eligible);
+
+/** Choosing how a card is cast (GCastWays): an adventurer's half, a modal face, a cost, a way, over or under. */
+const FACES = new Set(["choose_adventure_face", "choose_modal_face", "choose_alternative_cast", "choose_casting_variant", "choose_mutate_side"]);
+export const isFaceChoice = (p: Pending | null | undefined): boolean => !!p && FACES.has(p.answer);
+
+/**
+ * Permanents picked on the board (GPermanents, GCounters): the legend to keep, what a clone
+ * copies, equip, the Ring-bearer, empower Jace, populate, explore, a token's host, and
+ * proliferate's permanents and players. A phone shows them as tiles in the dock's sheet.
+ */
+const PERMANENTS = new Set(["legend", "clone", "equip", "ring", "empower", "host", "populate", "explore", "proliferate"]);
+export const isPermanentPick = (p: Pending | null | undefined): boolean => !!p && PERMANENTS.has(p.purpose);
+
+/** The permanent a counter option is about: "123", or "123:P1P1" when it has several kinds. */
+export const objectOf = (id: string): number => Number(id.split(":")[0]);
+
 /** Crew or saddle: the power the picked creatures add up to, as the engine counts it. */
 export function powerOf(p: Pending, d: Draft): number {
   if (d.kind !== "pick") return 0;
@@ -140,12 +164,30 @@ export function keepOnTop(p: Pending, d: Draft, id: string, top: boolean): Draft
   return { ...d, ids: top ? [...rest, id] : rest };
 }
 
-/** Add `by` to an option's share of a split, kept between its minimum and what's left. */
+/**
+ * How many more an option of a split may take: what's left of the total, its own cap (the
+ * counters of its kind it has), and when counters move, what's left of its kind among every
+ * permanent they go onto.
+ */
+export function room(p: Pending, d: Draft, id: string): number {
+  if (d.kind !== "split") return 0;
+  const o = p.options.find((x) => x.id === id);
+  const cur = d.amounts[id] ?? 0;
+  let r = left(p, d);
+  if (o?.cap !== undefined) r = Math.min(r, o.cap - cur);
+  if (o?.cap !== undefined && o.group !== undefined && p.answer === "move_counters") {
+    const used = p.options.filter((x) => x.group === o.group).reduce((a, x) => a + (d.amounts[x.id] ?? 0), 0);
+    r = Math.min(r, o.cap - used);
+  }
+  return Math.max(0, r);
+}
+
+/** Add `by` to an option's share of a split, kept between its minimum and what it has room for. */
 export function adjust(p: Pending, d: Draft, id: string, by: number): Draft {
   if (d.kind !== "split") return d;
   const cur = d.amounts[id] ?? 0;
   const floor = Math.min(cur, p.perOptionMin ?? 0);
-  const next = Math.max(floor, Math.min(cur + by, cur + left(p, d)));
+  const next = Math.max(floor, Math.min(cur + by, cur + room(p, d, id)));
   return { kind: "split", amounts: { ...d.amounts, [id]: next } };
 }
 
@@ -217,6 +259,8 @@ export function ready(p: Pending, d: Draft): boolean {
     case "order":
       return d.ids.length === p.options.length;
     case "split": {
+      // Counters that move or come off as an effect resolves: any number up to the total.
+      if (p.upTo) return left(p, d) >= 0;
       if (left(p, d) !== 0) return false;
       // Each target of a divided spell gets at least its minimum (CR 601.2d).
       const min = p.perOptionMin ?? 0;
@@ -332,7 +376,45 @@ export function toAct(p: Pending, d: Draft, yes = true): Act | null {
       return d.kind === "pick" && d.ids[0] !== undefined ? { kind: "decide_optional_cost", pay: d.ids[0] === "pay" } : null;
     case "choose_cost_branch":
       return d.kind === "pick" && d.ids[0] !== undefined ? { kind: "choose_cost_branch", index: Number(d.ids[0]) } : null;
+    // Ways to cast, permanents and counters (play/src/ways.rs).
+    case "cast_offer":
+      return { kind: "cast_offer", cast: yes && castable(p) };
   }
+  if (d.kind === "split") {
+    const given = p.options.filter((o) => (d.amounts[o.id] ?? 0) > 0);
+    switch (p.answer) {
+      case "move_counters":
+        return { kind: "move_counters", moves: given.map((o) => ({ on: objectOf(o.id), counter: o.group ?? "", count: d.amounts[o.id]! })) };
+      case "remove_counters":
+        return { kind: "remove_counters", counters: given.map((o) => ({ counter: o.group ?? o.id, count: d.amounts[o.id]! })) };
+      case "remove_counter_cost":
+        return { kind: "remove_counter_cost", counters: given.map((o) => ({ on: objectOf(o.id), counter: o.group ?? "", count: d.amounts[o.id]! })) };
+    }
+    return null;
+  }
+  if (d.kind !== "pick") return null;
+  if (p.answer === "select_targets") return { kind: "select_targets", targets: d.ids.map(target) };
+  const id = d.ids[0];
+  if (id === undefined) return null;
+  switch (p.answer) {
+    case "choose_adventure_face":
+      return { kind: "choose_adventure_face", creature: id === "creature" };
+    case "choose_modal_face":
+      return { kind: "choose_modal_face", back_face: id === "back" };
+    case "choose_alternative_cast":
+      return { kind: "choose_alternative_cast", alternative: id === "alternative" };
+    case "choose_casting_variant":
+      return { kind: "choose_casting_variant", index: Number(id) };
+    case "choose_mutate_side":
+      return { kind: "choose_mutate_side", top: id === "top" };
+    case "choose_legend":
+      return { kind: "choose_legend", keep: Number(id) };
+    case "choose_ring_bearer":
+      return { kind: "choose_ring_bearer", target: Number(id) };
+    case "equip":
+      return p.source ? { kind: "equip", equipment: p.source.id, target: Number(id) } : null;
+  }
+  return null;
 }
 
 /** A one-sentence question ("Draw a card?") as words for buttons ("draw a card"), else null. */
@@ -406,6 +488,8 @@ export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell:
   const none = { secondary: null, secondaryDoes: null };
   switch (d.kind) {
     case "yesno": {
+      // A cast offer the engine can't pay for: only its no is left, on the main button.
+      if (isCastOffer(p) && !castable(p)) return { primary: p.noLabel ?? "No", secondary: null, secondaryDoes: null };
       // Remembering: the main button gives that answer from now on; the second goes back to asking.
       if (d.remember !== "ask" && p.remember === "engine") return { primary: rememberLabels(p)[d.remember], secondary: "Ask each time", secondaryDoes: "ask" };
       const words = yesNoLabels(p);
@@ -426,6 +510,8 @@ export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell:
       if (p.answer === "choose_pair") {
         return { primary: n ? `Pair with ${optionName(p, d.ids[0])}` : "Choose a creature", ...(p.min === 0 ? { secondary: "Don't pair", secondaryDoes: "none" as const } : none) };
       }
+      const ways = waysButtons(p, d);
+      if (ways) return { ...ways, ...(ways.secondary === undefined ? (cancel ?? none) : {}) } as ReturnType<typeof buttons>;
       const paying = payButtons(p, d);
       if (paying) return { ...paying, ...(paying.secondary === undefined ? (cancel ?? none) : {}) } as ReturnType<typeof buttons>;
       const picks = targetButtons(p, d, opts.spell);
@@ -445,6 +531,13 @@ export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell:
     }
     case "split": {
       const rest = left(p, d);
+      // Counters (GCounters): how many move or come off; a cost names what's still to remove.
+      if (p.answer === "move_counters" || p.answer === "remove_counters") {
+        const n = (p.total ?? 0) - rest;
+        const verb = p.answer === "move_counters" ? "Move" : "Remove";
+        return { primary: n ? `${verb} ${n}` : `${verb} none`, ...(cancel ?? (n ? { secondary: "Reset", secondaryDoes: "reset" as const } : none)) };
+      }
+      if (p.answer === "remove_counter_cost") return { primary: rest > 0 ? `${rest} left to remove` : `Remove ${p.total ?? 0}`, ...(cancel ?? none) };
       if (p.unit === "mana") {
         const mana = p.options.flatMap((o) => Array.from({ length: d.amounts[o.id] ?? 0 }, () => `{${o.id}}`)).join("");
         return { primary: rest > 0 ? `${rest} left to choose` : `Add ${mana}`, ...(cancel ?? none) };
@@ -464,6 +557,51 @@ export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell:
       return { primary: v ? `${named ? "Name" : "Choose"} ${v}` : `Choose a ${p.choiceType ?? "word"}`, ...(cancel ?? none) };
     }
   }
+}
+
+/**
+ * The buttons for ways to cast, permanents and proliferate (GCastWays, GPermanents, GCounters):
+ * "Cast Stomp", "Overload for {6}{U}", "Put Vulpikeet on top", "Keep Isamaru", "Aragorn bears the
+ * Ring", "Copy Grizzly Bears", "Put 2 on this Jace", "Proliferate (3)". The second button is left
+ * `undefined` where Cancel (when there is one) belongs.
+ */
+function waysButtons(p: Pending, d: Draft): { primary: string; secondary?: string | null; secondaryDoes?: SecondaryDoes | null } | null {
+  if (d.kind !== "pick") return null;
+  const n = d.ids.length;
+  const o = p.options.find((x) => x.id === d.ids[0]);
+  const name = o?.name ?? "";
+  switch (p.answer) {
+    case "choose_adventure_face":
+      return { primary: o ? `Cast ${name}` : "Choose a half" };
+    case "choose_modal_face":
+      return { primary: o ? `Cast ${name}` : "Choose a face" };
+    case "choose_alternative_cast":
+      return { primary: !o ? "Choose a cost" : o.id === "normal" ? `Cast for ${o.cost ?? ""}` : `${name} for ${o.cost ?? ""}` };
+    case "choose_casting_variant":
+      return { primary: !o ? "Choose how to cast it" : o.cost ? `${name} for ${o.cost}` : name };
+    case "choose_mutate_side":
+      return { primary: !o ? "Choose top or bottom" : o.id === "top" ? `Put ${name} on top` : "Put it underneath" };
+    case "choose_legend":
+      return { primary: o ? `Keep ${name}` : "Choose one to keep" };
+    case "choose_ring_bearer":
+      return { primary: o ? `${name} bears the Ring` : "Choose a creature" };
+    case "equip":
+      return { primary: o ? `Equip ${name}` : "Choose a creature" };
+    case "select_targets":
+      return { primary: n ? `Proliferate (${n})` : "Proliferate nothing", secondary: n ? "Clear" : null, secondaryDoes: n ? "clear" : null };
+  }
+  switch (p.purpose) {
+    case "clone":
+    case "populate":
+      return { primary: o ? `Copy ${name}` : "Choose one to copy" };
+    case "empower":
+      return { primary: o ? `Put ${p.total ?? 0} on this Jace` : "Choose a Jace" };
+    case "explore":
+      return { primary: o ? `${name} explores` : "Choose one" };
+    case "host":
+      return { primary: o ? `Choose ${name}` : "Choose one" };
+  }
+  return null;
 }
 
 /**
@@ -565,12 +703,18 @@ export function counter(p: Pending, d: Draft): string {
     if (p.purpose === "targets") return p.min === 0 && p.max >= p.options.length ? `${n} chosen, any number` : `${n} of up to ${p.max} chosen`;
     if (p.purpose === "copy" || p.purpose === "retarget") return p.slot ? `Target ${p.slot[0] + 1} of ${p.slot[1]}` : "Target 1 of 1";
     if (p.need !== undefined) return `${powerOf(p, d)} of ${p.need} power`;
+    if (p.purpose === "proliferate") return `${n} chosen`;
+    if (isFaceChoice(p)) return "";
     if (p.answer === "pay_phyrexian") return n ? `${n} with life` : "All with mana";
     if (p.answer === "decide_optional_cost" || p.answer === "choose_cost_branch" || p.answer === "choose_mana_color" || p.answer === "pay_mana_ability_mana" || p.answer === "tap_mana") return "";
     if (p.answer === "select_modes" && p.min !== p.max) return `${n} of ${p.max - p.min === 1 ? `${p.min} or ${p.max}` : `up to ${p.max}`} chosen`;
     return p.upTo || p.min !== p.max ? `${n} of up to ${p.max} chosen` : `${n} of ${p.max} chosen`;
   }
-  if (d.kind === "split") return `${left(p, d)} left`;
+  if (d.kind === "split") {
+    if (p.answer === "remove_counter_cost") return left(p, d) ? `${left(p, d)} left to remove` : "0 left";
+    if (p.upTo) return `${(p.total ?? 0) - left(p, d)} of ${p.total ?? 0}`;
+    return `${left(p, d)} left`;
+  }
   if (d.kind === "order") return p.answer === "order_triggers" ? `${d.ids.length} triggers` : `${d.ids.length} cards`;
   if (d.kind === "text") return `${d.value.trim() ? 1 : 0} of 1 chosen`;
   return "";
@@ -583,7 +727,20 @@ export function orderTag(p: Pending, i: number, n: number): string {
   return i === n - 1 ? "Very bottom" : i === 0 ? "Highest of these" : "Then";
 }
 
-const BOARD_ANSWERS = new Set(["select_cards", "choose_pair", "choose_target", "retarget_spell", "choose_enlist", "crew_vehicle", "saddle_mount", "tap_mana"]);
+const BOARD_ANSWERS = new Set([
+  "select_cards",
+  "choose_pair",
+  "choose_target",
+  "retarget_spell",
+  "choose_enlist",
+  "crew_vehicle",
+  "saddle_mount",
+  "tap_mana",
+  "choose_legend",
+  "choose_ring_bearer",
+  "equip",
+  "select_targets",
+]);
 
 /**
  * Picks can be made on the board when every option is a card in your hand or on the battlefield;
@@ -591,7 +748,8 @@ const BOARD_ANSWERS = new Set(["select_cards", "choose_pair", "choose_target", "
  */
 export function onBoard(p: Pending): boolean {
   if ((p.kind !== "pick" && p.kind !== "pair") || !BOARD_ANSWERS.has(p.answer) || isScry(p) || !p.options.length) return false;
-  const zones = isTargeting(p) ? ["battlefield", "player", "stack"] : ["hand", "battlefield"];
+  // Proliferate also picks players, by their panes and portrait.
+  const zones = isTargeting(p) || p.answer === "select_targets" ? ["battlefield", "player", "stack"] : ["hand", "battlefield"];
   return p.options.every((o) => zones.includes(o.zone ?? ""));
 }
 
@@ -604,6 +762,8 @@ export function onBoard(p: Pending): boolean {
 export type Stage = "strip" | "board" | "steppers" | "dialog" | "sheet";
 
 export function stageOf(p: Pending, wide: boolean, splitOnBoard: boolean): Stage {
+  // A card offered to cast is shown whole, with what cascade went through (GCastWays).
+  if (isCastOffer(p)) return wide ? "dialog" : "sheet";
   if (p.kind === "yesno") return "strip";
   // Targets and creatures to tap are chosen on the board on a phone too (GTargetPhone).
   if (onBoard(p) && (wide || isTargeting(p) || isTapping(p))) return "board";
@@ -632,4 +792,42 @@ export function nameMatches(query: string, fixed: string[] | null, inPlay: strin
   });
   out.sort((a, b) => Number(b.inPlay) - Number(a.inPlay) || starts(a.name) - starts(b.name) || a.at - b.at);
   return out.map(({ name, inPlay: p }) => ({ name, inPlay: p }));
+}
+
+/**
+ * The line under a permanent while it's picked (GPermanents, GCounters): "Keep" and,
+ * on the other legends, "To graveyard" in red (CR 704.5j); the Ring-bearer now and the one
+ * chosen; a Jace token's loyalty and what it will be; the counters proliferate adds to; and what a
+ * clone is copying. `null` where nothing is said.
+ */
+export function pickTag(p: Pending, d: Draft, id: string, roomy = false): { text: string; tone: "plain" | "dim" | "bad" } | null {
+  if (d.kind !== "pick") return null;
+  const o = p.options.find((x) => x.id === id);
+  if (!o) return null;
+  const on = d.ids.includes(id);
+  switch (p.purpose) {
+    case "legend":
+      if (on) return { text: "Keep", tone: "plain" };
+      return d.ids.length && o.eligible ? { text: "To graveyard", tone: "bad" } : null;
+    case "ring":
+      if (on) return { text: "Ring-bearer", tone: "plain" };
+      return id === p.current ? { text: "Ring-bearer now", tone: "dim" } : null;
+    case "clone":
+      return on ? { text: "Copying", tone: "plain" } : null;
+    case "empower": {
+      const n = o.counters?.find(([k]) => k === "loyalty")?.[1] ?? 0;
+      // Short enough for a planeswalker's small tile on the board, whose badge already shows its
+      // loyalty; a phone's tiles have room for the word.
+      const after = `${n} → ${n + (p.total ?? 0)}`;
+      return { text: on ? (roomy ? `Loyalty ${after}` : after) : `Loyalty ${n}`, tone: on ? "plain" : "dim" };
+    }
+    case "proliferate": {
+      const all = o.counters ?? [];
+      if (!all.length) return null;
+      // Each kind already there gets one more (CR 701.34a).
+      const text = all.map(([k, n]) => (on ? `${k} ×${n} → ×${n + 1}` : `${k} ×${n}`)).join(", ");
+      return { text, tone: on ? "plain" : "dim" };
+    }
+  }
+  return null;
 }

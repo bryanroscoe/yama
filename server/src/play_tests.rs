@@ -105,6 +105,25 @@ fn only_whitelisted_answers_parse() {
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"pay_phyrexian","life":[true,false]}}"#));
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"decide_optional_cost","pay":true}}"#));
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_cost_branch","index":1}}"#));
+    // Ways to cast, permanents and counters (play/src/ways.rs).
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"cast_offer","cast":true,"payment":"manual"}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"cast_offer","cast":false}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_adventure_face","creature":false}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_modal_face","back_face":true}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_alternative_cast","alternative":true}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_casting_variant","index":1}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_mutate_side","top":false}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_legend","keep":12}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_ring_bearer","target":12}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"equip","equipment":9,"target":12}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"select_targets","targets":[{"kind":"object","id":7},{"kind":"player","seat":1}]}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"move_counters","moves":[{"on":7,"counter":"P1P1","count":2}]}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"remove_counters","counters":[{"counter":"stun","count":1}]}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"remove_counter_cost","counters":[{"on":7,"counter":"P1P1","count":1}]}}"#));
+    // Not the engine's own forms of them.
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"cascade_choice","choice":{"type":"Cast"}}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"cast_spell_as_madness","object_id":4,"card_id":4}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_counter_move_distribution","selections":[]}}"#));
     // Not a payment mode the setting doesn't have, nor the engine's raw mana actions.
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"cast_spell","object":40,"payment":"free"}}"#));
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"tap_land_for_mana","selection":{}}}"#));
@@ -205,6 +224,7 @@ fn decisions_get_their_cards_details() {
         mana_cost: None,
         type_line: "Instant".into(),
         oracle_text: format!("{name} text."),
+        faces: None,
     };
     let e = engine();
     let mut m = e.new_match_first(5, vec![deck(&[("Island", 99)]), deck(&[("Island", 99)])], &[], Some(0)).unwrap();
@@ -353,4 +373,27 @@ fn card_details_cover_what_the_viewer_was_told_happened() {
         what: yama_play::feed::What::Revealed { seat: 1, cards: vec![yama_play::feed::Seen { id: None, name: Some("Preordain".into()), face_down: false }] },
     });
     assert!(view_names(&view).contains(&"Preordain".to_string()));
+}
+
+#[test]
+fn a_cards_faces_go_to_the_board_as_words_only() {
+    // As imported from Scryfall (cards.faces): each face's words, and fields the board doesn't use.
+    let stored = r#"[{"name":"Bonecrusher Giant","mana_cost":"{2}{R}","type_line":"Creature — Giant","oracle_text":"Whenever this creature becomes the target of a spell, this creature deals 2 damage to that spell's controller.","colors":null,"power":"4","toughness":"3","loyalty":null,"oracle_id":null},{"name":"Stomp","mana_cost":"{1}{R}","type_line":"Instant — Adventure","oracle_text":"Damage can't be prevented this turn. Stomp deals 2 damage to any target.","colors":null,"power":null,"toughness":null,"loyalty":null,"oracle_id":null}]"#;
+    let meta = CardMeta {
+        oracle_id: "x".into(),
+        image: None,
+        back_image: None,
+        art: None,
+        artist: None,
+        mana_cost: Some("{2}{R} // {1}{R}".into()),
+        type_line: "Creature — Giant // Instant — Adventure".into(),
+        oracle_text: String::new(),
+        faces: Some(stored.into()),
+    };
+    let v = serde_json::to_value(&meta).unwrap();
+    assert_eq!(v["faces"][1], serde_json::json!({ "name": "Stomp", "mana_cost": "{1}{R}", "type_line": "Instant — Adventure", "oracle_text": "Damage can't be prevented this turn. Stomp deals 2 damage to any target." }));
+    assert!(v["faces"][0].get("power").is_none());
+    // A one-faced card sends none.
+    let plain = CardMeta { faces: None, ..meta };
+    assert!(serde_json::to_value(&plain).unwrap().get("faces").is_none());
 }

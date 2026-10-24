@@ -16,7 +16,11 @@ import { useCardArt } from "../components/useCardArt";
 import {
   adjust,
   canRememberOrder,
+  castable,
   counter,
+  isCastOffer,
+  isFaceChoice,
+  isPermanentPick,
   isScry,
   isTapping,
   isTargeting,
@@ -30,8 +34,10 @@ import {
   orderTag,
   phyrexianLife,
   phyrexianMana,
+  pickTag,
   rememberLabels,
   restHere,
+  room,
   setNumber,
   splitTag,
   stepNumber,
@@ -594,6 +600,7 @@ function splitWho(o: DecisionOption, ctx: WidgetContext, damage: number): string
 export function SplitRows({ p, draft, onDraft, ctx, compact, disabled }: Props) {
   if (draft.kind !== "split") return null;
   const rest = left(p, draft);
+  const given = (p.total ?? 0) - rest;
   const min = p.perOptionMin ?? 0;
   // Every art crop shown names its artist: the source's is in the heading, the targets' (laptop) here.
   const artists = [...new Set((compact ? [] : p.options.map((o) => (o.art ?? ctx.meta[o.name]?.art ? o.artist ?? ctx.meta[o.name]?.artist : null))).filter((a): a is string => !!a))];
@@ -604,10 +611,18 @@ export function SplitRows({ p, draft, onDraft, ctx, compact, disabled }: Props) 
         ctx={ctx}
         compact={compact}
         extra={
-          <span className="dw-left">
-            <b className={`num${rest === 0 ? " done" : ""}`}>{rest}</b>
-            <span>{compact ? "left" : `of ${p.total ?? 0} left`}</span>
-          </span>
+          // Counters that may move or come off up to a total count up; everything else counts down.
+          p.upTo ? (
+            <span className="dw-left">
+              <b className="num">{given}</b>
+              <span>of {p.total ?? 0}</span>
+            </span>
+          ) : (
+            <span className="dw-left">
+              <b className={`num${rest === 0 ? " done" : ""}`}>{rest}</b>
+              <span>{compact ? "left" : `of ${p.total ?? 0} left`}</span>
+            </span>
+          )
         }
       />
       <div className="dw-split-rows">
@@ -624,10 +639,14 @@ export function SplitRows({ p, draft, onDraft, ctx, compact, disabled }: Props) 
               )}
               <span className="dw-split-text" style={seatDot(o.controller !== undefined ? ctx.tone(o.controller) : undefined)}>
                 <b>{o.name}</b>
-                <span>
-                  <span className="seat-dot" aria-hidden="true" />
-                  {splitWho(o, ctx, damage)}
-                </span>
+                {o.text && <span>{o.text}</span>}
+                {o.controller !== undefined && (
+                  <span>
+                    <span className="seat-dot" aria-hidden="true" />
+                    {splitWho(o, ctx, damage)}
+                  </span>
+                )}
+                {o.cap !== undefined && <span>{p.answer === "move_counters" ? `${o.cap} can move` : `${o.cap} on it`}</span>}
                 {compact && tag && <span className={`dw-tag${tag.dies ? (theirs ? " good" : " bad") : ""}`}>{tag.text}</span>}
               </span>
               {!compact && tag && <span className={`dw-tag${tag.dies ? (theirs ? " good" : " bad") : ""}`}>{tag.text}</span>}
@@ -636,13 +655,13 @@ export function SplitRows({ p, draft, onDraft, ctx, compact, disabled }: Props) 
                   name={o.name}
                   n={n}
                   lessOff={disabled || n <= min}
-                  moreOff={disabled || rest <= 0}
+                  moreOff={disabled || room(p, draft, o.id) <= 0}
                   onLess={() => onDraft(adjust(p, draft, o.id, -1))}
                   onMore={() => onDraft(adjust(p, draft, o.id, 1))}
                 />
-                {!compact && rest > 0 && (
+                {!compact && room(p, draft, o.id) > 0 && (
                   <button type="button" className="outline small" disabled={disabled} onClick={() => onDraft(restHere(p, draft, o.id))}>
-                    Rest here
+                    {p.unit === "counters" ? "All" : "Rest here"}
                   </button>
                 )}
               </span>
@@ -651,7 +670,8 @@ export function SplitRows({ p, draft, onDraft, ctx, compact, disabled }: Props) 
         })}
       </div>
       <p className="dw-foot">
-        {p.unit === "mana" ? "One colour for each mana." : "Starts at the engine's split."}{min > 0 ? ` Each gets at least ${min}.` : ""} {artists.length ? `Art: ${artists.join(", ")}, ${COPYRIGHT}.` : ""}
+        {p.unit === "mana" ? "One colour for each mana." : p.unit === "counters" ? (p.upTo ? "Any number, none included." : `Exactly ${p.total ?? 0}.`) : "Starts at the engine's split."}
+        {min > 0 ? ` Each gets at least ${min}.` : ""} {artists.length ? `Art: ${artists.join(", ")}, ${COPYRIGHT}.` : ""}
       </p>
     </div>
   );
@@ -728,16 +748,26 @@ export function SplitSteppers({ p, draft, onDraft, ctx, disabled, root }: Props 
               name={o.name}
               n={n}
               lessOff={disabled || n <= min}
-              moreOff={disabled || rest <= 0}
+              moreOff={disabled || rest <= 0 || room(p, draft, o.id) <= 0}
               onLess={() => onDraft(adjust(p, draft, o.id, -1))}
               onMore={() => onDraft(adjust(p, draft, o.id, 1))}
             />
             {tag && <span className={`dw-tag${tag.dies ? (theirs ? " good" : " bad") : ""}`}>{tag.text}</span>}
+            {/* Counters: how many it has of the kind, and what that becomes. */}
+            {p.unit === "counters" && o.group !== undefined && <span className="dw-tag">{counterLine(p, o, n)}</span>}
           </div>
         );
       })}
     </div>
   );
+}
+
+/** A permanent's counters of an option's kind, and what they become: "+1/+1 ×1 → ×3". */
+function counterLine(p: Pending, o: DecisionOption, n: number): string {
+  const kind = (o.text ?? "").replace(/ counters$/, "") || (o.counters?.[0]?.[0] ?? "");
+  const has = o.counters?.find(([k]) => k === kind)?.[1] ?? 0;
+  const after = p.answer === "move_counters" ? has + n : has - n;
+  return n ? `${kind} ×${has} → ×${after}` : `${kind} ×${has}`;
 }
 
 // ── a number (GNumber, GModes' X) ──────────────────────────────────────────
@@ -1244,6 +1274,191 @@ export function CostRows({ p, draft, onDraft, ctx, compact, disabled }: Props) {
   );
 }
 
+// ── ways to cast (GCastWays) ───────────────────────────────────────────────
+
+/**
+ * A card the engine offers to cast: what cascade, discover or ripple went through and the card it
+ * found (exiled cards are face up, so everyone sees them; a ripple's are revealed), or a card with
+ * madness or miracle, whole. The rail's buttons cast it or don't.
+ */
+export function CastOfferCard({ p, ctx, compact }: Props) {
+  const img = (o: DecisionOption) => o.img ?? ctx.meta[o.name]?.image ?? null;
+  const run = ["cascade", "discover", "ripple"].includes(p.purpose);
+  const hit = p.options[p.options.length - 1];
+  const misses = run ? p.options.slice(0, -1) : [];
+  const read = (o: DecisionOption) => () => ctx.onRead(o.name, Number(o.id));
+  return (
+    <div className={`dw-offer${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} compact={compact} />
+      {hit && run && (
+        <section className="dw-run" aria-label="The cards it went through">
+          <span className="dw-note">{p.purpose === "ripple" ? "Revealed from the top of your library" : "Exiled from the top of your library, in order"}</span>
+          <div className="dw-run-cards">
+            {misses.map((o) => (
+              <figure key={o.id} className="dw-run-miss">
+                <ReadImg src={img(o)} name={o.name} onRead={read(o)} />
+              </figure>
+            ))}
+            {misses.length > 0 && <span className="dw-run-arrow" aria-hidden="true">→</span>}
+            <figure className="dw-run-hit">
+              <ReadImg src={img(hit)} name={hit.name} onRead={read(hit)} />
+              <figcaption>{hit.name}</figcaption>
+            </figure>
+          </div>
+        </section>
+      )}
+      {hit && !run && (
+        <figure className="dw-offer-card">
+          <ReadImg src={img(hit)} name={hit.name} onRead={read(hit)} />
+        </figure>
+      )}
+      {!castable(p) && <Warn text="There isn't the mana to cast it now." />}
+      <p className="dw-foot">{compact ? "Long-press a card to read it. " : "Right-click a card to read it. "}{IMAGES}</p>
+    </div>
+  );
+}
+
+/**
+ * How a card is cast: an adventurer card's creature or adventure, a modal card's two spell faces,
+ * the mana cost or a keyword's cost, one of several ways from the same zone, or a mutating
+ * creature over or under. Each is a tile with its card, cost and words: the face's own Oracle
+ * text where it has one (Yama's card data), else the engine's name and cost.
+ */
+export function FaceChoice({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  const meta = p.source ? ctx.meta[p.source.name] : undefined;
+  const halves = p.answer === "choose_adventure_face" || p.answer === "choose_modal_face";
+  const mutate = p.answer === "choose_mutate_side";
+  const face = (name: string) => meta?.faces?.find((f) => f.name === name);
+  const img = (o: DecisionOption) => {
+    if (p.answer === "choose_modal_face" && o.id === "back") return meta?.back_image ?? meta?.image ?? null;
+    if (mutate) return o.img ?? ctx.meta[o.name]?.image ?? null;
+    return meta?.image ?? o.img ?? null;
+  };
+  const title = (o: DecisionOption) => (!mutate ? o.name : o.id === "top" ? `On top: ${o.name}` : `Underneath: ${o.name} stays on top`);
+  const line = (o: DecisionOption) => {
+    if (mutate) return o.power !== undefined && o.toughness !== undefined ? `${o.power}/${o.toughness}` : "";
+    return [o.cost, halves ? face(o.name)?.type_line : null].filter(Boolean).join(". ");
+  };
+  // Each half has its own words; the head keeps the whole card's for a cost or a way to cast.
+  const head = halves ? { ...p, oracle: undefined } : p;
+  return (
+    <div className={`dw-faces${compact ? " compact" : ""}`}>
+      <Head p={head} ctx={ctx} compact={compact} />
+      <div className="dw-face-list" role="radiogroup" aria-label={p.prompt}>
+        {p.options.map((o) => {
+          const on = draft.ids.includes(o.id);
+          const text = halves ? face(o.name)?.oracle_text : null;
+          return (
+            <ReadButton
+              key={o.id}
+              className={`dw-face${on ? " picked" : o.eligible ? " pick" : ""}`}
+              label={`${title(o)}${on ? ", chosen" : ""}`}
+              disabled={disabled || !o.eligible}
+              onClick={() => onDraft(togglePick(p, draft, o.id))}
+              onRead={() => ctx.onRead(mutate ? o.name : p.source?.name ?? o.name, mutate ? undefined : p.source?.id)}
+            >
+              {img(o) ? <img src={img(o)!} alt="" draggable={false} /> : <span className="dw-card-name">{o.name}</span>}
+              <span className="dw-face-text">
+                <b>{title(o)}</b>
+                {line(o) && <span className="dw-face-cost">{line(o)}</span>}
+                {text && <span>{text}</span>}
+                {!o.eligible && <span className="dw-note">Can't be cast now.</span>}
+              </span>
+            </ReadButton>
+          );
+        })}
+      </div>
+      <p className="dw-foot">{compact ? "Long-press a card to read it. " : "Right-click a card to read it. "}{IMAGES}</p>
+    </div>
+  );
+}
+
+// ── permanents and proliferate on a phone (GPermanentsPhone, GCountersPhone) ──
+
+/** One permanent as a tile: its art, an amber ring until picked, then white with its number, and the line under it. */
+function PickTile({ o, at, tag, art, tone, disabled, onPick, onRead }: { o: DecisionOption; at: number; tag: { text: string; tone: string } | null; art: string | null; tone?: string; disabled: boolean; onPick: () => void; onRead: () => void }) {
+  const { handlers, consumed } = useRead(onRead);
+  return (
+    <button
+      type="button"
+      className={`dw-tile${at >= 0 ? " picked" : o.eligible ? " pick" : ""}`}
+      aria-pressed={at >= 0}
+      aria-label={`${o.name}${at >= 0 ? ", chosen" : o.eligible ? ", can be chosen" : ""}${tag ? `, ${tag.text}` : ""}`}
+      disabled={disabled || !o.eligible}
+      onClick={() => !consumed() && onPick()}
+      style={seatDot(tone)}
+      {...handlers}
+    >
+      <span className="dw-tile-art">{art && <img src={art} alt="" draggable={false} />}</span>
+      <span className="dw-tile-name">
+        {tone && <span className="seat-dot" aria-hidden="true" />}
+        {o.name}
+      </span>
+      {at >= 0 && <span className="pick-badge num">{at + 1}</span>}
+      {tag && <span className={`dw-tile-tag ${tag.tone}`}>{tag.text}</span>}
+    </button>
+  );
+}
+
+/**
+ * Permanents picked on a phone: the legend to keep, what a clone copies, the Ring-bearer, a Jace
+ * token and the rest as tiles in the dock's sheet; for proliferate, players with counters as rows
+ * above them. Long-press reads a card; the dock's button confirms.
+ */
+export function TilePick({ p, draft, onDraft, ctx, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  const players = p.options.filter((o) => o.zone === "player");
+  const cards = p.options.filter((o) => o.zone !== "player");
+  const art = (o: DecisionOption) => o.art ?? ctx.meta[o.name]?.art ?? null;
+  const artists = [...new Set(cards.map((o) => (art(o) ? o.artist ?? ctx.meta[o.name]?.artist : null)).filter((a): a is string => !!a))];
+  return (
+    <div className="dw-tiles compact">
+      <Head p={p} ctx={ctx} count={counter(p, draft)} compact />
+      {players.length > 0 && (
+        <div className="dw-player-rows">
+          {players.map((o) => {
+            const at = draft.ids.indexOf(o.id);
+            const tag = pickTag(p, draft, o.id);
+            return (
+              <button
+                key={o.id}
+                type="button"
+                className={`dw-player-row${at >= 0 ? " picked" : o.eligible ? " pick" : ""}`}
+                aria-pressed={at >= 0}
+                disabled={disabled || !o.eligible}
+                style={seatDot(o.controller !== undefined ? ctx.tone(o.controller) : undefined)}
+                onClick={() => onDraft(togglePick(p, draft, o.id))}
+              >
+                <span className="seat-dot" aria-hidden="true" />
+                <b>{o.name}</b>
+                {tag && <span>{tag.text}</span>}
+                {at >= 0 && <span className="pick-badge num">{at + 1}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className="dw-tile-grid">
+        {cards.map((o) => (
+          <PickTile
+            key={o.id}
+            o={o}
+            at={draft.ids.indexOf(o.id)}
+            tag={pickTag(p, draft, o.id, true)}
+            art={art(o)}
+            tone={o.controller !== undefined && ctx.who(o.controller) !== "you" ? ctx.tone(o.controller) : undefined}
+            disabled={disabled}
+            onPick={() => onDraft(togglePick(p, draft, o.id))}
+            onRead={() => ctx.onRead(o.name, Number(o.id))}
+          />
+        ))}
+      </div>
+      <p className="dw-foot">{artists.length ? `Art: ${artists.join(", ")}, ${COPYRIGHT}. ` : ""}Long-press a card to read it.</p>
+    </div>
+  );
+}
+
 // ── the rail and the banner ────────────────────────────────────────────────
 
 /** The status pill over the battlefield while you pick on the board or split onto targets. */
@@ -1305,7 +1520,9 @@ export function DecisionRail({ p, draft, ctx, stage, disabled, onReset, onDraft 
                 ? "Click a card or player with an amber ring. Esc takes the pick back."
                 : isTapping(p)
                   ? "Click the creatures to tap."
-                  : "Click the cards with an amber ring."}
+                  : p.purpose === "proliferate"
+                    ? "Click the permanents and players with an amber ring. Click again to unpick."
+                    : "Click the cards with an amber ring."}
             {names.length > 0 && ` Chosen: ${names.join(", ")}.`}
           </p>
           {/* Every choice as a list too, for anything hard to reach on the board. */}
@@ -1335,7 +1552,17 @@ export function DecisionRail({ p, draft, ctx, stage, disabled, onReset, onDraft 
           )}
         </>
       )}
-      {stage === "steppers" && (
+      {stage === "steppers" && p.unit === "counters" && (
+        <>
+          <p className="dw-rail-left">
+            <b className={`num${!p.upTo && rest === 0 ? " done" : ""}`}>{p.upTo ? (p.total ?? 0) - rest : rest}</b>
+            <span>{p.upTo ? `of ${p.total ?? 0}` : "left to remove"}</span>
+          </p>
+          {p.oracle && <p className="chooser-oracle">{p.oracle}</p>}
+          <p className="rail-help">{p.upTo ? "Any number, none included: set them with the steppers on the board." : "Set them with the steppers on the board."}</p>
+        </>
+      )}
+      {stage === "steppers" && p.unit !== "counters" && (
         <>
           <p className="dw-rail-left">
             <b className={`num${rest === 0 ? " done" : ""}`}>{rest}</b>
@@ -1358,7 +1585,10 @@ export function DecisionRail({ p, draft, ctx, stage, disabled, onReset, onDraft 
 /** The widget for a decision's dialog (laptop) or sheet (phone). */
 export function DecisionStage(props: Props) {
   const { p, draft } = props;
+  if (isCastOffer(p)) return <CastOfferCard {...props} />;
   if (draft.kind === "yesno") return <YesNoStrip {...props} />;
+  if (isFaceChoice(p)) return <FaceChoice {...props} />;
+  if (props.compact && isPermanentPick(p)) return <TilePick {...props} />;
   if (draft.kind === "order") return p.answer === "order_triggers" ? <TriggerOrder {...props} /> : <OrderCards {...props} />;
   if (draft.kind === "split") return <SplitRows {...props} />;
   if (draft.kind === "number") return <NumberPick {...props} />;

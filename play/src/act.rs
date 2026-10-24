@@ -31,9 +31,9 @@ use engine::types::ability::{
     TapCreaturesSelectionMode, TargetRef,
 };
 use engine::types::events::GameEvent;
-use engine::types::actions::{GameAction, MayTriggerAutoChoiceOp, PriorityYieldOp, ReplacementAutoChoice, ResolveAllScope};
+use engine::types::actions::{AlternativeCastDecision, CastChoice, GameAction, MayTriggerAutoChoiceOp, PriorityYieldOp, ReplacementAutoChoice, ResolveAllScope};
 use engine::types::game_state::{
-    ActionResult, AutoMayChoice, CombatDamageAssignmentMode, CombatTaxContext, CostResume, DistributionUnit, GameState, ManaChoice,
+    ActionResult, AutoMayChoice, CombatDamageAssignmentMode, CombatTaxContext, CostResume, CounterCostChoice, CounterMoveChoice, CounterRemoveChoice, DistributionUnit, GameState, ManaChoice,
     ManaChoiceContext, ManaChoicePrompt, MayTriggerAutoChoiceScope, MayTriggerAutoChoiceSelector, MulliganDecisionPhase, PayCostKind,
     ReplacementAutoChoiceId, ReplacementChoiceKind, RetargetScope, ShardChoice, ShardOptions, WaitingFor, YieldScope,
     YieldTarget,
@@ -109,6 +109,33 @@ pub enum Answer {
     DecideOptionalCost,
     /// Which of an activation's alternative costs to pay (CR 118.12a).
     ChooseCostBranch,
+    // Ways to cast, permanents and counters (ways.rs).
+    /// Cast the card a cascade, discover, ripple, madness or miracle offers, or don't.
+    CastOffer,
+    /// An adventurer card's creature or its adventure (CR 715.3a).
+    ChooseAdventureFace,
+    /// Which face of a modal two-faced card to cast (CR 712.11b).
+    ChooseModalFace,
+    /// The mana cost or a keyword's alternative cost (CR 118.9).
+    ChooseAlternativeCast,
+    /// One of several ways to cast it from the same zone (CR 601.2b).
+    ChooseCastingVariant,
+    /// A mutating creature over or under the creature it merges with (CR 702.140c).
+    ChooseMutateSide,
+    /// The legend to keep (CR 704.5j).
+    ChooseLegend,
+    /// The Ring-bearer (CR 701.54a).
+    ChooseRingBearer,
+    /// The creature to attach an Equipment to (CR 702.6a).
+    Equip,
+    /// Any number of permanents and players: proliferate (CR 701.34a).
+    SelectTargets,
+    /// Counters moved onto other permanents (CR 122.5).
+    MoveCounters,
+    /// Counters removed as an effect resolves (CR 107.1c).
+    RemoveCounters,
+    /// Counters removed from among permanents as a cost (CR 118.3).
+    RemoveCounterCost,
 }
 
 /// The card asking. The server adds its art, image and artist from Yama's card data.
@@ -162,6 +189,17 @@ pub struct Choice {
     /// What choosing it costs, printed ("{4}{R}"): a kicker row, one of several costs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost: Option<String>,
+    /// The counters on it now, in words with how many ("+1/+1", 2): proliferate, empower Jace,
+    /// moving or removing counters (ways.rs).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub counters: Vec<(String, u32)>,
+    /// The most a split may give it (the counters of its kind it has, or that can move).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cap: Option<u32>,
+    /// The counter kind it stands for, by the engine's key ("P1P1"). Options of one group share
+    /// one cap: together they move no more of that kind than there are.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     /// It names a card, so the server sends that card's details.
     #[serde(skip)]
     pub card: bool,
@@ -223,7 +261,11 @@ pub struct Pending {
     /// "damage" or "divide"; while paying, "mana_source" (sacrifice it for mana?), "color",
     /// "combo" and "colors" (mana to add), "hybrid" (a mana ability's hybrid cost), "phyrexian",
     /// "kicker", "optional" and "either" (extra costs), "cost" (cards or permanents as a cost),
-    /// "cost_branch", "cost_type", "ward" and "return".
+    /// "cost_branch", "cost_type", "ward" and "return". Ways to cast (ways.rs): "cascade",
+    /// "discover", "ripple", "madness", "miracle", "miracle_reveal", "adventure", "face",
+    /// "alt_cost", "variant" and "mutate"; permanents: "legend", "clone", "equip", "ring",
+    /// "empower", "host", "populate" and "explore"; counters: "proliferate", "move_counters",
+    /// "remove_counters" and "counter_cost".
     pub purpose: &'static str,
     /// The order picked is the order they end up in (scry and surveil: the first is on top).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -269,6 +311,9 @@ pub struct Pending {
     /// Phyrexian mana: the rest of the cost, printed, which is paid with mana either way.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rest: Option<String>,
+    /// Moving or removing counters: the permanent they come off, by option id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
     /// `current` isn't one of the engine's alternatives, so picking it is sent as keeping it.
     #[serde(skip)]
     keeps_current: bool,
@@ -278,7 +323,7 @@ pub struct Pending {
 }
 
 impl Pending {
-    fn new(kind: Kind, answer: Answer, purpose: &'static str, prompt: impl Into<String>, options: Vec<Choice>) -> Self {
+    pub(crate) fn new(kind: Kind, answer: Answer, purpose: &'static str, prompt: impl Into<String>, options: Vec<Choice>) -> Self {
         let n = options.iter().filter(|o| o.eligible).count();
         Pending {
             kind,
@@ -315,12 +360,13 @@ impl Pending {
             need: None,
             warn: None,
             rest: None,
+            origin: None,
             keeps_current: false,
             shards: vec![],
         }
     }
 
-    fn from(mut self, vs: &GameState, source: Option<ObjectId>) -> Self {
+    pub(crate) fn from(mut self, vs: &GameState, source: Option<ObjectId>) -> Self {
         self.source = source.and_then(|id| {
             let o = vs.objects.get(&id)?;
             Some(Source { id: id.0, name: Match::name_in(vs, &id), controller: o.controller.0, art: None, image: None, artist: None })
@@ -329,7 +375,7 @@ impl Pending {
     }
 
     /// Pick between `min` and `max` of the eligible options (capped at how many there are).
-    fn range(mut self, min: usize, max: usize, up_to: bool) -> Self {
+    pub(crate) fn range(mut self, min: usize, max: usize, up_to: bool) -> Self {
         let n = self.options.iter().filter(|o| o.eligible).count();
         self.min = min.min(n);
         self.max = max.min(n);
@@ -337,7 +383,7 @@ impl Pending {
         self
     }
 
-    fn yes_no(mut self, yes: impl Into<String>, no: impl Into<String>) -> Self {
+    pub(crate) fn yes_no(mut self, yes: impl Into<String>, no: impl Into<String>) -> Self {
         self.yes_label = Some(yes.into());
         self.no_label = Some(no.into());
         self.min = 1;
@@ -351,7 +397,7 @@ fn zone_name(vs: &GameState, id: &ObjectId) -> Option<String> {
 }
 
 /// A card or permanent as an option, named and placed as `vs` shows it.
-fn card(vs: &GameState, id: &ObjectId, eligible: bool) -> Choice {
+pub(crate) fn card(vs: &GameState, id: &ObjectId, eligible: bool) -> Choice {
     let o = vs.objects.get(id);
     Choice {
         id: id.0.to_string(),
@@ -367,16 +413,19 @@ fn card(vs: &GameState, id: &ObjectId, eligible: bool) -> Choice {
         lethal: None,
         power: None,
         cost: None,
+        counters: vec![],
+        cap: None,
+        group: None,
         card: true,
     }
 }
 
-fn cards(vs: &GameState, ids: &[ObjectId]) -> Vec<Choice> {
+pub(crate) fn cards(vs: &GameState, ids: &[ObjectId]) -> Vec<Choice> {
     ids.iter().map(|id| card(vs, id, true)).collect()
 }
 
 /// A word, a mode or a trigger as an option.
-fn word(id: impl Into<String>, name: impl Into<String>) -> Choice {
+pub(crate) fn word(id: impl Into<String>, name: impl Into<String>) -> Choice {
     Choice {
         id: id.into(),
         name: name.into(),
@@ -391,18 +440,21 @@ fn word(id: impl Into<String>, name: impl Into<String>) -> Choice {
         lethal: None,
         power: None,
         cost: None,
+        counters: vec![],
+        cap: None,
+        group: None,
         card: false,
     }
 }
 
-fn player_choice(p: PlayerId, names: &[String]) -> Choice {
+pub(crate) fn player_choice(p: PlayerId, names: &[String]) -> Choice {
     let mut c = word(format!("p{}", p.0), names.get(usize::from(p.0)).cloned().unwrap_or_else(|| format!("Player {}", p.0 + 1)));
     c.zone = Some("player".into());
     c.controller = Some(p.0);
     c
 }
 
-fn target(vs: &GameState, t: &TargetRef, names: &[String]) -> Choice {
+pub(crate) fn target(vs: &GameState, t: &TargetRef, names: &[String]) -> Choice {
     match t {
         TargetRef::Object(id) => card(vs, id, true),
         TargetRef::Player(p) => player_choice(*p, names),
@@ -434,6 +486,8 @@ fn question(text: &str) -> String {
     let text = one_line(text);
     let text = text.trim();
     let text = text.split_once(", you may ").map_or(text, |(_, rest)| rest);
+    // "You may have Clone enter as a copy…" asks "Have Clone enter as a copy…?".
+    let text = text.strip_prefix("You may ").unwrap_or(text);
     let single = !text.trim_end_matches('.').contains(". ");
     let text = if single { text.trim_end_matches(['.', '?']) } else { text };
     let mut chars = text.chars();
@@ -469,7 +523,7 @@ fn choice_type_name(value: &Value) -> Option<String> {
 /// A cost in words, for a question or a button: printed for mana ("{2}"), the common shapes in
 /// plain words ("discard a card", "pay 3 life", "sacrifice a permanent"), anything else in
 /// phase's own description of it.
-fn unless_cost_text(vs: &GameState, cost: &AbilityCost) -> String {
+pub(crate) fn unless_cost_text(vs: &GameState, cost: &AbilityCost) -> String {
     let printed = cost_text(cost);
     if !printed.is_empty() {
         return printed;
@@ -505,12 +559,12 @@ fn and_list(names: &[String]) -> String {
 }
 
 /// "a card", "2 cards".
-fn a_or(n: usize, one: &str, many: &str) -> String {
+pub(crate) fn a_or(n: usize, one: &str, many: &str) -> String {
     if n == 1 { format!("a {one}") } else { format!("{n} {many}") }
 }
 
 /// The first letter in capitals: "discard a card" reads "Discard a card".
-fn capitalised(text: &str) -> String {
+pub(crate) fn capitalised(text: &str) -> String {
     let mut chars = text.chars();
     match chars.next() {
         Some(c) => format!("{}{}", c.to_uppercase(), chars.as_str()),
@@ -934,7 +988,9 @@ impl Pending {
                     // One "you may" replacement: index 0 accepts, 1 declines.
                     let text = options.first().and_then(|o| o.text.clone()).unwrap_or_default();
                     let source = items.first().map(|c| c.source_id);
-                    let mut p = Pending::new(Kind::Yesno, Answer::ChooseReplacement, "replacement", question(&text), options).yes_no("Yes", "No").from(vs, source);
+                    // A clone entering as a copy (CR 707.9) says so on its buttons.
+                    let (yes, no) = if text.contains("enter as a copy of") { ("Copy", "Don't copy") } else { ("Yes", "No") };
+                    let mut p = Pending::new(Kind::Yesno, Answer::ChooseReplacement, "replacement", question(&text), options).yes_no(yes, no).from(vs, source);
                     p.min = 1;
                     p.max = 1;
                     p
@@ -1208,6 +1264,8 @@ impl Pending {
                     PayCostKind::ExileFromZone { .. } | PayCostKind::ExileFromManaZone { .. } => ("Exile", "card", "cards"),
                     PayCostKind::ExilePermanent { .. } => ("Exile", "permanent", "permanents"),
                     PayCostKind::TapCreatures { mode: TapCreaturesSelectionMode::Fixed | TapCreaturesSelectionMode::VariableX } => ("Tap", "creature", "creatures"),
+                    // Counters as a cost: from one permanent, or from among several (ways.rs).
+                    PayCostKind::RemoveCounter { .. } => return crate::ways::counter_cost(vs, kind, choices, *n, resume),
                     _ => return None,
                 };
                 let source = match resume {
@@ -1257,7 +1315,8 @@ impl Pending {
                     .range(1, 1, false)
                     .from(vs, Some(pending_effect.source_id))
             }
-            _ => return None,
+            // Ways to cast, permanents and counters.
+            _ => crate::ways::of(vs, me, candidates, names)?,
         };
         let mut pending = pending;
         if pending.zone.is_none() && pending.kind == Kind::Pick && pending.answer == Answer::SelectCards {
@@ -1273,6 +1332,50 @@ impl Pending {
 
     fn eligible(&self, id: &str) -> bool {
         self.options.iter().any(|o| o.id == id && o.eligible)
+    }
+
+    /// One option by its id, in a sentence when it can't be chosen.
+    fn one_of(&self, id: &str) -> Result<(), String> {
+        if self.eligible(id) { Ok(()) } else { Err("That isn't one of the choices.".into()) }
+    }
+
+    /// The option a counter answer names: the permanent (where it names one) and the kind.
+    fn counter_option(&self, on: Option<u64>, kind: &str) -> Option<&Choice> {
+        self.options
+            .iter()
+            .find(|o| o.eligible && o.group.as_deref() == Some(kind) && on.is_none_or(|id| crate::ways::split_id(&o.id).0 == id))
+    }
+
+    /// Counters moved or removed (ways.rs): each one an option at most once, within its cap;
+    /// moving counters shares each kind's cap among the permanents they go on (CR 122.5); the
+    /// total is at most the decision's (exactly it for a cost, CR 118.3).
+    fn counters_fit<'a>(&self, entries: impl Iterator<Item = (Option<u64>, &'a str, u32)>) -> Result<(), String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut by_kind: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+        let mut sum = 0u32;
+        for (on, kind, n) in entries {
+            let Some(o) = self.counter_option(on, kind) else { return Err("Those counters aren't one of the choices.".into()) };
+            if n == 0 {
+                return Err("Choose at least one counter for each.".into());
+            }
+            if !seen.insert((on, kind)) {
+                return Err("Something was chosen twice.".into());
+            }
+            if n > o.cap.unwrap_or(u32::MAX) {
+                return Err(format!("{} has only {} of those.", o.name, o.cap.unwrap_or(0)));
+            }
+            let k = by_kind.entry(kind).or_default();
+            *k += n;
+            if self.answer == Answer::MoveCounters && *k > o.cap.unwrap_or(u32::MAX) {
+                return Err(format!("There are only {} of those to move.", o.cap.unwrap_or(0)));
+            }
+            sum += n;
+        }
+        match self.total {
+            Some(total) if self.answer == Answer::RemoveCounterCost && sum != total => Err(format!("Remove exactly {total}.")),
+            Some(total) if sum > total => Err(format!("Choose {total} at most.")),
+            _ => Ok(()),
+        }
     }
 
     /// Whether `act` answers this decision, in a plain sentence when it doesn't. The engine checks
@@ -1468,6 +1571,42 @@ impl Pending {
             (Answer::ChooseCostBranch, Act::ChooseCostBranch { index }) => {
                 if self.eligible(&index.to_string()) { Ok(()) } else { Err("That cost can't be paid now.".into()) }
             }
+            // Ways to cast (ways.rs).
+            (Answer::CastOffer, Act::CastOffer { cast, .. }) => {
+                if *cast && !self.options.iter().any(|o| o.eligible) { Err("It can't be cast now.".into()) } else { Ok(()) }
+            }
+            // Madness and miracle are declined with the engine's "no".
+            (Answer::CastOffer, Act::DecideOptionalEffect { accept: false }) if matches!(self.purpose, "madness" | "miracle" | "miracle_reveal") => Ok(()),
+            (Answer::ChooseAdventureFace, Act::ChooseAdventureFace { creature }) => self.one_of(if *creature { "creature" } else { "adventure" }),
+            (Answer::ChooseModalFace, Act::ChooseModalFace { back_face }) => self.one_of(if *back_face { "back" } else { "front" }),
+            (Answer::ChooseAlternativeCast, Act::ChooseAlternativeCast { alternative }) => self.one_of(if *alternative { "alternative" } else { "normal" }),
+            (Answer::ChooseCastingVariant, Act::ChooseCastingVariant { index }) => self.one_of(&index.to_string()),
+            (Answer::ChooseMutateSide, Act::ChooseMutateSide { top }) => self.one_of(if *top { "top" } else { "bottom" }),
+            // Permanents.
+            (Answer::ChooseLegend, Act::ChooseLegend { keep: id }) | (Answer::ChooseRingBearer, Act::ChooseRingBearer { target: id }) => self.one_of(&id.to_string()),
+            (Answer::Equip, Act::Equip { equipment, target }) => {
+                if self.source.as_ref().is_some_and(|s| s.id != *equipment) {
+                    return Err("That's a different card.".into());
+                }
+                self.one_of(&target.to_string())
+            }
+            // Counters.
+            (Answer::SelectTargets, Act::SelectTargets { targets }) => {
+                let mut seen = std::collections::HashSet::new();
+                for t in targets {
+                    let id = target_id(t);
+                    if !seen.insert(id.clone()) {
+                        return Err("Something was chosen twice.".into());
+                    }
+                    if !self.eligible(&id) {
+                        return Err("That isn't one of the choices.".into());
+                    }
+                }
+                between(targets.len(), ("choice", "choices"))
+            }
+            (Answer::MoveCounters, Act::MoveCounters { moves }) => self.counters_fit(moves.iter().map(|m| (Some(m.on), m.counter.as_str(), m.count))),
+            (Answer::RemoveCounters, Act::RemoveCounters { counters }) => self.counters_fit(counters.iter().map(|c| (None, c.counter.as_str(), c.count))),
+            (Answer::RemoveCounterCost, Act::RemoveCounterCost { counters }) => self.counters_fit(counters.iter().map(|c| (Some(c.on), c.counter.as_str(), c.count))),
             _ => Err("That answer doesn't fit this decision.".into()),
         }
     }
@@ -1686,6 +1825,80 @@ pub enum Act {
     ChooseCostBranch {
         index: usize,
     },
+    // Ways to cast, permanents and counters (ways.rs; GCastWays, GPermanents, GCounters).
+    /// Cast the card a cascade, discover, ripple, madness or miracle offers, or don't. Madness and
+    /// miracle pay as the seat's "Tap mana for me" setting says.
+    CastOffer {
+        cast: bool,
+        #[serde(default)]
+        payment: PayMode,
+    },
+    /// An adventurer card's creature (or else its adventure).
+    ChooseAdventureFace {
+        creature: bool,
+    },
+    /// A modal two-faced card's back face (or else its front).
+    ChooseModalFace {
+        back_face: bool,
+    },
+    /// The keyword's alternative cost (or else the mana cost).
+    ChooseAlternativeCast {
+        alternative: bool,
+    },
+    /// One of the ways to cast it, by its place in the engine's list.
+    ChooseCastingVariant {
+        index: usize,
+    },
+    /// The mutating creature on top (or else underneath).
+    ChooseMutateSide {
+        top: bool,
+    },
+    /// The legend to keep.
+    ChooseLegend {
+        keep: u64,
+    },
+    /// The Ring-bearer.
+    ChooseRingBearer {
+        target: u64,
+    },
+    /// Attach `equipment` to `target`.
+    Equip {
+        equipment: u64,
+        target: u64,
+    },
+    /// Any number of permanents and players (proliferate).
+    SelectTargets {
+        targets: Vec<TargetView>,
+    },
+    /// Counters to move: onto which permanent, which kind and how many.
+    MoveCounters {
+        moves: Vec<CounterMove>,
+    },
+    /// Counters to remove as an effect resolves: which kind and how many.
+    RemoveCounters {
+        counters: Vec<CounterCount>,
+    },
+    /// Counters to remove from among permanents as a cost: off which permanent, which kind and how
+    /// many.
+    RemoveCounterCost {
+        counters: Vec<CounterMove>,
+    },
+}
+
+/// Some counters on one permanent: the ones that move onto it, or come off it as a cost.
+/// `counter` is the engine's key for the kind ("P1P1", "loyalty").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CounterMove {
+    pub on: u64,
+    pub counter: String,
+    pub count: u32,
+}
+
+/// Some counters of one kind, by the engine's key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CounterCount {
+    pub counter: String,
+    pub count: u32,
 }
 
 /// How a trigger yield changes (`Act::SetPriorityYield`).
@@ -1811,6 +2024,37 @@ impl Act {
             },
             Act::DecideOptionalCost { pay } => GameAction::DecideOptionalCost { pay: *pay },
             Act::ChooseCostBranch { index } => GameAction::ChooseActivationCostBranch { index: *index },
+            // A cast offer is matched to the engine's own options when it's answered (`answer`).
+            Act::CastOffer { .. } => return None,
+            Act::ChooseAdventureFace { creature } => GameAction::ChooseAdventureFace { creature: *creature },
+            Act::ChooseModalFace { back_face } => GameAction::ChooseModalFace { back_face: *back_face },
+            Act::ChooseAlternativeCast { alternative } => GameAction::ChooseAlternativeCast {
+                choice: if *alternative { AlternativeCastDecision::Alternative } else { AlternativeCastDecision::Normal },
+            },
+            Act::ChooseCastingVariant { index } => GameAction::ChooseCastingVariant { index: *index },
+            Act::ChooseMutateSide { top } => GameAction::ChooseMutateMergeSide { side: crate::ways::merge_side(*top) },
+            Act::ChooseLegend { keep } => GameAction::ChooseLegend { keep: ObjectId(*keep) },
+            Act::ChooseRingBearer { target } => GameAction::ChooseRingBearer { target: ObjectId(*target) },
+            Act::Equip { equipment, target } => GameAction::Equip { equipment_id: ObjectId(*equipment), target_id: ObjectId(*target) },
+            Act::SelectTargets { targets } => GameAction::SelectTargets { targets: targets.iter().map(TargetView::to_ref).collect() },
+            Act::MoveCounters { moves } => GameAction::ChooseCounterMoveDistribution {
+                selections: moves
+                    .iter()
+                    .map(|m| Some(CounterMoveChoice { destination_id: ObjectId(m.on), counter_type: crate::ways::counter_of(&m.counter)?, count: m.count }))
+                    .collect::<Option<Vec<_>>>()?,
+            },
+            Act::RemoveCounters { counters } => GameAction::ChooseCountersToRemove {
+                selections: counters
+                    .iter()
+                    .map(|c| Some(CounterRemoveChoice { counter_type: crate::ways::counter_of(&c.counter)?, count: c.count }))
+                    .collect::<Option<Vec<_>>>()?,
+            },
+            Act::RemoveCounterCost { counters } => GameAction::ChooseRemoveCounterCostDistribution {
+                distribution: counters
+                    .iter()
+                    .map(|c| Some(CounterCostChoice { object_id: ObjectId(c.on), counter_type: crate::ways::counter_of(&c.counter)?, count: c.count }))
+                    .collect::<Option<Vec<_>>>()?,
+            },
         })
     }
 
@@ -1896,6 +2140,28 @@ impl Act {
             GameAction::SubmitPhyrexianChoices { choices } => Act::PayPhyrexian { life: choices.iter().map(|c| *c == ShardChoice::PayLife).collect() },
             GameAction::DecideOptionalCost { pay } => Act::DecideOptionalCost { pay: *pay },
             GameAction::ChooseActivationCostBranch { index } => Act::ChooseCostBranch { index: *index },
+            GameAction::CascadeChoice { choice } | GameAction::DiscoverChoice { choice } | GameAction::RippleChoice { choice } => {
+                Act::CastOffer { cast: *choice == CastChoice::Cast, payment: PayMode::Ask }
+            }
+            GameAction::CastSpellAsMadness { .. } | GameAction::CastSpellAsMiracle { .. } => Act::CastOffer { cast: true, payment: PayMode::Ask },
+            GameAction::ChooseAdventureFace { creature } => Act::ChooseAdventureFace { creature: *creature },
+            GameAction::ChooseModalFace { back_face } => Act::ChooseModalFace { back_face: *back_face },
+            GameAction::ChooseAlternativeCast { choice } => Act::ChooseAlternativeCast { alternative: *choice == AlternativeCastDecision::Alternative },
+            GameAction::ChooseCastingVariant { index } => Act::ChooseCastingVariant { index: *index },
+            GameAction::ChooseMutateMergeSide { side } => Act::ChooseMutateSide { top: *side == crate::ways::merge_side(true) },
+            GameAction::ChooseLegend { keep } => Act::ChooseLegend { keep: keep.0 },
+            GameAction::ChooseRingBearer { target } => Act::ChooseRingBearer { target: target.0 },
+            GameAction::Equip { equipment_id, target_id } => Act::Equip { equipment: equipment_id.0, target: target_id.0 },
+            GameAction::SelectTargets { targets } => Act::SelectTargets { targets: targets.iter().map(TargetView::from_ref).collect() },
+            GameAction::ChooseCounterMoveDistribution { selections } => Act::MoveCounters {
+                moves: selections.iter().map(|s| CounterMove { on: s.destination_id.0, counter: crate::ways::counter_key(&s.counter_type), count: s.count }).collect(),
+            },
+            GameAction::ChooseCountersToRemove { selections } => Act::RemoveCounters {
+                counters: selections.iter().map(|s| CounterCount { counter: crate::ways::counter_key(&s.counter_type), count: s.count }).collect(),
+            },
+            GameAction::ChooseRemoveCounterCostDistribution { distribution } => Act::RemoveCounterCost {
+                counters: distribution.iter().map(|s| CounterMove { on: s.object_id.0, counter: crate::ways::counter_key(&s.counter_type), count: s.count }).collect(),
+            },
             _ => return None,
         })
     }
@@ -1948,6 +2214,19 @@ impl Act {
             Act::PayPhyrexian { .. } => "pay_phyrexian",
             Act::DecideOptionalCost { .. } => "decide_optional_cost",
             Act::ChooseCostBranch { .. } => "choose_cost_branch",
+            Act::CastOffer { .. } => "cast_offer",
+            Act::ChooseAdventureFace { .. } => "choose_adventure_face",
+            Act::ChooseModalFace { .. } => "choose_modal_face",
+            Act::ChooseAlternativeCast { .. } => "choose_alternative_cast",
+            Act::ChooseCastingVariant { .. } => "choose_casting_variant",
+            Act::ChooseMutateSide { .. } => "choose_mutate_side",
+            Act::ChooseLegend { .. } => "choose_legend",
+            Act::ChooseRingBearer { .. } => "choose_ring_bearer",
+            Act::Equip { .. } => "equip",
+            Act::SelectTargets { .. } => "select_targets",
+            Act::MoveCounters { .. } => "move_counters",
+            Act::RemoveCounters { .. } => "remove_counters",
+            Act::RemoveCounterCost { .. } => "remove_counter_cost",
         }
     }
 }
@@ -2075,6 +2354,15 @@ pub fn answer(state: &mut GameState, owner: PlayerId, act: &Act) -> Result<Answe
             }
             vec![pay::find_mana_action(&candidates, *source, choice.as_deref()).cloned().ok_or_else(|| doesnt_fit("That can't be used for mana now."))?]
         }
+        Act::CastOffer { cast, payment } => {
+            // Checked like any answer, then matched to the engine's own cast or decline.
+            let vs = filter_state_for_viewer(state, owner);
+            let Some(pending) = Pending::of(&vs, owner, &candidates, &[]) else {
+                return Err(doesnt_fit("Answer this one with the buttons."));
+            };
+            pending.admits(act).map_err(Refusal::DoesntFit)?;
+            vec![crate::ways::offer_action(&candidates, *cast, *payment).ok_or_else(|| doesnt_fit("That can't be cast now."))?]
+        }
         Act::UntapMana { source } => {
             let tapped = state.lands_tapped_for_mana.get(&owner).is_some_and(|ids| ids.contains(&ObjectId(*source)));
             if !matches!(state.waiting_for, WaitingFor::ManaPayment { player, .. } if player == owner) || !tapped {
@@ -2162,6 +2450,7 @@ mod tests {
             "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle?"
         );
         assert_eq!(question("Exile it. You may cast it."), "Exile it. You may cast it.");
+        assert_eq!(question("You may have Clone enter as a copy of any creature on the battlefield."), "Have Clone enter as a copy of any creature on the battlefield?");
         let mut m = game();
         let src = m.state.command_zone[0];
         let vs = filter_state_for_viewer(&m.state, PlayerId(0));

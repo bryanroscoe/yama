@@ -1158,6 +1158,26 @@ pub(crate) struct CardMeta {
     mana_cost: Option<String>,
     type_line: String,
     oracle_text: String,
+    /// A two-faced or adventurer card's faces (Scryfall's, as imported): each one's name, mana
+    /// cost, type line and Oracle text, for choosing which face or half to cast.
+    #[serde(serialize_with = "face_list", skip_serializing_if = "Option::is_none")]
+    faces: Option<String>,
+}
+
+/// The faces column as the board reads it: only the words, not Scryfall's other fields.
+fn face_list<S: serde::Serializer>(faces: &Option<String>, s: S) -> Result<S::Ok, S::Error> {
+    #[derive(Serialize, Deserialize)]
+    struct Face {
+        name: String,
+        #[serde(default)]
+        mana_cost: Option<String>,
+        #[serde(default)]
+        type_line: Option<String>,
+        #[serde(default)]
+        oracle_text: Option<String>,
+    }
+    let list: Vec<Face> = faces.as_deref().and_then(|f| serde_json::from_str(f).ok()).unwrap_or_default();
+    list.serialize(s)
 }
 
 /// Every card name the view shows (board, hand, stack, graveyards, exile, command zone), the
@@ -1215,7 +1235,7 @@ pub(crate) async fn card_meta(pool: &SqlitePool, names: &[String], cache: &mut H
             continue;
         }
         let meta: Option<CardMeta> = sqlx::query_as(
-            "SELECT c.oracle_id, c.image_normal AS image, c.back_image_normal AS back_image, c.image_art_crop AS art, c.artist, c.mana_cost, c.type_line, c.oracle_text
+            "SELECT c.oracle_id, c.image_normal AS image, c.back_image_normal AS back_image, c.image_art_crop AS art, c.artist, c.mana_cost, c.type_line, c.oracle_text, c.faces
              FROM card_names n JOIN cards c ON c.oracle_id = n.oracle_id WHERE n.name = ?
              ORDER BY IFNULL(c.layout,'') IN ('token','double_faced_token') LIMIT 1",
         )
