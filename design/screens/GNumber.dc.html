@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Choose a number</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="{{railTitle}}" body="{{railBody}}" primary="{{primary}}" secondary="{{secondary}}" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+
+  <section role="dialog" aria-label="{{prompt}}" style="position: absolute; left: 140px; top: 90px; width: 820px; padding: 24px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <img src="{{srcImg}}" alt="{{srcName}}" style="width: 220px; border-radius: 10px">
+      <span style="font-size: 11px; color: var(--dim)">Art: {{artist}}, © Wizards of the Coast</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 16px">
+      <span style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: var(--dim)">{{srcLine}}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1">{{prompt}}</h2><span style="font-size: 14px; color: var(--dim)">{{oracle}}</span></span>
+
+      <div style="display: flex; align-items: center; justify-content: center; gap: 14px; padding: 14px; border-radius: 18px; background: var(--raised)">
+        <button onClick="{{down}}" aria-label="One less" style="width: 56px; height: 56px; border-radius: 50%; border: none; background: var(--ground); font-size: 26px; color: {{downInk}}">−</button>
+        <output aria-live="polite" style="width: 120px; text-align: center; font-family: var(--display); font-weight: 800; font-size: 84px; line-height: 1">{{value}}</output>
+        <button onClick="{{up}}" aria-label="One more" style="width: 56px; height: 56px; border-radius: 50%; border: none; background: var(--ground); font-size: 26px; color: {{upInk}}">+</button>
+      </div>
+
+      <div role="radiogroup" aria-label="Numbers {{min}} to {{max}}" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px">
+        <sc-for list="{{keys}}" as="k" hint-placeholder-count="10"><button role="radio" aria-checked="{{k.on}}" onClick="{{k.pick}}" style="min-height: 52px; border-radius: 14px; border: none; background: {{k.bg}}; color: {{k.ink}}; box-shadow: {{k.ring}}; font-family: var(--display); font-weight: 800; font-size: 26px">{{k.n}}</button></sc-for>
+      </div>
+      <span style="font-size: 13px; color: var(--dim)">From {{min}} to {{max}}. Digit keys type it; ↑ and ↓ step. Done is in the rail.</span>
+      <span style="font-size: 12px; color: var(--dim)">The same widget answers energy and “pay any amount” prompts; there the keypad becomes a stepper with Max.</span>
+      <span style="font-size: 11px; color: var(--dim)">Driven by: kind, source, min/max, defaultAnswer</span>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  // The engine's pending decision, as the builder's payload describes it
+  pending() {
+    const A = (id) => '/_blob/' + id;
+    return {
+      kind: 'number',
+      source: { name: 'Talion, the Kindly Lord', art: A('db5813446e0e64d6bed1b10f055b0265'), artist: 'Justyna Dura', image: A('26786bca4dcd222cfe23986dd4c42e31') },
+      prompt: 'Choose a number between 1 and 10',
+      oracle: 'Flying. As Talion enters, choose a number between 1 and 10. Whenever an opponent casts a spell with mana value, power, or toughness equal to the chosen number, that player loses 2 life and you draw a card.',
+      options: [], min: 1, max: 10, defaultAnswer: null
+    };
+  }
+  constructor(props) {
+    super(props);
+    this.state = { v: null };
+  }
+  renderVals() {
+    const d = this.pending();
+    const v = this.state.v;
+    const clamp = (n) => Math.max(d.min, Math.min(d.max, n));
+    const keys = [];
+    for (let n = d.min; n <= d.max; n++) keys.push(n);
+    return {
+      srcImg: d.source.image, srcName: d.source.name, artist: d.source.artist,
+      srcLine: d.source.name + ', entering', prompt: d.prompt, oracle: d.oracle, min: d.min, max: d.max,
+      value: v === null ? '–' : v,
+      downInk: v !== null && v > d.min ? '#f2efe8' : '#2a2e33', upInk: v === null || v < d.max ? '#f2efe8' : '#2a2e33',
+      down: () => this.setState((s) => ({ v: s.v === null ? d.min : clamp(s.v - 1) })),
+      up: () => this.setState((s) => ({ v: s.v === null ? d.min : clamp(s.v + 1) })),
+      keys: keys.map((n) => ({ n, on: v === n, bg: v === n ? '#f2efe8' : 'transparent', ink: v === n ? '#0b0c0e' : '#f2efe8', ring: v === n ? 'none' : 'inset 0 0 0 2px #f0b45a', pick: () => this.setState({ v: n }) })),
+      railTitle: d.source.name,
+      railBody: d.prompt + '.',
+      primary: v === null ? 'Choose a number' : 'Choose ' + v,
+      secondary: ''
+    };
+  }
+}
+</script>
+</body>
+</html>

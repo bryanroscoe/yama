@@ -75,6 +75,33 @@ The Engine column names the phase decision (`WaitingFor` variant, or `GameAction
 | A player knocked out | GKnockout |  | 18, 61 | none (`PlayerEliminated` event) |
 | Game over | GGameOver | GGameOverPhone | 61 | `GameOver` |
 | Game log | GLog |  | 58, 59 | none (`GameLogEntry`) |
+| **Widget:** yes or no strip | GYesNo | GYesNoPhone | 35, 52 | `OptionalEffectChoice` (+ `DecideOptionalEffectAndRemember`), `OpponentMayChoice`, `ResolutionOptionalPaymentChoice`, `TributeChoice` |
+| **Widget:** pick N, on the board or in a zone | GPickN | GPickNPhone | 52 | `ChooseObjectsSelection`, `EffectZoneChoice`, `ChooseFromZoneChoice`, `MultiTargetSelection`, `DiscardChoice` (all answered with `SelectCards`) |
+| **Widget:** put in order | GOrder | GOrderPhone | 49, 51, 52 | `SelectCards` order: bottom-of-library order, cards put back on top, `RevealUntilBottomOrder` |
+| **Widget:** pair up | GPairUp | GPairUpPhone | 52 | `PairChoice`, and relation-shaped choices |
+| **Widget:** split a number | GSplit | GSplitPhone | 43 | `DistributeAmong`, `AssignBlockerDamage`, `MoveCountersDistribution` |
+| **Widget:** number | GNumber | GNumberPhone | 27 | number-style `NamedChoice`, `PayAmountChoice` |
+| **Widget:** name or text | GName | GNamePhone | 52 | `NamedChoice { choice_type, options, free_entry }` |
+
+### Generic decision widgets
+
+Most engine decisions fit seven shapes, the ones phase's interaction contract uses (`InteractionResponseSpec`). Each widget board is driven by one `decision` object at the top of its script, shaped like the builder's `pending` payload, so the payload can be wired straight in:
+
+```js
+const decision = {
+  kind,          // 'yesno' | 'pick' | 'order' | 'pair' | 'split' | 'number' | 'text'
+  source,        // { name, controller, art, image, artist }: the card asking
+  prompt,        // the engine's question, never invented
+  oracle,        // the source's Oracle text
+  options,       // [{ id, name, img or art, zone, controller, eligible, toughness }]
+  min, max, upTo,
+  defaultAnswer, // the engine's default: ids, an order, amounts or a number
+  // per kind: yesLabel, noLabel, remember ('engine' or 'yama'), zone, filter,
+  // destination ('top' or 'bottom'), total, perOptionMin, freeEntry
+};
+```
+
+Every widget shows the source card with its art credit, the question and a counter ("1 of up to 2 chosen", "0 left"). The rail (or the dock on a phone) confirms.
 
 BoardBase and BoardBasePhone are the boards drawn behind the dialogs. The boards where rings and arrows must land on exact cards (GTarget, GPay, GRespond, GAttack, GBlock) draw their own board at fixed positions instead.
 
@@ -196,6 +223,24 @@ The table maps each image id prefix to its Scryfall card. a = art_crop, n = norm
 | ebcbd90f | n Plains (Shahab Alizadeh) |
 | e4f3b606 | n Island (Eren Arik) |
 | 58f2586f | n Mountain (VEN) |
+| 9187cacb | a Arc Lightning (Seb McKinnon) |
+| 8dc15a98 | n Arc Lightning |
+| 96db74e7 | a Barter in Blood (Eric Deschamps) |
+| be21cc78 | n Barter in Blood |
+| 2d435a47 | a Brainstorm (Daarken) |
+| c7a6fabf | n Brainstorm |
+| 0a230e7b | a Deification (Maxime Minard) |
+| c73f6cc6 | n Deification |
+| e7310e0a | a Faithless Looting (Gabor Szikszai) |
+| e6f30a76 | n Faithless Looting |
+| c6bd483e | a Silverblade Paladin (Jason Chan) |
+| 983fc8b6 | n Silverblade Paladin |
+| b6ab5f8f | a Smothering Tithe (Mark Behm) |
+| befb1683 | n Smothering Tithe |
+| db581344 | a Talion, the Kindly Lord (Justyna Dura) |
+| 26786bca | n Talion, the Kindly Lord |
+| a1ffa6fd | a Reveillark (Jim Murray) |
+| b4dbc6f1 | n Reveillark |
 
 ## Sample data
 

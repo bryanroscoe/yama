@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Yes or no on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 0; bottom: 340px; background: rgb(0 0 0 / 0.35)"></div>
+
+  <section role="alertdialog" aria-label="{{question}}" style="position: absolute; left: 0; right: 0; bottom: 0; height: 340px; padding: 14px 12px 14px; border-radius: 24px 24px 0 0; background: var(--surface); box-shadow: 0 -20px 40px rgb(0 0 0 / 0.6); display: flex; flex-direction: column; gap: 10px">
+    <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; align-items: center">
+      <img src="{{art}}" alt="" style="width: 64px; height: 48px; border-radius: 10px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; line-height: 1.2"><span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim)"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: {{seat}}"></span>{{sourceLine}}</span><b style="font-size: 18px">{{question}}</b></span>
+    </div>
+    <span style="font-size: 13px; color: var(--dim); line-height: 1.4">{{oracle}}</span>
+    <span style="display: flex; flex-direction: column; gap: 4px">
+      <span style="font-size: 12px; color: var(--dim)">For the rest of this game</span>
+      <span role="radiogroup" aria-label="Remember this answer" style="display: grid; grid-template-columns: repeat(3, 1fr); padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
+        <sc-for list="{{remember}}" as="r" hint-placeholder-count="3"><button role="radio" aria-checked="{{r.on}}" onClick="{{r.pick}}" style="min-height: 40px; border: none; border-radius: 999px; background: {{r.bg}}; color: {{r.ink}}; font-size: 13px; font-weight: 700">{{r.label}}</button></sc-for>
+      </span>
+    </span>
+    <span style="font-size: 11px; color: var(--dim)">{{note}} Art: Mark Behm, © Wizards of the Coast</span>
+    <div style="margin-top: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px">
+      <button style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Don’t pay</button>
+      <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">Pay {2}</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { rem: 0 };
+  }
+  renderVals() {
+    const decision = {
+      kind: 'yesno', engine: 'OpponentMayChoice',
+      source: { name: 'Smothering Tithe', art: '/_blob/b6ab5f8f97fcf937bdcbc6a6a969c3cc', controller: 'Jules', seat: '#757a8a', when: 'you drew a card' },
+      prompt: 'Pay {2}, or Jules creates a Treasure?',
+      oracle: 'Whenever an opponent draws a card, that player may pay {2}. If the player doesn’t, you create a Treasure token.',
+      yesLabel: 'Pay {2}', noLabel: 'Don’t pay', remember: 'yama'
+    };
+    const rem = this.state.rem;
+    return {
+      art: decision.source.art, seat: decision.source.seat,
+      sourceLine: decision.source.controller + '’s ' + decision.source.name + ', ' + decision.source.when,
+      question: decision.prompt, oracle: decision.oracle,
+      remember: ['Ask', 'Always pay', 'Never pay'].map((label, i) => ({ label, on: rem === i, bg: rem === i ? '#f2efe8' : 'transparent', ink: rem === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ rem: i }) })),
+      note: rem === 0 ? 'The dock answers.' : 'Yama will answer for you and log it; the log line turns it off.'
+    };
+  }
+}
+</script>
+</body>
+</html>

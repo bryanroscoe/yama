@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pick N</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+
+  <sc-for list="{{panes}}" as="p" hint-placeholder-count="3">
+    <article aria-label="{{p.name}}, {{p.life}} life" style="position: absolute; left: {{p.x}}px; top: 10px; width: 352px; height: 240px; border-radius: 16px; background: var(--surface); overflow: hidden">
+      <header style="position: relative; height: 78px; padding: 8px 12px; display: flex; gap: 10px; align-items: end">
+        <img src="{{p.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.88) 0%, rgb(11 12 14 / 0.55) 55%, rgb(11 12 14 / 0.25) 100%)"></span>
+        <span style="position: relative; flex: 1; display: flex; flex-direction: column; line-height: 1.15"><b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{p.seat}}"></span>{{p.name}}</b><span style="font-size: 12px; color: #d5d7db">{{p.status}}</span></span>
+        <b style="position: relative; font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">{{p.life}}</b>
+      </header>
+      <span style="position: absolute; left: 10px; right: 10px; bottom: 6px; font-size: 10px; color: var(--dim)">Art: {{p.credits}}</span>
+    </article>
+  </sc-for>
+
+  <section aria-label="Your battlefield" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 438px; border-radius: 16px; background: var(--surface)"></section>
+  <span style="position: absolute; left: 22px; top: 712px; font-size: 10px; color: var(--dim)">Art: Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna. © Wizards of the Coast</span>
+  <sc-for list="{{tiles}}" as="t" hint-placeholder-count="6">
+    <button onClick="{{t.click}}" aria-pressed="{{t.on}}" aria-label="{{t.label}}" style="position: absolute; left: {{t.x}}px; top: 330px; width: 120px; height: 120px; padding: 0; border: none; border-radius: 14px; background: var(--raised); box-shadow: {{t.ring}}; cursor: {{t.cursor}}; transition: box-shadow 140ms">
+      <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+        <sc-if value="{{t.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{t.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+        <span style="position: absolute; left: 0; right: 0; top: 0; padding: 2px 6px; background: rgb(11 12 14 / 0.82); font-size: 13px; font-weight: 700; text-align: left">{{t.name}}</span>
+        <span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 13px; font-weight: 700">{{t.pt}}</span>
+      </span>
+      <sc-if value="{{t.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -9px; top: -9px; width: 26px; height: 26px; border-radius: 50%; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 13px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{t.n}}</span></sc-if>
+    </button>
+  </sc-for>
+
+  <div role="status" style="position: absolute; left: 550px; top: 262px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 7px 8px 7px 8px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 800; box-shadow: 0 12px 30px rgb(0 0 0 / 0.5); white-space: nowrap">
+    <img src="{{srcArt}}" alt="" style="width: 26px; height: 26px; border-radius: 50%; object-fit: cover">{{prompt}}
+    <span style="padding: 2px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 13px">{{counter}}</span>
+  </div>
+
+  <sc-if value="{{zoneMode}}" hint-placeholder-val="{{false}}">
+    <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+    <section role="dialog" aria-label="Your graveyard" style="position: absolute; left: 40px; top: 60px; width: 1020px; height: 780px; padding: 22px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 14px">
+      <div style="display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 16px; align-items: center">
+        <img src="{{srcArt}}" alt="" style="width: 90px; height: 66px; border-radius: 12px; object-fit: cover">
+        <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--dim)">{{srcLine}}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1">{{prompt}}</h2><span style="font-size: 14px; color: var(--dim)">{{oracle}}</span></span>
+        <span style="padding: 4px 12px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700; white-space: nowrap">{{counter}}</span>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center">
+        <span style="padding: 4px 12px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); font-size: 13px">Zone: your graveyard</span>
+        <span style="padding: 4px 12px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); font-size: 13px">{{filterLine}}</span>
+        <span style="margin-left: auto; font-size: 13px; color: var(--dim)">{{qualify}}</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(6, 146px); gap: 16px 18px; align-content: start">
+        <sc-for list="{{cards}}" as="c" hint-placeholder-count="5">
+          <button onClick="{{c.click}}" aria-pressed="{{c.on}}" aria-label="{{c.name}}" style="position: relative; padding: 0; border: none; border-radius: 8px; background: transparent; cursor: pointer; box-shadow: {{c.ring}}; transform: translateY({{c.lift}}px); transition: transform 140ms, box-shadow 140ms">
+            <img src="{{c.img}}" alt="" style="display: block; width: 146px; border-radius: 8px">
+            <sc-if value="{{c.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -8px; top: -8px; width: 26px; height: 26px; border-radius: 50%; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 13px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{c.n}}</span></sc-if>
+          </button>
+        </sc-for>
+      </div>
+      <details style="font-size: 14px; color: var(--dim)"><summary style="cursor: pointer; font-weight: 700">{{otherCount}} other cards in your graveyard don’t qualify</summary><p style="margin: 6px 0 0">{{others}}</p></details>
+      <span style="margin-top: auto; font-size: 12px; color: var(--dim)">Only cards that qualify are shown as pickable; the rest are listed by name, never faded. Card images from Scryfall, © Wizards of the Coast.</span>
+    </section>
+  </sc-if>
+
+  <aside aria-label="Rail" style="position: absolute; left: 1100px; top: 0; width: 340px; height: 900px; border-left: 1px solid var(--line); display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line)"><span style="font-weight: 700; color: var(--dim)">Leave</span><span style="padding: 6px 14px; border-radius: 999px; background: var(--surface); font-weight: 700; font-size: 14px">Game log</span></div>
+    <section style="padding: 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px">
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 20px">Stack</h2>
+      <div style="display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px {{stackSeat}}">
+        <img src="{{stackImg}}" alt="" style="width: 48px; border-radius: 3px">
+        <span style="display: flex; flex-direction: column; line-height: 1.25"><b>{{stackName}}</b><span style="font-size: 12px; color: var(--dim)">{{stackWho}}, resolving</span></span>
+      </div>
+    </section>
+    <section style="padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 10px">
+      <div role="tablist" aria-label="Example" style="display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--surface); width: fit-content">
+        <sc-for list="{{examples}}" as="e" hint-placeholder-count="2"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 32px; padding: 0 12px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 12px; font-weight: 700">{{e.label}}</button></sc-for>
+      </div>
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1">{{railTitle}}</h2>
+      <p style="margin: 0; font-size: 14px; color: var(--dim)">{{railBody}}</p>
+      <p style="margin: 0; font-size: 12px; color: var(--dim)">Driven by: kind "pick", zone, options with eligible, min, max, upTo, defaultAnswer.</p>
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
+        <sc-if value="{{hasSecondary}}" hint-placeholder-val="{{true}}"><button onClick="{{clear}}" style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button></sc-if>
+        <button style="min-height: 60px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 20px">{{primary}}</button>
+      </div>
+    </section>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, picks: ['s1'] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const decisions = [
+      { label: 'On the board', kind: 'pick', engine: 'ChooseObjectsSelection', zone: 'battlefield',
+        source: { name: 'Barter in Blood', controller: 'Sam', seat: '#e8bae4', art: A('96db74e7c76290c8532c90c8b9b87419'), image: A('be21cc7814d160348ec1f45ceb52a923'), artist: 'Eric Deschamps' },
+        prompt: 'Sacrifice two creatures', oracle: 'Each player sacrifices two creatures of their choice.', verb: 'Sacrifice',
+        min: 2, max: 2, upTo: false, defaultAnswer: [],
+        options: [
+          { id: 'eowyn', name: 'Éowyn', art: 'c19490e7c081fb35071c85147c01bed4', pt: '5/4', eligible: true },
+          { id: 'adeline', name: 'Adeline', art: '93443cca264c2d66fac605d8e8311296', pt: '6/4', eligible: true },
+          { id: 'aragorn', name: 'Aragorn', art: 'c2a67f4f687b666fcd3c4d8cb3b0bf63', pt: '4/4', eligible: true },
+          { id: 'faramir', name: 'Faramir', art: '62e4a477ddbf5628d609a86bc8d12c3a', pt: '2/2', eligible: true },
+          { id: 's1', name: 'Soldier', art: '', pt: '1/1', eligible: true },
+          { id: 's2', name: 'Soldier', art: '', pt: '1/1', eligible: true }
+        ] },
+      { label: 'In a zone', kind: 'pick', engine: 'MultiTargetSelection', zone: 'graveyard',
+        source: { name: 'Reveillark', controller: 'You', seat: '#408abf', art: A('a1ffa6fd2948bd5fff8f5dce604f5a37'), image: A('b4dbc6f174066300fcfb45ba3be4cee4'), artist: 'Jim Murray' },
+        prompt: 'Return up to two creature cards', oracle: 'When this creature leaves the battlefield, return up to two target creature cards with power 2 or less from your graveyard to the battlefield.', verb: 'Return',
+        filter: 'Creature cards, power 2 or less', min: 0, max: 2, upTo: true, defaultAnswer: [],
+        options: [
+          { id: 'sentinel', name: 'Esper Sentinel', img: 'f91dfa789f2b0816a79359bb277f07b0', eligible: true },
+          { id: 'mentor', name: 'Monastery Mentor', img: 'c8765d27dab83eefd46f6647d19b1791', eligible: true },
+          { id: 'pyro', name: 'Young Pyromancer', img: '83f67844fe118ec8f0a94e7066cd52e3', eligible: true },
+          { id: 'recruiter', name: 'Recruiter of the Guard', img: '1c9f97f5b7c3bf20ce099ea1a738fa06', eligible: true },
+          { id: 'hanged', name: 'Hanged Executioner', img: '830427c591de2ca48ded1aac2897dbd6', eligible: true },
+          { id: 'emeria', name: 'Emeria Angel', eligible: false }, { id: 'venser', name: 'Venser, Fervent Forger', eligible: false },
+          { id: 'sunfall', name: 'Sunfall', eligible: false }, { id: 'warp', name: 'Chaos Warp', eligible: false }
+        ] }
+    ];
+    const { ex, picks } = this.state;
+    const d = decisions[ex];
+    const n = picks.length;
+    const pick = (id) => this.setState((s) => s.picks.includes(id) ? { picks: s.picks.filter((x) => x !== id) } : { picks: (s.picks.length >= d.max ? s.picks.slice(1) : s.picks).concat(id) });
+    const ready = n >= d.min && n <= d.max;
+    const eligible = d.options.filter((o) => o.eligible);
+    const others = d.options.filter((o) => !o.eligible);
+    const isBoard = d.zone === 'battlefield';
+    const ringFor = (on) => on ? '0 0 0 3px #f2efe8, 0 12px 28px rgb(0 0 0 / 0.5)' : '0 0 0 2px #f0b45a';
+    return {
+      examples: decisions.map((x, i) => ({ label: x.label, on: ex === i, bg: ex === i ? '#f2efe8' : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i, picks: x.defaultAnswer.slice() }) })),
+      panes: [
+        { name: 'Computer', seat: '#b55af6', x: 10, life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), credits: 'Darren Tan', status: isBoard ? 'Choosing two to sacrifice' : '' },
+        { name: 'Sam', seat: '#e8bae4', x: 374, life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), credits: 'Marta Nael', status: isBoard ? 'Chose two' : '' },
+        { name: 'Jules', seat: '#757a8a', x: 738, life: 36, art: A('383d04a073378ede76b3234038a68757'), credits: 'Gintas Galvanauskas', status: isBoard ? 'Choosing one; has one creature' : '' }
+      ],
+      tiles: (isBoard ? d.options : decisions[0].options).map((o, i) => {
+        const k = isBoard ? picks.indexOf(o.id) : -1;
+        return { name: o.name, art: o.art ? A(o.art) : '', hasArt: !!o.art, pt: o.pt, x: 22 + i * 132, on: k >= 0, n: k + 1,
+          ring: isBoard ? ringFor(k >= 0) : '0 0 0 1px #2a2e33', cursor: isBoard ? 'pointer' : 'default',
+          label: o.name + (k >= 0 ? ', chosen ' + (k + 1) : isBoard ? ', can be chosen' : ''),
+          click: isBoard ? () => pick(o.id) : null };
+      }),
+      zoneMode: !isBoard,
+      srcArt: d.source.art, srcLine: (d.source.controller === 'You' ? 'Your ' : d.source.controller + '’s ') + d.source.name + '. Art: ' + d.source.artist + ', © Wizards of the Coast',
+      prompt: d.prompt, oracle: d.oracle, filterLine: d.filter || '',
+      counter: n + ' of ' + (d.upTo ? 'up to ' : '') + d.max + ' chosen',
+      qualify: eligible.length + ' of ' + d.options.length + ' cards qualify',
+      cards: eligible.map((o) => { const k = picks.indexOf(o.id); return { name: o.name, img: A(o.img || ''), on: k >= 0, n: k + 1, lift: k >= 0 ? -8 : 0, ring: ringFor(k >= 0), click: () => pick(o.id) }; }),
+      otherCount: others.length, others: others.map((o) => o.name).join(', ') + '.',
+      stackImg: d.source.image, stackName: d.source.name + (isBoard ? '' : ' trigger'), stackWho: d.source.controller === 'You' ? 'Yours' : d.source.controller + '’s', stackSeat: d.source.seat,
+      railTitle: d.prompt,
+      railBody: isBoard ? 'Click two of your creatures. Every player chooses at the same time; you see who has finished.' : 'Pick from your graveyard, or none: the engine says “up to”.',
+      primary: n ? d.verb + ' (' + n + '/' + d.max + ')' : d.upTo ? 'Return none' : 'Choose ' + d.min,
+      doneBg: ready ? '#f2efe8' : '#1e2125', doneInk: ready ? '#0b0c0e' : '#a9adb3',
+      hasSecondary: n > 0, secondary: 'Clear',
+      clear: () => this.setState({ picks: [] })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Yes or no</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" turn="{{turn}}" turn-art="{{turnArt}}" mine-turn="{{mineTurn}}" phase="{{phase}}" title="{{railTitle}}" body="{{railBody}}" primary="{{primary}}" secondary="{{secondary}}" hint-size="1440px,900px"></dc-import>
+  <span aria-hidden="true" style="position: absolute; left: 1114px; top: 768px; width: 312px; height: 118px; border-radius: 34px; box-shadow: 0 0 0 3px #f2efe8; pointer-events: none"></span>
+
+  <section role="alertdialog" aria-label="{{question}}" style="position: absolute; left: 160px; top: 262px; width: 780px; padding: 14px 16px; border-radius: 20px; background: var(--ground); box-shadow: 0 0 0 2px #f2efe8, 0 24px 60px rgb(0 0 0 / 0.75); display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 16px; align-items: start">
+    <span style="display: flex; flex-direction: column; gap: 4px">
+      <img src="{{art}}" alt="" style="width: 112px; height: 82px; border-radius: 12px; object-fit: cover">
+      <span style="font-size: 10px; color: var(--dim)">Art: {{artist}}</span>
+    </span>
+    <span style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+      <span style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dim)"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{seat}}"></span>{{sourceLine}}</span>
+      <b style="font-family: var(--display); font-weight: 800; font-size: 32px; line-height: 1.05">{{question}}</b>
+      <span style="font-size: 14px; color: var(--dim)">{{oracle}}</span>
+      <span style="display: flex; align-items: center; gap: 10px; margin-top: 4px; flex-wrap: wrap">
+        <span style="font-size: 13px; color: var(--dim)">{{rememberLabel}}</span>
+        <span role="radiogroup" aria-label="Remember this answer" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface)">
+          <sc-for list="{{remember}}" as="r" hint-placeholder-count="3"><button role="radio" aria-checked="{{r.on}}" onClick="{{r.pick}}" style="min-height: 34px; padding: 0 12px; border: none; border-radius: 999px; background: {{r.bg}}; color: {{r.ink}}; font-size: 13px; font-weight: 700">{{r.label}}</button></sc-for>
+        </span>
+      </span>
+      <span style="font-size: 12px; color: var(--dim)">{{rememberNote}}</span>
+    </span>
+  </section>
+
+  <aside style="position: absolute; left: 160px; top: 520px; width: 780px; padding: 12px 14px; border-radius: 16px; background: rgb(11 12 14 / 0.9); box-shadow: 0 0 0 1px var(--line); font-size: 13px; color: var(--dim); display: flex; flex-direction: column; gap: 4px">
+    <div role="tablist" aria-label="Example" style="display: flex; width: fit-content; gap: 4px; padding: 3px; border-radius: 999px; background: var(--surface); box-shadow: 0 0 0 1px var(--line)">
+    <sc-for list="{{examples}}" as="e" hint-placeholder-count="2"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 30px; padding: 0 12px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 12px; font-weight: 700">{{e.label}}</button></sc-for>
+  </div>
+    <b style="color: var(--text)">One strip for every “may”</b>
+    <span>OptionalEffectChoice, OpponentMayChoice, ResolutionOptionalPaymentChoice and TributeChoice all use it. The board stays live under it, so you can still read cards. The rail answers: Yes is the main button, labelled with the effect; No is beside it. Esc does nothing here, because the engine needs an answer.</span>
+    <span>Driven by: kind "yesno", source, prompt, oracle, yesLabel, noLabel, remember ("engine" when DecideOptionalEffectAndRemember exists, "yama" when Yama answers for you).</span>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, rem: 0 };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const decisions = [
+      { label: 'A “may” of yours', kind: 'yesno', engine: 'OptionalEffectChoice',
+        source: { name: 'Recruiter of the Guard', art: A('d4281310e8151118adef07e16fe5fc30'), artist: 'Eric Wilkerson', controller: 'You', seat: '#408abf', when: 'entering the battlefield' },
+        prompt: 'Search your library?', oracle: 'When this creature enters, you may search your library for a creature card with toughness 2 or less, reveal it, put it into your hand, then shuffle.',
+        yesLabel: 'Search', noLabel: 'Don’t search', remember: 'engine',
+        turn: 'Your turn 9', turnArt: A('c19490e7c081fb35071c85147c01bed4'), mineTurn: true, phase: 2 },
+      { label: 'An opponent’s offer', kind: 'yesno', engine: 'OpponentMayChoice',
+        source: { name: 'Smothering Tithe', art: A('b6ab5f8f97fcf937bdcbc6a6a969c3cc'), artist: 'Mark Behm', controller: 'Jules', seat: '#757a8a', when: 'you drew a card' },
+        prompt: 'Pay {2}? If you don’t, Jules creates a Treasure.', oracle: 'Whenever an opponent draws a card, that player may pay {2}. If the player doesn’t, you create a Treasure token.',
+        yesLabel: 'Pay {2}', noLabel: 'Don’t pay', remember: 'yama',
+        turn: 'Your turn 9', turnArt: A('c19490e7c081fb35071c85147c01bed4'), mineTurn: true, phase: 1 }
+    ];
+    const { ex, rem } = this.state;
+    const d = decisions[ex];
+    const remLabels = d.remember === 'engine' ? ['Ask each time', 'Always search', 'Never search'] : ['Ask each time', 'Always pay', 'Never pay'];
+    return {
+      examples: decisions.map((x, i) => ({ label: x.label, on: ex === i, bg: ex === i ? '#f2efe8' : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i, rem: 0 }) })),
+      turn: d.turn, turnArt: d.turnArt, mineTurn: d.mineTurn, phase: d.phase,
+      art: d.source.art, artist: d.source.artist + ', © Wizards of the Coast', seat: d.source.seat,
+      sourceLine: (d.source.controller === 'You' ? 'Your ' : d.source.controller + '’s ') + d.source.name + ', ' + d.source.when,
+      question: d.prompt, oracle: d.oracle,
+      rememberLabel: d.remember === 'engine' ? 'Remember for this card' : 'For the rest of this game',
+      remember: remLabels.map((label, i) => ({ label, on: rem === i, bg: rem === i ? '#f2efe8' : 'transparent', ink: rem === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ rem: i }) })),
+      rememberNote: rem === 0 ? 'You’ll be asked each time.' : (d.remember === 'engine' ? 'The engine remembers this answer for this card. ' : 'Yama answers for you. ') + 'Each automatic answer is in the log, with a link to turn it off.',
+      railTitle: d.prompt, railBody: 'Answer with the buttons below.',
+      primary: d.yesLabel, secondary: d.noLabel
+    };
+  }
+}
+</script>
+</body>
+</html>

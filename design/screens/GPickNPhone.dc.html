@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pick N on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.65)"></div>
+
+  <section role="dialog" aria-label="{{prompt}}" style="position: absolute; left: 0; right: 0; bottom: 0; top: 40px; padding: 8px 12px 14px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
+    <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 999px; background: var(--line)"></span>
+    <div style="display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 10px; align-items: center">
+      <img src="{{srcArt}}" alt="" style="width: 52px; height: 40px; border-radius: 8px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; line-height: 1.15"><b style="font-size: 17px">{{prompt}}</b><span style="font-size: 12px; color: var(--dim)">{{srcLine}}</span></span>
+      <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 12px; font-weight: 700; white-space: nowrap">{{counter}}</span>
+    </div>
+    <span style="font-size: 12px; color: var(--dim); line-height: 1.35">{{oracle}}</span>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap">
+      <span style="padding: 2px 10px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); font-size: 12px">Your graveyard</span>
+      <span style="padding: 2px 10px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); font-size: 12px">{{filterLine}}</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 10px; padding-top: 4px">
+      <sc-for list="{{cards}}" as="c" hint-placeholder-count="5">
+        <button onClick="{{c.click}}" aria-pressed="{{c.on}}" aria-label="{{c.name}}" style="position: relative; padding: 0; border: none; border-radius: 6px; background: transparent; box-shadow: {{c.ring}}">
+          <img src="{{c.img}}" alt="" style="display: block; width: 100%; border-radius: 6px">
+          <sc-if value="{{c.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -7px; top: -7px; width: 24px; height: 24px; border-radius: 50%; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{c.n}}</span></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <span style="font-size: 12px; color: var(--dim)">{{othersLine}} Long-press a card to read it. Art: Jim Murray; card images from Scryfall, © Wizards of the Coast.</span>
+    <div style="margin-top: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px">
+      <button onClick="{{clear}}" style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Clear</button>
+      <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">{{primary}}</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { picks: ['mentor'] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const decision = {
+      kind: 'pick', zone: 'graveyard',
+      source: { name: 'Reveillark', controller: 'You', art: A('a1ffa6fd2948bd5fff8f5dce604f5a37') },
+      prompt: 'Return up to two creature cards', oracle: 'When this creature leaves the battlefield, return up to two target creature cards with power 2 or less from your graveyard to the battlefield.',
+      filter: 'Creature cards, power 2 or less', verb: 'Return', min: 0, max: 2, upTo: true, defaultAnswer: [],
+      options: [
+        { id: 'sentinel', name: 'Esper Sentinel', img: 'f91dfa789f2b0816a79359bb277f07b0', eligible: true },
+        { id: 'mentor', name: 'Monastery Mentor', img: 'c8765d27dab83eefd46f6647d19b1791', eligible: true },
+        { id: 'pyro', name: 'Young Pyromancer', img: '83f67844fe118ec8f0a94e7066cd52e3', eligible: true },
+        { id: 'recruiter', name: 'Recruiter of the Guard', img: '1c9f97f5b7c3bf20ce099ea1a738fa06', eligible: true },
+        { id: 'hanged', name: 'Hanged Executioner', img: '830427c591de2ca48ded1aac2897dbd6', eligible: true },
+        { id: 'emeria', name: 'Emeria Angel', eligible: false }, { id: 'venser', name: 'Venser, Fervent Forger', eligible: false }, { id: 'sunfall', name: 'Sunfall', eligible: false }, { id: 'warp', name: 'Chaos Warp', eligible: false }
+      ]
+    };
+    const picks = this.state.picks;
+    const n = picks.length;
+    const others = decision.options.filter((o) => !o.eligible);
+    return {
+      srcArt: decision.source.art, srcLine: 'Your Reveillark left the battlefield',
+      prompt: decision.prompt, oracle: decision.oracle, filterLine: decision.filter,
+      counter: n + ' of up to ' + decision.max,
+      cards: decision.options.filter((o) => o.eligible).map((o) => { const k = picks.indexOf(o.id); return { name: o.name, img: A(o.img), on: k >= 0, n: k + 1,
+        ring: k >= 0 ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a',
+        click: () => this.setState((s) => s.picks.includes(o.id) ? { picks: s.picks.filter((x) => x !== o.id) } : { picks: (s.picks.length >= decision.max ? s.picks.slice(1) : s.picks).concat(o.id) }) }; }),
+      othersLine: others.length + ' other cards don’t qualify: ' + others.map((o) => o.name).join(', ') + '.',
+      primary: n ? decision.verb + ' (' + n + '/' + decision.max + ')' : 'Return none',
+      clear: () => this.setState({ picks: [] })
+    };
+  }
+}
+</script>
+</body>
+</html>

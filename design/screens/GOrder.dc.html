@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Put in order</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="{{railTitle}}" body="{{railBody}}" primary="Done" secondary="{{secondary}}" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+
+  <section role="dialog" aria-label="{{prompt}}" style="position: absolute; left: 60px; top: 70px; width: 980px; padding: 22px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 16px">
+    <div style="display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 16px; align-items: center">
+      <img src="{{srcArt}}" alt="" style="width: 90px; height: 66px; border-radius: 12px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--dim)">{{srcLine}}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1">{{prompt}}</h2><span style="font-size: 14px; color: var(--dim)">{{oracle}}</span></span>
+      <span style="padding: 4px 12px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700; white-space: nowrap">{{counter}}</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 18px; align-items: start">
+      <div aria-hidden="true" style="display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 30px">
+        <span style="font-size: 12px; color: var(--dim)">{{edgeLabel}}</span>
+        <span style="position: relative; width: 84px; height: 116px">
+          <span style="position: absolute; inset: 0; border-radius: 6px; background: var(--raised); box-shadow: 0 0 0 1px var(--line), 4px 4px 0 var(--ground), 4px 4px 0 1px var(--line), 8px 8px 0 var(--ground), 8px 8px 0 1px var(--line)"></span>
+          <span style="position: absolute; left: 0; right: 0; {{edgeSide}}: -6px; height: 4px; border-radius: 2px; background: var(--text)"></span>
+        </span>
+        <span style="font-size: 12px; color: var(--dim); text-align: center">Your library, 76 cards</span>
+      </div>
+      <ol style="margin: 0; padding: 0; list-style: none; display: flex; gap: 16px; align-items: start">
+        <sc-for list="{{rows}}" as="r" hint-placeholder-count="3">
+          <li style="display: flex; flex-direction: column; align-items: center; gap: 8px">
+            <span style="padding: 1px 10px; border-radius: 999px; background: {{r.tagBg}}; color: {{r.tagInk}}; font-size: 12px; font-weight: 800">{{r.tag}}</span>
+            <span style="position: relative; display: block; border-radius: 9px; box-shadow: 0 0 0 3px #f2efe8">
+              <img src="{{r.img}}" alt="{{r.name}}" style="display: block; width: 180px; border-radius: 9px">
+              <span style="position: absolute; left: -10px; top: -10px; width: 28px; height: 28px; border-radius: 50%; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 14px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{r.n}}</span>
+            </span>
+            <span style="display: flex; gap: 6px; align-items: center">
+              <button onClick="{{r.left}}" disabled="{{r.first}}" aria-label="Move {{r.name}} {{r.leftWord}}" style="width: 48px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: {{r.leftInk}}">←</button>
+              <span aria-hidden="true" title="Drag" style="display: grid; grid-template-columns: repeat(3, 4px); gap: 4px; padding: 0 8px; cursor: grab"><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span></span>
+              <button onClick="{{r.right}}" disabled="{{r.last}}" aria-label="Move {{r.name}} {{r.rightWord}}" style="width: 48px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: {{r.rightInk}}">→</button>
+            </span>
+          </li>
+        </sc-for>
+      </ol>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 8px; border-top: 1px solid var(--line)">
+      <div role="tablist" aria-label="Example" style="display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--ground)">
+        <sc-for list="{{examples}}" as="e" hint-placeholder-count="2"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 32px; padding: 0 12px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 12px; font-weight: 700">{{e.label}}</button></sc-for>
+      </div>
+      <span style="font-size: 12px; color: var(--dim); max-width: 60ch; text-align: right">Drag a card, or use the arrows; left to right is the order the engine receives. Driven by: kind "order", destination, options, defaultAnswer. Done is in the rail. Card images from Scryfall, © Wizards of the Coast.</span>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, order: ['sunfall', 'fortress'] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const decisions = [
+      { label: 'Brainstorm: back on top', kind: 'order', destination: 'top',
+        source: { name: 'Brainstorm', art: A('2d435a47cd0e74f54b1655dbd317d95d'), artist: 'Daarken' },
+        prompt: 'Put these on top, in order', oracle: 'Draw three cards, then put two cards from your hand on top of your library in any order.',
+        options: [{ id: 'sunfall', name: 'Sunfall', img: A('4f17f1f93dbb25c0d47e2fcb9b2c0ae6') }, { id: 'fortress', name: 'Glacial Fortress', img: A('e25b0374571373f1ab95c0e88cd1758e') }],
+        defaultAnswer: ['sunfall', 'fortress'] },
+      { label: 'Mulligan: bottom order', kind: 'order', destination: 'bottom',
+        source: { name: 'Mulligan to 4', art: A('c19490e7c081fb35071c85147c01bed4'), artist: 'Craig Elliott' },
+        prompt: 'Put these on the bottom, in order', oracle: 'You chose these three to put on the bottom of your library.',
+        options: [{ id: 'charm', name: 'Boros Charm', img: A('2d80527eb5c346c24b35ad5381fe99a6') }, { id: 'rift', name: 'Cyclonic Rift', img: A('4e274a0a80fefd3f3346bd10c98c1349') }, { id: 'clifftop', name: 'Clifftop Retreat', img: A('4b6f8a8ccbd66b04717e915e9e659b37') }],
+        defaultAnswer: ['charm', 'rift', 'clifftop'] }
+    ];
+    const { ex, order } = this.state;
+    const d = decisions[ex];
+    const byId = Object.fromEntries(d.options.map((o) => [o.id, o]));
+    const top = d.destination === 'top';
+    const swap = (i, k) => this.setState((s) => { const o = s.order.slice(), j = i + k; if (j < 0 || j >= o.length) return null; [o[i], o[j]] = [o[j], o[i]]; return { order: o }; });
+    const changed = order.join() !== d.defaultAnswer.join();
+    return {
+      examples: decisions.map((x, i) => ({ label: x.label, on: ex === i, bg: ex === i ? '#f2efe8' : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i, order: x.defaultAnswer.slice() }) })),
+      srcArt: d.source.art, srcLine: d.source.name + '. Art: ' + d.source.artist + ', © Wizards of the Coast',
+      prompt: d.prompt, oracle: d.oracle,
+      counter: order.length + ' cards',
+      edgeLabel: top ? 'Top of library' : 'Bottom of library', edgeSide: top ? 'top' : 'bottom',
+      rows: order.map((id, i) => ({ ...byId[id], n: i + 1,
+        tag: top ? (i === 0 ? 'On top: drawn next' : 'Under it') : (i === order.length - 1 ? 'Very bottom' : i === 0 ? 'Highest of these' : 'Then'),
+        tagBg: i === 0 ? '#f2efe8' : '#2a2e33', tagInk: i === 0 ? '#0b0c0e' : '#f2efe8',
+        first: i === 0, last: i === order.length - 1, leftInk: i === 0 ? '#2a2e33' : '#f2efe8', rightInk: i === order.length - 1 ? '#2a2e33' : '#f2efe8',
+        leftWord: top ? 'nearer the top' : 'higher', rightWord: top ? 'deeper' : 'lower',
+        left: () => swap(i, -1), right: () => swap(i, 1) })),
+      railTitle: d.prompt, railBody: d.oracle,
+      secondary: changed ? 'Reset order' : ''
+    };
+  }
+}
+</script>
+</body>
+</html>
