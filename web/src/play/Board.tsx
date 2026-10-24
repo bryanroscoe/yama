@@ -13,7 +13,7 @@
 // the bottom, and every hand face up when asked.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { api, API_BASE } from "../api";
 import { artCredits } from "../components/ArtPanel";
 import { Sheet } from "../components/ui";
@@ -83,9 +83,11 @@ import { answerOf, modeChip, passChoices, passKey, priorityPartner, settingsButt
 import { ConsentBody, GameSettings, ModeChip, PassList, PassMenu } from "./TurnControls";
 import { PreviewCache, paymentButtons, paymentTitle, sourceChip, sourceClick, sourceIn } from "./pay";
 import { ManaMenu, PaymentRail, PaymentSheet } from "./PaymentPanel";
-import { revealGroups, type Names } from "./feed";
+import { INFERRED, lineText, outText, revealGroups, type Names } from "./feed";
 import { CardReader } from "./Inspector";
 import { ZoneBrowser, type BrowsedZone } from "./Zones";
+import { GameLog } from "./GameLog";
+import { GameOver, GameOverBar, KnockoutNote, OutStrips, YouAreOut } from "./Endings";
 import { RevealPanel } from "./Reveal";
 import "./board.css";
 
@@ -228,9 +230,14 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const [passMenu, setPassMenu] = useState(false);
   // A stack item being read, so a trigger can be yielded to from the card reader.
   const [inspectStack, setInspectStack] = useState<StackItem | null>(null);
-  // The newest reveal already shown (Reveal.tsx): null until the first board, so a reconnect
-  // doesn't replay old reveals.
+  // What happened (feed.ts): the newest reveal already shown (null until the first board, so a
+  // reconnect doesn't replay old reveals), knockouts already announced, your own knockout
+  // dismissed to keep watching, and the game-over screen put away to look at the final board.
   const [revealSeen, setRevealSeen] = useState<number | null>(null);
+  const [koDone, setKoDone] = useState<Set<number> | null>(null);
+  const [watchOn, setWatchOn] = useState(false);
+  const [boardShown, setBoardShown] = useState(false);
+  const navigate = useNavigate();
   // Older servers: full control and stops kept on this device. Newer ones keep them per account
   // (the view's `turns`); these then only carry settings over to the account once.
   const [fullControl, setFullControl] = useState(() => localStorage.getItem("yama.play.fullControl") === "1");
@@ -439,11 +446,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   useEffect(() => () => dragRef.current?.cleanup(), []);
 
   const seatArt = useSeatArt(id, view, seats);
-  // The first board sets where reveals start: what happened before it isn't played again (PP-02:
-  // a reconnect shows the board as it is).
+  // The first board sets where reveals and knockout notes start: what happened before it isn't
+  // played again (PP-02: a reconnect shows the board as it is).
   useEffect(() => {
-    if (view && revealSeen === null) setRevealSeen(Math.max(0, ...(view.events ?? []).map((h) => h.seq)));
-  }, [view, revealSeen]);
+    if (!view) return;
+    if (revealSeen === null) setRevealSeen(Math.max(0, ...(view.events ?? []).map((h) => h.seq)));
+    if (koDone === null) setKoDone(new Set((view.outs ?? []).map((o) => o.seat)));
+  }, [view, revealSeen, koDone]);
   useBoardMotion(boardRoot, motionLayer, view, motionOpts);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -597,8 +606,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   };
 
   const opponents = turnOrder(view.players, bottom);
-  /** The turn a seat was knocked out, from the log while it still holds the line. */
-  const outTurn = (seat: number) => view.log.find((l) => l.text === `Player ${seat + 1} is eliminated` || l.text === `Player ${seat + 1} loses the game`)?.turn;
+  // Opponents with a pane of their own: those knocked out become strips (newer servers).
+  const inPanes = opponents.filter((p) => !p.eliminated || !view.outs?.some((o) => o.seat === p.seat));
+  /** The turn a seat was knocked out: from the knockouts (newer servers), else from the log while
+   * it still holds the line. */
+  const outTurn = (seat: number) =>
+    view.outs?.find((o) => o.seat === seat)?.turn ?? view.log.find((l) => l.text === `Player ${seat + 1} is eliminated` || l.text === `Player ${seat + 1} loses the game`)?.turn;
+  const outs = view.outs ?? [];
   /** How the board names seats in what happened (feed.ts). */
   const names: Names = { you, Who: (n: number) => Who(n) };
   const meOut = !!view.players.find((p) => p.seat === you)?.eliminated;
@@ -1367,14 +1381,22 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const partnerControl = (p: Partner | null): Control | null => (p ? { label: p.label, run: () => runPartner(p), pressed: p.pressed } : null);
 
   // Reveals waiting to be shown (to everyone, or to you alone), oldest first (Reveal.tsx).
-  const reveals = revealSeen === null ? [] : revealGroups(view.events ?? [], revealSeen);
+  // Not over the game-over screen: the log keeps them.
+  const reveals = revealSeen === null || (view.over && !watch && !boardShown) ? [] : revealGroups(view.events ?? [], revealSeen);
   const revealNow = reveals[0];
   const dismissReveal = () => revealNow && setRevealSeen(revealNow[revealNow.length - 1]!.seq);
+  // Another player just went out (GKnockout): their note until dismissed.
+  const koNow = koDone && !view.over ? outs.find((o) => !koDone.has(o.seat) && o.seat !== you) : undefined;
+  const dismissKo = () => koNow && koDone && setKoDone(new Set([...koDone, koNow.seat]));
+  // You went out and the game goes on: your knockout until you choose to keep watching.
+  const youreOut = meOut && !view.over && !watch && you !== null && !watchOn;
 
   const payingByHand = !!decision && !!optionOf(decision, "pay_rest");
   const selectedOptions = selected && decision && !attack && !block ? optionsFor(selected) : [];
   // The big button and its partner.
   const controls = ((): { primary: Control | null; secondary: Control | null } => {
+    // You're out and the game goes on (GRareRules): keep watching, or leave.
+    if (youreOut) return { primary: { label: "Keep watching", run: () => setWatchOn(true) }, secondary: { label: "Leave", run: () => navigate("/play") } };
     if (view.over || you === null || meOut) return { primary: null, secondary: null };
     // Game settings: Close or Done; conceding is confirmed here, with Cancel beside it (GSettings).
     if (settingsOpen) {
@@ -1498,6 +1520,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   escRef.current = () => {
     if (dragRef.current?.started || inspect || sheet) return false;
     if (revealNow) return (dismissReveal(), true);
+    if (koNow) return (dismissKo(), true);
+    if (youreOut) return (setWatchOn(true), true);
     if (manaMenu) return (setManaMenu(null), true);
     if (passMenu) return (setPassMenu(false), true);
     if (settingsOpen) return (setSettings(null), true);
@@ -1570,7 +1594,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         : view.active === you ? "You, your turn" : "You";
 
   const credits = artCredits([...view.players.map((p) => art(p.seat))].filter((a) => a.art).map((a) => a.artist));
-  const recent = view.log.slice(-3);
+  // The rail's last few lines: what happened (newer servers), else the engine's log lines.
+  const recent = view.events
+    ? view.events
+        .map((h) => ({ turn: h.turn, text: lineText(h, names) }))
+        .filter((l): l is { turn: number; text: string } => !!l.text)
+        .slice(-3)
+    : view.log.slice(-3).map((l) => ({ turn: l.turn, text: named(l.text) }));
   const stopsLine = fullOn ? "Full control: stops at every step" : stopsSummary(stopsNow) ?? "Stops only where you can act";
 
   const title = watch && watchStatus?.finished && !view.over
@@ -1964,36 +1994,19 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         </div>
       )}
       {sheet === "log" && (
-        <Sheet label="Game log" onClose={() => setSheet(null)}>
-          <div className="stack">
-            <div className="sheet-head">
-              <h2>Game log</h2>
-              <button className="quiet" onClick={() => setSheet(null)}>Close</button>
-            </div>
-            <ol className="pb-log">
-              {[...view.log].reverse().map((l, i) => {
-                // An answer Yama gave for you from memory (GLog): turn it off from here.
-                const a = answerOf(l, savedTurns);
-                return (
-                  <li key={i} className={l.auto ? "auto" : undefined}>
-                    <span className="dim small num">T{l.turn}</span> {named(l.text)}
-                    {l.auto && (
-                      <>
-                        {" "}
-                        <span className="log-tag">Automatic</span>{" "}
-                        {a ? (
-                          <button type="button" className="link" onClick={() => sendPref(a.forget)} disabled={!connected}>Turn off</button>
-                        ) : (
-                          <span className="dim small">Turned off</span>
-                        )}
-                      </>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-        </Sheet>
+        <GameLog
+          events={view.events}
+          lines={view.log}
+          names={names}
+          meta={meta}
+          tone={(n) => tones.get(n)}
+          art={(n) => art(n).art}
+          turns={savedTurns}
+          connected={connected}
+          onPref={sendPref}
+          onClose={() => setSheet(null)}
+          named={named}
+        />
       )}
       {sheet === "stops" && (
         <Sheet label="Stops and ways to pass" onClose={() => setSheet(null)}>
@@ -2101,6 +2114,12 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       {revealNow && !inspect && (
         <RevealPanel group={revealNow} more={reveals.length - 1} names={names} meta={meta} tone={(n) => tones.get(n)} onRead={(name) => readCard(name)} onClose={dismissReveal} wide={wide} />
       )}
+      {koNow && !youreOut && <KnockoutNote out={koNow} view={view} names={names} art={art} onClose={dismissKo} />}
+      {youreOut && <YouAreOut out={outs.find((o) => o.seat === you)} view={view} names={names} art={art} tone={(n) => tones.get(n)} label={label} wide={wide} />}
+      {view.over && !watch && !boardShown && (
+        <GameOver id={id} view={view} seats={seats} names={names} art={art} tone={(n) => tones.get(n)} label={label} wide={wide} onLog={() => setSheet("log")} onBoard={() => setBoardShown(true)} />
+      )}
+      {view.over && !watch && boardShown && <GameOverBar text={title} onOpen={() => setBoardShown(false)} />}
     </>
   );
 
@@ -2110,13 +2129,17 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       <MotionContext.Provider value={scale}>
       <div className={`pb wide${aiming ? " aiming" : ""}${scale === 0 ? " motion-off" : ""}`} ref={boardRoot} onPointerDown={onBoardPress}>
         <div className="pb-table">
+          <div className="pb-top">
+          {/* Players knocked out shrink to one line each across the top, in the order they went
+              out (GKnockout); the players still in widen to fill the room. */}
+          <OutStrips outs={outs} except={bottom} names={names} art={art} tone={(n) => tones.get(n)} label={label} />
           <section
             className="pb-opps"
             aria-label="Opponents in turn order"
-            data-n={Math.min(opponents.length, 5)}
-            style={{ gridTemplateColumns: opponents.map((p) => (p.eliminated ? "minmax(150px, 0.45fr)" : "minmax(0, 1fr)")).join(" ") }}
+            data-n={Math.min(inPanes.length, 5)}
+            style={{ gridTemplateColumns: inPanes.map((p) => (p.eliminated ? "minmax(150px, 0.45fr)" : "minmax(0, 1fr)")).join(" ") }}
           >
-            {opponents.map((p) => (
+            {inPanes.map((p) => (
               <OppPane
                 key={p.seat}
                 p={p}
@@ -2150,6 +2173,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
               />
             ))}
           </section>
+          </div>
 
           <div className="pb-strip" aria-label={`${view.active === you ? "Your" : `${Who(view.active)}'s`} turn ${view.turn}, ${stepName(view.phase)}`}>
             {whose}
@@ -2173,7 +2197,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
                       ? `${seatName(seatInfo(bottom), bottom)} went out${outTurn(bottom) ? ` on turn ${outTurn(bottom)}` : ""}.`
                       : `${seatName(seatInfo(bottom), bottom)}'s permanents will show here.`
                     : meOut
-                      ? `You went out${outTurn(bottom) ? ` on turn ${outTurn(bottom)}` : ""}. You can watch the rest of the game.`
+                      ? `You went out${outTurn(bottom) ? ` on turn ${outTurn(bottom)}` : ""}.${view.over ? "" : " You can watch the rest of the game."}`
                       : "Your permanents will show here."}
                 </p>
               )}
@@ -2261,13 +2285,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
                 <section className="rail-recent" aria-label="Recent">
                   <h3>Recent</h3>
                   {recent.map((l, i) => (
-                    <p key={i}><span className="dim num">T{l.turn}</span> {named(l.text)}</p>
+                    <p key={i}><span className="dim num">T{l.turn}</span> {l.text}</p>
                   ))}
                 </section>
               )}
               {status}
               {modeChipEl}
-              {you !== null && !view.over && (
+              {you !== null && !view.over && !meOut && (
                 <span role="status" className="stops-chip">
                   {stopsLine}
                   {/* The stops sheet lists the ways to pass too; "More ways to pass" opens them here. */}
@@ -2461,6 +2485,10 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           apart={apart}
           pick={pickSeats.has(focus.seat) || pickNo(`p${focus.seat}`) !== undefined ? { no: pickNo(`p${focus.seat}`), on: () => pickSeat(focus.seat) } : undefined}
           by={seatBy(focus.seat)}
+          outLine={(() => {
+            const o = outs.find((x) => x.seat === focus.seat);
+            return o ? `${outText(o, names)}.${o.inferred ? ` ${INFERRED}.` : ""}` : undefined;
+          })()}
         />
       )}
 
@@ -3036,6 +3064,8 @@ function OppFocus(props: {
   pick?: { no?: number; on: () => void };
   /** Who targets this player on the stack. */
   by?: { text: string; tone?: string };
+  /** How they went out, when they're out (newer servers). */
+  outLine?: string;
 }) {
   const { p } = props;
   const r = rows(props.cards, props.apart);
@@ -3080,7 +3110,7 @@ function OppFocus(props: {
         </div>
       )}
       {p.eliminated ? (
-        <p className="zone-empty">{p.conceded ? "Conceded. They left the game." : "Out of the game."}</p>
+        <p className="zone-empty">{props.outLine ?? (p.conceded ? "Conceded. They left the game." : "Out of the game.")}</p>
       ) : (
         <>
           <div className="pb-chips">

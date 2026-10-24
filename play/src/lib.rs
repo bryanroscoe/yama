@@ -38,7 +38,7 @@ use engine::types::game_state::{ActionResult, PriorityPassingMode, StackEntry, S
 use engine::types::log::{LogImportance, LogSegment, LogVisibility};
 use engine::types::match_config::MatchConfig;
 use engine::types::player::PlayerId;
-use engine::types::replay::{ReplayHeader, ReplayLog};
+use engine::types::replay::{RecordedActionKind, ReplayHeader, ReplayLog};
 use phase_ai::auto_play::eligible_ai_decision;
 use phase_ai::config::{AiConfig, AiDifficulty, Platform, create_config_for_players};
 use phase_ai::search::choose_action_with_session;
@@ -57,7 +57,7 @@ pub mod pilot;
 pub mod turns;
 
 pub use act::{Act, Pending};
-pub use feed::{Came, Happening};
+pub use feed::{Came, Happening, Out, Stats, Why};
 pub use pay::{PayMode, PaymentView};
 pub use turns::{Controls, PassMode, ResolveAllView, TurnsView};
 
@@ -257,14 +257,34 @@ impl Engine {
         let mut m = self.start(log.header.clone(), ai)?;
         let mut player = ReplayPlayer::load(log.clone(), Some(&self.db)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let n = player.len();
-        let mut state = player.seek(n).map_err(|e| anyhow::anyhow!("replay diverged: {e:?}"))?.clone();
-        state.debug_mode = false;
-        state.all_card_names = self.db.card_names().into();
-        engine::game::install_card_db(&mut state, Arc::clone(&self.db));
-        m.session = AiSession::arc_from_game(&state);
+        if log.resolve_all_boundaries.is_empty() {
+            // Step through the log exactly as the replayer does (`ReplayPlayer::seek`), keeping each
+            // action's events, so the feed, the knockouts and the stats come back too (feed.rs).
+            m.state = player.seek(0).map_err(|e| anyhow::anyhow!("replay diverged: {e:?}"))?.clone();
+            for recorded in &log.actions {
+                let applied = match recorded.kind {
+                    RecordedActionKind::Submitted => engine::game::engine::apply(&mut m.state, recorded.actor, recorded.action.clone()),
+                    RecordedActionKind::VerifiedAiPriorityPass { semantic_owner } => {
+                        let contract = AiDecisionContract::issue(&m.state, semantic_owner);
+                        apply_verified_ai_priority_pass(&mut m.state, recorded.actor, &contract, recorded.action.clone())
+                    }
+                };
+                let result = applied.map_err(|e| anyhow::anyhow!("replay diverged at action {}: {e}", recorded.seq))?;
+                if let GameAction::Concede { player_id } = &recorded.action {
+                    m.conceded.insert(player_id.0);
+                }
+                m.replayed(&result);
+            }
+        } else {
+            // Resolve All boundaries need the replayer's own handling; Yama never writes them.
+            m.state = player.seek(n).map_err(|e| anyhow::anyhow!("replay diverged: {e:?}"))?.clone();
+        }
+        m.state.debug_mode = false;
+        m.state.all_card_names = self.db.card_names().into();
+        engine::game::install_card_db(&mut m.state, Arc::clone(&self.db));
+        m.session = AiSession::arc_from_game(&m.state);
         m.rng = StdRng::seed_from_u64(log.header.seed ^ u64::from(n));
         m.revision = u64::from(n);
-        m.state = state;
         // Conceding leaves no mark in the engine's state; the log says who did.
         m.conceded = log
             .actions
@@ -1413,7 +1433,7 @@ impl Match {
             }
             self.lines.push(LogLine::public(e.turn, segments_text(&e.segments)));
         }
-        self.feed.record(&result.events, &self.state);
+        self.feed.record(&result.events, &self.state, &self.conceded);
         self.note_automatic_answers(result);
         if self.lines.len() > LOG_LINES * 4 {
             self.lines.drain(..self.lines.len() - LOG_LINES);
@@ -1444,6 +1464,14 @@ impl Match {
             }
         }
         self.auto_watch = self.watch_automatic_answers();
+    }
+
+    /// Bookkeeping for an action replayed from the log on resume: the revision, the feed and the
+    /// remembered answers, as [`Match::accepted`] keeps them. Log lines come back from storage.
+    fn replayed(&mut self, result: &ActionResult) {
+        self.revision += 1;
+        self.feed.record(&result.events, &self.state, &self.conceded);
+        self.note_automatic_answers(result);
     }
 
     /// Answer with phase's `fallback_action` when the AI finds no action (see the field).
@@ -1661,6 +1689,8 @@ impl Match {
             turns: viewer.filter(|seat| !self.is_ai(*seat)).map(|seat| self.turns_view(state, seat)),
             resolve_all: self.resolve_all_view(),
             events: self.feed.recent(viewer, feed::SHOWN),
+            outs: self.feed.outs().to_vec(),
+            stats: self.is_over().then(|| self.feed.stats(&self.state)),
         }
     }
 
@@ -1668,6 +1698,11 @@ impl Match {
     /// the soak run read it whole; views carry the newest [`feed::SHOWN`]).
     pub fn events(&self, viewer: Option<u8>) -> Vec<Happening> {
         self.feed.recent(viewer, feed::KEEP)
+    }
+
+    /// The players knocked out so far, in order, each with its cause.
+    pub fn outs(&self) -> &[Out] {
+        self.feed.outs()
     }
 }
 
@@ -1792,6 +1827,11 @@ pub struct View {
     pub resolve_all: Option<ResolveAllView>,
     /// The newest things that happened, as this viewer may know them, oldest first (feed.rs).
     pub events: Vec<Happening>,
+    /// Players knocked out, in the order they went out, each with its cause.
+    pub outs: Vec<Out>,
+    /// The game's numbers, once it's over.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<Stats>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -8,11 +8,12 @@ use engine::game::sba::check_state_based_actions;
 use engine::types::ability::TargetRef;
 use engine::types::actions::{DebugAction, GameAction};
 use engine::types::events::{GameEvent, LifeTotalReading};
+use engine::types::game_state::CommanderDamageEntry;
 use engine::types::identifiers::{CardId, ObjectId};
 use engine::types::player::PlayerId;
 use engine::types::zones::Zone;
 
-use crate::feed::{Hit, How, Seen, What};
+use crate::feed::{Hit, How, Seen, What, Why};
 use crate::{Difficulty, Engine, Match, SeatDeck};
 
 fn engine() -> Engine {
@@ -56,7 +57,8 @@ fn card(m: &mut Match, e: &Engine, name: &str, seat: u8, zone: Zone) -> ObjectId
 }
 
 fn record(m: &mut Match, events: &[GameEvent]) {
-    m.feed.record(events, &m.state);
+    let conceded = m.conceded.clone();
+    m.feed.record(events, &m.state, &conceded);
 }
 
 /// One of the engine's debug actions (a sandbox move, draw or reveal through its real pipeline),
@@ -192,6 +194,8 @@ fn draws_are_named_only_for_the_player_drawing() {
         // Nothing else they were told names or points at it.
         assert!(!told(&m, viewer).iter().flat_map(every_seen).any(|s| s.id == Some(top.0) || s.name.as_deref() == Some(name.as_str())), "{viewer:?}");
     }
+    // Counted for the game's numbers either way.
+    assert_eq!(m.feed.stats(&m.state).seats[1].drew, 1);
 }
 
 #[test]
@@ -262,6 +266,68 @@ fn damage_reads_with_the_life_it_cost_and_runs_fold_into_one_line() {
     let counters: Vec<&What> = lines.iter().filter(|w| matches!(w, What::Counters { .. })).collect();
     assert_eq!(counters.len(), 1);
     assert!(matches!(counters[0], What::Counters { counter, delta: 2, .. } if counter == "plus1plus1"));
+    let stats = m.feed.stats(&m.state);
+    assert_eq!((stats.seats[0].spells, stats.seats[0].damage, stats.seats[1].damage), (1, 2, 0));
+}
+
+#[test]
+fn a_knockout_carries_its_cause_and_the_leaving_sweep_stays_out() {
+    let e = engine();
+    let mut m = game(&e, 4);
+    let commander = *m.state.command_zone.iter().find(|id| m.state.objects[*id].owner == PlayerId(0)).unwrap();
+    // Seat 1 at 0 life, seat 2 at 21 commander damage from seat 0's commander, seat 3 poisoned.
+    m.state.players[1].life = 0;
+    m.state.commander_damage.push(CommanderDamageEntry { player: PlayerId(2), commander, damage: 21 });
+    let mut events = vec![];
+    check_state_based_actions(&mut m.state, &mut events);
+    record(&mut m, &events);
+    let outs = m.outs().to_vec();
+    assert_eq!(outs.len(), 2, "{outs:?}");
+    let by_seat = |s: u8| outs.iter().find(|o| o.seat == s).unwrap().clone();
+    assert_eq!((by_seat(1).why, by_seat(1).inferred), (Why::Life { life: 0 }, true));
+    assert_eq!(by_seat(2).why, Why::Commander { name: "Combat Celebrant".into(), seat: 0, damage: 21 });
+    assert!(by_seat(2).inferred);
+    // Both went out in the same moment.
+    assert_eq!(by_seat(1).batch, by_seat(2).batch);
+    for viewer in [Some(0), Some(1), Some(3), None] {
+        let lines = told(&m, viewer);
+        assert!(lines.contains(&What::Out { seat: 1 }) && lines.contains(&What::Out { seat: 2 }), "{viewer:?}");
+        // Their libraries and hands leaving the game aren't narrated card by card...
+        assert!(!lines.iter().any(|w| matches!(w, What::Moved { owner: 1 | 2, to: "exile", .. })), "{viewer:?}: {lines:?}");
+        // ...but a card of theirs left in exile says why it's there.
+        let gone: Vec<_> = m.view(viewer).exile.into_iter().filter(|c| c.owner == 1).collect();
+        assert!(!gone.is_empty());
+        assert!(gone.iter().all(|c| c.came.is_some_and(|came| came.how == How::Left)), "{viewer:?}");
+    }
+
+    // A concession is Yama's own record, not a reading of the board.
+    m.concede(3).unwrap();
+    let out = m.outs().iter().find(|o| o.seat == 3).unwrap().clone();
+    assert_eq!((out.why, out.inferred), (Why::Conceded, false));
+    assert!(m.is_over());
+    let v = m.view(Some(0));
+    assert_eq!(v.winner, Some(0));
+    assert!(v.events.iter().any(|h| h.what == What::Over { winner: Some(0) }));
+    let stats = v.stats.expect("stats once it's over");
+    assert_eq!(stats.seats.len(), 4);
+    assert_eq!(stats.seats[0].commander_damage, 21);
+}
+
+#[test]
+fn two_players_out_at_once_draw_the_game() {
+    let e = engine();
+    let mut m = game(&e, 2);
+    m.state.players[0].life = 0;
+    m.state.players[1].life = -2;
+    let mut events = vec![];
+    check_state_based_actions(&mut m.state, &mut events);
+    record(&mut m, &events);
+    assert_eq!(m.state.game_end.as_ref().map(|g| g.winner), Some(None));
+    assert!(told(&m, None).contains(&What::Over { winner: None }));
+    let outs = m.outs();
+    assert_eq!(outs.len(), 2);
+    assert_eq!(outs[0].batch, outs[1].batch);
+    assert_eq!(outs.iter().find(|o| o.seat == 1).unwrap().why, Why::Life { life: -2 });
 }
 
 /// Nothing in `viewer`'s happenings after `from` points at a card `viewer` can't identify now, or
@@ -288,7 +354,7 @@ fn ids_are_visible(m: &Match, viewer: Option<u8>, from: u64) {
 }
 
 #[test]
-fn an_ai_game_tells_nobody_what_they_may_not_see() {
+fn an_ai_game_tells_nobody_what_they_may_not_see_and_resumes_with_the_same_feed() {
     let e = Engine::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/combat-cards.json")).unwrap();
     let ai = [(0, Difficulty::Easy), (1, Difficulty::Easy), (2, Difficulty::Easy)];
     let mut m = e.new_match_first(11, vec![deck(); 3], &ai, Some(0)).unwrap();
@@ -309,4 +375,12 @@ fn an_ai_game_tells_nobody_what_they_may_not_see() {
     assert!(mine.iter().any(|h| matches!(h.what, What::Turn { .. })));
     assert!(mine.iter().any(|h| matches!(&h.what, What::Drew { seat: 0, cards, .. } if !cards.is_empty())), "seat 0 sees its own draws");
     assert!(m.events(Some(1)).iter().any(|h| matches!(&h.what, What::Drew { seat: 0, cards, .. } if cards.is_empty())), "seat 1 sees seat 0 draw, unnamed");
+
+    // A restart replays the log: the same feed, knockouts and numbers come back.
+    let back = e.resume(&m.replay_json(), &ai).unwrap();
+    for viewer in [Some(0), Some(1), Some(2), None] {
+        assert_eq!(back.events(viewer), m.events(viewer), "{viewer:?}");
+    }
+    assert_eq!(back.outs(), m.outs());
+    assert_eq!(back.feed.stats(&back.state), m.feed.stats(&m.state));
 }

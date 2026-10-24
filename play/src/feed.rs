@@ -12,8 +12,13 @@
 //! it (destroyed, sacrificed, discarded, milled, countered), damage, life, attacks and blocks,
 //! tokens, counters, reveals, draws, knockouts and the end. The board writes them as plain
 //! sentences (web/src/play/feed.ts); nothing here summarises or advises.
+//!
+//! Alongside the feed, public facts that need the whole game are tallied from every event (the
+//! game-over stats), and each knockout is kept with its cause. The engine's `PlayerEliminated`
+//! carries no cause, so the cause is Yama's reading of the board at that moment (commander damage,
+//! poison, life, an empty library), marked `inferred`; a concession is Yama's own record.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use engine::game::filter_events_for_viewer;
 use engine::game::filter_state_for_viewer;
@@ -175,22 +180,74 @@ pub struct Came {
     pub from: Option<&'static str>,
 }
 
+/// A player knocked out, in the order they went out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Out {
+    pub seat: u8,
+    pub turn: u32,
+    /// Their life total when they went out.
+    pub life: i32,
+    pub why: Why,
+    /// The cause is Yama's reading of the board, not something the engine stated.
+    pub inferred: bool,
+    /// Players with the same `batch` went out at the same moment.
+    pub batch: u64,
+}
+
+/// Why a player is out. Everything but a concession is read from the board as they went out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Why {
+    Conceded,
+    /// 21 or more combat damage from one commander (CR 704.5u): its name and its owner's seat.
+    Commander { name: String, seat: u8, damage: u32 },
+    Poison { count: u32 },
+    Life { life: i32 },
+    /// Drew from an empty library (CR 704.5b).
+    Library,
+    Unknown,
+}
+
+/// The game's public numbers for each seat, for the end of the game.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct SeatStats {
+    pub seat: u8,
+    pub spells: u32,
+    pub lands: u32,
+    pub drew: u32,
+    /// Damage this seat's sources dealt to players.
+    pub damage: u32,
+    /// Combat damage this seat's commanders dealt to players.
+    pub commander_damage: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stats {
+    pub turns: u32,
+    pub seats: Vec<SeatStats>,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Feed {
     seq: u64,
+    batch: u64,
     /// Turn and active seat as the last batch left them (a batch can start a new turn).
     cursor: Option<(u32, u8)>,
     by: BTreeMap<Viewer, VecDeque<Happening>>,
     came: BTreeMap<Viewer, HashMap<u64, Came>>,
+    outs: Vec<Out>,
+    tally: BTreeMap<u8, SeatStats>,
     /// The private look last noted, so a look that stays open across actions is noted once.
     look: Option<(u8, Vec<ObjectId>)>,
 }
 
 impl Feed {
-    /// Take one action's events, and add what each viewer may know to their feed. `state` is the
-    /// game right after the action.
-    pub(crate) fn record(&mut self, events: &[GameEvent], state: &GameState) {
+    /// Take one action's events: tally them, and add what each viewer may know to their feed.
+    /// `state` is the game right after the action; `conceded` holds the seats that conceded.
+    pub(crate) fn record(&mut self, events: &[GameEvent], state: &GameState, conceded: &BTreeSet<u8>) {
+        self.batch += 1;
         let start = self.cursor.unwrap_or((state.turn_number, state.active_player.0));
+        self.tally(events, state, conceded);
         if events.iter().any(worth_telling) {
             let seats = state.players.iter().map(|p| Some(p.id.0));
             for viewer in seats.chain(std::iter::once(None)) {
@@ -239,6 +296,62 @@ impl Feed {
         self.came.get(&viewer)?.get(&id).copied()
     }
 
+    pub(crate) fn outs(&self) -> &[Out] {
+        &self.outs
+    }
+
+    /// The game's numbers for each seat, as they stand.
+    pub(crate) fn stats(&self, state: &GameState) -> Stats {
+        let seats = state
+            .players
+            .iter()
+            .map(|p| {
+                let seat = p.id.0;
+                let mut s = self.tally.get(&seat).cloned().unwrap_or_default();
+                s.seat = seat;
+                // The engine keeps commander damage by commander; each commander's owner dealt it.
+                s.commander_damage = state
+                    .commander_damage
+                    .iter()
+                    .filter(|d| state.objects.get(&d.commander).is_some_and(|o| o.owner == p.id))
+                    .map(|d| d.damage)
+                    .sum();
+                s
+            })
+            .collect();
+        Stats { turns: state.turn_number, seats }
+    }
+
+    /// Public counts and knockouts, from every event of the action (nothing here names a card
+    /// anyone couldn't see).
+    fn tally(&mut self, events: &[GameEvent], state: &GameState, conceded: &BTreeSet<u8>) {
+        let controller = |id: &ObjectId| state.objects.get(id).map(|o| o.controller.0);
+        for e in events {
+            match e {
+                GameEvent::SpellCast { controller: c, .. } => self.stat(c.0).spells += 1,
+                GameEvent::LandPlayed { player_id, .. } => self.stat(player_id.0).lands += 1,
+                // Only the count: which card was drawn stays with whoever may see it.
+                GameEvent::CardDrawn { player_id, .. } => self.stat(player_id.0).drew += 1,
+                GameEvent::DamageDealt { source_id, target: TargetRef::Player(_), amount, .. } => {
+                    if let Some(seat) = controller(source_id) {
+                        self.stat(seat).damage += amount;
+                    }
+                }
+                GameEvent::PlayerEliminated { player_id } if !self.outs.iter().any(|o| o.seat == player_id.0) => {
+                    let why = why_out(state, *player_id, conceded);
+                    let inferred = !matches!(why, Why::Conceded | Why::Unknown);
+                    let life = state.players.iter().find(|p| p.id == *player_id).map(|p| p.life).unwrap_or(0);
+                    self.outs.push(Out { seat: player_id.0, turn: state.turn_number, life, why, inferred, batch: self.batch });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn stat(&mut self, seat: u8) -> &mut SeatStats {
+        self.tally.entry(seat).or_insert_with(|| SeatStats { seat, ..Default::default() })
+    }
+
     /// A private look (CR 701.20e) open now, noted once for the seat looking.
     fn private_look(&mut self, state: &GameState) {
         let now = state.private_look_player.filter(|_| !state.private_look_ids.is_empty()).map(|p| (p.0, state.private_look_ids.clone()));
@@ -257,6 +370,32 @@ impl Feed {
 /// The engine's viewer id: a seat, or one no seat has, which the engine treats as a spectator.
 fn viewer_id(viewer: Viewer) -> PlayerId {
     PlayerId(viewer.unwrap_or(u8::MAX))
+}
+
+/// Why `player` is out, read from the board as they went out.
+fn why_out(state: &GameState, player: PlayerId, conceded: &BTreeSet<u8>) -> Why {
+    if conceded.contains(&player.0) {
+        return Why::Conceded;
+    }
+    let commander = state
+        .commander_damage
+        .iter()
+        .filter(|d| d.player == player && d.damage >= 21)
+        .max_by_key(|d| d.damage)
+        .and_then(|d| state.objects.get(&d.commander).map(|o| (o, d.damage)));
+    if let Some((o, damage)) = commander {
+        return Why::Commander { name: o.name.clone(), seat: o.owner.0, damage };
+    }
+    let Some(p) = state.players.iter().find(|p| p.id == player) else { return Why::Unknown };
+    if p.poison_counters >= 10 {
+        Why::Poison { count: p.poison_counters }
+    } else if p.life <= 0 {
+        Why::Life { life: p.life }
+    } else if p.drew_from_empty_library {
+        Why::Library
+    } else {
+        Why::Unknown
+    }
 }
 
 /// Whether an event may give anyone a line (the rest is mana, priority and bookkeeping).

@@ -271,6 +271,76 @@ async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
     let _ = live.cmds.send(Cmd::Stop);
 }
 
+#[tokio::test]
+async fn the_host_starts_a_rematch_and_the_other_players_can_join_it() {
+    use crate::testutil::{deck as make_deck, send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()) });
+    let pool = st.pool.clone();
+    let app = crate::routes::app(st);
+    let (host, host_token) = user(&pool, "ana@example.com").await;
+    let (friend, friend_token) = user(&pool, "ben@example.com").await;
+    let (_, stranger_token) = user(&pool, "cat@example.com").await;
+    let (host_deck, host_version) = make_deck(&pool, &host, "Ana's deck").await;
+    let (ai_deck, ai_version) = make_deck(&pool, &host, "Computer's deck").await;
+    let (friend_deck, friend_version) = make_deck(&pool, &friend, "Ben's deck").await;
+
+    // A finished game: Ana hosted, Ben joined, a computer played Ana's other deck.
+    let seat = |n: u8, kind: &str, user: Option<&str>, deck: &str, version: &str| SeatCfg {
+        seat: n,
+        kind: kind.into(),
+        user_id: user.map(str::to_string),
+        name: format!("Seat {n}"),
+        deck_id: Some(deck.into()),
+        deck_version_id: Some(version.into()),
+        deck_name: Some("A deck".into()),
+        color_identity: String::new(),
+        commander: None,
+        difficulty: (kind == "ai").then(|| "Hard".into()),
+        bracket: None,
+    };
+    let seats = vec![seat(0, "human", Some(&host), &host_deck, &host_version), seat(1, "human", Some(&friend), &friend_deck, &friend_version), seat(2, "ai", None, &ai_deck, &ai_version)];
+    sqlx::query("INSERT INTO games (id, mode, created_by, format, status, starting_life, started_at, ended_at) VALUES ('old', 'online', ?, 'commander', 'finished', 40, '2026-10-24T10:00:00Z', '2026-10-24T11:12:00Z')")
+        .bind(&host)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO online_games (game_id, code, host_id, stage, seats, created_at, updated_at) VALUES ('old', 'OLDOLD', ?, 'over', ?, '2026-10-24T09:58:00Z', '2026-10-24T11:12:00Z')")
+        .bind(&host)
+        .bind(serde_json::to_string(&seats).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Only the host starts it.
+    assert_eq!(request(&app, Method::POST, "/api/play/old/rematch", Some(&friend_token), None).await.0, StatusCode::FORBIDDEN);
+    let (status, made) = request(&app, Method::POST, "/api/play/old/rematch", Some(&host_token), None).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let new_id = made["id"].as_str().unwrap().to_string();
+    // Same seats: Ana's deck, the computer's deck and level, Ben's seat open for him.
+    let r = load_row(&pool, &new_id).await.unwrap();
+    assert_eq!(r.stage, "lobby");
+    let again = r.seats();
+    assert_eq!((again[0].user_id.as_deref(), again[0].deck_id.as_deref()), (Some(host.as_str()), Some(host_deck.as_str())));
+    assert_eq!((again[1].kind.as_str(), again[1].user_id.as_deref()), ("human", None));
+    assert_eq!((again[2].kind.as_str(), again[2].deck_id.as_deref(), again[2].difficulty.as_deref()), ("ai", Some(ai_deck.as_str()), Some("Hard")));
+    // A second tap gives the same rematch.
+    assert_eq!(request(&app, Method::POST, "/api/play/old/rematch", Some(&host_token), None).await.1["id"], new_id.as_str());
+
+    // Ben's game-over screen learns of it, with the code and his deck from that game.
+    let (_, old) = request(&app, Method::GET, "/api/play/old", Some(&friend_token), None).await;
+    assert_eq!(old["rematch"]["id"], new_id.as_str());
+    assert_eq!(old["rematch"]["code"], r.code.as_str());
+    assert_eq!(old["rematch"]["deck_id"], friend_deck.as_str());
+    assert_eq!((old["started_at"].as_str(), old["ended_at"].as_str()), (Some("2026-10-24T10:00:00Z"), Some("2026-10-24T11:12:00Z")));
+    // Nobody outside the game sees it.
+    assert_eq!(request(&app, Method::GET, "/api/play/old", Some(&stranger_token), None).await.0, StatusCode::NOT_FOUND);
+    let (status, _) = request(&app, Method::POST, "/api/play/join", Some(&friend_token), Some(serde_json::json!({ "code": r.code, "deck_id": friend_deck }))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(load_row(&pool, &new_id).await.unwrap().seats()[1].user_id.as_deref(), Some(friend.as_str()));
+}
+
 #[test]
 fn card_details_cover_what_the_viewer_was_told_happened() {
     let e = engine();

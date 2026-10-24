@@ -5365,8 +5365,8 @@ button.portrait:hover {
   font: 700 17px/1.2 var(--body);
 }
 
-/* ── reading cards, zones and reveals ───────────────────────────────────────
-   GInspector, GZones and the reveal panel. */
+/* ── reading cards, zones and what happened ─────────────────────────────────
+   GInspector, GZones, GLog, GKnockout, GRareRules' "You're out" and "Drawn game", GGameOver. */
 
 /* A dialog over the table on a laptop (the rail stays usable beside it). */
 .gi-overlay {
@@ -5683,6 +5683,529 @@ button.portrait:hover {
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
 }
 
+/* GLog: filters, then each turn's lines with art, a You tag, and Automatic with Turn off. */
+.glog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.glog-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.glog-filter {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+.glog-filter.on {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--ground);
+}
+.glog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.glog-head {
+  padding: 12px 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--dim);
+  font-weight: 700;
+}
+.glog-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.glog-row img,
+.glog-blank {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--raised);
+}
+.glog-row button.link {
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: underline;
+}
+.log-tag.you {
+  background: var(--dim);
+}
+.glog-empty {
+  padding: 12px 0;
+}
+.glog-foot {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+/* GKnockout: players out, one line each across the top in the order they went out. */
+.pb-top {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pb-top > .pb-opps {
+  flex: 1;
+}
+.pb-outs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.out-strip {
+  position: relative;
+  height: 40px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.out-strip img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 30%;
+}
+.out-wash {
+  position: absolute;
+  inset: 0;
+  background: rgb(11 12 14 / 0.84);
+}
+.out-body {
+  position: absolute;
+  inset: 0;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.seat-ring {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--seat, var(--dim));
+}
+.out-how {
+  color: var(--on-art-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.out-inferred {
+  font-size: 11px;
+  color: var(--on-art-dim);
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgb(255 255 255 / 0.25);
+}
+.out-side {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--on-art-dim);
+}
+
+/* A player just went out: a card in the middle of the table until dismissed. */
+.ko-note {
+  position: fixed;
+  z-index: 23;
+  left: calc((100vw - 340px) / 2);
+  top: 46%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 380px));
+  padding: 18px;
+  border-radius: 22px;
+  background: var(--ground);
+  box-shadow: 0 0 0 1px var(--line), 0 30px 70px rgb(0 0 0 / 0.8);
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+}
+.ko-art {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--raised);
+}
+.ko-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ko-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ko-text b {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 34px;
+  line-height: 1;
+}
+.ko-note .gi-close {
+  align-self: start;
+}
+.pb.phone ~ .ko-note,
+.pb.phone .ko-note {
+  left: 50%;
+  top: 30%;
+  width: calc(100vw - 24px);
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  z-index: 36;
+}
+.pb.phone .ko-art {
+  width: 64px;
+  height: 64px;
+}
+
+/* You're out (GRareRules): over the table; the rail or dock keeps the buttons. */
+.ko-overlay {
+  position: fixed;
+  z-index: 21;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  right: 340px;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 0.6);
+}
+.pb.phone .ko-overlay {
+  right: 0;
+  bottom: auto;
+  max-height: calc(100dvh - 190px);
+  overflow: auto;
+  place-items: start stretch;
+  padding: 12px;
+  z-index: 34;
+}
+.ko-you {
+  width: min(760px, 100%);
+  padding: 18px;
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ko-hero {
+  position: relative;
+  height: 300px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--raised);
+}
+.ko-you:not(.wide) .ko-hero {
+  height: 200px;
+}
+.ko-hero img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 25%;
+}
+.ko-hero-wash {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(11 12 14 / 0.3) 0%, rgb(11 12 14 / 0.9) 100%);
+}
+.ko-hero-text {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--on-art);
+}
+.ko-hero-text b {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(48px, 8vw, 84px);
+  line-height: 0.9;
+}
+.ko-inferred {
+  font-size: 13px;
+  color: var(--on-art-dim);
+}
+.ko-credit {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font-size: 11px;
+  color: rgb(255 255 255 / 0.8);
+}
+.ko-standings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ko-standings li {
+  display: grid;
+  grid-template-columns: 28px 12px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--raised);
+  font-size: 14px;
+}
+.ko-standings b {
+  font-family: var(--display);
+  font-size: 22px;
+}
+
+/* GGameOver: the whole screen. */
+.go {
+  position: fixed;
+  z-index: 22;
+  inset: 0;
+  overflow: auto;
+  background: var(--ground);
+  display: flex;
+  flex-direction: column;
+}
+.pb.phone ~ .go,
+.pb.phone .go {
+  z-index: 35;
+}
+.go-hero {
+  position: relative;
+  flex: none;
+  height: 380px;
+  overflow: hidden;
+}
+.go:not(.wide) .go-hero {
+  height: 270px;
+}
+.go-hero img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 25%;
+}
+.go-wash {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(11 12 14 / 0.35) 0%, rgb(11 12 14 / 0.6) 55%, var(--ground) 100%);
+}
+.go-title {
+  position: absolute;
+  left: clamp(18px, 4vw, 60px);
+  right: 18px;
+  bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--on-art);
+}
+.go-title h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(72px, 9vw, 120px);
+  line-height: 0.9;
+}
+.go-meta {
+  color: var(--on-art-dim);
+}
+.go-credit {
+  position: absolute;
+  right: 18px;
+  bottom: 12px;
+  font-size: 12px;
+  color: rgb(255 255 255 / 0.75);
+}
+.go:not(.wide) .go-credit {
+  top: 10px;
+  bottom: auto;
+}
+.go-body {
+  display: grid;
+  gap: 28px;
+  padding: 24px clamp(12px, 4vw, 60px) 32px;
+}
+.go.wide .go-body {
+  grid-template-columns: minmax(0, 780px) minmax(0, 500px);
+}
+.go-standings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.go-standings h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 24px;
+}
+.go-row {
+  display: grid;
+  grid-template-columns: 34px 56px minmax(0, 1fr) 210px 70px;
+  gap: 14px;
+  align-items: center;
+  padding: 8px 14px 8px 8px;
+  border-radius: 16px;
+  background: var(--surface);
+}
+.go-row.top {
+  background: var(--raised);
+}
+.go:not(.wide) .go-row {
+  grid-template-columns: 26px 40px minmax(0, 1fr) auto;
+  gap: 10px;
+}
+.go-place {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 30px;
+  text-align: center;
+}
+.go-row img,
+.go-blank {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  object-fit: cover;
+  background: var(--raised);
+}
+.go:not(.wide) .go-row img,
+.go:not(.wide) .go-blank {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+.go-who {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+.go-who .dim {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.go-life {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 30px;
+  text-align: right;
+}
+.go-inferred {
+  grid-column: 3 / -1;
+  margin-top: -6px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.go-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.go-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+.go-tile {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.go-tile b {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 36px;
+}
+.go-tile span {
+  font-size: 13px;
+  color: var(--dim);
+}
+.go-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--surface);
+}
+.go-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.go-buttons > * {
+  min-height: 48px;
+}
+.go-buttons .primary {
+  grid-column: 1 / -1;
+  min-height: 60px;
+  font-size: 20px;
+  font-weight: 800;
+}
+.go-bar {
+  position: fixed;
+  z-index: 22;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--r-pill);
+  background: var(--ground);
+  box-shadow: 0 0 0 1px var(--line), 0 12px 30px rgb(0 0 0 / 0.6);
+}
+
 /* A reveal: who showed what, until dismissed. */
 .reveal {
   position: fixed;
@@ -5740,4 +6263,37 @@ button.portrait:hover {
   border-radius: var(--r-pill);
   background: var(--raised);
   font-size: 12px;
+}
+.glog-top {
+  position: sticky;
+  top: -20px;
+  z-index: 1;
+  margin: -20px -16px 0;
+  padding: 20px 16px 10px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+}
+@media (min-width: 900px) {
+  .glog-top {
+    top: -28px;
+    margin: -28px -28px 0;
+    padding: 28px 28px 12px;
+  }
+}
+.go-tiles.small {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.go-tiles.small .go-tile b {
+  font-size: 28px;
+}
+.go:not(.wide) .go-buttons > * {
+  min-height: 46px;
+  font-size: 14px;
+}
+.ko-art-credit {
+  font-size: 11px;
+  color: var(--dim);
 }

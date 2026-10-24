@@ -96,6 +96,43 @@ export type Happening = { seq: number; turn: number; active: number } & (
   | { kind: "over"; winner?: number }
 );
 
+/** Why a player is out. All but a concession are read from the board as they went out. */
+export type Why =
+  | { kind: "conceded" }
+  | { kind: "commander"; name: string; seat: number; damage: number }
+  | { kind: "poison"; count: number }
+  | { kind: "life"; life: number }
+  | { kind: "library" }
+  | { kind: "unknown" };
+
+/** A player knocked out, in the order they went out. */
+export interface Out {
+  seat: number;
+  turn: number;
+  life: number;
+  why: Why;
+  /** The cause is Yama's reading of the board, not something the engine stated. */
+  inferred: boolean;
+  /** Players with the same batch went out at the same moment. */
+  batch: number;
+}
+
+export interface SeatStats {
+  seat: number;
+  spells: number;
+  lands: number;
+  drew: number;
+  /** Damage this seat's sources dealt to players. */
+  damage: number;
+  /** Combat damage this seat's commanders dealt to players. */
+  commander_damage: number;
+}
+
+export interface Stats {
+  turns: number;
+  seats: SeatStats[];
+}
+
 export interface PlayerView {
   seat: number;
   life: number;
@@ -526,6 +563,10 @@ export interface View {
   resolve_all?: ResolveAllView;
   /** The newest things that happened, as you may know them, oldest first (newer servers). */
   events?: Happening[];
+  /** Players knocked out, in order, each with its cause. */
+  outs?: Out[];
+  /** The game's numbers, once it's over. */
+  stats?: Stats;
 }
 
 export interface SeatInfo {
@@ -600,4 +641,9 @@ export interface OnlineGame {
   /** The playgroup whose stats it counts toward. */
   playgroup?: string | null;
   missing_cards: Record<string, string[]>;
+  /** When play started and, once over, ended (newer servers). */
+  started_at?: string | null;
+  ended_at?: string | null;
+  /** The rematch the host started from this finished game, for its players: the lobby to join. */
+  rematch?: { id: string; code: string; deck_id: string | null };
 }
