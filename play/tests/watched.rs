@@ -9,7 +9,7 @@ fn engine() -> Engine {
 }
 
 fn deck() -> SeatDeck {
-    SeatDeck { commander: vec!["Combat Celebrant".into()], main: [vec!["Sol Ring".into()], vec!["Forest".into(); 98]].concat() }
+    SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: [vec!["Sol Ring".into()], vec!["Forest".into(); 98]].concat() }
 }
 
 #[test]

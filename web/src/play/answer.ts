@@ -9,6 +9,9 @@ import type { Act, DecisionOption, Pending, TargetView } from "./types";
 /** A remembered "may": ask each time, or have the engine always answer yes, or always no. */
 export type Remember = "ask" | "always" | "never";
 
+/** Time travel (GRareRules): a time counter off a card, left as it is, or added. */
+export type TimeMove = "remove" | "leave" | "add";
+
 /** What the person has put together so far, by the decision's kind. */
 export type Draft =
   /**
@@ -23,7 +26,9 @@ export type Draft =
   /** `null` until a number is chosen, where the engine has no default (GNumber's "–"). */
   | { kind: "number"; value: number | null }
   | { kind: "text"; value: string }
-  | { kind: "yesno"; remember: Remember };
+  | { kind: "yesno"; remember: Remember }
+  /** Time travel: what happens to each card's time counters, by option id. */
+  | { kind: "time"; moves: Record<string, TimeMove> };
 
 /** Decisions these widgets answer: every decision the server describes with `pending`. */
 export function chooserCovers(p: Pending | undefined | null): p is Pending {
@@ -63,7 +68,7 @@ export const isFaceChoice = (p: Pending | null | undefined): boolean => !!p && F
  * copies, equip, the Ring-bearer, empower Jace, populate, explore, a token's host, and
  * proliferate's permanents and players. A phone shows them as tiles in the dock's sheet.
  */
-const PERMANENTS = new Set(["legend", "clone", "equip", "ring", "empower", "host", "populate", "explore", "proliferate"]);
+const PERMANENTS = new Set(["legend", "clone", "equip", "ring", "empower", "host", "populate", "explore", "proliferate", "cipher", "ninjutsu"]);
 export const isPermanentPick = (p: Pending | null | undefined): boolean => !!p && PERMANENTS.has(p.purpose);
 
 /**
@@ -134,6 +139,10 @@ export function phyrexianMana(p: Pending, d: Draft): string {
 /** A fresh draft: the engine's default answer where it has one. */
 export function initialDraft(p: Pending): Draft {
   const d = p.defaultAnswer;
+  // Time travel starts with every card left as it is (GRareRules).
+  if (p.answer === "time_travel") return { kind: "time", moves: Object.fromEntries(p.options.filter((o) => o.eligible).map((o) => [o.id, "leave" as TimeMove])) };
+  // A shortcut's response starts at accepting it (no stopping place).
+  if (p.answer === "respond_to_shortcut" && p.kind === "number") return { kind: "number", value: null };
   switch (p.kind) {
     case "pick":
     case "pair":
@@ -291,7 +300,7 @@ export function keypad(p: Pending): number[] | null {
 export function ready(p: Pending, d: Draft): boolean {
   switch (d.kind) {
     case "pick":
-      if (isScry(p) || p.answer === "pay_phyrexian") return true;
+      if (isScry(p) || p.answer === "pay_phyrexian" || p.purpose === "face_down") return true;
       if (p.need !== undefined && powerOf(p, d) < p.need) return false;
       return d.ids.length >= p.min && d.ids.length <= p.max;
     case "order":
@@ -305,7 +314,11 @@ export function ready(p: Pending, d: Draft): boolean {
       return p.options.every((o) => (d.amounts[o.id] ?? 0) >= min);
     }
     case "number":
+      // Accepting a shortcut is no number at all.
+      if (p.answer === "respond_to_shortcut") return d.value === null || (d.value >= p.min && d.value <= p.max);
       return d.value !== null && d.value >= p.min && d.value <= p.max;
+    case "time":
+      return true;
     case "text":
       return d.value.trim() !== "" && (!!p.freeEntry || p.options.some((o) => o.id === d.value));
     default:
@@ -322,6 +335,8 @@ export function canRememberOrder(p: Pending): boolean {
 
 /** The empty answer: "Find nothing", "Return none", "Don't pair", "No target", "Don't enlist". */
 export function noneAct(p: Pending): Act | null {
+  if (p.answer === "declare_companion") return { kind: "declare_companion", name: null };
+  if (p.answer === "cipher_encode") return { kind: "cipher_encode", creature: null };
   if (p.answer === "select_cards" && p.min === 0) return { kind: "select_cards", cards: [] };
   if (p.answer === "choose_pair" && p.min === 0) return { kind: "choose_pair", partner: null };
   if (p.answer === "choose_target" && p.min === 0) return { kind: "choose_target", target: null };
@@ -331,7 +346,13 @@ export function noneAct(p: Pending): Act | null {
 
 /** The `act` message for a draft; `yes` answers a yes-or-no decision. */
 export function toAct(p: Pending, d: Draft, yes = true): Act | null {
+  // Yama remembers this answer for you (remember.rs): an unless-cost, the command zone.
+  if (d.kind === "yesno" && p.remember === "yama" && d.remember !== "ask") return { kind: "remember_answer", accept: d.remember === "always" };
   const remember = d.kind === "yesno" && p.remember === "engine" ? d.remember : "ask";
+  // A morph: cast face down (the main button) or face up (the second); only face up when {3} can't be paid.
+  if (p.purpose === "face_down") return { kind: "choose_alternative_cast", alternative: yes && !!p.options.find((o) => o.id === "alternative")?.eligible };
+  const rare = rareAct(p, d, yes);
+  if (rare !== undefined) return rare;
   switch (p.answer) {
     case "select_cards":
       return d.kind === "pick" || d.kind === "order" ? { kind: "select_cards", cards: d.ids.map(Number) } : null;
@@ -478,6 +499,89 @@ export function toAct(p: Pending, d: Draft, yes = true): Act | null {
   return null;
 }
 
+/**
+ * The `act` for the rarer cards and rules (play/src/rare.rs; GRareCards, GRareRules), or
+ * `undefined` for any other decision.
+ */
+function rareAct(p: Pending, d: Draft, yes: boolean): Act | null | undefined {
+  const id = d.kind === "pick" ? d.ids[0] : undefined;
+  switch (p.answer) {
+    case "declare_companion":
+      return d.kind === "pick" ? { kind: "declare_companion", name: id ?? null } : null;
+    case "cipher_encode":
+      return d.kind === "pick" ? { kind: "cipher_encode", creature: id === undefined ? null : Number(id) } : null;
+    case "choose_meld_pair": {
+      const [source, partner] = (id ?? "").split(":").map(Number);
+      return source !== undefined && partner !== undefined && id ? { kind: "choose_meld_pair", source, partner } : null;
+    }
+    case "choose_entry_attack_target":
+      return id === undefined ? null : { kind: "choose_entry_attack_target", target: target(id) };
+    case "choose_dungeon":
+      return id === undefined ? null : { kind: "choose_dungeon", dungeon: id };
+    case "choose_dungeon_room":
+      return id === undefined ? null : { kind: "choose_dungeon_room", room: Number(id) };
+    case "time_travel": {
+      if (d.kind !== "time") return null;
+      const with_ = (m: TimeMove) => Object.entries(d.moves).filter(([, v]) => v === m).map(([k]) => target(k));
+      return { kind: "time_travel", remove: with_("remove"), add: with_("add") };
+    }
+    case "propose_shortcut":
+      // The pre-cast shortcut is a yes or no; a loop's count is one of the engine's.
+      if (p.kind === "yesno") return yes ? { kind: "propose_shortcut", count: null } : { kind: "decline_shortcut" };
+      return id === undefined ? null : { kind: "propose_shortcut", count: id === "lethal" ? null : Number(id) };
+    case "respond_to_shortcut":
+      if (d.kind === "number") return { kind: "respond_to_shortcut", stop_at: d.value };
+      return id === undefined ? null : { kind: "respond_to_shortcut", stop_at: id === "accept" ? null : Number(id) };
+    case "ninjutsu":
+      return id === undefined || !p.source ? null : { kind: "ninjutsu", card: p.source.id, attacker: Number(id) };
+  }
+  return undefined;
+}
+
+/**
+ * The buttons for the rarer cards and rules (GRareCards, GRareRules): "Cast face down for {3}",
+ * "Reveal Jegantha", "Meld into Brisela", "Encode on Éowyn", "Venture into Lost Mine of
+ * Phandelver", "Go to Goblin Lair", "Propose: repeat 20 times", "Pay {1}{U}, return Soldier". The
+ * second button is left `undefined` where Cancel (when there is one) belongs.
+ */
+function rareButtons(p: Pending, d: Draft, who?: (seat: number) => string): { primary: string; secondary?: string | null; secondaryDoes?: SecondaryDoes | null } | null {
+  if (d.kind !== "pick") return null;
+  const o = p.options.find((x) => x.id === d.ids[0]);
+  const name = o?.name ?? "";
+  const none = { secondary: null, secondaryDoes: null };
+  switch (p.purpose) {
+    case "face_down": {
+      const down = p.options.find((x) => x.id === "alternative");
+      const up = p.options.find((x) => x.id === "normal");
+      if (!down?.eligible) return { primary: `Cast face up for ${up?.cost ?? ""}`, ...none };
+      return { primary: `Cast face down for ${down.cost ?? ""}`, ...(up?.eligible ? { secondary: `Cast face up for ${up.cost ?? ""}`, secondaryDoes: "no" as const } : none) };
+    }
+    case "companion":
+      return { primary: o ? `Reveal ${name}` : "Choose a companion", secondary: "No companion", secondaryDoes: "none" };
+    case "meld":
+      return { primary: o ? `Meld into ${o.text ?? name}` : "Choose a pair", ...none };
+    case "entry_attack":
+      return { primary: o ? `Attack ${o.zone === "player" && o.controller !== undefined && who ? who(o.controller) : name}` : "Choose what it attacks", ...none };
+    case "cipher":
+      return { primary: o ? `Encode on ${name}` : "Choose a creature", secondary: "Don't encode", secondaryDoes: "none" };
+    case "dungeon":
+      return { primary: o ? `Venture into ${name}` : "Choose a dungeon", ...none };
+    case "dungeon_room":
+      return { primary: o ? `Go to ${name}` : "Choose a room", ...none };
+    case "shortcut":
+      return {
+        primary: !o ? "Choose how many times" : o.id === "lethal" ? "Propose: repeat until a player loses" : `Propose: repeat ${o.id} times`,
+        secondary: "Keep playing it out",
+        secondaryDoes: "decline",
+      };
+    case "precast_response":
+      return { primary: !o ? "Choose" : o.id === "accept" ? "Accept the shortcut" : "Stop it there", ...none };
+    case "ninjutsu":
+      return { primary: !o ? "Choose an attacker" : p.cost ? `Pay ${p.cost}, return ${name}` : `Return ${name}`, secondary: "Cancel", secondaryDoes: "back" };
+  }
+  return null;
+}
+
 /** A one-sentence question ("Draw a card?") as words for buttons ("draw a card"), else null. */
 function shortQuestion(p: Pending): string | null {
   const q = p.prompt.trim();
@@ -517,6 +621,9 @@ export function yesFor(p: Pending): string {
  * what the question asks, in its own first word ("Always search", "Never search").
  */
 export function rememberLabels(p: Pending): Record<Remember, string> {
+  // Yama's own (remember.rs, GChoices): "Always pay", "Never pay"; the command zone.
+  if (p.remember === "yama" && p.purpose === "pay") return { ask: "Ask each time", always: "Always pay", never: "Never pay" };
+  if (p.remember === "yama" && p.purpose === "commander_zone") return { ask: "Ask each time", always: "Always command zone", never: "Never command zone" };
   const verb = questionVerb(p);
   return { ask: "Ask each time", always: verb ? `Always ${verb}` : "Always yes", never: verb ? `Never ${verb}` : "Always no" };
 }
@@ -541,7 +648,7 @@ export function pickVerb(p: Pending): string {
 
 const optionName = (p: Pending, id: string | undefined) => p.options.find((o) => o.id === id)?.name ?? "";
 
-export type SecondaryDoes = "no" | "cancel" | "clear" | "none" | "reset" | "ask" | "all-top" | "all" | "keep-rest" | "keep-mana" | "swap";
+export type SecondaryDoes = "no" | "cancel" | "clear" | "none" | "reset" | "ask" | "all-top" | "all" | "keep-rest" | "keep-mana" | "swap" | "decline" | "accept" | "back";
 
 /** The main and second buttons' words for a decision (design/screens/GButtons and each widget's board). */
 export function buttons(
@@ -556,7 +663,7 @@ export function buttons(
       // A cast offer the engine can't pay for: only its no is left, on the main button.
       if (isCastOffer(p) && !castable(p)) return { primary: p.noLabel ?? "No", secondary: null, secondaryDoes: null };
       // Remembering: the main button gives that answer from now on; the second goes back to asking.
-      if (d.remember !== "ask" && p.remember === "engine") return { primary: rememberLabels(p)[d.remember], secondary: "Ask each time", secondaryDoes: "ask" };
+      if (d.remember !== "ask" && (p.remember === "engine" || p.remember === "yama")) return { primary: rememberLabels(p)[d.remember], secondary: "Ask each time", secondaryDoes: "ask" };
       const words = yesNoLabels(p);
       return { primary: words.yes, secondary: words.no, secondaryDoes: "no" };
     }
@@ -575,6 +682,8 @@ export function buttons(
       if (p.answer === "choose_pair") {
         return { primary: n ? `Pair with ${optionName(p, d.ids[0])}` : "Choose a creature", ...(p.min === 0 ? { secondary: "Don't pair", secondaryDoes: "none" as const } : none) };
       }
+      const rare = rareButtons(p, d, opts.who);
+      if (rare) return { ...rare, ...(rare.secondary === undefined ? (cancel ?? none) : {}) } as ReturnType<typeof buttons>;
       const together = togetherButtons(p, d, changed(p, d), opts.who);
       if (together) return { ...together, ...(together.secondary === undefined ? (cancel ?? none) : {}) } as ReturnType<typeof buttons>;
       const ways = waysButtons(p, d);
@@ -611,7 +720,17 @@ export function buttons(
       }
       return { primary: rest > 0 ? `${rest} left to assign` : "Done", ...(cancel ?? none) };
     }
+    case "time": {
+      const moved = changed(p, d);
+      return { primary: "Done", ...(moved ? { secondary: "Leave all", secondaryDoes: "reset" as const } : none) };
+    }
     case "number": {
+      // A shortcut: accept it whole, or stop it early (GRareRules).
+      if (p.answer === "respond_to_shortcut") {
+        const all = p.total !== undefined ? `Accept ${p.total}` : "Accept";
+        if (d.value === null) return { primary: all, secondary: null, secondaryDoes: null };
+        return { primary: `Shorten to ${d.value}`, secondary: p.total !== undefined ? `Accept ${p.total} instead` : "Accept instead", secondaryDoes: "accept" };
+      }
       if (p.answer === "choose_x") {
         const x = d.value ?? p.min;
         return { primary: opts.spell ? `Cast for X = ${x}` : `X = ${x}`, ...(cancel ?? none) };
@@ -845,6 +964,7 @@ export function counter(p: Pending, d: Draft): string {
     if (p.purpose === "vote") return n ? "Voted" : (p.total ?? 1) === 1 ? "1 vote to cast" : `${p.total} votes to cast`;
     if (p.purpose === "piles_split") return `${n} and ${p.options.length - n}`;
     if (p.purpose === "partition" && p.options.length === 2 && p.max === 1) return n ? "Both placed" : "0 of 1 chosen";
+    if (["companion", "meld", "dungeon", "shortcut", "precast_response", "entry_attack"].includes(p.purpose)) return "";
     if (isFaceChoice(p)) return "";
     if (p.answer === "pay_phyrexian") return n ? `${n} with life` : "All with mana";
     if (p.answer === "decide_optional_cost" || p.answer === "choose_cost_branch" || p.answer === "choose_mana_color" || p.answer === "pay_mana_ability_mana" || p.answer === "tap_mana") return "";
@@ -858,6 +978,10 @@ export function counter(p: Pending, d: Draft): string {
   }
   if (d.kind === "order") return p.answer === "order_triggers" ? `${d.ids.length} triggers` : `${d.ids.length} cards`;
   if (d.kind === "text") return `${d.value.trim() ? 1 : 0} of 1 chosen`;
+  if (d.kind === "time") {
+    const all = Object.values(d.moves);
+    return `${all.filter((m) => m !== "leave").length} of ${all.length} changed`;
+  }
   return "";
 }
 
@@ -887,6 +1011,10 @@ const BOARD_ANSWERS = new Set([
   "equip",
   "select_targets",
   "learn",
+  // The rarer cards and rules: a cipher's creature, ninjutsu's attacker, an entering attacker's target.
+  "cipher_encode",
+  "ninjutsu",
+  "choose_entry_attack_target",
 ]);
 
 /**
@@ -896,7 +1024,7 @@ const BOARD_ANSWERS = new Set([
 export function onBoard(p: Pending): boolean {
   if ((p.kind !== "pick" && p.kind !== "pair") || !BOARD_ANSWERS.has(p.answer) || isScry(p) || !p.options.length) return false;
   // Proliferate also picks players, by their panes and portrait.
-  const zones = isTargeting(p) || p.answer === "select_targets" ? ["battlefield", "player", "stack"] : ["hand", "battlefield"];
+  const zones = isTargeting(p) || p.answer === "select_targets" || p.answer === "choose_entry_attack_target" ? ["battlefield", "player", "stack"] : ["hand", "battlefield"];
   return p.options.every((o) => zones.includes(o.zone ?? ""));
 }
 
@@ -969,6 +1097,12 @@ export function pickTag(p: Pending, d: Draft, id: string, roomy = false): { text
       const after = `${n} → ${n + (p.total ?? 0)}`;
       return { text: on ? (roomy ? `Loyalty ${after}` : after) : `Loyalty ${n}`, tone: on ? "plain" : "dim" };
     }
+    case "ninjutsu":
+      // Only unblocked attackers can be returned (GRareCards).
+      if (on) return { text: "Returns to hand", tone: "plain" };
+      return o.eligible ? null : { text: "Blocked", tone: "dim" };
+    case "cipher":
+      return on ? { text: "Encoded", tone: "plain" } : null;
     case "proliferate": {
       const all = o.counters ?? [];
       if (!all.length) return null;

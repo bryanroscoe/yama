@@ -71,7 +71,7 @@ fn counter_words(t: &CounterType) -> String {
 }
 
 /// The counters on a permanent, in words, largest first then by name, for the lines under it.
-fn counters_on(vs: &GameState, id: &ObjectId) -> Vec<(String, u32)> {
+pub(crate) fn counters_on(vs: &GameState, id: &ObjectId) -> Vec<(String, u32)> {
     let mut out: Vec<(String, u32)> = vs
         .objects
         .get(id)
@@ -170,7 +170,10 @@ pub(crate) fn of(vs: &GameState, me: PlayerId, candidates: &[GameAction], names:
                 AlternativeCastKeyword::FaceDown => "Pay the mana cost, or cast it face down?".to_string(),
                 _ => format!("Pay the mana cost, or {}?", way.to_lowercase()),
             };
-            Some(Pending::new(Kind::Pick, Answer::ChooseAlternativeCast, "alt_cost", prompt, vec![normal, other]).range(1, 1, false).from(vs, Some(*object_id)))
+            // Casting a morph face down (CR 702.37c) has its own board (GRareCards): what you see
+            // of it, and what everyone else does.
+            let purpose = if matches!(keyword, AlternativeCastKeyword::FaceDown) { "face_down" } else { "alt_cost" };
+            Some(Pending::new(Kind::Pick, Answer::ChooseAlternativeCast, purpose, prompt, vec![normal, other]).range(1, 1, false).from(vs, Some(*object_id)))
         }
         WaitingFor::CastingVariantChoice { player, object_id, options, .. } if *player == me => {
             // CR 601.2b: several ways to cast it from the same zone, each as the engine lists it.

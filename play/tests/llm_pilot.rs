@@ -13,7 +13,7 @@ fn engine() -> Engine {
 }
 
 fn deck() -> SeatDeck {
-    SeatDeck { commander: vec!["Combat Celebrant".into()], main: vec!["Forest".into(); 99] }
+    SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: vec!["Forest".into(); 99] }
 }
 
 fn spec(pilots: &[&str]) -> GameSpec {

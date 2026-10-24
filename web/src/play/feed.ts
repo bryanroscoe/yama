@@ -130,6 +130,8 @@ export function lineText(h: Happening, n: Names): string | null {
         ? `${subject(h.seat, n)} drew ${list(h.cards.map(cardName))}.`
         : `${subject(h.seat, n)} drew ${h.count === 1 ? "a card" : `${h.count} cards`}.`;
     case "automatic":
+      // What Yama did for an answer it remembers itself ("paid {1} for Ben's Rhystic Study").
+      if (h.did) return `Yama ${h.did}, as you asked.`;
       return `Yama answered ${h.accept ? "yes" : "no"} for ${h.name}, as you asked.`;
     case "out":
       return `${subject(h.seat, n)} ${h.seat === n.you ? "are" : "is"} out.`;

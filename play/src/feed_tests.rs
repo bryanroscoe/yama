@@ -27,7 +27,7 @@ fn deck() -> SeatDeck {
     for i in 0..99 {
         main.push(if i % 3 == 0 { spells[i / 3 % spells.len()].to_string() } else { "Mountain".to_string() });
     }
-    SeatDeck { commander: vec!["Combat Celebrant".into()], main }
+    SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main }
 }
 
 fn game(e: &Engine, seats: usize) -> Match {

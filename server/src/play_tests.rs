@@ -11,7 +11,7 @@ fn engine() -> Engine {
 }
 
 fn deck(cards: &[(&str, usize)]) -> SeatDeck {
-    SeatDeck { commander: vec!["Combat Celebrant".into()], main: cards.iter().flat_map(|(name, n)| vec![name.to_string(); *n]).collect() }
+    SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: cards.iter().flat_map(|(name, n)| vec![name.to_string(); *n]).collect() }
 }
 
 fn seat(n: u8, name: &str) -> SeatCfg {
@@ -132,6 +132,29 @@ fn only_whitelisted_answers_parse() {
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_player","seat":2}}"#));
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"learn","discard":null}}"#));
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_pile","pile":"c"}}"#));
+    // The rarer cards and rules, special actions and Yama's remembered answers (play/src/rare.rs, remember.rs).
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"declare_companion","name":"Jegantha, the Wellspring"}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"declare_companion","name":null}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_meld_pair","source":7,"partner":9}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_entry_attack_target","target":{"kind":"player","seat":1}}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"cipher_encode","creature":12}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_dungeon","dungeon":"LostMineOfPhandelver"}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_dungeon_room","room":2}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"time_travel","remove":[{"kind":"object","id":7}],"add":[]}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"propose_shortcut","count":20}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"decline_shortcut"}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"respond_to_shortcut","stop_at":5}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"ninjutsu","card":4,"attacker":9}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"turn_face_up","object":4}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"foretell","object":4}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"companion_to_hand"}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"use_serum_powder","object":4}}"#));
+    assert!(ok(r#"{"type":"act","revision":0,"action":{"kind":"remember_answer","accept":true}}"#));
+    assert!(ok(r#"{"type":"act","revision":0,"action":{"kind":"forget_answer","id":"y0123"}}"#));
+    // Not the engine's own forms: a free face-down play, a shortcut with its own template.
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"play_face_down","object_id":4,"card_id":4}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"declare_shortcut","count":{"Fixed":2}}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"activate_ninjutsu","ninjutsu_object_id":4,"creature_to_return":9}}"#));
     // Not the engine's own forms of them.
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_gift_recipient","opponent":2}}"#));
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_pile_opponent","opponent":2}}"#));
@@ -411,4 +434,55 @@ fn a_cards_faces_go_to_the_board_as_words_only() {
     // A one-faced card sends none.
     let plain = CardMeta { faces: None, ..meta };
     assert!(serde_json::to_value(&plain).unwrap().get("faces").is_none());
+}
+
+#[test]
+fn a_companion_comes_from_the_decks_sideboard() {
+    let e = Engine::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../play/tests/fixtures/rare-cards.json")).unwrap();
+    let card = |name: &str, qty: i64, board: Board| DeckCard { oracle_id: String::new(), name: name.into(), qty, board };
+    let cards = vec![
+        card("Kenrith, the Returned King", 1, Board::Commander),
+        card("Mountain", 99, Board::Main),
+        card("Shock", 1, Board::Side),
+        card("Jegantha, the Wellspring", 1, Board::Side),
+    ];
+    let (deck, report) = resolve(&e, &cards);
+    assert!(report.missing.is_empty());
+    assert_eq!(deck.companion, ["Jegantha, the Wellspring"], "the first sideboard card with the keyword");
+    assert_eq!(deck.main.len(), 99, "the sideboard stays out of the deck");
+    let (none, _) = resolve(&e, &cards[..3]);
+    assert!(none.companion.is_empty());
+}
+
+#[tokio::test]
+async fn remembered_answers_are_saved_with_the_game() {
+    let st = crate::testutil::state().await;
+    let pool = st.pool.clone();
+    let (host, _) = crate::testutil::user(&pool, "ana@example.com").await;
+    let e = engine();
+    let mut m = e.new_match_first(5, vec![deck(&[("Island", 99)]), deck(&[("Island", 99)])], &[], Some(0)).unwrap();
+    let answers: Vec<yama_play::YamaAnswer> = serde_json::from_value(serde_json::json!([
+        { "id": "y1", "seat": 0, "kind": "pay", "card": "Rhystic Study", "owner": 1, "cost": "{1}", "accept": true }
+    ]))
+    .unwrap();
+    m.set_remembered(answers.clone());
+    sqlx::query("INSERT INTO games (id, mode, created_by, format, status, starting_life, started_at) VALUES ('g', 'online', ?, 'commander', 'in_progress', 40, '2026-10-24T10:00:00Z')")
+        .bind(&host)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO online_games (game_id, code, host_id, stage, seats, created_at, updated_at) VALUES ('g', 'GGGGGG', ?, 'live', '[]', 'now', 'now')")
+        .bind(&host)
+        .execute(&pool)
+        .await
+        .unwrap();
+    persist(&pool, "g", &m).await.unwrap();
+    let (saved,): (Option<String>,) = sqlx::query_as("SELECT answers FROM online_games WHERE game_id = 'g'").fetch_one(&pool).await.unwrap();
+    let back: Vec<yama_play::YamaAnswer> = serde_json::from_str(&saved.unwrap()).unwrap();
+    assert_eq!(back, answers);
+    // None remembered: nothing stored.
+    m.set_remembered(vec![]);
+    persist(&pool, "g", &m).await.unwrap();
+    let (saved,): (Option<String>,) = sqlx::query_as("SELECT answers FROM online_games WHERE game_id = 'g'").fetch_one(&pool).await.unwrap();
+    assert_eq!(saved, None);
 }

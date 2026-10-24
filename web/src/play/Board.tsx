@@ -94,6 +94,7 @@ import { ZoneBrowser, type BrowsedZone } from "./Zones";
 import { GameLog } from "./GameLog";
 import { GameOver, GameOverBar, KnockoutNote, OutStrips, YouAreOut } from "./Endings";
 import { RevealPanel } from "./Reveal";
+import { collapseNinjutsu, ninjutsuPick, specialAct } from "./rare";
 import "./board.css";
 
 type ViewMessage = Extract<ServerMessage, { type: "view" }>;
@@ -265,6 +266,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const [draftState, setDraftState] = useState<{ key: number; draft: Draft } | null>(null);
   // A choice is on its way: buttons wait for the next board, so a double tap can't send twice.
   const [sentAt, setSentAt] = useState<number | null>(null);
+  // A pick the board puts together itself from the engine's options at priority (ninjutsu's
+  // attacker to return, GRareCards), answered like any decision; gone when the decision changes.
+  const [special, setSpecial] = useState<Pending | null>(null);
   const [landsOpen, setLandsOpen] = useState(false);
   const [othersOpen, setOthersOpen] = useState(false);
   // Paying by hand (pay.ts): the menu of a source that makes more than one thing, where it opened.
@@ -382,6 +386,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     setSelected(null);
     setSentAt(null);
     setManaMenu(null);
+    setSpecial(null);
     setAttackPlan(new Map());
     setBlockPlan(new Map());
     setPendingBlocker(null);
@@ -675,7 +680,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   // A decision answered in full through `act` (play/src/act.rs) with the design's generic
   // widgets (Decide.tsx): a pick, an order, a split, a number, a word, a pairing or a yes or no.
   // Targets keep the board's own targeting.
-  const pend = decision && !decision.attack && !decision.block && chooserCovers(decision.pending) ? decision.pending : null;
+  const pend = decision && !decision.attack && !decision.block && chooserCovers(decision.pending) ? decision.pending : decision && special && !decision.pending ? special : null;
   const draft: Draft | null = pend && decision ? (draftState?.key === decision.revision ? draftState.draft : initialDraft(pend)) : null;
   const setDraft = (d: Draft) => decision && setDraftState({ key: decision.revision, draft: d });
   // Where it's answered (answer.ts stageOf): on the board, on its targets, in a dialog or a sheet.
@@ -726,6 +731,30 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   };
   const choose = (o: OptionView) => {
     if (!decision || pending) return;
+    // Ninjutsu: first which unblocked attacker returns, picked on the board (GRareCards).
+    if (o.kind === "ninjutsu" && o.object !== null) {
+      const pick = ninjutsuPick(o.object, decision.options, view.battlefield, view.hand, you ?? 0);
+      if (pick) {
+        // The server dresses its own decisions with card details; this one is the board's.
+        const m = pick.source ? meta[pick.source.name] : undefined;
+        if (pick.source && m) pick.source = { ...pick.source, art: m.art ?? null, image: m.image, artist: m.artist ?? null };
+        setSpecial(pick);
+        setSelected(null);
+        setInspect(null);
+        setSheet((cur) => (cur === "hand" ? null : cur));
+      }
+      return;
+    }
+    // Other special actions go through `act`, matched to the engine's own option.
+    const special = specialAct(o);
+    if (special) {
+      if (send({ type: "act", revision: decision.revision, action: special })) {
+        setSelected(null);
+        setInspect(null);
+        setSheet((cur) => (cur === "hand" ? null : cur));
+      }
+      return;
+    }
     // A spell is cast through `act`, paying as "Tap mana for me" says (newer servers).
     const data =
       o.kind === "spell" && o.object !== null && tapMana
@@ -737,7 +766,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       setSheet((cur) => (cur === "hand" ? null : cur));
     }
   };
-  const optionsFor = (ids: number[]) => dedupe(decision?.options.filter((o) => o.object !== null && ids.includes(o.object)) ?? []);
+  const optionsFor = (ids: number[]) => collapseNinjutsu(dedupe(decision?.options.filter((o) => o.object !== null && ids.includes(o.object)) ?? []));
 
   const toggleAttack = (ids: number[]) => {
     if (!attack) return;
@@ -889,10 +918,12 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       if (previewCache.current.shouldAsk(revision, object, performance.now())) sendRaw({ type: "preview", revision, object });
     }, 120);
   };
+  /** Read a card; a face-down card's controller reads the card under it (CR 708.5). */
+  const read = (c: CardView) => setInspect(c.face_down && c.under ? { ...c, name: c.under } : c);
   const h: TileHandlers = {
     onPick: pick,
     onDouble: double,
-    onRead: setInspect,
+    onRead: read,
     onHover: (c, el) => {
       if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
       // Pointing at a card in your hand you could cast: which sources paying would tap.
@@ -1474,6 +1505,15 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             return sendAct(noneAct(pend));
           case "ask":
             return void setDraft({ kind: "yesno", remember: "ask" });
+          case "decline":
+            // A loop shortcut not proposed: play it out (GRareRules).
+            return sendAct({ kind: "decline_shortcut" });
+          case "accept":
+            // Accept a proposed shortcut whole.
+            return sendAct({ kind: "respond_to_shortcut", stop_at: null });
+          case "back":
+            // Back out of a pick the board started (ninjutsu).
+            return void setSpecial(null);
           case "swap":
             // One of two cards placed (the Cultivate split): the other one instead.
             return void (draft.kind === "pick" && setDraft({ kind: "pick", ids: pend.options.filter((o) => !draft.ids.includes(o.id)).map((o) => o.id).slice(0, pend.max) }));
@@ -1557,6 +1597,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     if (passMenu) return (setPassMenu(false), true);
     if (settingsOpen) return (setSettings(null), true);
     if (pend && draft && draftChanged(pend, draft)) return (setDraft(initialDraft(pend)), true);
+    if (special) return (setSpecial(null), true);
     if (pendingBlocker !== null) return (setPendingBlocker(null), true);
     if (block && blockPlan.size) return (setBlockPlan(new Map()), true);
     if (attack && attackPlan.size) return (setAttackPlan(new Map()), true);
@@ -1606,6 +1647,24 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   };
   const myLands = view.battlefield.filter((c) => c.controller === bottom && c.types.includes("Land") && !c.types.includes("Creature"));
   const myCommanders = view.command_zone.filter((c) => c.owner === bottom);
+  // Your revealed companion beside your commander (GRareCards): public, with its {3} option while
+  // you could take it (CR 702.139a). Right-click reads it.
+  const myCompanion = me?.companion && !me.companion.used ? me.companion : null;
+  const companionOption = decision?.options.find((o) => o.kind === "companion");
+  const companionTile = myCompanion ? (
+    <button
+      type="button"
+      className={`hc companion-card${companionOption ? " playable" : ""}`}
+      aria-label={`${myCompanion.name}, your companion${companionOption ? `, ${companionOption.label}` : ""}`}
+      disabled={!companionOption || pending}
+      onClick={() => companionOption && choose(companionOption)}
+      onContextMenu={(e) => (e.preventDefault(), setInspect({ ...emptyCard, name: myCompanion.name }))}
+      title={companionOption?.label ?? "Your companion"}
+    >
+      {meta[myCompanion.name]?.image ? <img src={meta[myCompanion.name]!.image!} alt="" draggable={false} /> : <span className="hc-name">{myCompanion.name}</span>}
+      <span className="hc-caption">{companionOption ? `Companion: pay ${companionOption.cost ?? "{3}"}` : "Companion"}</span>
+    </button>
+  ) : null;
   // Cards you can cast or use from exile or your graveyard sit beside your hand (PP-21): an
   // adventurer back from its adventure, a foretold card, flashback, abilities from the graveyard.
   const elsewhere = [...view.exile, ...(me?.graveyard ?? [])].filter((c) => c.owner === bottom && optionObjects.has(c.id));
@@ -1687,6 +1746,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             together: view.together,
             seat: (n: number) => ({ art: art(n).art, artist: art(n).artist, life: view.players.find((x) => x.seat === n)?.life ?? null }),
             library: (n: number) => view.players.find((x) => x.seat === n)?.library,
+            others: view.players.filter((x) => x.seat !== you && !x.eliminated).map((x) => x.seat),
           } satisfies WidgetContext,
         }
       : null;
@@ -2274,6 +2334,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
                 <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c), { tag: "Commander" })} h={h} caption={c.tax ? `Tax +${c.tax}` : undefined} />
               ))}
               {commanderWhere && <span className="cmdr-away">{commanderWhere}</span>}
+              {companionTile}
               {elsewhere.map((c) => (
                 <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c))} h={h} caption={elsewhereCaption(c)} />
               ))}
@@ -3073,6 +3134,7 @@ function OppPane(props: {
               </>
             )}
             {p.poison > 0 && `, ${p.poison} poison`}
+            {p.companion && `, companion ${p.companion.name}${p.companion.used ? " (put into hand)" : ""}`}
           </span>
           {props.art.art && <span className="opp-credit">Art: {props.art.artist ?? "unknown"}</span>}
         </span>
@@ -3247,7 +3309,8 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover, tones
   return (
     <ol className="stack-list">
       {[...view.stack].reverse().map((s, i) => {
-        const card = { ...emptyCard, name: s.name, controller: s.controller };
+        // A face-down spell: its caster reads the card under it (CR 708.5); everyone else sees no name.
+        const card = { ...emptyCard, name: s.under ?? s.name, controller: s.controller, face_down: !!s.under };
         const img = meta[s.name]?.image;
         const a = art(s.controller).art;
         const whose = s.controller === you ? "Yours" : `${who(s.controller)}'s`;
@@ -3279,6 +3342,7 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover, tones
               {img ? <img className="stack-img" src={img} alt="" /> : <span className="stack-img blank" />}
               <span className="stack-text">
                 <b>{s.name}</b>
+                {s.under && <span className="dim small"> {s.under}</span>}
                 <span className="stack-who">
                   {a && <img src={a} alt="" />}
                   {whose}
@@ -3414,9 +3478,10 @@ function DecisionBody(props: {
 
   const sel = props.selected;
   const selectedCard = sel ? cardById.get(sel[0]!) : undefined;
-  const forSelected = sel ? dedupe(decision.options.filter((o) => o.object !== null && sel.includes(o.object))) : [];
+  // A ninja's options (one per attacker it could return) are one button that starts the pick.
+  const forSelected = sel ? collapseNinjutsu(dedupe(decision.options.filter((o) => o.object !== null && sel.includes(o.object)))) : [];
   const general = dedupe(decision.options.filter((o) => o.object === null && !props.covered(o)));
-  const byCard = dedupe(decision.options.filter((o) => o.object !== null && !props.covered(o)));
+  const byCard = collapseNinjutsu(dedupe(decision.options.filter((o) => o.object !== null && !props.covered(o))));
   const thumb = (o: OptionView) => {
     const c = o.object === null ? undefined : cardById.get(o.object);
     const image = c ? meta[c.name]?.image : null;

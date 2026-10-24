@@ -52,8 +52,10 @@ import {
   type Draft,
   type Remember,
   type Stage,
+  type TimeMove,
 } from "./answer";
 import { seatHeadOf, tileOf } from "./DragLayer";
+import { reachable, roomSpot, shortcutCount, stepStop, timeAfter, timeChoices, timeCounters } from "./rare";
 import type { CardMeta, DecisionOption, Pending, TogetherView } from "./types";
 
 /** What the widgets need from the board around them. */
@@ -81,6 +83,8 @@ export interface WidgetContext {
   seat?: (n: number) => { art: string | null; artist: string | null; life: number | null };
   /** How many cards a seat's library holds, for top or bottom. */
   library?: (n: number) => number | undefined;
+  /** Everyone else at the table, by seat: "What Sam and Jules see" (GRareCards). */
+  others?: number[];
 }
 
 interface Props {
@@ -233,10 +237,10 @@ export function YesNoStrip({ p, draft, onDraft, ctx, compact, disabled }: Props)
         <b className="dw-question">{p.prompt}</b>
         {p.oracle && <span className="dw-oracle">{p.oracle}</span>}
         <Warn text={p.warn} />
-        {/* Only where the engine itself can remember the answer; Yama's own remembering comes later. */}
-        {p.remember === "engine" && draft.kind === "yesno" && (
+        {/* Where the engine can remember the answer, or Yama can (an unless-cost, the command zone). */}
+        {p.remember && draft.kind === "yesno" && (
           <span className="dw-remember">
-            <span className="dw-remember-label">Remember for this card</span>
+            <span className="dw-remember-label">{p.remember === "yama" ? "For the rest of this game" : "Remember for this card"}</span>
             <span className="dw-seg" role="radiogroup" aria-label="Remember this answer">
               {(["ask", "always", "never"] as Remember[]).map((r) => (
                 <button key={r} type="button" role="radio" aria-checked={remember === r} className={remember === r ? "on" : ""} disabled={disabled} onClick={() => onDraft({ kind: "yesno", remember: r })}>
@@ -248,6 +252,9 @@ export function YesNoStrip({ p, draft, onDraft, ctx, compact, disabled }: Props)
         )}
         {p.remember === "engine" && (
           <span className="dw-note">{remember === "ask" ? "You'll be asked each time." : "The engine gives this answer for this card from now on, for the rest of the game."}</span>
+        )}
+        {p.remember === "yama" && (
+          <span className="dw-note">{remember === "ask" ? "You'll be asked each time." : "Yama answers this for you for the rest of the game. Each answer shows in your log, where you can turn it off."}</span>
         )}
         {compact && s?.artist && <span className="dw-credit">Art: {s.artist}, {COPYRIGHT}</span>}
       </span>
@@ -1888,6 +1895,387 @@ export function PlacesPick({ p, draft, onDraft, ctx, compact, disabled }: Props)
   );
 }
 
+// ── the rarer cards and rules (GRareCards, GRareRules) ─────────────────────
+
+/** A face-down 2/2 (CR 708.2a): no name, no art; its controller sees what it is. */
+function FaceDownTile({ name, pt = "2/2" }: { name: string; pt?: string }) {
+  return (
+    <span className="fd-tile" aria-label={`Face down, ${name}`}>
+      <span className="fd-head">Face down</span>
+      <b className="fd-name">{name}</b>
+      {pt && <span className="fd-pt num">{pt}</span>}
+    </span>
+  );
+}
+
+/** "Sam", "Sam and Jules", "Computer, Sam and Jules". */
+function namesList(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "everyone else";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * A morph cast face down (GRareCards): the card, then what you'll see of it next to what everyone
+ * else will (a 2/2 with no name). The main button casts it face down for {3}, the second face up.
+ */
+export function FaceDownCast({ p, ctx, compact }: Props) {
+  const name = p.source?.name ?? "It";
+  const others = (ctx.others ?? []).map((n) => ctx.who(n));
+  const image = p.source ? ctx.meta[p.source.name]?.image ?? p.source.image : null;
+  return (
+    <div className={`dw-fd${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} compact={compact} />
+      <div className="dw-fd-body">
+        {!compact && image && <ReadImg src={image} name={name} onRead={() => p.source && ctx.onRead(p.source.name, p.source.id)} />}
+        <div className="dw-fd-views">
+          <div className="dw-fd-view">
+            <b>What you see</b>
+            <span className="dw-fd-row">
+              <FaceDownTile name={name} />
+              <span className="dw-note">Cast for {p.options.find((o) => o.id === "alternative")?.cost ?? "{3}"}, it enters as a 2/2 with no name that only you can read.</span>
+            </span>
+          </div>
+          <div className="dw-fd-view">
+            <b>What {namesList(others)} {others.length === 1 ? "sees" : "see"}</b>
+            <span className="dw-fd-row">
+              <FaceDownTile name="No name" />
+              <span className="dw-note">A 2/2 creature with no name, no text and no colour, until it's turned face up or leaves.</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <p className="dw-foot">{compact ? "Long-press the card to read it. " : "Right-click the card to read it. "}{IMAGES}</p>
+    </div>
+  );
+}
+
+/** Revealing a companion before the game (GRareCards): the card, picked to reveal; everyone sees it. */
+export function CompanionPanel({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  return (
+    <div className={`dw-companion${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} compact={compact} />
+      <div className="dw-cards">
+        {p.options.map((o) => (
+          <CardPick
+            key={o.id}
+            o={o}
+            img={o.img ?? ctx.meta[o.name]?.image ?? null}
+            at={draft.ids.indexOf(o.id)}
+            label="Reveal"
+            disabled={disabled}
+            onPick={() => onDraft(togglePick(p, draft, o.id))}
+            onRead={() => ctx.onRead(o.name)}
+          />
+        ))}
+      </div>
+      <p className="dw-note">The engine offers only a companion whose condition your deck meets. Everyone sees the revealed companion for the whole game; you may pay {"{3}"} to put it into your hand once, when you could cast a sorcery.</p>
+      <p className="dw-foot">{compact ? "Long-press the card to read it. " : "Right-click the card to read it. "}{IMAGES}</p>
+    </div>
+  );
+}
+
+/** Meld (GRareCards): each pair the engine lists, the two cards and what they become. */
+export function MeldPanel({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  const img = (o: DecisionOption) => o.img ?? ctx.meta[o.name]?.image ?? null;
+  return (
+    <div className={`dw-meld${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} compact={compact} />
+      <div className="dw-meld-list" role="radiogroup" aria-label={p.prompt}>
+        {p.options.map((o) => {
+          const on = draft.ids.includes(o.id);
+          const parts = (p.shown ?? []).filter((c) => c.group === o.id);
+          const [a, b, result] = parts;
+          return (
+            <button key={o.id} type="button" role="radio" aria-checked={on} aria-label={`${o.name}, into ${o.text ?? ""}`} className={`dw-meld-row${on ? " picked" : " pick"}`} disabled={disabled} onClick={() => onDraft(togglePick(p, draft, o.id))}>
+              {a && <ReadImg src={img(a)} name={a.name} onRead={() => ctx.onRead(a.name, Number(a.id))} />}
+              <b className="dw-meld-op" aria-hidden="true">+</b>
+              {b && <ReadImg src={img(b)} name={b.name} onRead={() => ctx.onRead(b.name, Number(b.id))} />}
+              <b className="dw-meld-op" aria-hidden="true">→</b>
+              {result && <ReadImg src={img(result)} name={result.name} onRead={() => ctx.onRead(result.name)} />}
+              <span className="dw-meld-text">
+                <b>{o.text}</b>
+                <span>{o.name}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="dw-foot">{IMAGES}</p>
+    </div>
+  );
+}
+
+const DUNGEON_CREDIT = "Dungeon card images from Scryfall, © Wizards of the Coast.";
+
+/** Choosing a dungeon to venture into (GRareRules): each dungeon card with its first room. */
+export function DungeonPick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  return (
+    <div className={`dw-dungeons${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} compact={compact} />
+      <div className="dw-dungeon-list" role="radiogroup" aria-label="Dungeons">
+        {p.options.map((o) => {
+          const on = draft.ids.includes(o.id);
+          const [room, ...text] = (o.text ?? "").split(": ");
+          return (
+            <button key={o.id} type="button" role="radio" aria-checked={on} className={`dw-dungeon${on ? " picked" : " pick"}`} disabled={disabled} onClick={() => onDraft(togglePick(p, draft, o.id))}>
+              {o.img && <img src={o.img} alt={o.name} draggable={false} />}
+              <b>{o.name}</b>
+              {room && (
+                <span className="dw-note">
+                  First room: <b>{room}</b>. {text.join(": ")}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <p className="dw-foot">{DUNGEON_CREDIT}</p>
+    </div>
+  );
+}
+
+/**
+ * The next room (GRareRules): the dungeon's rooms laid out as they're drawn on its card, the room
+ * your marker is on in your colour, the rooms it leads to amber, the one picked white.
+ */
+export function DungeonRooms({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  const map = p.dungeons?.[0];
+  if (draft.kind !== "pick" || !map) return null;
+  // A phone has no room for the map: the card, the room you're in, and the rooms you can go to.
+  if (compact) return <DungeonRoomList p={p} draft={draft} onDraft={onDraft} ctx={ctx} compact disabled={disabled} />;
+  const width = compact ? 320 : 620;
+  const height = compact ? 360 : 470;
+  const boxW = compact ? 130 : 186;
+  const boxH = compact ? 70 : 88;
+  const next = reachable(map);
+  const pick = draft.ids[0];
+  const at = (i: number) => {
+    const s = roomSpot(map, i, width - boxW, height - boxH);
+    return { left: s.x, top: s.y };
+  };
+  const edges = map.rooms.flatMap((r) =>
+    r.next.map((n) => {
+      const a = at(r.index);
+      const b = at(n);
+      const live = r.index === map.current;
+      const tone = live ? (String(n) === pick ? "on" : "can") : "off";
+      return { key: `${r.index}-${n}`, x1: a.left + boxW / 2, y1: a.top + boxH, x2: b.left + boxW / 2, y2: b.top, tone };
+    }),
+  );
+  return (
+    <div className={`dw-rooms${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} count={map.current !== undefined ? `Room ${map.current + 1} of ${map.rooms.length}` : undefined} compact={compact} />
+      <div className="dw-rooms-body">
+        {!compact && (
+          <span className="dw-rooms-card">
+            <img src={map.image} alt={map.name} draggable={false} />
+            <span className="dw-credit">{DUNGEON_CREDIT}</span>
+          </span>
+        )}
+        <div className="dw-room-map" style={{ width, height }}>
+          <svg aria-hidden="true" width={width} height={height}>
+            {edges.map((e) => (
+              <line key={e.key} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} className={`dw-room-edge ${e.tone}`} />
+            ))}
+          </svg>
+          {map.rooms.map((r) => {
+            const here = r.index === map.current;
+            const can = next.has(r.index);
+            const on = String(r.index) === pick;
+            const tag = here ? "You are here" : on ? "Next" : can ? "Can go" : "";
+            return (
+              <button
+                key={r.index}
+                type="button"
+                className={`dw-room${here ? " here" : ""}${on ? " picked" : can ? " pick" : ""}`}
+                style={{ ...at(r.index), width: boxW, minHeight: boxH, ...seatDot(here ? "seat-1" : undefined) }}
+                aria-pressed={on}
+                aria-label={`${r.name}${here ? ", you are here" : can ? ", can be chosen" : ""}`}
+                disabled={disabled || !can}
+                onClick={() => onDraft(togglePick(p, draft, String(r.index)))}
+              >
+                <span className="dw-room-head">
+                  <b>{r.name}</b>
+                  {tag && <span className="dw-room-tag">{tag}</span>}
+                </span>
+                <span className="dw-room-text">{r.text}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {compact && <p className="dw-foot">{DUNGEON_CREDIT}</p>}
+    </div>
+  );
+}
+
+/** The next room on a phone (GRareRules): the dungeon card, then the room you're in and the rooms it leads to. */
+function DungeonRoomList({ p, draft, onDraft, ctx, disabled }: Props) {
+  const map = p.dungeons?.[0];
+  if (draft.kind !== "pick" || !map) return null;
+  const here = map.rooms.find((r) => r.index === map.current);
+  return (
+    <div className="dw-rooms compact">
+      <Head p={p} ctx={ctx} count={map.current !== undefined ? `Room ${map.current + 1} of ${map.rooms.length}` : undefined} compact />
+      <img className="dw-rooms-thumb" src={map.image} alt={map.name} draggable={false} />
+      {here && (
+        <span className="dw-room-row here" style={seatDot("seat-1")}>
+          <span className="dw-room-head">
+            <b>{here.name}</b>
+            <span className="dw-room-tag">You are here</span>
+          </span>
+          <span className="dw-room-text">{here.text}</span>
+        </span>
+      )}
+      <div className="dw-room-rows" role="radiogroup" aria-label="Rooms you can go to">
+        {p.options.map((o) => {
+          const on = draft.ids.includes(o.id);
+          return (
+            <button key={o.id} type="button" role="radio" aria-checked={on} className={`dw-room-row${on ? " picked" : " pick"}`} disabled={disabled} onClick={() => onDraft(togglePick(p, draft, o.id))}>
+              <span className="dw-room-head">
+                <b>{o.name}</b>
+                <span className="dw-room-tag">{on ? "Next" : "Can go"}</span>
+              </span>
+              <span className="dw-room-text">{o.text}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="dw-foot">{DUNGEON_CREDIT}</p>
+    </div>
+  );
+}
+
+const TIME_WORDS: Record<TimeMove, string> = { remove: "Remove one", leave: "Leave", add: "Add one" };
+
+/**
+ * Time travel (GRareRules): each suspended card and each permanent with time counters, with
+ * remove one, leave or add one. The engine asks in two steps; Yama sends both at once.
+ */
+export function TimeTravelRows({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "time") return null;
+  const choices = timeChoices(p.step);
+  const img = (o: DecisionOption) => o.img ?? ctx.meta[o.name]?.image ?? null;
+  return (
+    <div className={`dw-time${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} count={counter(p, draft)} compact={compact} />
+      <p className="dw-note">
+        {p.step === "add"
+          ? "The time counters to remove are settled: you may add one to each of these."
+          : "For each, you may remove a time counter or add one. Yama sends the engine the removals first, then the additions."}
+      </p>
+      <div className="dw-time-list">
+        {p.options
+          .filter((o) => o.eligible)
+          .map((o) => {
+            const move = draft.moves[o.id] ?? "leave";
+            const now = timeCounters(o.counters);
+            return (
+              <div key={o.id} className="dw-time-row">
+                <ReadImg src={img(o)} name={o.name} onRead={() => ctx.onRead(o.name, Number(o.id))} />
+                <span className="dw-time-text">
+                  <b>{o.name}</b>
+                  <span className="dw-note">{o.zone === "exile" ? "Suspended, in exile" : "On the battlefield"}</span>
+                  <span>
+                    Time counters: <b className="num">{now}</b> → <b className="num">{timeAfter(now, move)}</b>
+                  </span>
+                </span>
+                <span className="dw-seg" role="radiogroup" aria-label={o.name}>
+                  {choices.map((c) => (
+                    <button key={c} type="button" role="radio" aria-checked={move === c} className={move === c ? "on" : "pick"} disabled={disabled || (c === "remove" && now === 0)} onClick={() => onDraft({ kind: "time", moves: { ...draft.moves, [o.id]: c } })}>
+                      {TIME_WORDS[c]}
+                    </button>
+                  ))}
+                </span>
+              </div>
+            );
+          })}
+      </div>
+      <p className="dw-foot">{IMAGES}</p>
+    </div>
+  );
+}
+
+/**
+ * Loop shortcuts (GRareRules): proposing the loop the engine found with one of its counts, or
+ * answering someone's proposal by accepting it or stopping it early; the pre-cast shortcut's
+ * stopping places are the engine's own. Who has answered shows below.
+ */
+export function ShortcutPanel({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  const s = p.shortcut;
+  const image = p.source ? ctx.meta[p.source.name]?.image ?? p.source.image ?? null : null;
+  const word = { answered: "Answered", deciding: "Deciding", next: "Next" } as const;
+  const people = s?.responders.length ? (
+    <span className="dw-facing-row">
+      {s.responders.map(([seat, state]) => (
+        <span key={seat} className="dw-chip-seat" style={seatDot(ctx.tone(seat))}>
+          <span className="seat-dot" aria-hidden="true" />
+          <b>{ctx.who(seat) === "you" ? "You" : ctx.who(seat)}</b>
+          <span>{word[state]}</span>
+        </span>
+      ))}
+    </span>
+  ) : null;
+  const loop = s && (
+    <div className="dw-loop-found">
+      {image && <ReadImg src={image} name={p.source?.name ?? ""} onRead={() => p.source && ctx.onRead(p.source.name)} />}
+      <span className="dw-loop-text">
+        {s.grows?.length ? (
+          <span>
+            Grows without limit: <b>{s.grows.join(", ")}</b>
+          </span>
+        ) : null}
+        {s.wins && <span>{s.wins}{s.winner !== undefined ? `: ${ctx.who(s.winner) === "you" ? "you win" : `${ctx.who(s.winner)} wins`}` : ""}.</span>}
+      </span>
+    </div>
+  );
+  if (p.purpose === "shortcut_response" && draft.kind === "number") {
+    const value = draft.value;
+    const shown = value ?? s?.count;
+    return (
+      <div className={`dw-shortcut${compact ? " compact" : ""}`}>
+        <Head p={p} ctx={ctx} compact={compact} />
+        {loop}
+        <div className="dw-loop-stop">
+          <span>Or stop it early, after</span>
+          <span className="dw-stepper">
+            <button type="button" aria-label="Fewer" disabled={disabled || (value !== null && value <= p.min)} onClick={() => onDraft({ kind: "number", value: stepStop(value, -1, p.min, p.max) })}>−</button>
+            <output className="num" aria-live="polite">{shown ?? "All"}</output>
+            <button type="button" aria-label="More" disabled={disabled || value === null} onClick={() => onDraft({ kind: "number", value: stepStop(value, 1, p.min, p.max) })}>+</button>
+          </span>
+          <span>times, and take priority there.</span>
+        </div>
+        {people}
+        <p className="dw-foot">Accepting lets it run {shortcutCount(s?.count)}. Shortening it names the place you'll make a different choice.</p>
+      </div>
+    );
+  }
+  if (draft.kind !== "pick") return null;
+  return (
+    <div className={`dw-shortcut${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} compact={compact} />
+      {loop}
+      {p.purpose === "shortcut" && <b className="dw-loop-ask">Repeat how many times?</b>}
+      <div className="dw-mode-list" role="radiogroup" aria-label={p.prompt}>
+        {p.options.map((o) => {
+          const on = draft.ids.includes(o.id);
+          return (
+            <button key={o.id} type="button" role="radio" aria-checked={on} className={`dw-mode${on ? " picked" : o.eligible ? " pick" : ""}`} disabled={disabled || !o.eligible} onClick={() => onDraft(togglePick(p, draft, o.id))}>
+              <span className="dw-mark-box" aria-hidden="true" />
+              <span className="dw-mode-text">{o.name}</span>
+            </button>
+          );
+        })}
+      </div>
+      {people}
+      {p.purpose === "shortcut" && <p className="dw-foot">The engine pins each repeated choice to what you just did. Every other player then accepts or shortens it, in turn order.</p>}
+    </div>
+  );
+}
+
 // ── the rail and the banner ────────────────────────────────────────────────
 
 /** The status pill over the battlefield while you pick on the board or split onto targets. */
@@ -1951,7 +2339,13 @@ export function DecisionRail({ p, draft, ctx, stage, disabled, onReset, onDraft 
                   ? "Click the creatures to tap."
                   : p.purpose === "proliferate"
                     ? "Click the permanents and players with an amber ring. Click again to unpick."
-                    : "Click the cards with an amber ring."}
+                    : p.purpose === "ninjutsu"
+                      ? "Click an unblocked attacker with an amber ring. Esc or Cancel backs out."
+                      : p.purpose === "cipher"
+                        ? "Click the creature to encode it on, or don't encode it."
+                        : p.purpose === "entry_attack"
+                          ? "Click the player or permanent it attacks."
+                          : "Click the cards with an amber ring."}
             {names.length > 0 && ` Chosen: ${names.join(", ")}.`}
           </p>
           {/* Every choice as a list too, for anything hard to reach on the board. */}
@@ -2014,6 +2408,15 @@ export function DecisionRail({ p, draft, ctx, stage, disabled, onReset, onDraft 
 /** The widget for a decision's dialog (laptop) or sheet (phone). */
 export function DecisionStage(props: Props) {
   const { p, draft } = props;
+  // The rarer cards and rules (GRareCards, GRareRules).
+  if (p.purpose === "face_down") return <FaceDownCast {...props} />;
+  if (p.purpose === "companion") return <CompanionPanel {...props} />;
+  if (p.purpose === "meld") return <MeldPanel {...props} />;
+  if (p.purpose === "dungeon") return <DungeonPick {...props} />;
+  if (p.purpose === "dungeon_room") return <DungeonRooms {...props} />;
+  if (p.answer === "time_travel") return <TimeTravelRows {...props} />;
+  if (p.purpose === "shortcut" || p.purpose === "shortcut_response" || p.purpose === "precast_response") return <ShortcutPanel {...props} />;
+  if (p.answer === "choose_entry_attack_target" && p.options.every((o) => o.zone === "player")) return <SeatPicker {...props} />;
   if (isCastOffer(p) || p.purpose === "kept") return <CastOfferCard {...props} />;
   // Everyone takes part, choosing a player, and the library (GTogether, GRareRules, GLibrary).
   if (p.purpose === "vote") return <VotePanel {...props} />;

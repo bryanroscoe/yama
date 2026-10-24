@@ -35,6 +35,7 @@ fn board(turn: u32, life: i32, over: bool, reveal: bool) -> View {
         eliminated: false,
         conceded: false,
         commander_damage: BTreeMap::new(),
+        companion: None,
     };
     let card = CardView {
         id: 1,

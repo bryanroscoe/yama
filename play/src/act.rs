@@ -157,6 +157,25 @@ pub enum Answer {
     ChoosePlayer,
     /// Learn: a card to discard, then draw, or nothing (CR 701.48a).
     Learn,
+    // The rarer cards and rules (rare.rs).
+    /// Reveal a companion before the game, or none (CR 702.139a).
+    DeclareCompanion,
+    /// The pair to meld (CR 701.42).
+    ChooseMeldPair,
+    /// What a permanent entering the battlefield attacking attacks (CR 508.4).
+    ChooseEntryAttackTarget,
+    /// The creature to encode a cipher spell on, or none (CR 702.99a).
+    CipherEncode,
+    /// The dungeon to venture into (CR 701.49a).
+    ChooseDungeon,
+    /// The next room of a dungeon (CR 309.5a).
+    ChooseDungeonRoom,
+    /// Time travel: a time counter off or onto each, or neither (CR 701.56a).
+    TimeTravel,
+    /// Propose a shortcut, or play it out (CR 732.2a).
+    ProposeShortcut,
+    /// Accept a proposed shortcut, or shorten it (CR 732.2b).
+    RespondToShortcut,
 }
 
 /// The card asking. The server adds its art, image and artist from Yama's card data.
@@ -253,7 +272,8 @@ pub struct Pending {
     pub yes_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub no_label: Option<String>,
-    /// "engine" when the engine can remember the answer for this card.
+    /// "engine" when the engine can remember the answer for this card; "yama" when Yama can
+    /// (remember.rs: paying an unless-cost in mana, the command zone).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remember: Option<&'static str>,
     /// Where the options are, when they're all in one zone.
@@ -290,7 +310,10 @@ pub struct Pending {
     /// "piles_split", "piles_choose", "branch", "coin", "die", "guess", "clash" and "life";
     /// choosing a player: "gift", "entry_controller", "zone_chooser", "clash_opponent",
     /// "announcer" and "pile_opponent". The library (library.rs): "top_or_bottom", "partition",
-    /// "dig_split", "reveal", "kept", "manifest" and "learn".
+    /// "dig_split", "reveal", "kept", "manifest" and "learn". The rarer cards and rules
+    /// (rare.rs): "companion", "meld", "entry_attack", "cipher", "dungeon", "dungeon_room",
+    /// "time_travel", "shortcut", "shortcut_response", "precast_shortcut", "precast_response",
+    /// "repeat" and "commander_zone"; and "face_down", a morph's face-down cast (ways.rs).
     pub purpose: &'static str,
     /// The order picked is the order they end up in (scry and surveil: the first is on top).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -353,6 +376,15 @@ pub struct Pending {
     /// The cards on top and at the bottom are settled: only their order within each may change.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub fixed_split: bool,
+    /// Dungeons (rare.rs): each dungeon offered, or the one being explored, with every room.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dungeons: Vec<crate::rare::DungeonMap>,
+    /// Time travel: "remove" (the engine asks about removing first) or "add".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<&'static str>,
+    /// A loop shortcut: what it repeats, and where everyone is in answering it (rare.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shortcut: Option<crate::rare::ShortcutView>,
     /// `current` isn't one of the engine's alternatives, so picking it is sent as keeping it.
     #[serde(skip)]
     keeps_current: bool,
@@ -404,6 +436,9 @@ impl Pending {
             places: vec![],
             top_count: None,
             fixed_split: false,
+            dungeons: vec![],
+            step: None,
+            shortcut: None,
             keeps_current: false,
             shards: vec![],
         }
@@ -948,6 +983,10 @@ impl Pending {
                 // The card asking (Rhystic Study, Mana Leak, a ward creature) is the source of the
                 // effect it holds back.
                 let mut p = Pending::new(Kind::Yesno, Answer::PayUnlessCost, "pay", prompt, vec![]).yes_no(yes, no).from(vs, Some(pending_effect.source_id));
+                // Yama can pay a mana cost for you from now on, per card (remember.rs).
+                if printed && matches!(cost, AbilityCost::Mana { .. }) {
+                    p.remember = Some("yama");
+                }
                 // Ward and the like: not paying counters something of yours (CR 702.21a).
                 p.warn = countered(vs, me, pending_effect, trigger_event.as_ref()).map(|what| {
                     let verb = if printed { "pay".to_string() } else { words.split_whitespace().next().unwrap_or("pay").to_lowercase() };
@@ -1361,7 +1400,8 @@ impl Pending {
             // Ways to cast, permanents and counters.
             _ => crate::ways::of(vs, me, candidates, names)
                 .or_else(|| crate::together::of(vs, me, candidates, names))
-                .or_else(|| crate::library::of(vs, me, candidates, names))?,
+                .or_else(|| crate::library::of(vs, me, candidates, names))
+                .or_else(|| crate::rare::of(vs, me, candidates, names))?,
         };
         let mut pending = pending;
         if pending.zone.is_none() && pending.kind == Kind::Pick && pending.answer == Answer::SelectCards {
@@ -1702,6 +1742,73 @@ impl Pending {
                 None => Ok(()),
                 Some(id) => self.one_of(&id.to_string()),
             },
+            // The rarer cards and rules (rare.rs).
+            (Answer::DeclareCompanion, Act::DeclareCompanion { name }) => match name {
+                None => Ok(()),
+                Some(n) => self.one_of(n),
+            },
+            (Answer::ChooseMeldPair, Act::ChooseMeldPair { source, partner }) => self.one_of(&format!("{source}:{partner}")),
+            (Answer::ChooseEntryAttackTarget, Act::ChooseEntryAttackTarget { target }) => {
+                if self.eligible(&target_id(target)) { Ok(()) } else { Err("It can't attack that.".into()) }
+            }
+            (Answer::CipherEncode, Act::CipherEncode { creature }) => match creature {
+                None => Ok(()),
+                Some(id) => self.one_of(&id.to_string()),
+            },
+            (Answer::ChooseDungeon, Act::ChooseDungeon { dungeon }) => self.one_of(dungeon),
+            (Answer::ChooseDungeonRoom, Act::ChooseDungeonRoom { room }) => {
+                if self.eligible(&room.to_string()) { Ok(()) } else { Err("The marker can't move to that room.".into()) }
+            }
+            (Answer::TimeTravel, Act::TimeTravel { remove, add }) => {
+                if self.step == Some("add") && !remove.is_empty() {
+                    return Err("Time counters can only be added now.".into());
+                }
+                let mut seen = std::collections::HashSet::new();
+                for t in remove.iter().chain(add) {
+                    let id = target_id(t);
+                    if !seen.insert(id.clone()) {
+                        return Err("Choose one change for each.".into());
+                    }
+                    if !self.eligible(&id) {
+                        return Err("That has no time counter to change.".into());
+                    }
+                }
+                Ok(())
+            }
+            // The engine's own step (the computer answers each step on its own).
+            (Answer::TimeTravel, Act::SelectTargets { targets }) => {
+                let mut seen = std::collections::HashSet::new();
+                for t in targets {
+                    let id = target_id(t);
+                    if !seen.insert(id.clone()) || !self.eligible(&id) {
+                        return Err("That isn't one of the choices.".into());
+                    }
+                }
+                Ok(())
+            }
+            (Answer::ProposeShortcut, Act::ProposeShortcut { count }) => {
+                if self.purpose == "precast_shortcut" {
+                    return if count.is_none() { Ok(()) } else { Err("This shortcut has no count to choose.".into()) };
+                }
+                self.one_of(&count.map_or_else(|| "lethal".to_string(), |n| n.to_string()))
+            }
+            (Answer::ProposeShortcut, Act::DeclineShortcut) => Ok(()),
+            (Answer::RespondToShortcut, Act::RespondToShortcut { stop_at }) => match stop_at {
+                None => Ok(()),
+                // A loop stops at a number below its count (CR 732.2b).
+                Some(n) if self.purpose == "shortcut_response" => {
+                    if (*n as usize) >= self.min && (*n as usize) <= self.max {
+                        Ok(())
+                    } else {
+                        Err(format!("Stop it between {} and {} times.", self.min, self.max))
+                    }
+                }
+                Some(id) => self.one_of(&id.to_string()),
+            },
+            // Yama answers this for you from now on (remember.rs).
+            (_, Act::RememberAnswer { .. }) => {
+                if self.remember == Some("yama") { Ok(()) } else { Err("This answer can't be remembered.".into()) }
+            }
             _ => Err("That answer doesn't fit this decision.".into()),
         }
     }
@@ -2020,6 +2127,83 @@ pub enum Act {
     Learn {
         discard: Option<u64>,
     },
+    // The rarer cards and rules (rare.rs; GRareCards, GRareRules).
+    /// Reveal this companion before the game (by its name, as the engine offers it), or none.
+    DeclareCompanion {
+        name: Option<String>,
+    },
+    /// Meld these two.
+    ChooseMeldPair {
+        source: u64,
+        partner: u64,
+    },
+    /// What a permanent entering attacking attacks: a player, or a planeswalker or battle.
+    ChooseEntryAttackTarget {
+        target: TargetView,
+    },
+    /// Encode the cipher spell on this creature, or (`None`) don't.
+    CipherEncode {
+        creature: Option<u64>,
+    },
+    /// Venture into this dungeon, by the engine's name for it ("LostMineOfPhandelver").
+    ChooseDungeon {
+        dungeon: String,
+    },
+    /// Move the venture marker to this room, by its place on the card.
+    ChooseDungeonRoom {
+        room: u8,
+    },
+    /// Time travel: a time counter off each of `remove`, then onto each of `add` (the engine's two
+    /// steps, sent in that order).
+    TimeTravel {
+        #[serde(default)]
+        remove: Vec<TargetView>,
+        #[serde(default)]
+        add: Vec<TargetView>,
+    },
+    /// Propose the shortcut the engine found: repeat it `count` times, or (`None`) until a player
+    /// loses; the pre-cast shortcut has no count.
+    ProposeShortcut {
+        count: Option<u32>,
+    },
+    /// Don't propose it: play it out.
+    DeclineShortcut,
+    /// Accept a proposed shortcut, or stop it early: after `stop_at` repetitions of a loop, or at
+    /// the engine's stopping place with that id (the pre-cast shortcut).
+    RespondToShortcut {
+        stop_at: Option<u64>,
+    },
+    // Special actions the engine offers at priority and at the mulligan (rare.rs), matched to its
+    // own options.
+    /// Ninjutsu: put this card in hand onto the battlefield attacking, returning `attacker`.
+    Ninjutsu {
+        card: u64,
+        attacker: u64,
+    },
+    /// Turn this face-down permanent face up, paying its cost.
+    TurnFaceUp {
+        object: u64,
+    },
+    /// Foretell this card: pay {2} and exile it face down.
+    Foretell {
+        object: u64,
+    },
+    /// Pay {3} to put your companion into your hand.
+    CompanionToHand,
+    /// Serum Powder: exile your hand and draw that many.
+    UseSerumPowder {
+        object: u64,
+    },
+    // Yama's remembered answers (remember.rs).
+    /// Answer this decision, pay or not (or command zone or not), and have Yama give the same
+    /// answer from now on.
+    RememberAnswer {
+        accept: bool,
+    },
+    /// Stop an answer Yama remembers (GSettings, GLog's Turn off): a setting, sent at any time.
+    ForgetAnswer {
+        id: String,
+    },
 }
 
 /// Some counters on one permanent: the ones that move onto it, or come off it as a cost.
@@ -2075,7 +2259,7 @@ impl TargetView {
             TargetRef::Player(p) => TargetView::Player { seat: p.0 },
         }
     }
-    fn to_ref(&self) -> TargetRef {
+    pub(crate) fn to_ref(&self) -> TargetRef {
         match self {
             TargetView::Object { id } => TargetRef::Object(ObjectId(*id)),
             TargetView::Player { seat } => TargetRef::Player(PlayerId(*seat)),
@@ -2203,6 +2387,7 @@ impl Act {
             // Which engine action a player stands for depends on the decision (`answer`).
             Act::ChoosePlayer { .. } => return None,
             Act::Learn { discard } => crate::library::learn_action(*discard),
+            other => return crate::rare::to_action(other).flatten(),
         })
     }
 
@@ -2211,7 +2396,7 @@ impl Act {
     pub fn is_preference(&self) -> bool {
         matches!(
             self,
-            Act::SetMayTriggerAutoChoice { .. } | Act::SetReplacementAutoChoice { .. } | Act::SetPriorityYield { .. } | Act::ReorderHand { .. }
+            Act::SetMayTriggerAutoChoice { .. } | Act::SetReplacementAutoChoice { .. } | Act::SetPriorityYield { .. } | Act::ReorderHand { .. } | Act::ForgetAnswer { .. }
         )
     }
 
@@ -2326,7 +2511,7 @@ impl Act {
             },
             other => match crate::together::chosen_player(other) {
                 Some(seat) => Act::ChoosePlayer { seat },
-                None => return None,
+                None => return crate::rare::from_action(other),
             },
         })
     }
@@ -2402,6 +2587,23 @@ impl Act {
             Act::RedistributeLife { .. } => "redistribute_life",
             Act::ChoosePlayer { .. } => "choose_player",
             Act::Learn { .. } => "learn",
+            Act::DeclareCompanion { .. } => "declare_companion",
+            Act::ChooseMeldPair { .. } => "choose_meld_pair",
+            Act::ChooseEntryAttackTarget { .. } => "choose_entry_attack_target",
+            Act::CipherEncode { .. } => "cipher_encode",
+            Act::ChooseDungeon { .. } => "choose_dungeon",
+            Act::ChooseDungeonRoom { .. } => "choose_dungeon_room",
+            Act::TimeTravel { .. } => "time_travel",
+            Act::ProposeShortcut { .. } => "propose_shortcut",
+            Act::DeclineShortcut => "decline_shortcut",
+            Act::RespondToShortcut { .. } => "respond_to_shortcut",
+            Act::Ninjutsu { .. } => "ninjutsu",
+            Act::TurnFaceUp { .. } => "turn_face_up",
+            Act::Foretell { .. } => "foretell",
+            Act::CompanionToHand => "companion_to_hand",
+            Act::UseSerumPowder { .. } => "use_serum_powder",
+            Act::RememberAnswer { .. } => "remember_answer",
+            Act::ForgetAnswer { .. } => "forget_answer",
         }
     }
 }
@@ -2538,6 +2740,21 @@ pub fn answer(state: &mut GameState, owner: PlayerId, act: &Act) -> Result<Answe
             pending.admits(act).map_err(Refusal::DoesntFit)?;
             vec![crate::ways::offer_action(&candidates, *cast, *payment).ok_or_else(|| doesnt_fit("That can't be cast now."))?]
         }
+        // Special actions (rare.rs): exactly the engine's own option, when it offers it.
+        Act::Ninjutsu { .. } | Act::TurnFaceUp { .. } | Act::Foretell { .. } | Act::CompanionToHand | Act::UseSerumPowder { .. } => {
+            vec![crate::rare::special_action(&candidates, act).ok_or_else(|| doesnt_fit("That can't be done now."))?]
+        }
+        // Time travel: both of the engine's steps at once (rare.rs).
+        Act::TimeTravel { remove, add } => {
+            let vs = filter_state_for_viewer(state, owner);
+            let Some(pending) = Pending::of(&vs, owner, &candidates, &[]) else {
+                return Err(doesnt_fit("Answer this one with the buttons."));
+            };
+            pending.admits(act).map_err(Refusal::DoesntFit)?;
+            let actor = contract.authorized_actor;
+            let (actions, result) = crate::rare::time_travel(state, actor, owner, remove, add).map_err(Refusal::Engine)?;
+            return Ok(Answered { actor, actions, result });
+        }
         Act::UntapMana { source } => {
             let tapped = state.lands_tapped_for_mana.get(&owner).is_some_and(|ids| ids.contains(&ObjectId(*source)));
             if !matches!(state.waiting_for, WaitingFor::ManaPayment { player, .. } if player == owner) || !tapped {
@@ -2554,6 +2771,10 @@ pub fn answer(state: &mut GameState, owner: PlayerId, act: &Act) -> Result<Answe
             let action = match act {
                 // A player stands for the engine action this decision takes (together.rs).
                 Act::ChoosePlayer { seat } => crate::together::player_action(pending.purpose, *seat),
+                // A companion by name, an attack target, a shortcut: read against the decision (rare.rs).
+                Act::DeclareCompanion { .. } | Act::ChooseEntryAttackTarget { .. } | Act::ProposeShortcut { .. } | Act::DeclineShortcut | Act::RespondToShortcut { .. } => {
+                    crate::rare::action_for(&state.waiting_for, &candidates, act)
+                }
                 _ => pending.normalize(act).to_action(),
             }
             .ok_or_else(|| doesnt_fit("That answer doesn't fit this decision."))?;
@@ -2604,7 +2825,7 @@ mod tests {
 
     fn game() -> Match {
         let e = Engine::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/act-cards.json")).unwrap();
-        let deck = SeatDeck { commander: vec!["Combat Celebrant".into()], main: vec!["Island".into(); 99] };
+        let deck = SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: vec!["Island".into(); 99] };
         e.new_match_first(1, vec![deck.clone(), deck], &[], Some(0)).unwrap()
     }
 

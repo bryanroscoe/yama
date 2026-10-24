@@ -23,7 +23,7 @@ fn engine() -> Engine {
 /// A two-seat game with `cards` (name, controller) on the battlefield, none of them summoning
 /// sick, at seat 0's turn 3 in `phase`. Nothing else is set up: callers put the engine's prompt in.
 fn board(e: &Engine, cards: &[(&str, u8)], phase: Phase) -> (Match, Vec<ObjectId>) {
-    let deck = SeatDeck { commander: vec!["Combat Celebrant".into()], main: vec!["Mountain".into(); 99] };
+    let deck = SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: vec!["Mountain".into(); 99] };
     let mut m = e.new_match_first(1, vec![deck.clone(), deck], &[], Some(0)).unwrap();
     m.set_names(vec!["Ana".into(), "Ben".into()]);
     let ids = cards

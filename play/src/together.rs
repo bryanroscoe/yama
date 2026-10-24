@@ -372,6 +372,11 @@ pub enum TogetherView {
         cards: Vec<(u8, Seen)>,
         placing: u8,
     },
+    /// A proposed shortcut (rare.rs, CR 732.2b): what repeats and how often, and who has answered.
+    Shortcut {
+        source: Seen,
+        shortcut: crate::rare::ShortcutView,
+    },
 }
 
 impl TogetherView {
@@ -383,6 +388,7 @@ impl TogetherView {
             TogetherView::Piles { source, cards, pile_a, pile_b, .. } => std::iter::once(source).chain(cards).chain(pile_a).chain(pile_b).collect(),
             TogetherView::Branch { source, .. } => vec![source],
             TogetherView::Clash { source, cards, .. } => std::iter::once(source).chain(cards.iter().map(|(_, c)| c)).collect(),
+            TogetherView::Shortcut { source, .. } => vec![source],
         };
         all.into_iter().filter_map(|s| s.name.clone()).collect()
     }
@@ -407,8 +413,13 @@ fn seen(vs: &GameState, id: &ObjectId) -> Seen {
 /// The table-wide decision in progress, as `vs` (one seat's filtered view) shows it. `facing` is
 /// who has faced the villainous choice now resolving, kept by `Match` (the engine keeps only who
 /// is still to choose).
-pub(crate) fn view(vs: &GameState, full: &GameState, facing: Option<&[PlayerId]>) -> Option<TogetherView> {
+pub(crate) fn view(vs: &GameState, full: &GameState, facing: Option<&[PlayerId]>, names: &[String]) -> Option<TogetherView> {
     match &vs.waiting_for {
+        // A shortcut being answered: everyone sees the proposal and who has answered (rare.rs).
+        WaitingFor::RespondToShortcut { .. } | WaitingFor::RespondToPrecastCopyShortcut { .. } => {
+            let shortcut = crate::rare::public_shortcut(vs, names)?;
+            Some(TogetherView::Shortcut { source: vs.stack.last().map(|e| seen(vs, &e.source_id)).unwrap_or_default(), shortcut })
+        }
         // The clash's cards were revealed to everyone (CR 701.30a); see `with_clash_cards`.
         WaitingFor::ClashCardPlacement { player, .. } => {
             let WaitingFor::ClashCardPlacement { card: c, remaining, .. } = &full.waiting_for else { return None };
@@ -525,7 +536,7 @@ mod tests {
         state.waiting_for = branch(2, vec![PlayerId(3)]);
         let kept = facing_after(&state, first);
         assert_eq!(kept.as_ref().map(|(_, who)| who.len()), Some(3));
-        let Some(TogetherView::Branch { facing, .. }) = view(&state, &state, kept.as_ref().map(|(_, w)| w.as_slice())) else { panic!() };
+        let Some(TogetherView::Branch { facing, .. }) = view(&state, &state, kept.as_ref().map(|(_, w)| w.as_slice()), &[]) else { panic!() };
         assert_eq!(facing, [(1, "chose"), (2, "choosing"), (3, "waiting")]);
         state.waiting_for = WaitingFor::Priority { player: PlayerId(0) };
         assert_eq!(facing_after(&state, kept), None);

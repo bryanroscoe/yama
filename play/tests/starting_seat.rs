@@ -4,7 +4,7 @@ use std::path::Path;
 use yama_play::{Engine, SeatDeck};
 
 fn deck() -> SeatDeck {
-    SeatDeck { commander: vec!["Combat Celebrant".into()], main: vec!["Forest".into(); 99] }
+    SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: vec!["Forest".into(); 99] }
 }
 
 #[test]

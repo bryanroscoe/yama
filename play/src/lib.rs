@@ -55,6 +55,8 @@ pub mod lab;
 pub mod library;
 pub mod pay;
 pub mod pilot;
+pub mod rare;
+pub mod remember;
 pub mod together;
 pub mod turns;
 pub mod ways;
@@ -62,6 +64,7 @@ pub mod ways;
 pub use act::{Act, Pending};
 pub use feed::{Came, Happening, Out, Stats, Why};
 pub use pay::{PayMode, PaymentView};
+pub use remember::YamaAnswer;
 pub use together::TogetherView;
 pub use turns::{Controls, PassMode, ResolveAllView, TurnsView};
 
@@ -80,10 +83,15 @@ pub struct Engine {
 }
 
 /// A deck as the engine wants it: names, one entry per copy.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SeatDeck {
     pub commander: Vec<String>,
     pub main: Vec<String>,
+    /// A companion kept outside the game (CR 702.139a): the deck's first card on its sideboard
+    /// with the companion keyword. The engine offers to reveal it only when the deck meets its
+    /// condition.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub companion: Vec<String>,
 }
 
 /// One card line from a Yama deck.
@@ -148,7 +156,7 @@ impl Engine {
 
     /// Map Yama's deck lines to engine card names: by oracle ID first, then by name.
     pub fn resolve_deck(&self, lines: &[DeckLine]) -> (SeatDeck, DeckReport) {
-        let mut deck = SeatDeck { commander: vec![], main: vec![] };
+        let mut deck = SeatDeck { companion: vec![], commander: vec![], main: vec![] };
         let mut missing = vec![];
         for l in lines {
             let Some(name) = self.face_name(l) else {
@@ -211,6 +219,16 @@ impl Engine {
         out
     }
 
+    /// A deck's companion (CR 702.139a): the first card on its sideboard (`lines`) that the engine
+    /// knows has the companion keyword, by the engine's name. The engine offers to reveal it before
+    /// the game only when the deck meets its condition.
+    pub fn companion_of(&self, lines: &[DeckLine]) -> Option<String> {
+        lines.iter().find_map(|l| {
+            let face = self.db.get_face_by_oracle_id(l.oracle_id).or_else(|| self.db.get_face_by_name(l.name))?;
+            face.keywords.iter().any(|k| matches!(k, Keyword::Companion(_))).then(|| face.name.clone())
+        })
+    }
+
     /// The names in `lines` the engine doesn't know, as [`Engine::resolve_deck`] reports them, but
     /// without building the deck: one lookup per line, whatever its quantity.
     pub fn unknown_cards(&self, lines: &[DeckLine]) -> Vec<String> {
@@ -234,7 +252,7 @@ impl Engine {
         }
         let lists: Vec<PlayerDeckList> = decks
             .into_iter()
-            .map(|d| PlayerDeckList { main_deck: d.main, commander: d.commander, ..Default::default() })
+            .map(|d| PlayerDeckList { main_deck: d.main, commander: d.commander, companion: d.companion, ..Default::default() })
             .collect();
         let player_count = lists.len() as u8;
         let mut it = lists.into_iter();
@@ -332,6 +350,8 @@ impl Engine {
             kept: HashMap::new(),
             feed: feed::Feed::default(),
             facing: None,
+            remembered: Vec::new(),
+            remembered_tried: None,
         };
         m.remark(None);
         Ok(m)
@@ -368,6 +388,12 @@ pub struct Match {
     /// Who faces the villainous choice now resolving, from its first prompt (together.rs): the
     /// engine keeps only who is choosing and who is still to choose.
     facing: Option<(ObjectId, Vec<PlayerId>)>,
+    /// The answers Yama gives for people from memory ("Always pay for Rhystic Study"; remember.rs),
+    /// saved with the game.
+    remembered: Vec<remember::YamaAnswer>,
+    /// A remembered answer Yama couldn't give for this seat's decision at this revision (it
+    /// couldn't pay, or the engine refused): they're asked instead.
+    remembered_tried: Option<(u8, u64)>,
 }
 
 /// A person's decision as of its issue (see [`Decision::revision`]).
@@ -550,6 +576,10 @@ pub struct OptionView {
     /// right one of several cards with the same name (clicking or dragging onto it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<TargetView>,
+    /// What a special action costs, printed ("{1}{U}" for ninjutsu, "{2}{W}{W}" to turn a card
+    /// face up), where Yama words it (rare.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<String>,
 }
 
 /// What an option does, for the board's buttons.
@@ -574,6 +604,17 @@ pub enum OptionKind {
     Agree,
     /// ... or keep your chance to act.
     Refuse,
+    // Special actions (rare.rs; GRareCards, GRareRules), answered with their own `act`.
+    /// Ninjutsu: a card in hand for an unblocked attacker (`target` is the attacker).
+    Ninjutsu,
+    /// Turn a face-down permanent face up.
+    FaceUp,
+    /// Foretell a card from hand.
+    Foretell,
+    /// Pay {3} to put your companion into your hand.
+    Companion,
+    /// Serum Powder at the mulligan.
+    SerumPowder,
     Other,
 }
 
@@ -593,6 +634,11 @@ impl OptionKind {
             GameAction::DeclareAttackers { .. } => Self::Attack,
             GameAction::DeclareBlockers { .. } => Self::Block,
             GameAction::ChooseTarget { .. } | GameAction::SelectTargets { .. } => Self::Target,
+            GameAction::ActivateNinjutsu { .. } => Self::Ninjutsu,
+            GameAction::TurnFaceUp { .. } => Self::FaceUp,
+            GameAction::Foretell { .. } => Self::Foretell,
+            GameAction::CompanionToHand => Self::Companion,
+            GameAction::MulliganDecision { choice: MulliganChoice::UseSerumPowder { .. } } => Self::SerumPowder,
             _ => Self::Other,
         }
     }
@@ -696,16 +742,21 @@ impl Match {
             .candidates
             .iter()
             .enumerate()
-            .map(|(index, c)| OptionView {
-                index,
-                label: self.label(&vs, &c.action),
-                kind: OptionKind::of(&c.action, &vs.waiting_for),
-                object: c.action.source_object().map(|o| o.0),
-                ability: match c.action {
-                    GameAction::ActivateAbility { ability_index, .. } => Some(ability_index),
-                    _ => None,
-                },
-                target: TargetView::of(&c.action),
+            .map(|(index, c)| {
+                // The rarer special actions word themselves and carry their cost (rare.rs).
+                let (label, cost) = rare::label(&vs, &c.action, &self.names).unwrap_or_else(|| (self.label(&vs, &c.action), None));
+                OptionView {
+                    index,
+                    label,
+                    kind: OptionKind::of(&c.action, &vs.waiting_for),
+                    object: c.action.source_object().map(|o| o.0).or_else(|| rare::option_object(&c.action)),
+                    ability: match c.action {
+                        GameAction::ActivateAbility { ability_index, .. } => Some(ability_index),
+                        _ => None,
+                    },
+                    target: TargetView::of(&c.action).or_else(|| rare::option_target(&c.action)),
+                    cost,
+                }
             })
             .collect();
         self.tell_targets_apart(&vs, me, &mut options);
@@ -1004,7 +1055,15 @@ impl Match {
             Act::TapMana { source, choice } => self.kept_by(seat, *source, choice.as_deref()),
             _ => None,
         };
-        match act::answer(&mut self.state, PlayerId(seat), answer) {
+        // Yama's own remembered answers (remember.rs): turning one off changes nothing in the game.
+        if let Act::ForgetAnswer { id } = answer {
+            return self.forget_answer(seat, id).map_err(ChoiceError::DoesntFit);
+        }
+        let answered = match answer {
+            Act::RememberAnswer { accept } => self.remember_answer(seat, *accept),
+            _ => act::answer(&mut self.state, PlayerId(seat), answer),
+        };
+        match answered {
             Ok(done) => {
                 for action in done.actions {
                     self.log.push_action(done.actor, action);
@@ -1245,6 +1304,11 @@ impl Match {
         self.tidy_controls(humans);
         let mut passed = 0;
         loop {
+            // An answer Yama remembers for someone (remember.rs) is given before anything else.
+            if self.answer_remembered(humans) {
+                passed += 1;
+                continue;
+            }
             let mut next = None;
             for seat in self.waiting_on().into_iter().filter(|s| humans.contains(s)) {
                 let Some(w) = self.window(seat) else { continue };
@@ -1324,6 +1388,7 @@ impl Match {
             only_pass: others().next().is_none(),
             can_act: others().any(|c| !is_land_ability(&c.action)),
             can_cast: others().any(|c| matches!(c.action, GameAction::CastSpell { .. })),
+            ninjutsu: others().any(|c| matches!(c.action, GameAction::ActivateNinjutsu { .. })),
         })
     }
 
@@ -1612,6 +1677,7 @@ impl Match {
                 id: id.0,
                 name: if o.face_down && !may_look { "Face-down card".into() } else { o.name.clone() },
                 face_down: o.face_down,
+                under: face_down_identity(o, all_hands),
                 came: if matches!(o.zone, Zone::Graveyard | Zone::Exile | Zone::Command) { self.feed.came(viewer, id.0) } else { None },
                 attachments: if on_field { o.attachments.iter().map(|a| a.0).collect() } else { vec![] },
                 transformed: o.transformed && !o.face_down,
@@ -1661,6 +1727,7 @@ impl Match {
                     .filter(|d| d.player == p.id)
                     .map(|d| (Self::name_in(&state, &d.commander), d.damage))
                     .collect(),
+                companion: rare::companion_of(state, p.id).map(|(name, used)| CompanionView { name, used }),
             })
             .collect();
         View {
@@ -1708,6 +1775,7 @@ impl Match {
                         yielded: viewer.is_some_and(|seat| {
                             self.state.stack.iter().find(|e| e.id == s.id).is_some_and(|e| self.state.is_priority_yielded(PlayerId(seat), e))
                         }),
+                        under: state.objects.get(&s.source_id).filter(|o| o.face_down).and_then(|o| face_down_identity(o, all_hands)),
                         name,
                     }
                 })
@@ -1734,7 +1802,7 @@ impl Match {
             winner: self.winner(),
             turns: viewer.filter(|seat| !self.is_ai(*seat)).map(|seat| self.turns_view(state, seat)),
             resolve_all: self.resolve_all_view(),
-            together: together::view(state, &self.state, self.facing.as_ref().map(|(_, who)| who.as_slice())),
+            together: together::view(state, &self.state, self.facing.as_ref().map(|(_, who)| who.as_slice()), &self.names),
             events: self.feed.recent(viewer, feed::SHOWN),
             outs: self.feed.outs().to_vec(),
             stats: self.is_over().then(|| self.feed.stats(&self.state)),
@@ -1751,6 +1819,19 @@ impl Match {
     pub fn outs(&self) -> &[Out] {
         self.feed.outs()
     }
+}
+
+/// The card under a face-down object as one viewer's board may show it: the name the engine's
+/// projection gives that viewer (only its controller's, CR 708.5, or everyone's once the game is
+/// over, CR 708.9), or every card's when all hands are shown (a game the computer plays alone).
+fn face_down_identity(o: &engine::game::game_object::GameObject, all_hands: bool) -> Option<String> {
+    if !o.face_down {
+        return None;
+    }
+    if all_hands {
+        return o.back_face.as_ref().map(|b| b.name.clone()).filter(|n| !n.is_empty());
+    }
+    Some(o.name.clone()).filter(|n| !n.is_empty() && n != "Hidden Card")
 }
 
 /// An ability's text as a label: its card's name for "~", loyalty costs without brackets
@@ -1899,6 +1980,19 @@ pub struct PlayerView {
     pub conceded: bool,
     /// Commander damage this player has taken, by commander name.
     pub commander_damage: BTreeMap<String, u32>,
+    /// The companion they revealed before the game (public, CR 702.139a), and whether it has been
+    /// put into their hand.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub companion: Option<CompanionView>,
+}
+
+/// A revealed companion (rare.rs).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CompanionView {
+    pub name: String,
+    /// Put into their hand already (once per game, CR 702.139a).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub used: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -1947,6 +2041,10 @@ pub struct CardView {
     /// Face down. Its name is "Face-down card" unless this viewer may look at it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub face_down: bool,
+    /// The card under a face-down card, for a viewer the engine lets look at it: its controller
+    /// (CR 708.5), or everyone once the game is over (CR 708.9). Nobody else's view carries it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub under: Option<String>,
     /// How a card in a graveyard, exile or the command zone got there, as this viewer saw it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub came: Option<Came>,
@@ -2000,6 +2098,9 @@ pub struct StackView {
     /// The viewer yielded to it: Yama passes for them while it's on top.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub yielded: bool,
+    /// A face-down spell's card, for a viewer who may look at it (its caster, CR 708.5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub under: Option<String>,
 }
 
 /// A stack entry's target as one seat may see it: a card by id or a player by seat, with its
@@ -2030,6 +2131,9 @@ mod ways_tests;
 mod together_tests;
 
 #[cfg(test)]
+mod rare_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -2053,9 +2157,9 @@ mod tests {
         let two = GameAction::SelectTargets { targets: vec![TargetRef::Player(PlayerId(1)), TargetRef::Player(PlayerId(2))] };
         assert_eq!(TargetView::of(&two), None);
         assert_eq!(TargetView::of(&GameAction::PassPriority), None);
-        let o = OptionView { index: 3, label: "Target Bear".into(), kind: OptionKind::Target, object: None, ability: None, target: TargetView::of(&card) };
+        let o = OptionView { index: 3, label: "Target Bear".into(), kind: OptionKind::Target, object: None, ability: None, target: TargetView::of(&card), cost: None };
         assert_eq!(serde_json::to_value(&o).unwrap()["target"], serde_json::json!({"kind": "object", "id": 77}));
-        let pass = OptionView { index: 0, label: "Pass".into(), kind: OptionKind::Pass, object: None, ability: None, target: None };
+        let pass = OptionView { index: 0, label: "Pass".into(), kind: OptionKind::Pass, object: None, ability: None, target: None, cost: None };
         assert!(serde_json::to_value(&pass).unwrap().get("target").is_none());
     }
 
@@ -2076,7 +2180,7 @@ mod tests {
     #[test]
     fn paying_mana_by_hand_says_pay_the_rest_and_cancel() {
         let e = Engine::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/act-cards.json")).unwrap();
-        let deck = SeatDeck { commander: vec!["Combat Celebrant".into()], main: vec!["Mountain".into(); 99] };
+        let deck = SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: vec!["Mountain".into(); 99] };
         let mut m = e.new_match(1, vec![deck.clone(), deck], &[]).unwrap();
         m.state.waiting_for = WaitingFor::ManaPayment { player: PlayerId(0), convoke_mode: None };
         assert_eq!(m.label(&m.state, &GameAction::PassPriority), "Pay the rest");

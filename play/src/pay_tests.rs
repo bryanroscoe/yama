@@ -26,7 +26,7 @@ fn engine() -> Engine {
 /// battlefield and `grave` in seat 0's graveyard. Seat 0's commander, Combat Celebrant ({2}{R}),
 /// is in the command zone. Returns the ids in the order given: field, hand, theirs, grave.
 fn table(e: &Engine, field: &[&str], hand: &[&str], theirs: &[&str], grave: &[&str]) -> (Match, Vec<ObjectId>) {
-    let deck = |land: &str| SeatDeck { commander: vec!["Combat Celebrant".into()], main: vec![land.into(); 99] };
+    let deck = |land: &str| SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: vec![land.into(); 99] };
     let mut m = e.new_match_first(3, vec![deck("Plains"), deck("Plains")], &[], Some(0)).unwrap();
     m.set_names(vec!["Ana".into(), "Ben".into()]);
     let make = |m: &mut Match, name: &str, seat: u8, zone: Zone| {
