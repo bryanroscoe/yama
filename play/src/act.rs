@@ -136,6 +136,27 @@ pub enum Answer {
     RemoveCounters,
     /// Counters removed from among permanents as a cost (CR 118.3).
     RemoveCounterCost,
+    // Everyone takes part, and choosing a player (together.rs).
+    /// A vote for one of the objects offered, by its place in the list (CR 701.38b).
+    SubmitVoteCandidate,
+    /// The cards in pile A; the rest are pile B (CR 700.3a).
+    SubmitPilePartition,
+    /// Pile A or pile B (CR 700.3).
+    ChoosePile,
+    /// One branch of a villainous choice or another "A or B" (CR 701.55a).
+    ChooseBranch,
+    /// The coins to keep (CR 705.1).
+    SelectCoinFlips,
+    /// The rolls to ignore (CR 706.6).
+    SelectDieRolls,
+    /// The top or the bottom of a library (CR 401.4).
+    ChooseTopOrBottom,
+    /// One of the engine's ways to share out life totals (CR 119.7).
+    RedistributeLife,
+    /// A player: a gift's recipient, who a permanent enters under, an opponent who chooses.
+    ChoosePlayer,
+    /// Learn: a card to discard, then draw, or nothing (CR 701.48a).
+    Learn,
 }
 
 /// The card asking. The server adds its art, image and artist from Yama's card data.
@@ -265,7 +286,11 @@ pub struct Pending {
     /// "discover", "ripple", "madness", "miracle", "miracle_reveal", "adventure", "face",
     /// "alt_cost", "variant" and "mutate"; permanents: "legend", "clone", "equip", "ring",
     /// "empower", "host", "populate" and "explore"; counters: "proliferate", "move_counters",
-    /// "remove_counters" and "counter_cost".
+    /// "remove_counters" and "counter_cost". Everyone takes part (together.rs): "vote",
+    /// "piles_split", "piles_choose", "branch", "coin", "die", "guess", "clash" and "life";
+    /// choosing a player: "gift", "entry_controller", "zone_chooser", "clash_opponent",
+    /// "announcer" and "pile_opponent". The library (library.rs): "top_or_bottom", "partition",
+    /// "dig_split", "reveal", "kept", "manifest" and "learn".
     pub purpose: &'static str,
     /// The order picked is the order they end up in (scry and surveil: the first is on top).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -314,6 +339,20 @@ pub struct Pending {
     /// Moving or removing counters: the permanent they come off, by option id.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
+    /// Cards shown with the decision that aren't its options: the card going to the top or
+    /// bottom, each clashing player's card, a pile's cards (`group` "a" or "b").
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shown: Vec<Choice>,
+    /// Where the picked cards go and where the rest go, in words ("Onto the battlefield tapped",
+    /// "Into your hand"): the Cultivate split, manifest dread.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub places: Vec<String>,
+    /// An order whose first `top_count` cards go on top of the library and the rest to the bottom.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_count: Option<usize>,
+    /// The cards on top and at the bottom are settled: only their order within each may change.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub fixed_split: bool,
     /// `current` isn't one of the engine's alternatives, so picking it is sent as keeping it.
     #[serde(skip)]
     keeps_current: bool,
@@ -361,6 +400,10 @@ impl Pending {
             warn: None,
             rest: None,
             origin: None,
+            shown: vec![],
+            places: vec![],
+            top_count: None,
+            fixed_split: false,
             keeps_current: false,
             shards: vec![],
         }
@@ -1316,7 +1359,9 @@ impl Pending {
                     .from(vs, Some(pending_effect.source_id))
             }
             // Ways to cast, permanents and counters.
-            _ => crate::ways::of(vs, me, candidates, names)?,
+            _ => crate::ways::of(vs, me, candidates, names)
+                .or_else(|| crate::together::of(vs, me, candidates, names))
+                .or_else(|| crate::library::of(vs, me, candidates, names))?,
         };
         let mut pending = pending;
         if pending.zone.is_none() && pending.kind == Kind::Pick && pending.answer == Answer::SelectCards {
@@ -1327,7 +1372,11 @@ impl Pending {
 
     /// The card names this decision shows, for the deciding seat's card details.
     pub fn card_names(&self) -> Vec<String> {
-        self.source.iter().map(|s| s.name.clone()).chain(self.options.iter().filter(|o| o.card).map(|o| o.name.clone())).collect()
+        self.source
+            .iter()
+            .map(|s| s.name.clone())
+            .chain(self.options.iter().chain(&self.shown).filter(|o| o.card).map(|o| o.name.clone()))
+            .collect()
     }
 
     fn eligible(&self, id: &str) -> bool {
@@ -1401,6 +1450,14 @@ impl Pending {
                     }
                     if !self.eligible(&id.to_string()) {
                         return Err("That card isn't one of the choices.".into());
+                    }
+                }
+                // Top and bottom already split by someone else: each pile keeps its cards.
+                if let (true, Some(top)) = (self.fixed_split, self.top_count) {
+                    let was: std::collections::HashSet<&str> = self.options.iter().take(top).map(|o| o.id.as_str()).collect();
+                    let now: Vec<String> = cards.iter().take(top).map(|c| c.to_string()).collect();
+                    if now.len() != was.len() || !now.iter().all(|c| was.contains(c.as_str())) {
+                        return Err("Only the order within each pile can change.".into());
                     }
                 }
                 between(cards.len(), ("card", "cards"))
@@ -1607,6 +1664,44 @@ impl Pending {
             (Answer::MoveCounters, Act::MoveCounters { moves }) => self.counters_fit(moves.iter().map(|m| (Some(m.on), m.counter.as_str(), m.count))),
             (Answer::RemoveCounters, Act::RemoveCounters { counters }) => self.counters_fit(counters.iter().map(|c| (None, c.counter.as_str(), c.count))),
             (Answer::RemoveCounterCost, Act::RemoveCounterCost { counters }) => self.counters_fit(counters.iter().map(|c| (Some(c.on), c.counter.as_str(), c.count))),
+            // Everyone takes part, and choosing a player (together.rs).
+            (Answer::SubmitVoteCandidate, Act::SubmitVoteCandidate { candidate }) => self.one_of(&candidate.to_string()),
+            (Answer::SubmitPilePartition, Act::SubmitPilePartition { pile_a }) => {
+                let mut seen = std::collections::HashSet::new();
+                for id in pile_a {
+                    if !seen.insert(*id) {
+                        return Err("A card was put in a pile twice.".into());
+                    }
+                    if !self.eligible(&id.to_string()) {
+                        return Err("That card isn't one of the cards to separate.".into());
+                    }
+                }
+                Ok(())
+            }
+            (Answer::ChoosePile, Act::ChoosePile { .. }) => Ok(()),
+            (Answer::ChooseBranch, Act::ChooseBranch { index }) => self.one_of(&index.to_string()),
+            (Answer::SelectCoinFlips, Act::SelectCoinFlips { keep: chosen }) | (Answer::SelectDieRolls, Act::SelectDieRolls { ignore: chosen }) => {
+                let mut seen = std::collections::HashSet::new();
+                for i in chosen {
+                    if !seen.insert(*i) {
+                        return Err("Something was chosen twice.".into());
+                    }
+                    if !self.eligible(&i.to_string()) {
+                        return Err(if self.answer == Answer::SelectDieRolls { "That roll can't be ignored.".into() } else { "That isn't one of the coins.".into() });
+                    }
+                }
+                let what = if self.answer == Answer::SelectDieRolls { ("roll", "rolls") } else { ("coin", "coins") };
+                between(chosen.len(), what)
+            }
+            (Answer::ChooseTopOrBottom, Act::ChooseTopOrBottom { .. }) => Ok(()),
+            (Answer::RedistributeLife, Act::RedistributeLife { option }) => self.one_of(&option.to_string()),
+            (Answer::ChoosePlayer, Act::ChoosePlayer { seat }) => {
+                if self.eligible(&format!("p{seat}")) { Ok(()) } else { Err("That player isn't one of the choices.".into()) }
+            }
+            (Answer::Learn, Act::Learn { discard }) => match discard {
+                None => Ok(()),
+                Some(id) => self.one_of(&id.to_string()),
+            },
             _ => Err("That answer doesn't fit this decision.".into()),
         }
     }
@@ -1883,6 +1978,48 @@ pub enum Act {
     RemoveCounterCost {
         counters: Vec<CounterMove>,
     },
+    // Everyone takes part, and choosing a player (together.rs; GTogether, GRareRules).
+    /// A vote for the object at this place in the vote's list. A vote for a word is `ChooseOption`.
+    SubmitVoteCandidate {
+        candidate: u32,
+    },
+    /// The cards in pile A; the rest are pile B.
+    SubmitPilePartition {
+        pile_a: Vec<u64>,
+    },
+    /// The pile chosen.
+    ChoosePile {
+        pile: crate::together::Pile,
+    },
+    /// One branch of a villainous choice (or another "A or B"), by its place.
+    ChooseBranch {
+        index: usize,
+    },
+    /// The coins kept, by their place among the results.
+    SelectCoinFlips {
+        keep: Vec<usize>,
+    },
+    /// The rolls ignored, by their place among the results.
+    SelectDieRolls {
+        ignore: Vec<usize>,
+    },
+    /// A card on the top (or else the bottom) of its owner's library.
+    ChooseTopOrBottom {
+        top: bool,
+    },
+    /// One of the engine's ways to share out life totals, by its place.
+    RedistributeLife {
+        option: usize,
+    },
+    /// A player, by seat: whom the decision asks for (a gift's recipient, an opponent who
+    /// chooses or separates or clashes, who a permanent enters under).
+    ChoosePlayer {
+        seat: u8,
+    },
+    /// Learn: discard this card and draw a card, or (`None`) don't.
+    Learn {
+        discard: Option<u64>,
+    },
 }
 
 /// Some counters on one permanent: the ones that move onto it, or come off it as a cost.
@@ -2055,6 +2192,17 @@ impl Act {
                     .map(|c| Some(CounterCostChoice { object_id: ObjectId(c.on), counter_type: crate::ways::counter_of(&c.counter)?, count: c.count }))
                     .collect::<Option<Vec<_>>>()?,
             },
+            Act::SubmitVoteCandidate { candidate } => GameAction::SubmitVoteCandidate { candidate_index: *candidate },
+            Act::SubmitPilePartition { pile_a } => GameAction::SubmitPilePartition { pile_a: pile_a.iter().map(|c| ObjectId(*c)).collect() },
+            Act::ChoosePile { pile } => GameAction::ChoosePile { pile: pile.side() },
+            Act::ChooseBranch { index } => GameAction::ChooseBranch { index: *index },
+            Act::SelectCoinFlips { keep } => GameAction::SelectCoinFlips { keep_indices: keep.clone() },
+            Act::SelectDieRolls { ignore } => GameAction::SelectDieRolls { ignore_indices: ignore.clone() },
+            Act::ChooseTopOrBottom { top } => GameAction::ChooseTopOrBottom { top: *top },
+            Act::RedistributeLife { option } => GameAction::SubmitLifeRedistribution { option_index: *option },
+            // Which engine action a player stands for depends on the decision (`answer`).
+            Act::ChoosePlayer { .. } => return None,
+            Act::Learn { discard } => crate::library::learn_action(*discard),
         })
     }
 
@@ -2162,7 +2310,24 @@ impl Act {
             GameAction::ChooseRemoveCounterCostDistribution { distribution } => Act::RemoveCounterCost {
                 counters: distribution.iter().map(|s| CounterMove { on: s.object_id.0, counter: crate::ways::counter_key(&s.counter_type), count: s.count }).collect(),
             },
-            _ => return None,
+            GameAction::SubmitVoteCandidate { candidate_index } => Act::SubmitVoteCandidate { candidate: *candidate_index },
+            GameAction::SubmitPilePartition { pile_a } => Act::SubmitPilePartition { pile_a: pile_a.iter().map(|c| c.0).collect() },
+            GameAction::ChoosePile { pile } => Act::ChoosePile { pile: crate::together::Pile::of(*pile) },
+            GameAction::ChooseBranch { index } => Act::ChooseBranch { index: *index },
+            GameAction::SelectCoinFlips { keep_indices } => Act::SelectCoinFlips { keep: keep_indices.clone() },
+            GameAction::SelectDieRolls { ignore_indices } => Act::SelectDieRolls { ignore: ignore_indices.clone() },
+            GameAction::ChooseTopOrBottom { top } => Act::ChooseTopOrBottom { top: *top },
+            GameAction::SubmitLifeRedistribution { option_index } => Act::RedistributeLife { option: *option_index },
+            GameAction::LearnDecision { choice } => Act::Learn {
+                discard: match choice {
+                    engine::types::actions::LearnOption::Rummage { card_id } => Some(card_id.0),
+                    engine::types::actions::LearnOption::Skip => None,
+                },
+            },
+            other => match crate::together::chosen_player(other) {
+                Some(seat) => Act::ChoosePlayer { seat },
+                None => return None,
+            },
         })
     }
 
@@ -2227,6 +2392,16 @@ impl Act {
             Act::MoveCounters { .. } => "move_counters",
             Act::RemoveCounters { .. } => "remove_counters",
             Act::RemoveCounterCost { .. } => "remove_counter_cost",
+            Act::SubmitVoteCandidate { .. } => "submit_vote_candidate",
+            Act::SubmitPilePartition { .. } => "submit_pile_partition",
+            Act::ChoosePile { .. } => "choose_pile",
+            Act::ChooseBranch { .. } => "choose_branch",
+            Act::SelectCoinFlips { .. } => "select_coin_flips",
+            Act::SelectDieRolls { .. } => "select_die_rolls",
+            Act::ChooseTopOrBottom { .. } => "choose_top_or_bottom",
+            Act::RedistributeLife { .. } => "redistribute_life",
+            Act::ChoosePlayer { .. } => "choose_player",
+            Act::Learn { .. } => "learn",
         }
     }
 }
@@ -2376,7 +2551,12 @@ pub fn answer(state: &mut GameState, owner: PlayerId, act: &Act) -> Result<Answe
                 return Err(doesnt_fit("Answer this one with the buttons."));
             };
             pending.admits(act).map_err(Refusal::DoesntFit)?;
-            let action = pending.normalize(act).to_action().ok_or_else(|| doesnt_fit("That answer doesn't fit this decision."))?;
+            let action = match act {
+                // A player stands for the engine action this decision takes (together.rs).
+                Act::ChoosePlayer { seat } => crate::together::player_action(pending.purpose, *seat),
+                _ => pending.normalize(act).to_action(),
+            }
+            .ok_or_else(|| doesnt_fit("That answer doesn't fit this decision."))?;
             // Phyrexian mana: only a way the mana on hand can pay.
             if let (GameAction::SubmitPhyrexianChoices { choices }, WaitingFor::PhyrexianPayment { spell_object, .. }) = (&action, &state.waiting_for)
                 && !engine::game::casting::pending_phyrexian_route_is_payable(state, owner, *spell_object, choices)

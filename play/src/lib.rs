@@ -52,14 +52,17 @@ pub use phase_ai::config::AiDifficulty as Difficulty;
 pub mod act;
 pub mod feed;
 pub mod lab;
+pub mod library;
 pub mod pay;
 pub mod pilot;
+pub mod together;
 pub mod turns;
 pub mod ways;
 
 pub use act::{Act, Pending};
 pub use feed::{Came, Happening, Out, Stats, Why};
 pub use pay::{PayMode, PaymentView};
+pub use together::TogetherView;
 pub use turns::{Controls, PassMode, ResolveAllView, TurnsView};
 
 /// Engine build plus the card data it was built against. Stored with every game, because a
@@ -328,6 +331,7 @@ impl Engine {
             auto_watch: Vec::new(),
             kept: HashMap::new(),
             feed: feed::Feed::default(),
+            facing: None,
         };
         m.remark(None);
         Ok(m)
@@ -361,6 +365,9 @@ pub struct Match {
     kept: HashMap<u8, Vec<pay::Kept>>,
     /// What happened, for each viewer, with the knockouts and the game's numbers (feed.rs).
     feed: feed::Feed,
+    /// Who faces the villainous choice now resolving, from its first prompt (together.rs): the
+    /// engine keeps only who is choosing and who is still to choose.
+    facing: Option<(ObjectId, Vec<PlayerId>)>,
 }
 
 /// A person's decision as of its issue (see [`Decision::revision`]).
@@ -709,7 +716,7 @@ impl Match {
             prompt: self.prompt(&vs),
             options,
             mulligan: Self::mulligan_view(&vs, me),
-            pending: Pending::of(&vs, me, &candidates, &self.names).map(|p| ways::with_resolving_source(p, &self.state, &vs)),
+            pending: Pending::of(&vs, me, &candidates, &self.names).map(|p| together::with_clash_cards(ways::with_resolving_source(p, &self.state, &vs), &self.state)),
             payment: PaymentView::of(&self.state, &vs, me, &candidates, self.kept.get(&seat).map(Vec::as_slice).unwrap_or_default()),
             attack,
             block,
@@ -1472,6 +1479,7 @@ impl Match {
         }
         self.feed.record(&result.events, &self.state, &self.conceded);
         self.note_automatic_answers(result);
+        self.facing = together::facing_after(&self.state, self.facing.take());
         if self.lines.len() > LOG_LINES * 4 {
             self.lines.drain(..self.lines.len() - LOG_LINES);
         }
@@ -1509,6 +1517,7 @@ impl Match {
         self.revision += 1;
         self.feed.record(&result.events, &self.state, &self.conceded);
         self.note_automatic_answers(result);
+        self.facing = together::facing_after(&self.state, self.facing.take());
     }
 
     /// Answer with phase's `fallback_action` when the AI finds no action (see the field).
@@ -1725,6 +1734,7 @@ impl Match {
             winner: self.winner(),
             turns: viewer.filter(|seat| !self.is_ai(*seat)).map(|seat| self.turns_view(state, seat)),
             resolve_all: self.resolve_all_view(),
+            together: together::view(state, &self.state, self.facing.as_ref().map(|(_, who)| who.as_slice())),
             events: self.feed.recent(viewer, feed::SHOWN),
             outs: self.feed.outs().to_vec(),
             stats: self.is_over().then(|| self.feed.stats(&self.state)),
@@ -1862,6 +1872,10 @@ pub struct View {
     /// Someone asked to resolve the whole stack: who, and who has agreed (everyone sees it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolve_all: Option<ResolveAllView>,
+    /// A decision everyone takes part in, as this viewer may see it: the votes cast so far, the
+    /// piles, who has faced a villainous choice (together.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub together: Option<TogetherView>,
     /// The newest things that happened, as this viewer may know them, oldest first (feed.rs).
     pub events: Vec<Happening>,
     /// Players knocked out, in the order they went out, each with its cause.
@@ -2011,6 +2025,9 @@ mod pay_tests;
 
 #[cfg(test)]
 mod ways_tests;
+
+#[cfg(test)]
+mod together_tests;
 
 #[cfg(test)]
 mod tests {

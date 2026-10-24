@@ -15,15 +15,20 @@ import { ManaCost } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import {
   adjust,
+  canMoveOrder,
   canRememberOrder,
   castable,
   counter,
   isCastOffer,
   isFaceChoice,
   isPermanentPick,
+  isPlaces,
   isScry,
+  isSeatPick,
   isTapping,
   isTargeting,
+  isTopOrBottom,
+  isWordPick,
   keepOnTop,
   keypad,
   left,
@@ -33,6 +38,7 @@ import {
   nameMatches,
   orderTag,
   phyrexianLife,
+  piles,
   phyrexianMana,
   pickTag,
   rememberLabels,
@@ -48,7 +54,7 @@ import {
   type Stage,
 } from "./answer";
 import { seatHeadOf, tileOf } from "./DragLayer";
-import type { CardMeta, DecisionOption, Pending } from "./types";
+import type { CardMeta, DecisionOption, Pending, TogetherView } from "./types";
 
 /** What the widgets need from the board around them. */
 export interface WidgetContext {
@@ -69,6 +75,12 @@ export interface WidgetContext {
   inPlay: { name: string; seat: number }[];
   /** Your life now, for Phyrexian mana's "Life: 38 → 36". */
   life?: number;
+  /** The table-wide decision in progress, as you may see it: the votes cast, the piles (GTogether). */
+  together?: TogetherView;
+  /** A seat's commander art and its artist, and its life, for the seat picker (GRareRules). */
+  seat?: (n: number) => { art: string | null; artist: string | null; life: number | null };
+  /** How many cards a seat's library holds, for top or bottom. */
+  library?: (n: number) => number | undefined;
 }
 
 interface Props {
@@ -476,11 +488,14 @@ const Grip = ({ cols }: { cols: number }) => (
 
 /** Cards in an order (GOrder): left to right is the order sent, with the destination drawn beside them. */
 export function OrderCards({ p, draft, onDraft, ctx, compact, disabled }: Props) {
-  const { list, handle } = useReorder(compact ? "y" : "x", (from, to) => onDraft(moveTo(draft, from, to)));
+  // A dig's rest split by someone else keeps its two piles: only the order within each moves.
+  const { list, handle } = useReorder(compact ? "y" : "x", (from, to) => canMoveOrder(p, from, to) && onDraft(moveTo(draft, from, to)));
   if (draft.kind !== "order") return null;
   const byId = new Map(p.options.map((o) => [o.id, o]));
   const n = draft.ids.length;
-  const top = p.destination === "top";
+  // Telling Time: the first `topCount` go on top, the rest to the bottom, with a line between.
+  const split = p.topCount !== undefined && p.topCount > 0 && p.topCount < n ? p.topCount : null;
+  const top = p.destination === "top" || (p.topCount ?? 0) > 0;
   const img = (o: DecisionOption | undefined) => (o ? o.img ?? ctx.meta[o.name]?.image ?? null : null);
   return (
     <div className={`dw-order${compact ? " compact" : ""}`}>
@@ -496,7 +511,12 @@ export function OrderCards({ p, draft, onDraft, ctx, compact, disabled }: Props)
           {draft.ids.map((id, i) => {
             const o = byId.get(id);
             const name = o?.name ?? "A card";
-            return (
+            return [
+              split === i && (
+                <li key="split" className="dw-order-split" aria-hidden="true">
+                  <span>Bottom of your library</span>
+                </li>
+              ),
               <li key={id} data-reorder className="dw-order-item">
                 <span className={`dw-tag${i === 0 ? " first" : ""}`}>{orderTag(p, i, n)}</span>
                 <span className="dw-order-card" {...handle(i)}>
@@ -505,7 +525,7 @@ export function OrderCards({ p, draft, onDraft, ctx, compact, disabled }: Props)
                 </span>
                 {compact && <b className="dw-order-name">{name}</b>}
                 <span className="dw-arrows">
-                  <button type="button" className="outline" aria-label={`Move ${name} ${top ? "nearer the top" : "higher"}`} disabled={disabled || i === 0} onClick={() => onDraft(move(draft, i, -1))}>
+                  <button type="button" className="outline" aria-label={`Move ${name} ${top ? "nearer the top" : "higher"}`} disabled={disabled || i === 0 || !canMoveOrder(p, i, i - 1)} onClick={() => onDraft(move(draft, i, -1))}>
                     {compact ? "↑" : "←"}
                   </button>
                   {!compact && (
@@ -513,12 +533,12 @@ export function OrderCards({ p, draft, onDraft, ctx, compact, disabled }: Props)
                       <Grip cols={3} />
                     </span>
                   )}
-                  <button type="button" className="outline" aria-label={`Move ${name} ${top ? "deeper" : "lower"}`} disabled={disabled || i === n - 1} onClick={() => onDraft(move(draft, i, 1))}>
+                  <button type="button" className="outline" aria-label={`Move ${name} ${top ? "deeper" : "lower"}`} disabled={disabled || i === n - 1 || !canMoveOrder(p, i, i + 1)} onClick={() => onDraft(move(draft, i, 1))}>
                     {compact ? "↓" : "→"}
                   </button>
                 </span>
-              </li>
-            );
+              </li>,
+            ];
           })}
         </ol>
       </div>
@@ -1283,7 +1303,8 @@ export function CostRows({ p, draft, onDraft, ctx, compact, disabled }: Props) {
  */
 export function CastOfferCard({ p, ctx, compact }: Props) {
   const img = (o: DecisionOption) => o.img ?? ctx.meta[o.name]?.image ?? null;
-  const run = ["cascade", "discover", "ripple"].includes(p.purpose);
+  // A reveal-until's find is shown the same way, after the cards it went past (GLibrary).
+  const run = ["cascade", "discover", "ripple", "kept"].includes(p.purpose);
   const hit = p.options[p.options.length - 1];
   const misses = run ? p.options.slice(0, -1) : [];
   const read = (o: DecisionOption) => () => ctx.onRead(o.name, Number(o.id));
@@ -1292,7 +1313,7 @@ export function CastOfferCard({ p, ctx, compact }: Props) {
       <Head p={p} ctx={ctx} compact={compact} />
       {hit && run && (
         <section className="dw-run" aria-label="The cards it went through">
-          <span className="dw-note">{p.purpose === "ripple" ? "Revealed from the top of your library" : "Exiled from the top of your library, in order"}</span>
+          <span className="dw-note">{p.purpose === "ripple" || p.purpose === "kept" ? "Revealed from the top of your library, in order" : "Exiled from the top of your library, in order"}</span>
           <div className="dw-run-cards">
             {misses.map((o) => (
               <figure key={o.id} className="dw-run-miss">
@@ -1312,7 +1333,7 @@ export function CastOfferCard({ p, ctx, compact }: Props) {
           <ReadImg src={img(hit)} name={hit.name} onRead={read(hit)} />
         </figure>
       )}
-      {!castable(p) && <Warn text="There isn't the mana to cast it now." />}
+      {isCastOffer(p) && !castable(p) && <Warn text="There isn't the mana to cast it now." />}
       <p className="dw-foot">{compact ? "Long-press a card to read it. " : "Right-click a card to read it. "}{IMAGES}</p>
     </div>
   );
@@ -1459,6 +1480,414 @@ export function TilePick({ p, draft, onDraft, ctx, disabled }: Props) {
   );
 }
 
+// ── everyone takes part (GTogether) ────────────────────────────────────────
+
+/** "Art: A, B and C, © Wizards of the Coast", for a widget's art crops; empty when there are none. */
+function artLine(artists: (string | null | undefined)[]): string {
+  const names = [...new Set(artists.filter((a): a is string => !!a))];
+  if (!names.length) return "";
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `Art: ${list}, ${COPYRIGHT}.`;
+}
+
+/** Seats in words for a line: "you", "Sam". */
+const whoOf = (ctx: WidgetContext, n: number) => ctx.who(n);
+
+/**
+ * A vote (Council's Judgment): the options as art tiles in a grid, each with whose it is, the dots
+ * of who voted for it and its count; beside them, the voting order and what leads so far. The
+ * votes cast are public as they're cast (the engine scrubs a secret vote's).
+ */
+export function VotePanel({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  const vote = ctx.together?.kind === "vote" ? ctx.together : null;
+  const mine = draft.ids[0];
+  // The votes so far, by the option's place, with yours (being chosen) added.
+  const at = (id: string) => p.options.findIndex((o) => o.id === id);
+  const ballots: [number, number][] = [...(vote?.ballots ?? [])];
+  const me = vote?.voters.find((v) => v.state === "voting")?.seat;
+  if (mine !== undefined && me !== undefined) ballots.push([me, at(mine)]);
+  const tally = (i: number) => ballots.filter((b) => b[1] === i).length;
+  const most = Math.max(0, ...p.options.map((_, i) => tally(i)));
+  const lead = most > 0 ? p.options.filter((_, i) => tally(i) === most).map((o) => o.name) : [];
+  const art = (o: DecisionOption) => o.art ?? ctx.meta[o.name]?.art ?? null;
+  const cards = p.options.some((o) => o.zone);
+  const credit = artLine(p.options.map((o) => (art(o) ? o.artist ?? ctx.meta[o.name]?.artist : null)));
+  const stateOf = (seat: number, state: string) => {
+    if (state === "voting") return seat === me && mine !== undefined ? `Your vote: ${p.options[at(mine)]?.name ?? ""}` : ctx.who(seat) === "you" ? "Voting now" : "Voting";
+    if (state === "next") return "Votes later";
+    const theirs = ballots.filter((b) => b[0] === seat).map((b) => p.options[b[1]]?.name).filter(Boolean);
+    return vote?.secret || !theirs.length ? "Voted" : `Voted: ${theirs.join(", ")}`;
+  };
+  return (
+    <div className={`dw-vote${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} count={counter(p, draft)} compact={compact} />
+      <div className="dw-vote-body">
+        <div className={`dw-vote-grid${cards ? "" : " words"}`} role="radiogroup" aria-label={p.prompt}>
+          {p.options.map((o, i) => {
+            const on = mine === o.id;
+            const n = tally(i);
+            const voters = ballots.filter((b) => b[1] === i).map((b) => b[0]);
+            const a = art(o);
+            return (
+              <ReadButton
+                key={o.id}
+                className={`dw-vote-opt${on ? " picked" : o.eligible ? " pick" : ""}`}
+                label={`${o.name}, ${n} ${n === 1 ? "vote" : "votes"}${on ? ", your vote" : ""}`}
+                disabled={disabled || !o.eligible}
+                onClick={() => onDraft(togglePick(p, draft, o.id))}
+                onRead={() => cards && ctx.onRead(o.name)}
+              >
+                <span className="dw-vote-art">
+                  {a && <img src={a} alt="" draggable={false} />}
+                  <span className="dw-vote-name">{o.name}</span>
+                  {n > 0 && <span className="dw-vote-count num">{n}</span>}
+                  {compact && voters.length > 0 && (
+                    <span className="dw-voters">
+                      {voters.map((v, k) => <span key={k} className="seat-dot" style={seatDot(ctx.tone(v))} title={ctx.who(v)} />)}
+                    </span>
+                  )}
+                </span>
+                {!compact && (
+                  <span className="dw-vote-under">
+                    {o.controller !== undefined && (
+                      <span className="dw-vote-owner" style={seatDot(ctx.tone(o.controller))}>
+                        <span className="seat-dot" aria-hidden="true" />
+                        {ctx.whose(o.controller) === "Your" ? "Yours" : ctx.whose(o.controller)}
+                      </span>
+                    )}
+                    <span className="dw-voters">
+                      {voters.map((v, k) => <span key={k} className="seat-dot" style={seatDot(ctx.tone(v))} title={ctx.who(v)} />)}
+                    </span>
+                  </span>
+                )}
+              </ReadButton>
+            );
+          })}
+        </div>
+        {vote && (
+          <div className="dw-ledger" aria-label="Voting order">
+            {!compact && <b>Voting order</b>}
+            {vote.voters.map((v) => (
+              <span key={v.seat} className={`dw-ledger-row${v.state === "voting" ? " now" : ""}`} style={seatDot(ctx.tone(v.seat))}>
+                <span className="seat-dot" aria-hidden="true" />
+                <b>{ctx.who(v.seat) === "you" ? "You" : ctx.who(v.seat)}</b>
+                <span>{stateOf(v.seat, v.state)}</span>
+              </span>
+            ))}
+            {lead.length > 0 && !compact && (
+              <span className="dw-note">
+                Most votes so far: {lead.join(", ")} ({most} {lead.length > 1 ? "each" : most === 1 ? "vote" : "votes"}).
+              </span>
+            )}
+            {vote.secret && <span className="dw-note">The votes are secret until everyone has voted.</span>}
+          </div>
+        )}
+      </div>
+      <p className="dw-foot">{credit ? `${credit} ` : ""}{cards ? (compact ? "Long-press a card to read it." : "Right-click a card to read it.") : ""}</p>
+    </div>
+  );
+}
+
+/**
+ * Piles (Fact or Fiction): separating the cards, a click moving a card to the other pile; or
+ * choosing one of the two piles someone else made.
+ */
+export function PilesPanel({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  const choosing = p.purpose === "piles_choose";
+  const { a, b } = piles(p, draft);
+  const img = (o: DecisionOption) => o.img ?? ctx.meta[o.name]?.image ?? null;
+  const chooser = ctx.together?.kind === "piles" ? ctx.together.chooser : undefined;
+  const pile = (key: "a" | "b", cards: DecisionOption[]) => {
+    const on = choosing && draft.ids[0] === key;
+    const title = `Pile ${key.toUpperCase()}`;
+    const count = `${cards.length} ${cards.length === 1 ? "card" : "cards"}`;
+    const body = (
+      <>
+        <span className="dw-pile2-head">
+          <b>{title}</b>
+          <span>{count}</span>
+        </span>
+        <span className="dw-pile2-cards">
+          {cards.map((o) =>
+            choosing ? (
+              <ReadImg key={o.id} src={img(o)} name={o.name} onRead={() => ctx.onRead(o.name, Number(o.id))} />
+            ) : (
+              <ReadButton
+                key={o.id}
+                className="dw-pile2-card pick"
+                label={`${o.name}, in ${title}. Move it to the other pile`}
+                disabled={disabled}
+                onClick={() => onDraft(togglePick(p, draft, o.id))}
+                onRead={() => ctx.onRead(o.name, Number(o.id))}
+              >
+                {img(o) ? <img src={img(o)!} alt="" draggable={false} /> : <span className="dw-card-name">{o.name}</span>}
+              </ReadButton>
+            ),
+          )}
+          {!cards.length && <span className="dw-note">Empty</span>}
+        </span>
+      </>
+    );
+    return choosing ? (
+      <button key={key} type="button" role="radio" aria-checked={on} aria-label={`${title}, ${count}${on ? ", chosen" : ""}`} className={`dw-pile2${on ? " picked" : " pick"}`} disabled={disabled} onClick={() => onDraft(togglePick(p, draft, key))}>
+        {body}
+      </button>
+    ) : (
+      <div key={key} className="dw-pile2">
+        {body}
+      </div>
+    );
+  };
+  return (
+    <div className={`dw-piles2${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} count={counter(p, draft)} compact={compact} />
+      <div className="dw-pile2-list" role={choosing ? "radiogroup" : undefined} aria-label={choosing ? "Piles" : undefined}>
+        {pile("a", a)}
+        {pile("b", b)}
+      </div>
+      <p className="dw-foot">
+        {choosing
+          ? "Choose a pile; the Oracle text says where each goes. "
+          : `${compact ? "Tap" : "Click"} a card to move it to the other pile. A pile may be empty.${chooser !== undefined ? ` ${whoOf(ctx, chooser) === "you" ? "You" : whoOf(ctx, chooser)} then ${whoOf(ctx, chooser) === "you" ? "choose" : "chooses"} one pile.` : ""} `}
+        {IMAGES}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The engine's own words as choices (a villainous choice's branches, a guess, ways to share out
+ * life totals); for a villainous choice, who else faces it and who has chosen.
+ */
+export function WordPick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  const branch = ctx.together?.kind === "branch" ? ctx.together : null;
+  const others = branch?.facing.filter(([seat]) => ctx.who(seat) !== "you") ?? [];
+  const stateText = { chose: "Chose", choosing: "Choosing", waiting: "Waiting" } as const;
+  return (
+    <div className={`dw-words${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} count={counter(p, draft)} compact={compact} />
+      <div className="dw-mode-list" role="radiogroup" aria-label={p.prompt}>
+        {p.options.map((o) => {
+          const on = draft.ids.includes(o.id);
+          return (
+            <button
+              key={o.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              className={`dw-mode${on ? " picked" : o.eligible ? " pick" : ""}`}
+              disabled={disabled || !o.eligible}
+              onClick={() => onDraft(togglePick(p, draft, o.id))}
+            >
+              <span className="dw-mark-box" aria-hidden="true" />
+              <span className="dw-mode-text">{o.name}</span>
+            </button>
+          );
+        })}
+      </div>
+      {others.length > 0 && (
+        <div className="dw-facing">
+          <b>Who else faces it</b>
+          <span className="dw-facing-row">
+            {others.map(([seat, state]) => (
+              <span key={seat} className="dw-chip-seat" style={seatDot(ctx.tone(seat))}>
+                <span className="seat-dot" aria-hidden="true" />
+                <b>{ctx.who(seat)}</b>
+                <span>{stateText[state]}</span>
+              </span>
+            ))}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Coins and dice kept or ignored (Krark's Thumb, a d20 rolled twice): each result as a coin or a
+ * die face, amber where it may be chosen, white once chosen. Only the rolls the engine allows may
+ * be ignored.
+ */
+export function LuckPick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  const coin = p.purpose === "coin";
+  return (
+    <div className={`dw-luck${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} count={counter(p, draft)} compact={compact} />
+      <div className="dw-luck-list" role={p.max === 1 ? "radiogroup" : "group"} aria-label={p.prompt}>
+        {p.options.map((o) => {
+          const on = draft.ids.includes(o.id);
+          const face = coin ? o.name.slice(0, 1) : o.name;
+          const state = on ? (coin ? "Kept" : "Ignored") : o.eligible ? (coin ? "Keep this one" : "Ignore this one") : "Can't be ignored";
+          return (
+            <button
+              key={o.id}
+              type="button"
+              role={p.max === 1 ? "radio" : "checkbox"}
+              aria-checked={on}
+              aria-label={`${coin ? o.name : `Roll ${o.name}`}, ${state}`}
+              className={`dw-luck-opt${on ? " picked" : o.eligible ? " pick" : ""}`}
+              disabled={disabled || !o.eligible}
+              onClick={() => onDraft(togglePick(p, draft, o.id))}
+            >
+              <span className={`dw-luck-face num${coin ? " coin" : " die"}`} aria-hidden="true">{face}</span>
+              <b>{coin ? o.name : `Rolled ${o.name}`}</b>
+              <span className="dw-note">{state}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="dw-foot">{coin ? `${p.options.length} coins were flipped for one flip. Heads is a win.` : "Only the rolls the engine allows can be ignored."}</p>
+    </div>
+  );
+}
+
+// ── choosing a player (GRareRules) ─────────────────────────────────────────
+
+/** The seat picker: each player on their commander's art, with their life and the art's credit. */
+export function SeatPicker({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  return (
+    <div className={`dw-seats${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} count={counter(p, draft)} compact={compact} />
+      <div className="dw-seat-list" role="radiogroup" aria-label="Players">
+        {p.options.map((o) => {
+          const seat = o.controller ?? Number(o.id.slice(1));
+          const info = ctx.seat?.(seat);
+          const on = draft.ids.includes(o.id);
+          const name = ctx.who(seat) === "you" ? "You" : ctx.who(seat);
+          return (
+            <button
+              key={o.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              aria-label={`${name}${info?.life !== null && info?.life !== undefined ? `, ${info.life} life` : ""}${on ? ", chosen" : ""}`}
+              className={`dw-seat${on ? " picked" : o.eligible ? " pick" : ""}`}
+              style={seatDot(ctx.tone(seat))}
+              disabled={disabled || !o.eligible}
+              onClick={() => onDraft(togglePick(p, draft, o.id))}
+            >
+              {info?.art && <img className="dw-seat-art" src={info.art} alt="" draggable={false} />}
+              <span className="dw-seat-wash" aria-hidden="true" />
+              <span className="dw-seat-text">
+                <b>
+                  <span className="seat-dot" aria-hidden="true" />
+                  {name}
+                </b>
+                {info?.art && <span className="dw-credit">Art: {info.artist ?? "unknown"}, {COPYRIGHT}</span>}
+              </span>
+              {info?.life !== null && info?.life !== undefined && <b className="dw-seat-life num">{info.life}</b>}
+              {on && <span className="dw-seat-tag">Chosen</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── the library (GLibrary) ─────────────────────────────────────────────────
+
+/**
+ * Top or bottom of a library: the card (and, in a clash, everyone's revealed card) beside two
+ * choices, with how many cards the library holds.
+ */
+export function TopOrBottomPick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick") return null;
+  const shown = p.shown ?? [];
+  const card = shown[0];
+  const clash = p.purpose === "clash";
+  const owner = clash ? undefined : card?.controller;
+  const whose = owner === undefined || ctx.who(owner) === "you" ? "your" : `${ctx.who(owner)}'s`;
+  const size = owner !== undefined ? ctx.library?.(owner) : undefined;
+  const img = (o: DecisionOption) => o.img ?? ctx.meta[o.name]?.image ?? null;
+  const notes = { top: size !== undefined ? `On top of the other ${size} cards.` : "", bottom: size !== undefined ? `Under the other ${size} cards.` : "" } as Record<string, string>;
+  return (
+    <div className={`dw-tob${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} count={counter(p, draft)} compact={compact} />
+      <div className="dw-tob-body">
+        <div className="dw-tob-cards">
+          {shown.map((o, i) => (
+            <figure key={o.id} className={i === 0 ? "mine" : ""}>
+              <ReadImg src={img(o)} name={o.name} onRead={() => ctx.onRead(o.name)} />
+              {clash && o.controller !== undefined && (
+                <figcaption style={seatDot(ctx.tone(o.controller))}>
+                  <span className="seat-dot" aria-hidden="true" />
+                  {i === 0 ? "Yours" : `${ctx.whose(o.controller)}`}
+                </figcaption>
+              )}
+            </figure>
+          ))}
+        </div>
+        <div className="dw-tob-list" role="radiogroup" aria-label="Where it goes">
+          {p.options.map((o) => {
+            const on = draft.ids.includes(o.id);
+            return (
+              <button key={o.id} type="button" role="radio" aria-checked={on} className={`dw-tob-opt ${o.id}${on ? " picked" : " pick"}`} disabled={disabled} onClick={() => onDraft(togglePick(p, draft, o.id))}>
+                <span className="dw-tob-mark" aria-hidden="true">
+                  <span />
+                </span>
+                <span className="dw-tob-text">
+                  <b>{o.name} of {whose} library</b>
+                  {notes[o.id] && <span>{notes[o.id]}</span>}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {clash && <p className="dw-foot">Each clashing player puts their card on the top or bottom, in turn order. {IMAGES}</p>}
+    </div>
+  );
+}
+
+/**
+ * Cards split between two places (the Cultivate split, manifest dread): the picked ones in the
+ * first place, the rest in the second. A click moves a card; with one of two to place, it swaps.
+ */
+export function PlacesPick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
+  if (draft.kind !== "pick" || !p.places) return null;
+  const [first, second] = p.places as [string, string];
+  const img = (o: DecisionOption) => o.img ?? ctx.meta[o.name]?.image ?? null;
+  const tapped = /tapped/.test(first);
+  const zone = (label: string, cards: DecisionOption[], picked: boolean) => (
+    <div className={`dw-place${picked ? " first" : ""}`}>
+      <span className="dw-pile2-head">
+        <b>{label}</b>
+        <span>{cards.length} {cards.length === 1 ? "card" : "cards"}</span>
+      </span>
+      <span className="dw-place-cards">
+        {cards.map((o) => (
+          <ReadButton
+            key={o.id}
+            className={`dw-place-card${picked ? " picked" : " pick"}${picked && tapped ? " tapped" : ""}`}
+            label={`${o.name}: ${label}. ${picked ? "Picked" : "Move it here instead"}`}
+            disabled={disabled}
+            onClick={() => onDraft(togglePick(p, draft, o.id))}
+            onRead={() => ctx.onRead(o.name, Number(o.id))}
+          >
+            {img(o) ? <img src={img(o)!} alt="" draggable={false} /> : <span className="dw-card-name">{o.name}</span>}
+          </ReadButton>
+        ))}
+      </span>
+    </div>
+  );
+  return (
+    <div className={`dw-places${compact ? " compact" : ""}`}>
+      <Head p={p} ctx={ctx} count={counter(p, draft)} compact={compact} />
+      <div className="dw-place-list">
+        {zone(first, p.options.filter((o) => draft.ids.includes(o.id)), true)}
+        {zone(second, p.options.filter((o) => !draft.ids.includes(o.id)), false)}
+      </div>
+      <p className="dw-foot">{compact ? "Tap" : "Click"} a card to move it. {IMAGES}</p>
+    </div>
+  );
+}
+
 // ── the rail and the banner ────────────────────────────────────────────────
 
 /** The status pill over the battlefield while you pick on the board or split onto targets. */
@@ -1585,7 +2014,15 @@ export function DecisionRail({ p, draft, ctx, stage, disabled, onReset, onDraft 
 /** The widget for a decision's dialog (laptop) or sheet (phone). */
 export function DecisionStage(props: Props) {
   const { p, draft } = props;
-  if (isCastOffer(p)) return <CastOfferCard {...props} />;
+  if (isCastOffer(p) || p.purpose === "kept") return <CastOfferCard {...props} />;
+  // Everyone takes part, choosing a player, and the library (GTogether, GRareRules, GLibrary).
+  if (p.purpose === "vote") return <VotePanel {...props} />;
+  if (p.purpose === "piles_split" || p.purpose === "piles_choose") return <PilesPanel {...props} />;
+  if (p.purpose === "coin" || p.purpose === "die") return <LuckPick {...props} />;
+  if (isSeatPick(p)) return <SeatPicker {...props} />;
+  if (isTopOrBottom(p)) return <TopOrBottomPick {...props} />;
+  if (isWordPick(p)) return <WordPick {...props} />;
+  if (isPlaces(p)) return <PlacesPick {...props} />;
   if (draft.kind === "yesno") return <YesNoStrip {...props} />;
   if (isFaceChoice(p)) return <FaceChoice {...props} />;
   if (props.compact && isPermanentPick(p)) return <TilePick {...props} />;

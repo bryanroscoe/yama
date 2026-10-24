@@ -77,6 +77,7 @@ fn board(turn: u32, life: i32, over: bool, reveal: bool) -> View {
         winner: over.then_some(0),
         turns: None,
         resolve_all: None,
+        together: None,
         events: vec![],
         outs: vec![],
         stats: None,
