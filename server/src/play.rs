@@ -27,7 +27,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, watch};
-use yama_play::{AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, SeatDeck, Stops, View};
+use yama_play::{Act, AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, SeatDeck, Stops, View};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -73,6 +73,8 @@ enum Cmd {
     Attack { seat: u8, revision: u64, attacks: Vec<(u64, AttackAt)>, reply: oneshot::Sender<Result<(), String>> },
     /// Any legal set of blocks, as (blocker, attacker) pairs.
     Block { seat: u8, revision: u64, blocks: Vec<(u64, u64)>, reply: oneshot::Sender<Result<(), String>> },
+    /// A full answer to the seat's decision (cards picked, trigger order, X...; `yama_play::act`).
+    Act { seat: u8, revision: u64, action: Act, reply: oneshot::Sender<Result<(), String>> },
     Concede { seat: u8 },
     /// Stop at every priority instead of only where it matters.
     FullControl { seat: u8, on: bool },
@@ -254,45 +256,35 @@ fn run_game(
     publish(&m);
     while !m.is_over() {
         let Ok(cmd) = cmds.recv() else { return };
+        // A person's move: any refusal goes back to them and leaves the game as it was.
+        let moved = |m: &mut Match, result: Result<(), yama_play::ChoiceError>, reply: oneshot::Sender<Result<(), String>>| {
+            let ok = result.is_ok();
+            let _ = reply.send(result.map_err(|e| e.to_string()));
+            if ok {
+                // Pass for people with nothing to do first, so the board sent out doesn't
+                // flash a stop that would be passed a moment later.
+                m.auto_pass(&humans, &full_control, &stops);
+                publish(m);
+                save(m);
+                ai_turns(m, &full_control, &stops);
+            }
+        };
         match cmd {
             Cmd::Choose { seat, revision, index, reply } => {
-                let result = m.choose(seat, revision, index).map_err(|e| e.to_string());
-                let ok = result.is_ok();
-                let _ = reply.send(result);
-                if ok {
-                    // Pass for people with nothing to do first, so the board sent out doesn't
-                    // flash a stop that would be passed a moment later.
-                    m.auto_pass(&humans, &full_control, &stops);
-                    publish(&m);
-                    save(&m);
-                    ai_turns(&mut m, &full_control, &stops);
-                }
+                let result = m.choose(seat, revision, index);
+                moved(&mut m, result, reply);
             }
             Cmd::Attack { seat, revision, attacks, reply } => {
-                let result = m.declare_attackers(seat, revision, &attacks).map_err(|e| e.to_string());
-                let ok = result.is_ok();
-                let _ = reply.send(result);
-                if ok {
-                    // Pass for people with nothing to do first, so the board sent out doesn't
-                    // flash a stop that would be passed a moment later.
-                    m.auto_pass(&humans, &full_control, &stops);
-                    publish(&m);
-                    save(&m);
-                    ai_turns(&mut m, &full_control, &stops);
-                }
+                let result = m.declare_attackers(seat, revision, &attacks);
+                moved(&mut m, result, reply);
             }
             Cmd::Block { seat, revision, blocks, reply } => {
-                let result = m.declare_blockers(seat, revision, &blocks).map_err(|e| e.to_string());
-                let ok = result.is_ok();
-                let _ = reply.send(result);
-                if ok {
-                    // Pass for people with nothing to do first, so the board sent out doesn't
-                    // flash a stop that would be passed a moment later.
-                    m.auto_pass(&humans, &full_control, &stops);
-                    publish(&m);
-                    save(&m);
-                    ai_turns(&mut m, &full_control, &stops);
-                }
+                let result = m.declare_blockers(seat, revision, &blocks);
+                moved(&mut m, result, reply);
+            }
+            Cmd::Act { seat, revision, action, reply } => {
+                let result = m.act(seat, revision, &action);
+                moved(&mut m, result, reply);
             }
             Cmd::Concede { seat } => {
                 if m.concede(seat).is_ok() {
@@ -990,6 +982,9 @@ enum ClientMessage {
     Choose { revision: u64, index: usize },
     Attack { revision: u64, attacks: Vec<(u64, AttackAt)> },
     Block { revision: u64, blocks: Vec<(u64, u64)> },
+    /// A full answer to your decision. Only the kinds `Act` spells can be sent; anything else
+    /// (a debug action, a made-up kind) doesn't parse and is dropped.
+    Act { revision: u64, action: Act },
     Concede,
     FullControl { on: bool },
     /// Your own stops by step; `null` goes back to the default smart stops.
@@ -1019,7 +1014,10 @@ pub(crate) struct CardMeta {
     oracle_text: String,
 }
 
-/// Every card name the view shows (board, hand, stack, graveyards, exile, command zone).
+/// Every card name the view shows (board, hand, stack, graveyards, exile, command zone), and the
+/// cards in the viewer's own decision (library cards they scry or search, triggers to order).
+/// A view only carries its own seat's decision, read from that seat's view of the game, so
+/// nobody else's library card is ever named here.
 pub(crate) fn view_names(view: &View) -> Vec<String> {
     let mut names: Vec<String> = view
         .battlefield
@@ -1031,10 +1029,33 @@ pub(crate) fn view_names(view: &View) -> Vec<String> {
         .chain(view.hands.values().flatten())
         .map(|c| c.name.clone())
         .chain(view.stack.iter().map(|s| s.name.clone()))
+        .chain(view.decision.iter().filter_map(|d| d.pending.as_ref()).flat_map(|p| p.card_names()))
         .collect();
     names.sort();
     names.dedup();
     names
+}
+
+/// Fill in the deciding seat's decision with Yama's card details, as the design's decision
+/// widgets read them: the source card's art, image, artist and Oracle text, and each card
+/// option's image, art and artist.
+pub(crate) fn dress_pending(view: &mut View, cards: &HashMap<String, CardMeta>) {
+    let Some(p) = view.decision.as_mut().and_then(|d| d.pending.as_mut()) else { return };
+    if let Some(src) = p.source.as_mut()
+        && let Some(m) = cards.get(&src.name)
+    {
+        src.art = m.art.clone();
+        src.image = m.image.clone();
+        src.artist = m.artist.clone();
+        p.oracle = Some(m.oracle_text.clone()).filter(|t| !t.is_empty());
+    }
+    for o in p.options.iter_mut().filter(|o| o.card) {
+        if let Some(m) = cards.get(&o.name) {
+            o.img = m.image.clone();
+            o.art = m.art.clone();
+            o.artist = m.artist.clone();
+        }
+    }
 }
 
 /// Look up card details by name, remembering answers (including "unknown") for this connection.
@@ -1100,6 +1121,15 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                         let _ = err_tx.send(e);
                     }
                 }
+                ClientMessage::Act { revision, action } => {
+                    let (tx, rx) = oneshot::channel();
+                    if cmds.send(Cmd::Act { seat, revision, action, reply: tx }).is_err() {
+                        break;
+                    }
+                    if let Ok(Err(e)) = rx.await {
+                        let _ = err_tx.send(e);
+                    }
+                }
                 ClientMessage::Concede => {
                     let _ = cmds.send(Cmd::Concede { seat });
                 }
@@ -1129,6 +1159,8 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
         let snap = views.borrow_and_update().clone();
         let Some(view) = snap.views.get(&you).or_else(|| snap.views.get(&None)) else { continue };
         let cards = card_meta(&pool, &view_names(view), &mut meta_cache).await;
+        let mut view = view.clone();
+        dress_pending(&mut view, &cards);
         let msg = serde_json::json!({ "type": "view", "you": you, "seats": infos, "cards": cards, "view": view });
         if sink.send(Message::Text(msg.to_string().into())).await.is_err() {
             break;
@@ -1174,6 +1206,12 @@ async fn final_view(State(st): State<AppState>, CurrentUser(user): CurrentUser, 
         view
     };
     let cards = card_meta(&st.pool, &view_names(&view), &mut HashMap::new()).await;
+    let mut view = view;
+    dress_pending(&mut view, &cards);
     let arts = commander_arts(&st.pool, seats.iter()).await?;
     Ok(Json(serde_json::json!({ "type": "view", "you": you, "seats": seat_infos(&seats, &HashMap::new(), &arts), "cards": cards, "view": view })))
 }
+
+#[cfg(test)]
+#[path = "play_tests.rs"]
+mod tests;

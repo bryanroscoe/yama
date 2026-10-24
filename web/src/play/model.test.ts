@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   combatLines,
   combatText,
+  dedupe,
   DEFAULT_STOPS,
+  isPass,
+  optionOf,
+  seatTones,
   landColors,
   landSummary,
   passLabel,
@@ -15,7 +19,7 @@ import {
   turnOrder,
 } from "./model";
 import { PREVIEW_H, PREVIEW_W, previewPlace } from "./model";
-import type { CardMeta, CardView, PlayerView, View } from "./types";
+import type { CardMeta, CardView, Decision, OptionView, PlayerView, View } from "./types";
 
 const card = (id: number, name: string, extra: Partial<CardView> = {}): CardView => ({
   id,
@@ -132,6 +136,9 @@ const view = (patch: Partial<View>): View => ({
   ...patch,
 });
 
+const opt = (index: number, label: string, extra: Partial<OptionView> = {}): OptionView => ({ index, label, object: null, ...extra });
+const decision = (options: OptionView[]): Decision => ({ revision: 1, prompt: "Priority", options });
+
 describe("passLabel", () => {
   it("says what passing will do", () => {
     expect(passLabel(view({ stack: [{ name: "Sol Ring", controller: 1 }] }), 0)).toBe("Resolve");
@@ -141,8 +148,58 @@ describe("passLabel", () => {
     expect(passLabel(view({ battlefield: [creature(1, "Bear", { sick: true })] }), 0)).toBe("Next");
     expect(passLabel(view({ phase: "PostCombatMain" }), 0)).toBe("End turn");
   });
+  it("says Let it resolve only when someone else's spell is on top and you could respond", () => {
+    const theirs = view({ stack: [{ name: "Chaos Warp", controller: 1 }] });
+    const respond = decision([opt(0, "Pass (let it resolve)", { kind: "pass" }), opt(1, "Cast Swords to Plowshares", { kind: "spell", object: 9 })]);
+    const nothing = decision([opt(0, "Pass (let it resolve)", { kind: "pass" })]);
+    expect(passLabel(theirs, 0, respond)).toBe("Let it resolve");
+    expect(passLabel(theirs, 0, nothing)).toBe("Resolve");
+    // Your own spell on top (you only see it with full control): nothing to let through.
+    expect(passLabel(view({ stack: [{ name: "Chaos Warp", controller: 0 }] }), 0, respond)).toBe("Resolve");
+    // Their spell under yours: the top one is what resolves next.
+    expect(passLabel(view({ stack: [{ name: "Chaos Warp", controller: 1 }, { name: "Opt", controller: 0 }] }), 0, respond)).toBe("Resolve");
+  });
   it("hides a decision whose only choice is to pass", () => {
     expect(realDecision({ revision: 1, prompt: "Priority", options: [{ index: 0, label: "Pass (move on)", object: null }] })).toBeNull();
+    expect(realDecision(decision([opt(0, "Pass (move on)", { kind: "pass" })]))).toBeNull();
+  });
+  it("never treats paying the rest of a spell's mana as a pass", () => {
+    const paying = decision([opt(0, "Pay the rest", { kind: "pay_rest" }), opt(1, "Cancel", { kind: "cancel" })]);
+    expect(paying.options.some(isPass)).toBe(false);
+    expect(realDecision(decision([opt(0, "Pay the rest", { kind: "pay_rest" })]))).not.toBeNull();
+    expect(optionOf(paying, "pay_rest")?.index).toBe(0);
+    expect(optionOf(paying, "cancel")?.index).toBe(1);
+    // Older servers: by label.
+    expect(optionOf(decision([opt(0, "Keep this hand"), opt(1, "Mulligan")]), "mulligan")?.index).toBe(1);
+  });
+});
+
+describe("dedupe", () => {
+  it("merges the same choice on identical cards", () => {
+    const forests = [opt(0, "Play Forest", { kind: "land", object: 1 }), opt(1, "Play Forest", { kind: "land", object: 2 })];
+    expect(dedupe(forests).map((o) => o.index)).toEqual([0]);
+  });
+  it("keeps a planeswalker's abilities and two tokens' targets apart", () => {
+    const chandra = [
+      opt(0, "Use Chandra", { kind: "ability", object: 5, ability: 0 }),
+      opt(1, "Use Chandra", { kind: "ability", object: 5, ability: 1 }),
+      opt(2, "Use Chandra", { kind: "ability", object: 5, ability: 2 }),
+    ];
+    expect(dedupe(chandra)).toHaveLength(3);
+    const goblins = [opt(0, "Target Goblin", { kind: "target", target: { kind: "object", id: 7 } }), opt(1, "Target Goblin", { kind: "target", target: { kind: "object", id: 8 } })];
+    expect(dedupe(goblins)).toHaveLength(2);
+  });
+});
+
+describe("seatTones", () => {
+  it("gives you seat 1 and the others their colors in turn order after you", () => {
+    const players = [0, 1, 2, 3].map(player);
+    expect([...seatTones(players, 2).entries()]).toEqual([
+      [2, "seat-1"],
+      [3, "seat-2"],
+      [0, "seat-3"],
+      [1, "seat-4"],
+    ]);
   });
 });
 

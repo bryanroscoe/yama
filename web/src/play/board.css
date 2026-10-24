@@ -165,8 +165,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Attacking: the badge in the attacker's seat color (each pane sets --seat). */
 .ft-badge.bad {
-  background: var(--bad);
+  background: var(--seat, var(--seat-1));
   color: var(--ground);
 }
 .ft-badge.block {
@@ -189,31 +190,33 @@
   box-shadow: inset 0 0 0 2px var(--text);
   pointer-events: none;
 }
-/* Has options, or could join the attack or the block: a good-colored ring (and the dot). */
+/* Has options, or could join the attack or the block: you can pick it, so an amber ring (and
+   the dot). Amber marks nothing else on the board. */
 .ft.playable,
 .ft.ready {
-  box-shadow: 0 0 0 2px var(--good);
+  box-shadow: 0 0 0 2px var(--pick);
 }
 .ft.selected {
   box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
 }
 .ft.playable.selected {
-  box-shadow: 0 0 0 2px var(--good), 0 0 0 4px var(--text);
+  box-shadow: 0 0 0 2px var(--pick), 0 0 0 4px var(--text);
 }
-/* Attacking: a bad-colored ring and the badge, lifted toward the opponents. */
+/* Attacking: a ring in the attacker's seat color (design/tokens.md; each pane sets --seat) and
+   the badge, lifted toward the opponents. */
 .ft.attacking {
-  box-shadow: 0 0 0 3px var(--bad);
+  box-shadow: 0 0 0 3px var(--seat, var(--seat-1));
   transform: translateY(-6px);
 }
 .ft.commander.attacking {
-  box-shadow: 0 0 0 3px var(--bad);
+  box-shadow: 0 0 0 3px var(--seat, var(--seat-1));
 }
 .ft.blocking {
   box-shadow: 0 0 0 3px var(--text);
 }
 /* A legal target: an amber ring and a crosshair badge (shape as well as color). */
 .ft.target {
-  box-shadow: 0 0 0 3px var(--warn);
+  box-shadow: 0 0 0 3px var(--pick);
   cursor: crosshair;
 }
 .aim {
@@ -225,14 +228,49 @@
   padding: 2px;
   border-radius: 50%;
   background: var(--ground);
-  color: var(--warn);
+  color: var(--pick);
   pointer-events: none;
 }
 .opp-pane.aimed::after {
-  box-shadow: inset 0 0 0 3px var(--warn);
+  box-shadow: inset 0 0 0 3px var(--pick);
 }
 .opp-tab.aimed::after {
-  box-shadow: inset 0 0 0 3px var(--warn);
+  box-shadow: inset 0 0 0 3px var(--pick);
+}
+/* Picking for a choice (Chooser.tsx): an amber ring on what you may pick; a white ring and its
+   number on what you've picked. */
+.ft.pick,
+.hc.pick,
+.zone-pick.pick,
+.chooser-row.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.ft.picked,
+.hc.picked,
+.zone-pick.picked,
+.chooser-row.picked {
+  box-shadow: 0 0 0 3px var(--text);
+}
+.hc.picked {
+  transform: translateY(-10px);
+}
+.pick-badge {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--ground);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--ground);
+  pointer-events: none;
 }
 .dot {
   position: absolute;
@@ -241,7 +279,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--good);
+  background: var(--pick);
   border: 2px solid var(--ground);
   pointer-events: none;
 }
@@ -282,7 +320,7 @@
   text-align: center;
 }
 .hc.playable {
-  box-shadow: 0 0 0 2px var(--good), 0 0 18px rgb(143 211 168 / 0.25);
+  box-shadow: 0 0 0 2px var(--pick), 0 0 18px rgb(240 180 90 / 0.25);
 }
 .hc.selected {
   box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
@@ -484,6 +522,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A seat's color always sits beside its player's name: a dot before it. */
+.seat-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--seat, var(--seat-1));
+  box-shadow: 0 0 0 1.5px rgb(11 12 14 / 0.8);
+  vertical-align: 0;
+  flex: none;
+}
 .opp-counts {
   font-size: 12px;
   line-height: 1.25;
@@ -527,7 +577,7 @@
 .opp-flag {
   font-size: 12px;
   font-weight: 700;
-  color: var(--warn);
+  color: var(--on-art);
 }
 .opp-flag.turn {
   color: var(--on-art);
@@ -1223,13 +1273,13 @@ button.pile-chip:hover {
   color: var(--dim);
 }
 .combat-list li.in .row-state {
-  color: var(--bad);
+  color: var(--text);
 }
 .combat-list li.in.block .row-state {
   color: var(--text);
 }
 .combat-list li.pending .row-state {
-  color: var(--warn);
+  color: var(--text);
 }
 .row-switch {
   align-self: flex-end;
@@ -1512,7 +1562,7 @@ button.pile-chip:hover {
   color: var(--on-art-dim);
 }
 .tab-flag.warn {
-  color: var(--warn);
+  color: var(--on-art);
 }
 
 .opp-focus {
@@ -1640,7 +1690,7 @@ button.pile-chip:hover {
   width: 100%;
 }
 .peek-card.playable {
-  box-shadow: 0 0 0 2px var(--good);
+  box-shadow: 0 0 0 2px var(--pick);
 }
 .peek-label {
   margin-left: 10px;
@@ -1654,6 +1704,36 @@ button.pile-chip:hover {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+}
+/* A phone's picked card: its name, type and Oracle text above the button that plays it. */
+.dock-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-list);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.dock-card-head {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+  font-size: 14px;
+}
+.dock-card-text {
+  margin: 0;
+  max-height: 7.5em;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+.dock-card button {
+  align-self: flex-start;
 }
 .dock-prompt,
 .dock-hint {
@@ -1795,7 +1875,7 @@ button.pile-chip:hover {
 .watch-note {
   margin: 0;
   font-size: 14px;
-  color: var(--warn);
+  color: var(--text);
 }
 .watch-pov {
   display: flex;
@@ -1952,26 +2032,37 @@ button.pile-chip:hover {
 .plan-arrow {
   stroke-width: 3;
 }
+/* Arrows: yours are your seat color, --seat-1 (attacks, blocks, and the dashed one while you
+   aim); other seats' attacks are in their seat colors (design/tokens.md). */
 .drag-arrow.attack,
-.plan-arrow.attack {
-  stroke: var(--bad);
-}
+.plan-arrow.attack,
 .drag-arrow.block,
-.plan-arrow.block {
-  stroke: var(--text);
+.plan-arrow.block,
+.drag-arrow.aim {
+  stroke: var(--seat-1);
 }
 .drag-arrow.aim {
-  stroke: var(--warn);
   stroke-dasharray: 10 8;
 }
-.drag-head.attack {
-  fill: var(--bad);
-}
-.drag-head.block {
-  fill: var(--text);
-}
+.drag-head.attack,
+.drag-head.block,
 .drag-head.aim {
-  fill: var(--warn);
+  fill: var(--seat-1);
+}
+.plan-arrow.seat-2 { stroke: var(--seat-2); }
+.plan-arrow.seat-3 { stroke: var(--seat-3); }
+.plan-arrow.seat-4 { stroke: var(--seat-4); }
+.plan-arrow.seat-5 { stroke: var(--seat-5); }
+.plan-arrow.seat-6 { stroke: var(--seat-6); }
+.drag-head.seat-2 { fill: var(--seat-2); }
+.drag-head.seat-3 { fill: var(--seat-3); }
+.drag-head.seat-4 { fill: var(--seat-4); }
+.drag-head.seat-5 { fill: var(--seat-5); }
+.drag-head.seat-6 { fill: var(--seat-6); }
+/* Other seats' arrows are thinner and sit under yours. */
+.plan-arrow.theirs {
+  stroke-width: 2.5;
+  opacity: 0.9;
 }
 .drag-ghost {
   position: fixed;
@@ -2034,7 +2125,7 @@ button.pile-chip:hover {
   box-shadow: 0 0 0 2px var(--ground), 0 0 0 4px var(--text);
 }
 .ft.drop-hot {
-  box-shadow: 0 0 0 3px var(--text), 0 0 0 6px var(--warn);
+  box-shadow: 0 0 0 3px var(--text), 0 0 0 6px var(--pick);
 }
 .opp-head.drop-hot {
   box-shadow: inset 0 0 0 3px var(--text);
@@ -2245,4 +2336,231 @@ body.pb-dragging .pb-preview {
 .pb.motion-off .opp-pane.active::after,
 .pb.motion-off .portrait.active > img {
   animation: none;
+}
+
+/* The plain chooser for decisions answered in full (Chooser.tsx). The polished widgets come from
+   design/screens/GYesNo, GPickN, GOrder, GSplit, GNumber and GName. */
+.chooser {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.chooser-source {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 48px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: left;
+  font-weight: 400;
+}
+.chooser-source img {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.chooser-oracle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--dim);
+  white-space: pre-line;
+}
+.chooser-count {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+.chooser-list li {
+  position: relative;
+}
+.chooser-row {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: left;
+  font-weight: 400;
+}
+.chooser-row .row-text b {
+  white-space: normal;
+}
+.chooser-row .pick-badge {
+  position: static;
+  box-shadow: none;
+}
+.order-row {
+  display: grid;
+  grid-template-columns: 22px 40px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+.order-row .pick-badge {
+  position: static;
+  box-shadow: none;
+}
+.order-row img {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.order-row .row-text b,
+.order-row .row-text span {
+  white-space: normal;
+}
+.order-edge {
+  font-weight: 700;
+  color: var(--text) !important;
+}
+.order-moves {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.order-moves button {
+  min-height: 28px;
+  padding: 0 10px;
+}
+.split-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.stepper button {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+.stepper b {
+  min-width: 2ch;
+  text-align: center;
+  font: 700 22px/1 var(--display);
+}
+.stepper.big input {
+  width: 5ch;
+  text-align: center;
+  font: 700 28px/1 var(--display);
+}
+.number-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.text-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.text-pick .picked {
+  box-shadow: inset 0 0 0 2px var(--text);
+}
+/* The zone view: cards that aren't on the board (the top of your library, a search), over the
+   table on a laptop and as a strip in the dock on a phone. */
+.chooser-zone {
+  position: fixed;
+  z-index: 25;
+  left: 24px;
+  right: 364px;
+  top: 96px;
+  max-height: calc(100dvh - 300px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line), 0 24px 60px rgb(0 0 0 / 0.6);
+}
+.chooser-zone header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.chooser-zone p {
+  margin: 0;
+}
+.chooser-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 10px 6px 6px;
+}
+.zone-pick {
+  position: relative;
+  flex: 0 0 auto;
+  width: 168px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+}
+.zone-pick:hover {
+  background: transparent;
+}
+.zone-pick img,
+.zone-pick .hc-name {
+  display: block;
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  object-fit: cover;
+  background: var(--raised);
+}
+.zone-pick .hc-name {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  color: var(--text);
+  font-size: var(--t-sm);
+}
+.zone-pick.picked {
+  transform: translateY(-6px);
+}
+/* A card you can't pick, or one waiting on the server, is never faded: only its ring changes. */
+.zone-pick:disabled,
+.zone-pick:disabled:hover {
+  opacity: 1;
+  cursor: default;
+}
+.chooser-zone.compact {
+  position: static;
+  max-height: none;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.chooser-zone.compact .chooser-cards {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 10px;
+}
+.chooser-zone.compact .zone-pick {
+  width: 104px;
 }

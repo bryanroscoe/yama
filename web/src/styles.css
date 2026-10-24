@@ -9,13 +9,24 @@
   --line: #2a2e33; /* hairlines and outlines */
   --text: #f2efe8; /* body text, primary buttons (dark text on it) */
   --dim: #a9adb3; /* secondary text: 8:1 on ground, 6:1 on raised */
-  --good: #8fd3a8; /* have it, legal, ready, connected */
-  --warn: #f0b45a; /* need it, waiting, uploads pending, 25% baselines */
-  --bad: #f07a62; /* attacking, destructive actions, banned */
+  --good: #8fd3a8; /* have it, legal, ready, connected; in a game, a result that's good for you */
+  --pick: #f0b45a; /* in a game: you can pick or play this. Never used for anything else on the board */
+  --warn: #f0b45a; /* outside games only: need it, waiting, uploads pending, 25% baselines */
+  --bad: #f07a62; /* destructive actions, banned; in a game, every warning */
 
-  /* Phase stop ladder only: the two kinds differ in hue and in shape (filled dot or outlined square). */
-  --stop-mine: #f0b45a;
-  --stop-opp: #7fb0ff;
+  /* Phase stop ladder: shape and fill tell the kinds apart, not hue. */
+  --stop-mine: #f2efe8; /* filled dot */
+  --stop-opp: #a9adb3; /* outlined square */
+
+  /* Seats, by turn order starting with you; you are always seat 1. A fixed colour-blind-safe
+     palette (design/tokens.md): the seat dot, that player's arrows and the ring on their
+     attacking creatures. */
+  --seat-1: #408abf; /* you: blue */
+  --seat-2: #b55af6; /* violet */
+  --seat-3: #e8bae4; /* orchid */
+  --seat-4: #757a8a; /* slate */
+  --seat-5: #34b4f4; /* sky */
+  --seat-6: #f434c4; /* magenta */
 
   /* Status tints, behind status text of the same tone (legality pills). */
   --good-tint: rgb(143 211 168 / 0.14);

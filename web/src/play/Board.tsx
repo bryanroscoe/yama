@@ -26,10 +26,12 @@ import {
   dedupe,
   isPass,
   landSummary,
+  optionOf,
   passLabel,
   realDecision,
   rows,
   sameTarget,
+  seatTones,
   DEFAULT_STOPS,
   STEPS,
   stepIndex,
@@ -41,16 +43,19 @@ import {
   turnOrder,
   previewPlace,
   type Pile,
+  type SeatTone,
   type StopMap,
 } from "./model";
 import { promptText, shortName } from "./text";
 import { COLOR_NAME, counterName, FieldTile, HandCard, ManaDot, type TileHandlers, type TileLook } from "./Tiles";
-import type { AttackAt, CardMeta, CardView, Decision, OptionView, PlayerView, SeatInfo, ServerMessage, View, WatchStatus } from "./types";
+import type { Act, AttackAt, CardMeta, CardView, Decision, OptionView, PlayerView, SeatInfo, ServerMessage, View, WatchStatus } from "./types";
 import { WatchControls, type WatchMessage } from "./WatchControls";
 import { seatLabel, seatName } from "./watch";
 import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayLine, readDrop, targetDrop, targetIndex, type Point } from "./drag";
 import { DragLayer, PlanArrows, seatHeadOf, tileOf, type ArrowTone, type DragLayerHandle, type PlanArrow } from "./DragLayer";
 import { MotionContext, Tick, useBoardMotion, type MotionOptions } from "./BoardMotion";
+import { ChooserBody, ChooserZone } from "./Chooser";
+import { buttons as chooserButtons, changed as draftChanged, chooserCovers, initialDraft, onBoard as pickOnBoard, ready as draftReady, toAct, togglePick, type Draft } from "./answer";
 import { motionScale } from "./motion";
 import "./board.css";
 
@@ -200,6 +205,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const [defender, setDefender] = useState<AttackAt | null>(null);
   const [blockPlan, setBlockPlan] = useState<Map<number, number>>(new Map());
   const [pendingBlocker, setPendingBlocker] = useState<number | null>(null);
+  // The answer being put together for a decision `act` answers (Chooser.tsx), kept with the
+  // decision it's for, so a new board that leaves that decision alone keeps it (PP-06).
+  const [draftState, setDraftState] = useState<{ key: number; draft: Draft } | null>(null);
   // A choice is on its way: buttons wait for the next board, so a double tap can't send twice.
   const [sentAt, setSentAt] = useState<number | null>(null);
   const [landsOpen, setLandsOpen] = useState(false);
@@ -286,11 +294,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const view = msg?.view;
   const you = msg?.you ?? null;
   const seats = msg?.seats ?? [];
-  const revision = view?.revision;
   const decision = realDecision(view?.decision ?? null);
 
-  // Every new board clears a stale selection and any plan from the last decision. A declaration
-  // starts with the next opponent (in turn order) as the one you attack.
+  // A new decision clears the selection and any plan from the last one. A new board that leaves
+  // your decision as it was (someone else kept their hand while you sort yours) keeps what you're
+  // putting together (PP-06): the server keeps the decision's revision while it doesn't change.
+  // A declaration starts with the next opponent (in turn order) as the one you attack.
+  const decisionKey = view?.decision ? view.decision.revision : null;
   useEffect(() => {
     setSelected(null);
     setSentAt(null);
@@ -305,7 +315,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       setDefender(first !== undefined ? { kind: "player", seat: first } : d.attack.attackers[0]?.targets[0] ?? null);
     } else setDefender(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revision]);
+  }, [decisionKey]);
 
   // A new board ends a parked card (it was cast) unless a target is being chosen for it, and shows
   // the card that left the hand again if the move was refused.
@@ -361,6 +371,19 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       if (!primaryRef.current) return;
       e.preventDefault();
       primaryRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  // Esc backs out of what you're putting together (Bryan's decision 7, 2026-10-23); right-click
+  // and long-press read a card (Tiles.tsx). A drag in progress ends first (its own listener), and
+  // an open sheet or card closes itself (Sheet), so this only acts when neither is up.
+  const escRef = useRef<(() => boolean) | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.repeat || e.defaultPrevented) return;
+      if ((e.target as HTMLElement | null)?.closest("input, textarea, select, [contenteditable]")) return;
+      if (escRef.current?.()) e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -485,6 +508,20 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     ? { valid: new Map(decision.block.blockers.map((b) => [b.id, b.attackers])), plan: blockPlan, pending: pendingBlocker }
     : null;
 
+  // A decision answered in full through `act` (play/src/act.rs): a pick, an order, a split, a
+  // number, a word or a yes or no. Targets keep the board's own targeting.
+  const pend = decision && !decision.attack && !decision.block && chooserCovers(decision.pending) ? decision.pending : null;
+  const draft: Draft | null = pend && decision ? (draftState?.key === decision.revision ? draftState.draft : initialDraft(pend)) : null;
+  const setDraft = (d: Draft) => decision && setDraftState({ key: decision.revision, draft: d });
+  // Cards in your hand or on the battlefield are picked where they are (laptop); others in a zone view.
+  const boardPick = !!pend && draft?.kind === "pick" && wide && pickOnBoard(pend);
+  const zonePick = !!pend && draft?.kind === "pick" && pend.answer === "select_cards" && !boardPick;
+  const pickable = new Set(boardPick ? pend!.options.filter((o) => o.eligible).map((o) => Number(o.id)) : []);
+  const picked = boardPick && draft?.kind === "pick" ? draft.ids.map(Number) : [];
+  const sendAct = (a: Act | null) => {
+    if (!decision || pending || !a) return;
+    send({ type: "act", revision: decision.revision, action: a });
+  };
   const choose = (o: OptionView) => {
     if (!decision || pending) return;
     if (send({ type: "choose", revision: decision.revision, index: o.index })) {
@@ -556,6 +593,12 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const justDragged = () => performance.now() - lastDragEnd.current < 400;
   const pick = (p: Pile) => {
     if (justDragged()) return;
+    if (boardPick && draft?.kind === "pick") {
+      // A stack of tokens: the next one not yet picked, or the last picked one back.
+      const ids = p.ids.filter((i) => pickable.has(i)).map(String);
+      const id = ids.find((i) => !draft.ids.includes(i)) ?? ids.filter((i) => draft.ids.includes(i)).pop();
+      if (id !== undefined) return setDraft(togglePick(pend!, draft, id));
+    }
     const asTarget = targetFor(p.ids, p.card.name);
     if (asTarget) return choose(asTarget);
     if (attack && p.ids.some((i) => attack.valid.has(i))) return toggleAttack(p.ids);
@@ -567,8 +610,17 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         if (target !== undefined) return assignBlock(block.pending, target);
       }
     }
-    // On a phone, a tap opens the card. With a mouse, a click selects it (hover already shows it).
-    if (!canHover) return setInspect(p.card);
+    // On a phone, a tap on a card you can play picks it: the dock shows its text and the main
+    // button says what playing it does ("Cast Chaos Warp", GPlayPhone). A tap on any other card
+    // opens it to read. With a mouse, a click selects it (hover already shows it).
+    if (!canHover) {
+      if (!wide && decision && !attack && !block && optionsFor(p.ids).length) {
+        setSelected((cur) => (cur && cur[0] === p.ids[0] ? null : p.ids));
+        setSheet((cur) => (cur === "hand" ? null : cur));
+        return;
+      }
+      return setInspect(p.card);
+    }
     setSelected((cur) => (cur && cur[0] === p.ids[0] ? null : p.ids));
   };
   const double = (p: Pile) => {
@@ -599,6 +651,11 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       blocking: !!block && any(block.plan),
       ready: (!!attack && any(attack.valid) && !any(attack.plan)) || (!!block && any(block.valid) && !any(block.plan)),
       target: !!targetFor(p.ids, p.card.name),
+      pick: boardPick && p.ids.some((i) => pickable.has(i) && !picked.includes(i)),
+      picked: boardPick ? (() => {
+        const at = picked.findIndex((i) => p.ids.includes(i));
+        return at >= 0 ? at + 1 : undefined;
+      })() : undefined,
     };
   };
   const onSeat = (seat: number) => {
@@ -835,7 +892,18 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     if ((e.target as HTMLElement).closest(".pb-rail, .sheet, button.pile-chip")) return;
     track("aim", null, null, e);
   };
+  // Arrows: the attack or blocks you're building in blue, and attacks already declared, yours in
+  // blue and other seats' in their seat colors (design/tokens.md), pointing at whoever they attack.
+  const tones = seatTones(view.players, bottom);
   const planArrows: PlanArrow[] = [
+    ...(attack
+      ? []
+      : view.battlefield
+          .filter((c) => c.attacking && c.attacks !== undefined)
+          .map((c): PlanArrow => {
+            const tone = tones.get(c.controller);
+            return { from: c.id, to: { seat: c.attacks! }, tone: !tone || tone === "seat-1" ? "attack" : tone };
+          })),
     ...[...attackPlan.entries()].filter(() => !!attack).map(([from, at]): PlanArrow => ({ from, to: at.kind === "player" ? { seat: at.seat } : { id: at.id }, tone: "attack" })),
     ...[...blockPlan.entries()].filter(() => !!block).map(([from, to]): PlanArrow => ({ from, to: { id: to }, tone: "block" })),
   ];
@@ -861,6 +929,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     Object.entries(me?.commander_damage ?? {}).reduce((sum, [name, d]) => sum + (commanderOwner(name) === seat ? d : 0), 0);
   const taxOf = (seat: number) => view.command_zone.filter((c) => c.owner === seat).reduce((t, c) => t + (c.tax ?? 0), 0);
 
+  const payingByHand = !!decision && !!optionOf(decision, "pay_rest");
+  const selectedOptions = selected && decision && !attack && !block ? optionsFor(selected) : [];
   // The big button and its partner.
   const controls = ((): { primary: Control | null; secondary: Control | null } => {
     if (view.over || you === null || meOut) return { primary: null, secondary: null };
@@ -872,49 +942,106 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         secondary: null,
       };
     }
+    if (pend && draft) {
+      const cancel = optionOf(decision, "cancel");
+      const sourceCard = pend.source ? cardById.get(pend.source.id) : undefined;
+      const b = chooserButtons(pend, draft, { canCancel: !!cancel, spell: !sourceCard || !view.battlefield.some((c) => c.id === sourceCard.id) });
+      const second = (): void => {
+        switch (b.secondaryDoes) {
+          case "no":
+            return sendAct(toAct(pend, draft, false));
+          case "cancel":
+            return cancel ? choose(cancel) : undefined;
+          case "clear":
+            return void setDraft({ kind: "pick", ids: [] });
+          case "reset":
+            return void setDraft(initialDraft(pend));
+          case "none":
+            return sendAct({ kind: "select_cards", cards: [] });
+        }
+      };
+      return {
+        primary: { label: b.primary, run: () => sendAct(toAct(pend, draft, true)), disabled: pending || !draftReady(pend, draft) },
+        secondary: b.secondary ? { label: b.secondary, run: second, disabled: pending } : null,
+      };
+    }
     if (attack) {
       const n = attack.plan.size;
       const left = [...attack.valid.keys()].filter((i) => !attack.plan.has(i)).length;
       return {
         primary: { label: n ? `Attack (${n})` : "No attacks", run: sendAttack, disabled: pending },
-        secondary: left > 0 && attack.valid.size > 1 ? { label: "Attack with all", run: attackAll } : n ? { label: "Reset", run: () => setAttackPlan(new Map()) } : null,
+        secondary: left > 0 && attack.valid.size > 1 ? { label: "Attack with all", run: attackAll } : n ? { label: "Clear", run: () => setAttackPlan(new Map()) } : null,
       };
     }
     if (block) {
       const n = block.plan.size;
       return {
         primary: { label: n ? `Block (${n})` : "No blocks", run: sendBlock, disabled: pending },
-        secondary: n || block.pending !== null ? { label: "Reset blocks", run: () => (setBlockPlan(new Map()), setPendingBlocker(null)) } : null,
+        secondary: n || block.pending !== null ? { label: "Reset", run: () => (setBlockPlan(new Map()), setPendingBlocker(null)) } : null,
       };
     }
-    const keep = decision.options.find((o) => o.label === "Keep this hand");
-    const mull = decision.options.find((o) => o.label === "Mulligan");
+    const keep = optionOf(decision, "keep");
+    const mull = optionOf(decision, "mulligan");
     if (keep) {
+      // The engine's mulligan count says how many cards you'd keep (PP-51): "Keep 6" after a
+      // second mulligan, when one card goes to the bottom.
+      const sizes = decision.mulligan;
       return {
-        primary: { label: `Keep ${view.hand.length}`, run: () => choose(keep), disabled: pending },
-        secondary: mull ? { label: "Mulligan", run: () => choose(mull) } : null,
+        primary: { label: `Keep ${sizes?.keep ?? view.hand.length}`, run: () => choose(keep), disabled: pending },
+        secondary: mull ? { label: sizes ? (sizes.free ? "Mulligan (free)" : `Mulligan to ${sizes.next_keep}`) : "Mulligan", run: () => choose(mull), disabled: pending } : null,
+      };
+    }
+    // A phone with a card picked: the main button plays it, or the dock lists its ways to play.
+    if (!wide && selectedOptions.length) {
+      const only = selectedOptions.length === 1 ? selectedOptions[0]! : null;
+      return {
+        primary: only ? { label: only.label, run: () => choose(only), disabled: pending } : null,
+        secondary: { label: "Cancel", run: () => setSelected(null) },
+      };
+    }
+    // Paying mana by hand: the engine's pass pays the rest, so the button never says Resolve.
+    const payRest = optionOf(decision, "pay_rest");
+    if (payRest) {
+      const cancel = optionOf(decision, "cancel");
+      return {
+        primary: { label: "Pay the rest", run: () => choose(payRest), disabled: pending },
+        secondary: cancel ? { label: "Cancel", run: () => choose(cancel), disabled: pending } : null,
       };
     }
     const pass = decision.options.find(isPass);
-    if (pass) return { primary: { label: passLabel(view, you), run: () => choose(pass), disabled: pending }, secondary: null };
+    if (pass) return { primary: { label: passLabel(view, you, decision), run: () => choose(pass), disabled: pending }, secondary: null };
     const general = dedupe(decision.options.filter((o) => o.object === null));
     if (general.length === 1 && decision.options.length === 1) {
       return { primary: { label: general[0]!.label, run: () => choose(general[0]!), disabled: pending }, secondary: null };
     }
     return { primary: null, secondary: null };
   })();
+  escRef.current = () => {
+    if (dragRef.current?.started || inspect || sheet) return false;
+    if (pend && draft && draftChanged(pend, draft)) return (setDraft(initialDraft(pend)), true);
+    if (pendingBlocker !== null) return (setPendingBlocker(null), true);
+    if (block && blockPlan.size) return (setBlockPlan(new Map()), true);
+    if (attack && attackPlan.size) return (setAttackPlan(new Map()), true);
+    if (selected) return (setSelected(null), true);
+    // Choosing a target: backing out cancels the spell, as the Cancel option does.
+    const cancel = decision && targets.size > 0 ? optionOf(decision, "cancel") : undefined;
+    if (cancel && !pending) return (choose(cancel), true);
+    return false;
+  };
   primaryRef.current = watch
     ? watchStatus && !watchStatus.finished
       ? () => sendWatch(watchStatus.playing ? { type: "pause" } : { type: "play" })
       : null
     : controls.primary && !controls.primary.disabled && controls.primary.run ? controls.primary.run : null;
   // Options the buttons already cover don't repeat in the list.
+  const onButtons = new Set(
+    decision ? [optionOf(decision, "keep"), optionOf(decision, "mulligan"), optionOf(decision, "pay_rest"), payingByHand ? optionOf(decision, "cancel") : undefined] : [],
+  );
   const covered = (o: OptionView) =>
     isPass(o) ||
+    onButtons.has(o) ||
     (!!attack && (o.label === "Don't attack" || o.label.startsWith("Attack: "))) ||
     (!!block && (o.label === "Don't block" || o.label.startsWith("Block: "))) ||
-    o.label === "Keep this hand" ||
-    o.label === "Mulligan" ||
     (controls.primary?.label === o.label && decision?.options.length === 1);
 
   const myRows = rows(view.battlefield.filter((c) => c.controller === bottom));
@@ -952,12 +1079,33 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         : `${Who(view.active)}'s turn ${view.turn}`
       : meOut
       ? "You're out"
+      : decision?.pending && !attack && !block
+      ? decision.pending.prompt
       : decision
       ? decisionTitle(decision, view, you, Who, promptText)
       : you === null
         ? "Watching"
         : `Waiting for ${view.waiting_on.filter((s) => s !== you).map(who).join(" and ") || "the game"}`;
 
+  const readByName = (name: string) => setInspect({ ...emptyCard, name });
+  const chooserBody =
+    pend && draft ? (
+      <ChooserBody
+        p={pend}
+        draft={draft}
+        onDraft={setDraft}
+        meta={meta}
+        who={who}
+        place={boardPick ? "board" : zonePick ? "zone" : "list"}
+        onRead={setInspect}
+        cardById={cardById}
+        disabled={pending}
+      />
+    ) : null;
+  const chooserZone =
+    zonePick && pend && draft?.kind === "pick" ? (
+      <ChooserZone p={pend} draft={draft} onDraft={setDraft} meta={meta} onRead={readByName} compact={!wide} disabled={pending} />
+    ) : null;
   const decisionBody = (
     <DecisionBody
       decision={decision}
@@ -1175,6 +1323,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
               <OppPane
                 key={p.seat}
                 p={p}
+                tone={tones.get(p.seat)}
                 label={label(p.seat)}
                 art={art(p.seat)}
                 active={view.active === p.seat}
@@ -1267,7 +1416,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           <section className="rail-decision" aria-live="polite" aria-labelledby="pb-dec-h">
             <h2 id="pb-dec-h">{title}</h2>
             {/* The choices scroll; the big button below them never leaves the screen. */}
-            <div className="rail-body">{watch ? watchControls(false) : decisionBody}</div>
+            <div className="rail-body">{watch ? watchControls(false) : chooserBody ?? decisionBody}</div>
             <div className="rail-foot">
               {recent.length > 0 && (
                 <section className="rail-recent" aria-label="Recent">
@@ -1290,6 +1439,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           </section>
         </aside>
         <PlanArrows arrows={planArrows} root={boardRoot} />
+        {chooserZone}
         <DragLayer ref={layer} />
         <div className="motion-layer" ref={motionLayer} aria-hidden="true" />
         {dragNote && <p className="drag-toast" role="status">{dragNote}</p>}
@@ -1306,7 +1456,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     opponents.find((p) => p.seat === view.active) ??
     opponents[0];
   const handPlayable = view.hand.some((c) => optionObjects.has(c.id)) || myCommanders.some((c) => optionObjects.has(c.id));
-  const phoneHint = attack
+  const phoneHint = pend
+    ? null
+    : attack
     ? `Tap creatures to attack ${attack.defender?.kind === "player" ? who(attack.defender.seat) : "their target"}${new Set([...attack.valid.values()].flat().filter((t) => t.kind === "player").map((t) => (t as { seat: number }).seat)).size > 1 ? ", or tap a tab for someone else." : "."}`
     : block
       ? block.pending !== null
@@ -1315,7 +1467,16 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       : targets.size > 0
         ? "Tap a card or player with an amber ring, or pick one below."
         : null;
-  const phoneChoices = decision && !attack && !block ? dedupe(decision.options.filter((o) => !covered(o))) : [];
+  const phoneSelected = selectedOptions.length ? cardById.get(selected![0]!) : undefined;
+  const phoneChoices = pend
+    ? []
+    : phoneSelected
+    ? selectedOptions.length > 1
+      ? selectedOptions
+      : []
+    : decision && !attack && !block
+      ? dedupe(decision.options.filter((o) => !covered(o)))
+      : [];
   return (
     <MotionContext.Provider value={scale}>
     <div className={`pb phone${scale === 0 ? " motion-off" : ""}`} ref={boardRoot}>
@@ -1328,6 +1489,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
               key={p.seat}
               type="button"
               className={`opp-tab${on ? " on" : ""}${attacked ? " attacked" : ""}${seatTarget(p.seat) ? " aimed" : ""}${p.eliminated ? " out" : ""}${view.active === p.seat ? " active" : ""}`}
+              style={seatStyle(tones.get(p.seat))}
               aria-pressed={on}
               aria-label={`${label(p.seat)}, ${p.eliminated ? "out" : `${p.life} life`}${view.active === p.seat ? ", their turn" : ""}${on ? ", showing" : ""}`}
               onClick={() => onSeat(p.seat)}
@@ -1335,7 +1497,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
               {art(p.seat).art && <img src={art(p.seat).art!} alt="" />}
               <span className="tab-wash" aria-hidden="true" />
               <span className="tab-body">
-                <span className="tab-name">{p.seat === you ? "You" : seatInfo(p.seat)?.ai ? (watch ? seatName(seatInfo(p.seat), p.seat) : "Computer") : label(p.seat)}</span>
+                <span className="tab-name"><span className="seat-dot" aria-hidden="true" />{p.seat === you ? "You" : seatInfo(p.seat)?.ai ? (watch ? seatName(seatInfo(p.seat), p.seat) : "Computer") : label(p.seat)}</span>
                 <b className="tab-life num" data-life-seat={p.eliminated ? undefined : p.seat}>{p.eliminated ? "Out" : <Tick value={p.life} />}</b>
               </span>
               {view.waiting_on.includes(p.seat) && !view.over ? <span className="tab-flag warn">Deciding</span> : view.active === p.seat ? <span className="tab-flag">Turn</span> : null}
@@ -1347,6 +1509,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       {focus && (
         <OppFocus
           p={focus}
+          tone={tones.get(focus.seat)}
           label={label(focus.seat)}
           commander={watch ? seatInfo(focus.seat)?.deck_name ?? null : seatInfo(focus.seat)?.commander ?? null}
           toYou={damageFrom(focus.seat)}
@@ -1411,10 +1574,22 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             <span className="peek-label">Hand {handCards.length}</span>
           </button>
         )}
+        {phoneSelected && (
+          <div className="dock-card" aria-live="polite">
+            <p className="dock-card-head">
+              <b>{phoneSelected.name}</b>
+              {meta[phoneSelected.name] && <span className="dim">{meta[phoneSelected.name]!.type_line}{meta[phoneSelected.name]!.mana_cost ? `, ${meta[phoneSelected.name]!.mana_cost}` : ""}</span>}
+            </p>
+            {meta[phoneSelected.name]?.oracle_text && <p className="dock-card-text">{meta[phoneSelected.name]!.oracle_text}</p>}
+            <button type="button" className="quiet small" onClick={() => setInspect(phoneSelected)}>Read card</button>
+          </div>
+        )}
         {(phoneHint || phoneChoices.length > 0 || (decision && !decision.prompt.startsWith("Priority") && !attack && !block)) && (
           <div className="dock-decision">
             {decision && !decision.prompt.startsWith("Priority") && !attack && !block && <p className="dock-prompt"><b>{title}</b></p>}
             {phoneHint && <p className="dock-hint">{phoneHint}</p>}
+            {chooserBody}
+            {chooserZone}
             {phoneChoices.length > 0 && (
               <div className="chips">
                 {phoneChoices.map((o) => {
@@ -1449,6 +1624,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
 }
 
 const single = (c: CardView): Pile => ({ key: String(c.id), card: c, ids: [c.id] });
+
+/** Sets a seat's color (`--seat`) on an element, for its dot, its attackers' rings and badges. */
+const seatStyle = (tone: SeatTone | undefined): React.CSSProperties | undefined => (tone ? ({ ["--seat" as string]: `var(--${tone})` } as React.CSSProperties) : undefined);
 
 /** The attack being built, as combat lines for the strip. */
 function planLines(attack: AttackState, cards: Map<number, CardView>, me: number) {
@@ -1512,7 +1690,7 @@ function Ladder({ phase, fullControl, stops, onToggle, vertical = false }: {
 
 function Portrait({ seat, art, life, poison, status, active, compact = false }: { seat: number; art: string | null; life: number; poison: number; status: string; active: boolean; compact?: boolean }) {
   return (
-    <span className={`portrait${compact ? " compact" : ""}${active ? " active" : ""}`}>
+    <span className={`portrait${compact ? " compact" : ""}${active ? " active" : ""}`} data-seat={seat}>
       {art ? <img src={art} alt="" /> : <span className="portrait-blank" />}
       <span className="portrait-text">
         <b className="num" data-life-seat={seat}><Tick value={life} /></b>
@@ -1619,6 +1797,8 @@ function OthersChip({ piles, open, onToggle }: { piles: Pile[]; open?: boolean; 
 
 function OppPane(props: {
   p: PlayerView;
+  /** The seat's color (design/tokens.md). */
+  tone?: SeatTone;
   label: string;
   art: SeatArt;
   active: boolean;
@@ -1647,12 +1827,12 @@ function OppPane(props: {
   if (p.eliminated) {
     // Out of the game: a thin strip with the name and when they went out. The others get the room.
     return (
-      <article className="opp-pane out" aria-label={`${props.label}, out of the game`}>
+      <article className="opp-pane out" style={seatStyle(props.tone)} aria-label={`${props.label}, out of the game`}>
         <header className="opp-head">
           {props.art.art && <img className="opp-art" src={props.art.art} alt="" />}
           <span className="opp-veil" aria-hidden="true" />
           <span className="opp-id">
-            <span className="opp-name">{props.label}</span>
+            <span className="opp-name"><span className="seat-dot" aria-hidden="true" />{props.label}</span>
             <span className="opp-counts">{props.outTurn ? `Out on turn ${props.outTurn}` : "Out of the game"}</span>
             {props.art.art && <span className="opp-credit">Art: {props.art.artist ?? "unknown"}</span>}
           </span>
@@ -1667,7 +1847,7 @@ function OppPane(props: {
   const clickable = props.targetable || !!props.aimed;
   const cls = ["opp-pane", props.active && "active", props.attacked && "attacked", clickable && "targetable", props.aimed && "aimed"].filter(Boolean).join(" ");
   return (
-    <article className={cls} data-seat={p.seat} aria-label={`${props.label}, ${p.eliminated ? "out of the game" : `${p.life} life`}${props.active ? ", their turn" : ""}`}>
+    <article className={cls} data-seat={p.seat} style={seatStyle(props.tone)} aria-label={`${props.label}, ${p.eliminated ? "out of the game" : `${p.life} life`}${props.active ? ", their turn" : ""}`}>
       <header
         className="opp-head"
         onClick={clickable ? props.onSeat : undefined}
@@ -1679,7 +1859,7 @@ function OppPane(props: {
         {props.art.art && <img className="opp-art" src={props.art.art} alt="" />}
         <span className="opp-wash" aria-hidden="true" />
         <span className="opp-id">
-          <span className="opp-name">{props.label}</span>
+          <span className="opp-name"><span className="seat-dot" aria-hidden="true" />{props.label}</span>
           <span className="opp-counts">
             {props.onHand ? (
               <button type="button" className="inline-link" onClick={(e) => (e.stopPropagation(), props.onHand!())}>Hand {p.hand}</button>
@@ -1746,6 +1926,7 @@ function LandChipBody({ lands, meta }: { lands: CardView[]; meta: Record<string,
 
 function OppFocus(props: {
   p: PlayerView;
+  tone?: SeatTone;
   label: string;
   commander: string | null;
   toYou: number;
@@ -1766,7 +1947,7 @@ function OppFocus(props: {
   const front = [...r.creatures, ...r.others.filter((x) => x.card.types.includes("Planeswalker") || x.card.types.includes("Battle"))];
   const rest = r.others.filter((x) => !front.includes(x));
   return (
-    <section className="opp-focus" aria-label={`${props.label}'s board`}>
+    <section className="opp-focus" style={seatStyle(props.tone)} aria-label={`${props.label}'s board`}>
       <div className="focus-meta">
         <span>
           {props.label}
@@ -1991,7 +2172,7 @@ function DecisionBody(props: {
         <p className="rail-help">Click a card or player with an amber ring to choose it, or pick from the list.</p>
       )}
       {byCard.length > 0 && decision.prompt.startsWith("Priority") && (
-        <p className="rail-help">Cards with a green ring can be played. Double-click one to play it, or click it to see its choices.</p>
+        <p className="rail-help">Cards with an amber ring can be played. Double-click one to play it, or click it to see its choices.</p>
       )}
       {general.length > 0 && (
         <div className="rail-options">

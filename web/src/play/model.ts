@@ -112,6 +112,18 @@ export function turnOrder(players: PlayerView[], bottom: number): PlayerView[] {
   return players.filter((p) => p.seat !== bottom).sort((a, b) => ((a.seat - bottom + n) % n) - ((b.seat - bottom + n) % n));
 }
 
+export type SeatTone = "seat-1" | "seat-2" | "seat-3" | "seat-4" | "seat-5" | "seat-6";
+
+/**
+ * Each seat's color (design/tokens.md, --seat-1 to --seat-6), by turn order starting with you:
+ * the bottom seat (you) is always seat-1, the next opponent seat-2, and so on left to right across
+ * the top of the board. A player keeps their color when knocked out.
+ */
+export function seatTones(players: PlayerView[], bottom: number): Map<number, SeatTone> {
+  const order = [bottom, ...turnOrder(players, bottom).map((p) => p.seat)];
+  return new Map(order.map((seat, i) => [seat, `seat-${Math.min(i, 5) + 1}` as SeatTone]));
+}
+
 // ── permanents ─────────────────────────────────────────────────────────────
 
 /** One or more identical permanents shown as one tile with a ×N badge. */
@@ -260,24 +272,44 @@ export function sameTarget(a: AttackAt, b: AttackAt): boolean {
 /** The engine passes for you when passing is all you could do; don't flash that choice. */
 export function realDecision(d: Decision | null): Decision | null {
   if (!d) return null;
-  if (d.options.length === 1 && d.options[0]!.label.startsWith("Pass") && !d.attack && !d.block) return null;
+  if (d.options.length === 1 && isPass(d.options[0]!) && !d.attack && !d.block) return null;
   return d;
 }
 
-export const isPass = (o: OptionView) => o.label.startsWith("Pass");
+/** Passing priority (not the pass that pays for a spell while you pay mana by hand). */
+export const isPass = (o: OptionView) => (o.kind ? o.kind === "pass" : o.label.startsWith("Pass"));
 
-/** Identical labels (two Forests) collapse to one button. */
+/** An option of a kind, by its kind on newer servers and its label on older ones. */
+export function optionOf(d: Decision, kind: "keep" | "mulligan" | "pay_rest" | "cancel"): OptionView | undefined {
+  const label = { keep: "Keep this hand", mulligan: "Mulligan", pay_rest: "Pay the rest", cancel: "Cancel" }[kind];
+  return d.options.find((o) => (o.kind ? o.kind === kind : o.label === label));
+}
+
+/** What makes two options the same choice: the label, which ability, and what it targets. */
+const optionKey = (o: OptionView) => `${o.label}|${o.ability ?? ""}|${o.target ? JSON.stringify(o.target) : ""}`;
+
+/**
+ * Options that are the same choice collapse to one button: two Forests in hand both read "Play
+ * Forest". Options for different abilities (a planeswalker's three) or different targets (two
+ * Goblin tokens) never merge (PP-04).
+ */
 export function dedupe(os: OptionView[]): OptionView[] {
-  return os.filter((o, i, all) => all.findIndex((x) => x.label === o.label) === i);
+  return os.filter((o, i, all) => all.findIndex((x) => optionKey(x) === optionKey(o)) === i);
 }
 
 /**
- * What the big button says while you hold priority (PP-32): "Resolve" with something on the
+ * What the big button says while you hold priority (PP-32): "Let it resolve" when someone
+ * else's spell or ability is on top and you could respond, "Resolve" for anything else on the
  * stack, "To combat" in your first main phase when a creature could attack, "End turn" late in
- * your turn, "Pass" on someone else's turn, otherwise "Next".
+ * your turn, "Pass" on someone else's turn, otherwise "Next". Your own spell on top usually
+ * resolves without asking (play/src/lib.rs, should_auto_pass); you see it with full control.
  */
-export function passLabel(view: View, you: number | null): string {
-  if (view.stack.length > 0) return "Resolve";
+export function passLabel(view: View, you: number | null, decision?: Decision | null): string {
+  const top = view.stack[view.stack.length - 1];
+  if (top) {
+    const canRespond = !!decision?.options.some((o) => !isPass(o));
+    return top.controller !== you && canRespond ? "Let it resolve" : "Resolve";
+  }
   if (view.active !== you) return "Pass";
   if (view.phase === "PreCombatMain") {
     const ready = view.battlefield.some((c) => c.controller === you && isCreature(c) && !c.tapped && !c.sick);
