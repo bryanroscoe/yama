@@ -207,7 +207,21 @@ export type AnswerKind =
   | "pay_mana_ability_mana"
   | "pay_phyrexian"
   | "decide_optional_cost"
-  | "choose_cost_branch";
+  | "choose_cost_branch"
+  // Ways to cast, permanents and counters (play/src/ways.rs).
+  | "cast_offer"
+  | "choose_adventure_face"
+  | "choose_modal_face"
+  | "choose_alternative_cast"
+  | "choose_casting_variant"
+  | "choose_mutate_side"
+  | "choose_legend"
+  | "choose_ring_bearer"
+  | "equip"
+  | "select_targets"
+  | "move_counters"
+  | "remove_counters"
+  | "remove_counter_cost";
 
 /** The card asking; the server adds its art, image and artist. */
 export interface DecisionSource {
@@ -239,6 +253,12 @@ export interface DecisionOption {
   power?: number;
   /** What choosing it costs, printed: a kicker row ("{4}{R}"), the mana that pays a Phyrexian symbol. */
   cost?: string;
+  /** The counters on it now, in words with how many: [["+1/+1", 2]] (proliferate, empower Jace, counters). */
+  counters?: [string, number][];
+  /** The most a split may give it. */
+  cap?: number;
+  /** The counter kind it stands for, by the engine's key ("P1P1"); moving counters shares one cap per kind. */
+  group?: string;
 }
 
 /**
@@ -271,7 +291,13 @@ export interface Pending {
   freeEntry?: boolean;
   choiceType?: string;
   answer: AnswerKind;
-  /** scry, surveil, search, dig, discard, bottom, choose, target, modes, replacement, triggers, x, may, pay, name, damage or divide. */
+  /**
+   * scry, surveil, search, dig, discard, bottom, choose, target, modes, replacement, triggers, x,
+   * may, pay, name, damage or divide; ways to cast: cascade, discover, ripple, madness, miracle,
+   * miracle_reveal, adventure, face, alt_cost, variant, mutate; permanents: legend, clone, equip,
+   * ring, empower, host, populate, explore; counters: proliferate, move_counters,
+   * remove_counters, counter_cost.
+   */
   purpose: string;
   /** The order picked is the order they end up in (the first is on top). */
   ordered?: boolean;
@@ -297,6 +323,8 @@ export interface Pending {
   warn?: string;
   /** Phyrexian mana: the rest of the cost, printed, paid with mana either way. */
   rest?: string;
+  /** Moving or removing counters: the permanent they come off, by option id. */
+  origin?: string;
 }
 
 /** An answer sent with `{type: "act"}` (play/src/act.rs, Act). */
@@ -350,7 +378,24 @@ export type Act =
   /** Phyrexian mana: for each Phyrexian symbol in order, whether it's paid with 2 life. */
   | { kind: "pay_phyrexian"; life: boolean[] }
   | { kind: "decide_optional_cost"; pay: boolean }
-  | { kind: "choose_cost_branch"; index: number };
+  | { kind: "choose_cost_branch"; index: number }
+  // Ways to cast, permanents and counters (play/src/ways.rs).
+  /** Cast what a cascade, discover, ripple, madness or miracle offers, or don't; madness and miracle pay as "Tap mana for me" says. */
+  | { kind: "cast_offer"; cast: boolean; payment?: TapMana }
+  | { kind: "choose_adventure_face"; creature: boolean }
+  | { kind: "choose_modal_face"; back_face: boolean }
+  | { kind: "choose_alternative_cast"; alternative: boolean }
+  | { kind: "choose_casting_variant"; index: number }
+  | { kind: "choose_mutate_side"; top: boolean }
+  | { kind: "choose_legend"; keep: number }
+  | { kind: "choose_ring_bearer"; target: number }
+  | { kind: "equip"; equipment: number; target: number }
+  /** Proliferate: any number of permanents and players. */
+  | { kind: "select_targets"; targets: TargetView[] }
+  /** Counters by the engine's key for their kind: onto (or, as a cost, off) a permanent. */
+  | { kind: "move_counters"; moves: { on: number; counter: string; count: number }[] }
+  | { kind: "remove_counters"; counters: { counter: string; count: number }[] }
+  | { kind: "remove_counter_cost"; counters: { on: number; counter: string; count: number }[] };
 
 /** "Tap mana for me" (GPay): automatic but ask before sacrificing, always automatic, or by hand. */
 export type TapMana = "ask" | "auto" | "manual";
@@ -597,6 +642,8 @@ export interface CardMeta {
   mana_cost: string | null;
   type_line: string;
   oracle_text: string;
+  /** A two-faced or adventurer card's faces, each in its own words (choosing which face or half to cast). */
+  faces?: { name: string; mana_cost?: string | null; type_line?: string | null; oracle_text?: string | null }[];
 }
 
 export type Speed = "1x" | "2x" | "4x" | "end";

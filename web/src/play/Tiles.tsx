@@ -107,7 +107,7 @@ export interface TileLook {
    * on it in combat ("Must attack"), what picking it adds ("Power 2"), the target a spell has now,
    * or its keywords.
    */
-  under?: { text: string; tone: "by" | "rule" | "dim" | "plain" };
+  under?: { text: string; tone: "by" | "rule" | "dim" | "plain" | "bad" };
   /** The seat colour (`seat-3`) of whoever targets it: its ring and the "Targeted by" line. */
   by?: string;
   /** Show its keyword badges under it (creatures in combat). */

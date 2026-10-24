@@ -55,6 +55,7 @@ pub mod lab;
 pub mod pay;
 pub mod pilot;
 pub mod turns;
+pub mod ways;
 
 pub use act::{Act, Pending};
 pub use feed::{Came, Happening, Out, Stats, Why};
@@ -708,7 +709,7 @@ impl Match {
             prompt: self.prompt(&vs),
             options,
             mulligan: Self::mulligan_view(&vs, me),
-            pending: Pending::of(&vs, me, &candidates, &self.names),
+            pending: Pending::of(&vs, me, &candidates, &self.names).map(|p| ways::with_resolving_source(p, &self.state, &vs)),
             payment: PaymentView::of(&self.state, &vs, me, &candidates, self.kept.get(&seat).map(Vec::as_slice).unwrap_or_default()),
             attack,
             block,
@@ -1098,7 +1099,7 @@ impl Match {
                 if vs.stack.is_empty() { "Pass (move on)".into() } else { "Pass (let it resolve)".into() }
             }
             GameAction::PlayLand { object_id, .. } => format!("Play {}", Self::name_in(vs, object_id)),
-            GameAction::CastSpell { object_id, targets, .. } if targets.is_empty() => format!("Cast {}", Self::name_in(vs, object_id)),
+            GameAction::CastSpell { object_id, targets, .. } if targets.is_empty() => Self::cast_label(vs, object_id),
             GameAction::CastSpell { object_id, targets, .. } => format!(
                 "Cast {} targeting {}",
                 Self::name_in(vs, object_id),
@@ -1134,7 +1135,12 @@ impl Match {
             GameAction::DecideOptionalCost { pay } => if *pay { "Pay the extra cost".into() } else { "Don't pay it".into() },
             GameAction::PayUnlessCost { pay } => if *pay { "Pay the cost".into() } else { "Don't pay".into() },
             GameAction::ChooseX { value } => format!("X = {value}"),
+            // At priority the engine's equip names the Equipment twice; the creature is chosen next
+            // (`Pending`, "equip").
+            GameAction::Equip { equipment_id, target_id } if equipment_id == target_id => format!("Equip {}", Self::name_in(vs, equipment_id)),
             GameAction::Equip { equipment_id, target_id } => format!("Equip {} to {}", Self::name_in(vs, equipment_id), Self::name_in(vs, target_id)),
+            // CR 702.143a: foretelling always costs {2}.
+            GameAction::Foretell { object_id, .. } => format!("Foretell {} for {{2}}", Self::name_in(vs, object_id)),
             // Starting to crew or saddle; the creatures are chosen next (`Pending`, "crew").
             GameAction::CrewVehicle { vehicle_id, creature_ids } if creature_ids.is_empty() => format!("Crew {}", Self::name_in(vs, vehicle_id)),
             GameAction::SaddleMount { mount_id, creature_ids } if creature_ids.is_empty() => format!("Saddle {}", Self::name_in(vs, mount_id)),
@@ -1173,6 +1179,37 @@ impl Match {
                 _ => format!("Option {}", index + 1),
             },
             _ => phase_llm::render::action::describe_action(&self.state, action),
+        }
+    }
+
+    /// Casting a card, saying how when it isn't from the hand (PP-21): from exile after its
+    /// adventure (CR 715.3d), for its foretell cost (CR 702.143a), with flashback or escape from a
+    /// graveyard (CR 702.34a, 702.138a), or from wherever else it is.
+    fn cast_label(vs: &GameState, id: &ObjectId) -> String {
+        let Some(o) = vs.objects.get(id) else { return format!("Cast {}", Self::name_in(vs, id)) };
+        // A card you foretold is face down in exile, and the projection keeps its name for you.
+        let name = if o.face_down && o.zone == Zone::Exile && !o.name.is_empty() && o.name != "Hidden Card" { o.name.clone() } else { Self::name_in(vs, id) };
+        match o.zone {
+            Zone::Exile => {
+                let foretold = o.casting_permissions.iter().find_map(|p| match p {
+                    engine::types::ability::CastingPermission::Foretold { cost, .. } => Some(cost),
+                    _ => None,
+                });
+                match foretold {
+                    Some(cost) => format!("Cast {name} for its foretell cost {}", phase_llm::render::text::mana_cost_text(cost)),
+                    None => format!("Cast {name} from exile"),
+                }
+            }
+            Zone::Graveyard => {
+                if o.keywords.iter().any(|k| matches!(k, Keyword::Flashback(_))) {
+                    format!("Cast {name} with flashback")
+                } else if o.keywords.iter().any(|k| matches!(k, Keyword::Escape(_))) {
+                    format!("Cast {name} with escape")
+                } else {
+                    format!("Cast {name} from your graveyard")
+                }
+            }
+            _ => format!("Cast {name}"),
         }
     }
 
@@ -1971,6 +2008,9 @@ mod feed_tests;
 
 #[cfg(test)]
 mod pay_tests;
+
+#[cfg(test)]
+mod ways_tests;
 
 #[cfg(test)]
 mod tests {
