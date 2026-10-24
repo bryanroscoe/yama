@@ -3,9 +3,11 @@
 //! Chandra, Torch of Defiance, Combat Celebrant, Solemn Simulacrum and Silverblade Paladin, taken
 //! from card-data-eb309108eb0df708.json with the printing lists, legalities and metadata removed).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
-use yama_play::act::{Answer, Kind, RememberedReplacement};
+use engine::types::game_state::YieldTarget;
+use engine::types::identifiers::ObjectId;
+use yama_play::act::{AnswerChange, Answer, Kind, RememberedReplacement, YieldChange};
 use yama_play::{Act, ChoiceError, Decision, Difficulty, Engine, Match, OptionKind, SeatDeck, TargetView};
 
 fn engine() -> Engine {
@@ -116,11 +118,12 @@ fn your_own_spell_resolves_without_asking_unless_you_want_full_control() {
     drive(&mut m, 4000, opt_with_mana_left, on_stack);
     assert!(m.decision(0).unwrap().options.iter().any(|o| o.kind == OptionKind::Spell), "a second Opt could respond");
     // Full control: you're asked about your own spell too.
-    let full = HashSet::from([0u8]);
-    assert_eq!(m.auto_pass(&[0], &full, &HashMap::new()), 0);
+    m.set_full_control(0, true);
+    assert_eq!(m.auto_pass(&[0]), 0);
     assert!(m.decision(0).is_some());
     // Otherwise Yama passes for you, and the spell goes on to resolve once the others pass.
-    assert!(m.auto_pass(&[0], &HashSet::new(), &HashMap::new()) >= 1);
+    m.set_full_control(0, false);
+    assert!(m.auto_pass(&[0]) >= 1);
     assert_ne!(m.waiting_on(), vec![0], "the opponent gets their chance to respond");
 }
 
@@ -243,6 +246,15 @@ fn every_answer_round_trips_through_the_engines_action() {
         Act::ChooseReplacementAndRemember { choice: RememberedReplacement::Optional { index: 1 } },
         Act::ChoosePair { partner: Some(7) },
         Act::ChoosePair { partner: None },
+        // A seat's own settings and Resolve all (play/src/turns.rs).
+        Act::SetPriorityYield { change: YieldChange::Add { source: 12, every: true } },
+        Act::SetPriorityYield { change: YieldChange::Remove { target: YieldTarget::ThisObject { source_id: ObjectId(12), incarnation: Some(2), trigger_description: None } } },
+        Act::SetPriorityYield { change: YieldChange::ClearAll },
+        Act::SetMayTriggerAutoChoice { change: AnswerChange::ClearAll },
+        Act::SetReplacementAutoChoice { id: Some("r-1".into()) },
+        Act::SetReplacementAutoChoice { id: None },
+        Act::ReorderHand { order: vec![5, 3, 4] },
+        Act::ResolveAll,
     ];
     for a in answers {
         assert_eq!(Act::from_action(&a.to_action()), Some(a.clone()));

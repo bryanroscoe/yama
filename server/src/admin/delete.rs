@@ -4,7 +4,7 @@
 //! **What goes.** Every row the account owns: sessions, script keys, OAuth connections (grants,
 //! their tokens and codes), its invite, decks and their
 //! versions and checks, the collection and containers, synced ops, plans (every `plan_*` table),
-//! lab runs, experiments and usage, advisor keys, settings, conversations, usage and its shared-key grant, calendar
+//! lab runs, experiments and usage, advisor keys, settings, conversations, usage and its shared-key grant, online-play settings, calendar
 //! watches, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, and any live online game it is in
 //! ends.
 //!
@@ -75,6 +75,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("plan_states", "owner_id"),
     ("plan_stores", "owner_id"),
     ("plan_swaps", "owner_id"),
+    ("play_prefs", "user_id"),
     ("playgroup_members", "user_id"),
     ("playgroups", "owner_id"),
     ("sessions", "user_id"),
@@ -94,6 +95,8 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("oauth_codes", "user_id"),
     ("oauth_grants", "user_id"),
     ("calendar_watches", "user_id"),
+    // Online play: saved stops and full control.
+    ("play_prefs", "user_id"),
     ("assistant_changes", "owner_id"),
     ("advisor_messages", "owner_id"),
     ("advisor_conversations", "owner_id"),

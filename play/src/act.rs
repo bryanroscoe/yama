@@ -13,15 +13,19 @@
 //!
 //! Where the engine itself can remember an answer (a "may" trigger, the order of replacement
 //! effects), `Pending::remember` is "engine" and the remembering forms of the answer are allowed.
+//!
+//! `Act` also spells a seat's own settings (turning off a remembered answer, trigger yields,
+//! hand order: [`Act::is_preference`]), which aren't answers and may be sent at any time, and
+//! Resolve all (play/src/turns.rs).
 
 use engine::ai_support::AiDecisionContract;
 use engine::game::engine::apply_interaction;
 use engine::game::filter_state_for_viewer;
 use engine::types::ability::{AbilityCost, FreeEntry, TargetRef};
-use engine::types::actions::{GameAction, ReplacementAutoChoice};
+use engine::types::actions::{GameAction, MayTriggerAutoChoiceOp, PriorityYieldOp, ReplacementAutoChoice, ResolveAllScope};
 use engine::types::game_state::{
-    ActionResult, AutoMayChoice, CombatDamageAssignmentMode, DistributionUnit, GameState, MayTriggerAutoChoiceScope, MulliganDecisionPhase,
-    ReplacementChoiceKind, WaitingFor,
+    ActionResult, AutoMayChoice, CombatDamageAssignmentMode, DistributionUnit, GameState, MayTriggerAutoChoiceScope, MayTriggerAutoChoiceSelector,
+    MulliganDecisionPhase, ReplacementAutoChoiceId, ReplacementChoiceKind, WaitingFor, YieldScope, YieldTarget,
 };
 use engine::types::identifiers::ObjectId;
 use engine::types::player::PlayerId;
@@ -190,8 +194,9 @@ pub struct Pending {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit: Option<&'static str>,
     /// The engine can also remember a "may" answer for every copy of the card (not only this
-    /// one); `admits` checks a same-card remember against it.
-    #[serde(skip)]
+    /// one); `admits` checks a same-card remember against it. The board remembers that way when
+    /// it can, so the answer holds for the next copy too (and shows in the log when it's used).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub remember_same_card: bool,
 }
 
@@ -933,6 +938,48 @@ pub enum Act {
     ChoosePair {
         partner: Option<u64>,
     },
+    // The rest are a seat's own settings and table actions (GSettings, GPriority), not answers to
+    // a decision: the preference ones may be sent at any time, as the engine allows.
+    /// Turn off a remembered "may" answer (GSettings and GLog, "Turn off"), or all of them.
+    SetMayTriggerAutoChoice {
+        change: AnswerChange,
+    },
+    /// Forget a remembered replacement-effect choice, by the engine's id; `None` forgets all.
+    SetReplacementAutoChoice {
+        id: Option<String>,
+    },
+    /// Pass for you while a trigger is on top of the stack (CR 117.3d), or stop doing so.
+    SetPriorityYield {
+        change: YieldChange,
+    },
+    /// Put your hand in this order (CR 402.3): every card in it, once.
+    ReorderHand {
+        order: Vec<u64>,
+    },
+    /// Ask everyone to let the whole stack resolve (GTogether's consent tab). Each other player
+    /// agrees or keeps priority; AI seats agree at once.
+    ResolveAll,
+}
+
+/// How a trigger yield changes (`Act::SetPriorityYield`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum YieldChange {
+    /// The trigger from `source` on the stack now: this one only, or `every` copy of that card
+    /// (phase's `AllCopies`: the physical card and its copies, not others with the same name).
+    Add { source: u64, every: bool },
+    /// A yield the seat's view lists (`TurnsView::yields`), as it lists it.
+    Remove { target: YieldTarget },
+    ClearAll,
+}
+
+/// How remembered "may" answers change (`Act::SetMayTriggerAutoChoice`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum AnswerChange {
+    /// An answer the seat's view lists (`TurnsView::answers`), as it lists it.
+    Remove { selector: MayTriggerAutoChoiceSelector },
+    ClearAll,
 }
 
 /// A replacement choice to remember: the whole order of the effects (by index), or the branch
@@ -993,7 +1040,36 @@ impl Act {
                 },
             },
             Act::ChoosePair { partner } => GameAction::ChoosePair { partner: partner.map(ObjectId) },
+            Act::SetMayTriggerAutoChoice { change } => GameAction::SetMayTriggerAutoChoice {
+                op: match change {
+                    AnswerChange::Remove { selector } => MayTriggerAutoChoiceOp::Remove { selector: selector.clone() },
+                    AnswerChange::ClearAll => MayTriggerAutoChoiceOp::ClearAll,
+                },
+            },
+            Act::SetReplacementAutoChoice { id } => GameAction::SetReplacementAutoChoice { selector: id.clone().map(ReplacementAutoChoiceId) },
+            Act::SetPriorityYield { change } => GameAction::SetPriorityYield {
+                op: match change {
+                    YieldChange::Add { source, every } => PriorityYieldOp::Add {
+                        source_id: ObjectId(*source),
+                        scope: if *every { YieldScope::AllCopies } else { YieldScope::ThisObject },
+                    },
+                    YieldChange::Remove { target } => PriorityYieldOp::Remove { target: target.clone() },
+                    YieldChange::ClearAll => PriorityYieldOp::ClearAll,
+                },
+            },
+            Act::ReorderHand { order } => GameAction::ReorderHand { order: order.iter().map(|c| ObjectId(*c)).collect() },
+            // No cap on how much resolves (phase's 0); the table-wide form, which asks everyone.
+            Act::ResolveAll => GameAction::BeginResolveAll { max_resolutions: 0, scope: ResolveAllScope::Shared },
         }
+    }
+
+    /// A seat's own setting, which the engine takes in any state from that seat (it changes
+    /// nothing of anyone else's): not an answer to the seat's decision.
+    pub fn is_preference(&self) -> bool {
+        matches!(
+            self,
+            Act::SetMayTriggerAutoChoice { .. } | Act::SetReplacementAutoChoice { .. } | Act::SetPriorityYield { .. } | Act::ReorderHand { .. }
+        )
     }
 
     /// The answer for an engine action, when it's one `Act` covers.
@@ -1029,6 +1105,22 @@ impl Act {
                 },
             },
             GameAction::ChoosePair { partner } => Act::ChoosePair { partner: partner.map(|p| p.0) },
+            GameAction::SetMayTriggerAutoChoice { op } => Act::SetMayTriggerAutoChoice {
+                change: match op {
+                    MayTriggerAutoChoiceOp::Remove { selector } => AnswerChange::Remove { selector: selector.clone() },
+                    MayTriggerAutoChoiceOp::ClearAll => AnswerChange::ClearAll,
+                },
+            },
+            GameAction::SetReplacementAutoChoice { selector } => Act::SetReplacementAutoChoice { id: selector.as_ref().map(|s| s.0.clone()) },
+            GameAction::SetPriorityYield { op } => Act::SetPriorityYield {
+                change: match op {
+                    PriorityYieldOp::Add { source_id, scope } => YieldChange::Add { source: source_id.0, every: *scope == YieldScope::AllCopies },
+                    PriorityYieldOp::Remove { target } => YieldChange::Remove { target: target.clone() },
+                    PriorityYieldOp::ClearAll => YieldChange::ClearAll,
+                },
+            },
+            GameAction::ReorderHand { order } => Act::ReorderHand { order: order.iter().map(|c| c.0).collect() },
+            GameAction::BeginResolveAll { max_resolutions: 0, scope: ResolveAllScope::Shared } => Act::ResolveAll,
             _ => return None,
         })
     }
@@ -1051,6 +1143,11 @@ impl Act {
             Act::DecideOptionalEffectAndRemember { .. } => "decide_optional_effect_and_remember",
             Act::ChooseReplacementAndRemember { .. } => "choose_replacement_and_remember",
             Act::ChoosePair { .. } => "choose_pair",
+            Act::SetMayTriggerAutoChoice { .. } => "set_may_trigger_auto_choice",
+            Act::SetReplacementAutoChoice { .. } => "set_replacement_auto_choice",
+            Act::SetPriorityYield { .. } => "set_priority_yield",
+            Act::ReorderHand { .. } => "reorder_hand",
+            Act::ResolveAll => "resolve_all",
         }
     }
 }
@@ -1074,15 +1171,76 @@ pub struct Answered {
     pub result: ActionResult,
 }
 
+/// Whether a seat's own setting can be changed as asked, in a sentence when it can't. The engine
+/// would mostly take the others silently and change nothing.
+fn check_preference(state: &GameState, owner: PlayerId, act: &Act) -> Result<(), String> {
+    match act {
+        Act::SetPriorityYield { change: YieldChange::Add { source, every } } => {
+            let scope = if *every { YieldScope::AllCopies } else { YieldScope::ThisObject };
+            if state.resolve_yield_target_from_stack(ObjectId(*source), scope).is_some() {
+                Ok(())
+            } else if *every && state.resolve_yield_target_from_stack(ObjectId(*source), YieldScope::ThisObject).is_some() {
+                Err("Only this copy of that trigger can be passed for.".into())
+            } else {
+                Err("That isn't a trigger on the stack.".into())
+            }
+        }
+        Act::SetPriorityYield { change: YieldChange::Remove { target } } => {
+            if state.priority_yields.iter().any(|y| y.player == owner && y.target == *target) { Ok(()) } else { Err("That yield is already off.".into()) }
+        }
+        Act::SetMayTriggerAutoChoice { change: AnswerChange::Remove { selector } } => {
+            if selector.player() == owner && state.may_trigger_auto_choices.iter().any(|r| r.selector == *selector) {
+                Ok(())
+            } else {
+                Err("That answer is already off.".into())
+            }
+        }
+        Act::SetReplacementAutoChoice { id: Some(id) } => {
+            if state.replacement_auto_choices.iter().any(|r| r.key.player == owner && r.id.0 == *id) { Ok(()) } else { Err("That answer is already off.".into()) }
+        }
+        Act::ReorderHand { order } => {
+            let mut hand: Vec<u64> = state.players.iter().find(|p| p.id == owner).map(|p| p.hand.iter().map(|c| c.0).collect()).unwrap_or_default();
+            let mut asked = order.clone();
+            hand.sort_unstable();
+            asked.sort_unstable();
+            if hand == asked { Ok(()) } else { Err("Put every card in your hand in the order once.".into()) }
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Check `act` against `owner`'s current decision, then apply it to a copy of `state`. Only an
 /// answer the engine takes replaces `state`; any refusal leaves it exactly as it was.
+///
+/// A seat's own settings ([`Act::is_preference`]) aren't answers: they're checked against the
+/// seat's own records and applied whoever is deciding, as the engine allows.
 pub fn answer(state: &mut GameState, owner: PlayerId, act: &Act) -> Result<Answered, Refusal> {
+    if act.is_preference() {
+        check_preference(state, owner, act).map_err(Refusal::DoesntFit)?;
+        let action = act.to_action();
+        let mut next = state.clone();
+        return match engine::game::engine::apply(&mut next, owner, action.clone()) {
+            Ok(result) => {
+                *state = next;
+                Ok(Answered { actor: owner, action, result })
+            }
+            Err(e) => Err(Refusal::Engine(e.to_string())),
+        };
+    }
     if !state.waiting_for.acting_players().contains(&owner) {
         return Err(Refusal::NotYours);
     }
     let contract = AiDecisionContract::issue(state, owner);
     let candidates: Vec<GameAction> = contract.candidates.iter().map(|c| c.action.clone()).collect();
-    if matches!(act, Act::CancelCast) {
+    if matches!(act, Act::ResolveAll) {
+        // Only from the seat holding priority, with something to resolve (CR 117.3d).
+        if !matches!(state.waiting_for, WaitingFor::Priority { player } if player == owner) {
+            return Err(Refusal::DoesntFit("You can ask to resolve everything only when it's your priority.".into()));
+        }
+        if state.stack.is_empty() {
+            return Err(Refusal::DoesntFit("There's nothing on the stack to resolve.".into()));
+        }
+    } else if matches!(act, Act::CancelCast) {
         // Cancelling is allowed exactly where the engine offers it.
         if !candidates.iter().any(|a| matches!(a, GameAction::CancelCast)) {
             return Err(Refusal::DoesntFit("There's nothing to cancel now.".into()));
