@@ -15,10 +15,12 @@
 //!   offered, a decision nobody can answer, and a game that doesn't settle.
 //!
 //! The tests: smoke.rs (one per card in Bryan's decks, list in smoke_cards.rs), commanders.rs
-//! (the eight commanders) and key_cards.rs (the cards the decks are built around).
+//! (the eight commanders), key_cards.rs (the cards the decks are built around) and partial.rs
+//! (the cards phase only partly implements, and those it parses with warnings).
 
 mod commanders;
 mod key_cards;
+mod partial;
 pub(crate) mod plain;
 mod smoke;
 
@@ -365,6 +367,14 @@ impl Table {
             o.tapped = false;
             o.summoning_sick = false;
         }
+    }
+
+    /// Put `n` loyalty counters on a planeswalker (CR 306.5b: its loyalty is their number).
+    pub fn set_loyalty(&mut self, id: ObjectId, n: u32) {
+        let o = self.m.state.objects.get_mut(&id).unwrap();
+        o.counters.insert(CounterType::Loyalty, n);
+        o.loyalty = Some(n);
+        evaluate_layers(&mut self.m.state);
     }
 
     // ── deciding ─────────────────────────────────────────────────────────────────────────────

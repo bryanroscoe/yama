@@ -512,7 +512,9 @@ fn main() -> anyhow::Result<()> {
     let md_path = PathBuf::from(format!("{out}.md"));
     std::fs::write(&json_path, serde_json::to_string_pretty(&report)? + "\n")?;
     let kept = std::fs::read_to_string(&md_path).ok().and_then(|old| kept_section(&old));
-    std::fs::write(&md_path, markdown(&report, &bryan, kept.as_deref()))?;
+    let smoke_path = arg_after(&args, "--smoke").unwrap_or_else(|| "play/src/card_tests/smoke_cards.rs".into());
+    let ignored = smoke_ignores(Path::new(&smoke_path));
+    std::fs::write(&md_path, markdown(&report, &bryan, kept.as_deref(), &ignored))?;
     eprintln!("wrote {} and {}", json_path.display(), md_path.display());
 
     if let Some(path) = arg_after(&args, "--fixture") {
@@ -597,7 +599,7 @@ fn uses_text(uses: &Uses) -> String {
     uses.iter().map(|(deck, lists)| format!("{} ({})", deck_title(deck), ordered(lists).join(", "))).collect::<Vec<_>>().join("; ")
 }
 
-fn markdown(r: &Report, bryan: &Bryan, kept: Option<&str>) -> String {
+fn markdown(r: &Report, bryan: &Bryan, kept: Option<&str>, ignored: &HashMap<String, String>) -> String {
     let mut s = String::new();
     let b = &r.bryan;
     let c = &r.catalog;
@@ -620,6 +622,11 @@ fn markdown(r: &Report, bryan: &Bryan, kept: Option<&str>) -> String {
     let _ = writeln!(s, "- **partial** (partly unimplemented): some ability, trigger, static or cost is unimplemented. The engine plays the rest of the card.");
     let _ = writeln!(s, "- **missing**: the engine doesn't know the card; it's left out of the game.");
     let _ = writeln!(s, "- **phase clean**: phase's own coverage dashboard finds no gap of any kind on any face. It runs more checks than Yama's verdict (resolver features, dropped text, subtypes), so a full card can still have a dashboard gap.\n");
+    let _ = writeln!(s, "## The per-card tests\n");
+    let _ = writeln!(s, "The tests are in `play/src/card_tests/` and run with the rest of the play crate (`cargo test -p yama-play`). They play each card on the real engine through Yama's own answers (`Match::act` and the option buttons), on `play/tests/fixtures/deck-cards.json`, the slice of the card data above that holds every card in this report's first table.\n");
+    let _ = writeln!(s, "- **Smoke tests** (`smoke.rs`, one per card, listed in `smoke_cards.rs`): the card is played where it's used (a land played and tapped, anything else cast, in answer to an opponent's spell if it needs one), and every ability the engine offers for it, in hand and on the battlefield, is activated. Each step must finish with no panic, no engine refusal, no decision Yama can't answer and a game that settles; then the card must have done the plain thing in its smoke checks below.");
+    let _ = writeln!(s, "- **Specific tests** check the rules outcome the Oracle text and rulings describe: the eight commanders (`commanders.rs`), the cards the decks are built around (`key_cards.rs`), and every partly unimplemented card and those the parser warned about (`partial.rs`).");
+    let _ = writeln!(s, "- A test that shows phase is wrong is kept and marked `#[ignore = \"phase bug: ...\"]`; each is listed under Engine bugs found.\n");
     let _ = writeln!(s, "## Summary\n");
     let _ = writeln!(s, "| | Cards | Full | Uncertain | Partial | Missing | Phase clean |");
     let _ = writeln!(s, "|---|---:|---:|---:|---:|---:|---:|");
@@ -680,7 +687,11 @@ fn markdown(r: &Report, bryan: &Bryan, kept: Option<&str>) -> String {
         for name in names {
             let bc = r.bryan_cards.iter().find(|c| &c.card.name == name).unwrap();
             let lists = ordered(&bc.decks[*deck]).join(", ");
-            let checks = if bc.card.smoke_checks.is_empty() { "plays".to_string() } else { bc.card.smoke_checks.join(", ") };
+            let checks = match ignored.get(name.as_str()) {
+                Some(attr) => format!("ignored: {}", ignore_reason(attr)),
+                None if bc.card.smoke_checks.is_empty() => "plays".to_string(),
+                None => bc.card.smoke_checks.join(", "),
+            };
             let mut notes = problems(&bc.card);
             if let Some(c) = bryan.candidates.get(name) {
                 let ids: Vec<&str> = c.iter().filter(|(d, _)| d == deck).map(|(_, id)| id.as_str()).collect();
@@ -802,23 +813,33 @@ fn test_name(card: &str) -> String {
     }
 }
 
-/// Write the smoke test list: one line per card in Bryan's decks, with the commander of the first
-/// deck it's in, keeping any `#[ignore = "..."]` an earlier list had on that card.
-fn write_smoke_list(bryan: &Bryan, path: &Path) -> anyhow::Result<usize> {
+/// The `#[ignore = "..."]` attribute on each card's line of a smoke test list, by card name.
+fn smoke_ignores(path: &Path) -> HashMap<String, String> {
     let mut ignores: HashMap<String, String> = HashMap::new();
-    if let Ok(old) = std::fs::read_to_string(path) {
-        let mut pending: Option<String> = None;
-        for line in old.lines().map(str::trim) {
-            if line.starts_with("#[ignore") {
-                pending = Some(line.to_string());
-            } else if let Some(attr) = pending.take() {
-                // `name("Card", "Commander");`
-                if let Some(card) = line.split('"').nth(1) {
-                    ignores.insert(card.to_string(), attr);
-                }
+    let Ok(old) = std::fs::read_to_string(path) else { return ignores };
+    let mut pending: Option<String> = None;
+    for line in old.lines().map(str::trim) {
+        if line.starts_with("#[ignore") {
+            pending = Some(line.to_string());
+        } else if let Some(attr) = pending.take() {
+            // `name("Card", "Commander");`
+            if let Some(card) = line.split('"').nth(1) {
+                ignores.insert(card.to_string(), attr);
             }
         }
     }
+    ignores
+}
+
+/// The reason in an `#[ignore = "..."]` attribute.
+fn ignore_reason(attr: &str) -> String {
+    attr.split_once('=').map(|(_, r)| r.trim().trim_end_matches(']').trim().trim_matches('"').replace("\\\"", "\"")).unwrap_or_default()
+}
+
+/// Write the smoke test list: one line per card in Bryan's decks, with the commander of the first
+/// deck it's in, keeping any `#[ignore = "..."]` an earlier list had on that card.
+fn write_smoke_list(bryan: &Bryan, path: &Path) -> anyhow::Result<usize> {
+    let ignores = smoke_ignores(path);
     let mut used: HashMap<String, usize> = HashMap::new();
     let mut out = String::new();
     out.push_str(

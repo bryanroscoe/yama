@@ -15,6 +15,14 @@ cargo run -p yama-play --bin coverage -- data/engine/card-data-eb309108eb0df708.
 - **missing**: the engine doesn't know the card; it's left out of the game.
 - **phase clean**: phase's own coverage dashboard finds no gap of any kind on any face. It runs more checks than Yama's verdict (resolver features, dropped text, subtypes), so a full card can still have a dashboard gap.
 
+## The per-card tests
+
+The tests are in `play/src/card_tests/` and run with the rest of the play crate (`cargo test -p yama-play`). They play each card on the real engine through Yama's own answers (`Match::act` and the option buttons), on `play/tests/fixtures/deck-cards.json`, the slice of the card data above that holds every card in this report's first table.
+
+- **Smoke tests** (`smoke.rs`, one per card, listed in `smoke_cards.rs`): the card is played where it's used (a land played and tapped, anything else cast, in answer to an opponent's spell if it needs one), and every ability the engine offers for it, in hand and on the battlefield, is activated. Each step must finish with no panic, no engine refusal, no decision Yama can't answer and a game that settles; then the card must have done the plain thing in its smoke checks below.
+- **Specific tests** check the rules outcome the Oracle text and rulings describe: the eight commanders (`commanders.rs`), the cards the decks are built around (`key_cards.rs`), and every partly unimplemented card and those the parser warned about (`partial.rs`).
+- A test that shows phase is wrong is kept and marked `#[ignore = "phase bug: ..."]`; each is listed under Engine bugs found.
+
 ## Summary
 
 | | Cards | Full | Uncertain | Partial | Missing | Phase clean |
@@ -56,7 +64,46 @@ By deck and list (distinct cards, basic lands counted once):
 
 ## Engine bugs found
 
-None recorded yet.
+Found by the per-card tests on 2026-10-24, against phase at 678e4be (patches 0001 to 0008) and card data eb309108. Each has a test kept in `play/src/card_tests/` with `#[ignore = "phase bug: ..."]`; run them with `cargo test -p yama-play card_tests -- --ignored` (each fails until phase is fixed). Ranked by how often it would matter in Bryan's games: his commanders first, then cards in the lists he plays now and the after-prints plans, by how often the broken part comes up; stock-only cards (already cut) and unapproved candidates last. Eight of these cards are "full" in the coverage report above and six more only "uncertain": passing phase's checks isn't proof a card works.
+
+Where a bug is in the parse (the card data), the location is phase's Oracle parser (`crates/engine/src/parser/`) and the gap handler the coverage report names; where it's in the rules code, the file is given.
+
+### Every game, or most turns
+
+1. **Jace, Multiverse Architect** (Multiverse Reforged's commander). Rules: at the beginning of combat on each opponent's turn, they may pay {2}; if they don't, their creatures can't attack Jaces you control this turn. phase: the "can't attack Jaces" half is unimplemented (parser, `Effect:unrecognized_clause_head`), so an opponent who doesn't pay attacks Jace anyway. Test `commanders::jace_keeps_attackers_off_unless_they_pay`.
+2. **Adeline, Resplendent Cathar** (Riders of Rohan, after-prints). Rules: whenever you attack, for each opponent create a 1/1 Human that's tapped and attacking that player (ruling: one for each opponent, attacking that opponent). phase: makes one token per opponent, but all attack the same player; the parse keeps only the count and `enters_attacking`, and `crates/engine/src/game/effects/token.rs:1080` (`combat::enter_attacking`) picks one defender for each. Test `key_cards::adeline_makes_an_attacking_human_for_each_opponent`.
+3. **Resonating Lute** (Prismari Artistry, now and after-prints). Rules: lands you control have "{T}: Add two mana of any one color", spent only on instants and sorceries. phase: tapping a land for it works, but a spell that needs it (Divination with two Islands) is never offered, because the castability check plans one mana per land (`crates/engine/src/game/casting.rs:21329`, `can_pay_cost_after_auto_tap`). In Yama a person only taps mana while paying, so the spell can't be cast at all. Test `key_cards::resonating_lute_doubles_land_mana_for_spells`.
+4. **Study Hall** (Lorehold Spirit and Prismari Artistry, now). Rules: {1}, {T}: add one mana of any color. phase: a spell that also needs generic mana and whose colour only Study Hall makes (Augusta, {2}{W}, with a Mountain and three Wastes) isn't offered; the same castability check as the Lute. A {W} spell alone works. Its "scry X when you spend this mana on your commander" is unimplemented too (`Effect:unparsed_quantity`). Tests `partial::study_hall_pays_for_a_colour_with_generic_mana_too` and `partial::study_hall_scries_when_its_mana_casts_the_commander`.
+5. **Furygale Flocking** (Prismari Artistry, every list). Rules: for each opponent, two 3/3 Elementals with flying that attack that opponent this turn if able, and gain haste. phase: the tokens have no flying, and only some get haste (the parse swallowed the clause, `Swallow:Condition_If`). Test `partial::furygale_flocking_makes_two_flyers_per_opponent`.
+6. **Planar Nexus** (Tricky Terrain, every list). Rules: it's every nonbasic land type (Gate, Desert, Cave, Locus and the rest). phase: it has no land types (`Effect:effect_structure`), so it does nothing for the deck's type payoffs. Test `partial::planar_nexus_is_every_nonbasic_land_type`.
+7. **Hashep Oasis** (Tricky Terrain, every list). Rules: {1}{G}{G}, {T}, sacrifice a Desert: target creature gets +3/+3; ruling: the Desert may be the Oasis itself. phase: offers the Oasis as the Desert, then refuses it: it sacrifices first and then can't pay {T} ("source is not on the battlefield", `crates/engine/src/game/costs.rs:774`). Smoke test `hashep_oasis`.
+8. **Lazotep Quarry** (Tricky Terrain, every list). Rules: {X}{2}, {T}, sacrifice a Desert: exile a creature card with mana value X from your graveyard and make a 4/4 black Zombie copy. phase: offers the ability, then refuses it (an {X} cost with a sacrifice of another permanent isn't handled: `crates/engine/src/game/casting_costs.rs:6819`; a `debug_assert` panics in debug builds, release refuses). Smoke test `lazotep_quarry`.
+9. **Spark Double** (Multiverse Reforged, proposed Bracket 3). Rules (ruling): copying a planeswalker, it enters with the printed loyalty plus one, and isn't legendary. phase: the copy of Jace enters with 1 loyalty counter, not 5; the intrinsic loyalty counters are worked out from the spell before it becomes a copy (`crates/engine/src/game/stack.rs:2867`). Test `key_cards::spark_double_copies_jace_with_one_more_loyalty_and_no_legend_rule`.
+10. **Windgrace's Judgment** (World Shaper, every list). Rules: for any number of opponents, destroy target nonland permanent that player controls. phase: it can't be cast at all (`Effect:unrecognized_clause_head`). Test `partial::windgraces_judgment_destroys_one_per_opponent`.
+11. **Sage of the Maze** and **Sunken Palace** (Tricky Terrain, every list). Sage's {T}: a land becomes an X/X Citizen with haste is unimplemented (`Effect:unparsed_verb_arguments`); Sunken Palace's mana doesn't copy the spell it pays for (`Effect:unrecognized_clause_head`). Tests `partial::sage_of_the_maze_animates_a_land`, `partial::sunken_palace_copies_the_spell_its_mana_casts`.
+
+### When the card is played
+
+12. **Summon: Esper Valigarmanda** (Revival Trance, every list): chapter I exiles the card, but chapters II to IV never let you cast it (`Effect:linked_exile_resolution_cast`). Test `partial::summon_esper_valigarmanda_casts_what_it_exiled`.
+13. **Edgar, Master Machinist** (Revival Trance, every list): casting an artifact from the graveyard once each turn isn't offered (`Effect:static_structure`). Test `partial::edgar_casts_an_artifact_from_the_graveyard`.
+14. **Augusta, Order Returned** and **Serra Paragon** (Lorehold Spirit, every list): Augusta's attack trigger exiles the cards but puts no counters (`Effect:zone_change_reflexive_event_source`); Serra Paragon offers nothing from the graveyard (`Effect:static_structure`). Tests `partial::augusta_grows_an_attacker_for_each_nonland_card_exiled`, `partial::serra_paragon_plays_a_land_from_the_graveyard`.
+15. **Hex Magic** (Fantastic Four, after-prints): exiles nothing and draws nothing; "exile all the cards from your hand" parses as a move with no cards. Test `key_cards::hex_magic_swaps_your_hand_and_lets_you_play_the_old_one`.
+16. **Negative Zone Portal** (Fantastic Four, every list): the upkeep coin flip with four creature cards exiled never happens (`Effect:unparsed_condition`), so its drawback never applies. Test `partial::negative_zone_portal_flips_a_coin_with_four_creatures_exiled`.
+17. **Teferi's Reproach**, **Jhoira, Weatherlight Corsair**, **Darksteel Angel** and **The Ur-Sphinx** (Multiverse Reforged precon and after-local-buys). Teferi's Reproach phases nothing out; Jhoira takes the historic permanent but you lose no life; Darksteel Angel doesn't stop -1/-1 counters on your creatures; The Ur-Sphinx mills but never lets you cast the milled cards. Tests in `partial.rs`.
+18. **Archfiend of Depravity** and **Sepulchral Primordial** (Multiverse Reforged proposed Bracket 3; Revival Trance stock, and Primordial in its now list). Archfiend's end step trigger asks its controller to target a creature and sacrifices nothing; Sepulchral Primordial gets one target in all instead of one in each opponent's graveyard. Tests in `key_cards.rs`.
+19. **Crown of Gondor** (Riders of Rohan, now): equip doesn't cost {3} less for the monarch (`Swallow:Condition_If`). Test `partial::crown_of_gondor_equips_for_one_as_the_monarch`.
+20. Cards in the now lists that the plans cut: **Abstract Performance** (an opponent picks one card, not a pile; the other seven stay in exile), **Fateful Tempest** (no council's dilemma), **Ao, the Dawn Sky** (no death modes), **Call for Aid** (haste goes to the player, not the creatures, so they can't attack; and "you can't attack that player" is missing), **Champions of Minas Tirith** and **Fealty to the Realm** (their monarch effects), **Rejoin the Fight** (the second opponent may pick the card the first chose), **Eumidian Wastewaker** (no discard or sacrifice), **Nissa, Steward of Elements** (her [0] puts nothing onto the battlefield, not even a land). Tests in `partial.rs`.
+
+### Stock-only and candidate cards
+
+21. **Creative Technique** (Prismari stock): "reveal until a nonland card" is unimplemented; it exiles and recasts itself, as long as you keep saying yes. **Dance with Calamity** exiles one card at most and offers no free cast. **Venerable Warsinger**'s X is unbound, so nothing can be returned. **Dearly Departed**, **Loamcrafter Faun**, **Wonderscape Sage** (never discards), **Mirrorwing Dragon** (no copies), **Selfless Squire** (no counters): their marked parts do nothing. **Dack Fayden, Helping Hand**, **Ginger, Queen of Sweets** and **Niv-Mizzet, Ghost Counsel** (Multiverse Reforged precon) likewise. **Jace's Machinations** (candidate) makes no Jace token and gives no instant-speed loyalty abilities. Tests in `partial.rs`.
+
+### Other findings
+
+- phase offers some actions it then refuses: Hashep Oasis above, and Ultimate Nullification (Fantastic Four stock), whose cast is offered with no legendary creature to sacrifice and then refused, "Cannot pay required additional cost" (`crates/engine/src/game/casting_costs.rs:1513`).
+- Paying automatically can spend a colour you need next on generic mana: casting Éowyn ({2}{U}{R}{W}) from ten basic lands tapped all three Plains, leaving no white for Akroma's Will. Not a rules error; "Tap mana for me" off avoids it.
+- Yama, not phase: the free-cast window of Improvisation Capstone and Abstract Performance ("cast spells from among them") has no Pending, and its option buttons read "Free Cast Window Choice (Selection: 59)" with an object id instead of the card's name.
+- Yama, not phase: when a land's "enters tapped" and Spelunking's "enters untapped" compete, the option buttons read "Enters untapped" and "Enters tapped", but each picks which effect applies first, so "Enters untapped" leaves the land tapped (phase warns about this, `crates/engine/src/game/replacement.rs:1537`). Yama's Pending asks the right question ("Choose which effect applies first"), so it only misleads where the buttons are shown.
 
 ## Bryan's cards that aren't fully supported
 
@@ -970,7 +1017,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Growth Spiral | stock, now, after-prints | full | yes | resolves, draws 1 |  |
 | Hakbal of the Surging Soul | after-prints | full | yes | enters, printed 3/3 |  |
 | Harmonize | stock, now | full | yes | resolves, draws 3 |  |
-| Hashep Oasis | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
+| Hashep Oasis | stock, now, after-prints | full | yes | ignored: phase bug: paying "Sacrifice a Desert" with Hashep Oasis itself is refused (it sacrifices first, then can't tap) |  |
 | Herald of Hoofbeats | after-prints | full | yes | enters, printed 3/3 |  |
 | Heroic Intervention | after-prints | full | yes | resolves |  |
 | Hidden Cataract | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
@@ -983,7 +1030,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Island | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
 | Jyoti, Moag Ancient | stock, now, after-prints | full | yes | enters, printed 2/4 |  |
 | Lair of the Hydra | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
-| Lazotep Quarry | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
+| Lazotep Quarry | stock, now, after-prints | full | yes | ignored: phase bug: an {X} ability with "Sacrifice a Desert" can't be activated (casting_costs.rs: non-self sacrifice cost unhandled) |  |
 | Lightning Greaves | after-prints | full | yes | enters |  |
 | Lord of the Unreal | after-prints | full | yes | enters, printed 2/2 |  |
 | Lumbering Falls | stock, now, after-prints | full | yes | plays as a land, adds mana |  |

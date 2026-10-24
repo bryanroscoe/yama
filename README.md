@@ -93,6 +93,8 @@ npm test              # packages/core
 npm run typecheck     # core + web
 ```
 
+`cargo test` includes the per-card tests (play/src/card_tests/): a smoke test for every card in Bryan's decks and specific tests for the commanders, the cards the decks are built around and the cards phase only partly implements or parses with warnings. What phase supports for each card, and the engine bugs the tests found, are in [docs/card-coverage.md](docs/card-coverage.md); regenerate it, and the tests' card fixture, with `cargo run -p yama-play --bin coverage -- data/engine/card-data-eb309108eb0df708.json ../commander-decks --fixture play/tests/fixtures/deck-cards.json --smoke play/src/card_tests/smoke_cards.rs`.
+
 ## Layout
 
 ```
