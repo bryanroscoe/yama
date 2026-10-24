@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proliferate on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: var(--ground); overflow: hidden">
+  <div role="status" style="margin: 8px 8px 0; padding: 8px 12px; border-radius: 14px; background: var(--text); color: var(--ground); display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 15px">
+    <img src="/_blob/9013dd26dcdddca54f0ca5d82fea208f" alt="" style="width: 26px; height: 26px; border-radius: 50%; object-fit: cover"><span style="flex: 1">Proliferate</span><span style="padding: 1px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 12px">{{n}} chosen</span>
+  </div>
+  <p style="margin: 6px 12px 0; font-size: 12px; color: var(--dim); line-height: 1.35">Tezzeret’s Gambit: Draw two cards, then proliferate. (Choose any number of permanents and/or players, then give each another counter of each kind already there.)</p>
+
+  <section aria-label="Opponents" style="margin: 8px 8px 0; display: flex; flex-direction: column; gap: 6px">
+    <sc-for list="{{opps}}" as="o" hint-placeholder-count="3">
+      <div style="position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 56px; padding: 6px 6px 6px 12px; border-radius: 14px; overflow: hidden; background: var(--surface)">
+        <img src="{{o.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.9), rgb(11 12 14 / 0.6))"></span>
+        <span style="position: relative; display: flex; flex-direction: column; line-height: 1.2"><b style="display: flex; align-items: center; gap: 6px; font-size: 14px"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: {{o.seat}}"></span>{{o.name}}, {{o.life}}</b><span style="font-size: 11px; color: #d5d7db">{{o.note}}</span></span>
+        <sc-if value="{{o.hasTile}}" hint-placeholder-val="{{false}}">
+          <button onClick="{{o.click}}" aria-pressed="{{o.on}}" aria-label="{{o.tileLabel}}" style="position: relative; width: 64px; height: 64px; padding: 0; border: none; border-radius: 10px; box-shadow: {{o.ring}}; background: var(--raised)">
+            <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden"><img src="{{o.tileArt}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></span>
+            <span style="position: absolute; left: 3px; bottom: 3px; padding: 0 5px; border-radius: 4px 4px 8px 8px; background: var(--text); color: var(--ground); font-size: 11px; font-weight: 800">{{o.loyalty}}</span>
+            <sc-if value="{{o.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -7px; top: -7px; width: 22px; height: 22px; border-radius: 50%; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 11px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{o.k}}</span></sc-if>
+          </button>
+        </sc-if>
+      </div>
+    </sc-for>
+  </section>
+
+  <section aria-label="Your creatures" style="flex: 1; min-height: 0; margin: 8px 8px 0; padding: 10px; border-radius: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
+    <span style="font-size: 13px; color: var(--dim)">Tap anything with an amber ring. Each one you choose gets one more of each counter it has.</span>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 10px; padding-top: 6px">
+      <sc-for list="{{mine}}" as="c" hint-placeholder-count="5">
+        <button onClick="{{c.click}}" aria-pressed="{{c.on}}" aria-label="{{c.label}}" style="position: relative; height: 104px; padding: 0; border: none; border-radius: 14px; background: var(--raised); box-shadow: {{c.ring}}">
+          <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+            <img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover">
+            <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{c.name}}</span>
+            <sc-if value="{{c.hasCounters}}" hint-placeholder-val="{{true}}"><span style="position: absolute; left: 4px; bottom: 4px; padding: 0 6px; border-radius: 999px; background: var(--ground); box-shadow: 0 0 0 1px var(--text); font-size: 11px; font-weight: 800">{{c.counters}}</span></sc-if>
+          </span>
+          <sc-if value="{{c.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -7px; top: -9px; width: 24px; height: 24px; border-radius: 50%; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{c.k}}</span></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <span style="margin-top: auto; font-size: 10px; color: var(--dim)">Art: Bryan Sola, Craig Elliott, Yongjae Choi, Dan Murayama Scott, Anna Podedworna, Darren Tan, Marta Nael, Gintas Galvanauskas. © Wizards of the Coast</span>
+  </section>
+
+  <div style="margin-top: 8px; background: var(--surface); border-radius: 22px 22px 0 0; padding: 12px 10px 14px; display: flex; flex-direction: column; gap: 8px">
+    <span style="padding: 0 4px; font-size: 12px; color: var(--dim)">{{summary}}</span>
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px">
+      <button onClick="{{clear}}" style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Clear</button>
+      <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">{{primary}}</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { picks: ['eowyn'] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const decision = {
+      kind: 'pick', engine: 'ProliferateChoice', min: 0, upTo: true, defaultAnswer: [],
+      options: [
+        { id: 'eowyn', name: 'Éowyn', art: 'c19490e7c081fb35071c85147c01bed4', counters: '+1/+1 ×2', next: '×3' },
+        { id: 'adeline', name: 'Adeline', art: '93443cca264c2d66fac605d8e8311296', counters: '+1/+1 ×3', next: '×4' },
+        { id: 'aragorn', name: 'Aragorn', art: 'c2a67f4f687b666fcd3c4d8cb3b0bf63', counters: '+1/+1 ×1', next: '×2' },
+        { id: 'initiate', name: 'Hopeful Initiate', art: '5c65d32b4e5118d9e5e03850697825dc', counters: '+1/+1 ×1', next: '×2' },
+        { id: 'faramir', name: 'Faramir', art: '62e4a477ddbf5628d609a86bc8d12c3a', counters: '', eligible: false },
+        { id: 'quint', name: 'Quintorius', art: '042e4cb280a5a896fb249a47c8f4a8a3', counters: 'Loyalty 5', next: '6', controller: 'Computer' }
+      ]
+    };
+    const picks = this.state.picks;
+    const toggle = (id) => () => this.setState((s) => ({ picks: s.picks.includes(id) ? s.picks.filter((x) => x !== id) : s.picks.concat(id) }));
+    const ring = (on) => on ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a';
+    const qk = picks.indexOf('quint');
+    const byId = Object.fromEntries(decision.options.map((o) => [o.id, o]));
+    const n = picks.length;
+    return {
+      n,
+      opps: [
+        { name: 'Computer', seat: '#b55af6', life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), note: 'Quintorius has loyalty counters', hasTile: true, tileArt: A('042e4cb280a5a896fb249a47c8f4a8a3'), loyalty: qk >= 0 ? '5 → 6' : '5', on: qk >= 0, k: qk + 1, ring: ring(qk >= 0), click: toggle('quint'), tileLabel: 'Computer’s Quintorius, loyalty 5' },
+        { name: 'Sam', seat: '#e8bae4', life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), note: 'Nothing with counters', hasTile: false, tileArt: '', loyalty: '', on: false, k: 0, ring: 'none', click: null, tileLabel: '' },
+        { name: 'Jules', seat: '#757a8a', life: 36, art: A('383d04a073378ede76b3234038a68757'), note: 'Nothing with counters', hasTile: false, tileArt: '', loyalty: '', on: false, k: 0, ring: 'none', click: null, tileLabel: '' }
+      ],
+      mine: decision.options.filter((o) => !o.controller).map((o) => {
+        const k = picks.indexOf(o.id); const ok = o.eligible !== false;
+        return { name: o.name, art: A(o.art), hasCounters: !!o.counters, counters: k >= 0 ? o.counters.replace(/×\d+/, (m) => m + ' → ' + o.next) : o.counters, on: k >= 0, k: k + 1,
+          ring: ok ? ring(k >= 0) : '0 0 0 1px #2a2e33', label: o.name + (ok ? (k >= 0 ? ', chosen' : ', can be chosen') : ', no counters'), click: ok ? toggle(o.id) : null };
+      }),
+      summary: n ? picks.map((id) => byId[id].name + ' ' + byId[id].next.replace(/^×/, '×')).join(', ') + '. Players with counters: none.' : 'Nothing chosen. You may proliferate nothing.',
+      primary: n ? 'Proliferate (' + n + ')' : 'Proliferate nothing',
+      clear: () => this.setState({ picks: [] })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Looking at the library on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+.seg{display:flex;padding:3px;gap:2px;border-radius:999px;background:var(--ground)}
+.seg button{min-height:38px;padding:0 10px;border:none;border-radius:999px;font-size:12px;font-weight:700}
+.arrow{width:44px;height:38px;border-radius:10px;border:1px solid var(--line);background:transparent}
+.row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 8px;border-radius:14px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.65)"></div>
+
+  <section role="dialog" aria-label="{{prompt}}" style="position: absolute; left: 0; right: 0; bottom: 0; top: 14px; padding: 8px 12px 14px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 8px">
+    <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 999px; background: var(--line)"></span>
+    <div role="tablist" aria-label="Example" style="display: flex; flex-wrap: wrap; gap: 4px">
+      <sc-for list="{{examples}}" as="e" hint-placeholder-count="5"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 36px; padding: 0 10px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; box-shadow: inset 0 0 0 1px var(--line); font-size: 12px; font-weight: 700">{{e.label}}</button></sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 10px; align-items: center">
+      <img src="{{srcArt}}" alt="" style="width: 52px; height: 40px; border-radius: 8px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; line-height: 1.15"><b style="font-size: 17px">{{prompt}}</b><span style="font-size: 11px; color: var(--dim)">{{srcLine}}</span></span>
+      <span style="padding: 2px 8px; border-radius: 999px; background: var(--raised); font-size: 11px; font-weight: 700; white-space: nowrap">{{counter}}</span>
+    </div>
+    <span style="font-size: 12px; color: var(--dim); line-height: 1.35">{{oracle}}</span>
+
+    <sc-if value="{{isSurveil}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <sc-for list="{{svRows}}" as="r" hint-placeholder-count="2">
+          <div class="row" style="background: {{r.bg}}">
+            <img src="{{r.img}}" alt="{{r.name}}" style="width: 52px; border-radius: 3px">
+            <span style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><b style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</b>
+              <span class="seg" style="width: fit-content"><button onClick="{{r.toTop}}" style="background: {{r.topBg}}; color: {{r.topInk}}">Top</button><button onClick="{{r.toGy}}" style="background: {{r.gyBg}}; color: {{r.gyInk}}">Graveyard</button></span></span>
+            <span style="display: flex; flex-direction: column; gap: 4px; visibility: {{r.arrows}}"><button class="arrow" onClick="{{r.up}}" aria-label="Draw sooner" style="color: {{r.upInk}}">↑</button><button class="arrow" onClick="{{r.down}}" aria-label="Draw later" style="color: {{r.downInk}}">↓</button></span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isDig}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <sc-for list="{{digRows}}" as="r" hint-placeholder-count="4">
+          <div class="row" style="background: {{r.bg}}">
+            <img src="{{r.img}}" alt="{{r.name}}" style="width: 52px; border-radius: 3px">
+            <span style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><b style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</b>
+              <button role="radio" aria-checked="{{r.on}}" onClick="{{r.pick}}" style="width: fit-content; min-height: 36px; padding: 0 12px; border-radius: 999px; border: none; background: {{r.handBg}}; color: {{r.handInk}}; box-shadow: {{r.handRing}}; font-size: 12px; font-weight: 700">{{r.status}}</button></span>
+            <span style="display: flex; flex-direction: column; gap: 4px; visibility: {{r.arrows}}"><button class="arrow" onClick="{{r.up}}" aria-label="Higher" style="color: {{r.upInk}}">↑</button><button class="arrow" onClick="{{r.down}}" aria-label="Lower" style="color: {{r.downInk}}">↓</button></span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isReveal}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <sc-for list="{{revRows}}" as="r" hint-placeholder-count="4">
+          <div class="row" style="background: {{r.bg}}; grid-template-columns: 40px minmax(0, 1fr) auto">
+            <img src="{{r.img}}" alt="{{r.name}}" style="width: 40px; border-radius: 3px; box-shadow: {{r.ring}}">
+            <span style="display: flex; flex-direction: column; line-height: 1.2; min-width: 0"><b style="font-size: 13px">{{r.nth}}: {{r.name}}</b><span style="font-size: 12px; color: var(--dim)">{{r.tag}}</span></span>
+            <span></span>
+          </div>
+        </sc-for>
+        <span style="font-size: 12px; color: var(--dim)">Jace says “in a random order”, so there’s nothing to choose. A card that says “any order” gets ↑↓ on these rows.</span>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isTob}}" hint-placeholder-val="{{false}}">
+      <div style="display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; align-items: start">
+        <img src="/_blob/dc22f2e32cfd4e29fe4da92f2ad86ec6" alt="Ashen Rider, from Sam’s graveyard" style="width: 110px; border-radius: 6px; box-shadow: 0 0 0 2px #f2efe8">
+        <div role="radiogroup" aria-label="Where it goes" style="display: flex; flex-direction: column; gap: 8px">
+          <sc-for list="{{tobOptions}}" as="o" hint-placeholder-count="2"><button role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" style="min-height: 64px; padding: 8px 12px; border-radius: 14px; border: none; background: {{o.bg}}; box-shadow: {{o.ring}}; text-align: left; display: flex; flex-direction: column; line-height: 1.25"><b style="font-size: 15px">{{o.title}}</b><span style="font-size: 12px; color: var(--dim)">{{o.note}}</span></button></sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isPart}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <sc-for list="{{partRows}}" as="r" hint-placeholder-count="2">
+          <div class="row" style="background: #1e2125">
+            <img src="{{r.img}}" alt="{{r.name}}" style="width: 52px; border-radius: 3px">
+            <span style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><b style="font-size: 13px">{{r.name}}</b>
+              <span class="seg" style="width: fit-content"><button onClick="{{r.toBf}}" style="background: {{r.bfBg}}; color: {{r.bfInk}}">Battlefield, tapped</button><button onClick="{{r.toHand}}" style="background: {{r.hBg}}; color: {{r.hInk}}">Hand</button></span></span>
+            <span></span>
+          </div>
+        </sc-for>
+        <span style="font-size: 12px; color: var(--dim)">Choosing one place for a land sends the other land to the other place.</span>
+      </div>
+    </sc-if>
+
+    <span style="margin-top: auto; font-size: 10px; color: var(--dim)">{{credit}} Card images from Scryfall, © Wizards of the Coast.</span>
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px">
+      <button style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; visibility: {{secondaryVis}}">{{secondary}}</button>
+      <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 16px">{{primary}}</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, svTop: ['sentinel', 'hanged'], svGy: [], digHand: null, digRest: ['sentinel', 'pyro', 'siege', 'maneuver'], tob: null, part: ['forest', 'mountain'] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const C = {
+      sentinel: ['Esper Sentinel', 'f91dfa789f2b0816a79359bb277f07b0'], hanged: ['Hanged Executioner', '830427c591de2ca48ded1aac2897dbd6'],
+      pyro: ['Young Pyromancer', '83f67844fe118ec8f0a94e7066cd52e3'], siege: ['Siege-Gang Commander', 'f6234aee99baeab4b683118ed4b91157'], maneuver: ['Flawless Maneuver', '2b7584e35f9b697ba24e7b43dae7b869'],
+      sunfall: ['Sunfall', '4f17f1f93dbb25c0d47e2fcb9b2c0ae6'], fortress: ['Glacial Fortress', 'e25b0374571373f1ab95c0e88cd1758e'], rift: ['Cyclonic Rift', '4e274a0a80fefd3f3346bd10c98c1349'], mentor: ['Monastery Mentor', 'c8765d27dab83eefd46f6647d19b1791'],
+      forest: ['Forest', 'e7d636d9e1c40cc6340416fd9197c568'], mountain: ['Mountain', '58f2586f1f674762deaebec2ec8a6f01']
+    };
+    const card = (id) => ({ id, name: C[id][0], img: A(C[id][1]) });
+    const decisions = [
+      { label: 'Surveil', kind: 'piles', source: { name: 'Curate', art: A('db4836395ffc8d069ad68418d585591e'), artist: 'Ryan Valle' }, prompt: 'Surveil 2', oracle: 'Surveil 2. (Look at the top two cards of your library, then put any number of them into your graveyard and the rest on top of your library in any order.) Draw a card.', options: ['sentinel', 'hanged'] },
+      { label: 'Take one', kind: 'dig', source: { name: 'Impulse', art: A('4fd285bb3e4182792553fc9eb866fcdd'), artist: 'Sam Guay' }, prompt: 'Put one into your hand', oracle: 'Look at the top four cards of your library. Put one of them into your hand and the rest on the bottom of your library in any order.', options: ['sentinel', 'pyro', 'siege', 'maneuver'], min: 1, max: 1 },
+      { label: 'Reveal until', kind: 'reveal', source: { name: 'Jace, Multiverse Architect', art: A('d9cb8751f865e022f14e97f4650e7ffb'), artist: 'Volkan Baǵa' }, prompt: 'Revealed until a creature', oracle: '−3: Exile another target planeswalker or creature you control. Reveal cards from the top of your library until you reveal a creature or planeswalker card. Put that card onto the battlefield and the rest on the bottom of your library in a random order.', options: ['sunfall', 'fortress', 'rift', 'mentor'], kept: 'mentor' },
+      { label: 'Top or bottom', kind: 'topOrBottom', source: { name: 'Not Forgotten', art: A('a50b5832eff5d345cd80b020e7b492b0'), artist: 'Darek Zabrocki' }, prompt: 'Top or bottom?', oracle: 'Put target card from a graveyard on your choice of the top or bottom of its owner’s library. Create a 1/1 white Spirit creature token with flying.', options: ['top', 'bottom'] },
+      { label: 'Cultivate', kind: 'partition', source: { name: 'Cultivate', art: A('6f792d5bb4cced07b3075e7fed5ecf7a'), artist: 'Darius Zablockis' }, prompt: 'Which goes onto the battlefield?', oracle: 'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.', options: ['forest', 'mountain'] }
+    ];
+    const st = this.state;
+    const d = decisions[st.ex];
+    const ink = (on) => ({ bg: on ? '#f2efe8' : 'transparent', ink: on ? '#0b0c0e' : '#a9adb3' });
+    const vals = {
+      examples: decisions.map((x, i) => ({ label: x.label, on: st.ex === i, ...ink(st.ex === i), pick: () => this.setState({ ex: i }) })),
+      srcArt: d.source.art, srcLine: 'Your ' + d.source.name, prompt: d.prompt, oracle: d.oracle,
+      credit: 'Art: ' + d.source.artist + '.',
+      isSurveil: d.kind === 'piles', isDig: d.kind === 'dig', isReveal: d.kind === 'reveal', isTob: d.kind === 'topOrBottom', isPart: d.kind === 'partition',
+      svRows: [], digRows: [], revRows: [], tobOptions: [], partRows: [], counter: '', primary: 'Done', secondary: '', secondaryVis: 'hidden'
+    };
+    if (d.kind === 'piles') {
+      const top = st.svTop;
+      vals.svRows = top.map((id, i) => ({ ...card(id), bg: '#1e2125', topBg: '#f2efe8', topInk: '#0b0c0e', gyBg: 'transparent', gyInk: '#a9adb3', arrows: top.length > 1 ? 'visible' : 'hidden',
+        upInk: i === 0 ? '#2a2e33' : '#f2efe8', downInk: i === top.length - 1 ? '#2a2e33' : '#f2efe8',
+        toTop: null, toGy: () => this.setState((s) => ({ svTop: s.svTop.filter((x) => x !== id), svGy: s.svGy.concat(id) })),
+        up: () => this.setState((s) => { const t = s.svTop.slice(); if (i === 0) return null; [t[i - 1], t[i]] = [t[i], t[i - 1]]; return { svTop: t }; }),
+        down: () => this.setState((s) => { const t = s.svTop.slice(); if (i >= t.length - 1) return null; [t[i + 1], t[i]] = [t[i], t[i + 1]]; return { svTop: t }; }) }))
+        .concat(st.svGy.map((id) => ({ ...card(id), bg: 'transparent', topBg: 'transparent', topInk: '#a9adb3', gyBg: '#f2efe8', gyInk: '#0b0c0e', arrows: 'hidden', upInk: '#2a2e33', downInk: '#2a2e33',
+          toTop: () => this.setState((s) => ({ svGy: s.svGy.filter((x) => x !== id), svTop: s.svTop.concat(id) })), toGy: null, up: null, down: null })));
+      vals.counter = st.svGy.length + ' to graveyard';
+    }
+    if (d.kind === 'dig') {
+      const rest = st.digRest.filter((x) => x !== st.digHand);
+      const ordered = (st.digHand ? [st.digHand] : []).concat(rest);
+      vals.digRows = ordered.map((id) => {
+        const on = st.digHand === id; const k = rest.indexOf(id);
+        return { ...card(id), on, bg: on ? '#1e2125' : 'transparent',
+          status: on ? 'To hand' : st.digHand ? (k === rest.length - 1 ? 'Bottom: very bottom' : k === 0 ? 'Bottom: highest' : 'Bottom: then') : 'Take this one',
+          handBg: on ? '#f2efe8' : 'transparent', handInk: on ? '#0b0c0e' : '#f2efe8', handRing: on ? 'none' : 'inset 0 0 0 2px #f0b45a',
+          arrows: !on && st.digHand ? 'visible' : 'hidden', upInk: k > 0 ? '#f2efe8' : '#2a2e33', downInk: k >= 0 && k < rest.length - 1 ? '#f2efe8' : '#2a2e33',
+          pick: () => this.setState((s) => ({ digHand: s.digHand === id ? null : id })),
+          up: () => this.setState((s) => { const r = s.digRest.filter((x) => x !== s.digHand); if (k <= 0) return null; [r[k - 1], r[k]] = [r[k], r[k - 1]]; return { digRest: r.concat(s.digHand ? [s.digHand] : []) }; }),
+          down: () => this.setState((s) => { const r = s.digRest.filter((x) => x !== s.digHand); if (k < 0 || k >= r.length - 1) return null; [r[k + 1], r[k]] = [r[k], r[k + 1]]; return { digRest: r.concat(s.digHand ? [s.digHand] : []) }; }) };
+      });
+      vals.counter = (st.digHand ? 1 : 0) + ' of 1';
+      vals.primary = st.digHand ? 'Take ' + C[st.digHand][0] : 'Choose one';
+    }
+    if (d.kind === 'reveal') {
+      vals.revRows = d.options.map((id, i) => { const kept = id === d.kept; return { ...card(id), nth: ['1st', '2nd', '3rd', '4th'][i], tag: kept ? 'Onto the battlefield' : 'To the bottom, at random', bg: kept ? '#1e2125' : 'transparent', ring: kept ? '0 0 0 2px #f2efe8' : 'none' }; });
+      vals.counter = '1 kept';
+      vals.primary = 'Done looking';
+    }
+    if (d.kind === 'topOrBottom') {
+      vals.tobOptions = [['top', 'Top of Sam’s library', 'Sam draws it next.'], ['bottom', 'Bottom of Sam’s library', 'Under the other 73 cards.']].map(([k, title, note]) => ({ title, note, on: st.tob === k, bg: st.tob === k ? '#1e2125' : 'transparent', ring: st.tob === k ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', pick: () => this.setState({ tob: k }) }));
+      vals.counter = (st.tob ? 1 : 0) + ' of 1';
+      vals.primary = st.tob ? 'Put it on the ' + st.tob : 'Choose one';
+      vals.credit = 'Art: Darek Zabrocki. Ashen Rider art: Chris Rahn.';
+    }
+    if (d.kind === 'partition') {
+      const [bf, hand] = st.part;
+      const set = (id, where) => () => this.setState((s) => { const other = s.part.find((x) => x !== id); return { part: where === 'bf' ? [id, other] : [other, id] }; });
+      vals.partRows = [bf, hand].map((id) => { const onBf = id === bf; return { ...card(id), bfBg: onBf ? '#f2efe8' : 'transparent', bfInk: onBf ? '#0b0c0e' : '#a9adb3', hBg: onBf ? 'transparent' : '#f2efe8', hInk: onBf ? '#a9adb3' : '#0b0c0e', toBf: set(id, 'bf'), toHand: set(id, 'hand') }; });
+      vals.counter = 'Both placed';
+      vals.secondary = 'Swap'; vals.secondaryVis = 'visible';
+    }
+    return vals;
+  }
+}
+</script>
+</body>
+</html>

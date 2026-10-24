@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>More ways to pay, phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.6)"></div>
+
+  <section role="dialog" aria-label="{{title}}" style="position: absolute; left: 0; right: 0; bottom: 0; top: 300px; padding: 8px 12px 14px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 12px">
+    <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 999px; background: var(--line)"></span>
+    <div role="tablist" aria-label="Example" style="display: grid; grid-template-columns: 1fr 1fr; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
+      <sc-for list="{{examples}}" as="e" hint-placeholder-count="2"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 36px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 13px; font-weight: 700">{{e.label}}</button></sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: center">
+      <img src="{{srcArt}}" alt="" style="width: 52px; height: 40px; border-radius: 8px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; line-height: 1.15"><b style="font-size: 17px">{{title}}</b><span style="font-size: 12px; color: var(--dim)">{{srcLine}}</span></span>
+    </div>
+    <div role="radiogroup" aria-label="{{title}}" style="display: grid; grid-template-columns: repeat({{cols}}, 1fr); gap: 8px">
+      <sc-for list="{{choices}}" as="c" hint-placeholder-count="3">
+        <button role="radio" aria-checked="{{c.on}}" onClick="{{c.pick}}" style="min-height: 84px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border-radius: 16px; border: none; background: {{c.bg}}; box-shadow: {{c.ring}}">
+          <span aria-hidden="true" style="width: 34px; height: 34px; border-radius: 50%; background: {{c.fill}}; display: grid; place-items: center; color: #0b0c0e; font-size: 12px; font-weight: 800">{{c.mark}}</span><b style="font-size: 14px">{{c.name}}</b>
+        </button>
+      </sc-for>
+    </div>
+    <span style="font-size: 12px; color: var(--dim)">{{note}}</span>
+    <div style="margin-top: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px">
+      <button style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Cancel</button>
+      <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 16px">{{primary}}</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 1, color: 'W', shard: 'life' };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const { ex, color, shard } = this.state;
+    const tab = ['Colour of mana', 'Phyrexian mana'].map((label, i) => ({ label, on: ex === i, bg: ex === i ? '#f2efe8' : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i }) }));
+    const sel = (on) => ({ bg: on ? '#1e2125' : 'transparent', ring: on ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a' });
+    if (ex === 0) {
+      return { examples: tab, srcArt: A('f42c34fc11f085b17d9a7720c94e99fd'), srcLine: 'Command Tower. Art: Josu Solano', title: 'Choose a colour of mana', cols: 3,
+        choices: [['W', 'White', '#F1E4BC'], ['U', 'Blue', '#2C78C4'], ['R', 'Red', '#D4472E']].map(([k, name, fill]) => ({ name, fill, mark: '', on: color === k, ...sel(color === k), pick: () => this.setState({ color: k }) })),
+        note: 'Your commander’s colours, as the engine lists them. © Wizards of the Coast', primary: 'Add {' + color + '}' };
+    }
+    const life = shard === 'life';
+    return { examples: tab, srcArt: A('5d10e4ac7f8bd39157210fb50e1c3f7f'), srcLine: 'Apostle’s Blessing, {1}{W/P}. Art: Brad Rigney', title: 'Pay {W/P} with', cols: 2,
+      choices: [{ name: 'White mana', fill: '#F1E4BC', mark: 'W', on: !life, ...sel(!life), pick: () => this.setState({ shard: 'mana' }) }, { name: '2 life', fill: '#f2efe8', mark: '2', on: life, ...sel(life), pick: () => this.setState({ shard: 'life' }) }],
+      note: (life ? 'Life 38 → 36. Then pay {1}.' : 'Then pay {1}{W} with mana.') + ' © Wizards of the Coast', primary: life ? 'Pay 2 life' : 'Pay {1}{W}' };
+  }
+}
+</script>
+</body>
+</html>

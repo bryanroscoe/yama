@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Game settings, phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.65)"></div>
+
+  <section role="dialog" aria-label="Game settings" style="position: absolute; left: 0; right: 0; bottom: 0; top: 70px; padding: 8px 12px 14px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 12px">
+    <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 999px; background: var(--line)"></span>
+    <b style="font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1">This game</b>
+    <div role="tablist" aria-label="Sections" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 3px; border-radius: 999px; background: var(--ground)">
+      <sc-for list="{{sections}}" as="t" hint-placeholder-count="4"><button role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="min-height: 40px; border: none; border-radius: 999px; background: {{t.bg}}; color: {{t.ink}}; font-size: 13px; font-weight: 700">{{t.label}}</button></sc-for>
+    </div>
+
+    <sc-if value="{{isYields}}" hint-placeholder-val="{{true}}">
+      <span style="font-size: 13px; color: var(--dim)">Yama passes for you while these triggers are on the stack. Long-press a trigger on the stack to add one.</span>
+      <sc-for list="{{yields}}" as="y" hint-placeholder-count="2">
+        <div style="display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 14px; background: var(--raised)">
+          <span style="display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center">
+            <img src="{{y.art}}" alt="" style="width: 48px; height: 36px; border-radius: 6px; object-fit: cover">
+            <span style="display: flex; flex-direction: column; line-height: 1.2; min-width: 0"><b style="font-size: 14px">{{y.name}}</b><span style="font-size: 12px; color: var(--dim)">{{y.who}}</span></span>
+            <button onClick="{{y.remove}}" style="min-height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-size: 13px; font-weight: 700">Remove</button>
+          </span>
+          <span role="radiogroup" aria-label="Scope" style="display: grid; grid-template-columns: 1fr 1fr; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
+            <sc-for list="{{y.scopes}}" as="s" hint-placeholder-count="2"><button role="radio" aria-checked="{{s.on}}" onClick="{{s.pick}}" style="min-height: 36px; border: none; border-radius: 999px; background: {{s.bg}}; color: {{s.ink}}; font-size: 12px; font-weight: 700">{{s.label}}</button></sc-for>
+          </span>
+        </div>
+      </sc-for>
+      <sc-if value="{{noYields}}" hint-placeholder-val="{{false}}"><p style="margin: 0; padding: 12px; border-radius: 14px; background: var(--raised); color: var(--dim); font-size: 14px">No yields.</p></sc-if>
+      <span style="font-size: 10px; color: var(--dim)">Art: Mark Behm, Tatiana Kirgetova. © Wizards of the Coast</span>
+    </sc-if>
+
+    <sc-if value="{{isAuto}}" hint-placeholder-val="{{false}}">
+      <span style="font-size: 13px; color: var(--dim)">Each automatic answer shows in the log every time it’s used.</span>
+      <sc-for list="{{autos}}" as="a" hint-placeholder-count="3">
+        <div style="display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px; border-radius: 14px; background: var(--raised)">
+          <img src="{{a.art}}" alt="" style="width: 48px; height: 36px; border-radius: 6px; object-fit: cover">
+          <span style="display: flex; flex-direction: column; line-height: 1.2; min-width: 0"><b style="font-size: 14px">{{a.name}}</b><span style="font-size: 12px">{{a.answer}}</span><span style="font-size: 11px; color: var(--dim)">{{a.by}}</span></span>
+          <button onClick="{{a.off}}" style="min-height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-size: 13px; font-weight: 700">Turn off</button>
+        </div>
+      </sc-for>
+      <sc-if value="{{noAutos}}" hint-placeholder-val="{{false}}"><p style="margin: 0; padding: 12px; border-radius: 14px; background: var(--raised); color: var(--dim); font-size: 14px">No automatic answers. Yama will ask every time.</p></sc-if>
+      <span style="font-size: 10px; color: var(--dim)">Art: Eric Wilkerson, Tatiana Kirgetova, Craig Elliott. © Wizards of the Coast</span>
+    </sc-if>
+
+    <sc-if value="{{isHand}}" hint-placeholder-val="{{false}}">
+      <span style="font-size: 13px; color: var(--dim)">In your hand drawer, press and hold a card, then drag it. Or tap one here and use the arrows. Only you see the order.</span>
+      <div style="display: flex; justify-content: center; align-items: end; height: 120px; gap: 6px">
+        <sc-for list="{{hand}}" as="h" hint-placeholder-count="5"><button onClick="{{h.pick}}" aria-pressed="{{h.on}}" aria-label="{{h.name}}, position {{h.n}}" style="padding: 0; border: none; background: transparent; border-radius: 5px; box-shadow: {{h.ring}}; transform: translateY({{h.lift}}px); transition: transform 140ms"><img src="{{h.img}}" alt="" style="display: block; width: 64px; border-radius: 5px"></button></sc-for>
+      </div>
+      <span style="display: flex; gap: 8px; align-items: center">
+        <button onClick="{{left}}" aria-label="Move left" style="width: 56px; height: 48px; border-radius: 12px; border: 1px solid var(--line); background: transparent; font-size: 18px">←</button>
+        <button onClick="{{right}}" aria-label="Move right" style="width: 56px; height: 48px; border-radius: 12px; border: 1px solid var(--line); background: transparent; font-size: 18px">→</button>
+        <span style="font-size: 13px; color: var(--dim)">{{handNote}}</span>
+      </span>
+      <span style="font-size: 10px; color: var(--dim)">Card images from Scryfall, © Wizards of the Coast</span>
+    </sc-if>
+
+    <sc-if value="{{isConcede}}" hint-placeholder-val="{{false}}">
+      <div role="alert" style="padding: 14px; border-radius: 16px; box-shadow: inset 0 0 0 2px #f07a62; background: rgb(240 122 98 / 0.08); display: flex; flex-direction: column; gap: 6px">
+        <b style="color: #f07a62">This can’t be undone</b>
+        <span style="font-size: 14px">You leave the game. Everything you own leaves with you, and the others play on. The game counts as a loss for you.</span>
+      </div>
+      <span style="font-size: 13px; color: var(--dim)">Confirm with the button below. Cancel, or the back gesture, keeps you in the game.</span>
+    </sc-if>
+
+    <div style="margin-top: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px">
+      <sc-if value="{{hasSecondary}}" hint-placeholder-val="{{false}}"><button onClick="{{back}}" style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button></sc-if>
+      <button style="grid-column: 2; min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">{{primary}}</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sec: 0, yields: ['tithe', 'rhystic'], scope: { tithe: 1, rhystic: 0 }, autos: ['recruiter', 'rhystic', 'commander'], order: ['charm', 'warp', 'will', 'fierce', 'fortress'], sel: 'warp' };
+  }
+  pending() {
+    const A = (id) => '/_blob/' + id;
+    return {
+      yields: [
+        { id: 'tithe', name: 'Smothering Tithe', who: 'Jules’s trigger', art: A('b6ab5f8f97fcf937bdcbc6a6a969c3cc') },
+        { id: 'rhystic', name: 'Rhystic Study', who: 'Jules’s trigger', art: A('a3e58275bd2364af6a346bbf2e6a38b9') }
+      ],
+      autos: [
+        { id: 'recruiter', name: 'Recruiter of the Guard', art: A('d4281310e8151118adef07e16fe5fc30'), answer: 'Always search your library', by: 'Remembered by the engine' },
+        { id: 'rhystic', name: 'Jules’s Rhystic Study', art: A('a3e58275bd2364af6a346bbf2e6a38b9'), answer: 'Always pay {1}', by: 'Yama answers for you' },
+        { id: 'commander', name: 'Éowyn, Shieldmaiden', art: A('c19490e7c081fb35071c85147c01bed4'), answer: 'Always to the command zone', by: 'Yama answers for you' }
+      ],
+      hand: { charm: ['Boros Charm', '2d80527eb5c346c24b35ad5381fe99a6'], warp: ['Chaos Warp', '0145ecf81c21d180a7799470623719f7'], will: ['Akroma’s Will', 'd2df35f8a45cc092aadf237d7374fc27'], fierce: ['Fierce Guardianship', 'c858d7cf7a488b3218bd7bbf1fe8b79c'], fortress: ['Glacial Fortress', 'e25b0374571373f1ab95c0e88cd1758e'] }
+    };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const s = this.state;
+    const d = this.pending();
+    const move = (k) => this.setState((st) => { const o = st.order.slice(), i = o.indexOf(st.sel), j = i + k; if (i < 0 || j < 0 || j >= o.length) return null; [o[i], o[j]] = [o[j], o[i]]; return { order: o }; });
+    const selPos = s.order.indexOf(s.sel);
+    return {
+      sections: ['Yields', 'Answers', 'Hand', 'Concede'].map((label, i) => ({ label, on: s.sec === i, bg: s.sec === i ? '#f2efe8' : 'transparent', ink: s.sec === i ? '#0b0c0e' : i === 3 ? '#f07a62' : '#a9adb3', pick: () => this.setState({ sec: i }) })),
+      isYields: s.sec === 0, isAuto: s.sec === 1, isHand: s.sec === 2, isConcede: s.sec === 3,
+      yields: d.yields.filter((y) => s.yields.includes(y.id)).map((y) => ({ ...y,
+        scopes: ['This one only', 'Every copy'].map((label, i) => ({ label, on: s.scope[y.id] === i, bg: s.scope[y.id] === i ? '#f2efe8' : 'transparent', ink: s.scope[y.id] === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState((st) => ({ scope: { ...st.scope, [y.id]: i } })) })),
+        remove: () => this.setState((st) => ({ yields: st.yields.filter((x) => x !== y.id) })) })),
+      noYields: s.yields.length === 0,
+      autos: d.autos.filter((a) => s.autos.includes(a.id)).map((a) => ({ ...a, off: () => this.setState((st) => ({ autos: st.autos.filter((x) => x !== a.id) })) })),
+      noAutos: s.autos.length === 0,
+      hand: s.order.map((id, i) => ({ name: d.hand[id][0], img: A(d.hand[id][1]), n: i + 1, on: id === s.sel, lift: id === s.sel ? -12 : 0, ring: id === s.sel ? '0 0 0 3px #f2efe8' : 'none', pick: () => this.setState({ sel: id }) })),
+      handNote: selPos >= 0 ? 'Card ' + (selPos + 1) + ' of ' + s.order.length : '',
+      left: () => move(-1), right: () => move(1),
+      primary: s.sec === 3 ? 'Concede' : s.sec === 2 ? 'Done' : 'Close',
+      hasSecondary: s.sec === 3, secondary: 'Cancel',
+      back: () => this.setState({ sec: 0 })
+    };
+  }
+}
+</script>
+</body>
+</html>

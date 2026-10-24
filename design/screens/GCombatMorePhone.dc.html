@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Combat extras on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: var(--ground); overflow: hidden">
+  <div style="display: flex; gap: 6px; align-items: center; padding: 8px 8px 0">
+    <div role="tablist" aria-label="Example" style="display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--surface)">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="2"><button role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="min-height: 34px; padding: 0 12px; border: none; border-radius: 999px; background: {{t.bg}}; color: {{t.ink}}; font-size: 12px; font-weight: 700">{{t.label}}</button></sc-for>
+    </div>
+  </div>
+  <div role="status" style="margin: 8px 8px 0; padding: 8px 12px; border-radius: 14px; background: var(--text); color: var(--ground); display: flex; justify-content: space-between; align-items: center; font-weight: 800; font-size: 15px">
+    <span>{{prompt}}</span><span style="padding: 1px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 12px">{{count}} attacking</span>
+  </div>
+
+  <nav aria-label="Aim at" style="display: flex; gap: 6px; padding: 8px 8px 0">
+    <sc-for list="{{seats}}" as="t" hint-placeholder-count="3">
+      <button onClick="{{t.pick}}" aria-pressed="{{t.on}}" style="flex: 1; position: relative; height: 76px; padding: 0; border: none; border-radius: 14px; overflow: hidden; background: var(--raised); box-shadow: {{t.ring}}">
+        <img src="{{t.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: rgb(11 12 14 / {{t.wash}})"></span>
+        <span style="position: absolute; inset: 0; padding: 5px 8px; display: flex; flex-direction: column; justify-content: space-between; text-align: left">
+          <span style="display: flex; justify-content: space-between; align-items: center"><span style="display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 700; color: #fff"><span style="width: 7px; height: 7px; border-radius: 50%; background: {{t.seat}}"></span>{{t.name}}</span><b style="font-family: var(--display); font-size: 22px; line-height: 1; color: #fff">{{t.life}}</b></span>
+          <span style="align-self: flex-start; padding: 0 8px; border-radius: 999px; background: {{t.tagBg}}; color: {{t.tagInk}}; font-size: 11px; font-weight: 800">{{t.tag}}</span>
+        </span>
+      </button>
+    </sc-for>
+  </nav>
+  <p style="margin: 6px 12px 0; font-size: 12px; color: var(--dim)">{{seatNote}}</p>
+
+  <section aria-label="Your creatures" style="flex: 1; min-height: 0; margin: 8px 8px 0; padding: 12px; border-radius: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px 10px; padding-top: 10px">
+      <sc-for list="{{mine}}" as="c" hint-placeholder-count="5">
+        <button onClick="{{c.click}}" aria-pressed="{{c.on}}" aria-label="{{c.label}}" style="position: relative; height: 104px; padding: 0; border: none; border-radius: 14px; background: var(--raised); transform: translateY({{c.lift}}px); box-shadow: {{c.ring}}; transition: transform 160ms, box-shadow 160ms">
+          <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+            <sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+            <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{c.name}}</span>
+            <span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 13px; font-weight: 700">{{c.pt}}</span>
+          </span>
+          <sc-if value="{{c.on}}" hint-placeholder-val="{{false}}"><img src="{{c.chip}}" alt="" style="position: absolute; left: -7px; top: -9px; width: 28px; height: 28px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #408abf, 0 0 0 5px var(--surface)"></sc-if>
+          <sc-if value="{{c.hasBadge}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 50%; bottom: -11px; transform: translateX(-50%); padding: 0 8px; border-radius: 999px; background: {{c.badgeBg}}; color: {{c.badgeInk}}; box-shadow: 0 0 0 3px var(--surface); font-size: 11px; font-weight: 800; white-space: nowrap">{{c.badge}}</span></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <sc-if value="{{hasWarn}}" hint-placeholder-val="{{false}}"><span role="alert" style="margin-top: 6px; padding: 8px 10px; border-radius: 12px; box-shadow: inset 0 0 0 1px #f07a62; color: #f07a62; font-size: 13px; font-weight: 700">{{warn}}</span></sc-if>
+    <span style="margin-top: auto; font-size: 10px; color: var(--dim)">Art: {{credits}}. © Wizards of the Coast</span>
+  </section>
+
+  <div style="margin-top: 8px; background: var(--surface); border-radius: 22px 22px 0 0; padding: 12px 10px 14px; display: flex; flex-direction: column; gap: 10px">
+    <sc-if value="{{paying}}" hint-placeholder-val="{{false}}">
+      <div style="display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; align-items: center; padding: 0 4px">
+        <img src="/_blob/dd63e02b16058dbda20e2a11ca11d977" alt="" style="width: 48px; height: 36px; border-radius: 8px; object-fit: cover">
+        <span style="font-size: 12px; color: var(--dim); line-height: 1.35"><b style="color: var(--text); font-size: 14px">Propaganda: pay {{taxCost}}?</b> Creatures can’t attack you unless their controller pays {2} for each creature they control that’s attacking you. Art: Borja Pindado</span>
+      </div>
+    </sc-if>
+    <span style="padding: 0 4px; font-size: 13px; color: var(--dim)">{{summary}}</span>
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px">
+      <button onClick="{{secondaryAct}}" style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button>
+      <button onClick="{{primaryAct}}" style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">{{primary}}</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = this.initial(0);
+  }
+  initial(tab) {
+    return tab === 0 ? { tab, aim: 'jules', atk: { eowyn: 'jules', adeline: 'jules' }, step: 'declare', warn: '' } : { tab, aim: 'sam', atk: { goblin: 'sam' }, step: 'declare', warn: '' };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const s = this.state;
+    const seats = {
+      computer: { name: 'Computer', seat: '#b55af6', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), life: 31 },
+      sam: { name: 'Sam', seat: '#e8bae4', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), life: 24 },
+      jules: { name: 'Jules', seat: '#757a8a', art: A('383d04a073378ede76b3234038a68757'), life: 36 }
+    };
+    const sets = [
+      [{ id: 'eowyn', name: 'Éowyn', art: 'c19490e7c081fb35071c85147c01bed4', pt: '5/4' }, { id: 'adeline', name: 'Adeline', art: '93443cca264c2d66fac605d8e8311296', pt: '6/4' }, { id: 'aragorn', name: 'Aragorn', art: 'c2a67f4f687b666fcd3c4d8cb3b0bf63', pt: '4/4' }, { id: 'faramir', name: 'Faramir', art: '62e4a477ddbf5628d609a86bc8d12c3a', pt: '2/2' }],
+      [{ id: 'eowyn', name: 'Éowyn', art: 'c19490e7c081fb35071c85147c01bed4', pt: '5/4' }, { id: 'warboss', name: 'Legion Warboss', art: 'd8a193745dc4167c0c07387b7e27ae14', pt: '2/2' }, { id: 'goblin', name: 'Goblin token', art: '', pt: '1/1', must: true }, { id: 'recruiter', name: 'Recruiter', art: 'd4281310e8151118adef07e16fe5fc30', pt: '1/1', cant: true }, { id: 'adeline', name: 'Adeline', art: '93443cca264c2d66fac605d8e8311296', pt: '6/4' }]
+    ];
+    const mine = sets[s.tab];
+    const paying = s.step === 'pay';
+    const atJules = mine.filter((c) => s.atk[c.id] === 'jules');
+    const tax = s.tab === 0 ? atJules.length * 2 : 0;
+    const count = Object.keys(s.atk).length;
+    const toggle = (c) => () => this.setState((st) => {
+      if (st.step !== 'declare') return null;
+      if (c.cant) return { warn: 'Recruiter of the Guard can’t attack this turn.' };
+      const a = { ...st.atk };
+      if (a[c.id] === st.aim) { if (c.must) return { warn: 'The Goblin token attacks this combat if able. It can change defender, but it can’t stay home.' }; delete a[c.id]; }
+      else a[c.id] = st.aim;
+      return { atk: a, warn: '' };
+    });
+    return {
+      tabs: ['Attack tax', 'Must and can’t'].map((label, i) => ({ label, on: s.tab === i, bg: s.tab === i ? '#f2efe8' : 'transparent', ink: s.tab === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState(this.initial(i)) })),
+      prompt: paying ? 'Pay the attack tax?' : 'Attack who?', count,
+      seats: Object.entries(seats).map(([k, v]) => {
+        const n = mine.filter((c) => s.atk[c.id] === k).length;
+        const on = s.aim === k;
+        return { ...v, on, wash: on ? 0.3 : 0.6, ring: on ? '0 0 0 3px #f2efe8' : 'none',
+          tag: n ? n + ' attacking' : s.tab === 0 && k === 'jules' ? '{2} each' : on ? 'Aimed' : 'Tap to aim',
+          tagBg: n ? '#408abf' : on ? '#f2efe8' : 'rgb(11 12 14 / 0.7)', tagInk: n || on ? '#0b0c0e' : '#d5d7db',
+          pick: paying ? null : () => this.setState({ aim: k }) };
+      }),
+      seatNote: s.tab === 0 ? 'Jules has Propaganda: {2} for each creature attacking Jules.' : 'Badges come from the engine’s attack constraints.',
+      mine: mine.map((c) => {
+        const d = s.atk[c.id];
+        return { name: c.name, art: c.art ? A(c.art) : '', hasArt: !!c.art, pt: c.pt, on: !!d, chip: d ? seats[d].art : '', lift: d ? -10 : 0,
+          ring: d ? '0 0 0 3px #408abf, 0 12px 24px rgb(0 0 0 / 0.6)' : c.cant || paying ? '0 0 0 1px #2a2e33' : '0 0 0 2px #f0b45a',
+          hasBadge: !!(c.must || c.cant), badge: c.must ? 'Must attack' : 'Can’t attack', badgeBg: c.must ? '#f2efe8' : '#1e2125', badgeInk: c.must ? '#0b0c0e' : '#a9adb3',
+          label: c.name + (d ? ', attacking ' + seats[d].name : '') + (c.must ? ', must attack' : '') + (c.cant ? ', can’t attack' : ''),
+          click: toggle(c) };
+      }),
+      hasWarn: !!s.warn, warn: s.warn,
+      credits: s.tab === 0 ? 'Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna, Darren Tan, Marta Nael, Gintas Galvanauskas' : 'Craig Elliott, Alex Konstad, Eric Wilkerson, Bryan Sola, Darren Tan, Marta Nael, Gintas Galvanauskas',
+      paying, taxCost: '{' + tax + '}',
+      summary: s.tab === 0 ? (paying ? 'If you don’t pay, ' + atJules.map((c) => c.name).join(' and ') + ' stay home.' : 'Tax to attack Jules: {' + tax + '}. You have 9 untapped mana.') : 'The Goblin token must attack; it can switch defender.',
+      primary: paying ? 'Pay {' + tax + '}' : count ? 'Attack (' + count + ')' : 'No attacks',
+      secondary: paying ? 'Don’t pay' : 'Clear',
+      primaryAct: () => this.setState((st) => st.step === 'declare' && tax ? { step: 'pay' } : null),
+      secondaryAct: () => this.setState((st) => st.step === 'pay' ? { step: 'declare' } : { atk: st.tab === 1 ? { goblin: st.atk.goblin || 'sam' } : {}, warn: '' })
+    };
+  }
+}
+</script>
+</body>
+</html>

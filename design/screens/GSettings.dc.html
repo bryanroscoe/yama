@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Game settings and actions</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="{{railTitle}}" body="{{railBody}}" primary="{{primary}}" secondary="{{secondary}}" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+
+  <section role="dialog" aria-label="Game settings" style="position: absolute; left: 40px; top: 36px; width: 1020px; height: 620px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: grid; grid-template-columns: 230px minmax(0, 1fr); overflow: hidden">
+    <nav aria-label="Sections" style="padding: 18px 12px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px">
+      <h2 style="margin: 0 8px 10px; font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1">This game</h2>
+      <sc-for list="{{sections}}" as="t" hint-placeholder-count="4">
+        <button onClick="{{t.pick}}" aria-current="{{t.on}}" style="display: flex; justify-content: space-between; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 12px; border: none; background: {{t.bg}}; color: {{t.ink}}; font-weight: 700; text-align: left">{{t.label}}<span style="font-size: 12px; font-weight: 400; color: var(--dim)">{{t.count}}</span></button>
+      </sc-for>
+      <span style="margin-top: auto; padding: 0 8px; font-size: 12px; color: var(--dim)">Settings here last for this game. Stops and pass modes live in the turn strip.</span>
+    </nav>
+
+    <div style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; min-width: 0">
+      <sc-if value="{{isYields}}" hint-placeholder-val="{{true}}">
+        <span style="display: flex; flex-direction: column; gap: 2px"><b style="font-size: 20px">Trigger yields</b><span style="font-size: 14px; color: var(--dim)">While one of these triggers is on the stack, Yama passes priority for you. Add one by right-clicking a trigger on the stack and choosing “Always pass for this”.</span></span>
+        <sc-for list="{{yields}}" as="y" hint-placeholder-count="2">
+          <div style="display: grid; grid-template-columns: 60px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 10px 12px; border-radius: 14px; background: var(--raised)">
+            <img src="{{y.art}}" alt="" style="width: 60px; height: 44px; border-radius: 8px; object-fit: cover">
+            <span style="display: flex; flex-direction: column; line-height: 1.3; min-width: 0"><span style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{y.seat}}"></span><b>{{y.name}}</b><span style="font-size: 12px; color: var(--dim)">{{y.who}}</span></span><span style="font-size: 13px; color: var(--dim)">{{y.text}}</span>
+              <span role="radiogroup" aria-label="Scope" style="margin-top: 6px; display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground); width: fit-content">
+                <sc-for list="{{y.scopes}}" as="s" hint-placeholder-count="2"><button role="radio" aria-checked="{{s.on}}" onClick="{{s.pick}}" style="min-height: 32px; padding: 0 12px; border: none; border-radius: 999px; background: {{s.bg}}; color: {{s.ink}}; font-size: 12px; font-weight: 700">{{s.label}}</button></sc-for>
+              </span>
+            </span>
+            <button onClick="{{y.remove}}" style="min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-size: 13px; font-weight: 700">Remove</button>
+          </div>
+        </sc-for>
+        <sc-if value="{{noYields}}" hint-placeholder-val="{{false}}"><p style="margin: 0; padding: 14px; border-radius: 14px; background: var(--raised); color: var(--dim); font-size: 14px">No yields. Yama stops for every trigger your stops cover.</p></sc-if>
+        <span style="font-size: 11px; color: var(--dim)">Art: Mark Behm, Tatiana Kirgetova. © Wizards of the Coast</span>
+      </sc-if>
+
+      <sc-if value="{{isAuto}}" hint-placeholder-val="{{false}}">
+        <span style="display: flex; flex-direction: column; gap: 2px"><b style="font-size: 20px">Automatic answers</b><span style="font-size: 14px; color: var(--dim)">Answers you asked to be remembered. Each one shows in the log every time it’s used.</span></span>
+        <sc-for list="{{autos}}" as="a" hint-placeholder-count="3">
+          <div style="display: grid; grid-template-columns: 60px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 10px 12px; border-radius: 14px; background: var(--raised)">
+            <img src="{{a.art}}" alt="" style="width: 60px; height: 44px; border-radius: 8px; object-fit: cover">
+            <span style="display: flex; flex-direction: column; line-height: 1.3; min-width: 0"><b>{{a.name}}</b><span style="font-size: 13px">{{a.answer}}</span><span style="font-size: 12px; color: var(--dim)">{{a.by}}</span></span>
+            <button onClick="{{a.off}}" style="min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-size: 13px; font-weight: 700">Turn off</button>
+          </div>
+        </sc-for>
+        <sc-if value="{{noAutos}}" hint-placeholder-val="{{false}}"><p style="margin: 0; padding: 14px; border-radius: 14px; background: var(--raised); color: var(--dim); font-size: 14px">No automatic answers. Yama will ask every time.</p></sc-if>
+        <span style="font-size: 11px; color: var(--dim)">Art: Eric Wilkerson, Tatiana Kirgetova, Craig Elliott. © Wizards of the Coast</span>
+      </sc-if>
+
+      <sc-if value="{{isHand}}" hint-placeholder-val="{{false}}">
+        <span style="display: flex; flex-direction: column; gap: 2px"><b style="font-size: 20px">Hand order</b><span style="font-size: 14px; color: var(--dim)">Drag cards in your hand to reorder them, there or here. Only you see the order. Pick a card, then move it with the arrows.</span></span>
+        <div style="display: flex; gap: 12px; padding: 18px 8px 8px">
+          <sc-for list="{{hand}}" as="h" hint-placeholder-count="5">
+            <button onClick="{{h.pick}}" aria-pressed="{{h.on}}" aria-label="{{h.name}}, position {{h.n}}" style="padding: 0; border: none; background: transparent; border-radius: 6px; box-shadow: {{h.ring}}; transform: translateY({{h.lift}}px); transition: transform 140ms"><img src="{{h.img}}" alt="" style="display: block; width: 120px; border-radius: 6px"></button>
+          </sc-for>
+        </div>
+        <span style="display: flex; gap: 8px; align-items: center">
+          <button onClick="{{left}}" aria-label="Move left" style="width: 52px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: transparent; font-size: 18px">←</button>
+          <button onClick="{{right}}" aria-label="Move right" style="width: 52px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: transparent; font-size: 18px">→</button>
+          <span style="font-size: 13px; color: var(--dim)">{{handNote}}</span>
+        </span>
+        <span style="font-size: 11px; color: var(--dim)">Card images from Scryfall, © Wizards of the Coast</span>
+      </sc-if>
+
+      <sc-if value="{{isConcede}}" hint-placeholder-val="{{false}}">
+        <span style="display: flex; flex-direction: column; gap: 2px"><b style="font-size: 20px">Concede</b><span style="font-size: 14px; color: var(--dim)">You can concede at any time, even while someone else is deciding.</span></span>
+        <div role="alert" style="padding: 16px; border-radius: 16px; box-shadow: inset 0 0 0 2px #f07a62; background: rgb(240 122 98 / 0.08); display: flex; flex-direction: column; gap: 6px">
+          <b style="color: #f07a62; display: flex; align-items: center; gap: 8px"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z" fill="none" stroke="#f07a62" stroke-width="2" stroke-linejoin="round"></path><path d="M12 10v5M12 18v.5" stroke="#f07a62" stroke-width="2" stroke-linecap="round"></path></svg>This can’t be undone</b>
+          <span style="font-size: 14px">You leave the game. Everything you own leaves with you, and the others play on. The game counts as a loss for you.</span>
+        </div>
+        <span style="font-size: 13px; color: var(--dim)">Confirm with the rail’s main button. Esc or Cancel keeps you in the game.</span>
+      </sc-if>
+    </div>
+  </section>
+
+  <div style="position: absolute; left: 40px; top: 680px; width: 1020px; padding: 12px 14px; border-radius: 16px; background: rgb(11 12 14 / 0.9); box-shadow: 0 0 0 1px var(--line); font-size: 12px; color: var(--dim)">Driven by: yields from SetPriorityYield (scope ThisObject or AllCopies; Remove echoes the stored target), engine auto-answers from SetMayTriggerAutoChoice, Yama’s own remembered answers, ReorderHand, and Concede (legal in any state).</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sec: 0, yields: ['tithe', 'rhystic'], scope: { tithe: 1, rhystic: 0 }, autos: ['recruiter', 'rhystic', 'commander'], order: ['charm', 'warp', 'will', 'fierce', 'fortress'], sel: 'warp' };
+  }
+  pending() {
+    const A = (id) => '/_blob/' + id;
+    return {
+      yields: [
+        { id: 'tithe', name: 'Smothering Tithe', who: 'Jules’s trigger', seat: '#757a8a', art: A('b6ab5f8f97fcf937bdcbc6a6a969c3cc'), text: 'Whenever an opponent draws a card, that player may pay {2}. If the player doesn’t, you create a Treasure token.' },
+        { id: 'rhystic', name: 'Rhystic Study', who: 'Jules’s trigger', seat: '#757a8a', art: A('a3e58275bd2364af6a346bbf2e6a38b9'), text: 'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.' }
+      ],
+      autos: [
+        { id: 'recruiter', name: 'Recruiter of the Guard', art: A('d4281310e8151118adef07e16fe5fc30'), answer: 'Always search your library', by: 'Remembered by the engine for this card' },
+        { id: 'rhystic', name: 'Jules’s Rhystic Study', art: A('a3e58275bd2364af6a346bbf2e6a38b9'), answer: 'Always pay {1}', by: 'Yama answers for you' },
+        { id: 'commander', name: 'Éowyn, Shieldmaiden', art: A('c19490e7c081fb35071c85147c01bed4'), answer: 'Always put her in the command zone', by: 'Yama answers for you' }
+      ],
+      hand: { charm: ['Boros Charm', '2d80527eb5c346c24b35ad5381fe99a6'], warp: ['Chaos Warp', '0145ecf81c21d180a7799470623719f7'], will: ['Akroma’s Will', 'd2df35f8a45cc092aadf237d7374fc27'], fierce: ['Fierce Guardianship', 'c858d7cf7a488b3218bd7bbf1fe8b79c'], fortress: ['Glacial Fortress', 'e25b0374571373f1ab95c0e88cd1758e'] }
+    };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const s = this.state;
+    const d = this.pending();
+    const move = (k) => this.setState((st) => { const o = st.order.slice(), i = o.indexOf(st.sel), j = i + k; if (i < 0 || j < 0 || j >= o.length) return null; [o[i], o[j]] = [o[j], o[i]]; return { order: o }; });
+    const labels = ['Trigger yields', 'Automatic answers', 'Hand order', 'Concede'];
+    const counts = [String(s.yields.length), String(s.autos.length), '', ''];
+    const rail = [
+      { t: 'Game settings', b: 'Changes apply at once.', p: 'Close', sec: '' },
+      { t: 'Game settings', b: 'Changes apply at once.', p: 'Close', sec: '' },
+      { t: 'Hand order', b: 'Only you see the order.', p: 'Done', sec: '' },
+      { t: 'Concede?', b: 'You leave the game. This can’t be undone.', p: 'Concede', sec: 'Cancel' }
+    ][s.sec];
+    const selPos = s.order.indexOf(s.sel);
+    return {
+      sections: labels.map((label, i) => ({ label, count: counts[i], on: s.sec === i, bg: s.sec === i ? '#1e2125' : 'transparent', ink: i === 3 ? '#f07a62' : '#f2efe8', pick: () => this.setState({ sec: i }) })),
+      isYields: s.sec === 0, isAuto: s.sec === 1, isHand: s.sec === 2, isConcede: s.sec === 3,
+      yields: d.yields.filter((y) => s.yields.includes(y.id)).map((y) => ({ ...y,
+        scopes: ['This one only', 'Every copy'].map((label, i) => ({ label, on: s.scope[y.id] === i, bg: s.scope[y.id] === i ? '#f2efe8' : 'transparent', ink: s.scope[y.id] === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState((st) => ({ scope: { ...st.scope, [y.id]: i } })) })),
+        remove: () => this.setState((st) => ({ yields: st.yields.filter((x) => x !== y.id) })) })),
+      noYields: s.yields.length === 0,
+      autos: d.autos.filter((a) => s.autos.includes(a.id)).map((a) => ({ ...a, off: () => this.setState((st) => ({ autos: st.autos.filter((x) => x !== a.id) })) })),
+      noAutos: s.autos.length === 0,
+      hand: s.order.map((id, i) => ({ name: d.hand[id][0], img: A(d.hand[id][1]), n: i + 1, on: id === s.sel, lift: id === s.sel ? -14 : 0, ring: id === s.sel ? '0 0 0 3px #f2efe8' : 'none', pick: () => this.setState({ sel: id }) })),
+      handNote: selPos >= 0 ? d.hand[s.sel][0] + ' is card ' + (selPos + 1) + ' of ' + s.order.length + '.' : '',
+      left: () => move(-1), right: () => move(1),
+      railTitle: rail.t, railBody: rail.b, primary: rail.p, secondary: rail.sec
+    };
+  }
+}
+</script>
+</body>
+</html>

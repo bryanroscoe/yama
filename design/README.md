@@ -82,6 +82,17 @@ The Engine column names the phase decision (`WaitingFor` variant, or `GameAction
 | **Widget:** split a number | GSplit | GSplitPhone | 43 | `DistributeAmong`, `AssignBlockerDamage`, `MoveCountersDistribution` |
 | **Widget:** number | GNumber | GNumberPhone | 27 | number-style `NamedChoice`, `PayAmountChoice` |
 | **Widget:** name or text | GName | GNamePhone | 52 | `NamedChoice { choice_type, options, free_entry }` |
+| More ways to pay: colour of mana, Phyrexian mana, convoke, delve | GMana | GManaPhone (colour, Phyrexian) | 29, 31 | `ChooseManaColor`, `PhyrexianPayment { shards }`, `TapForConvoke`, delve |
+| Extra costs: kicker, discard as a cost, ward | GCosts | GCostsPhone (ward) | 29, 52 | `OptionalCostChoice { cost, times_kicked }`, `PayCost { kind, choices, count }`, `WardDiscardChoice` |
+| Replacement effects: which applies first | GReplace | GReplacePhone | 52 | `ReplacementChoice { candidates, kind, last_applied_decides, remember_identity }`, `ChooseReplacementAndRemember` |
+| Looking at the library: surveil, take one, reveal until, top or bottom, Cultivate split | GLibrary | GLibraryPhone | 49, 50, 52 | `SurveilChoice`; `DigChoice` then `DigRestSplitChoice`; `RevealUntilKeptChoice`, `RevealUntilBottomOrder`; `TopOrBottomChoice`; `SearchPartitionChoice` |
+| Counters: proliferate, moving counters, removing counters as a cost | GCounters | GCountersPhone (proliferate) | 52 | `ProliferateChoice`; `MoveCountersDistribution`; `ChooseRemoveCounterCostDistribution`, `RemoveCountersChoice` |
+| More targets: any number, divided damage, new targets for a copy, change a target | GTargetsMore | GTargetsMorePhone | 26 | `MultiTargetSelection`, `DistributeAmong`, `CopyRetarget`, `RetargetChoice` |
+| Choosing a permanent: legend rule, clone, equip, Ring-bearer, empower Jace | GPermanents | GPermanentsPhone | 52 | `ChooseLegend`, `CopyTargetChoice`, `EquipTarget`, `ChooseRingBearer`, `EmpowerJaceChoice` |
+| Ways to cast: cascade, discover, adventure, madness, miracle, two-faced cards, alternative costs, mutate | GCastWays | GCastWaysPhone | 21, 25 | `CastOffer`, `CascadeChoice`, `DiscoverChoice`, `ModalFaceChoice`, `AlternativeCastChoice`, `MutateMergeChoice` |
+| Combat extras: attack taxes, must and can't attack, planeswalker defenders, exert, enlist, crew, saddle | GCombatMore | GCombatMorePhone | 40, 44 | `CombatTaxPayment`, `DeclareAttackers` (`attacker_constraints`), `ExertChoice`, `EnlistChoice`, `CrewVehicle`, `SaddleMount` |
+| Everyone takes part: votes, piles, villainous choice, coin and die, Resolve-all consent | GTogether | GTogetherPhone (vote, Resolve all) | 35, 52 | `VoteChoice`, `SeparatePilesPartition`, `SeparatePilesChoice`, `ChooseOneOfBranch`, `CoinFlipKeepChoice`, `DieKeepChoice`, `ResolveAllConsent` |
+| Game settings: trigger yields, automatic answers, hand order, concede | GSettings | GSettingsPhone | 35 | `SetPriorityYield`, `SetMayTriggerAutoChoice` plus Yama's remembered answers, `ReorderHand`, `Concede` |
 
 ### Generic decision widgets
 
@@ -241,6 +252,85 @@ The table maps each image id prefix to its Scryfall card. a = art_crop, n = norm
 | 26786bca | n Talion, the Kindly Lord |
 | a1ffa6fd | a Reveillark (Jim Murray) |
 | b4dbc6f1 | n Reveillark |
+| 5d10e4ac | a Apostle's Blessing (Brad Rigney) |
+| 3803d7c7 | n Apostle's Blessing |
+| 4bf0e4d6 | a Doubling Season (Chuck Lukacs) |
+| c0f1da1f | n Doubling Season |
+| 684d98ae | a Fight with Fire (Yongjae Choi) |
+| d63f877c | n Fight with Fire |
+| 05df504a | a Hardened Scales (Mark Winters) |
+| 8f8d0ea5 | n Hardened Scales |
+| 94ce56a7 | a Maha, Its Feathers Night (Alessandra Pisano) |
+| aa79ee0c | n Maha, Its Feathers Night |
+| f97d9312 | a Stoke the Flames (Liiga Smilshkalne) |
+| c3b2a282 | n Stoke the Flames |
+| 29f3f8f3 | a Thrill of Possibility (Steve Argyle) |
+| 30f751fb | n Thrill of Possibility |
+| 3c089dbc | a Treasure Cruise (Cynthia Sheppard) |
+| 713cee99 | n Treasure Cruise |
+| db483639 | a Curate (Ryan Valle) |
+| a850a265 | n Curate |
+| 4fd285bb | a Impulse (Sam Guay) |
+| 9d870ce5 | n Impulse |
+| a50b5832 | a Not Forgotten (Darek Zabrocki) |
+| ca2dbbe1 | n Not Forgotten |
+| 9013dd26 | a Tezzeret's Gambit (Bryan Sola) |
+| d225c5e0 | n Tezzeret's Gambit |
+| d0aac68c | a Resourceful Defense (Francis Tneh) |
+| a21db891 | n Resourceful Defense |
+| 5c65d32b | a Hopeful Initiate (Dan Murayama Scott) |
+| 744a9ab4 | n Hopeful Initiate |
+| d23941e6 | a Eerie Interlude (Svetlin Velinov) |
+| ebfbc96e | n Eerie Interlude |
+| b294a287 | a Inferno Titan (Olivier Bernard) |
+| d576a30c | n Inferno Titan |
+| d7fc9a90 | a Reverberate (jD) |
+| 2fd3a62b | n Reverberate |
+| d4b908e0 | a Deflecting Swat (Izzy) |
+| 823ef100 | n Deflecting Swat |
+| e3b79e7a | a Clone (Kev Walker) |
+| 563d6557 | n Clone |
+| abf760cd | a Swiftfoot Boots (Svetlin Velinov) |
+| 2c2ed51f | n Swiftfoot Boots |
+| 661f981a | a Birthday Escape (David Álvarez) |
+| 82f873ee | n Birthday Escape |
+| 79094847 | a Fatehold Charm (Rovina Cai) |
+| db171747 | n Fatehold Charm |
+| 12f540af | a Jace token, Reality Fracture tokens (Manuel Castañón) |
+| f5ebdcb9 | n Jace token |
+| 02af1cd1 | a Ardent Plea (Chippy) |
+| d55d2ca9 | n Ardent Plea |
+| 2f8ef912 | a Geological Appraiser (Alix Branwyn) |
+| a43ea7d6 | n Geological Appraiser |
+| 00577565 | a Bonecrusher Giant (Victor Adame Minguez) |
+| 331ccdb4 | n Bonecrusher Giant |
+| aeab142c | a Fiery Temper (Johannes Voss) |
+| 639db1ac | n Fiery Temper |
+| b507bd6e | a Temporal Mastery (Franz Vohwinkel) |
+| f02dc849 | n Temporal Mastery |
+| a29b98de | a Halvar, God of Battle (Lie Setiawan) |
+| 009e3dee | n Halvar, God of Battle |
+| b0740419 | n Sword of the Realms (Halvar back face) |
+| 1c820332 | a Vulpikeet (Leesha Hannigan) |
+| abd7b1c1 | n Vulpikeet |
+| dd63e02b | a Propaganda (Borja Pindado) |
+| a35720bf | n Propaganda |
+| ac325a8f | a Glorybringer (Sam Burley) |
+| 1032c1f0 | n Glorybringer |
+| 8dca4185 | a Coalition Skyknight (Aaron Miller) |
+| 51dd60e5 | n Coalition Skyknight |
+| be98cd80 | a Skysovereign, Consul Flagship (Jung Park) |
+| 8fbf98e4 | n Skysovereign, Consul Flagship |
+| 5a389edc | a Council's Judgment (Kev Walker) |
+| 9b01b9ee | n Council's Judgment |
+| b4f421c9 | a Fact or Fiction (Matt Cavotta) |
+| f204e075 | n Fact or Fiction |
+| 13bcf58e | a Ensnared by the Mara (Andrey Kuzinskiy) |
+| eb163a3c | n Ensnared by the Mara |
+| e37dbeb7 | a Krark's Thumb (Ron Spencer) |
+| a5d76678 | n Krark's Thumb |
+| 706046b4 | a Krark's Other Thumb (Jeff Miracola) |
+| e3346d21 | n Krark's Other Thumb |
 
 ## Sample data
 

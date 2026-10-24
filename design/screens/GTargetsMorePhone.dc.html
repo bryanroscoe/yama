@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Any number of targets on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: var(--ground); overflow: hidden">
+  <div role="status" style="margin: 8px 8px 0; padding: 8px 10px 8px 8px; border-radius: 14px; background: var(--text); color: var(--ground); display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 15px">
+    <img src="{{srcArt}}" alt="" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover">
+    <span style="flex: 1; line-height: 1.2">{{banner}}</span>
+    <span style="padding: 1px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 12px; white-space: nowrap">{{counter}}</span>
+  </div>
+
+  <nav aria-label="Opponents" style="display: flex; gap: 6px; padding: 8px 8px 0">
+    <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+      <span style="flex: 1; position: relative; height: 48px; border-radius: 12px; overflow: hidden">
+        <img src="{{t.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: rgb(11 12 14 / 0.6)"></span>
+        <span style="position: absolute; inset: 0; padding: 4px 8px; display: flex; align-items: center; justify-content: space-between"><span style="display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; color: #fff"><span style="width: 7px; height: 7px; border-radius: 50%; background: {{t.seat}}"></span>{{t.name}}</span><b style="font-family: var(--display); font-size: 22px; color: #fff">{{t.life}}</b></span>
+      </span>
+    </sc-for>
+  </nav>
+  <p style="margin: 6px 12px 0; font-size: 12px; color: var(--dim)">Only your creatures can be chosen, so the opponents’ boards stay folded.</p>
+
+  <section aria-label="Your creatures" style="flex: 1; min-height: 0; margin: 8px 8px 0; padding: 12px; border-radius: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
+    <span style="font-size: 13px; color: var(--dim)">Tap each creature to add or remove it. Zero is allowed.</span>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 10px; padding-top: 6px">
+      <sc-for list="{{mine}}" as="c" hint-placeholder-count="6">
+        <button onClick="{{c.click}}" aria-pressed="{{c.on}}" aria-label="{{c.label}}" style="position: relative; height: 104px; padding: 0; border: none; border-radius: 14px; background: var(--raised); box-shadow: {{c.ring}}; transition: box-shadow 140ms">
+          <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+            <sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+            <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{c.name}}</span>
+            <span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 13px; font-weight: 700">{{c.pt}}</span>
+          </span>
+          <span aria-hidden="true" style="position: absolute; right: -7px; top: -7px; width: 24px; height: 24px; border-radius: 50%; background: {{c.markBg}}; color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{c.mark}}</span>
+        </button>
+      </sc-for>
+    </div>
+    <span style="font-size: 12px; color: var(--dim); line-height: 1.35">{{oracle}}</span>
+    <span style="margin-top: auto; font-size: 10px; color: var(--dim)">Art: Svetlin Velinov, Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna, Darren Tan, Marta Nael, Gintas Galvanauskas. © Wizards of the Coast</span>
+  </section>
+
+  <div style="margin-top: 8px; background: var(--surface); border-radius: 22px 22px 0 0; padding: 12px 10px 14px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px">
+    <button onClick="{{secondaryAct}}" style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button>
+    <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">{{primary}}</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { picks: ['eowyn', 'adeline'] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const decision = {
+      kind: 'multiTarget', engine: 'MultiTargetSelection',
+      source: { name: 'Eerie Interlude', art: A('d23941e6881437de7bcc8d3937475afe'), artist: 'Svetlin Velinov' },
+      prompt: 'Choose any number of your creatures',
+      oracle: 'Eerie Interlude: Exile any number of target creatures you control. Return those cards to the battlefield under their owner’s control at the beginning of the next end step.',
+      minTargets: 0, maxTargets: 6,
+      legalTargets: [
+        { id: 'eowyn', name: 'Éowyn', art: 'c19490e7c081fb35071c85147c01bed4', pt: '5/4' }, { id: 'adeline', name: 'Adeline', art: '93443cca264c2d66fac605d8e8311296', pt: '6/4' },
+        { id: 'aragorn', name: 'Aragorn', art: 'c2a67f4f687b666fcd3c4d8cb3b0bf63', pt: '4/4' }, { id: 'faramir', name: 'Faramir', art: '62e4a477ddbf5628d609a86bc8d12c3a', pt: '2/2' },
+        { id: 's1', name: 'Soldier', art: '', pt: '1/1' }, { id: 's2', name: 'Soldier', art: '', pt: '1/1' }
+      ]
+    };
+    const picks = this.state.picks;
+    const all = decision.legalTargets.map((t) => t.id);
+    return {
+      srcArt: decision.source.art, banner: decision.prompt, oracle: decision.oracle,
+      counter: picks.length + ' chosen',
+      tabs: [
+        { name: 'Computer', life: 31, seat: '#b55af6', art: A('042e4cb280a5a896fb249a47c8f4a8a3') },
+        { name: 'Sam', life: 24, seat: '#e8bae4', art: A('7678674b257c9f2d67041ed3a4ee2ab4') },
+        { name: 'Jules', life: 36, seat: '#757a8a', art: A('383d04a073378ede76b3234038a68757') }
+      ],
+      mine: decision.legalTargets.map((t) => {
+        const on = picks.includes(t.id);
+        return { name: t.name, art: t.art ? A(t.art) : '', hasArt: !!t.art, pt: t.pt, on,
+          ring: on ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', mark: on ? '✓' : '+', markBg: on ? '#f2efe8' : '#f0b45a',
+          label: t.name + (on ? ', chosen' : ', legal target'),
+          click: () => this.setState((s) => ({ picks: s.picks.includes(t.id) ? s.picks.filter((x) => x !== t.id) : s.picks.concat(t.id) })) };
+      }),
+      primary: 'Cast it, ' + picks.length + (picks.length === 1 ? ' target' : ' targets'),
+      secondary: picks.length === all.length ? 'Clear' : 'Choose all',
+      secondaryAct: () => this.setState((s) => ({ picks: s.picks.length === all.length ? [] : all.slice() }))
+    };
+  }
+}
+</script>
+</body>
+</html>

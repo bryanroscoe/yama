@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>More ways to pay mana</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="{{railTitle}}" body="{{railBody}}" primary="{{primary}}" secondary="{{secondary}}" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+
+  <section role="dialog" aria-label="{{title}}" style="position: absolute; left: 60px; top: 50px; width: 980px; padding: 22px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 16px">
+    <div role="tablist" aria-label="Example" style="display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--ground); width: fit-content">
+      <sc-for list="{{examples}}" as="e" hint-placeholder-count="4"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 34px; padding: 0 14px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 13px; font-weight: 700">{{e.label}}</button></sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 16px; align-items: center">
+      <img src="{{srcArt}}" alt="" style="width: 90px; height: 66px; border-radius: 12px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--dim)">{{srcLine}}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1">{{title}}</h2><span style="font-size: 14px; color: var(--dim)">{{oracle}}</span></span>
+      <span role="img" aria-label="{{costLabel}}" style="display: flex; gap: 5px">
+        <sc-for list="{{pips}}" as="p" hint-placeholder-count="4"><span style="width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 17px; background: {{p.bg}}; color: {{p.ink}}; box-shadow: {{p.ring}}">{{p.label}}</span></sc-for>
+      </span>
+    </div>
+
+    <sc-if value="{{isColor}}" hint-placeholder-val="{{true}}">
+      <div role="radiogroup" aria-label="Colour" style="display: flex; gap: 12px">
+        <sc-for list="{{colors}}" as="c" hint-placeholder-count="3">
+          <button role="radio" aria-checked="{{c.on}}" onClick="{{c.pick}}" style="width: 150px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 0; border-radius: 16px; border: none; background: {{c.bg}}; box-shadow: {{c.ring}}">
+            <span aria-hidden="true" style="width: 52px; height: 52px; border-radius: 50%; background: {{c.fill}}; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2)"></span><b>{{c.name}}</b>
+          </button>
+        </sc-for>
+      </div>
+      <span style="font-size: 13px; color: var(--dim)">Only your commander’s colours are offered, because that’s what the engine lists. A Treasure would offer all five.</span>
+    </sc-if>
+
+    <sc-if value="{{isPhyrexian}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <sc-for list="{{shards}}" as="s" hint-placeholder-count="1">
+          <div style="display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px 14px; border-radius: 16px; background: var(--raised)">
+            <span style="width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: #F1E4BC; color: var(--ground); font-family: var(--display); font-weight: 800">W/P</span>
+            <span style="display: flex; flex-direction: column; line-height: 1.3"><b>{{s.label}}</b><span style="font-size: 13px; color: var(--dim)">Pay with white mana or with 2 life.</span></span>
+            <span role="radiogroup" aria-label="Pay with" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
+              <button role="radio" aria-checked="{{s.mana}}" onClick="{{s.useMana}}" style="min-height: 40px; padding: 0 16px; border: none; border-radius: 999px; background: {{s.manaBg}}; color: {{s.manaInk}}; font-weight: 700">{W}</button>
+              <button role="radio" aria-checked="{{s.life}}" onClick="{{s.useLife}}" style="min-height: 40px; padding: 0 16px; border: none; border-radius: 999px; background: {{s.lifeBg}}; color: {{s.lifeInk}}; font-weight: 700">2 life</button>
+            </span>
+          </div>
+        </sc-for>
+        <span style="font-size: 14px">Life: <b>38 → {{lifeAfter}}</b>. Mana still to pay: <b>{{manaLeft}}</b>.</span>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isConvoke}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span style="font-size: 13px; color: var(--dim)">Your untapped creatures. Each one you tap pays {1} or one mana of its colour. On the live board these rings sit on your creatures themselves.</span>
+        <div style="display: flex; gap: 12px">
+          <sc-for list="{{creatures}}" as="c" hint-placeholder-count="6">
+            <button onClick="{{c.click}}" aria-pressed="{{c.on}}" aria-label="{{c.label}}" style="position: relative; width: 120px; height: 120px; padding: 0; border: none; border-radius: 14px; background: var(--raised); box-shadow: {{c.ring}}; transform: {{c.tf}}; transition: transform 160ms, box-shadow 140ms">
+              <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden"><sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if><span style="position: absolute; left: 0; right: 0; top: 0; padding: 2px 6px; background: rgb(11 12 14 / 0.82); font-size: 13px; font-weight: 700; text-align: left">{{c.name}}</span></span>
+              <span style="position: absolute; left: 50%; bottom: -12px; transform: translateX(-50%); padding: 0 8px; border-radius: 999px; background: {{c.chipBg}}; color: {{c.chipInk}}; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 0 0 2px var(--surface)">{{c.chip}}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isDelve}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span style="font-size: 13px; color: var(--dim)">Your graveyard. Each card you exile pays {1}. Pick any number, up to 7.</span>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap">
+          <sc-for list="{{grave}}" as="c" hint-placeholder-count="7">
+            <button onClick="{{c.click}}" aria-pressed="{{c.on}}" aria-label="{{c.name}}" style="position: relative; padding: 0; border: none; border-radius: 6px; background: transparent; box-shadow: {{c.ring}}">
+              <img src="{{c.img}}" alt="" style="display: block; width: 112px; border-radius: 6px">
+              <sc-if value="{{c.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -8px; top: -8px; width: 24px; height: 24px; border-radius: 50%; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{c.n}}</span></sc-if>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <span style="font-size: 12px; color: var(--dim)">The rail confirms. Driven by the engine’s ChooseManaColor, PhyrexianPayment { shards }, convoke (TapForConvoke) and delve choices. Card images from Scryfall, © Wizards of the Coast.</span>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, color: 'R', shard: 'life', convoke: ['eowyn'], delve: ['sunfall', 'warp', 'venser', 'emeria'] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const { ex } = this.state;
+    const pip = (label, filled) => ({ label, bg: filled ? '#f2efe8' : 'transparent', ink: filled ? '#0b0c0e' : '#a9adb3', ring: filled ? 'none' : 'inset 0 0 0 2px #2a2e33' });
+    const tabs = ['Colour of mana', 'Phyrexian mana', 'Convoke', 'Delve'];
+    const base = { examples: tabs.map((label, i) => ({ label, on: ex === i, bg: ex === i ? '#f2efe8' : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i }) })),
+      isColor: ex === 0, isPhyrexian: ex === 1, isConvoke: ex === 2, isDelve: ex === 3,
+      colors: [], shards: [], creatures: [], grave: [], lifeAfter: 38, manaLeft: '' };
+    if (ex === 0) {
+      const opts = [['W', 'White', '#F1E4BC'], ['U', 'Blue', '#2C78C4'], ['R', 'Red', '#D4472E']];
+      const c = this.state.color;
+      return { ...base, srcArt: A('f42c34fc11f085b17d9a7720c94e99fd'), srcLine: 'Command Tower. Art: Josu Solano, © Wizards of the Coast', title: 'Choose a colour of mana',
+        oracle: '{T}: Add one mana of any color in your commander’s color identity.', pips: [], costLabel: '',
+        colors: opts.map(([k, name, fill]) => ({ name, fill, on: c === k, bg: c === k ? '#1e2125' : 'transparent', ring: c === k ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', pick: () => this.setState({ color: k }) })),
+        railTitle: 'Command Tower', railBody: 'Choose which colour it adds.', primary: 'Add {' + c + '}', secondary: 'Cancel' };
+    }
+    if (ex === 1) {
+      const s = this.state.shard;
+      const life = s === 'life';
+      return { ...base, srcArt: A('5d10e4ac7f8bd39157210fb50e1c3f7f'), srcLine: 'Apostle’s Blessing, {1}{W/P}. Art: Brad Rigney, © Wizards of the Coast', title: 'Pay the Phyrexian mana',
+        oracle: '({W/P} can be paid with either {W} or 2 life.) Target artifact or creature you control gains protection from artifacts or from the color of your choice until end of turn.',
+        pips: [pip('1', false), pip('W/P', life)], costLabel: 'Cost {1}{W/P}',
+        shards: [{ label: 'The {W/P} in the cost', mana: !life, life, manaBg: !life ? '#f2efe8' : 'transparent', manaInk: !life ? '#0b0c0e' : '#a9adb3', lifeBg: life ? '#f2efe8' : 'transparent', lifeInk: life ? '#0b0c0e' : '#a9adb3',
+          useMana: () => this.setState({ shard: 'mana' }), useLife: () => this.setState({ shard: 'life' }) }],
+        lifeAfter: life ? 36 : 38, manaLeft: life ? '{1}' : '{1}{W}',
+        railTitle: 'Phyrexian mana', railBody: 'One choice per Phyrexian symbol, then pay the mana as usual.', primary: life ? 'Pay 2 life, then {1}' : 'Pay {1}{W}', secondary: 'Cancel the spell' };
+    }
+    if (ex === 2) {
+      const defs = [['eowyn', 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', 'R'], ['adeline', 'Adeline', '93443cca264c2d66fac605d8e8311296', ''], ['aragorn', 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', 'R'], ['faramir', 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', ''], ['s1', 'Soldier', '', ''], ['s2', 'Soldier', '', '']];
+      const sel = this.state.convoke;
+      let red = 0, gen = 0;
+      sel.forEach((id) => { const d = defs.find((x) => x[0] === id); if (d[3] === 'R' && red < 2) red++; else gen++; });
+      gen = Math.min(gen, 2);
+      const left = '{' + Math.max(0, 2 - gen) + '}' + '{R}'.repeat(Math.max(0, 2 - red));
+      return { ...base, srcArt: A('f97d9312465a9124ac8bfadc6944a58c'), srcLine: 'Stoke the Flames, {2}{R}{R}. Art: Liiga Smilshkalne, © Wizards of the Coast', title: 'Convoke: tap creatures to help pay',
+        oracle: 'Convoke (Your creatures can help cast this spell. Each creature you tap while casting this spell pays for {1} or one mana of that creature’s color.) Stoke the Flames deals 4 damage to any target.',
+        pips: [pip('1', gen >= 1), pip('1', gen >= 2), pip('R', red >= 1), pip('R', red >= 2)], costLabel: 'Cost {2}{R}{R}',
+        creatures: defs.map(([id, name, art, col]) => { const on = sel.includes(id); return { name, art: art ? A(art) : '', hasArt: !!art, on,
+          ring: on ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', tf: on ? 'rotate(90deg) scale(0.85)' : 'none',
+          chip: on ? 'Tapped' : col ? 'Pays {R} or {1}' : 'Pays {1}', chipBg: on ? '#f2efe8' : '#1e2125', chipInk: on ? '#0b0c0e' : '#f2efe8',
+          label: name + (on ? ', tapped for convoke' : ''),
+          click: () => this.setState((s) => ({ convoke: s.convoke.includes(id) ? s.convoke.filter((x) => x !== id) : s.convoke.concat(id).slice(-4) })) }; }),
+        railTitle: 'Convoke', railBody: sel.length + (sel.length === 1 ? ' creature' : ' creatures') + ' tapped. The rest is paid with mana.', primary: left === '{0}' ? 'Cast Stoke the Flames' : 'Pay the rest: ' + left.replace('{0}', ''), secondary: 'Cancel the spell' };
+    }
+    const cards = [['sunfall', 'Sunfall', '4f17f1f93dbb25c0d47e2fcb9b2c0ae6'], ['warp', 'Chaos Warp', '0145ecf81c21d180a7799470623719f7'], ['venser', 'Venser, Fervent Forger', 'a68bb9faf5fcb06053a10b272013f54a'], ['emeria', 'Emeria Angel', 'c45912d7b154a21f71e50096de918a08'], ['sentinel', 'Esper Sentinel', 'f91dfa789f2b0816a79359bb277f07b0'], ['rift', 'Cyclonic Rift', '4e274a0a80fefd3f3346bd10c98c1349'], ['pyro', 'Young Pyromancer', '83f67844fe118ec8f0a94e7066cd52e3']];
+    const sel = this.state.delve;
+    const k = sel.length;
+    return { ...base, srcArt: A('3c089dbcd628bda1c4571ed0d62c5e91'), srcLine: 'Treasure Cruise, {7}{U}. Art: Cynthia Sheppard, © Wizards of the Coast', title: 'Delve: exile cards to help pay',
+      oracle: 'Delve (Each card you exile from your graveyard while casting this spell pays for {1}.) Draw three cards.',
+      pips: [pip(String(7 - k), k >= 7), pip('U', false)], costLabel: 'Cost left {' + (7 - k) + '}{U}',
+      grave: cards.map(([id, name, img]) => { const i = sel.indexOf(id); return { name, img: A(img), on: i >= 0, n: i + 1, ring: i >= 0 ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a',
+        click: () => this.setState((s) => ({ delve: s.delve.includes(id) ? s.delve.filter((x) => x !== id) : s.delve.concat(id).slice(-7) })) }; }),
+      railTitle: 'Delve', railBody: k + ' cards to exile. Each pays {1}.', primary: 'Exile ' + k + ', pay {' + (7 - k) + '}{U}', secondary: 'Cancel the spell' };
+  }
+}
+</script>
+</body>
+</html>

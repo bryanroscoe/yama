@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ways to cast</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="{{railTitle}}" body="{{railBody}}" primary="{{primary}}" secondary="{{secondary}}" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.62)"></div>
+  <span aria-hidden="true" style="position: absolute; left: 1114px; top: 768px; width: 312px; height: 118px; border-radius: 34px; box-shadow: 0 0 0 3px #f2efe8; pointer-events: none"></span>
+
+  <div role="tablist" aria-label="Way to cast" style="position: absolute; left: 40px; top: 24px; display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--surface); box-shadow: 0 0 0 1px var(--line)">
+    <sc-for list="{{tabs}}" as="t" hint-placeholder-count="5"><button role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="min-height: 34px; padding: 0 14px; border: none; border-radius: 999px; background: {{t.bg}}; color: {{t.ink}}; font-size: 13px; font-weight: 700">{{t.label}}</button></sc-for>
+  </div>
+  <sc-if value="{{hasSub}}" hint-placeholder-val="{{true}}">
+    <div role="tablist" aria-label="Variant" style="position: absolute; left: 40px; top: 70px; display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--ground); box-shadow: 0 0 0 1px var(--line)">
+      <sc-for list="{{subs}}" as="t" hint-placeholder-count="2"><button role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="min-height: 30px; padding: 0 12px; border: none; border-radius: 999px; background: {{t.bg}}; color: {{t.ink}}; font-size: 12px; font-weight: 700">{{t.label}}</button></sc-for>
+    </div>
+  </sc-if>
+
+  <section role="dialog" aria-label="{{question}}" style="position: absolute; left: 40px; top: 116px; width: 1020px; padding: 22px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 16px">
+    <div style="display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 16px; align-items: center">
+      <img src="{{srcArt}}" alt="" style="width: 90px; height: 66px; border-radius: 12px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--dim)">{{srcLine}}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1">{{question}}</h2><span style="font-size: 14px; color: var(--dim)">{{oracle}}</span></span>
+    </div>
+
+    <sc-if value="{{hasRun}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-size: 13px; color: var(--dim)">{{runLabel}}</span>
+        <div style="display: flex; gap: 12px; align-items: end">
+          <sc-for list="{{misses}}" as="m" hint-placeholder-count="3">
+            <figure style="margin: 0; display: flex; flex-direction: column; gap: 4px; align-items: center"><img src="{{m.img}}" alt="{{m.name}}" style="width: 112px; border-radius: 6px"><figcaption style="font-size: 12px; color: var(--dim)">Exiled, missed</figcaption></figure>
+          </sc-for>
+          <span aria-hidden="true" style="align-self: center; font-size: 26px; color: var(--dim); padding: 0 6px">→</span>
+          <figure style="margin: 0; display: flex; flex-direction: column; gap: 6px; align-items: center"><img src="{{hitImg}}" alt="{{hitName}}" style="width: 200px; border-radius: 10px; box-shadow: 0 0 0 3px #f2efe8, 0 20px 40px rgb(0 0 0 / 0.6)"><figcaption style="font-size: 13px; font-weight: 700">{{hitCaption}}</figcaption></figure>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{hasChoices}}" hint-placeholder-val="{{true}}">
+      <div role="radiogroup" aria-label="{{question}}" style="display: flex; gap: 18px; align-items: start">
+        <sc-for list="{{choices}}" as="c" hint-placeholder-count="2">
+          <button role="radio" aria-checked="{{c.on}}" onClick="{{c.pick}}" style="display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 14px; align-items: start; width: 480px; padding: 12px; border-radius: 18px; border: none; background: {{c.bg}}; box-shadow: {{c.ring}}; text-align: left">
+            <img src="{{c.img}}" alt="" style="width: 170px; border-radius: 8px">
+            <span style="display: flex; flex-direction: column; gap: 6px; line-height: 1.35">
+              <b style="font-size: 18px">{{c.title}}</b>
+              <span style="font-size: 13px; color: var(--dim)">{{c.cost}}</span>
+              <span style="font-size: 14px">{{c.text}}</span>
+            </span>
+          </button>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{hasSingle}}" hint-placeholder-val="{{false}}">
+      <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: start">
+        <img src="{{singleImg}}" alt="{{singleName}}" style="width: 220px; border-radius: 11px; box-shadow: 0 0 0 3px #f2efe8, 0 20px 40px rgb(0 0 0 / 0.6)">
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{facts}}" as="f" hint-placeholder-count="3"><span style="display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 15px"><span style="color: var(--dim)">{{f.k}}</span><span>{{f.v}}</span></span></sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <span style="font-size: 12px; color: var(--dim)">Design note: {{foot}} Driven by: kind, offer or choices from the engine, defaultAnswer. The rail answers. Card images from Scryfall, © Wizards of the Coast.</span>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 0, sub: 0, pick: {} };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const groups = [
+      { label: 'Cascade and discover', subs: [
+        { label: 'Cascade', decision: { kind: 'castOffer', engine: 'CastOffer { kind: Cascade }', answer: 'CascadeChoice',
+          source: { name: 'Ardent Plea', art: A('02af1cd19aeec2b763f03fb0f57a5bdb'), artist: 'Chippy', line: 'You cast Ardent Plea, mana value 3' },
+          question: 'Cast Young Pyromancer without paying its mana cost?',
+          oracle: 'Cascade (When you cast this spell, exile cards from the top of your library until you exile a nonland card that costs less. You may cast it without paying its mana cost. Put the exiled cards on the bottom in a random order.)',
+          misses: [['Island', 'e4f3b606664e1f6c0a9df858f142ccfd'], ['Sunfall', '4f17f1f93dbb25c0d47e2fcb9b2c0ae6'], ['Plains', 'ebcbd90fea26c85faf08808dd0e2fa6c']],
+          hit: ['Young Pyromancer', '83f67844fe118ec8f0a94e7066cd52e3'], runLabel: 'Exiled from the top of your library, in order',
+          yes: 'Cast it free', no: 'Don’t cast', foot: 'Either way, the exiled cards go to the bottom in a random order.' } },
+        { label: 'Discover', decision: { kind: 'castOffer', engine: 'CastOffer { kind: Discover }', answer: 'DiscoverChoice',
+          source: { name: 'Geological Appraiser', art: A('2f8ef9120ac8b1239198f44520c29835'), artist: 'Alix Branwyn', line: 'Your Geological Appraiser entered, discover 3' },
+          question: 'Cast Monastery Mentor free, or put it into your hand?',
+          oracle: 'When this creature enters, if you cast it, discover 3. (Exile cards from the top of your library until you exile a nonland card with mana value 3 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)',
+          misses: [['Glacial Fortress', 'e25b0374571373f1ab95c0e88cd1758e'], ['Sunfall', '4f17f1f93dbb25c0d47e2fcb9b2c0ae6']],
+          hit: ['Monastery Mentor', 'c8765d27dab83eefd46f6647d19b1791'], runLabel: 'Exiled from the top of your library, in order',
+          yes: 'Cast it free', no: 'Put it into your hand', foot: 'Discover has no third answer: the card is cast or goes to your hand.' } }
+      ] },
+      { label: 'Adventure', subs: [
+        { label: 'From your hand', decision: { kind: 'choice', engine: 'CastOffer { kind: Adventure }',
+          source: { name: 'Bonecrusher Giant', art: A('00577565cf32fdc088abebe82ddca8c5'), artist: 'Victor Adame Minguez', line: 'Casting Bonecrusher Giant from your hand' },
+          question: 'Which half do you cast?', oracle: '',
+          choices: [
+            { id: 'creature', label: 'Cast Bonecrusher Giant', title: 'Bonecrusher Giant', cost: '{2}{R}. Creature — Giant, 4/3', text: 'Whenever this creature becomes the target of a spell, this creature deals 2 damage to that spell’s controller.', img: A('331ccdb42e0a9bc2e31bb6298c008630') },
+            { id: 'adventure', label: 'Cast Stomp', title: 'Stomp', cost: '{1}{R}. Instant — Adventure', text: 'Damage can’t be prevented this turn. Stomp deals 2 damage to any target.', img: A('331ccdb42e0a9bc2e31bb6298c008630') }
+          ], default: 'adventure', no: 'Cancel', foot: 'Both halves show their own cost and text. A target comes next for Stomp.' } },
+        { label: 'Later, from exile', decision: { kind: 'single', engine: 'Priority: CastSpell from exile',
+          source: { name: 'Bonecrusher Giant', art: A('00577565cf32fdc088abebe82ddca8c5'), artist: 'Victor Adame Minguez', line: 'On an adventure, in your exile' },
+          question: 'Cast Bonecrusher Giant from exile', oracle: '',
+          single: ['Bonecrusher Giant', '331ccdb42e0a9bc2e31bb6298c008630'],
+          facts: [{ k: 'Where it is', v: 'Your exile, on an adventure' }, { k: 'Cost', v: '{2}{R}' }, { k: 'Shown', v: 'Beside your hand, like your commander' }],
+          yes: 'Cast Bonecrusher Giant', no: 'Not now', foot: 'Cards you can cast from other zones sit next to your hand (PP-21).' } }
+      ] },
+      { label: 'Madness and miracle', subs: [
+        { label: 'Madness', decision: { kind: 'castOffer', engine: 'CastOffer { kind: Madness }',
+          source: { name: 'Fiery Temper', art: A('aeab142ce84c5c5fd5fcfaead7147e69'), artist: 'Johannes Voss', line: 'You discarded Fiery Temper to Faithless Looting' },
+          question: 'Cast Fiery Temper for its madness cost {R}?', oracle: 'Fiery Temper deals 3 damage to any target. Madness {R} (If you discard this card, discard it into exile. When you do, cast it for its madness cost or put it into your graveyard.)',
+          single: ['Fiery Temper', '639db1acd7ea1f492b702f674b6f4c92'],
+          facts: [{ k: 'Where it is', v: 'Exile, discarded with madness' }, { k: 'Madness cost', v: '{R}' }, { k: 'If you decline', v: 'It goes to your graveyard' }],
+          yes: 'Cast for {R}', no: 'Put it into my graveyard', foot: 'A target comes next.' } },
+        { label: 'Miracle', decision: { kind: 'castOffer', engine: 'CastOffer { kind: Miracle }',
+          source: { name: 'Temporal Mastery', art: A('b507bd6e20c084c12fe642805581ea90'), artist: 'Franz Vohwinkel', line: 'The first card you drew this turn' },
+          question: 'Cast Temporal Mastery for its miracle cost {1}{U}?', oracle: 'Take an extra turn after this one. Exile Temporal Mastery. Miracle {1}{U} (You may cast this card for its miracle cost when you draw it if it’s the first card you drew this turn.)',
+          single: ['Temporal Mastery', 'f02dc8496f2025bb40f42f51822a0b7a'],
+          facts: [{ k: 'Where it is', v: 'Your hand, revealed to everyone' }, { k: 'Miracle cost', v: '{1}{U}' }, { k: 'If you decline', v: 'It stays in your hand' }],
+          yes: 'Cast for {1}{U}', no: 'Keep it in hand', foot: 'Other players see the reveal; they don’t see your answer until you cast.' } }
+      ] },
+      { label: 'Faces and other costs', subs: [
+        { label: 'Two-faced card', decision: { kind: 'choice', engine: 'ModalFaceChoice',
+          source: { name: 'Halvar, God of Battle', art: A('a29b98de763b859d2168e8911dca1124'), artist: 'Lie Setiawan', line: 'Casting from your hand' },
+          question: 'Which face do you cast?', oracle: '',
+          choices: [
+            { id: 'front', label: 'Cast Halvar, God of Battle', title: 'Halvar, God of Battle', cost: '{2}{W}{W}. Legendary Creature — God, 4/4', text: 'Creatures you control that are enchanted or equipped have double strike. At the beginning of each combat, you may attach target Aura or Equipment attached to a creature you control to target creature you control.', img: A('009e3deebb61374f0cbf8bced0c87e11') },
+            { id: 'back', label: 'Cast Sword of the Realms', title: 'Sword of the Realms', cost: '{1}{W}. Legendary Artifact — Equipment', text: 'Equipped creature gets +2/+0 and has vigilance. Whenever equipped creature dies, return it to its owner’s hand. Equip {1}{W}', img: A('b0740419baf1917a6eb51a530dbafaf8') }
+          ], default: 'front', no: 'Cancel', foot: 'A card with a spell face and a land face is chosen when you play it, as a land or as a spell.' } },
+        { label: 'Alternative cost', decision: { kind: 'choice', engine: 'AlternativeCastChoice { keyword: Overload }',
+          source: { name: 'Cyclonic Rift', art: A('e9cdfcd4ca473d2d07e135917fc6bcee'), artist: 'Isis', line: 'Casting from your hand. You can afford both costs.' },
+          question: 'Pay the mana cost, or overload?', oracle: 'Return target nonland permanent you don’t control to its owner’s hand. Overload {6}{U} (You may cast this spell for its overload cost. If you do, change “target” in its text to “each.”)',
+          choices: [
+            { id: 'normal', label: 'Cast for {1}{U}', title: 'Mana cost', cost: '{1}{U}', text: 'Return target nonland permanent you don’t control to its owner’s hand.', img: A('4e274a0a80fefd3f3346bd10c98c1349') },
+            { id: 'overload', label: 'Overload for {6}{U}', title: 'Overload', cost: '{6}{U}', text: 'Return each nonland permanent you don’t control to its owner’s hand.', img: A('4e274a0a80fefd3f3346bd10c98c1349') }
+          ], default: 'normal', no: 'Cancel', foot: 'Only shown when both costs are payable. The overload text is the engine’s rewrite of “target” to “each”.' } }
+      ] },
+      { label: 'Mutate', subs: [
+        { label: 'Over or under', decision: { kind: 'choice', engine: 'MutateMergeChoice',
+          source: { name: 'Vulpikeet', art: A('1c8203320a3c66e35efbe07a15428828'), artist: 'Leesha Hannigan', line: 'You cast Vulpikeet for its mutate cost {2}{W}, targeting your Emeria Angel' },
+          question: 'Put Vulpikeet on top, or underneath?', oracle: 'Mutate {2}{W} (If you cast this spell for its mutate cost, put it over or under target non-Human creature you own. They mutate into the creature on top plus all abilities from under it.)',
+          choices: [
+            { id: 'over', label: 'Put it on top', title: 'On top: Vulpikeet', cost: 'Name, power and toughness from Vulpikeet: 2/3', text: '', img: A('abd7b1c1c6a080d579a59284216e18c1') },
+            { id: 'under', label: 'Put it underneath', title: 'Underneath: Emeria Angel stays on top', cost: 'Name, power and toughness from Emeria Angel: 3/3', text: '', img: A('c45912d7b154a21f71e50096de918a08') }
+          ], default: 'over', no: 'Cancel', foot: 'Either way the merged creature keeps every ability; only the copiable values change.' } }
+      ] }
+    ];
+    const { tab, sub } = this.state;
+    const g = groups[tab];
+    const d = g.subs[Math.min(sub, g.subs.length - 1)].decision;
+    const key = tab + '.' + sub;
+    const chosen = this.state.pick[key] || d.default;
+    const ch = d.choices ? d.choices.find((c) => c.id === chosen) : null;
+    const seg = (labels, cur, set) => labels.map((label, i) => ({ label, on: cur === i, bg: cur === i ? '#f2efe8' : 'transparent', ink: cur === i ? '#0b0c0e' : '#a9adb3', pick: () => set(i) }));
+    return {
+      tabs: seg(groups.map((x) => x.label), tab, (i) => this.setState({ tab: i, sub: 0 })),
+      hasSub: g.subs.length > 1,
+      subs: seg(g.subs.map((x) => x.label), sub, (i) => this.setState({ sub: i })),
+      srcArt: d.source.art, srcLine: d.source.line + '. Art: ' + d.source.artist + ', © Wizards of the Coast',
+      question: d.question, oracle: d.oracle,
+      hasRun: !!d.misses, runLabel: d.runLabel || '',
+      misses: (d.misses || []).map(([name, id]) => ({ name, img: A(id) })),
+      hitImg: d.hit ? A(d.hit[1]) : '', hitName: d.hit ? d.hit[0] : '', hitCaption: d.hit ? 'Hit: ' + d.hit[0] : '',
+      hasChoices: !!d.choices,
+      choices: (d.choices || []).map((c) => ({ ...c, on: c.id === chosen, bg: c.id === chosen ? '#1e2125' : 'transparent',
+        ring: c.id === chosen ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a',
+        pick: () => this.setState((s) => ({ pick: { ...s.pick, [key]: c.id } })) })),
+      hasSingle: !!d.single,
+      singleImg: d.single ? A(d.single[1]) : '', singleName: d.single ? d.single[0] : '', facts: d.facts || [],
+      foot: d.foot,
+      railTitle: d.question, railBody: d.engine,
+      primary: ch ? ch.label : d.yes, secondary: d.no
+    };
+  }
+}
+</script>
+</body>
+</html>

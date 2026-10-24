@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Combat extras</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--me:#408abf;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+
+  <sc-for list="{{panes}}" as="p" hint-placeholder-count="3">
+    <article aria-label="{{p.name}}, {{p.life}} life" style="position: absolute; left: {{p.x}}px; top: 10px; width: 352px; height: 240px; border-radius: 16px; background: var(--surface); overflow: hidden; box-shadow: {{p.ring}}">
+      <header style="position: relative; height: 78px; padding: 8px 12px; display: flex; gap: 10px; align-items: end">
+        <img src="{{p.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.88) 0%, rgb(11 12 14 / 0.55) 55%, rgb(11 12 14 / 0.25) 100%)"></span>
+        <span style="position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15">
+          <b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{p.seat}}"></span>{{p.name}}</b>
+          <span style="font-size: 12px; color: #d5d7db">{{p.counts}}</span>
+        </span>
+        <b style="position: relative; font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">{{p.life}}</b>
+      </header>
+      <span style="position: absolute; left: 10px; top: 92px; padding: 3px 10px; border-radius: 999px; background: var(--raised); font-size: 12px">{{p.lands}}</span>
+      <sc-if value="{{p.hasTax}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 10px; top: 124px; padding: 3px 10px; border-radius: 999px; background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); font-size: 12px; font-weight: 700">{{p.tax}}</span></sc-if>
+      <span style="position: absolute; left: 10px; right: 10px; bottom: 6px; font-size: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Art: {{p.credits}}</span>
+      <button onClick="{{p.pick}}" aria-pressed="{{p.on}}" aria-label="Aim new attackers at {{p.name}}" style="position: absolute; inset: 0; border: none; background: transparent; cursor: {{p.cursor}}"></button>
+    </article>
+  </sc-for>
+  <sc-for list="{{paneTags}}" as="g" hint-placeholder-count="3">
+    <span style="position: absolute; left: {{g.x}}px; top: 236px; transform: translateX(-50%); padding: 2px 12px; border-radius: 999px; background: {{g.bg}}; color: {{g.ink}}; font-size: 13px; font-weight: 800; white-space: nowrap; box-shadow: 0 0 0 3px var(--ground)">{{g.label}}</span>
+  </sc-for>
+
+  <sc-for list="{{smalls}}" as="t" hint-placeholder-count="2">
+    <button onClick="{{t.click}}" aria-label="{{t.label}}" style="position: absolute; left: {{t.x}}px; top: {{t.y}}px; width: {{t.s}}px; height: {{t.s}}px; padding: 0; border: none; border-radius: 10px; background: var(--raised); box-shadow: {{t.ring}}; cursor: {{t.cursor}}">
+      <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden"><img src="{{t.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 4px; background: rgb(11 12 14 / 0.82); font-size: 10px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden">{{t.name}}</span></span>
+      <sc-if value="{{t.hasLoyalty}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 6px; border-radius: 4px 4px 10px 10px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 800">{{t.loyalty}}</span></sc-if>
+    </button>
+  </sc-for>
+
+  <div style="position: absolute; left: 14px; top: 262px; display: flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; font-size: 14px"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover">Your turn 9, combat</div>
+
+  <section aria-label="Your battlefield" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 446px; border-radius: 16px; background: var(--surface)"></section>
+  <sc-for list="{{tiles}}" as="t" hint-placeholder-count="5">
+    <button onClick="{{t.click}}" aria-pressed="{{t.on}}" aria-label="{{t.label}}" style="position: absolute; left: {{t.x}}px; top: {{t.y}}px; width: 110px; height: 110px; padding: 0; border: none; border-radius: 12px; background: var(--raised); box-shadow: {{t.ring}}; cursor: {{t.cursor}}; transition: top 160ms, box-shadow 160ms">
+      <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+        <sc-if value="{{t.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{t.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+        <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span>
+        <span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 13px; font-weight: 700">{{t.pt}}</span>
+      </span>
+      <sc-if value="{{t.hasBadge}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 50%; bottom: -12px; transform: translateX(-50%); padding: 0 8px; border-radius: 999px; background: {{t.badgeBg}}; color: {{t.badgeInk}}; box-shadow: 0 0 0 3px var(--surface); font-size: 11px; font-weight: 800; white-space: nowrap">{{t.badge}}</span></sc-if>
+      <sc-if value="{{t.hasChip}}" hint-placeholder-val="{{false}}"><img src="{{t.chip}}" alt="" style="position: absolute; left: -9px; top: -9px; width: 30px; height: 30px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #408abf, 0 0 0 5px var(--ground)"></sc-if>
+      <sc-if value="{{t.hasNum}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -9px; top: -9px; width: 26px; height: 26px; border-radius: 50%; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 13px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{t.num}}</span></sc-if>
+    </button>
+  </sc-for>
+  <span style="position: absolute; left: 22px; top: 728px; width: 1060px; font-size: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Art: {{myCredits}}. © Wizards of the Coast</span>
+
+  <sc-if value="{{hasVehicle}}" hint-placeholder-val="{{false}}">
+    <button onClick="{{startCrew}}" aria-label="Skysovereign, Consul Flagship, crew 3" style="position: absolute; left: 950px; top: 590px; width: 120px; height: 120px; padding: 0; border: none; border-radius: 12px; background: var(--raised); box-shadow: {{vehicleRing}}; cursor: pointer">
+      <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden"><img src="/_blob/be98cd803d3b52950b5297ae2b055fb4" alt="" style="width: 100%; height: 100%; object-fit: cover"><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700; text-align: left">Skysovereign</span><span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 13px; font-weight: 700">6/5</span></span>
+      <span style="position: absolute; left: 50%; bottom: -12px; transform: translateX(-50%); padding: 0 8px; border-radius: 999px; background: {{vehicleBadgeBg}}; color: var(--ground); box-shadow: 0 0 0 3px var(--surface); font-size: 11px; font-weight: 800; white-space: nowrap">{{vehicleBadge}}</span>
+    </button>
+  </sc-if>
+
+  <svg aria-hidden="true" width="1440" height="900" viewBox="0 0 1440 900" style="position: absolute; inset: 0; pointer-events: none">
+    <sc-for list="{{arrows}}" as="a" hint-placeholder-count="2">
+      <path d="{{a.d}}" fill="none" stroke="#408abf" stroke-width="4" stroke-linecap="round"></path>
+      <circle cx="{{a.ex}}" cy="{{a.ey}}" r="6" fill="#408abf"></circle>
+    </sc-for>
+  </svg>
+
+  <div role="status" style="position: absolute; left: 550px; top: 262px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 7px 8px 7px 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 800; box-shadow: 0 12px 30px rgb(0 0 0 / 0.5); white-space: nowrap">
+    {{prompt}}
+    <span style="padding: 2px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 13px">{{count}}</span>
+  </div>
+
+  <sc-if value="{{hasPanel}}" hint-placeholder-val="{{false}}">
+    <section role="alertdialog" aria-label="{{panelTitle}}" style="position: absolute; left: 400px; top: 470px; width: 520px; padding: 14px 16px; border-radius: 18px; background: var(--ground); box-shadow: 0 0 0 2px #f2efe8, 0 24px 60px rgb(0 0 0 / 0.75); display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; align-items: start">
+      <span style="display: flex; flex-direction: column; gap: 4px"><img src="{{panelArt}}" alt="" style="width: 96px; height: 70px; border-radius: 10px; object-fit: cover"><span style="font-size: 10px; color: var(--dim)">Art: {{panelArtist}}</span></span>
+      <span style="display: flex; flex-direction: column; gap: 6px">
+        <b style="font-size: 18px; line-height: 1.2">{{panelTitle}}</b>
+        <span style="font-size: 13px; color: var(--dim); line-height: 1.4">{{panelOracle}}</span>
+        <sc-if value="{{hasPanelNote}}" hint-placeholder-val="{{false}}"><span style="font-size: 13px; font-weight: 700; color: {{panelNoteInk}}">{{panelNote}}</span></sc-if>
+      </span>
+    </section>
+  </sc-if>
+
+  <aside aria-label="Rail" style="position: absolute; left: 1100px; top: 0; width: 340px; height: 900px; border-left: 1px solid var(--line); display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line)"><span style="font-weight: 700; color: var(--dim)">Leave</span><span style="padding: 6px 14px; border-radius: 999px; background: var(--surface); font-weight: 700; font-size: 14px">Game log</span></div>
+    <section style="padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div role="tablist" aria-label="Example" style="display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; border-radius: 18px; background: var(--surface)">
+        <sc-for list="{{tabs}}" as="e" hint-placeholder-count="5"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 32px; padding: 0 10px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 12px; font-weight: 700">{{e.label}}</button></sc-for>
+      </div>
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1">{{railTitle}}</h2>
+      <p style="margin: 0; font-size: 14px; color: var(--dim)">{{railBody}}</p>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <sc-for list="{{lines}}" as="l" hint-placeholder-count="2">
+          <span style="display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 12px; background: var(--surface); font-size: 14px"><span>{{l.k}}</span><b style="color: {{l.ink}}">{{l.v}}</b></span>
+        </sc-for>
+      </div>
+      <sc-if value="{{hasWarn}}" hint-placeholder-val="{{false}}"><span role="alert" style="padding: 10px 12px; border-radius: 12px; box-shadow: inset 0 0 0 1px #f07a62; color: #f07a62; font-size: 14px; font-weight: 700">{{warn}}</span></sc-if>
+      <p style="margin: 0; font-size: 12px; color: var(--dim)">{{engineLine}}</p>
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
+        <sc-if value="{{hasSecondary}}" hint-placeholder-val="{{true}}"><button onClick="{{secondaryAct}}" style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button></sc-if>
+        <button onClick="{{primaryAct}}" style="min-height: 60px; border-radius: 999px; border: none; background: {{primaryBg}}; color: {{primaryInk}}; font-weight: 800; font-size: 20px">{{primary}}</button>
+      </div>
+    </section>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = this.initial(0);
+  }
+  initial(tab) {
+    const starts = [
+      { aim: 'jules', atk: { eowyn: 'jules', adeline: 'jules' } },
+      { aim: 'sam', atk: { goblin: 'sam' } },
+      { aim: 'quint', atk: { aragorn: 'quint' } },
+      { aim: 'sam', atk: { glory: 'sam', sky: 'jules' } },
+      { aim: 'sam', atk: {} }
+    ];
+    return { tab, step: 'declare', warn: '', enlist: null, crew: [], crewing: false, crewed: false, ...starts[tab] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const PX = [10, 374, 738];
+    const s = this.state;
+    const defenders = {
+      computer: { name: 'Computer', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), x: PX[0] + 176, y: 250 },
+      quint: { name: 'Quintorius', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), x: PX[0] + 352 - 10 - 32, y: 160, pw: true },
+      sam: { name: 'Sam', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), x: PX[1] + 176, y: 250 },
+      jules: { name: 'Jules', art: A('383d04a073378ede76b3234038a68757'), x: PX[2] + 176, y: 250 }
+    };
+    const C = (id, name, art, p, t, extra) => ({ id, name, art, p, t, ...(extra || {}) });
+    const sets = [
+      [C('eowyn', 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', 5, 4), C('adeline', 'Adeline', '93443cca264c2d66fac605d8e8311296', 6, 4), C('aragorn', 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', 4, 4), C('faramir', 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', 2, 2)],
+      [C('eowyn', 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', 5, 4), C('warboss', 'Legion Warboss', 'd8a193745dc4167c0c07387b7e27ae14', 2, 2), C('goblin', 'Goblin token', '', 1, 1, { must: true }), C('recruiter', 'Recruiter of the Guard', 'd4281310e8151118adef07e16fe5fc30', 1, 1, { cant: true }), C('adeline', 'Adeline', '93443cca264c2d66fac605d8e8311296', 6, 4)],
+      [C('eowyn', 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', 5, 4), C('adeline', 'Adeline', '93443cca264c2d66fac605d8e8311296', 6, 4), C('aragorn', 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', 4, 4), C('faramir', 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', 2, 2)],
+      [C('glory', 'Glorybringer', 'ac325a8fc15928266dccf109ca4d9790', 4, 4), C('sky', 'Coalition Skyknight', '8dca41857d1bea362ed716a1d3308057', 2, 2), C('aragorn', 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', 4, 4), C('faramir', 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', 2, 2), C('eowyn', 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', 5, 4)],
+      [C('eowyn', 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', 5, 4), C('aragorn', 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', 4, 4), C('faramir', 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', 2, 2), C('s1', 'Soldier', '', 1, 1), C('s2', 'Soldier', '', 1, 1)]
+    ];
+    const credits = ['Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna', 'Craig Elliott, Alex Konstad, Eric Wilkerson, Bryan Sola', 'Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna', 'Sam Burley, Aaron Miller, Yongjae Choi, Anna Podedworna, Craig Elliott', 'Craig Elliott, Yongjae Choi, Anna Podedworna, Jung Park'];
+    const tab = s.tab;
+    const mine = sets[tab];
+    const declaring = s.step === 'declare' && !s.crewing;
+    const toggle = (c) => () => this.setState((st) => {
+      if (st.step !== 'declare') return null;
+      if (c.cant) return { warn: c.name + ' can’t attack this turn.' };
+      const a = { ...st.atk };
+      if (a[c.id] === st.aim) {
+        if (c.must) return { warn: c.name + ' attacks this combat if able. It can change defender, but it can’t stay home.' };
+        delete a[c.id];
+      } else a[c.id] = st.aim;
+      return { atk: a, warn: '' };
+    });
+    const crewToggle = (c) => () => this.setState((st) => ({ crew: st.crew.includes(c.id) ? st.crew.filter((x) => x !== c.id) : st.crew.concat(c.id) }));
+    const enlistPick = (c) => () => this.setState({ enlist: c.id });
+    const enlistEligible = (c) => tab === 3 && s.step === 'enlist' && !s.atk[c.id];
+    const crewPower = s.crew.reduce((n, id) => n + (mine.find((c) => c.id === id) || { p: 0 }).p, 0);
+    const tiles = mine.map((c, i) => {
+      const d = s.atk[c.id];
+      const x = 22 + i * 132;
+      const t = { name: c.name, art: c.art ? A(c.art) : '', hasArt: !!c.art, pt: c.p + '/' + c.t, x, y: d ? 296 : 316, on: !!d,
+        ring: '0 0 0 1px #2a2e33', cursor: 'default', click: null, hasBadge: false, badge: '', badgeBg: '#1e2125', badgeInk: '#f2efe8',
+        hasChip: !!d, chip: d ? defenders[d].art : '', hasNum: false, num: '', label: c.name };
+      if (s.crewing) {
+        const k = s.crew.indexOf(c.id);
+        Object.assign(t, { y: 316, hasChip: false, ring: k >= 0 ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', cursor: 'pointer', click: crewToggle(c), hasNum: k >= 0, num: String(k + 1), hasBadge: true, badge: 'Power ' + c.p, label: c.name + ', crew power ' + c.p });
+        return t;
+      }
+      if (enlistEligible(c)) {
+        const on = s.enlist === c.id;
+        Object.assign(t, { ring: on ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', cursor: 'pointer', click: enlistPick(c), hasNum: on, num: '1', hasBadge: true, badge: 'Adds ' + c.p, label: c.name + ', can be tapped for enlist' });
+        return t;
+      }
+      if (d) t.ring = '0 0 0 3px #408abf, 0 12px 26px rgb(0 0 0 / 0.55)';
+      else if (declaring && !c.cant) { t.ring = '0 0 0 2px #f0b45a'; }
+      if (declaring && !c.cant) { t.cursor = 'pointer'; t.click = toggle(c); }
+      if (c.cant) { Object.assign(t, { cursor: 'pointer', click: toggle(c), hasBadge: true, badge: 'Can’t attack', badgeBg: '#1e2125', badgeInk: '#a9adb3' }); }
+      if (c.must) Object.assign(t, { hasBadge: true, badge: 'Must attack', badgeBg: '#f2efe8', badgeInk: '#0b0c0e' });
+      if (tab === 3 && c.id === 'glory' && s.exerted) Object.assign(t, { hasBadge: true, badge: 'Exerted', badgeBg: '#f2efe8', badgeInk: '#0b0c0e' });
+      if (tab === 3 && c.id === 'sky' && s.enlisted) Object.assign(t, { hasBadge: true, badge: 'Enlisted ' + s.enlisted, badgeBg: '#f2efe8', badgeInk: '#0b0c0e' });
+      t.label = c.name + (d ? ', attacking ' + defenders[d].name : '') + (c.must ? ', must attack' : '') + (c.cant ? ', can’t attack' : '');
+      return t;
+    });
+    const arrows = [];
+    tiles.forEach((t, i) => {
+      const d = s.atk[mine[i].id];
+      if (!d || s.crewing) return;
+      const df = defenders[d];
+      const x1 = t.x + 55, y1 = t.y, x2 = df.x + (i - 2) * 10, y2 = df.y;
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, dx = x2 - x1, dy = y2 - y1, dd = Math.hypot(dx, dy) || 1, off = Math.min(60, 0.2 * dd);
+      arrows.push({ d: 'M ' + x1 + ' ' + y1 + ' Q ' + (mx - (dy / dd) * off).toFixed(0) + ' ' + (my + (dx / dd) * off).toFixed(0) + ' ' + x2 + ' ' + y2, ex: x2, ey: y2 });
+    });
+    const count = Object.keys(s.atk).length;
+    const atJules = mine.filter((c) => s.atk[c.id] === 'jules');
+    const tax = atJules.length * 2;
+    const order = ['computer', 'sam', 'jules'];
+    const aimable = (k) => declaring && tab !== 4;
+    const paneTag = (k) => {
+      const n = mine.filter((c) => s.atk[c.id] === k).length;
+      const aimed = s.aim === k;
+      return { label: n ? n + ' attacking' + (aimed ? ', aimed' : '') : aimed ? 'Aimed here' : 'Click to aim', bg: aimed ? '#f2efe8' : n ? '#408abf' : '#1e2125', ink: aimed || n ? '#0b0c0e' : '#a9adb3' };
+    };
+    const panes = [
+      { key: 'computer', name: 'Computer', seat: '#b55af6', x: PX[0], life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), credits: 'Darren Tan', counts: 'Hand 4', lands: '8 lands', hasTax: false, tax: '' },
+      { key: 'sam', name: 'Sam', seat: '#e8bae4', x: PX[1], life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), credits: 'Marta Nael', counts: 'Hand 5', lands: '7 lands', hasTax: false, tax: '' },
+      { key: 'jules', name: 'Jules', seat: '#757a8a', x: PX[2], life: 36, art: A('383d04a073378ede76b3234038a68757'), credits: 'Gintas Galvanauskas, Borja Pindado', counts: 'Hand 2', lands: '7 lands', hasTax: tab === 0, tax: 'Propaganda: {2} for each attacker' }
+    ].map((p) => ({ ...p, on: s.aim === p.key, ring: s.aim === p.key && aimable(p.key) ? '0 0 0 3px #f2efe8' : '0 0 0 1px #2a2e33', cursor: aimable(p.key) ? 'pointer' : 'default', pick: aimable(p.key) ? () => this.setState({ aim: p.key }) : null }));
+    const smalls = [];
+    if (tab === 0) smalls.push({ name: 'Propaganda', art: A('dd63e02b16058dbda20e2a11ca11d977'), x: PX[2] + 352 - 10 - 54, y: 92, s: 54, ring: '0 0 0 1px #2a2e33', cursor: 'default', click: null, hasLoyalty: false, loyalty: '', label: 'Propaganda' });
+    smalls.push({ name: 'Quintorius', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), x: PX[0] + 352 - 10 - 64, y: 128, s: 64, hasLoyalty: true, loyalty: '4',
+      ring: tab === 2 && declaring ? (s.aim === 'quint' ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a') : '0 0 0 1px #2a2e33', cursor: tab === 2 && declaring ? 'pointer' : 'default',
+      click: tab === 2 && declaring ? () => this.setState({ aim: 'quint' }) : null, label: 'Quintorius, History Chaser, Computer’s planeswalker, loyalty 4' });
+    const tabs = ['Attack tax', 'Must and can’t', 'Planeswalker', 'Exert, enlist', 'Crew, saddle'].map((label, i) => ({ label, on: tab === i, bg: tab === i ? '#f2efe8' : 'transparent', ink: tab === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState(this.initial(i)) }));
+    let v = { panelTitle: '', panelOracle: '', panelArt: '', panelArtist: '', hasPanel: false, hasPanelNote: false, panelNote: '', panelNoteInk: '#a9adb3', lines: [], engineLine: '', prompt: '', railTitle: '', railBody: '', primary: '', secondary: '', hasSecondary: true, primaryAct: null, secondaryAct: null, ready: true };
+    if (tab === 0) {
+      const pay = s.step === 'pay';
+      v = { ...v, prompt: pay ? 'Pay the attack tax?' : 'Choose attackers, aimed at ' + defenders[s.aim].name,
+        railTitle: pay ? 'Pay {' + tax + '} for Propaganda?' : 'Declare attackers',
+        railBody: pay ? 'If you don’t pay, the creatures attacking Jules stay home; the others still attack.' : 'Jules’s Propaganda taxes each creature that attacks Jules. The total updates as you aim.',
+        lines: [{ k: 'Attacking Jules', v: atJules.length ? atJules.map((c) => c.name).join(', ') : 'Nobody', ink: '#f2efe8' }, { k: 'Tax to pay', v: '{' + tax + '}', ink: tax ? '#f2efe8' : '#a9adb3' }, { k: 'Untapped mana', v: '9', ink: '#f2efe8' }],
+        hasPanel: pay, panelTitle: 'Propaganda: pay {' + tax + '}?', panelOracle: 'Creatures can’t attack you unless their controller pays {2} for each creature they control that’s attacking you.', panelArt: A('dd63e02b16058dbda20e2a11ca11d977'), panelArtist: 'Borja Pindado, © Wizards of the Coast',
+        engineLine: pay ? 'CombatTaxPayment: total_cost and per_creature come from the engine.' : 'DeclareAttackers, then CombatTaxPayment if any taxed attacker is declared.',
+        primary: pay ? 'Pay {' + tax + '}' : count ? 'Attack (' + count + ')' : 'No attacks', secondary: pay ? 'Don’t pay' : 'Clear',
+        primaryAct: () => this.setState((st) => st.step === 'declare' && tax ? { step: 'pay' } : null),
+        secondaryAct: () => this.setState((st) => st.step === 'pay' ? { step: 'declare' } : { atk: {} }) };
+    }
+    if (tab === 1) {
+      v = { ...v, prompt: 'Choose attackers, aimed at ' + defenders[s.aim].name,
+        railTitle: 'Declare attackers', railBody: 'The Goblin token from Legion Warboss attacks this combat if able. Recruiter of the Guard came in this turn.',
+        lines: [{ k: 'Must attack', v: 'Goblin token', ink: '#f2efe8' }, { k: 'Can’t attack', v: 'Recruiter of the Guard', ink: '#a9adb3' }],
+        engineLine: 'attacker_constraints (MustAttack) gives the badge; a creature with no legal defender in valid_attack_targets_by_attacker can’t attack.',
+        primary: 'Attack (' + count + ')', secondary: 'Clear (keeps the Goblin)',
+        secondaryAct: () => this.setState({ atk: { goblin: s.atk.goblin || 'sam' }, warn: '' }) };
+    }
+    if (tab === 2) {
+      v = { ...v, prompt: 'Choose attackers, aimed at ' + defenders[s.aim].name,
+        railTitle: 'Declare attackers', railBody: 'Planeswalkers are defenders too. Click Quintorius to aim at it; its loyalty shows on the tile. Battles work the same way.',
+        lines: Object.entries(s.atk).map(([id, d]) => ({ k: mine.find((c) => c.id === id).name, v: '→ ' + defenders[d].name, ink: '#f2efe8' })),
+        engineLine: 'valid_attack_targets_by_attacker lists players, planeswalkers and battles for each creature.',
+        primary: count ? 'Attack (' + count + ')' : 'No attacks', secondary: 'Clear', secondaryAct: () => this.setState({ atk: {} }) };
+    }
+    if (tab === 3) {
+      const step = s.step;
+      v = { ...v, prompt: step === 'declare' ? 'Choose attackers' : step === 'exert' ? 'Exert Glorybringer?' : step === 'enlist' ? 'Enlist for Coalition Skyknight?' : 'Attackers declared',
+        railTitle: step === 'declare' ? 'Declare attackers' : step === 'exert' ? 'Exert Glorybringer?' : step === 'enlist' ? 'Enlist?' : 'Attacking',
+        railBody: step === 'declare' ? 'Exert and enlist are asked one creature at a time, after you confirm.' : step === 'exert' ? 'Asked as it attacks. Its trigger then asks for a target.' : step === 'enlist' ? 'Pick a nonattacking creature to tap, or don’t enlist.' : 'Exert and enlist are settled. Opponents now block.',
+        hasPanel: step === 'exert' || step === 'enlist',
+        panelTitle: step === 'exert' ? 'Exert Glorybringer as it attacks?' : 'Enlist: tap a creature for Coalition Skyknight?',
+        panelOracle: step === 'exert' ? 'You may exert this creature as it attacks. When you do, it deals 4 damage to target non-Dragon creature an opponent controls. (An exerted creature won’t untap during your next untap step.)' : 'Enlist (As this creature attacks, you may tap a nonattacking creature you control without summoning sickness. When you do, add its power to this creature’s until end of turn.)',
+        panelArt: step === 'exert' ? A('ac325a8fc15928266dccf109ca4d9790') : A('8dca41857d1bea362ed716a1d3308057'), panelArtist: (step === 'exert' ? 'Sam Burley' : 'Aaron Miller') + ', © Wizards of the Coast',
+        hasPanelNote: step === 'enlist', panelNote: s.enlist ? 'Tapping ' + mine.find((c) => c.id === s.enlist).name + '.' : 'Amber creatures can be tapped.',
+        lines: [{ k: 'Glorybringer', v: s.exerted ? 'Exerted' : step === 'declare' || step === 'exert' ? 'Not asked yet' : 'Not exerted', ink: '#f2efe8' }, { k: 'Coalition Skyknight', v: s.enlisted ? 'Enlisted ' + s.enlisted : step === 'done' ? 'No enlist' : 'Not asked yet', ink: '#f2efe8' }],
+        engineLine: 'ExertChoice then EnlistChoice, one attacker at a time; enlist offers the engine’s eligible list.',
+        primary: step === 'declare' ? 'Attack (' + count + ')' : step === 'exert' ? 'Exert' : step === 'enlist' ? (s.enlist ? 'Enlist ' + mine.find((c) => c.id === s.enlist).name : 'Choose a creature') : 'Waiting for blockers',
+        secondary: step === 'declare' ? 'Clear' : step === 'exert' ? 'Don’t exert' : step === 'enlist' ? 'Don’t enlist' : '', hasSecondary: step !== 'done',
+        ready: !(step === 'enlist' && !s.enlist) && step !== 'done',
+        primaryAct: () => this.setState((st) => st.step === 'declare' ? { step: 'exert' } : st.step === 'exert' ? { step: 'enlist', exerted: true } : st.step === 'enlist' && st.enlist ? { step: 'done', enlisted: mine.find((c) => c.id === st.enlist).name } : null),
+        secondaryAct: () => this.setState((st) => st.step === 'declare' ? { atk: {} } : st.step === 'exert' ? { step: 'enlist', exerted: false } : st.step === 'enlist' ? { step: 'done', enlist: null } : null) };
+    }
+    if (tab === 4) {
+      const enough = crewPower >= 3;
+      v = { ...v, prompt: s.crewing ? 'Crew Skysovereign: tap power 3 or more' : s.crewed ? 'Skysovereign is crewed' : 'Choose attackers',
+        railTitle: s.crewing ? 'Crew 3' : s.crewed ? 'Skysovereign can attack' : 'Declare attackers',
+        railBody: s.crewing ? 'Pick creatures to tap. The engine gives each one’s crew power; the total must reach 3.' : s.crewed ? 'It’s an artifact creature until end of turn. Aim it like any attacker.' : 'Click Skysovereign to crew it before you attack.',
+        hasPanel: s.crewing, panelTitle: 'Crew 3: ' + crewPower + ' of 3 power chosen', panelOracle: 'Crew 3 (Tap any number of creatures you control with total power 3 or more: This Vehicle becomes an artifact creature until end of turn.)', panelArt: A('be98cd803d3b52950b5297ae2b055fb4'), panelArtist: 'Jung Park, © Wizards of the Coast',
+        hasPanelNote: s.crewing && crewPower > 3, panelNote: 'More than needed. That’s allowed; the extra creatures tap too.', panelNoteInk: '#a9adb3',
+        lines: s.crewing ? [{ k: 'Power chosen', v: crewPower + ' of 3', ink: enough ? '#8fd3a8' : '#f2efe8' }] : [],
+        engineLine: 'CrewVehicle gives crew_power, eligible_creatures and each creature’s contribution. Saddle (SaddleMount) uses the same widget with saddle_power.',
+        primary: s.crewing ? (enough ? 'Crew (' + s.crew.length + ' tapped)' : crewPower + ' of 3 power') : count ? 'Attack (' + count + ')' : 'No attacks',
+        secondary: s.crewing ? 'Cancel' : 'Clear', ready: !s.crewing || enough,
+        primaryAct: () => this.setState((st) => st.crewing && crewPower >= 3 ? { crewing: false, crewed: true, crew: [] } : null),
+        secondaryAct: () => this.setState((st) => st.crewing ? { crewing: false, crew: [] } : { atk: {} }) };
+    }
+    const paneTags = order.map((k) => ({ x: defenders[k].x, ...paneTag(k) }));
+    return {
+      ...v, tabs, panes, paneTags, smalls, tiles, arrows, myCredits: credits[tab],
+      count: s.crewing ? crewPower + ' of 3' : count + ' attacking',
+      hasWarn: !!s.warn, warn: s.warn,
+      hasVehicle: tab === 4,
+      vehicleRing: s.crewed ? '0 0 0 3px #f2efe8' : s.crewing ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a',
+      vehicleBadge: s.crewed ? 'Crewed' : 'Crew 3', vehicleBadgeBg: s.crewed || s.crewing ? '#f2efe8' : '#f0b45a',
+      startCrew: () => this.setState((st) => st.crewed ? null : { crewing: true, crew: [] }),
+      primaryBg: v.ready ? '#f2efe8' : '#1e2125', primaryInk: v.ready ? '#0b0c0e' : '#a9adb3'
+    };
+  }
+}
+</script>
+</body>
+</html>
