@@ -75,6 +75,15 @@ fn only_whitelisted_answers_parse() {
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_target","target":{"kind":"player","seat":1}}}"#));
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"distribute_among","distribution":[[{"kind":"object","id":7},2]]}}"#));
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"cancel_cast"}}"#));
+    // Answers the engine remembers, and soulbond.
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"decide_optional_effect_and_remember","accept":true}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_replacement_and_remember","choice":{"type":"order","order":[1,0]}}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_replacement_and_remember","choice":{"type":"optional","index":0}}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_pair","partner":12}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_pair","partner":null}}"#));
+    // Only the remembering forms the whitelist spells: not the engine's own preference actions.
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"set_may_trigger_auto_choice","op":{}}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_replacement_and_remember","choice":{"type":"forget"}}}"#));
     // Nothing outside the whitelist can be spelled: not a debug action, not a pass, not an
     // engine action in its own serialized form.
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"debug","action":{}}}"#));

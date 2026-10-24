@@ -237,18 +237,14 @@
 .opp-tab.aimed::after {
   box-shadow: inset 0 0 0 3px var(--pick);
 }
-/* Picking for a choice (Chooser.tsx): an amber ring on what you may pick; a white ring and its
+/* Picking for a choice (Decide.tsx): an amber ring on what you may pick; a white ring and its
    number on what you've picked. */
 .ft.pick,
-.hc.pick,
-.zone-pick.pick,
-.chooser-row.pick {
+.hc.pick {
   box-shadow: 0 0 0 2px var(--pick);
 }
 .ft.picked,
-.hc.picked,
-.zone-pick.picked,
-.chooser-row.picked {
+.hc.picked {
   box-shadow: 0 0 0 3px var(--text);
 }
 .hc.picked {
@@ -2338,8 +2334,8 @@ body.pb-dragging .pb-preview {
   animation: none;
 }
 
-/* The plain chooser for decisions answered in full (Chooser.tsx). The polished widgets come from
-   design/screens/GYesNo, GPickN, GOrder, GSplit, GNumber and GName. */
+/* The decision widgets (Decide.tsx; design/screens GYesNo, GPickN, GOrder, GSplit, GNumber,
+   GName, GPairUp and batch 1's GScry, GSearch, GTriggers, GModes, GDamage). The rail's part: */
 .chooser {
   display: flex;
   flex-direction: column;
@@ -2376,191 +2372,1349 @@ body.pb-dragging .pb-preview {
   font-size: 14px;
   font-weight: 700;
 }
-.chooser-list li {
-  position: relative;
-}
-.chooser-row {
-  position: relative;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 44px;
-  padding: 6px 12px;
-  border-radius: 12px;
-  background: var(--surface);
-  text-align: left;
-  font-weight: 400;
-}
-.chooser-row .row-text b {
-  white-space: normal;
-}
-.chooser-row .pick-badge {
-  position: static;
-  box-shadow: none;
-}
-.order-row {
-  display: grid;
-  grid-template-columns: 22px 40px minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 8px;
-  border-radius: 12px;
-  background: var(--surface);
-}
-.order-row .pick-badge {
-  position: static;
-  box-shadow: none;
-}
-.order-row img {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  object-fit: cover;
-}
-.order-row .row-text b,
-.order-row .row-text span {
-  white-space: normal;
-}
-.order-edge {
-  font-weight: 700;
-  color: var(--text) !important;
-}
-.order-moves {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.order-moves button {
-  min-height: 28px;
-  padding: 0 10px;
-}
-.split-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 8px 6px 12px;
-  border-radius: 12px;
-  background: var(--surface);
-}
-.stepper {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.stepper button {
-  min-width: 36px;
-  min-height: 36px;
-  padding: 0;
-}
-.stepper b {
-  min-width: 2ch;
-  text-align: center;
-  font: 700 22px/1 var(--display);
-}
-.stepper.big input {
-  width: 5ch;
-  text-align: center;
-  font: 700 28px/1 var(--display);
-}
-.number-pick {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-}
-.text-pick {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.text-pick .picked {
-  box-shadow: inset 0 0 0 2px var(--text);
-}
-/* The zone view: cards that aren't on the board (the top of your library, a search), over the
-   table on a laptop and as a strip in the dock on a phone. */
-.chooser-zone {
-  position: fixed;
-  z-index: 25;
-  left: 24px;
-  right: 364px;
-  top: 96px;
-  max-height: calc(100dvh - 300px);
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-  border-radius: var(--r-panel);
-  background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line), 0 24px 60px rgb(0 0 0 / 0.6);
-}
-.chooser-zone header {
+.dw-rail-left {
+  margin: 0;
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
+  color: var(--dim);
+  font-size: 13px;
 }
-.chooser-zone p {
-  margin: 0;
+.dw-rail-left b,
+.dw-left b {
+  font: 800 56px/1 var(--display);
+  color: var(--text);
 }
-.chooser-cards {
+.dw-rail-left b.done,
+.dw-left b.done {
+  color: var(--good);
+}
+
+/* Where they sit: a dialog over the table (the rail stays live beside it), a strip over the live
+   board for a "may", and on a phone the dock grown into a sheet. */
+.dw-overlay {
+  position: fixed;
+  z-index: 25;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  right: 340px;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 0.6);
+}
+.dw-dialog {
+  width: min(1020px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 22px;
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line);
+  scrollbar-width: thin;
+}
+.dw-dialog.mid {
+  width: min(820px, 100%);
+}
+.dw-dialog.narrow {
+  width: min(760px, 100%);
+}
+.dw-strip-wrap {
+  position: fixed;
+  z-index: 24;
+  left: 0;
+  right: 340px;
+  top: 30%;
   display: flex;
-  flex-wrap: wrap;
+  justify-content: center;
+  padding: 0 24px;
+  pointer-events: none;
+}
+.dw-strip-wrap > * {
+  pointer-events: auto;
+}
+
+/* Shared pieces: the heading, credits, tags, counters, notes. */
+.dw-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 16px;
-  padding: 10px 6px 6px;
+  align-items: center;
 }
-.zone-pick {
-  position: relative;
-  flex: 0 0 auto;
-  width: 168px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
+.dw-head > .dw-head-text:first-child {
+  grid-column: 1 / 3;
 }
-.zone-pick:hover {
-  background: transparent;
-}
-.zone-pick img,
-.zone-pick .hc-name {
-  display: block;
-  width: 100%;
-  aspect-ratio: 488 / 680;
-  border-radius: var(--card-radius);
+.dw-head-art {
+  width: 90px;
+  height: 66px;
+  border-radius: 12px;
   object-fit: cover;
   background: var(--raised);
 }
-.zone-pick .hc-name {
+.dw-head.image .dw-head-art,
+.dw-head.image .dw-row-img {
+  width: 96px;
+  height: auto;
+  border-radius: var(--card-radius);
+}
+.dw-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.dw-head-text h2 {
+  margin: 0;
+  font: 800 34px/1 var(--display);
+}
+.dw-source-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 4px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.dw-oracle {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--dim);
+  white-space: pre-line;
+}
+.dw-oracle.wide,
+.dw-credit.wide {
+  grid-column: 1 / -1;
+}
+.dw-count {
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.dw-credit {
+  font-size: 11px;
+  color: var(--dim);
+}
+.dw-note,
+.dw-foot {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dim);
+}
+.dw-foot {
+  margin-top: 4px;
+}
+.dw-empty {
+  margin: 24px auto;
+  color: var(--dim);
+  font-size: 14px;
+  text-align: center;
+}
+.dw-tag {
+  align-self: center;
+  padding: 1px 10px;
+  border-radius: var(--r-pill);
+  background: var(--line);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.dw-tag.first {
+  background: var(--text);
+  color: var(--ground);
+}
+/* Green only reports a result good for you; your own creature dying is a warning. */
+.dw-tag.good {
+  background: var(--good);
+  color: var(--ground);
+}
+.dw-tag.bad {
+  background: var(--bad);
+  color: var(--ground);
+}
+.dw-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+}
+.dw-seg button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  font-size: 13px;
+}
+.dw-seg button.on {
+  background: var(--text);
+  color: var(--ground);
+}
+.dw-arrows {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.dw-arrows.col {
+  flex-direction: column;
+  gap: 4px;
+}
+.dw-arrows button {
+  min-width: 44px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+}
+.dw-grip-wrap {
   display: grid;
   place-items: center;
+  padding: 6px;
+  cursor: grab;
+  touch-action: none;
+}
+.dw-grip {
+  display: grid;
+  gap: 4px;
+}
+.dw-grip span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+.dw-row-img {
+  display: block;
+  border-radius: var(--card-radius);
+  object-fit: cover;
+}
+.dw-row-img.blank {
+  background: var(--raised);
+}
+
+/* A whole card to pick: amber ring when you may, white ring, a lift and its number once picked.
+   Its image is never faded, even while the answer is on its way. */
+.dw-card {
+  position: relative;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  transition: transform 140ms, box-shadow 140ms;
+}
+.dw-card:hover {
+  background: transparent;
+}
+.dw-card img,
+.dw-card .dw-card-name {
+  display: block;
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--raised);
+}
+.dw-card-name {
+  display: grid !important;
+  place-items: center;
   padding: 8px;
-  color: var(--text);
   font-size: var(--t-sm);
+  text-align: center;
 }
-.zone-pick.picked {
-  transform: translateY(-6px);
+.dw-card.pick {
+  box-shadow: 0 0 0 2px var(--pick);
 }
-/* A card you can't pick, or one waiting on the server, is never faded: only its ring changes. */
-.zone-pick:disabled,
-.zone-pick:disabled:hover {
+.dw-card.picked {
+  box-shadow: 0 0 0 3px var(--text), 0 16px 34px rgb(0 0 0 / 0.6);
+  transform: translateY(-8px);
+}
+.dw-card .pick-badge {
+  left: auto;
+  right: -8px;
+  box-shadow: 0 0 0 3px var(--surface);
+}
+.dw-card:disabled,
+.dw-card:disabled:hover,
+.dw-pile-img:disabled,
+.dw-replace-row:disabled {
   opacity: 1;
-  cursor: default;
 }
-.chooser-zone.compact {
-  position: static;
-  max-height: none;
+
+/* Yes or no (GYesNo): a strip over the live board; the rail's buttons answer it. */
+.dw-strip {
+  width: min(780px, 100%);
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: var(--ground);
+  box-shadow: 0 0 0 2px var(--text), 0 24px 60px rgb(0 0 0 / 0.75);
+}
+.dw-strip:not(:has(.dw-strip-art)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dw-strip-art {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dw-strip-art img {
+  width: 112px;
+  height: 82px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+.dw-strip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.dw-question {
+  font: 800 32px/1.05 var(--display);
+}
+.dw-remember {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.dw-remember-label {
+  font-size: 13px;
+  color: var(--dim);
+}
+
+/* Pick N in a zone (GPickN, GSearch, GChoices). */
+.dw-zone,
+.dw-scry,
+.dw-order,
+.dw-triggers,
+.dw-split,
+.dw-name,
+.dw-modes,
+.dw-replace,
+.dw-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.dw-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: center;
+}
+.dw-chip {
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 13px;
+}
+.dw-qualify {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--dim);
+}
+.dw-filter {
+  min-height: 44px;
+  border-radius: var(--r-pill);
+}
+.dw-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(146px, 1fr));
+  gap: 18px 18px;
+  padding: 10px 4px 4px;
+}
+.dw-others summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--dim);
+}
+.dw-others p {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--dim);
+}
+
+/* Scry and surveil (GScry): what stays on top, left drawn first, and what goes away. */
+.dw-piles {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.dw-pile {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 360px;
+  padding: 14px;
+  border-radius: 18px;
+}
+.dw-pile.top {
+  background: var(--raised);
+}
+.dw-pile.away {
+  background: var(--ground);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.dw-pile header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dw-pile header span {
+  font-size: 13px;
+  color: var(--dim);
+}
+.dw-pile-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-start;
+}
+.dw-pile-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.dw-pile-img {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  width: 180px;
+}
+.dw-pile-img:hover {
+  background: transparent;
+}
+.dw-pile-img.small {
+  width: 132px;
+}
+.dw-pile-img img,
+.dw-pile-img .dw-card-name {
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: 10px;
+  box-shadow: 0 14px 30px rgb(0 0 0 / 0.5);
+  background: var(--raised);
+}
+.dw-pile-card .dw-arrows button {
+  font-size: 13px;
+}
+.dw-pile-cards.many {
+  gap: 10px;
+}
+.dw-pile-cards.many .dw-pile-img {
+  width: 116px;
+}
+.dw-pile-cards.many .dw-arrows button {
+  min-width: 40px;
+}
+.dw-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--dim);
+}
+.dw-summary {
+  margin: 0;
+  font-size: 14px;
+  color: var(--dim);
+}
+
+/* Put in order (GOrder): left to right is the order sent; the library edge it goes to beside it. */
+.dw-order-body {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.dw-edge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding-top: 30px;
+  font-size: 12px;
+  color: var(--dim);
+  text-align: center;
+}
+.dw-edge-pile {
+  position: relative;
+  width: 84px;
+  height: 116px;
+  border-radius: 6px;
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line), 4px 4px 0 var(--ground), 4px 4px 0 1px var(--line), 8px 8px 0 var(--ground), 8px 8px 0 1px var(--line);
+}
+.dw-edge.bottom .dw-edge-pile {
+  order: -1;
+}
+.dw-edge-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--text);
+}
+.dw-edge.top .dw-edge-line {
+  top: -8px;
+}
+.dw-edge.bottom .dw-edge-line {
+  bottom: -14px;
+}
+.dw-order-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+}
+.dw-order-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.dw-order-card {
+  position: relative;
+  display: block;
+  width: 180px;
+  border-radius: 9px;
+  box-shadow: 0 0 0 3px var(--text);
+  cursor: grab;
+  touch-action: none;
+}
+.dw-order-card .dw-row-img {
+  width: 100%;
+  aspect-ratio: 488 / 680;
+}
+.dw-order-card .pick-badge {
+  top: -10px;
+  left: -10px;
+  min-width: 28px;
+  height: 28px;
+  font-size: 14px;
+  box-shadow: 0 0 0 3px var(--surface);
+}
+
+/* Triggers in order (GTriggers): the top one resolves first. */
+.dw-trigger-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dw-trigger {
+  display: grid;
+  grid-template-columns: 28px 30px 96px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--raised);
+}
+.dw-trigger-n {
+  font: 800 28px/1 var(--display);
+  text-align: center;
+}
+.dw-trigger .dw-row-img {
+  width: 96px;
+  height: 68px;
+  border-radius: 10px;
+}
+.dw-trigger-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.3;
+  min-width: 0;
+}
+.dw-trigger-text > span:not(.dw-credit) {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--dim);
+}
+
+/* Split a number (GSplit, GDamage): rows of steppers, or steppers on the targets themselves. */
+.dw-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1;
+}
+.dw-left span {
+  font-size: 13px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.dw-split-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dw-split-row {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) auto auto;
+  gap: 16px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--raised);
+}
+.dw-split-art {
+  position: relative;
+  width: 68px;
+  height: 60px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--ground);
+}
+.dw-split-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.dw-split-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  min-width: 0;
+}
+.dw-split-text > span:not(.dw-tag) {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--dim);
+}
+.dw-split-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dw-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dw-stepper button {
+  width: 44px;
+  height: 44px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--ground);
+  font-size: 20px;
+}
+.dw-stepper output {
+  min-width: 44px;
+  text-align: center;
+  font: 800 34px/1 var(--display);
+}
+/* On a target: a white pill above the tile (GTargetsMore), its lethal hint under it. */
+.dw-steppers {
+  position: fixed;
+  inset: 0;
+  z-index: 22;
+  pointer-events: none;
+}
+.dw-mark {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+}
+.dw-mark[hidden] {
+  display: none;
+}
+.dw-mark .dw-stepper {
+  pointer-events: auto;
+  transform: translateY(-62%);
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  color: var(--ground);
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.6);
+}
+.dw-mark .dw-stepper button {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  color: var(--ground);
+  font-size: 18px;
+  font-weight: 800;
+}
+.dw-mark .dw-stepper button:disabled {
+  color: var(--dim);
+  opacity: 1;
+}
+.dw-mark .dw-stepper output {
+  min-width: 22px;
+  font-size: 22px;
+}
+.dw-mark .dw-tag {
+  transform: translateY(45%);
+  box-shadow: 0 0 0 2px var(--ground);
+}
+.dw-mark.seat {
+  justify-content: flex-end;
+}
+.dw-mark.seat .dw-stepper {
+  transform: translateY(40%);
+}
+.dw-mark.seat .dw-tag {
+  display: none;
+}
+.opp-pane.chosen::after {
+  box-shadow: inset 0 0 0 3px var(--text);
+}
+
+/* A number (GNumber), and X with its cost (GModes). */
+.dw-number {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 24px;
+}
+.dw-number:not(:has(.dw-number-card)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dw-number-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dw-number-card .dw-row-img {
+  width: 220px;
+}
+.dw-number-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.dw-big-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--raised);
+}
+.dw-big-stepper button {
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--ground);
+  font-size: 26px;
+}
+.dw-big-stepper output {
+  width: 120px;
+  text-align: center;
+  font: 800 84px/1 var(--display);
+}
+.dw-keys {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.dw-keys button {
+  min-height: 52px;
+  border-radius: 14px;
+  background: transparent;
+  font: 800 26px/1 var(--display);
+}
+.dw-keys button.pick {
+  box-shadow: inset 0 0 0 2px var(--pick);
+}
+.dw-keys button.on {
+  background: var(--text);
+  color: var(--ground);
+}
+.dw-x {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--raised);
+}
+.dw-x-label {
+  display: flex;
+  flex-direction: column;
+}
+.dw-x-label span {
+  font-size: 13px;
+  color: var(--dim);
+}
+.dw-x-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dw-x-controls .dw-stepper output {
+  min-width: 64px;
+  font-size: 46px;
+}
+.dw-cost {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 4px;
+  font-size: 14px;
+  color: var(--dim);
+}
+.dw-cost b {
+  font: 800 30px/1 var(--display);
+  color: var(--text);
+}
+.dw-max {
+  align-self: flex-start;
+}
+
+/* A name (GName): typed with matches, cards in play first, and a preview of the highlighted one. */
+.dw-name-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 24px;
+}
+.dw-name-grid:not(:has(.dw-name-preview)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dw-name-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.dw-name-input {
+  min-height: 50px;
+  font-size: 18px;
+  font-weight: 700;
+  background: var(--ground);
+  box-shadow: inset 0 0 0 2px var(--text);
+}
+.dw-name-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 46dvh;
+  overflow: auto;
+  padding: 3px;
+}
+.dw-name-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+}
+.dw-name-row:not(:has(.dw-swatch)) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.dw-name-row.pick {
+  box-shadow: 0 0 0 1px var(--pick);
+}
+.dw-name-row.hi {
+  background: var(--raised);
+}
+.dw-name-row.picked {
+  background: var(--raised);
+  box-shadow: 0 0 0 2px var(--text);
+}
+.dw-where {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--dim);
+}
+.dw-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.15);
+}
+.dw-name-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dw-name-preview img,
+.dw-name-blank {
+  width: 260px;
+  height: 190px;
+  border-radius: 14px;
+  object-fit: cover;
+}
+.dw-name-blank {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--raised);
+  font-size: 13px;
+  color: var(--dim);
+  text-align: center;
+}
+
+/* Modes (GModes): radios for one, checkboxes for several; amber can be chosen, white is chosen. */
+.dw-mode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dw-mode {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 14px;
+  background: transparent;
+  text-align: left;
+  font-weight: 400;
+  font-size: 16px;
+}
+.dw-mode.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-mode.picked {
+  background: var(--raised);
+  box-shadow: 0 0 0 2px var(--text);
+}
+.dw-mark-box {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 2px var(--line);
+  color: var(--ground);
+  font-size: 14px;
+  font-weight: 800;
+}
+.dw-mode.multi .dw-mark-box {
+  border-radius: 6px;
+}
+.dw-mode.pick .dw-mark-box {
+  box-shadow: inset 0 0 0 2px var(--pick);
+}
+.dw-mode.picked .dw-mark-box {
+  background: var(--text);
+  box-shadow: none;
+}
+.dw-mode-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dw-mode .pick-badge {
+  left: auto;
+  right: -8px;
+}
+
+/* Replacement effects (GReplace), and soulbond (GPairUp) on a phone. */
+.dw-replace-list,
+.dw-pair-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dw-replace-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 16px;
+  background: transparent;
+  text-align: left;
+  font-weight: 400;
+}
+.dw-replace-row:not(:has(img)) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.dw-replace-row img {
+  width: 110px;
+  border-radius: var(--card-radius);
+}
+.dw-replace-row.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-replace-row.picked {
+  background: var(--raised);
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-replace-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.35;
+}
+.dw-replace-text span {
+  font-size: 14px;
+  color: var(--dim);
+}
+.dw-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.dw-check input {
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+}
+.dw-pair-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 60px;
+  padding: 4px 14px 4px 4px;
+  border-radius: 14px;
+  background: var(--raised);
+  text-align: left;
+}
+.dw-pair-row.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-pair-row.picked {
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-pair-art {
+  width: 56px;
+  height: 52px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--ground);
+}
+.dw-pair-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.dw-pair-row .pick-badge {
+  left: auto;
+  right: -8px;
+}
+
+/* The status pill while you pick on the board or split onto targets (GPickN, GTargetsMore). */
+.dw-banner {
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 5px 6px 5px 6px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  color: var(--ground);
+  font-weight: 800;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.5);
+  white-space: nowrap;
+}
+.dw-banner img {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.dw-banner > span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dw-banner-count {
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--ground);
+  color: var(--text);
+  font-size: 13px;
+}
+
+/* A phone: the dock grows into a sheet over a dimmed board, its buttons at the bottom. A "may"
+   keeps the board in view above a shorter dock. */
+.pb.phone.sheet-open::before,
+.pb.phone.strip-open::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 26;
+  background: rgb(0 0 0 / 0.65);
+  pointer-events: none;
+}
+.pb.phone.strip-open::before {
+  background: rgb(0 0 0 / 0.35);
+}
+.pb.phone.sheet-open .pb-dock {
+  position: fixed;
+  z-index: 27;
+  inset: 40px 0 0 0;
+  margin: 0;
+  border-radius: 24px 24px 0 0;
+}
+.pb.phone.strip-open .pb-dock {
+  position: relative;
+  z-index: 27;
+}
+.pb.phone.sheet-open .hand-peek,
+.pb.phone.sheet-open .dock-links,
+.pb.phone.strip-open .hand-peek {
+  display: none;
+}
+.dock-sheet {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 4px 2px 0;
+}
+.pb.phone.strip-open .dock-sheet {
+  max-height: 46dvh;
+}
+.dw-zone.compact .dw-cards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 10px;
+}
+.compact .dw-head {
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 10px;
+}
+.compact .dw-head > .dw-head-text:first-child {
+  grid-column: 1 / 3;
+}
+.compact .dw-head-art {
+  width: 52px;
+  height: 40px;
+  border-radius: 8px;
+}
+.compact .dw-head-text h2 {
+  font-size: 22px;
+}
+.compact .dw-oracle {
+  font-size: 12px;
+}
+.compact .dw-count {
+  font-size: 12px;
+  padding: 2px 10px;
+}
+.dw-strip.compact {
+  width: auto;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
   padding: 0;
   background: none;
   box-shadow: none;
 }
-.chooser-zone.compact .chooser-cards {
+.dw-strip.compact .dw-strip-art img {
+  width: 64px;
+  height: 48px;
+  border-radius: 10px;
+}
+.dw-strip.compact .dw-question {
+  font: 700 18px/1.2 var(--body);
+}
+.dw-strip.compact .dw-remember .dw-seg {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: 100%;
+  background: var(--ground);
+}
+.dw-strip.compact .dw-remember .dw-seg button {
+  min-height: 40px;
+  padding: 0 6px;
+}
+/* GScryPhone: one row per card, so any number of cards fits at 390 px. */
+.dw-scry-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dw-scry-rows li {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 14px;
+}
+.dw-scry-rows li.on {
+  background: var(--raised);
+}
+.dw-scry-rows .dw-row-img {
+  width: 62px;
+  aspect-ratio: 488 / 680;
+}
+.dw-scry-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.dw-scry-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+}
+.dw-scry-row-head b {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dw-scry-row-head span {
+  font-size: 12px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.dw-scry-row-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dw-scry-row-controls .dw-seg {
+  background: var(--ground);
+}
+.dw-scry-row-controls .dw-seg button {
+  min-height: 36px;
+  padding: 0 12px;
+}
+.dw-scry-row-controls .dw-arrows {
+  margin-left: auto;
+}
+.dw-scry-row-controls .dw-arrows button {
+  min-width: 40px;
+}
+/* GOrderPhone, GTriggers on a phone: rows top to bottom. */
+.dw-order.compact .dw-order-body {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.dw-order.compact .dw-edge {
+  flex-direction: row;
+  padding: 0;
+  font-weight: 700;
+  color: var(--text);
+}
+.dw-order.compact .dw-edge-pile {
+  display: none;
+}
+.dw-order.compact .dw-order-list {
+  flex-direction: column;
   flex-wrap: nowrap;
-  overflow-x: auto;
+  gap: 8px;
+}
+.dw-order.compact .dw-order-item {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr) auto;
+  grid-template-areas: "card name arrows" "card tag arrows";
+  gap: 2px 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--raised);
+}
+.dw-order.compact .dw-order-card {
+  grid-area: card;
+  width: 70px;
+  border-radius: 4px;
+  box-shadow: none;
+}
+.dw-order.compact .dw-order-name {
+  grid-area: name;
+  font-size: 14px;
+}
+.dw-order.compact .dw-tag {
+  grid-area: tag;
+  justify-self: start;
+}
+.dw-order.compact .dw-arrows {
+  grid-area: arrows;
+  flex-direction: column;
+  gap: 4px;
+}
+.dw-triggers.compact .dw-trigger {
+  grid-template-columns: 22px 64px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 8px;
+}
+.dw-triggers.compact .dw-grip-wrap {
+  display: none;
+}
+.dw-triggers.compact .dw-trigger .dw-row-img {
+  width: 64px;
+  height: 48px;
+}
+.dw-triggers.compact .dw-trigger-n {
+  font-size: 22px;
+}
+.dw-split.compact .dw-split-row {
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
 }
-.chooser-zone.compact .zone-pick {
-  width: 104px;
+.dw-split.compact .dw-split-text .dw-tag {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.dw-split.compact .dw-stepper button {
+  width: 48px;
+  height: 48px;
+}
+.dw-split.compact .dw-left b {
+  font-size: 34px;
+}
+.dw-number.compact .dw-big-stepper output {
+  width: 96px;
+  font-size: 64px;
+}
+.dw-number.compact .dw-big-stepper button {
+  width: 52px;
+  height: 52px;
+}
+.dw-modes.compact .dw-head.image .dw-row-img {
+  width: 64px;
+}
+.dw-modes.compact .dw-mode {
+  padding: 12px;
+  font-size: 15px;
+}
+.dw-name.compact .dw-name-list {
+  max-height: none;
+}
+@media (max-width: 999px) {
+  .dw-piles {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

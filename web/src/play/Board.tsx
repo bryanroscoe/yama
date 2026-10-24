@@ -42,20 +42,22 @@ import {
   stopText,
   turnOrder,
   previewPlace,
+  isLand,
+  stackPermanents,
   type Pile,
   type SeatTone,
   type StopMap,
 } from "./model";
 import { promptText, shortName } from "./text";
 import { COLOR_NAME, counterName, FieldTile, HandCard, ManaDot, type TileHandlers, type TileLook } from "./Tiles";
-import type { Act, AttackAt, CardMeta, CardView, Decision, OptionView, PlayerView, SeatInfo, ServerMessage, View, WatchStatus } from "./types";
+import type { Act, AttackAt, CardMeta, CardView, Decision, OptionView, Pending, PlayerView, SeatInfo, ServerMessage, View, WatchStatus } from "./types";
 import { WatchControls, type WatchMessage } from "./WatchControls";
 import { seatLabel, seatName } from "./watch";
 import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayLine, readDrop, targetDrop, targetIndex, type Point } from "./drag";
 import { DragLayer, PlanArrows, seatHeadOf, tileOf, type ArrowTone, type DragLayerHandle, type PlanArrow } from "./DragLayer";
 import { MotionContext, Tick, useBoardMotion, type MotionOptions } from "./BoardMotion";
-import { ChooserBody, ChooserZone } from "./Chooser";
-import { buttons as chooserButtons, changed as draftChanged, chooserCovers, initialDraft, onBoard as pickOnBoard, ready as draftReady, toAct, togglePick, type Draft } from "./answer";
+import { DecisionRail, DecisionStage, PickBanner, SplitSteppers, type WidgetContext } from "./Decide";
+import { buttons as chooserButtons, changed as draftChanged, chooserCovers, initialDraft, noneAct, ready as draftReady, stageOf, toAct, togglePick, type Draft } from "./answer";
 import { motionScale } from "./motion";
 import "./board.css";
 
@@ -205,7 +207,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const [defender, setDefender] = useState<AttackAt | null>(null);
   const [blockPlan, setBlockPlan] = useState<Map<number, number>>(new Map());
   const [pendingBlocker, setPendingBlocker] = useState<number | null>(null);
-  // The answer being put together for a decision `act` answers (Chooser.tsx), kept with the
+  // The answer being put together for a decision `act` answers (Decide.tsx), kept with the
   // decision it's for, so a new board that leaves that decision alone keeps it (PP-06).
   const [draftState, setDraftState] = useState<{ key: number; draft: Draft } | null>(null);
   // A choice is on its way: buttons wait for the next board, so a double tap can't send twice.
@@ -508,16 +510,20 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     ? { valid: new Map(decision.block.blockers.map((b) => [b.id, b.attackers])), plan: blockPlan, pending: pendingBlocker }
     : null;
 
-  // A decision answered in full through `act` (play/src/act.rs): a pick, an order, a split, a
-  // number, a word or a yes or no. Targets keep the board's own targeting.
+  // A decision answered in full through `act` (play/src/act.rs) with the design's generic
+  // widgets (Decide.tsx): a pick, an order, a split, a number, a word, a pairing or a yes or no.
+  // Targets keep the board's own targeting.
   const pend = decision && !decision.attack && !decision.block && chooserCovers(decision.pending) ? decision.pending : null;
   const draft: Draft | null = pend && decision ? (draftState?.key === decision.revision ? draftState.draft : initialDraft(pend)) : null;
   const setDraft = (d: Draft) => decision && setDraftState({ key: decision.revision, draft: d });
-  // Cards in your hand or on the battlefield are picked where they are (laptop); others in a zone view.
-  const boardPick = !!pend && draft?.kind === "pick" && wide && pickOnBoard(pend);
-  const zonePick = !!pend && draft?.kind === "pick" && pend.answer === "select_cards" && !boardPick;
+  // Where it's answered (answer.ts stageOf): on the board, on its targets, in a dialog or a sheet.
+  const stage = pend ? stageOf(pend, wide, splitFits(pend, view)) : null;
+  const boardPick = stage === "board" && draft?.kind === "pick";
   const pickable = new Set(boardPick ? pend!.options.filter((o) => o.eligible).map((o) => Number(o.id)) : []);
   const picked = boardPick && draft?.kind === "pick" ? draft.ids.map(Number) : [];
+  // A split on its targets: they get a white ring and a stepper (SplitSteppers).
+  const splitIds = new Set(stage === "steppers" ? pend!.options.filter((o) => o.zone !== "player").map((o) => Number(o.id)) : []);
+  const splitSeats = new Set(stage === "steppers" ? pend!.options.filter((o) => o.zone === "player" && o.controller !== undefined).map((o) => o.controller!) : []);
   const sendAct = (a: Act | null) => {
     if (!decision || pending || !a) return;
     send({ type: "act", revision: decision.revision, action: a });
@@ -656,6 +662,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         const at = picked.findIndex((i) => p.ids.includes(i));
         return at >= 0 ? at + 1 : undefined;
       })() : undefined,
+      chosen: any(splitIds),
     };
   };
   const onSeat = (seat: number) => {
@@ -906,6 +913,10 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           })),
     ...[...attackPlan.entries()].filter(() => !!attack).map(([from, at]): PlanArrow => ({ from, to: at.kind === "player" ? { seat: at.seat } : { id: at.id }, tone: "attack" })),
     ...[...blockPlan.entries()].filter(() => !!block).map(([from, to]): PlanArrow => ({ from, to: { id: to }, tone: "block" })),
+    // Soulbond: a white line from the creature entering to the one it pairs with (GPairUp).
+    ...(boardPick && pend?.answer === "choose_pair" && pend.source && draft?.kind === "pick" && draft.ids[0] !== undefined
+      ? [{ from: pend.source.id, to: { id: Number(draft.ids[0]) }, tone: "block" } as PlanArrow]
+      : []),
   ];
 
   // What you'd be attacked by or attacking, for the strip.
@@ -957,7 +968,12 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           case "reset":
             return void setDraft(initialDraft(pend));
           case "none":
-            return sendAct({ kind: "select_cards", cards: [] });
+            return sendAct(noneAct(pend));
+          case "ask":
+            return void setDraft({ kind: "yesno", remember: "ask" });
+          case "all-top":
+            // Every card back on top: the ones kept stay in their order, the others go under them.
+            return void (draft.kind === "pick" && setDraft({ kind: "pick", ids: [...draft.ids, ...pend.options.filter((o) => o.eligible && !draft.ids.includes(o.id)).map((o) => o.id)] }));
         }
       };
       return {
@@ -1087,25 +1103,51 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         ? "Watching"
         : `Waiting for ${view.waiting_on.filter((s) => s !== you).map(who).join(" and ") || "the game"}`;
 
-  const readByName = (name: string) => setInspect({ ...emptyCard, name });
-  const chooserBody =
-    pend && draft ? (
-      <ChooserBody
-        p={pend}
-        draft={draft}
-        onDraft={setDraft}
-        meta={meta}
-        who={who}
-        place={boardPick ? "board" : zonePick ? "zone" : "list"}
-        onRead={setInspect}
-        cardById={cardById}
-        disabled={pending}
-      />
+  // The decision widgets (Decide.tsx): what they need from the board, the rail's part, and the
+  // stage over the table (laptop) or the dock's sheet (phone).
+  const readCard = (name: string, id?: number) => setInspect((id !== undefined ? cardById.get(id) : undefined) ?? { ...emptyCard, name });
+  const widget =
+    pend && draft
+      ? {
+          p: pend,
+          draft,
+          onDraft: setDraft,
+          disabled: pending,
+          ctx: {
+            meta,
+            whose: (n: number) => (n === you ? "Your" : `${Who(n)}'s`),
+            who,
+            tone: (n: number) => tones.get(n),
+            onRead: readCard,
+            zone: zoneOf(pend, view, you, Who),
+            damageOf: (id: number) => cardById.get(id)?.damage ?? 0,
+            inPlay: [...new Map(view.battlefield.map((c) => [c.name, { name: c.name, seat: c.controller }])).values()],
+          } satisfies WidgetContext,
+        }
+      : null;
+  const chooserBody = widget && stage && wide ? <DecisionRail {...widget} stage={stage} onReset={() => setDraft(initialDraft(widget.p))} /> : null;
+  const stageOverlay =
+    widget && wide ? (
+      stage === "strip" ? (
+        <div className="dw-strip-wrap">
+          <DecisionStage {...widget} compact={false} />
+        </div>
+      ) : stage === "dialog" ? (
+        <div className="dw-overlay">
+          <section className={`dw-dialog ${dialogSize(widget.p, widget.draft)}`} role="dialog" aria-label={widget.p.prompt}>
+            <DecisionStage {...widget} compact={false} />
+          </section>
+        </div>
+      ) : stage === "steppers" ? (
+        <SplitSteppers {...widget} compact={false} root={boardRoot} />
+      ) : null
     ) : null;
-  const chooserZone =
-    zonePick && pend && draft?.kind === "pick" ? (
-      <ChooserZone p={pend} draft={draft} onDraft={setDraft} meta={meta} onRead={readByName} compact={!wide} disabled={pending} />
-    ) : null;
+  const banner = widget && (stage === "board" || stage === "steppers") ? <PickBanner p={widget.p} draft={widget.draft} /> : null;
+  const phoneSheet = widget && !wide ? (
+    <div className="dock-sheet">
+      <DecisionStage {...widget} compact />
+    </div>
+  ) : null;
   const decisionBody = (
     <DecisionBody
       decision={decision}
@@ -1331,6 +1373,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
                 attacked={attackedSeats.has(p.seat) || (!!attack?.defender && attack.defender.kind === "player" && attack.defender.seat === p.seat)}
                 targetable={!!attack && [...attack.valid.values()].some((ts) => ts.some((t) => t.kind === "player" && t.seat === p.seat))}
                 aimed={!!seatTarget(p.seat)}
+                chosen={splitSeats.has(p.seat)}
                 tax={taxOf(p.seat)}
                 toYou={damageFrom(p.seat)}
                 toWhom={watch ? seatName(seatInfo(bottom), bottom) : undefined}
@@ -1349,8 +1392,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
 
           <div className="pb-strip" aria-label={`${view.active === you ? "Your" : `${Who(view.active)}'s`} turn ${view.turn}, ${stepName(view.phase)}`}>
             {whose}
-            {ladder}
-            {note}
+            {/* While you pick on the board, the pill takes the ladder's place (GPickN). */}
+            {banner ?? (
+              <>
+                {ladder}
+                {note}
+              </>
+            )}
           </div>
 
           <section className="pb-mine" aria-label="Your battlefield">
@@ -1439,7 +1487,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           </section>
         </aside>
         <PlanArrows arrows={planArrows} root={boardRoot} />
-        {chooserZone}
+        {stageOverlay}
         <DragLayer ref={layer} />
         <div className="motion-layer" ref={motionLayer} aria-hidden="true" />
         {dragNote && <p className="drag-toast" role="status">{dragNote}</p>}
@@ -1479,7 +1527,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       : [];
   return (
     <MotionContext.Provider value={scale}>
-    <div className={`pb phone${scale === 0 ? " motion-off" : ""}`} ref={boardRoot}>
+    <div className={`pb phone${scale === 0 ? " motion-off" : ""}${stage === "sheet" ? " sheet-open" : stage === "strip" ? " strip-open" : ""}`} ref={boardRoot}>
       <nav className="opp-tabs" aria-label="Opponents">
         {opponents.map((p) => {
           const on = p.seat === focus?.seat;
@@ -1584,12 +1632,11 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             <button type="button" className="quiet small" onClick={() => setInspect(phoneSelected)}>Read card</button>
           </div>
         )}
-        {(phoneHint || phoneChoices.length > 0 || (decision && !decision.prompt.startsWith("Priority") && !attack && !block)) && (
+        {phoneSheet}
+        {(phoneHint || phoneChoices.length > 0 || (decision && !decision.prompt.startsWith("Priority") && !attack && !block && !widget)) && (
           <div className="dock-decision">
-            {decision && !decision.prompt.startsWith("Priority") && !attack && !block && <p className="dock-prompt"><b>{title}</b></p>}
+            {decision && !decision.prompt.startsWith("Priority") && !attack && !block && !widget && <p className="dock-prompt"><b>{title}</b></p>}
             {phoneHint && <p className="dock-hint">{phoneHint}</p>}
-            {chooserBody}
-            {chooserZone}
             {phoneChoices.length > 0 && (
               <div className="chips">
                 {phoneChoices.map((o) => {
@@ -1624,6 +1671,61 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
 }
 
 const single = (c: CardView): Pile => ({ key: String(c.id), card: c, ids: [c.id] });
+
+/**
+ * Whether a split can sit on its targets (laptop): every target is a player still in the game or
+ * a permanent with a tile of its own. Two targets in one stack of tokens can't each carry a
+ * stepper, and lands may be folded away, so those get the dialog's rows instead.
+ */
+function splitFits(p: Pending, view: View): boolean {
+  if (p.kind !== "split") return false;
+  const tile = new Map<number, string>();
+  for (const pl of view.players) {
+    for (const pile of stackPermanents(view.battlefield.filter((c) => c.controller === pl.seat))) for (const id of pile.ids) tile.set(id, `${pl.seat}:${pile.key}`);
+  }
+  const used = new Set<string>();
+  return p.options.every((o) => {
+    if (o.zone === "player") return o.controller !== undefined && view.players.some((pl) => pl.seat === o.controller && !pl.eliminated);
+    const id = Number(o.id);
+    const card = view.battlefield.find((c) => c.id === id);
+    const key = tile.get(id);
+    if (!card || key === undefined || used.has(key) || isLand(card)) return false;
+    used.add(key);
+    return true;
+  });
+}
+
+/** The zone a pick's cards come from, in words, with its size and the other cards in it (GPickN). */
+function zoneOf(p: Pending, view: View, you: number | null, Who: (n: number) => string): WidgetContext["zone"] {
+  const seat = p.options.find((o) => o.controller !== undefined)?.controller ?? you ?? 0;
+  const whose = seat === you ? "Your" : `${Who(seat)}'s`;
+  const ids = new Set(p.options.map((o) => o.id));
+  switch (p.zone) {
+    case "library": {
+      // A search shows every card that qualifies; the rest of the library stays hidden, so only its size is told.
+      const size = view.players.find((pl) => pl.seat === seat)?.library;
+      return { label: `${whose} library`, total: p.purpose === "search" && size !== undefined ? size : null, others: [] };
+    }
+    case "graveyard":
+    case "exile": {
+      const cards = p.zone === "graveyard" ? view.players.find((pl) => pl.seat === seat)?.graveyard ?? [] : view.exile.filter((c) => c.owner === seat);
+      return { label: `${whose} ${p.zone}`, total: null, others: cards.filter((c) => !ids.has(String(c.id))).map((c) => c.name) };
+    }
+    case "hand":
+      return { label: `${whose} hand`, total: null, others: [] };
+    case "battlefield":
+      return { label: "The battlefield", total: null, others: [] };
+    default:
+      return { label: "These cards", total: null, others: [] };
+  }
+}
+
+/** How wide a decision's dialog is: card grids are wide, lists of words narrower (the boards' widths). */
+function dialogSize(p: Pending, d: Draft): "wide" | "mid" | "narrow" {
+  if (d.kind === "split" || d.kind === "number" || p.answer === "choose_replacement") return "mid";
+  if (p.answer === "select_modes" || p.answer === "order_triggers") return "narrow";
+  return "wide";
+}
 
 /** Sets a seat's color (`--seat`) on an element, for its dot, its attackers' rings and badges. */
 const seatStyle = (tone: SeatTone | undefined): React.CSSProperties | undefined => (tone ? ({ ["--seat" as string]: `var(--${tone})` } as React.CSSProperties) : undefined);
@@ -1807,6 +1909,8 @@ function OppPane(props: {
   targetable: boolean;
   /** A legal target for the spell or ability being cast. */
   aimed?: boolean;
+  /** Part of the decision being put together (a split onto this player): a white ring. */
+  chosen?: boolean;
   tax: number;
   toYou: number;
   /** Whose commander damage the chip counts: "you", or the watched seat at the bottom. */
@@ -1845,7 +1949,7 @@ function OppPane(props: {
   const back = [...(landsOpen || r.lands.length <= 4 ? r.lands : []), ...r.others];
   const lands = props.cards.filter((c) => c.types.includes("Land") && !c.types.includes("Creature"));
   const clickable = props.targetable || !!props.aimed;
-  const cls = ["opp-pane", props.active && "active", props.attacked && "attacked", clickable && "targetable", props.aimed && "aimed"].filter(Boolean).join(" ");
+  const cls = ["opp-pane", props.active && "active", props.attacked && "attacked", clickable && "targetable", props.aimed && "aimed", props.chosen && "chosen"].filter(Boolean).join(" ");
   return (
     <article className={cls} data-seat={p.seat} style={seatStyle(props.tone)} aria-label={`${props.label}, ${p.eliminated ? "out of the game" : `${p.life} life`}${props.active ? ", their turn" : ""}`}>
       <header
