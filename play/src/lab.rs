@@ -62,9 +62,10 @@ use crate::{DeckLine, Engine, SeatDeck};
 /// The engine label every result line carries. Since 22 Oct 2026 the fork carries
 /// patches/phase/0002-0008: the AI fixes ("+aifix": Omo's counters, man-lands, land
 /// copies), the free-for-all tempo changes ("+tempo") and the two-player endgame
-/// change ("+endgame"). Results under the plain "phase-rs v0.113.0" label are the
-/// earlier engine and must not be pooled with these.
-pub const ENGINE: &str = "phase-rs v0.113.0+aifix+tempo+endgame";
+/// change ("+endgame"). Since 24 Oct 2026 it also carries 0010-0011, two fixes for AI
+/// decisions that could run without end ("+stallfix"). Results under an earlier label are
+/// another engine and must not be pooled with these.
+pub const ENGINE: &str = "phase-rs v0.113.0+aifix+tempo+endgame+stallfix";
 /// The source this crate was built from (see build.rs): a short SHA, or
 /// "<sha>-dirty-<source hash>" for uncommitted changes.
 pub const RUNNER: &str = env!("YAMA_LAB_RUNNER");
@@ -1393,7 +1394,7 @@ mod tests {
         r.eliminations = vec![Elimination { seat: 1, turn: 3 }];
         let line = r.to_line();
         let expected = format!(
-            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"phase-rs v0.113.0+aifix+tempo+endgame","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
+            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"phase-rs v0.113.0+aifix+tempo+endgame+stallfix","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
         );
         assert_eq!(line, expected);
         assert_eq!(serde_json::from_str::<GameResult>(&line).unwrap(), r);
