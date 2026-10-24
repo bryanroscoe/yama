@@ -308,7 +308,7 @@ async fn disabled_accounts_can_be_viewed() {
 }
 
 #[tokio::test]
-async fn views_are_logged_for_admins_and_shown_to_the_person_viewed() {
+async fn views_are_logged_for_admins_only() {
     let w = world().await;
     let view = start(&w.app, &w.admin, &w.pat_id).await;
     call(&w.app, Method::POST, "/api/view/stop", Some(&w.admin), &[("yama_view", &view)], None, false).await;
@@ -318,12 +318,6 @@ async fn views_are_logged_for_admins_and_shown_to_the_person_viewed() {
     assert_eq!(row["admin_email"], "bryan@example.com");
     assert_eq!(row["target_email"], "pat@example.com");
     assert_eq!(row["end_reason"], "stopped");
-    // Pat sees that an admin looked, and who; nobody else sees Pat's.
-    let (_, mine) = send(&w.app, Method::GET, "/api/me/viewed", Some(&w.pat), None).await;
-    assert_eq!(mine.as_array().unwrap().len(), 1);
-    assert_eq!(mine[0]["admin_name"], "bryan");
-    let (_, bryans) = send(&w.app, Method::GET, "/api/me/viewed", Some(&w.admin), None).await;
-    assert_eq!(bryans.as_array().unwrap().len(), 0);
     // The log is admin-only.
     let (status, _) = send(&w.app, Method::GET, "/api/admin/views", Some(&w.pat), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);

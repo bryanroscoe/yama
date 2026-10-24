@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Choosing a permanent</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+
+  <sc-for list="{{panes}}" as="p" hint-placeholder-count="3">
+    <article aria-label="{{p.name}}, {{p.life}} life" style="position: absolute; left: {{p.x}}px; top: 10px; width: 352px; height: 240px; border-radius: 16px; background: var(--surface); overflow: hidden">
+      <header style="position: relative; height: 78px; padding: 8px 12px; display: flex; gap: 10px; align-items: end">
+        <img src="{{p.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.88) 0%, rgb(11 12 14 / 0.55) 55%, rgb(11 12 14 / 0.25) 100%)"></span>
+        <span style="position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15">
+          <b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{p.seat}}"></span>{{p.name}}</b>
+          <span style="font-size: 12px; color: #d5d7db">{{p.counts}}</span>
+        </span>
+        <b style="position: relative; font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">{{p.life}}</b>
+      </header>
+      <span style="position: absolute; left: 10px; top: 106px; padding: 3px 10px; border-radius: 999px; background: var(--raised); font-size: 12px">{{p.lands}}</span>
+      <span style="position: absolute; left: 10px; right: 10px; bottom: 4px; font-size: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Art: {{p.credits}}</span>
+    </article>
+  </sc-for>
+
+  <div style="position: absolute; left: 14px; top: 258px; display: flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; font-size: 14px"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover">Your turn 9, main 1</div>
+
+  <section aria-label="Your battlefield" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 438px; border-radius: 16px; background: var(--surface)"></section>
+  <span style="position: absolute; left: 22px; top: 726px; width: 1060px; font-size: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Art: {{credits}}. © Wizards of the Coast</span>
+
+  <sc-for list="{{tiles}}" as="t" hint-placeholder-count="18">
+    <button onClick="{{t.click}}" aria-pressed="{{t.on}}" aria-label="{{t.label}}" style="position: absolute; left: {{t.x}}px; top: {{t.y}}px; width: {{t.s}}px; height: {{t.s}}px; padding: 0; border: none; border-radius: {{t.r}}px; background: var(--raised); box-shadow: {{t.ring}}; cursor: {{t.cursor}}; transition: box-shadow 160ms">
+      <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+        <sc-if value="{{t.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{t.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+        <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: {{t.fs}}px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span>
+        <sc-if value="{{t.many}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: rgb(11 12 14 / 0.85); font-size: 11px; font-weight: 700">{{t.count}}</span></sc-if>
+        <sc-if value="{{t.hasPt}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 5px; border-radius: {{t.ptRadius}}; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">{{t.pt}}</span></sc-if>
+      </span>
+      <sc-if value="{{t.hasMark}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="position: absolute; right: -8px; top: -8px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: {{t.markBg}}; color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--ground)">{{t.mark}}</span></sc-if>
+      <sc-if value="{{t.hasTag}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 50%; bottom: -11px; transform: translateX(-50%); padding: 0 7px; border-radius: 999px; background: var(--ground); color: {{t.tagInk}}; box-shadow: 0 0 0 1px {{t.tagRing}}; font-size: 11px; font-weight: 800; white-space: nowrap">{{t.tag}}</span></sc-if>
+    </button>
+  </sc-for>
+
+  <svg aria-hidden="true" width="1440" height="900" viewBox="0 0 1440 900" style="position: absolute; inset: 0; pointer-events: none">
+    <sc-for list="{{arrows}}" as="a" hint-placeholder-count="1">
+      <path d="{{a.d}}" fill="none" stroke="{{a.c}}" stroke-width="4" stroke-linecap="round"></path>
+      <circle cx="{{a.ex}}" cy="{{a.ey}}" r="7" fill="{{a.c}}"></circle>
+    </sc-for>
+  </svg>
+
+  <div role="status" style="position: absolute; left: 600px; top: 258px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 6px 8px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 800; box-shadow: 0 12px 30px rgb(0 0 0 / 0.5); white-space: nowrap">
+    <img src="{{srcArt}}" alt="" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover">{{banner}}
+    <span style="padding: 2px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 13px">{{counter}}</span>
+  </div>
+
+  <span style="position: absolute; left: 880px; top: 820px; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #408abf"><span style="display: flex; flex-direction: column; line-height: 1"><b style="font-family: var(--display); font-weight: 700; font-size: 36px">38</b><span style="font-size: 10px; color: var(--dim)">Art: Craig Elliott</span></span></span>
+
+  <aside aria-label="Your options" style="position: absolute; left: 1100px; top: 0; width: 340px; height: 900px; border-left: 1px solid var(--line); display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line)"><span style="font-weight: 700; color: var(--dim)">Leave</span><span style="padding: 6px 14px; border-radius: 999px; background: var(--surface); font-weight: 700; font-size: 14px">Game log</span></div>
+    <section style="padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0">
+      <div role="tablist" aria-label="Example" style="display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; border-radius: 16px; background: var(--surface)">
+        <sc-for list="{{examples}}" as="e" hint-placeholder-count="5"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 32px; padding: 0 10px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 12px; font-weight: 700">{{e.label}}</button></sc-for>
+      </div>
+      <div style="display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; align-items: start">
+        <img src="{{srcImg}}" alt="{{srcName}}" style="width: 76px; border-radius: 4px">
+        <span style="display: flex; flex-direction: column; line-height: 1.25; gap: 2px"><b>{{srcName}}</b><span style="font-size: 12px; color: var(--dim)">{{srcWhy}}</span><span style="font-size: 11px; color: var(--dim)">Art: {{srcArtist}}, © Wizards of the Coast</span></span>
+      </div>
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1">{{railTitle}}</h2>
+      <p style="margin: 0; font-size: 13px; color: var(--dim); white-space: pre-line">{{oracle}}</p>
+      <p style="margin: 0; font-size: 14px">{{railBody}}</p>
+      <p style="margin: 0; font-size: 12px; color: var(--dim)">Driven by: {{driven}}</p>
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
+        <p style="margin: 0; font-size: 12px; color: var(--dim)">Click again to unpick. Right-click reads a card.</p>
+        <sc-if value="{{hasSecondary}}" hint-placeholder-val="{{true}}"><button onClick="{{secondaryAct}}" style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button></sc-if>
+        <button style="min-height: 60px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 19px">{{primary}}</button>
+      </div>
+    </section>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, pick: null };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const PX = [10, 374, 738];
+    const AMBER = '#f0b45a', WHITE = '#f2efe8', ME = '#408abf', RED = '#f07a62';
+    const { ex, pick } = this.state;
+
+    const opp = (p, i, id, name, art, pt) => ({ id, name, art, pt, x: PX[p] + 10 + i * 74, y: 172, s: 68, r: 10, fs: 11, whose: ['Computer', 'Sam', 'Jules'][p] });
+    const mine = (i, id, name, art, pt, extra) => ({ id, name, art, pt, x: 22 + i * 106, y: 310, s: 96, r: 12, fs: 12, whose: 'You', mine: true, ...(extra || {}) });
+    const board = [
+      opp(0, 0, 'spirit1', 'Spirit', '', '3/2'), opp(0, 1, 'spirit2', 'Spirit', '', '3/2'),
+      opp(1, 0, 'terra', 'Terra', '7678674b257c9f2d67041ed3a4ee2ab4', '3/3'), opp(1, 1, 'titan', 'Grave Titan', '1dccd462a02a0872cc11a4d8518c111f', '6/6'),
+      opp(1, 2, 'z1', 'Zombie', '', '2/2'), opp(1, 3, 'z2', 'Zombie', '', '2/2'),
+      opp(2, 0, 'fant', 'Mister Fantastic', '383d04a073378ede76b3234038a68757', '2/4'),
+      mine(0, 'eowyn', 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4'), mine(1, 'adeline', 'Adeline', '93443cca264c2d66fac605d8e8311296', '6/4'),
+      mine(2, 'aragorn', 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4'), mine(3, 'faramir', 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2'),
+      mine(4, 's1', 'Soldier', '', '1/1'), mine(5, 's2', 'Soldier', '', '1/1')
+    ];
+    const lands = [['Plains', '30df84aecfd8c45546b9a6bdd64b8552', 4], ['Island', '7a66b1e98da872225edb04cfeb9bd60e', 2], ['Mountain', '3bf02968b49b8af680661d10aa4e5547'], ['Battlefield Forge', '3599624673068d143c783b9871cd28b6'], ['Command Tower', 'f42c34fc11f085b17d9a7720c94e99fd']]
+      .map(([name, art, count], i) => ({ id: 'land' + i, name, art, count, x: 22 + i * 64, y: 666, s: 58, r: 10, fs: 10 }));
+    const rocks = [['Sol Ring', '6eb6974115f1bfa5c775b479771e7166'], ['Arcane Signet', 'af66cc45335c7043758a263a745cbd02'], ['Anointed Procession', '39ddc54ea3b9ba45e6d3ac018401863e']]
+      .map(([name, art], i) => ({ id: 'rock' + i, name, art, x: 828 + i * 64, y: 666, s: 58, r: 10, fs: 10 }));
+    const boots = { id: 'boots', name: 'Swiftfoot Boots', art: 'abf760cdb0ad6831dc38bd4106dc8f6c', x: 1020, y: 666, s: 58, r: 10, fs: 10 };
+    const myCreatures = board.filter((c) => c.mine).map((c) => c.id);
+    const allCreatures = board.map((c) => c.id);
+
+    // Each tab is one engine decision: a single object chosen from `candidates`
+    const decisions = [
+      { label: 'Legend rule', engine: 'ChooseLegend', driven: 'legend_name, candidates.',
+        source: { name: 'Clone', why: 'Your Clone entered as a copy of Aragorn', image: A('563d6557b6cb3c22ea7ea6e2ffc7e6f1'), art: A('e3b79e7a248a914770c08447eb291e66'), artist: 'Kev Walker' },
+        oracle: 'You may have this creature enter as a copy of any creature on the battlefield.',
+        prompt: 'Choose the Aragorn, King of Gondor to keep', title: 'Two Aragorns: keep one',
+        body: 'The legend rule puts the other into its owner’s graveyard. That isn’t destroying it, so indestructible doesn’t help.',
+        extra: [mine(6, 'aragorn2', 'Aragorn (Clone)', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4', { cloneOf: true })],
+        candidates: ['aragorn', 'aragorn2'], verb: (n) => 'Keep ' + n, mayDecline: false,
+        pickTag: 'Keep', restTag: 'To graveyard', restTagRed: true },
+      { label: 'Clone', engine: 'CopyTargetChoice', driven: 'source_id, valid_targets, max_mana_value.',
+        source: { name: 'Clone', why: 'Entering the battlefield', image: A('563d6557b6cb3c22ea7ea6e2ffc7e6f1'), art: A('e3b79e7a248a914770c08447eb291e66'), artist: 'Kev Walker' },
+        oracle: 'You may have this creature enter as a copy of any creature on the battlefield.',
+        prompt: 'Choose a creature for Clone to copy', title: 'Copy which creature?',
+        body: 'This isn’t targeting: hexproof creatures can be chosen too. Without a choice, Clone enters as a 0/0.',
+        extra: [mine(6, 'clone', 'Clone', 'e3b79e7a248a914770c08447eb291e66', '0/0', { entering: true })],
+        candidates: allCreatures, verb: (n) => 'Copy ' + n, mayDecline: true, declineLabel: 'Don’t copy', pickTag: 'Copying' },
+      { label: 'Equip', engine: 'EquipTarget', driven: 'equipment_id, valid_targets.',
+        source: { name: 'Swiftfoot Boots', why: 'You activated Equip {1}', image: A('2c2ed51fb0bbcc222b642ada10c5483d'), art: A('abf760cdb0ad6831dc38bd4106dc8f6c'), artist: 'Svetlin Velinov' },
+        oracle: 'Equipped creature has hexproof and haste.\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)',
+        prompt: 'Equip Swiftfoot Boots: choose a creature you control', title: 'Attach the Boots',
+        body: 'Only your creatures can be chosen.',
+        extra: [boots], candidates: myCreatures, verb: (n) => 'Equip ' + n, mayDecline: false, cancel: 'Cancel', pickTag: 'Will carry it', arrowFrom: 'boots' },
+      { label: 'Ring-bearer', engine: 'ChooseRingBearer', driven: 'candidates.',
+        source: { name: 'Birthday Escape', why: 'Resolving: the Ring tempts you', image: A('82f873eeb8b14775d9533ef0e1f5fed6'), art: A('661f981a87713e1fa940acb440b61117'), artist: 'David Álvarez' },
+        oracle: 'Draw a card. The Ring tempts you.',
+        prompt: 'The Ring tempts you: choose your Ring-bearer', title: 'Choose your Ring-bearer',
+        body: 'Faramir is your Ring-bearer now. You can keep him or choose another creature you control.',
+        extra: [], candidates: myCreatures, verb: (n) => n + ' bears the Ring', mayDecline: false, pickTag: 'Ring-bearer', current: 'faramir', currentTag: 'Ring-bearer now' },
+      { label: 'Empower Jace', engine: 'EmpowerJaceChoice', driven: 'choices (your Jace tokens), count.',
+        source: { name: 'Fatehold Charm', why: 'Resolving the first mode', image: A('db171747f4a2a4eaebf46af3ee50fe2a'), art: A('79094847b9191ca74526724c532a91ef'), artist: 'Rovina Cai' },
+        oracle: 'Choose one —\n• Draw a card. Empower Jace 2.\n• Return target spell or creature to its owner’s hand.\n• Creatures you control get +1/+2 until end of turn.',
+        prompt: 'Empower Jace 2: choose a Jace token you control', title: 'Which Jace gets 2 loyalty?',
+        body: 'You control two Jace tokens; Anointed Procession doubled the first one. Choose which gets the two loyalty counters.',
+        extra: [
+          { id: 'jace1', name: 'Jace token', art: '12f540af13a001c4f8306be048f60c7e', pt: '3', loyalty: 3, x: 22, y: 470, s: 120, r: 14, fs: 12, pw: true },
+          { id: 'jace2', name: 'Jace token', art: '12f540af13a001c4f8306be048f60c7e', pt: '1', loyalty: 1, x: 158, y: 470, s: 120, r: 14, fs: 12, pw: true }
+        ],
+        candidates: ['jace1', 'jace2'], count: 2, verb: (n) => 'Put 2 on this Jace', mayDecline: false, pickTag: '' }
+    ];
+    const d = decisions[ex];
+    const objects = board.concat(d.extra);
+    const byId = Object.fromEntries(objects.map((o) => [o.id, o]));
+    const cand = new Set(d.candidates);
+    const base = { ring: 'none', on: false, hasMark: false, mark: '', markBg: AMBER, hasTag: false, tag: '', tagInk: WHITE, tagRing: '#2a2e33', cursor: 'default', click: null, ptRadius: '4px' };
+    const view = (o, extra) => ({ ...base, ...o, art: o.art ? A(o.art) : '', hasArt: !!o.art, hasPt: !!o.pt, count: o.count ? '×' + o.count : '', many: !!o.count,
+      ptRadius: o.pw ? '4px 4px 10px 10px' : '4px', label: o.name + (o.whose ? ', ' + o.whose : ''), ...(extra || {}) });
+
+    const tiles = objects.concat(lands, rocks).map((o) => {
+      if (!cand.has(o.id)) {
+        if (o.entering) return view(o, { ring: '0 0 0 3px ' + ME, hasTag: true, tag: 'Entering', tagRing: ME });
+        if (o.id === 'boots') return view(o, { ring: '0 0 0 3px ' + ME, hasTag: true, tag: 'Equip {1}', tagRing: ME });
+        return view(o);
+      }
+      const on = pick === o.id;
+      let tag = '', tagInk = WHITE, tagRing = '#2a2e33';
+      if (on && d.pickTag) tag = d.pickTag;
+      if (o.pw) { tag = on ? 'Loyalty ' + o.loyalty + ' → ' + (o.loyalty + d.count) : 'Loyalty ' + o.loyalty; }
+      if (!on && d.current === o.id) tag = d.currentTag;
+      if (!on && d.restTag && pick && cand.has(pick)) { tag = d.restTag; tagInk = RED; tagRing = RED; }
+      if (o.cloneOf && !tag) tag = 'Copy';
+      return view(o, { on, ring: on ? '0 0 0 3px ' + WHITE : '0 0 0 2px ' + AMBER, hasMark: true, mark: on ? '1' : '+', markBg: on ? WHITE : AMBER, cursor: 'pointer',
+        hasTag: !!tag, tag, tagInk, tagRing, label: o.name + ', ' + (o.whose || 'yours') + (on ? ', chosen' : ', can be chosen'),
+        click: () => this.setState((s) => ({ pick: s.pick === o.id ? null : o.id })) });
+    });
+
+    const chosen = pick && cand.has(pick) ? byId[pick] : null;
+    const arrows = [];
+    if (chosen && d.arrowFrom) {
+      const f = byId[d.arrowFrom], fx = f.x + f.s / 2, fy = f.y, tx = chosen.x + chosen.s / 2, ty = chosen.y + chosen.s;
+      const mx = (fx + tx) / 2, my = (fy + ty) / 2 - 60;
+      arrows.push({ d: 'M ' + fx + ' ' + fy + ' Q ' + mx + ' ' + my + ' ' + tx + ' ' + ty, c: ME, ex: tx, ey: ty });
+    }
+    const ready = !!chosen;
+    const credits = ['Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna', 'Shahab Alizadeh, Eren Arik, VEN, Thomas Stoop, Josu Solano, Titus Lunter, Victor Adame Minguez']
+      .concat(ex === 1 || ex === 0 ? ['Kev Walker'] : ex === 2 ? ['Svetlin Velinov'] : ex === 4 ? ['Manuel Castañón'] : []).join(', ');
+    return {
+      examples: decisions.map((x, i) => ({ label: x.label, on: ex === i, bg: ex === i ? WHITE : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i, pick: null }) })),
+      panes: [
+        { name: 'Computer', seat: '#b55af6', x: PX[0], counts: 'Hand 4, library 71', life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), credits: 'Darren Tan. © Wizards of the Coast', lands: '8 lands' },
+        { name: 'Sam', seat: '#e8bae4', x: PX[1], counts: 'Hand 5, library 73', life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), credits: 'Marta Nael, Nils Hamm. © Wizards of the Coast', lands: '7 lands' },
+        { name: 'Jules', seat: '#757a8a', x: PX[2], counts: 'Hand 2, library 70', life: 36, art: A('383d04a073378ede76b3234038a68757'), credits: 'Gintas Galvanauskas. © Wizards of the Coast', lands: '7 lands' }
+      ],
+      tiles, arrows, credits,
+      srcArt: d.source.art, srcImg: d.source.image, srcName: d.source.name, srcWhy: d.source.why, srcArtist: d.source.artist,
+      banner: d.prompt, counter: (chosen ? 1 : 0) + ' of 1 chosen',
+      railTitle: d.title, oracle: d.oracle, railBody: d.body, driven: d.engine + ': ' + d.driven,
+      primary: chosen ? d.verb(chosen.name) : 'Choose one', doneBg: ready ? WHITE : '#1e2125', doneInk: ready ? '#0b0c0e' : '#a9adb3',
+      hasSecondary: !!(d.mayDecline || d.cancel), secondary: d.mayDecline ? d.declineLabel : d.cancel || '',
+      secondaryAct: () => this.setState({ pick: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

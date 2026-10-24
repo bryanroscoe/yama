@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Choosing a permanent on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: var(--ground); overflow: hidden">
+  <div role="tablist" aria-label="Example" style="margin: 8px 8px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 999px; background: var(--surface)">
+    <sc-for list="{{examples}}" as="e" hint-placeholder-count="2"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 36px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 13px; font-weight: 700">{{e.label}}</button></sc-for>
+  </div>
+
+  <div role="status" style="margin: 8px 8px 0; padding: 8px 10px 8px 8px; border-radius: 14px; background: var(--text); color: var(--ground); display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 15px">
+    <img src="{{srcArt}}" alt="" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover">
+    <span style="flex: 1; line-height: 1.2">{{banner}}</span>
+    <span style="padding: 1px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 12px; white-space: nowrap">{{counter}}</span>
+  </div>
+
+  <section aria-label="Choices" style="flex: 1; min-height: 0; margin: 8px 8px 0; padding: 12px; border-radius: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
+    <span style="font-size: 13px; color: var(--dim); line-height: 1.35">{{body}}</span>
+    <div style="display: grid; grid-template-columns: repeat({{cols}}, 1fr); gap: 18px 10px; padding-top: 8px">
+      <sc-for list="{{tiles}}" as="c" hint-placeholder-count="6">
+        <button onClick="{{c.click}}" aria-pressed="{{c.on}}" aria-label="{{c.label}}" style="position: relative; height: {{c.h}}px; padding: 0; border: none; border-radius: 14px; background: var(--raised); box-shadow: {{c.ring}}; transition: box-shadow 140ms">
+          <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+            <sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+            <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{c.name}}</span>
+            <span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 13px; font-weight: 700">{{c.pt}}</span>
+          </span>
+          <span aria-hidden="true" style="position: absolute; right: -7px; top: -7px; width: 24px; height: 24px; border-radius: 50%; background: {{c.markBg}}; color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{c.mark}}</span>
+          <sc-if value="{{c.hasTag}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 50%; bottom: -11px; transform: translateX(-50%); padding: 0 7px; border-radius: 999px; background: var(--surface); color: {{c.tagInk}}; box-shadow: 0 0 0 1px {{c.tagRing}}; font-size: 11px; font-weight: 800; white-space: nowrap">{{c.tag}}</span></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <span style="font-size: 12px; color: var(--dim); line-height: 1.35; white-space: pre-line">{{oracle}}</span>
+    <span style="margin-top: auto; font-size: 10px; color: var(--dim)">Art: {{credits}}. © Wizards of the Coast. Long-press a card to read it.</span>
+  </section>
+
+  <div style="margin-top: 8px; background: var(--surface); border-radius: 22px 22px 0 0; padding: 12px 10px 14px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 8px">
+    <button onClick="{{clear}}" style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; color: {{clearInk}}">Clear</button>
+    <button style="min-height: 54px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 16px">{{primary}}</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, pick: null };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const AMBER = '#f0b45a', WHITE = '#f2efe8', RED = '#f07a62';
+    const { ex, pick } = this.state;
+    const decisions = [
+      { label: 'Legend rule', engine: 'ChooseLegend',
+        source: { art: A('e3b79e7a248a914770c08447eb291e66') }, prompt: 'Choose the Aragorn, King of Gondor to keep',
+        body: 'Your Clone entered as a copy of Aragorn. The legend rule puts the one you don’t keep into its owner’s graveyard.',
+        oracle: 'Clone: You may have this creature enter as a copy of any creature on the battlefield.',
+        candidates: [
+          { id: 'aragorn', name: 'Aragorn', art: 'c2a67f4f687b666fcd3c4d8cb3b0bf63', pt: '4/4', tag: 'Original' },
+          { id: 'aragorn2', name: 'Aragorn (Clone)', art: 'c2a67f4f687b666fcd3c4d8cb3b0bf63', pt: '4/4', tag: 'Copy' }
+        ], cols: 2, h: 150, verb: (n) => 'Keep ' + n, pickTag: 'Keep', restTag: 'To graveyard', credits: 'Yongjae Choi, Kev Walker' },
+      { label: 'Ring-bearer', engine: 'ChooseRingBearer',
+        source: { art: A('661f981a87713e1fa940acb440b61117') }, prompt: 'The Ring tempts you: choose your Ring-bearer',
+        body: 'Birthday Escape is resolving. Faramir is your Ring-bearer now.',
+        oracle: 'Birthday Escape: Draw a card. The Ring tempts you.',
+        candidates: [
+          { id: 'eowyn', name: 'Éowyn', art: 'c19490e7c081fb35071c85147c01bed4', pt: '5/4' }, { id: 'adeline', name: 'Adeline', art: '93443cca264c2d66fac605d8e8311296', pt: '6/4' },
+          { id: 'aragorn', name: 'Aragorn', art: 'c2a67f4f687b666fcd3c4d8cb3b0bf63', pt: '4/4' }, { id: 'faramir', name: 'Faramir', art: '62e4a477ddbf5628d609a86bc8d12c3a', pt: '2/2', tag: 'Bearer now' },
+          { id: 's1', name: 'Soldier', art: '', pt: '1/1' }, { id: 's2', name: 'Soldier', art: '', pt: '1/1' }
+        ], cols: 3, h: 104, verb: (n) => n + ' bears the Ring', pickTag: 'Ring-bearer', credits: 'David Álvarez, Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna' }
+    ];
+    const d = decisions[ex];
+    const chosen = d.candidates.find((c) => c.id === pick);
+    return {
+      examples: decisions.map((x, i) => ({ label: x.label, on: ex === i, bg: ex === i ? WHITE : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i, pick: null }) })),
+      srcArt: d.source.art, banner: d.prompt, counter: (chosen ? 1 : 0) + ' of 1',
+      body: d.body, oracle: d.oracle, cols: d.cols, credits: d.credits,
+      tiles: d.candidates.map((c) => {
+        const on = c.id === pick;
+        let tag = c.tag || '', tagInk = WHITE, tagRing = '#2a2e33';
+        if (on) tag = d.pickTag;
+        else if (pick && d.restTag) { tag = d.restTag; tagInk = RED; tagRing = RED; }
+        return { name: c.name, art: c.art ? A(c.art) : '', hasArt: !!c.art, pt: c.pt, h: d.h, on,
+          ring: on ? '0 0 0 3px ' + WHITE : '0 0 0 2px ' + AMBER, mark: on ? '1' : '+', markBg: on ? WHITE : AMBER,
+          hasTag: !!tag, tag, tagInk, tagRing, label: c.name + (on ? ', chosen' : ', can be chosen'),
+          click: () => this.setState((s) => ({ pick: s.pick === c.id ? null : c.id })) };
+      }),
+      primary: chosen ? d.verb(chosen.name) : 'Choose one',
+      doneBg: chosen ? WHITE : '#1e2125', doneInk: chosen ? '#0b0c0e' : '#a9adb3',
+      clearInk: chosen ? WHITE : '#a9adb3',
+      clear: () => this.setState({ pick: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

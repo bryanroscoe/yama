@@ -1020,6 +1020,65 @@ pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> 
     stage(st, user, via, Staged { kind: "move_cards", summary, detail: String::new(), payload }).await
 }
 
+/// Card conditions, as the collection page names them.
+const CONDITIONS: [(&str, &str); 5] =
+    [("NM", "near mint"), ("LP", "lightly played"), ("MP", "moderately played"), ("HP", "heavily played"), ("DMG", "damaged")];
+
+/// Rows in a container (of one card, or all of them) not yet in a condition: (id, name, qty).
+async fn rows_to_grade(conn: &mut sqlx::SqliteConnection, owner: &str, container_id: &str, oracle_id: Option<&str>, condition: &str) -> AppResult<Vec<(String, String, i64)>> {
+    Ok(sqlx::query_as(
+        "SELECT i.id, p.name, i.qty FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id
+         WHERE i.owner_id = ? AND i.container_id = ? AND (? IS NULL OR p.oracle_id = ?) AND i.condition != ? AND i.qty > 0
+         ORDER BY p.name, i.id",
+    )
+    .bind(owner)
+    .bind(container_id)
+    .bind(oracle_id)
+    .bind(oracle_id)
+    .bind(condition)
+    .fetch_all(&mut *conn)
+    .await?)
+}
+
+pub async fn set_condition(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let pool = &st.pool;
+    let condition = text_arg(args, "condition")?.to_uppercase();
+    let Some((_, said)) = CONDITIONS.iter().find(|(c, _)| *c == condition) else {
+        return Err(AppError::bad("condition must be NM, LP, MP, HP or DMG"));
+    };
+    let place = container(pool, &user.id, text_arg(args, "container")?).await?;
+    let card = match opt_text(args, "card", 200)? {
+        Some(wanted) => Some(known_cards(pool, std::slice::from_ref(&wanted)).await?[&wanted].clone()),
+        None => None,
+    };
+    let rows = rows_to_grade(&mut *pool.acquire().await?, &user.id, &place.0, card.as_ref().map(|(o, _)| o.as_str()), &condition).await?;
+    if rows.is_empty() {
+        return Err(AppError::bad(format!(
+            "{} holds no {} that isn't already {said}. Nothing was staged.",
+            place.1,
+            card.as_ref().map(|(_, n)| n.as_str()).unwrap_or("cards")
+        )));
+    }
+    let mut counts: Vec<(String, i64)> = Vec::new();
+    for (_, name, qty) in &rows {
+        match counts.last_mut() {
+            Some((n, q)) if n == name => *q += qty,
+            _ => counts.push((name.clone(), *qty)),
+        }
+    }
+    let total: i64 = counts.iter().map(|(_, q)| q).sum();
+    let summary = match &card {
+        Some((_, name)) => format!("Mark {total} {name} in {} {said}", place.1),
+        None => format!("Mark {total} cards in {} {said}", place.1),
+    };
+    let detail = counts.iter().map(|(n, q)| format!("{q} {n}")).collect::<Vec<_>>().join(", ");
+    let payload = json!({
+        "condition": condition, "container_id": place.0, "container": place.1,
+        "oracle_id": card.as_ref().map(|(o, _)| o), "name": card.as_ref().map(|(_, n)| n),
+    });
+    stage(st, user, via, Staged { kind: "set_condition", summary, detail, payload }).await
+}
+
 async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &Value) -> AppResult<Value> {
     use crate::collection::{CopyKind, Op, OpKind, apply_op};
     let op = |n: usize, op: OpKind| Op { op_id: format!("{DEVICE}-{id}-{n}"), device_id: Some(DEVICE.into()), op };
@@ -1035,6 +1094,27 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
             purchase_currency: None,
         };
         apply_op(&mut tx, &user.id, &op(0, add)).await?;
+    } else if kind == "set_condition" {
+        // The rows at apply time: copies added to the box since staging are graded too.
+        let condition = p["condition"].as_str().unwrap_or("NM");
+        let rows = rows_to_grade(&mut tx, &user.id, p["container_id"].as_str().unwrap_or_default(), p["oracle_id"].as_str(), condition).await?;
+        for (n, (item_id, _, _)) in rows.into_iter().enumerate() {
+            let update = OpKind::Update {
+                item_id,
+                condition: Some(condition.into()),
+                finish: None,
+                lang: None,
+                container_id: None,
+                purchase_price: None,
+                note: None,
+                proxy: None,
+            };
+            apply_op(&mut tx, &user.id, &op(n, update)).await?;
+        }
+        tx.commit().await?;
+        let said = CONDITIONS.iter().find(|(c, _)| *c == condition).map(|(_, s)| *s).unwrap_or(condition);
+        let what = p["name"].as_str().unwrap_or("Cards");
+        return Ok(json!({"label": format!("Done: {what} in {} now {said}", p["container"].as_str().unwrap_or("the box")), "link": "/collection"}));
     } else {
         let (oracle_id, to) = (p["oracle_id"].as_str().unwrap_or_default(), p["to_id"].as_str().unwrap_or_default());
         let mut left = p["qty"].as_i64().unwrap_or(1);
@@ -1104,7 +1184,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
         "more_lab_games" => apply_more_games(st, user, &p).await,
         "run_lab_again" => apply_again(st, user, &row.id, &p).await,
         "cancel_lab_run" => apply_cancel(st, user, &p).await,
-        "add_to_collection" | "move_cards" => apply_collection(st, user, &row.kind, &row.id, &p).await,
+        "add_to_collection" | "move_cards" | "set_condition" => apply_collection(st, user, &row.kind, &row.id, &p).await,
         other => Err(AppError::Other(anyhow::anyhow!("unknown change kind {other}"))),
     };
     let at = now();

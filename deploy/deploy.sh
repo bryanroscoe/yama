@@ -6,16 +6,27 @@ cd "$(dirname "$0")/.."
 HOST=root@<saget-lan-address>
 DIR=/mnt/user/appdata/yama
 REV=$(git rev-parse --short HEAD)
-# Whether the copied source differs from that commit (shown on the admin area's Server page).
+# Deploys build committed code only (2026-10-24): Yama at HEAD and the engine at the commit pinned
+# in deploy/phase-rev, both exported with git archive. Several agents work in these checkouts at
+# once, so copying working files could ship someone's unfinished edits; this way the same commits
+# always build the same server. Uncommitted changes here are left out, with a note.
 DIRTY=0
-if [ -n "$(git status --porcelain --untracked-files=no -- server play web packages Cargo.toml Cargo.lock)" ]; then DIRTY=1; fi
+if [ -n "$(git status --porcelain -- server play web packages advisor forge-worker deploy Cargo.toml Cargo.lock)" ]; then
+  echo "Note: this checkout has uncommitted changes; they are NOT deployed (building $REV as committed)."
+fi
+PHASE_REV=$(tr -d '[:space:]' < deploy/phase-rev)
+git -C ../yama-phase cat-file -e "$PHASE_REV^{commit}" 2>/dev/null || { echo "deploy/phase-rev ($PHASE_REV) isn't a commit in ../yama-phase."; exit 1; }
+SRC=$(mktemp -d "${TMPDIR:-/tmp}/yama-deploy.XXXXXX")
+trap 'rm -rf "$SRC"' EXIT
+mkdir -p "$SRC/yama" "$SRC/yama-phase"
+git archive HEAD | tar -x -C "$SRC/yama"
+git -C ../yama-phase archive "$PHASE_REV" Cargo.toml crates | tar -x -C "$SRC/yama-phase"
 
-echo "Copying source to saget…"
+echo "Copying source to saget (yama $REV, phase $(echo "$PHASE_REV" | cut -c1-7))…"
 ssh "$HOST" "mkdir -p $DIR/build/yama $DIR/build/yama-phase"
 # The build runs on saget itself (detached), so a dropped SSH connection can't kill it.
-rsync -a --delete --exclude target --exclude node_modules --exclude data --exclude .git \
-  --exclude web/dist --exclude web/public/ocr --exclude .env ./ "$HOST:$DIR/build/yama/"
-rsync -a --delete --include Cargo.toml --include 'crates/***' --exclude '*' ../yama-phase/ "$HOST:$DIR/build/yama-phase/"
+rsync -a --delete "$SRC/yama/" "$HOST:$DIR/build/yama/"
+rsync -a --delete "$SRC/yama-phase/" "$HOST:$DIR/build/yama-phase/"
 
 echo "Building yama:$REV on saget (log: $DIR/build/build.log)…"
 ssh "$HOST" "cd $DIR/build && rm -f build.status && \

@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>More ways to target</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+
+  <sc-for list="{{panes}}" as="p" hint-placeholder-count="3">
+    <article aria-label="{{p.name}}, {{p.life}} life" style="position: absolute; left: {{p.x}}px; top: 10px; width: 352px; height: 240px; border-radius: 16px; background: var(--surface); overflow: hidden; box-shadow: {{p.ring}}">
+      <header style="position: relative; height: 78px; padding: 8px 12px; display: flex; gap: 10px; align-items: end">
+        <img src="{{p.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.88) 0%, rgb(11 12 14 / 0.55) 55%, rgb(11 12 14 / 0.25) 100%)"></span>
+        <span style="position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15">
+          <b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{p.seat}}"></span>{{p.name}}</b>
+          <span style="font-size: 12px; color: #d5d7db">{{p.counts}}</span>
+        </span>
+        <b style="position: relative; font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">{{p.life}}</b>
+      </header>
+      <span style="position: absolute; left: 10px; top: 106px; padding: 3px 10px; border-radius: 999px; background: var(--raised); font-size: 12px">{{p.lands}}</span>
+      <span style="position: absolute; left: 10px; right: 10px; bottom: 4px; font-size: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Art: {{p.credits}}</span>
+    </article>
+  </sc-for>
+
+  <div style="position: absolute; left: 14px; top: 258px; display: flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: {{turnBg}}; color: {{turnInk}}; font-weight: 700; font-size: 14px"><img src="{{turnArt}}" alt="" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover">{{turn}}</div>
+
+  <section aria-label="Your battlefield" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 438px; border-radius: 16px; background: var(--surface)"></section>
+  <span style="position: absolute; left: 22px; top: 726px; width: 1060px; font-size: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Art: Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna, Olivier Bernard, Shahab Alizadeh, Eren Arik, VEN, Thomas Stoop, Josu Solano, Titus Lunter, Victor Adame Minguez. © Wizards of the Coast</span>
+
+  <sc-for list="{{tiles}}" as="t" hint-placeholder-count="18">
+    <button onClick="{{t.click}}" aria-pressed="{{t.on}}" aria-label="{{t.label}}" style="position: absolute; left: {{t.x}}px; top: {{t.y}}px; width: {{t.s}}px; height: {{t.s}}px; padding: 0; border: none; border-radius: {{t.r}}px; background: var(--raised); box-shadow: {{t.ring}}; cursor: {{t.cursor}}; transition: box-shadow 160ms">
+      <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+        <sc-if value="{{t.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{t.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+        <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: {{t.fs}}px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span>
+        <sc-if value="{{t.many}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: rgb(11 12 14 / 0.85); font-size: 11px; font-weight: 700">{{t.count}}</span></sc-if>
+        <sc-if value="{{t.hasPt}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">{{t.pt}}</span></sc-if>
+      </span>
+      <sc-if value="{{t.hasMark}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="position: absolute; right: -8px; top: -8px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: {{t.markBg}}; color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--ground)">{{t.mark}}</span></sc-if>
+      <sc-if value="{{t.hasTag}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 50%; bottom: -11px; transform: translateX(-50%); padding: 0 7px; border-radius: 999px; background: var(--ground); box-shadow: 0 0 0 1px {{t.tagRing}}; font-size: 11px; font-weight: 800; white-space: nowrap">{{t.tag}}</span></sc-if>
+    </button>
+  </sc-for>
+
+  <sc-for list="{{steppers}}" as="q" hint-placeholder-count="3">
+    <span role="group" aria-label="Damage to {{q.name}}" style="position: absolute; left: {{q.x}}px; top: {{q.y}}px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 999px; background: var(--text); color: var(--ground); box-shadow: 0 6px 16px rgb(0 0 0 / 0.6)">
+      <button onClick="{{q.down}}" aria-label="One less to {{q.name}}" style="width: 28px; height: 28px; border: none; border-radius: 50%; background: transparent; color: {{q.downInk}}; font-size: 18px; font-weight: 800">−</button>
+      <b style="min-width: 22px; text-align: center; font-family: var(--display); font-size: 22px; line-height: 1">{{q.n}}</b>
+      <button onClick="{{q.up}}" aria-label="One more to {{q.name}}" style="width: 28px; height: 28px; border: none; border-radius: 50%; background: transparent; color: {{q.upInk}}; font-size: 18px; font-weight: 800">+</button>
+    </span>
+  </sc-for>
+
+  <sc-if value="{{hasParked}}" hint-placeholder-val="{{true}}">
+    <div style="position: absolute; left: {{parkX}}px; top: 480px; display: flex; flex-direction: column; align-items: center; gap: 6px">
+      <img src="{{parkImg}}" alt="{{parkName}}" style="width: 120px; border-radius: 6px; box-shadow: 0 0 0 2px {{parkSeat}}, 0 24px 50px rgb(0 0 0 / 0.7)">
+      <span style="padding: 2px 10px; border-radius: 999px; background: {{parkSeat}}; color: var(--ground); font-size: 12px; font-weight: 800; white-space: nowrap">{{parkTag}}</span>
+    </div>
+  </sc-if>
+
+  <svg aria-hidden="true" width="1440" height="900" viewBox="0 0 1440 900" style="position: absolute; inset: 0; pointer-events: none">
+    <sc-for list="{{arrows}}" as="a" hint-placeholder-count="2">
+      <path d="{{a.d}}" fill="none" stroke="{{a.c}}" stroke-width="4" stroke-linecap="round" stroke-dasharray="{{a.dash}}"></path>
+      <circle cx="{{a.ex}}" cy="{{a.ey}}" r="7" fill="{{a.c}}"></circle>
+    </sc-for>
+  </svg>
+
+  <div role="status" style="position: absolute; left: 600px; top: 258px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 6px 8px 6px 8px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 800; box-shadow: 0 12px 30px rgb(0 0 0 / 0.5); white-space: nowrap">
+    <img src="{{srcArt}}" alt="" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover">{{banner}}
+    <span style="padding: 2px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 13px">{{counter}}</span>
+  </div>
+
+  <span style="position: absolute; left: 880px; top: 820px; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #408abf"><span style="display: flex; flex-direction: column; line-height: 1"><b style="font-family: var(--display); font-weight: 700; font-size: 36px">38</b><span style="font-size: 10px; color: var(--dim)">Art: Craig Elliott</span></span></span>
+
+  <aside aria-label="Stack and your options" style="position: absolute; left: 1100px; top: 0; width: 340px; height: 900px; border-left: 1px solid var(--line); display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line)"><span style="font-weight: 700; color: var(--dim)">Leave</span><span style="padding: 6px 14px; border-radius: 999px; background: var(--surface); font-weight: 700; font-size: 14px">Game log</span></div>
+    <section style="padding: 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px">
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 20px">Stack</h2>
+      <sc-for list="{{stack}}" as="s" hint-placeholder-count="2">
+        <div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 8px; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px {{s.seat}}">
+          <img src="{{s.img}}" alt="" style="width: 40px; border-radius: 3px">
+          <span style="display: flex; flex-direction: column; line-height: 1.25; min-width: 0"><b style="font-size: 14px">{{s.name}}</b><span style="font-size: 12px; color: var(--dim)">{{s.note}}</span></span>
+        </div>
+      </sc-for>
+      <sc-if value="{{stackEmpty}}" hint-placeholder-val="{{false}}"><p style="margin: 0; font-size: 14px; color: var(--dim)">Empty until you finish choosing.</p></sc-if>
+    </section>
+    <section style="padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0">
+      <div role="tablist" aria-label="Example" style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 16px; background: var(--surface)">
+        <sc-for list="{{examples}}" as="e" hint-placeholder-count="4"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 32px; padding: 0 8px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 12px; font-weight: 700">{{e.label}}</button></sc-for>
+      </div>
+      <div style="display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center">
+        <img src="{{srcArt}}" alt="" style="width: 56px; height: 42px; border-radius: 8px; object-fit: cover">
+        <span style="display: flex; flex-direction: column; line-height: 1.2"><b>{{srcName}}</b><span style="font-size: 11px; color: var(--dim)">Art: {{srcArtist}}, © Wizards of the Coast</span></span>
+      </div>
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1">{{railTitle}}</h2>
+      <p style="margin: 0; font-size: 13px; color: var(--dim)">{{oracle}}</p>
+      <p style="margin: 0; font-size: 14px">{{railBody}}</p>
+      <p style="margin: 0; font-size: 12px; color: var(--dim)">Driven by: {{driven}}</p>
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
+        <p style="margin: 0; font-size: 12px; color: var(--dim)">Esc backs out of a pick. Right-click reads a card.</p>
+        <sc-if value="{{hasSecondary}}" hint-placeholder-val="{{true}}"><button onClick="{{secondaryAct}}" style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button></sc-if>
+        <button style="min-height: 60px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 19px">{{primary}}</button>
+      </div>
+    </section>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, picks: ['eowyn', 'adeline'], amounts: { z1: 2, sam: 1 }, copyTo: 'eowyn', moveTo: 'eowyn' };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const PX = [10, 374, 738];
+    const AMBER = '#f0b45a', WHITE = '#f2efe8', ME = '#408abf', SAM = '#e8bae4';
+    const { ex, picks, amounts, copyTo, moveTo } = this.state;
+
+    // One object per board object: id, name, art, pt, where it sits
+    const opp = (p, i, id, name, art, pt, extra) => ({ id, name, art, pt, x: PX[p] + 10 + i * 74, y: 172, s: 68, r: 10, fs: 11, kind: 'creature', ...(extra || {}) });
+    const mine = (i, id, name, art, pt, extra) => ({ id, name, art, pt, x: 22 + i * 106, y: 310, s: 96, r: 12, fs: 12, kind: 'creature', mine: true, ...(extra || {}) });
+    const creatures = [
+      opp(0, 0, 'spirit1', 'Spirit', '', '3/2', { whose: 'Computer' }), opp(0, 1, 'spirit2', 'Spirit', '', '3/2', { whose: 'Computer' }),
+      opp(1, 0, 'terra', 'Terra', '7678674b257c9f2d67041ed3a4ee2ab4', '3/3', { whose: 'Sam' }), opp(1, 1, 'titan', 'Grave Titan', '1dccd462a02a0872cc11a4d8518c111f', '6/6', { whose: 'Sam' }),
+      opp(1, 2, 'z1', 'Zombie', '', '2/2', { whose: 'Sam' }), opp(1, 3, 'z2', 'Zombie', '', '2/2', { whose: 'Sam' }),
+      opp(2, 0, 'fant', 'Mister Fantastic', '383d04a073378ede76b3234038a68757', '2/4', { whose: 'Jules' }),
+      mine(0, 'eowyn', 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4', { whose: 'You', cmd: true }), mine(1, 'adeline', 'Adeline', '93443cca264c2d66fac605d8e8311296', '6/4', { whose: 'You' }),
+      mine(2, 'aragorn', 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4', { whose: 'You' }), mine(3, 'faramir', 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2', { whose: 'You' }),
+      mine(4, 's1', 'Soldier', '', '1/1', { whose: 'You' }), mine(5, 's2', 'Soldier', '', '1/1', { whose: 'You' })
+    ];
+    const titanTile = mine(6, 'infernotitan', 'Inferno Titan', 'b294a28751e5b3861509cf2b874180c2', '6/6', { whose: 'You' });
+    const lands = [['Plains', '30df84aecfd8c45546b9a6bdd64b8552', 4], ['Island', '7a66b1e98da872225edb04cfeb9bd60e', 2], ['Mountain', '3bf02968b49b8af680661d10aa4e5547'], ['Battlefield Forge', '3599624673068d143c783b9871cd28b6'], ['Command Tower', 'f42c34fc11f085b17d9a7720c94e99fd']]
+      .map(([name, art, count], i) => ({ id: 'land' + i, name, art, count, x: 22 + i * 64, y: 666, s: 58, r: 10, fs: 10, kind: 'land' }))
+      .concat([['Sol Ring', '6eb6974115f1bfa5c775b479771e7166'], ['Arcane Signet', 'af66cc45335c7043758a263a745cbd02'], ['Anointed Procession', '39ddc54ea3b9ba45e6d3ac018401863e']]
+        .map(([name, art], i) => ({ id: 'rock' + i, name, art, x: 892 + i * 64, y: 666, s: 58, r: 10, fs: 10, kind: 'other' })));
+
+    // The engine decision each tab answers, in the shape of the builder's pending payload
+    const decisions = [
+      { label: 'Any number', kind: 'multiTarget', engine: 'MultiTargetSelection',
+        source: { name: 'Eerie Interlude', art: A('d23941e6881437de7bcc8d3937475afe'), image: A('ebfbc96e73a6b170320ff2b4993e1548'), artist: 'Svetlin Velinov', controller: 'You' },
+        oracle: 'Exile any number of target creatures you control. Return those cards to the battlefield under their owner’s control at the beginning of the next end step.',
+        prompt: 'Choose any number of target creatures you control', legalTargets: ['eowyn', 'adeline', 'aragorn', 'faramir', 's1', 's2'], minTargets: 0, maxTargets: 6 },
+      { label: 'Divide damage', kind: 'distribute', engine: 'DistributeAmong',
+        source: { name: 'Inferno Titan', art: A('b294a28751e5b3861509cf2b874180c2'), image: A('d576a30cb63525a203f81d566a171e77'), artist: 'Olivier Bernard', controller: 'You' },
+        oracle: 'Whenever this creature enters or attacks, it deals 3 damage divided as you choose among one, two, or three targets.',
+        prompt: 'Divide 3 damage', total: 3, unit: 'damage', targets: ['z1', 'sam'], perTargetMin: 1, defaultAnswer: { z1: 2, sam: 1 } },
+      { label: 'New target for a copy', kind: 'copyRetarget', engine: 'CopyRetarget',
+        source: { name: 'Reverberate', art: A('d7fc9a9015ab4a6463665abb3e9c738a'), image: A('2fd3a62b751ef83e8372021eef7e200a'), artist: 'jD', controller: 'You' },
+        oracle: 'Copy target instant or sorcery spell. You may choose new targets for the copy.',
+        prompt: 'Choose a new target for the copy of Chaos Warp', copyOf: 'Chaos Warp', slots: [{ label: 'target permanent', current: 'eowyn' }], currentSlot: 0 },
+      { label: 'Change a target', kind: 'retarget', engine: 'RetargetChoice',
+        source: { name: 'Deflecting Swat', art: A('d4b908e0d21f6202562913bee3427742'), image: A('823ef100ad7f25331f7d05e50133b606'), artist: 'Izzy', controller: 'You' },
+        oracle: 'If you control a commander, you may cast this spell without paying its mana cost. You may choose new targets for target spell or ability.',
+        prompt: 'Choose a new target for Sam’s Swords to Plowshares', spell: 'Swords to Plowshares', spellController: 'Sam', currentTargets: ['eowyn'] }
+    ];
+    const d = decisions[ex];
+    const byId = Object.fromEntries(creatures.concat([titanTile]).map((c) => [c.id, c]));
+    const center = (t) => ({ x: t.x + t.s / 2, y: t.y + t.s / 2 });
+    const curve = (x1, y1, x2, y2) => {
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, dx = x2 - x1, dy = y2 - y1, dd = Math.hypot(dx, dy) || 1, off = Math.min(80, 0.3 * dd);
+      return 'M ' + x1 + ' ' + y1 + ' Q ' + (mx - (dy / dd) * off).toFixed(0) + ' ' + (my + (dx / dd) * off).toFixed(0) + ' ' + x2 + ' ' + y2;
+    };
+    const arrow = (from, to, c, dash) => ({ d: curve(from.x, from.y, to.x, to.y), c, dash: dash || 'none', ex: to.x, ey: to.y });
+    const base = { ring: 'none', on: false, hasMark: false, mark: '', markBg: AMBER, hasTag: false, tag: '', tagRing: '#2a2e33', cursor: 'default', click: null };
+    const view = (o, extra) => ({ ...base, ...o, art: o.art ? A(o.art) : '', hasArt: !!o.art, hasPt: !!o.pt, count: o.count ? '×' + o.count : '', many: !!o.count,
+      label: o.name + (o.whose ? ', ' + o.whose : ''), ...(extra || {}) });
+    const sam = { x: PX[1] + 176, y: 60 };
+    let tiles = [], steppers = [], arrows = [], stack = [], v = {};
+    const park = { hasParked: false, parkX: 480, parkImg: '', parkName: '', parkTag: '', parkSeat: ME };
+
+    if (d.kind === 'multiTarget') {
+      const legal = new Set(d.legalTargets);
+      tiles = creatures.map((c) => {
+        if (!legal.has(c.id)) return view(c);
+        const on = picks.includes(c.id);
+        return view(c, { on, ring: on ? '0 0 0 3px ' + WHITE : '0 0 0 2px ' + AMBER, hasMark: true, mark: on ? '✓' : '+', markBg: on ? WHITE : AMBER, cursor: 'pointer',
+          label: c.name + (on ? ', chosen' : ', legal target'),
+          click: () => this.setState((s) => ({ picks: s.picks.includes(c.id) ? s.picks.filter((x) => x !== c.id) : s.picks.concat(c.id) })) });
+      });
+      Object.assign(park, { hasParked: true, parkX: 790, parkImg: d.source.image, parkName: d.source.name, parkTag: 'Casting', parkSeat: ME });
+      arrows = picks.map((id) => arrow({ x: 850, y: 480 }, center(byId[id]), ME));
+      v = { banner: d.prompt, counter: picks.length + ' chosen, any number', railTitle: 'Any number of targets',
+        railBody: 'Click each creature to add or remove it. Zero is allowed.',
+        primary: 'Cast it, ' + picks.length + (picks.length === 1 ? ' target' : ' targets'), ready: true,
+        secondary: picks.length === d.legalTargets.length ? 'Clear' : 'Choose all',
+        secondaryAct: () => this.setState((s) => ({ picks: s.picks.length === d.legalTargets.length ? [] : d.legalTargets.slice() })),
+        driven: 'legal_targets, min_targets, max_targets.' };
+      stack = [];
+    }
+
+    if (d.kind === 'distribute') {
+      const used = d.targets.reduce((n, id) => n + (amounts[id] || 0), 0);
+      const left = d.total - used;
+      const step = (id, k) => () => this.setState((s) => {
+        const a = { ...s.amounts }; const nv = (a[id] || 0) + k; const usedNow = d.targets.reduce((n, t) => n + (a[t] || 0), 0);
+        if (nv < d.perTargetMin || (k > 0 && usedNow >= d.total)) return null;
+        a[id] = nv; return { amounts: a };
+      });
+      tiles = creatures.concat([titanTile]).map((c) => {
+        if (c.id === 'infernotitan') return view(c, { ring: '0 0 0 3px ' + ME, hasTag: true, tag: 'Entered', tagRing: ME });
+        if (d.targets.includes(c.id)) return view(c, { ring: '0 0 0 3px ' + WHITE, label: c.name + ', ' + amounts[c.id] + ' damage' });
+        return view(c);
+      });
+      steppers = d.targets.map((id) => {
+        const p = id === 'sam' ? { x: sam.x + 120, y: 92 } : { x: byId[id].x + 34, y: byId[id].y - 34 };
+        const n = amounts[id] || 0;
+        return { name: id === 'sam' ? 'Sam' : byId[id].name, x: p.x, y: p.y, n,
+          downInk: n > d.perTargetMin ? '#0b0c0e' : '#a9adb3', upInk: left > 0 ? '#0b0c0e' : '#a9adb3', down: step(id, -1), up: step(id, 1) };
+      });
+      const from = center(titanTile);
+      arrows = d.targets.map((id) => arrow({ x: from.x, y: from.y - 48 }, id === 'sam' ? { x: sam.x, y: 80 } : { x: byId[id].x + 34, y: byId[id].y + 68 }, ME));
+      v = { banner: d.prompt, counter: left === 0 ? '0 left' : left + ' left', railTitle: 'Divide 3 damage',
+        railBody: 'Targets are chosen: a Zombie and Sam. Each must get at least 1. The engine’s split is filled in; change it on the targets.',
+        primary: left === 0 ? 'Done' : left + ' left to assign', ready: left === 0,
+        secondary: 'Reset to the default split', secondaryAct: () => this.setState({ amounts: { ...d.defaultAnswer } }),
+        driven: 'total, targets, unit, and the default split.' };
+      stack = [{ name: 'Inferno Titan trigger', note: 'Yours, waiting for the split', img: d.source.image, seat: ME }];
+    }
+
+    if (d.kind === 'copyRetarget') {
+      const cur = d.slots[0].current;
+      tiles = creatures.map((c) => {
+        const on = c.id === copyTo;
+        return view(c, { on, ring: on ? '0 0 0 3px ' + WHITE : '0 0 0 2px ' + AMBER, hasMark: on, mark: '1', markBg: WHITE, cursor: 'pointer',
+          hasTag: c.id === cur, tag: 'Sam’s target', tagRing: SAM, label: c.name + (on ? ', the copy’s target' : ', legal target'),
+          click: () => this.setState({ copyTo: c.id }) });
+      }).concat(lands.map((l) => view(l, { ring: '0 0 0 2px ' + AMBER, cursor: 'pointer', click: () => this.setState({ copyTo: l.id }), on: copyTo === l.id })));
+      Object.assign(park, { hasParked: true, parkX: 790, parkImg: A('0145ecf81c21d180a7799470623719f7'), parkName: 'Copy of Chaos Warp', parkTag: 'Your copy', parkSeat: ME });
+      const tgt = byId[copyTo] || lands.find((l) => l.id === copyTo);
+      arrows = [arrow({ x: 640, y: 120 }, center(byId[cur]), SAM, '2 10'), arrow({ x: 850, y: 480 }, center(tgt), ME, copyTo === cur ? '10 8' : 'none')];
+      const same = copyTo === cur;
+      v = { banner: d.prompt, counter: 'Target 1 of 1', railTitle: 'New target for the copy?',
+        railBody: same ? 'The copy still targets Éowyn, like Sam’s spell. Click any permanent to change it.' : 'The copy will target ' + tgt.name + '. Sam’s Chaos Warp still targets Éowyn.',
+        primary: same ? 'Keep Éowyn' : 'Copy targets ' + tgt.name, ready: true,
+        secondary: same ? '' : 'Back to Éowyn', secondaryAct: () => this.setState({ copyTo: cur }),
+        driven: 'target_slots (current target and legal alternatives), current_slot.' };
+      stack = [{ name: 'Copy of Chaos Warp', note: 'Yours, choosing a target', img: A('0145ecf81c21d180a7799470623719f7'), seat: ME }, { name: 'Chaos Warp', note: 'Sam’s, targeting Éowyn', img: A('0145ecf81c21d180a7799470623719f7'), seat: SAM }];
+    }
+
+    if (d.kind === 'retarget') {
+      const cur = d.currentTargets[0];
+      tiles = creatures.map((c) => {
+        const on = c.id === moveTo;
+        return view(c, { on, ring: on ? '0 0 0 3px ' + WHITE : '0 0 0 2px ' + AMBER, hasMark: on, mark: '1', markBg: WHITE, cursor: 'pointer',
+          hasTag: c.id === cur, tag: 'Targeted now', tagRing: SAM, label: c.name + (on ? ', new target' : ', legal target'),
+          click: () => this.setState({ moveTo: c.id }) });
+      });
+      Object.assign(park, { hasParked: true, parkX: 790, parkImg: A('25cc15a47dce134d446895cd6610ce40'), parkName: 'Swords to Plowshares', parkTag: 'Sam’s spell', parkSeat: SAM });
+      const same = moveTo === cur;
+      arrows = [arrow({ x: 850, y: 480 }, center(byId[moveTo]), SAM, same ? 'none' : 'none')].concat(same ? [] : [arrow({ x: 850, y: 480 }, center(byId[cur]), '#a9adb3', '2 10')]);
+      v = { banner: d.prompt, counter: 'Target 1 of 1', railTitle: 'Change the target?',
+        railBody: same ? 'Swords to Plowshares targets your Éowyn. Click another creature to move it there.' : 'Swords to Plowshares will target ' + byId[moveTo].name + ' instead. The arrow stays Sam’s colour: it is still Sam’s spell.',
+        primary: same ? 'Leave it on Éowyn' : 'Change to ' + byId[moveTo].name, ready: true,
+        secondary: same ? '' : 'Back to Éowyn', secondaryAct: () => this.setState({ moveTo: cur }),
+        driven: 'current_targets, slots, slot_pools; submits RetargetSpell.new_targets.' };
+      stack = [{ name: 'Deflecting Swat', note: 'Yours, resolving', img: d.source.image, seat: ME }, { name: 'Swords to Plowshares', note: 'Sam’s, targeting ' + byId[moveTo].name, img: A('25cc15a47dce134d446895cd6610ce40'), seat: SAM }];
+    }
+
+    if (d.kind !== 'copyRetarget') tiles = tiles.concat(lands.map((l) => view(l)));
+    const mineTurn = d.kind === 'multiTarget' || d.kind === 'distribute';
+    return {
+      examples: decisions.map((x, i) => ({ label: x.label, on: ex === i, bg: ex === i ? WHITE : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i }) })),
+      panes: [
+        { name: 'Computer', seat: '#b55af6', x: PX[0], counts: 'Hand 4, library 71', life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), credits: 'Darren Tan. © Wizards of the Coast', lands: '8 lands', ring: 'none' },
+        { name: 'Sam', seat: SAM, x: PX[1], counts: 'Hand 5, library 73', life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), credits: 'Marta Nael, Nils Hamm. © Wizards of the Coast', lands: '7 lands', ring: d.kind === 'distribute' ? '0 0 0 3px ' + WHITE : 'none' },
+        { name: 'Jules', seat: '#757a8a', x: PX[2], counts: 'Hand 2, library 70', life: 36, art: A('383d04a073378ede76b3234038a68757'), credits: 'Gintas Galvanauskas. © Wizards of the Coast', lands: '7 lands', ring: 'none' }
+      ],
+      turn: mineTurn ? 'Your turn 9, main 1' : 'Sam’s turn 9, main 1', turnArt: mineTurn ? A('c19490e7c081fb35071c85147c01bed4') : A('7678674b257c9f2d67041ed3a4ee2ab4'),
+      turnBg: mineTurn ? WHITE : '#1e2125', turnInk: mineTurn ? '#0b0c0e' : WHITE,
+      tiles, steppers, arrows, stack, stackEmpty: stack.length === 0, ...park,
+      srcArt: d.source.art, srcName: d.source.name, srcArtist: d.source.artist, oracle: d.oracle,
+      banner: v.banner, counter: v.counter, railTitle: v.railTitle, railBody: v.railBody, driven: v.driven,
+      primary: v.primary, doneBg: v.ready ? WHITE : '#1e2125', doneInk: v.ready ? '#0b0c0e' : '#a9adb3',
+      hasSecondary: !!v.secondary, secondary: v.secondary, secondaryAct: v.secondaryAct
+    };
+  }
+}
+</script>
+</body>
+</html>

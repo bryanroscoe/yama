@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Counters</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+.step{width:40px;height:40px;border-radius:50%;border:none;background:var(--raised);font-size:20px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+
+  <sc-for list="{{panes}}" as="p" hint-placeholder-count="3">
+    <article aria-label="{{p.name}}, {{p.life}} life" style="position: absolute; left: {{p.x}}px; top: 10px; width: 352px; height: 240px; border-radius: 16px; background: var(--surface); overflow: hidden">
+      <header style="position: relative; height: 78px; padding: 8px 12px; display: flex; gap: 10px; align-items: end">
+        <img src="{{p.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.88) 0%, rgb(11 12 14 / 0.55) 55%, rgb(11 12 14 / 0.25) 100%)"></span>
+        <span style="position: relative; flex: 1; display: flex; flex-direction: column; line-height: 1.15"><b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{p.seat}}"></span>{{p.name}}</b><span style="font-size: 12px; color: #d5d7db">{{p.status}}</span></span>
+        <b style="position: relative; font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">{{p.life}}</b>
+      </header>
+      <span style="position: absolute; left: 10px; right: 10px; bottom: 6px; font-size: 10px; color: var(--dim)">Art: {{p.credits}}</span>
+    </article>
+  </sc-for>
+
+  <sc-for list="{{oppTiles}}" as="t" hint-placeholder-count="1">
+    <button onClick="{{t.click}}" aria-pressed="{{t.on}}" aria-label="{{t.label}}" style="position: absolute; left: {{t.x}}px; top: 100px; width: 96px; height: 96px; padding: 0; border: none; border-radius: 12px; background: var(--raised); box-shadow: {{t.ring}}; cursor: {{t.cursor}}">
+      <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden"><img src="{{t.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; text-align: left">{{t.name}}</span></span>
+      <span style="position: absolute; left: 4px; bottom: 4px; padding: 0 6px; border-radius: 4px 4px 9px 9px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 800">{{t.counters}}</span>
+      <sc-if value="{{t.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -9px; top: -9px; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 999px; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{t.n}}</span></sc-if>
+    </button>
+  </sc-for>
+
+  <section aria-label="Your battlefield" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 438px; border-radius: 16px; background: var(--surface)"></section>
+  <span style="position: absolute; left: 22px; top: 712px; font-size: 10px; color: var(--dim)">Art: Craig Elliott, Bryan Sola, Yongjae Choi, Dan Murayama Scott, Anna Podedworna; Quintorius: Darren Tan. © Wizards of the Coast</span>
+  <sc-for list="{{tiles}}" as="t" hint-placeholder-count="5">
+    <div style="position: absolute; left: {{t.x}}px; top: 330px; width: 130px; display: flex; flex-direction: column; align-items: center; gap: 10px">
+      <button onClick="{{t.click}}" aria-pressed="{{t.on}}" aria-label="{{t.label}}" style="position: relative; width: 120px; height: 120px; padding: 0; border: none; border-radius: 14px; background: var(--raised); box-shadow: {{t.ring}}; cursor: {{t.cursor}}; transition: box-shadow 140ms">
+        <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+          <img src="{{t.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover">
+          <span style="position: absolute; left: 0; right: 0; top: 0; padding: 2px 6px; background: rgb(11 12 14 / 0.82); font-size: 13px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden">{{t.name}}</span>
+          <span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 13px; font-weight: 700">{{t.pt}}</span>
+        </span>
+        <sc-if value="{{t.hasCounters}}" hint-placeholder-val="{{true}}"><span style="position: absolute; left: 4px; bottom: 4px; padding: 0 6px; border-radius: 999px; background: var(--ground); box-shadow: 0 0 0 1px var(--text); font-size: 12px; font-weight: 800">{{t.counters}}</span></sc-if>
+        <sc-if value="{{t.hasBadge}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -9px; top: -9px; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 999px; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface); white-space: nowrap">{{t.badge}}</span></sc-if>
+      </button>
+      <sc-if value="{{t.hasStepper}}" hint-placeholder-val="{{false}}">
+        <span style="display: flex; align-items: center; gap: 6px">
+          <button class="step" onClick="{{t.less}}" aria-label="Remove one fewer from {{t.name}}">−</button>
+          <output style="width: 30px; text-align: center; font-family: var(--display); font-weight: 800; font-size: 26px">{{t.taken}}</output>
+          <button class="step" onClick="{{t.more}}" aria-label="Remove one more from {{t.name}}">+</button>
+        </span>
+      </sc-if>
+      <sc-if value="{{t.hasNote}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; color: var(--dim); text-align: center">{{t.note}}</span></sc-if>
+    </div>
+  </sc-for>
+
+  <sc-if value="{{isMove}}" hint-placeholder-val="{{false}}">
+    <section aria-label="How many to move" style="position: absolute; left: 330px; top: 540px; width: 520px; padding: 14px 16px; border-radius: 18px; background: var(--ground); box-shadow: 0 0 0 1px var(--line), 0 20px 50px rgb(0 0 0 / 0.6); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center">
+      <span style="display: flex; flex-direction: column; line-height: 1.3"><b>+1/+1 counters to move from Adeline to Aragorn</b><span style="font-size: 13px; color: var(--dim)">Any number from 0 to 3. Each kind of counter on the source gets its own row.</span></span>
+      <span style="display: flex; align-items: center; gap: 8px">
+        <button class="step" onClick="{{moveLess}}" aria-label="Move one fewer">−</button>
+        <output aria-live="polite" style="width: 40px; text-align: center; font-family: var(--display); font-weight: 800; font-size: 38px">{{moveN}}</output>
+        <button class="step" onClick="{{moveMore}}" aria-label="Move one more">+</button>
+        <button onClick="{{moveAll}}" style="min-height: 40px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; font-size: 13px">All</button>
+      </span>
+    </section>
+  </sc-if>
+
+  <div role="status" style="position: absolute; left: 550px; top: 262px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 7px 8px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 800; box-shadow: 0 12px 30px rgb(0 0 0 / 0.5); white-space: nowrap">
+    <img src="{{srcArt}}" alt="" style="width: 26px; height: 26px; border-radius: 50%; object-fit: cover">{{prompt}}
+    <span style="padding: 2px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 13px">{{counter}}</span>
+  </div>
+
+  <aside aria-label="Rail" style="position: absolute; left: 1100px; top: 0; width: 340px; height: 900px; border-left: 1px solid var(--line); display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line)"><span style="font-weight: 700; color: var(--dim)">Leave</span><span style="padding: 6px 14px; border-radius: 999px; background: var(--surface); font-weight: 700; font-size: 14px">Game log</span></div>
+    <section style="padding: 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px">
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 20px">{{stackHead}}</h2>
+      <div style="display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px #408abf">
+        <img src="{{srcImg}}" alt="" style="width: 48px; border-radius: 3px">
+        <span style="display: flex; flex-direction: column; line-height: 1.25"><b>{{srcName}}</b><span style="font-size: 12px; color: var(--dim)">{{srcWhen}}</span></span>
+      </div>
+      <span style="font-size: 12px; color: var(--dim); line-height: 1.4">{{oracle}}</span>
+      <span style="font-size: 10px; color: var(--dim)">Card image from Scryfall. Art: {{artist}}, © Wizards of the Coast</span>
+    </section>
+    <section style="padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 10px">
+      <div role="tablist" aria-label="Example" style="display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; border-radius: 18px; background: var(--surface); width: fit-content">
+        <sc-for list="{{examples}}" as="e" hint-placeholder-count="3"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 32px; padding: 0 12px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 12px; font-weight: 700">{{e.label}}</button></sc-for>
+      </div>
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1">{{railTitle}}</h2>
+      <p style="margin: 0; font-size: 14px; color: var(--dim)">{{railBody}}</p>
+      <sc-if value="{{hasSummary}}" hint-placeholder-val="{{true}}"><div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--surface); font-size: 13px"><sc-for list="{{summary}}" as="s" hint-placeholder-count="2"><span>{{s}}</span></sc-for></div></sc-if>
+      <p style="margin: 0; font-size: 12px; color: var(--dim)">Driven by: kind, options with their counters, min/max, defaultAnswer.</p>
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
+        <sc-if value="{{hasSecondary}}" hint-placeholder-val="{{true}}"><button onClick="{{secondaryAct}}" style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button></sc-if>
+        <button style="min-height: 60px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 20px">{{primary}}</button>
+      </div>
+    </section>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, picks: ['eowyn', 'adeline'], move: 3, take: {} };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const mine = [
+      { id: 'eowyn', name: 'Éowyn', art: 'c19490e7c081fb35071c85147c01bed4', pt: '5/4', plus: 2 },
+      { id: 'adeline', name: 'Adeline', art: '93443cca264c2d66fac605d8e8311296', pt: '*/4', plus: 3 },
+      { id: 'aragorn', name: 'Aragorn', art: 'c2a67f4f687b666fcd3c4d8cb3b0bf63', pt: '4/4', plus: 1 },
+      { id: 'initiate', name: 'Hopeful Initiate', art: '5c65d32b4e5118d9e5e03850697825dc', pt: '1/2', plus: 1 },
+      { id: 'faramir', name: 'Faramir', art: '62e4a477ddbf5628d609a86bc8d12c3a', pt: '2/2', plus: 0 }
+    ];
+    const quint = { id: 'quint', name: 'Quintorius', art: '042e4cb280a5a896fb249a47c8f4a8a3', loyalty: 5, controller: 'Computer' };
+    const decisions = [
+      { label: 'Proliferate', kind: 'pick', engine: 'ProliferateChoice',
+        source: { name: 'Tezzeret’s Gambit', art: A('9013dd26dcdddca54f0ca5d82fea208f'), image: A('d225c5e0dbad75541a11cf538795ace7'), artist: 'Bryan Sola', when: 'Yours, resolving' },
+        prompt: 'Proliferate', oracle: '({U/P} can be paid with either {U} or 2 life.) Draw two cards, then proliferate. (Choose any number of permanents and/or players, then give each another counter of each kind already there.)',
+        options: ['eowyn', 'adeline', 'aragorn', 'initiate', 'quint'], min: 0, max: 5, upTo: true, defaultAnswer: [] },
+      { label: 'Move counters', kind: 'split', engine: 'MoveCountersDistribution',
+        source: { name: 'Resourceful Defense', art: A('d0aac68c1fa2c6eb511842f9493db1c7'), image: A('a21db8913ceac83e6202d2e251acab56'), artist: 'Francis Tneh', when: 'Yours, ability resolving' },
+        prompt: 'Move counters from Adeline to Aragorn', oracle: '{4}{W}: Move any number of counters from target permanent you control onto a second target permanent you control.',
+        from: 'adeline', to: 'aragorn', options: [{ kind: '+1/+1', available: 3 }], min: 0, max: 3, defaultAnswer: 3 },
+      { label: 'Remove as a cost', kind: 'split', engine: 'ChooseRemoveCounterCostDistribution',
+        source: { name: 'Hopeful Initiate', art: A('5c65d32b4e5118d9e5e03850697825dc'), image: A('744a9ab4bd65dd95e2469465874cd3d2'), artist: 'Dan Murayama Scott', when: 'Yours, paying a cost' },
+        prompt: 'Remove two +1/+1 counters', oracle: '{2}{W}, Remove two +1/+1 counters from among creatures you control: Destroy target artifact or enchantment.',
+        options: ['eowyn', 'adeline', 'aragorn', 'initiate'], total: 2, defaultAnswer: null }
+    ];
+    const st = this.state;
+    const d = decisions[st.ex];
+    const kind = ['prolif', 'move', 'cost'][st.ex];
+    const pickRing = (on) => on ? '0 0 0 3px #f2efe8, 0 12px 28px rgb(0 0 0 / 0.5)' : '0 0 0 2px #f0b45a';
+    const plain = '0 0 0 1px #2a2e33';
+    const toggle = (id) => () => this.setState((s) => ({ picks: s.picks.includes(id) ? s.picks.filter((x) => x !== id) : s.picks.concat(id) }));
+    const taken = Object.values(st.take).reduce((a, b) => a + b, 0);
+    const vals = {
+      examples: decisions.map((x, i) => ({ label: x.label, on: st.ex === i, bg: st.ex === i ? '#f2efe8' : 'transparent', ink: st.ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i }) })),
+      panes: [
+        { name: 'Computer', seat: '#b55af6', x: 10, life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), credits: 'Darren Tan', status: 'Quintorius, loyalty 5' },
+        { name: 'Sam', seat: '#e8bae4', x: 374, life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), credits: 'Marta Nael', status: 'No counters' },
+        { name: 'Jules', seat: '#757a8a', x: 738, life: 36, art: A('383d04a073378ede76b3234038a68757'), credits: 'Gintas Galvanauskas', status: 'No counters' }
+      ],
+      srcArt: d.source.art, srcImg: d.source.image, srcName: d.source.name, srcWhen: d.source.when, artist: d.source.artist,
+      stackHead: kind === 'cost' ? 'Activating' : 'Stack', oracle: d.oracle,
+      prompt: d.prompt, railTitle: d.prompt, isMove: kind === 'move',
+      hasSummary: false, summary: [], hasSecondary: false, secondary: '', secondaryAct: null,
+      moveN: st.move, moveLess: () => this.setState((s) => ({ move: Math.max(0, s.move - 1) })), moveMore: () => this.setState((s) => ({ move: Math.min(3, s.move + 1) })), moveAll: () => this.setState({ move: 3 })
+    };
+    const tileBase = (m, i) => ({ name: m.name, art: A(m.art), pt: m.pt, x: 18 + i * 140, hasCounters: m.plus > 0, counters: '+1/+1 ×' + m.plus, on: false, hasBadge: false, badge: '', ring: plain, cursor: 'default', click: null, hasStepper: false, taken: 0, less: null, more: null, hasNote: false, note: '', label: m.name + (m.plus ? ', ' + m.plus + ' +1/+1 counters' : '') });
+    if (kind === 'prolif') {
+      vals.tiles = mine.map((m, i) => {
+        const t = tileBase(m, i);
+        if (!m.plus) return { ...t, hasNote: true, note: 'No counters' };
+        const k = st.picks.indexOf(m.id);
+        return { ...t, on: k >= 0, hasBadge: k >= 0, badge: k >= 0 ? (k + 1) + '' : '', ring: pickRing(k >= 0), cursor: 'pointer', click: toggle(m.id),
+          hasNote: k >= 0, note: k >= 0 ? '+1/+1 ×' + m.plus + ' → ×' + (m.plus + 1) : '', label: t.label + (k >= 0 ? ', chosen' : ', can be chosen') };
+      });
+      const qk = st.picks.indexOf('quint');
+      vals.oppTiles = [{ name: quint.name, art: A(quint.art), x: 254, counters: 'Loyalty ' + quint.loyalty + (qk >= 0 ? ' → 6' : ''), on: qk >= 0, n: qk + 1, ring: pickRing(qk >= 0), cursor: 'pointer', click: toggle('quint'), label: 'Computer’s Quintorius, loyalty 5' + (qk >= 0 ? ', chosen' : ', can be chosen') }];
+      const n = st.picks.length;
+      vals.counter = n + ' chosen';
+      vals.railBody = 'Choose any number of permanents and players that have counters. Each gets one more of each kind it has. Amber ones have counters; nothing is chosen for you.';
+      vals.hasSummary = n > 0;
+      vals.summary = st.picks.map((id) => id === 'quint' ? 'Computer’s Quintorius: loyalty 5 → 6' : (mine.find((m) => m.id === id).name + ': +1/+1 ×' + mine.find((m) => m.id === id).plus + ' → ×' + (mine.find((m) => m.id === id).plus + 1)));
+      vals.summary.push('Players with counters: none in this game.');
+      vals.hasSecondary = n > 0; vals.secondary = 'Clear'; vals.secondaryAct = () => this.setState({ picks: [] });
+      vals.primary = n ? 'Proliferate (' + n + ')' : 'Proliferate nothing';
+      vals.doneBg = '#f2efe8'; vals.doneInk = '#0b0c0e';
+    }
+    if (kind === 'move') {
+      vals.tiles = mine.map((m, i) => {
+        const t = tileBase(m, i);
+        if (m.id === 'adeline') return { ...t, counters: '+1/+1 ×' + (3 - st.move), hasCounters: true, ring: '0 0 0 3px #f2efe8', hasBadge: true, badge: 'From', hasNote: true, note: '×3 → ×' + (3 - st.move) };
+        if (m.id === 'aragorn') return { ...t, counters: '+1/+1 ×' + (1 + st.move), ring: '0 0 0 3px #f2efe8', hasBadge: true, badge: 'To', hasNote: true, note: '×1 → ×' + (1 + st.move) };
+        return t;
+      });
+      vals.oppTiles = [{ name: quint.name, art: A(quint.art), x: 254, counters: 'Loyalty 5', on: false, n: 0, ring: plain, cursor: 'default', click: null, label: 'Computer’s Quintorius, loyalty 5' }];
+      vals.counter = st.move + ' of 3';
+      vals.railBody = 'Both targets are chosen. Now choose how many counters move. The engine’s default is all of them.';
+      vals.hasSecondary = st.move !== 3; vals.secondary = 'Reset to all 3'; vals.secondaryAct = () => this.setState({ move: 3 });
+      vals.primary = st.move ? 'Move ' + st.move : 'Move none';
+      vals.doneBg = '#f2efe8'; vals.doneInk = '#0b0c0e';
+    }
+    if (kind === 'cost') {
+      const change = (id, k, cap) => () => this.setState((s) => {
+        const cur = s.take[id] || 0; const tot = Object.values(s.take).reduce((a, b) => a + b, 0);
+        const next = cur + k; if (next < 0 || next > cap || (k > 0 && tot >= d.total)) return null;
+        return { take: { ...s.take, [id]: next } };
+      });
+      vals.tiles = mine.map((m, i) => {
+        const t = tileBase(m, i);
+        if (!m.plus) return { ...t, hasNote: true, note: 'No counters' };
+        const k = st.take[m.id] || 0;
+        return { ...t, counters: '+1/+1 ×' + (m.plus - k), ring: k ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', hasBadge: k > 0, badge: '−' + k,
+          hasStepper: true, taken: k, less: change(m.id, -1, m.plus), more: change(m.id, 1, m.plus), label: t.label + (k ? ', removing ' + k : '') };
+      });
+      vals.oppTiles = [{ name: quint.name, art: A(quint.art), x: 254, counters: 'Loyalty 5', on: false, n: 0, ring: plain, cursor: 'default', click: null, label: 'Computer’s Quintorius, loyalty 5' }];
+      const left = d.total - taken;
+      vals.counter = left ? left + ' left to remove' : '0 left';
+      vals.railBody = 'Remove exactly two +1/+1 counters, from any of your creatures that have them. Then choose the artifact or enchantment to destroy.';
+      vals.hasSummary = true; vals.summary = ['Mana: {2}{W}', 'Counters: ' + taken + ' of 2 chosen'];
+      vals.hasSecondary = true; vals.secondary = 'Cancel'; vals.secondaryAct = () => this.setState({ take: {} });
+      vals.primary = left ? left + ' left to remove' : 'Pay and choose a target';
+      vals.doneBg = left ? '#1e2125' : '#f2efe8'; vals.doneInk = left ? '#a9adb3' : '#0b0c0e';
+    }
+    return vals;
+  }
+}
+</script>
+</body>
+</html>

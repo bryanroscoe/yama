@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rarer decisions on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.62)"></div>
+
+  <section role="dialog" aria-label="{{title}}" style="position: absolute; left: 0; right: 0; bottom: 0; top: 120px; padding: 8px 12px 14px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
+    <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 999px; background: var(--line)"></span>
+    <div role="tablist" aria-label="Example" style="display: grid; grid-template-columns: 1fr 1fr; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="2"><button role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="min-height: 36px; border: none; border-radius: 999px; background: {{t.bg}}; color: {{t.ink}}; font-size: 13px; font-weight: 700">{{t.label}}</button></sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: center">
+      <img src="{{srcArt}}" alt="" style="width: 52px; height: 40px; border-radius: 8px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; line-height: 1.15"><b style="font-size: 17px">{{title}}</b><span style="font-size: 12px; color: var(--dim)">{{srcLine}}</span></span>
+    </div>
+
+    <sc-if value="{{isLoop}}" hint-placeholder-val="{{true}}">
+      <span style="display: flex; align-items: center; gap: 8px; font-size: 14px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: #408abf"></span><b>Bryan proposes: repeat 20 times</b></span>
+      <span style="font-size: 13px; color: var(--dim)">Kiki-Jiki, Mirror Breaker and Pestermite. Grows without limit: Pestermite token copies.</span>
+      <span style="display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 14px; background: var(--raised)">
+        <span style="font-size: 13px">Or stop it early, after</span>
+        <span style="display: flex; align-items: center; gap: 10px">
+          <button onClick="{{down}}" aria-label="Fewer" style="width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--ground); font-size: 22px">−</button>
+          <output style="flex: 1; text-align: center; font-family: var(--display); font-weight: 800; font-size: 40px; line-height: 1">{{n}}</output>
+          <button onClick="{{up}}" aria-label="More" style="width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--ground); font-size: 22px">+</button>
+        </span>
+        <span style="font-size: 12px; color: var(--dim)">times, and take priority there.</span>
+      </span>
+      <span style="display: flex; gap: 6px; flex-wrap: wrap">
+        <sc-for list="{{responders}}" as="p" hint-placeholder-count="3"><span style="display: flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; background: var(--ground); font-size: 12px"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: {{p.seat}}"></span>{{p.text}}</span></sc-for>
+      </span>
+    </sc-if>
+
+    <sc-if value="{{isGift}}" hint-placeholder-val="{{false}}">
+      <span style="font-size: 12px; color: var(--dim); line-height: 1.35">Gift a card (You may promise an opponent a gift as you cast this spell. If you do, they draw a card before its other effects.)</span>
+      <div role="radiogroup" aria-label="Opponents" style="display: flex; flex-direction: column; gap: 8px">
+        <sc-for list="{{seats}}" as="s" hint-placeholder-count="3">
+          <button role="radio" aria-checked="{{s.on}}" onClick="{{s.pick}}" style="position: relative; height: 76px; padding: 0; border: none; border-radius: 14px; overflow: hidden; background: var(--raised); box-shadow: {{s.ring}}; text-align: left">
+            <img src="{{s.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+            <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.88), rgb(11 12 14 / 0.5) 60%, rgb(11 12 14 / 0.2))"></span>
+            <span style="position: absolute; left: 12px; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; line-height: 1.2"><b style="display: flex; align-items: center; gap: 6px; font-size: 16px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{s.seat}}"></span>{{s.name}}</b><span style="font-size: 10px; color: rgb(255 255 255 / 0.75)">Art: {{s.artist}}</span></span>
+            <b style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-family: var(--display); font-size: 30px">{{s.life}}</b>
+          </button>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <span style="font-size: 11px; color: var(--dim)">{{credit}} © Wizards of the Coast</span>
+    <div style="margin-top: auto; display: grid; grid-template-columns: {{dockCols}}; gap: 8px">
+      <sc-if value="{{hasSecondary}}" hint-placeholder-val="{{true}}"><button style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button></sc-if>
+      <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 16px">{{primary}}</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 0, n: 20, gift: 'sam' };
+  }
+  pending() {
+    const A = (id) => '/_blob/' + id;
+    return {
+      loop: { kind: 'shortcut', engine: 'RespondToShortcut', proposal: { proposer: 'Bryan', count: 20 }, source: { name: 'Kiki-Jiki, Mirror Breaker', art: A('294ee810ae176fe607b34b93d4a56d88'), artist: 'Steven Belledin' } },
+      gift: { kind: 'player', engine: 'ChooseGiftRecipient', source: { name: 'Dewdrop Cure', art: A('5188d0e90a93735bc65c3156c0b7c1ca'), artist: 'Chris Rallis' },
+        options: [
+          { id: 'computer', name: 'Computer', seat: '#b55af6', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', life: 31 },
+          { id: 'sam', name: 'Sam', seat: '#e8bae4', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', life: 24 },
+          { id: 'jules', name: 'Jules', seat: '#757a8a', art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', life: 36 }
+        ] }
+    };
+  }
+  renderVals() {
+    const P = this.pending();
+    const { tab, n, gift } = this.state;
+    const tabs = ['Loop shortcut', 'Choose a player'].map((label, i) => ({ label, on: tab === i, bg: tab === i ? '#f2efe8' : 'transparent', ink: tab === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ tab: i }) }));
+    if (tab === 0) {
+      const d = P.loop, total = d.proposal.count;
+      return { tabs, isLoop: true, isGift: false, seats: [], title: 'Accept the shortcut?', srcArt: d.source.art, srcLine: 'Bryan’s Kiki-Jiki, Mirror Breaker. Art: ' + d.source.artist,
+        n, down: () => this.setState((s) => ({ n: Math.max(0, s.n - 1) })), up: () => this.setState((s) => ({ n: Math.min(total, s.n + 1) })),
+        responders: [{ seat: '#b55af6', text: 'Computer accepted' }, { seat: '#e8bae4', text: 'You (Sam) deciding' }, { seat: '#757a8a', text: 'Jules next' }],
+        credit: 'Card art from Scryfall.',
+        hasSecondary: n < total, secondary: 'Accept ' + total, primary: n < total ? 'Shorten to ' + n : 'Accept ' + total, dockCols: n < total ? 'minmax(0, 1fr) minmax(0, 1.4fr)' : '1fr' };
+    }
+    const d = P.gift;
+    const chosen = d.options.find((o) => o.id === gift);
+    return { tabs, isLoop: false, isGift: true, title: 'Who gets the gift?', srcArt: d.source.art, srcLine: 'Dewdrop Cure. Art: ' + d.source.artist,
+      n, down: null, up: null, responders: [],
+      seats: d.options.map((o) => ({ ...o, on: o.id === gift, ring: o.id === gift ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', pick: () => this.setState({ gift: o.id }) })),
+      credit: 'Art as credited on each row.',
+      hasSecondary: true, secondary: 'Cancel the spell', primary: chosen ? 'Give it to ' + chosen.name : 'Choose an opponent', dockCols: 'minmax(0, 1fr) minmax(0, 1.4fr)' };
+  }
+}
+</script>
+</body>
+</html>

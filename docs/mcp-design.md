@@ -73,7 +73,7 @@ Write (staged):
 | `mark_bought`, `mark_installed` | The existing `bought` and `installed` ops |
 | `start_lab_run` | An experiment in any mode (change, compare, solo, versus) on phase, Forge or both, under the lab's usual allowance |
 | `more_lab_games`, `run_lab_again`, `cancel_lab_run` | More pods on a finished run, a fresh run of the same experiment, or a cancel |
-| `add_to_collection`, `move_cards` | Collection ops (by name and printing) |
+| `add_to_collection`, `move_cards`, `set_condition` | Collection ops (by name and printing; a condition for every copy in a container, or one card's) |
 
 Plan swaps themselves can't be edited yet: imported plans are managed by the commander-decks repo
 (its `swaps.json` is the source of truth), and Yama-made plans (planner slice 7) aren't built. So a

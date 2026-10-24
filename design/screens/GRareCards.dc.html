@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rarer card mechanics</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+.fd{position:relative;border-radius:12px;background:var(--raised);box-shadow:inset 0 0 0 2px var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.fd .pt{position:absolute;right:6px;bottom:6px;padding:0 6px;border-radius:4px;background:var(--text);color:var(--ground);font-size:13px;font-weight:700}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" turn="{{turn}}" turn-art="{{turnArt}}" mine-turn="{{mineTurn}}" phase="{{phase}}" title="{{railTitle}}" body="{{railBody}}" primary="{{primary}}" secondary="{{secondary}}" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+
+  <section role="dialog" aria-label="{{title}}" style="position: absolute; left: 40px; top: 30px; width: 1020px; height: 840px; padding: 20px 22px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 14px">
+    <div role="tablist" aria-label="Mechanic" style="display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--ground); width: fit-content">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="7"><button role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="min-height: 34px; padding: 0 13px; border: none; border-radius: 999px; background: {{t.bg}}; color: {{t.ink}}; font-size: 13px; font-weight: 700">{{t.label}}</button></sc-for>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; align-items: start">
+      <span style="display: flex; flex-direction: column; gap: 4px"><img src="{{srcImg}}" alt="{{srcName}}" style="width: 150px; border-radius: 8px"><span style="font-size: 10px; color: var(--dim)">Art: {{srcArtist}}, © Wizards of the Coast</span></span>
+      <span style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <span style="font-size: 13px; color: var(--dim)">{{srcLine}}</span>
+        <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1">{{title}}</h2>
+        <span style="font-size: 14px; line-height: 1.45">{{oracle}}</span>
+        <sc-if value="{{hasMoments}}" hint-placeholder-val="{{true}}">
+          <span role="group" aria-label="Moment" style="display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--ground); width: fit-content; margin-top: 4px">
+            <sc-for list="{{moments}}" as="m" hint-placeholder-count="2"><button aria-pressed="{{m.on}}" onClick="{{m.pick}}" style="min-height: 34px; padding: 0 14px; border: none; border-radius: 999px; background: {{m.bg}}; color: {{m.ink}}; font-size: 13px; font-weight: 700">{{m.label}}</button></sc-for>
+          </span>
+        </sc-if>
+      </span>
+    </div>
+
+    <sc-if value="{{showViews}}" hint-placeholder-val="{{true}}">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px">
+        <div style="padding: 14px; border-radius: 16px; background: var(--raised); display: flex; flex-direction: column; gap: 10px">
+          <b style="font-size: 14px">What you see</b>
+          <div style="display: flex; gap: 14px; align-items: center">
+            <sc-if value="{{youSeeFaceDown}}" hint-placeholder-val="{{true}}">
+              <span class="fd" style="width: 120px; height: 120px"><span style="font-size: 12px; color: var(--dim)">Face down</span><b style="font-size: 13px; text-align: center; padding: 0 6px">{{fdName}}</b><span class="pt">2/2</span></span>
+            </sc-if>
+            <sc-if value="{{youSeeFaceUp}}" hint-placeholder-val="{{false}}">
+              <span style="position: relative; width: 120px; height: 120px; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 3px #f2efe8"><img src="{{faceUpArt}}" alt="" style="width: 100%; height: 100%; object-fit: cover"><span style="position: absolute; left: 0; right: 0; top: 0; padding: 2px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700">{{faceUpName}}</span><span class="pt" style="position: absolute; right: 4px; bottom: 4px; padding: 0 6px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 13px; font-weight: 700">{{faceUpPt}}</span></span>
+            </sc-if>
+            <span style="font-size: 13px; color: var(--dim); line-height: 1.4">{{youNote}}</span>
+          </div>
+        </div>
+        <div style="padding: 14px; border-radius: 16px; background: var(--raised); display: flex; flex-direction: column; gap: 10px">
+          <b style="font-size: 14px">What Computer, Sam and Jules see</b>
+          <div style="display: flex; gap: 14px; align-items: center">
+            <sc-if value="{{theySeeFaceDown}}" hint-placeholder-val="{{true}}">
+              <span class="fd" style="width: 120px; height: 120px"><span style="font-size: 12px; color: var(--dim)">Face down</span><b style="font-size: 13px">{{theyLabel}}</b><span class="pt">{{theyPt}}</span></span>
+            </sc-if>
+            <sc-if value="{{theySeeFaceUp}}" hint-placeholder-val="{{false}}">
+              <span style="position: relative; width: 120px; height: 120px; border-radius: 12px; overflow: hidden"><img src="{{faceUpArt}}" alt="" style="width: 100%; height: 100%; object-fit: cover"><span style="position: absolute; left: 0; right: 0; top: 0; padding: 2px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700">{{faceUpName}}</span></span>
+            </sc-if>
+            <span style="font-size: 13px; color: var(--dim); line-height: 1.4">{{theyNote}}</span>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{showPick}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span style="display: flex; justify-content: space-between; font-size: 13px"><b>{{pickHead}}</b><span style="color: var(--dim)">{{pickCounter}}</span></span>
+        <div style="display: flex; gap: 14px; align-items: start">
+          <sc-for list="{{pickItems}}" as="p" hint-placeholder-count="4">
+            <button onClick="{{p.click}}" aria-pressed="{{p.on}}" aria-label="{{p.label}}" style="position: relative; width: {{p.w}}px; padding: 0; border: none; border-radius: 10px; background: transparent; cursor: {{p.cursor}}; display: flex; flex-direction: column; gap: 8px; align-items: center">
+              <span style="position: relative; display: block; width: 100%; height: {{p.h}}px; border-radius: 10px; overflow: hidden; background: var(--raised); box-shadow: {{p.ring}}">
+                <sc-if value="{{p.isCard}}" hint-placeholder-val="{{false}}"><img src="{{p.img}}" alt="" style="width: 100%; display: block"></sc-if>
+                <sc-if value="{{p.isTile}}" hint-placeholder-val="{{true}}"><sc-if value="{{p.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{p.img}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if><span style="position: absolute; left: 0; right: 0; top: 0; padding: 2px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700; text-align: left">{{p.name}}</span><span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 13px; font-weight: 700">{{p.pt}}</span></sc-if>
+              </span>
+              <span style="padding: 1px 10px; border-radius: 999px; background: {{p.tagBg}}; color: {{p.tagInk}}; font-size: 12px; font-weight: 800; white-space: nowrap">{{p.tag}}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{showMeld}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; align-items: center; gap: 18px">
+        <img src="/_blob/0a623ef9d35ea71ef402f869e9646062" alt="Gisela, the Broken Blade" style="width: 150px; border-radius: 8px; box-shadow: 0 0 0 3px #f2efe8">
+        <b style="font-family: var(--display); font-size: 40px">+</b>
+        <img src="/_blob/4de99ba9a240eef1900753cec5e370ed" alt="Bruna, the Fading Light" style="width: 150px; border-radius: 8px; box-shadow: 0 0 0 3px #f2efe8">
+        <b style="font-family: var(--display); font-size: 40px">→</b>
+        <img src="/_blob/6e6d12a769108cc8b8882f897d69e0b1" alt="Brisela, Voice of Nightmares" style="width: 190px; border-radius: 9px">
+        <span style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--dim); max-width: 230px">
+          <b style="color: var(--text); font-size: 14px">Brisela, Voice of Nightmares</b>
+          <span>Flying, first strike, vigilance, lifelink. Your opponents can’t cast spells with mana value 3 or less.</span>
+          <span>The engine lists every legal pair. Here there is one, so the rail’s button names it.</span>
+        </span>
+      </div>
+    </sc-if>
+
+    <span style="margin-top: auto; font-size: 12px; color: var(--dim)">{{foot}} The rail confirms. Card text is Oracle text; card images from Scryfall, © Wizards of the Coast.</span>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 0, moment: 0, pick: null };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const { tab, moment, pick } = this.state;
+    const labels = ['Morph', 'Manifest dread', 'Foretell', 'Ninjutsu', 'Companion', 'Meld', 'Cipher'];
+    const seg = (on) => ({ bg: on ? '#f2efe8' : 'transparent', ink: on ? '#0b0c0e' : '#a9adb3' });
+    const moments = (list) => list.map((label, i) => ({ label, on: moment === i, ...seg(moment === i), pick: () => this.setState({ moment: i }) }));
+    const base = {
+      tabs: labels.map((label, i) => ({ label, on: tab === i, ...seg(tab === i), pick: () => this.setState({ tab: i, moment: 0, pick: null }) })),
+      turn: 'Your turn 9', turnArt: A('c19490e7c081fb35071c85147c01bed4'), mineTurn: true, phase: 2, hasMoments: false, moments: [],
+      showViews: false, youSeeFaceDown: false, youSeeFaceUp: false, theySeeFaceDown: false, theySeeFaceUp: false,
+      fdName: '', faceUpArt: '', faceUpName: '', faceUpPt: '', youNote: '', theyLabel: '', theyPt: '2/2', theyNote: '',
+      showPick: false, pickHead: '', pickCounter: '', pickItems: [], showMeld: false, secondary: ''
+    };
+    const pickTile = (o, eligible, w, h, kind) => {
+      const on = pick === o.id;
+      return { name: o.name, img: o.img, hasArt: !!o.img, pt: o.pt || '', w, h, isCard: kind === 'card', isTile: kind !== 'card',
+        on, cursor: eligible ? 'pointer' : 'default',
+        ring: on ? '0 0 0 3px #f2efe8' : eligible ? '0 0 0 2px #f0b45a' : '0 0 0 1px #2a2e33',
+        tag: on ? o.onTag : o.tag, tagBg: on ? '#f2efe8' : '#2a2e33', tagInk: on ? '#0b0c0e' : '#f2efe8',
+        label: o.name + (on ? ', chosen' : eligible ? ', can be chosen' : ''),
+        click: eligible ? () => this.setState((s) => ({ pick: s.pick === o.id ? null : o.id })) : null };
+    };
+
+    if (tab === 0) {
+      const decision = { kind: 'faceDown', action: moment === 0 ? 'PlayFaceDown' : 'TurnFaceUp', source: { name: 'Exalted Angel', image: A('56080e6bf5361d3c509079d7716cf9a7'), artist: 'Michael Sutfin' },
+        oracle: 'Flying. Whenever this creature deals damage, you gain that much life. Morph {2}{W}{W} (You may cast this card face down as a 2/2 creature for {3}. Turn it face up any time for its morph cost.)' };
+      const up = moment === 1;
+      return { ...base, srcImg: decision.source.image, srcName: decision.source.name, srcArtist: decision.source.artist,
+        srcLine: up ? 'Your face-down creature, on the battlefield' : 'Exalted Angel, in your hand', title: up ? 'Turn it face up' : 'Cast it face down', oracle: decision.oracle,
+        hasMoments: true, moments: moments(['In your hand', 'Face down on the battlefield']),
+        showViews: true, youSeeFaceDown: true, fdName: 'Exalted Angel', theySeeFaceDown: true, theyLabel: 'No name', theyPt: '2/2',
+        youNote: up ? 'Only you can read the card under it. Right-click shows it.' : 'Cast for {3}, it enters as a nameless 2/2 that only you can read.',
+        theyNote: 'A 2/2 creature with no name, no text and no colour. They learn what it is only when it turns face up or leaves.',
+        railTitle: up ? 'Turn Exalted Angel face up' : 'Two ways to cast',
+        railBody: up ? 'A special action: it doesn’t use the stack, so no one can respond. You can do it any time you have priority.' : 'Face down costs {3}. Face up costs {4}{W}{W}.',
+        primary: up ? 'Turn face up for {2}{W}{W}' : 'Cast face down for {3}', secondary: up ? '' : 'Cast face up for {4}{W}{W}',
+        foot: 'Engine: PlayFaceDown { object_id, card_id }, then TurnFaceUp { object_id, x }.' };
+    }
+    if (tab === 1) {
+      const decision = { kind: 'pick', engine: 'ManifestDreadChoice', min: 1, max: 1,
+        source: { name: 'Abhorrent Oculus', image: A('e3b996e42eef00987a9692ab8c9c217e'), artist: 'Bryan Sola' },
+        options: [{ id: 'sunfall', name: 'Sunfall', img: A('4f17f1f93dbb25c0d47e2fcb9b2c0ae6'), tag: 'To graveyard', onTag: 'Manifest face down' }, { id: 'mentor', name: 'Monastery Mentor', img: A('c8765d27dab83eefd46f6647d19b1791'), tag: 'To graveyard', onTag: 'Manifest face down' }] };
+      const chosen = decision.options.find((o) => o.id === pick);
+      return { ...base, turn: 'Sam’s turn 10', turnArt: A('7678674b257c9f2d67041ed3a4ee2ab4'), mineTurn: false, phase: 0, srcImg: decision.source.image, srcName: decision.source.name, srcArtist: decision.source.artist,
+        srcLine: 'Your Abhorrent Oculus, at the beginning of Sam’s upkeep', title: 'Manifest dread',
+        oracle: 'At the beginning of each opponent’s upkeep, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it’s a creature card.)',
+        showPick: true, pickHead: 'The top two cards of your library', pickCounter: (pick ? 1 : 0) + ' of 1 chosen',
+        pickItems: decision.options.map((o) => pickTile(o, true, 170, 237, 'card')),
+        railTitle: 'Manifest dread', railBody: 'Choose the card to put onto the battlefield face down. The other goes to your graveyard. Opponents see only the face-down 2/2 and the card in your graveyard.',
+        primary: chosen ? 'Manifest ' + chosen.name : 'Choose a card', foot: 'Engine: ManifestDreadChoice { cards, source_id }.' };
+    }
+    if (tab === 2) {
+      const later = moment === 1;
+      return { ...base, turn: later ? 'Your turn 11' : 'Your turn 9', srcImg: A('e1c8bf89135a78701d734ab87a91ccf3'), srcName: 'Saw It Coming', srcArtist: 'Randy Vargas',
+        srcLine: later ? 'Foretold, in exile since turn 9' : 'Saw It Coming, in your hand', title: later ? 'Cast it for its foretell cost' : 'Foretell it',
+        oracle: 'Counter target spell. Foretell {1}{U} (During your turn, you may pay {2} and exile this card from your hand face down. Cast it on a later turn for its foretell cost.)',
+        hasMoments: true, moments: moments(['Your turn 9, in hand', 'A later turn, in exile']),
+        showViews: true, youSeeFaceDown: true, fdName: 'Saw It Coming, foretold', theySeeFaceDown: true, theyLabel: 'Foretold card', theyPt: '',
+        youNote: later ? 'It sits in your exile, face down, until you cast it.' : 'Pay {2} now; it goes to exile face down.',
+        theyNote: 'A face-down card in your exile, marked foretold on turn 9. Nothing else.',
+        railTitle: later ? 'Saw It Coming, foretold' : 'Foretell Saw It Coming',
+        railBody: later ? 'Castable from exile for {1}{U} whenever you could cast an instant, on any turn after the one it was foretold.' : 'A special action during your turn. It doesn’t use the stack.',
+        primary: later ? 'Cast for {1}{U}' : 'Foretell for {2}', secondary: later ? 'Cancel' : '',
+        foot: 'Engine: GameAction Foretell { object_id, card_id }; the later cast is an ordinary CastSpell from exile.' };
+    }
+    if (tab === 3) {
+      const attackers = [
+        { id: 'soldier', name: 'Soldier', img: '', pt: '1/1', tag: 'Unblocked, at Sam', onTag: 'Returns to hand', ok: true },
+        { id: 'aragorn', name: 'Aragorn', img: A('c2a67f4f687b666fcd3c4d8cb3b0bf63'), pt: '4/4', tag: 'Unblocked, at Jules', onTag: 'Returns to hand', ok: true },
+        { id: 'adeline', name: 'Adeline', img: A('93443cca264c2d66fac605d8e8311296'), pt: '6/4', tag: 'Blocked by Zombie', onTag: '', ok: false }
+      ];
+      const chosen = attackers.find((a) => a.id === pick);
+      return { ...base, phase: 5, srcImg: A('06a45f759292f8bd07107b63b58c7657'), srcName: 'Ninja of the Deep Hours', srcArtist: 'Dan Murayama Scott',
+        srcLine: 'Ninja of the Deep Hours, in your hand. Blockers are declared.', title: 'Ninjutsu',
+        oracle: 'Ninjutsu {1}{U} ({1}{U}, Return an unblocked attacker you control to hand: Put this card onto the battlefield from your hand tapped and attacking.) Whenever this creature deals combat damage to a player, you may draw a card.',
+        showPick: true, pickHead: 'Your attackers. Only unblocked ones can be returned.', pickCounter: (pick ? 1 : 0) + ' of 1 chosen',
+        pickItems: attackers.map((a) => pickTile(a, a.ok, 130, 130, 'tile')),
+        railTitle: 'Ninjutsu', railBody: chosen ? 'Ninja of the Deep Hours enters tapped and attacking ' + (chosen.id === 'soldier' ? 'Sam' : 'Jules') + ', unblocked. ' + chosen.name + ' returns to your hand.' : 'Choose an unblocked attacker to return to your hand.',
+        primary: chosen ? 'Pay {1}{U}, return ' + chosen.name : 'Choose an attacker', secondary: 'Cancel',
+        foot: 'Engine: ActivateNinjutsu { ninjutsu_object_id, creature_to_return }. Offered only while you have an unblocked attacker and the card in hand.' };
+    }
+    if (tab === 4) {
+      const during = moment === 1;
+      return { ...base, turn: during ? 'Your turn 5' : 'Before the game', srcImg: A('acff23d967667f17421aae76c71e0bb4'), srcName: 'Yorion, Sky Nomad', srcArtist: 'Steven Belledin',
+        srcLine: during ? 'Your companion, outside the game' : 'In your sideboard', title: during ? 'Put your companion into your hand' : 'Reveal a companion?',
+        oracle: 'Companion — Your starting deck contains at least twenty cards more than the minimum deck size. (If this card is your chosen companion, you may put it into your hand from outside the game for {3} as a sorcery.) Flying. When Yorion enters, exile any number of other nonland permanents you own and control. Return those cards to the battlefield at the beginning of the next end step.',
+        hasMoments: true, moments: moments(['Before the game', 'During the game']),
+        showViews: true, youSeeFaceUp: true, theySeeFaceUp: true, faceUpArt: A('550b138f301d7493ba4c604745038639'), faceUpName: 'Yorion', faceUpPt: '4/5',
+        youNote: during ? 'Shown beside your command zone, with its {3} button while you could cast a sorcery.' : 'Only companions whose condition your deck meets are offered.',
+        theyNote: 'Everyone sees the revealed companion for the whole game.',
+        railTitle: during ? 'Yorion, your companion' : 'Companion',
+        railBody: during ? 'A special action: pay {3} during your main phase while the stack is empty.' : 'The engine offers each eligible companion. Revealing is public.',
+        primary: during ? 'Pay {3}: put Yorion into your hand' : 'Reveal Yorion', secondary: during ? '' : 'No companion',
+        foot: 'Engine: CompanionReveal { eligible_companions } answered with DeclareCompanion; later CompanionToHand.' };
+    }
+    if (tab === 5) {
+      return { ...base, phase: 8, srcImg: A('0a623ef9d35ea71ef402f869e9646062'), srcName: 'Gisela, the Broken Blade', srcArtist: 'Clint Cearley',
+        srcLine: 'Your Gisela, at the beginning of your end step', title: 'Meld',
+        oracle: 'At the beginning of your end step, if you both own and control Gisela and a creature named Bruna, the Fading Light, exile them, then meld them into Brisela, Voice of Nightmares.',
+        showMeld: true, railTitle: 'Meld', railBody: 'Gisela and Bruna are exiled and return as one creature.', primary: 'Meld into Brisela',
+        foot: 'Engine: MeldPairChoice { choices } (each a MeldSelection); if Brisela enters attacking, MeldAttackTargetChoice asks where.' };
+    }
+    const creatures = [
+      { id: 'eowyn', name: 'Éowyn', img: A('c19490e7c081fb35071c85147c01bed4'), pt: '5/4', tag: 'Your creature', onTag: 'Encoded' },
+      { id: 'adeline', name: 'Adeline', img: A('93443cca264c2d66fac605d8e8311296'), pt: '6/4', tag: 'Your creature', onTag: 'Encoded' },
+      { id: 'aragorn', name: 'Aragorn', img: A('c2a67f4f687b666fcd3c4d8cb3b0bf63'), pt: '4/4', tag: 'Your creature', onTag: 'Encoded' },
+      { id: 'faramir', name: 'Faramir', img: A('62e4a477ddbf5628d609a86bc8d12c3a'), pt: '2/2', tag: 'Your creature', onTag: 'Encoded' }
+    ];
+    const chosen = creatures.find((c) => c.id === pick);
+    return { ...base, srcImg: A('6035c296d5976061fcf60e4def6862c5'), srcName: 'Hidden Strings', srcArtist: 'Daarken',
+      srcLine: 'Hidden Strings, resolving', title: 'Encode it on a creature?',
+      oracle: 'You may tap or untap target permanent, then you may tap or untap another target permanent. Cipher (Then you may exile this spell card encoded on a creature you control. Whenever that creature deals combat damage to a player, its controller may cast a copy of the encoded card without paying its mana cost.)',
+      showPick: true, pickHead: 'Creatures you control', pickCounter: (pick ? 1 : 0) + ' of up to 1 chosen',
+      pickItems: creatures.map((c) => pickTile(c, true, 130, 130, 'tile')),
+      railTitle: 'Cipher', railBody: 'Optional. The encoded card stays in exile under the creature, and shows on its tile.',
+      primary: chosen ? 'Encode on ' + chosen.name : 'Choose a creature', secondary: 'Don’t encode',
+      foot: 'Engine: CipherEncodeChoice { card_id, creatures }.' };
+  }
+}
+</script>
+</body>
+</html>

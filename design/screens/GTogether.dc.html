@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Everyone takes part</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" turn="{{turn}}" turn-art="{{turnArt}}" mine-turn="{{mineTurn}}" phase="{{phase}}" title="{{railTitle}}" body="{{railBody}}" primary="{{primary}}" secondary="{{secondary}}" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+  <span aria-hidden="true" style="position: absolute; left: 1114px; top: 826px; width: 312px; height: 60px; border-radius: 999px; box-shadow: 0 0 0 3px #f2efe8, 0 0 0 7px rgb(242 239 232 / 0.2); pointer-events: none"></span>
+
+  <section role="dialog" aria-label="{{prompt}}" style="position: absolute; left: 40px; top: 36px; width: 1020px; height: 828px; padding: 22px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 14px">
+    <div style="display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 16px; align-items: center">
+      <img src="{{srcArt}}" alt="" style="width: 90px; height: 66px; border-radius: 12px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim)"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{srcSeat}}"></span>{{srcLine}}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1">{{prompt}}</h2><span style="font-size: 14px; color: var(--dim)">{{oracle}}</span></span>
+      <span style="padding: 4px 12px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700; white-space: nowrap">{{counter}}</span>
+    </div>
+
+    <sc-if value="{{isVote}}" hint-placeholder-val="{{true}}">
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 18px; flex: 1; min-height: 0">
+        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px 14px; align-content: start">
+          <sc-for list="{{voteOpts}}" as="o" hint-placeholder-count="9">
+            <button onClick="{{o.pick}}" aria-pressed="{{o.mine}}" aria-label="{{o.label}}" style="display: flex; flex-direction: column; gap: 6px; padding: 0; border: none; background: transparent; text-align: left; cursor: pointer">
+              <span style="position: relative; display: block; width: 100%; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: var(--raised); box-shadow: {{o.ring}}">
+                <img src="{{o.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover">
+                <span style="position: absolute; left: 0; right: 0; top: 0; padding: 2px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{o.name}}</span>
+                <sc-if value="{{o.hasVotes}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: 5px; bottom: 5px; min-width: 28px; height: 28px; padding: 0 8px; border-radius: 999px; background: var(--text); color: var(--ground); display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 18px">{{o.votes}}</span></sc-if>
+              </span>
+              <span style="display: flex; align-items: center; gap: 4px; min-height: 18px"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: {{o.ownerSeat}}"></span><span style="font-size: 11px; color: var(--dim)">{{o.owner}}</span>
+                <span style="margin-left: auto; display: flex; gap: 3px"><sc-for list="{{o.voters}}" as="v" hint-placeholder-count="0"><span title="{{v.name}}" style="width: 14px; height: 14px; border-radius: 50%; background: {{v.seat}}; box-shadow: 0 0 0 2px var(--surface)"></span></sc-for></span>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <b style="font-size: 14px">Voting order</b>
+          <sc-for list="{{ledger}}" as="l" hint-placeholder-count="4">
+            <span style="display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 8px 10px; border-radius: 12px; background: {{l.bg}}"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{l.seat}}"></span><span style="display: flex; flex-direction: column; line-height: 1.25"><b style="font-size: 14px">{{l.name}}</b><span style="font-size: 12px; color: var(--dim)">{{l.state}}</span></span></span>
+          </sc-for>
+          <span style="margin-top: 6px; font-size: 13px; color: var(--dim)">{{leading}}</span>
+          <span style="font-size: 11px; color: var(--dim)">Art: Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna, Victor Adame Minguez, Titus Lunter, Darren Tan, Gintas Galvanauskas, Tatiana Kirgetova. © Wizards of the Coast</span>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isPiles}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0">
+        <div role="tablist" aria-label="Which side" style="display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--ground); width: fit-content">
+          <sc-for list="{{pileSides}}" as="p" hint-placeholder-count="2"><button role="tab" aria-selected="{{p.on}}" onClick="{{p.pick}}" style="min-height: 32px; padding: 0 12px; border: none; border-radius: 999px; background: {{p.bg}}; color: {{p.ink}}; font-size: 12px; font-weight: 700">{{p.label}}</button></sc-for>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
+          <sc-for list="{{piles}}" as="p" hint-placeholder-count="2">
+            <div style="padding: 12px; border-radius: 18px; background: var(--raised); box-shadow: {{p.ring}}; display: flex; flex-direction: column; gap: 10px; min-height: 330px">
+              <span style="display: flex; justify-content: space-between; align-items: center"><b>{{p.name}}</b><span style="font-size: 13px; color: var(--dim)">{{p.count}}</span></span>
+              <div style="display: flex; flex-wrap: wrap; gap: 10px">
+                <sc-for list="{{p.cards}}" as="c" hint-placeholder-count="2"><button onClick="{{c.move}}" aria-label="{{c.label}}" style="padding: 0; border: none; background: transparent; border-radius: 6px; box-shadow: {{c.ring}}; cursor: {{c.cursor}}"><img src="{{c.img}}" alt="{{c.name}}" style="display: block; width: 132px; border-radius: 6px"></button></sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <span style="font-size: 13px; color: var(--dim)">{{pileNote}}</span>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isBranch}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 12px; flex: 1">
+        <div role="radiogroup" aria-label="Branches" style="display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{branches}}" as="b" hint-placeholder-count="2">
+            <button role="radio" aria-checked="{{b.on}}" onClick="{{b.pick}}" style="display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; padding: 16px; border-radius: 16px; border: none; background: {{b.bg}}; box-shadow: {{b.ring}}; text-align: left; font-size: 16px">
+              <span aria-hidden="true" style="width: 24px; height: 24px; border-radius: 50%; box-shadow: inset 0 0 0 2px {{b.mark}}; display: grid; place-items: center"><span style="width: 12px; height: 12px; border-radius: 50%; background: {{b.dot}}"></span></span>
+              <span>{{b.text}}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="margin-top: 8px; padding: 14px; border-radius: 16px; background: var(--ground); display: flex; flex-direction: column; gap: 8px">
+          <b style="font-size: 14px">When you cast it instead</b>
+          <span style="font-size: 13px; color: var(--dim)">Each opponent gets this same prompt. You wait, and see who has chosen:</span>
+          <span style="display: flex; gap: 8px; flex-wrap: wrap">
+            <sc-for list="{{facing}}" as="f" hint-placeholder-count="3"><span style="display: flex; align-items: center; gap: 6px; padding: 4px 12px 4px 8px; border-radius: 999px; background: var(--raised); font-size: 13px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{f.seat}}"></span><b>{{f.name}}</b><span style="color: var(--dim)">{{f.state}}</span></span></sc-for>
+          </span>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isLuck}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 14px; flex: 1">
+        <div role="tablist" aria-label="Coin or die" style="display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--ground); width: fit-content">
+          <sc-for list="{{luckSides}}" as="p" hint-placeholder-count="2"><button role="tab" aria-selected="{{p.on}}" onClick="{{p.pick}}" style="min-height: 32px; padding: 0 12px; border: none; border-radius: 999px; background: {{p.bg}}; color: {{p.ink}}; font-size: 12px; font-weight: 700">{{p.label}}</button></sc-for>
+        </div>
+        <div style="display: flex; gap: 24px; justify-content: center; padding: 20px 0">
+          <sc-for list="{{results}}" as="r" hint-placeholder-count="2">
+            <button onClick="{{r.pick}}" aria-pressed="{{r.on}}" aria-label="{{r.label}}" disabled="{{r.disabled}}" style="width: 220px; padding: 22px 16px; border-radius: 22px; border: none; background: var(--raised); box-shadow: {{r.ring}}; display: flex; flex-direction: column; align-items: center; gap: 10px; cursor: {{r.cursor}}">
+              <span aria-hidden="true" style="width: 120px; height: 120px; border-radius: {{r.shape}}; background: var(--ground); box-shadow: inset 0 0 0 3px {{r.edge}}; display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: {{r.size}}px; line-height: 1">{{r.face}}</span>
+              <b style="font-size: 15px">{{r.caption}}</b>
+              <span style="font-size: 13px; color: var(--dim)">{{r.state}}</span>
+            </button>
+          </sc-for>
+        </div>
+        <span style="font-size: 13px; color: var(--dim); text-align: center">{{luckNote}}</span>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isConsent}}" hint-placeholder-val="{{false}}">
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 18px; flex: 1">
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <b style="font-size: 14px">On the stack, top first</b>
+          <sc-for list="{{stack}}" as="s" hint-placeholder-count="3">
+            <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px; border-radius: 14px; background: var(--raised)">
+              <img src="{{s.art}}" alt="" style="width: 64px; height: 48px; border-radius: 8px; object-fit: cover">
+              <span style="display: flex; flex-direction: column; line-height: 1.3"><span style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{s.seat}}"></span><b>{{s.name}}</b><span style="font-size: 12px; color: var(--dim)">{{s.who}}</span></span><span style="font-size: 13px; color: var(--dim)">{{s.text}}</span></span>
+            </div>
+          </sc-for>
+          <span style="font-size: 11px; color: var(--dim)">Art: Nils Hamm, Marta Nael, Mark Behm. © Wizards of the Coast</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <b style="font-size: 14px">Who has agreed</b>
+          <sc-for list="{{agreed}}" as="a" hint-placeholder-count="4">
+            <span style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: {{a.bg}}"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{a.seat}}"></span><b style="font-size: 14px">{{a.name}}</b><span style="margin-left: auto; font-size: 12px; color: {{a.ink}}">{{a.state}}</span></span>
+          </sc-for>
+          <span style="margin-top: 6px; font-size: 13px; color: var(--dim)">Agreeing passes for you until the stack is empty. Anything new put on the stack asks everyone again.</span>
+        </div>
+      </div>
+    </sc-if>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line)">
+      <div role="tablist" aria-label="Example" style="display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--ground)">
+        <sc-for list="{{examples}}" as="e" hint-placeholder-count="5"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 32px; padding: 0 12px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 12px; font-weight: 700">{{e.label}}</button></sc-for>
+      </div>
+      <span style="font-size: 12px; color: var(--dim); max-width: 46ch; text-align: right">{{driven}} The rail answers. Card images and art from Scryfall, © Wizards of the Coast.</span>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, vote: null, pileSide: 0, split: ['mystic', 'rift'], pile: null, branch: null, luck: 0, keep: null };
+  }
+  pending(ex) {
+    const A = (id) => '/_blob/' + id;
+    const seats = { you: ['You', '#408abf'], computer: ['Computer', '#b55af6'], sam: ['Sam', '#e8bae4'], jules: ['Jules', '#757a8a'] };
+    if (ex === 0) return {
+      kind: 'vote', engine: 'VoteChoice',
+      source: { name: 'Council’s Judgment', controller: 'sam', art: A('5a389edc361364871703f2d8703ec537'), artist: 'Kev Walker' },
+      prompt: 'Vote for a nonland permanent Sam doesn’t control',
+      oracle: 'Will of the council — Starting with you, each player votes for a nonland permanent you don’t control. Exile each permanent with the most votes or tied for most votes.',
+      player: 'you', remaining_votes: 1,
+      options: [
+        { id: 'eowyn', name: 'Éowyn', art: 'c19490e7c081fb35071c85147c01bed4', controller: 'you' },
+        { id: 'adeline', name: 'Adeline', art: '93443cca264c2d66fac605d8e8311296', controller: 'you' },
+        { id: 'aragorn', name: 'Aragorn', art: 'c2a67f4f687b666fcd3c4d8cb3b0bf63', controller: 'you' },
+        { id: 'faramir', name: 'Faramir', art: '62e4a477ddbf5628d609a86bc8d12c3a', controller: 'you' },
+        { id: 'procession', name: 'Anointed Procession', art: '39ddc54ea3b9ba45e6d3ac018401863e', controller: 'you' },
+        { id: 'solring', name: 'Sol Ring', art: '6eb6974115f1bfa5c775b479771e7166', controller: 'you' },
+        { id: 'quint', name: 'Quintorius', art: '042e4cb280a5a896fb249a47c8f4a8a3', controller: 'computer' },
+        { id: 'fant', name: 'Mister Fantastic', art: '383d04a073378ede76b3234038a68757', controller: 'jules' },
+        { id: 'rhystic', name: 'Rhystic Study', art: 'a3e58275bd2364af6a346bbf2e6a38b9', controller: 'jules' }
+      ],
+      ballots: [['sam', 'eowyn'], ['jules', 'adeline']],
+      remaining_voters: ['you', 'computer'], seats
+    };
+    if (ex === 1) return {
+      kind: 'piles', engine: 'SeparatePilesPartition / SeparatePilesChoice', pile_source: 'RevealedFromLibraryTop',
+      source: { name: 'Fact or Fiction', art: A('b4f421c9cca4ab27fd27e65980342451'), artist: 'Matt Cavotta' },
+      oracle: 'Reveal the top five cards of your library. An opponent separates those cards into two piles. Put one pile into your hand and the other into your graveyard.',
+      sides: [
+        { label: 'Jules cast it: you split', controller: 'jules', prompt: 'Separate Jules’s cards into two piles',
+          options: [['mystic', 'Murmuring Mystic', '7a4f5ae88c2d8db3d865c0439f9f4d0f'], ['rift', 'Cyclonic Rift', '4e274a0a80fefd3f3346bd10c98c1349'], ['fortress', 'Glacial Fortress', 'e25b0374571373f1ab95c0e88cd1758e'], ['sentinel', 'Esper Sentinel', 'f91dfa789f2b0816a79359bb277f07b0'], ['fierce', 'Fierce Guardianship', 'c858d7cf7a488b3218bd7bbf1fe8b79c']] },
+        { label: 'You cast it: you choose', controller: 'you', prompt: 'Choose a pile for your hand',
+          options: [['sunfall', 'Sunfall', '4f17f1f93dbb25c0d47e2fcb9b2c0ae6'], ['maneuver', 'Flawless Maneuver', '2b7584e35f9b697ba24e7b43dae7b869'], ['will', 'Akroma’s Will', 'd2df35f8a45cc092aadf237d7374fc27'], ['clifftop', 'Clifftop Retreat', '4b6f8a8ccbd66b04717e915e9e659b37'], ['mentor', 'Monastery Mentor', 'c8765d27dab83eefd46f6647d19b1791']],
+          pileA: ['sunfall'], splitBy: 'sam' }
+      ], seats
+    };
+    if (ex === 2) return {
+      kind: 'branch', engine: 'ChooseOneOfBranch',
+      source: { name: 'Ensnared by the Mara', controller: 'sam', art: A('13bcf58e0e3cb520897e074b065dd2f1'), artist: 'Andrey Kuzinskiy' },
+      prompt: 'You face a villainous choice',
+      oracle: 'Each opponent faces a villainous choice — They exile cards from the top of their library until they exile a nonland card, then you may cast that card without paying its mana cost, or that player exiles the top four cards of their library and Ensnared by the Mara deals damage equal to the total mana value of those exiled cards to that player.',
+      branch_descriptions: ['They exile cards from the top of their library until they exile a nonland card, then you may cast that card without paying its mana cost.', 'That player exiles the top four cards of their library and Ensnared by the Mara deals damage equal to the total mana value of those exiled cards to that player.'],
+      seats
+    };
+    if (ex === 3) return {
+      kind: 'keep', seats,
+      sides: [
+        { label: 'Coin: Krark’s Thumb', engine: 'CoinFlipKeepChoice', source: { name: 'Krark’s Thumb', art: A('e37dbeb758b8eb1b057aacab16626748'), artist: 'Ron Spencer' },
+          prompt: 'Keep one coin', oracle: 'If you would flip a coin, instead flip two coins and ignore one.', results: [true, false], keep_count: 1 },
+        { label: 'Die: Krark’s Other Thumb', engine: 'DieKeepChoice', source: { name: 'Krark’s Other Thumb', art: A('706046b4a52e5097ad3e66eee8d25675'), artist: 'Jeff Miracola' },
+          prompt: 'Ignore one roll', oracle: 'If you would roll a die, instead roll two of those dice and ignore one of those results.', results: [17, 4], ignorable_indices: [0, 1], ignore_count: 1 }
+      ]
+    };
+    return {
+      kind: 'consent', engine: 'ResolveAllConsent', representative: 'you',
+      source: { name: 'Resolve all', controller: 'sam', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael' },
+      prompt: 'Sam asks to resolve the whole stack',
+      oracle: 'If everyone agrees, the stack resolves without stopping for priority.',
+      stack: [
+        { name: 'Grave Titan', who: 'Sam’s trigger', seat: '#e8bae4', art: A('1dccd462a02a0872cc11a4d8518c111f'), text: 'Whenever this creature enters or attacks, create two 2/2 black Zombie creature tokens.' },
+        { name: 'Terra, Herald of Hope', who: 'Sam’s trigger', seat: '#e8bae4', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), text: 'Trance — At the beginning of combat on your turn, mill two cards. Terra gains flying until end of turn.' },
+        { name: 'Smothering Tithe', who: 'Jules’s trigger', seat: '#757a8a', art: A('b6ab5f8f97fcf937bdcbc6a6a969c3cc'), text: 'Whenever an opponent draws a card, that player may pay {2}. If the player doesn’t, you create a Treasure token.' }
+      ],
+      ledger: [['sam', 'Asked'], ['jules', 'Agreed'], ['computer', 'Agreed'], ['you', 'Deciding']], seats
+    };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const s = this.state;
+    const d = this.pending(s.ex);
+    const seats = d.seats;
+    const seg = (labels, cur, set) => labels.map((label, i) => ({ label, on: cur === i, bg: cur === i ? '#f2efe8' : 'transparent', ink: cur === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState(set(i)) }));
+    const base = {
+      examples: seg(['Vote', 'Piles', 'Villainous choice', 'Coin and die', 'Resolve all'], s.ex, (i) => ({ ex: i, vote: null, pile: null, branch: null, keep: null, luck: 0, pileSide: 0, split: ['mystic', 'rift'] })),
+      isVote: false, isPiles: false, isBranch: false, isLuck: false, isConsent: false,
+      turn: 'Sam’s turn 9', turnArt: A('7678674b257c9f2d67041ed3a4ee2ab4'), mineTurn: false, phase: 2,
+      voteOpts: [], ledger: [], leading: '', pileSides: [], piles: [], pileNote: '', branches: [], facing: [], luckSides: [], results: [], luckNote: '', stack: [], agreed: [],
+      counter: '', srcSeat: '#a9adb3', secondary: ''
+    };
+    const src = (x) => ({ srcArt: x.art, srcLine: (x.controller ? (x.controller === 'you' ? 'Your ' : seats[x.controller][0] + '’s ') : '') + x.name + '. Art: ' + x.artist + ', © Wizards of the Coast', srcSeat: x.controller ? seats[x.controller][1] : '#a9adb3' });
+
+    if (d.kind === 'vote') {
+      const ballots = d.ballots.concat(s.vote ? [['you', s.vote]] : []);
+      const tally = (id) => ballots.filter((b) => b[1] === id).length;
+      const max = Math.max(0, ...d.options.map((o) => tally(o.id)));
+      const lead = d.options.filter((o) => max > 0 && tally(o.id) === max).map((o) => o.name);
+      return { ...base, ...src(d.source), isVote: true, prompt: d.prompt, oracle: d.oracle,
+        counter: s.vote ? 'Voted' : '1 vote to cast',
+        voteOpts: d.options.map((o) => { const n = tally(o.id); const mine = s.vote === o.id; return { name: o.name, art: A(o.art), mine, votes: n, hasVotes: n > 0,
+          owner: seats[o.controller][0], ownerSeat: seats[o.controller][1],
+          voters: ballots.filter((b) => b[1] === o.id).map((b) => ({ name: seats[b[0]][0], seat: seats[b[0]][1] })),
+          ring: mine ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', label: o.name + ', ' + n + (n === 1 ? ' vote' : ' votes'),
+          pick: () => this.setState((st) => ({ vote: st.vote === o.id ? null : o.id })) }; }),
+        ledger: [['sam', 'Voted: Éowyn'], ['jules', 'Voted: Adeline'], ['you', s.vote ? 'Your vote: ' + d.options.find((o) => o.id === s.vote).name : 'Voting now'], ['computer', 'Votes after you']].map(([k, st]) => ({ name: seats[k][0], seat: seats[k][1], state: st, bg: k === 'you' ? '#1e2125' : 'transparent' })),
+        leading: lead.length ? 'Most votes so far: ' + lead.join(', ') + ' (' + max + ' each). Ties are all exiled.' : '',
+        railTitle: 'Vote', railBody: 'Click a permanent to vote for it. Votes are public as they’re cast.',
+        primary: s.vote ? 'Vote for ' + d.options.find((o) => o.id === s.vote).name : 'Choose a permanent',
+        driven: 'Driven by VoteChoice: options, option_labels, remaining_votes, remaining_voters, tallies.' };
+    }
+    if (d.kind === 'piles') {
+      const side = d.sides[s.pileSide];
+      const byId = Object.fromEntries(side.options.map((o) => [o[0], o]));
+      const ids = side.options.map((o) => o[0]);
+      if (s.pileSide === 0) {
+        const a = s.split, b = ids.filter((x) => !a.includes(x));
+        const card = (id, inA) => ({ name: byId[id][1], img: A(byId[id][2]), ring: '0 0 0 2px #f0b45a', cursor: 'pointer', label: byId[id][1] + ', in pile ' + (inA ? 'A' : 'B') + '. Click to move it',
+          move: () => this.setState((st) => ({ split: st.split.includes(id) ? st.split.filter((x) => x !== id) : st.split.concat(id) })) });
+        return { ...base, ...src({ ...d.source, controller: side.controller }), isPiles: true, prompt: side.prompt, oracle: d.oracle,
+          counter: a.length + ' and ' + b.length,
+          pileSides: seg(d.sides.map((x) => x.label), s.pileSide, (i) => ({ pileSide: i, pile: null })),
+          piles: [{ name: 'Pile A', count: a.length + ' cards', cards: a.map((id) => card(id, true)), ring: 'none' }, { name: 'Pile B', count: b.length + ' cards', cards: b.map((id) => card(id, false)), ring: 'none' }],
+          pileNote: 'Click a card to move it to the other pile. A pile may be empty. Jules then chooses one pile for their hand.',
+          railTitle: 'Make two piles', railBody: 'Jules revealed these with Fact or Fiction. You split them; Jules picks.',
+          primary: 'Done: ' + a.length + ' and ' + b.length, secondary: 'Reset',
+          driven: 'Driven by SeparatePilesPartition: eligible, pile_source.' };
+      }
+      const a = side.pileA, b = ids.filter((x) => !a.includes(x));
+      const card = (id) => ({ name: byId[id][1], img: A(byId[id][2]), ring: 'none', cursor: 'default', label: byId[id][1], move: null });
+      const pileRing = (k) => s.pile === k ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a';
+      return { ...base, ...src({ ...d.source, controller: side.controller }), isPiles: true, prompt: side.prompt, oracle: d.oracle,
+        counter: s.pile === null ? '0 of 1 chosen' : '1 of 1 chosen',
+        pileSides: seg(d.sides.map((x) => x.label), s.pileSide, (i) => ({ pileSide: i, pile: null })),
+        piles: [{ name: 'Pile A', count: a.length + ' card', cards: a.map(card), ring: pileRing(0) }, { name: 'Pile B', count: b.length + ' cards', cards: b.map(card), ring: pileRing(1) }],
+        pileNote: 'Sam split your five cards. The rail’s buttons take a pile; the other goes to your graveyard.',
+        railTitle: 'Choose a pile', railBody: 'Put one pile into your hand and the other into your graveyard.',
+        primary: 'Take pile A (' + a.length + ')', secondary: 'Take pile B (' + b.length + ')',
+        driven: 'Driven by SeparatePilesChoice: current pile result, pending.' };
+    }
+    if (d.kind === 'branch') {
+      const n = s.branch;
+      return { ...base, ...src(d.source), isBranch: true, prompt: d.prompt, oracle: '',
+        counter: (n === null ? 0 : 1) + ' of 1 chosen',
+        branches: d.branch_descriptions.map((text, i) => ({ text, on: n === i, bg: n === i ? '#1e2125' : 'transparent', ring: n === i ? '0 0 0 2px #f2efe8' : '0 0 0 2px #f0b45a', mark: n === i ? '#f2efe8' : '#f0b45a', dot: n === i ? '#f2efe8' : 'transparent', pick: () => this.setState({ branch: i }) })),
+        facing: [['computer', 'Chose'], ['sam', 'Choosing'], ['jules', 'Waiting']].map(([k, st]) => ({ name: seats[k][0], seat: seats[k][1], state: st })),
+        railTitle: 'Villainous choice', railBody: 'Sam cast Ensnared by the Mara. Each opponent chooses one.',
+        primary: n === null ? 'Choose one' : 'Choose this one',
+        driven: 'Driven by ChooseOneOfBranch: branch_descriptions.' };
+    }
+    if (d.kind === 'keep') {
+      const side = d.sides[s.luck];
+      const coin = s.luck === 0;
+      const k = s.keep;
+      return { ...base, ...src(side.source), isLuck: true, prompt: side.prompt, oracle: side.oracle, turn: 'Your turn 9', turnArt: A('c19490e7c081fb35071c85147c01bed4'), mineTurn: true,
+        counter: (k === null ? 0 : 1) + ' of 1 chosen',
+        luckSides: seg(d.sides.map((x) => x.label), s.luck, (i) => ({ luck: i, keep: null })),
+        results: side.results.map((r, i) => {
+          const allowed = coin || side.ignorable_indices.includes(i);
+          const on = k === i;
+          return { face: coin ? (r ? 'H' : 'T') : String(r), size: coin ? 56 : 64, shape: coin ? '50%' : '22px', edge: on ? '#f2efe8' : '#2a2e33',
+            caption: coin ? (r ? 'Heads' : 'Tails') : 'Rolled ' + r + ' on a d20',
+            state: on ? (coin ? 'Kept' : 'Ignored') : allowed ? (coin ? 'Keep this one' : 'Ignore this one') : 'Can’t be ignored',
+            on, disabled: !allowed, cursor: allowed ? 'pointer' : 'default',
+            ring: on ? '0 0 0 3px #f2efe8' : allowed ? '0 0 0 2px #f0b45a' : 'none',
+            label: (coin ? (r ? 'Heads' : 'Tails') : 'Roll ' + r) + (allowed ? '' : ', not allowed'),
+            pick: allowed ? () => this.setState({ keep: i }) : null };
+        }),
+        luckNote: coin ? 'Two coins were flipped for one flip. Heads is a win.' : 'Choose which roll to ignore; the engine enables only the rolls you may ignore.',
+        railTitle: side.prompt, railBody: side.oracle,
+        primary: k === null ? (coin ? 'Choose a coin' : 'Choose a roll') : coin ? 'Keep ' + (side.results[k] ? 'heads' : 'tails') : 'Ignore the ' + side.results[k],
+        driven: coin ? 'Driven by CoinFlipKeepChoice: results, keep_count.' : 'Driven by DieKeepChoice: results, ignorable_indices, ignore_count.' };
+    }
+    return { ...base, ...src(d.source), isConsent: true, prompt: d.prompt, oracle: d.oracle,
+      counter: '2 of 3 agreed',
+      stack: d.stack,
+      agreed: d.ledger.map(([k, st]) => ({ name: seats[k][0], seat: seats[k][1], state: st, ink: st === 'Agreed' || st === 'Asked' ? '#8fd3a8' : '#f2efe8', bg: k === 'you' ? '#1e2125' : 'transparent' })),
+      railTitle: 'Resolve all?', railBody: 'Sam asked to resolve everything on the stack. Agree, or keep your chance to act.',
+      primary: 'Agree', secondary: 'Keep priority',
+      driven: 'Driven by ResolveAllConsent: epoch, representative; the consent ledger.' };
+  }
+}
+</script>
+</body>
+</html>

@@ -33,7 +33,9 @@ fn board(turn: u32, life: i32, over: bool, reveal: bool) -> View {
         library: 90,
         graveyard: vec![],
         eliminated: false,
+        conceded: false,
         commander_damage: BTreeMap::new(),
+        companion: None,
     };
     let card = CardView {
         id: 1,
@@ -54,6 +56,7 @@ fn board(turn: u32, life: i32, over: bool, reveal: bool) -> View {
         commander: false,
         tax: 0,
         sick: false,
+        ..Default::default()
     };
     View {
         revision: 0,
@@ -73,6 +76,12 @@ fn board(turn: u32, life: i32, over: bool, reveal: bool) -> View {
         log: vec![],
         over,
         winner: over.then_some(0),
+        turns: None,
+        resolve_all: None,
+        together: None,
+        events: vec![],
+        outs: vec![],
+        stats: None,
     }
 }
 

@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  addCosts,
+  blockOutcome,
   combatLines,
   combatText,
+  dedupe,
   DEFAULT_STOPS,
+  isPass,
+  optionOf,
+  seatTones,
   landColors,
   landSummary,
   passLabel,
@@ -12,10 +18,12 @@ import {
   stepIndex,
   stopsMessage,
   stopsSummary,
+  targetedBy,
+  targetedText,
   turnOrder,
 } from "./model";
 import { PREVIEW_H, PREVIEW_W, previewPlace } from "./model";
-import type { CardMeta, CardView, PlayerView, View } from "./types";
+import type { CardMeta, CardView, Decision, OptionView, PlayerView, StackItem, View } from "./types";
 
 const card = (id: number, name: string, extra: Partial<CardView> = {}): CardView => ({
   id,
@@ -132,6 +140,9 @@ const view = (patch: Partial<View>): View => ({
   ...patch,
 });
 
+const opt = (index: number, label: string, extra: Partial<OptionView> = {}): OptionView => ({ index, label, object: null, ...extra });
+const decision = (options: OptionView[]): Decision => ({ revision: 1, prompt: "Priority", options });
+
 describe("passLabel", () => {
   it("says what passing will do", () => {
     expect(passLabel(view({ stack: [{ name: "Sol Ring", controller: 1 }] }), 0)).toBe("Resolve");
@@ -141,8 +152,58 @@ describe("passLabel", () => {
     expect(passLabel(view({ battlefield: [creature(1, "Bear", { sick: true })] }), 0)).toBe("Next");
     expect(passLabel(view({ phase: "PostCombatMain" }), 0)).toBe("End turn");
   });
+  it("says Let it resolve only when someone else's spell is on top and you could respond", () => {
+    const theirs = view({ stack: [{ name: "Chaos Warp", controller: 1 }] });
+    const respond = decision([opt(0, "Pass (let it resolve)", { kind: "pass" }), opt(1, "Cast Swords to Plowshares", { kind: "spell", object: 9 })]);
+    const nothing = decision([opt(0, "Pass (let it resolve)", { kind: "pass" })]);
+    expect(passLabel(theirs, 0, respond)).toBe("Let it resolve");
+    expect(passLabel(theirs, 0, nothing)).toBe("Resolve");
+    // Your own spell on top (you only see it with full control): nothing to let through.
+    expect(passLabel(view({ stack: [{ name: "Chaos Warp", controller: 0 }] }), 0, respond)).toBe("Resolve");
+    // Their spell under yours: the top one is what resolves next.
+    expect(passLabel(view({ stack: [{ name: "Chaos Warp", controller: 1 }, { name: "Opt", controller: 0 }] }), 0, respond)).toBe("Resolve");
+  });
   it("hides a decision whose only choice is to pass", () => {
     expect(realDecision({ revision: 1, prompt: "Priority", options: [{ index: 0, label: "Pass (move on)", object: null }] })).toBeNull();
+    expect(realDecision(decision([opt(0, "Pass (move on)", { kind: "pass" })]))).toBeNull();
+  });
+  it("never treats paying the rest of a spell's mana as a pass", () => {
+    const paying = decision([opt(0, "Pay the rest", { kind: "pay_rest" }), opt(1, "Cancel", { kind: "cancel" })]);
+    expect(paying.options.some(isPass)).toBe(false);
+    expect(realDecision(decision([opt(0, "Pay the rest", { kind: "pay_rest" })]))).not.toBeNull();
+    expect(optionOf(paying, "pay_rest")?.index).toBe(0);
+    expect(optionOf(paying, "cancel")?.index).toBe(1);
+    // Older servers: by label.
+    expect(optionOf(decision([opt(0, "Keep this hand"), opt(1, "Mulligan")]), "mulligan")?.index).toBe(1);
+  });
+});
+
+describe("dedupe", () => {
+  it("merges the same choice on identical cards", () => {
+    const forests = [opt(0, "Play Forest", { kind: "land", object: 1 }), opt(1, "Play Forest", { kind: "land", object: 2 })];
+    expect(dedupe(forests).map((o) => o.index)).toEqual([0]);
+  });
+  it("keeps a planeswalker's abilities and two tokens' targets apart", () => {
+    const chandra = [
+      opt(0, "Use Chandra", { kind: "ability", object: 5, ability: 0 }),
+      opt(1, "Use Chandra", { kind: "ability", object: 5, ability: 1 }),
+      opt(2, "Use Chandra", { kind: "ability", object: 5, ability: 2 }),
+    ];
+    expect(dedupe(chandra)).toHaveLength(3);
+    const goblins = [opt(0, "Target Goblin", { kind: "target", target: { kind: "object", id: 7 } }), opt(1, "Target Goblin", { kind: "target", target: { kind: "object", id: 8 } })];
+    expect(dedupe(goblins)).toHaveLength(2);
+  });
+});
+
+describe("seatTones", () => {
+  it("gives you seat 1 and the others their colors in turn order after you", () => {
+    const players = [0, 1, 2, 3].map(player);
+    expect([...seatTones(players, 2).entries()]).toEqual([
+      [2, "seat-1"],
+      [3, "seat-2"],
+      [0, "seat-3"],
+      [1, "seat-4"],
+    ]);
   });
 });
 
@@ -178,5 +239,66 @@ describe("previewPlace", () => {
     expect(p.left).toBe(1480 - 12 - PREVIEW_W);
     expect(p.top).toBeGreaterThanOrEqual(8);
     expect(p.top + PREVIEW_H).toBeLessThanOrEqual(1060 - 8);
+  });
+});
+
+describe("targets on the stack (GRespond)", () => {
+  const item = (controller: number, targets: StackItem["targets"], extra: Partial<StackItem> = {}): StackItem => ({ id: 100 + controller, name: "Chaos Warp", controller, targets, ...extra });
+  it("says who targets each card and player, top of the stack first", () => {
+    const stack = [
+      item(2, [{ target: { kind: "object", id: 7 }, name: "Éowyn", controller: 0 }]),
+      item(1, [{ target: { kind: "object", id: 7 }, name: "Éowyn", controller: 0 }, { target: { kind: "player", seat: 0 }, name: "Ana", controller: 0 }]),
+      // Still being cast: its targets aren't chosen yet. Hidden: no id to mark.
+      item(3, [{ target: { kind: "object", id: 9 }, name: "Adeline", controller: 0 }], { casting: true }),
+      item(4, [{ name: "a card" }]),
+    ];
+    const t = targetedBy(stack);
+    expect(t.cards.get(7)).toEqual([1, 2]);
+    expect(t.seats.get(0)).toEqual([1]);
+    expect(t.cards.has(9)).toBe(false);
+    const who = (n: number) => (n === 0 ? "you" : ["", "Sam", "Jules"][n]!);
+    expect(targetedText([1], who)).toBe("Targeted by Sam");
+    expect(targetedText([1, 2, 0], who)).toBe("Targeted by Sam, Jules and you");
+  });
+  it("opens a stack of tokens while you choose among them", () => {
+    const soldiers = [creature(1, "Soldier"), creature(2, "Soldier"), creature(3, "Soldier")];
+    expect(stackPermanents(soldiers).map((p) => p.ids)).toEqual([[1, 2, 3]]);
+    expect(stackPermanents(soldiers, new Set([2])).map((p) => p.ids)).toEqual([[1, 3], [2]]);
+    expect(rows(soldiers, new Set([1, 2, 3])).creatures).toHaveLength(3);
+    // Creatures blocking different attackers aren't one pile either.
+    const blocking = [creature(4, "Soldier", { blocking: true, blocks: [10] }), creature(5, "Soldier", { blocking: true, blocks: [11] })];
+    expect(stackPermanents(blocking)).toHaveLength(2);
+  });
+});
+
+describe("attack taxes and block outcomes (GCombatMore, GBlock)", () => {
+  it("adds attack taxes up in printed form", () => {
+    expect(addCosts(["{2}", "{2}"])).toBe("{4}");
+    expect(addCosts(["{1}{W}", "{2}"])).toBe("{3}{W}");
+    expect(addCosts(["{W}"])).toBe("{W}");
+    expect(addCosts([])).toBe("");
+  });
+  it("counts what gets through from printed numbers only", () => {
+    const titan = creature(20, "Grave Titan", { controller: 1, power: 6, toughness: 6, attacking: true, attacks: 0, keywords: ["Deathtouch"] });
+    const terra = creature(21, "Terra", { controller: 1, power: 3, toughness: 3, attacking: true, attacks: 0, commander: true });
+    const brute = creature(22, "Boggart Brute", { controller: 1, power: 3, toughness: 2, attacking: true, attacks: 0, keywords: ["Menace", "Trample"] });
+    const striker = creature(23, "Fencer", { controller: 1, power: 2, toughness: 2, attacking: true, attacks: 0, keywords: ["Double strike"] });
+    const aragorn = creature(30, "Aragorn", { power: 4, toughness: 4 });
+    const faramir = creature(31, "Faramir", { power: 2, toughness: 2, damage: 1 });
+    const cards = new Map([titan, terra, brute, striker, aragorn, faramir].map((c) => [c.id, c]));
+    const base = { attackers: [titan, terra, brute, striker], cards, life: 38, poison: 0, commanderDamage: { Terra: 3 } };
+    // Nothing blocked: 6 + 3 + 3 + 2×2.
+    const open = blockOutcome({ ...base, plan: new Map() });
+    expect([open.through, open.lifeAfter]).toEqual([16, 22]);
+    expect(open.commanders).toEqual([{ name: "Terra", now: 3, after: 6 }]);
+    // Aragorn blocks Terra: no commander damage. Faramir (1 toughness left) blocks the trampling
+    // Brute: 2 of its 3 come through.
+    const blocked = blockOutcome({ ...base, plan: new Map([[30, 21], [31, 22]]) });
+    expect([blocked.through, blocked.lifeAfter]).toEqual([6 + 2 + 4, 38 - 12]);
+    expect(blocked.commanders).toEqual([]);
+    // Infect is poison, not life.
+    const rats = creature(24, "Rats", { controller: 1, power: 2, toughness: 1, attacking: true, attacks: 0, keywords: ["Infect"] });
+    const poisoned = blockOutcome({ ...base, attackers: [rats], plan: new Map() });
+    expect([poisoned.through, poisoned.poisonAfter]).toEqual([0, 2]);
   });
 });

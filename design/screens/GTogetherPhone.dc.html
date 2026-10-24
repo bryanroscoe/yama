@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Everyone takes part, phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.65)"></div>
+
+  <section role="dialog" aria-label="{{prompt}}" style="position: absolute; left: 0; right: 0; bottom: 0; top: 30px; padding: 8px 12px 14px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
+    <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 999px; background: var(--line)"></span>
+    <div role="tablist" aria-label="Example" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 3px; border-radius: 999px; background: var(--ground)">
+      <sc-for list="{{examples}}" as="e" hint-placeholder-count="2"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 36px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 13px; font-weight: 700">{{e.label}}</button></sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 10px; align-items: center">
+      <img src="{{srcArt}}" alt="" style="width: 52px; height: 40px; border-radius: 8px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; line-height: 1.15; min-width: 0"><b style="font-size: 16px">{{prompt}}</b><span style="font-size: 11px; color: var(--dim)">{{srcLine}}</span></span>
+      <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 12px; font-weight: 700; white-space: nowrap">{{counter}}</span>
+    </div>
+
+    <sc-if value="{{isVote}}" hint-placeholder-val="{{true}}">
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px">
+        <sc-for list="{{voteOpts}}" as="o" hint-placeholder-count="9">
+          <button onClick="{{o.pick}}" aria-pressed="{{o.mine}}" aria-label="{{o.label}}" style="position: relative; height: 96px; padding: 0; border: none; border-radius: 12px; background: var(--raised); box-shadow: {{o.ring}}">
+            <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+              <img src="{{o.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover">
+              <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 6px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{o.name}}</span>
+              <span style="position: absolute; left: 4px; bottom: 4px; display: flex; gap: 3px"><sc-for list="{{o.voters}}" as="v" hint-placeholder-count="0"><span title="{{v.name}}" style="width: 14px; height: 14px; border-radius: 50%; background: {{v.seat}}; box-shadow: 0 0 0 2px var(--ground)"></span></sc-for></span>
+              <sc-if value="{{o.hasVotes}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: 4px; bottom: 4px; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 999px; background: var(--text); color: var(--ground); display: grid; place-items: center; font-weight: 800; font-size: 13px">{{o.votes}}</span></sc-if>
+            </span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px">
+        <sc-for list="{{ledger}}" as="l" hint-placeholder-count="4"><span style="display: flex; align-items: center; gap: 5px; padding: 3px 10px 3px 7px; border-radius: 999px; background: var(--raised); font-size: 12px"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: {{l.seat}}"></span><b>{{l.name}}</b><span style="color: var(--dim)">{{l.state}}</span></span></sc-for>
+      </div>
+      <span style="font-size: 11px; color: var(--dim)">{{oracle}}</span>
+      <span style="font-size: 10px; color: var(--dim)">Art: Kev Walker, Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna, Victor Adame Minguez, Titus Lunter, Darren Tan, Gintas Galvanauskas, Tatiana Kirgetova. © Wizards of the Coast</span>
+    </sc-if>
+
+    <sc-if value="{{isConsent}}" hint-placeholder-val="{{false}}">
+      <span style="font-size: 13px; color: var(--dim)">On the stack, top first</span>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <sc-for list="{{stack}}" as="s" hint-placeholder-count="3">
+          <div style="display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px; border-radius: 12px; background: var(--raised)">
+            <img src="{{s.art}}" alt="" style="width: 48px; height: 36px; border-radius: 6px; object-fit: cover">
+            <span style="display: flex; flex-direction: column; line-height: 1.25"><span style="display: flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: {{s.seat}}"></span><b style="font-size: 13px">{{s.name}}</b></span><span style="font-size: 11px; color: var(--dim)">{{s.text}}</span></span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px">
+        <sc-for list="{{agreed}}" as="a" hint-placeholder-count="4"><span style="display: flex; align-items: center; gap: 5px; padding: 3px 10px 3px 7px; border-radius: 999px; background: var(--raised); font-size: 12px"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: {{a.seat}}"></span><b>{{a.name}}</b><span style="color: {{a.ink}}">{{a.state}}</span></span></sc-for>
+      </div>
+      <span style="font-size: 12px; color: var(--dim)">Agreeing passes for you until the stack is empty. Anything new asks everyone again. Art: Nils Hamm, Marta Nael, Mark Behm, © Wizards of the Coast.</span>
+    </sc-if>
+
+    <div style="margin-top: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px">
+      <sc-if value="{{hasSecondary}}" hint-placeholder-val="{{true}}"><button style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button></sc-if>
+      <button style="grid-column: 2; min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 16px">{{primary}}</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, vote: null };
+  }
+  pending(ex) {
+    const A = (id) => '/_blob/' + id;
+    if (ex === 0) return {
+      kind: 'vote', engine: 'VoteChoice',
+      source: { name: 'Council’s Judgment', controller: 'Sam', art: A('5a389edc361364871703f2d8703ec537') },
+      prompt: 'Vote for a permanent',
+      oracle: 'Will of the council — Starting with you, each player votes for a nonland permanent you don’t control. Exile each permanent with the most votes or tied for most votes.',
+      options: [['eowyn', 'Éowyn', 'c19490e7c081fb35071c85147c01bed4'], ['adeline', 'Adeline', '93443cca264c2d66fac605d8e8311296'], ['aragorn', 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63'], ['faramir', 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a'], ['procession', 'Anointed Procession', '39ddc54ea3b9ba45e6d3ac018401863e'], ['solring', 'Sol Ring', '6eb6974115f1bfa5c775b479771e7166'], ['quint', 'Quintorius', '042e4cb280a5a896fb249a47c8f4a8a3'], ['fant', 'Mister Fantastic', '383d04a073378ede76b3234038a68757'], ['rhystic', 'Rhystic Study', 'a3e58275bd2364af6a346bbf2e6a38b9']],
+      ballots: [['Sam', '#e8bae4', 'eowyn'], ['Jules', '#757a8a', 'adeline']]
+    };
+    return {
+      kind: 'consent', engine: 'ResolveAllConsent',
+      source: { name: 'Resolve all', controller: 'Sam', art: A('7678674b257c9f2d67041ed3a4ee2ab4') },
+      prompt: 'Resolve the whole stack?',
+      stack: [
+        { name: 'Grave Titan', seat: '#e8bae4', art: A('1dccd462a02a0872cc11a4d8518c111f'), text: 'Whenever this creature enters or attacks, create two 2/2 black Zombie creature tokens.' },
+        { name: 'Terra, Herald of Hope', seat: '#e8bae4', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), text: 'Trance — At the beginning of combat on your turn, mill two cards. Terra gains flying until end of turn.' },
+        { name: 'Smothering Tithe', seat: '#757a8a', art: A('b6ab5f8f97fcf937bdcbc6a6a969c3cc'), text: 'Whenever an opponent draws a card, that player may pay {2}. If the player doesn’t, you create a Treasure token.' }
+      ],
+      ledger: [['Sam', '#e8bae4', 'Asked'], ['Jules', '#757a8a', 'Agreed'], ['Computer', '#b55af6', 'Agreed'], ['You', '#408abf', 'Deciding']]
+    };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const { ex, vote } = this.state;
+    const d = this.pending(ex);
+    const base = {
+      examples: ['Vote', 'Resolve all'].map((label, i) => ({ label, on: ex === i, bg: ex === i ? '#f2efe8' : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i, vote: null }) })),
+      srcArt: d.source.art, srcLine: d.source.controller + '’s ' + d.source.name,
+      isVote: false, isConsent: false, voteOpts: [], ledger: [], stack: [], agreed: [], oracle: ''
+    };
+    if (d.kind === 'vote') {
+      const ballots = d.ballots.concat(vote ? [['You', '#408abf', vote]] : []);
+      const name = vote ? d.options.find((o) => o[0] === vote)[1] : '';
+      return { ...base, isVote: true, prompt: d.prompt, oracle: d.oracle,
+        counter: vote ? 'Voted' : '1 vote',
+        voteOpts: d.options.map(([id, n, art]) => { const vs = ballots.filter((b) => b[2] === id); const mine = vote === id; return { name: n, art: A(art), mine, votes: vs.length, hasVotes: vs.length > 0,
+          voters: vs.map((b) => ({ name: b[0], seat: b[1] })), ring: mine ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', label: n + ', ' + vs.length + ' votes',
+          pick: () => this.setState((s) => ({ vote: s.vote === id ? null : id })) }; }),
+        ledger: [['Sam', '#e8bae4', 'Éowyn'], ['Jules', '#757a8a', 'Adeline'], ['You', '#408abf', vote ? name : 'Voting'], ['Computer', '#b55af6', 'Next']].map(([n, seat, state]) => ({ name: n, seat, state })),
+        primary: vote ? 'Vote for ' + name : 'Choose a permanent', hasSecondary: false, secondary: '' };
+    }
+    return { ...base, isConsent: true, prompt: d.prompt, counter: '2 of 3 agreed', stack: d.stack,
+      agreed: d.ledger.map(([n, seat, state]) => ({ name: n, seat, state, ink: state === 'Deciding' ? '#f2efe8' : '#8fd3a8' })),
+      primary: 'Agree', hasSecondary: true, secondary: 'Keep priority' };
+  }
+}
+</script>
+</body>
+</html>

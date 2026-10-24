@@ -99,3 +99,41 @@ Morph and face-down cards, foretell, ninjutsu, companion, the dungeon and its ro
 ## Not needed
 
 Between-games choices, Alchemy, Planechase and Tiny Leaders (listed at the end of the review's "Engine decisions with no design").
+
+## Status, 2026-10-24
+
+All four batches are designed, and everything is built and live on yama.saget.org (yama:a0dc9b8). In merge order:
+- the fix pass and the `act` path;
+- the decision widgets;
+- turn controls;
+- stack, targets and combat;
+- paying by hand;
+- the inspector, zones, log and endings;
+- ways to cast, permanents and counters;
+- table-wide, library and player choices;
+- rare cards and rules, with Yama's own remembered answers.
+
+`ARCHITECTURE.md`'s play section describes each part. The index buttons still answer anything not listed here.
+
+Still open:
+- **Bryan's call: loop detection.** Loop shortcuts are built but never come up, because the engine raises them only with its loop detection on. Turning it on also makes mandatory lethal loops win automatically and declares some draws.
+- **Bryan's call: clash.** The two revealed cards are named from the full game while they're placed, since the rules make them public, though phase's per-seat view doesn't name them.
+- **Engine gaps in phase:**
+  - Krark's Other Thumb and Not Forgotten aren't implemented;
+  - turning a card face up when its cost has an X isn't offered;
+  - the engine names no source card for coins, dice, clash, scry, surveil and search.
+- **Still on the index buttons:**
+  - paradigm, free-cast windows and paid casts from a graveyard;
+  - a modal card with a land face;
+  - changing several targets at once, and a forced target change;
+  - choosing which opponent announces a target;
+  - physical contests;
+  - Room doors, Muldrotha's permanent-type slot, and assist;
+  - tapping for mana at priority to float it, and `SpendPoolMana`.
+- **Not built:**
+  - "Dies" and "Survives" marks on blocks, and one creature blocking several attackers;
+  - per-seat "passed" state;
+  - the encoded card shown on its creature;
+  - highlighting the cards a log line names;
+  - event-driven board animation (`BoardMotion.tsx` still compares boards).
+- **Checked only in tests, not in a browser:** miracle, ripple, explore, populate, equip by `EquipTarget`, meld, the command-zone answer, the entering-attacker choice, "repeat this process", the drawn game, the die keep, guesses, sharing out life, and the combat-damage split.

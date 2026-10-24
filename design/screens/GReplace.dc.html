@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Replacement effects</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="Replacement effects" body="Two of your effects change the same event. Choose which applies first." primary="{{primary}}" secondary="" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+  <span aria-hidden="true" style="position: absolute; left: 128px; top: 318px; width: 96px; height: 96px; border-radius: 12px; box-shadow: 0 0 0 3px #f2efe8"></span>
+
+  <section role="dialog" aria-label="Choose which applies first" style="position: absolute; left: 160px; top: 120px; width: 820px; padding: 22px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <span style="font-size: 13px; color: var(--dim)">The event: {{event}}</span>
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1">Which applies first?</h2>
+      <span style="font-size: 14px; color: var(--dim)">{{rule}}</span>
+    </div>
+    <div role="radiogroup" aria-label="Applies first" style="display: flex; flex-direction: column; gap: 10px">
+      <sc-for list="{{candidates}}" as="c" hint-placeholder-count="2">
+        <button role="radio" aria-checked="{{c.on}}" onClick="{{c.pick}}" style="display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 12px; border-radius: 16px; border: none; background: {{c.bg}}; box-shadow: {{c.ring}}; text-align: left">
+          <img src="{{c.img}}" alt="" style="width: 110px; border-radius: 6px">
+          <span style="display: flex; flex-direction: column; gap: 4px; line-height: 1.35"><b style="font-size: 17px">{{c.name}}</b><span style="font-size: 14px; color: var(--dim)">{{c.text}}</span><span style="font-size: 11px; color: var(--dim)">Art: {{c.artist}}, © Wizards of the Coast</span></span>
+          <span style="padding: 2px 12px; border-radius: 999px; background: {{c.tagBg}}; color: {{c.tagInk}}; font-size: 13px; font-weight: 800; white-space: nowrap">{{c.tag}}</span>
+        </button>
+      </sc-for>
+    </div>
+    <label style="display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer"><button role="checkbox" aria-checked="{{remember}}" onClick="{{toggle}}" style="width: 24px; height: 24px; border-radius: 6px; border: 2px solid var(--text); background: {{rememberBg}}; color: var(--ground); font-size: 14px; font-weight: 800; padding: 0; display: grid; place-items: center">{{rememberMark}}</button>Use this order whenever these two apply to the same event</label>
+    <span style="font-size: 12px; color: var(--dim)">Shown only when the engine offers to remember (remember_identity). Remembered orders are listed in game settings and the log, where they can be turned off. Engine: ReplacementChoice { candidates, kind, last_applied_decides }. Card text is Oracle text; card images from Scryfall.</span>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { first: 'scales', remember: false };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const decision = {
+      kind: 'replacement', event: 'one +1/+1 counter would be put on Adeline.',
+      lastAppliedDecides: false, rememberable: true,
+      candidates: [
+        { id: 'scales', name: 'Hardened Scales', img: A('8f8d0ea5fda95ff96c4a37ace325e14f'), artist: 'Mark Winters', text: 'If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead.' },
+        { id: 'season', name: 'Doubling Season', img: A('c0f1da1fcdafe8b7f2b4fcf6ba0f938e'), artist: 'Chuck Lukacs', text: 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead. If an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead.' }
+      ]
+    };
+    const { first, remember } = this.state;
+    const firstName = decision.candidates.find((c) => c.id === first).name;
+    return {
+      event: decision.event,
+      rule: decision.lastAppliedDecides ? 'Only the last one to apply decides the result.' : 'Both apply, one after the other. The order can change the result.',
+      candidates: decision.candidates.map((c) => { const on = c.id === first; return { ...c, on, bg: on ? '#1e2125' : 'transparent', ring: on ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a',
+        tag: on ? 'Applies first' : 'Then this', tagBg: on ? '#f2efe8' : '#2a2e33', tagInk: on ? '#0b0c0e' : '#f2efe8', pick: () => this.setState({ first: c.id }) }; }),
+      remember, rememberBg: remember ? '#f2efe8' : 'transparent', rememberMark: remember ? '✓' : '',
+      toggle: () => this.setState((s) => ({ remember: !s.remember })),
+      primary: firstName + ' first'
+    };
+  }
+}
+</script>
+</body>
+</html>

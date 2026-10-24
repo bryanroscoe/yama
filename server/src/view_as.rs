@@ -19,10 +19,10 @@
 //!   or the admin losing admin. A stale cookie is cleared; a write sent with one is refused rather
 //!   than run as the admin.
 //! - **Logged:** every view is a `view_sessions` row (who, whom, when, how it ended), listed in
-//!   Admin and shown to the viewed person under Group, You.
+//!   Admin, People, Viewing log. Only admins see it; the viewed person isn't shown a list.
 
 use crate::admin::AdminUser;
-use crate::auth::{CurrentUser, User, request_session_token};
+use crate::auth::{User, request_session_token};
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use crate::util::{new_id, now, random_token, sha256_hex};
@@ -54,7 +54,6 @@ pub fn router() -> Router<AppState> {
         .route("/api/admin/users/{id}/view", post(start))
         .route("/api/admin/views", get(log))
         .route("/api/view/stop", post(stop))
-        .route("/api/me/viewed", get(viewed_me))
 }
 
 /// A live view, resolved by [`guard`] and attached to the request.
@@ -380,32 +379,6 @@ async fn log(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult<J
                FROM view_sessions v JOIN users a ON a.id = v.admin_id JOIN users t ON t.id = v.target_id
               ORDER BY v.started_at DESC, v.id DESC LIMIT 200",
         )
-        .fetch_all(&st.pool)
-        .await?,
-    ))
-}
-
-/// A view of your own account, as you see it under Group, You.
-#[derive(Serialize, sqlx::FromRow)]
-struct ViewedRow {
-    admin_name: String,
-    started_at: String,
-    /// When it ended, or when it will (a view still going).
-    until: String,
-}
-
-/// Views of the signed-in account in the last 180 days, newest first.
-async fn viewed_me(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<ViewedRow>>> {
-    let since = (Utc::now() - Duration::days(180)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    Ok(Json(
-        sqlx::query_as(
-            "SELECT a.display_name AS admin_name, v.started_at, COALESCE(v.ended_at, v.expires_at) AS until
-               FROM view_sessions v JOIN users a ON a.id = v.admin_id
-              WHERE v.target_id = ? AND v.started_at >= ?
-              ORDER BY v.started_at DESC LIMIT 50",
-        )
-        .bind(&user.id)
-        .bind(since)
         .fetch_all(&st.pool)
         .await?,
     ))

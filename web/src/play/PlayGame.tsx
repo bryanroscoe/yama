@@ -24,7 +24,8 @@ export function PlayGame() {
   if (game.error) return <main className="page"><ErrorText error={game.error} /></main>;
   if (!game.data) return <main className="page" />;
   if (game.data.status === "lobby") return <Lobby game={game.data} />;
-  return <Board id={id} live={game.data.status === "in_progress"} />;
+  // Keyed by game, so a rematch starts with a fresh board (nothing carried over from the last one).
+  return <Board key={id} id={id} live={game.data.status === "in_progress"} />;
 }
 
 const BackArrow = () => (

@@ -2,7 +2,12 @@
 //! then restored from a snapshot and replayed from the log to check both reproduce the game.
 //! Started as the engine research spike (docs/engine-integration.md).
 //!
-//! Usage: soak <card-data.json> [max_turns=8] [seed=7] [difficulty=Easy] [decks_dir]
+//! Every AI answer that a person would send as an `act` message (cards to pick, trigger order,
+//! modes, X, targets, may prompts, damage splits; see `yama_play::act`) goes through that path
+//! instead: checked against the seat's `Pending` and applied to a copy, exactly as the server
+//! does for a person. An answer the AI found legal but `act` refuses fails the soak.
+//!
+//! Usage: soak <card-data.json> [max_turns=8] [seed=7] [difficulty=Easy] [decks_dir] [deck files, comma-separated]
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
@@ -26,6 +31,7 @@ use phase_ai::search::choose_action_with_session;
 use phase_ai::session::AiSession;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
+use yama_play::act::{answer, Act, Refusal};
 
 fn assert_send_sync<T: Send + Sync>() {}
 fn assert_send<T: Send>() {}
@@ -74,7 +80,11 @@ fn run() {
     // Map Bryan's decks: name -> face -> oracle_id -> face round trip.
     let decks_dir = args.get(5).map(String::as_str).unwrap_or("../commander-decks/decks");
     let mut lists = Vec::new();
-    for file in ["Fantastic_Four_Upgraded_100.txt", "Riders_of_Rohan_Upgraded_100.txt"] {
+    let files: Vec<String> = args
+        .get(6)
+        .map(|f| f.split(',').map(str::to_string).collect())
+        .unwrap_or_else(|| vec!["Fantastic_Four_Upgraded_100.txt".into(), "Riders_of_Rohan_Upgraded_100.txt".into()]);
+    for file in &files {
         let (commander, main) = read_deck(&format!("{decks_dir}/{file}"));
         let mut missing = Vec::new();
         let mut no_oracle = Vec::new();
@@ -131,6 +141,9 @@ fn run() {
 
     let t = Instant::now();
     let mut actions = 0usize;
+    // Answers sent through `act`, by kind, and any it refused.
+    let mut acted: std::collections::BTreeMap<&'static str, usize> = Default::default();
+    let mut act_refused: Vec<String> = Vec::new();
     let mut stop_reason = String::from("turn limit");
     let mut shown = 0usize;
     loop {
@@ -156,7 +169,43 @@ fn run() {
             break;
         };
         let turn_before = state.turn_number;
-        let result = if verified_ai_stack_pass_player(&state, &action).is_some() {
+        // The AI's answer as a person would send it, where `act` covers it.
+        // While paying, a mana ability is a tap, and every tap and cast goes through `act` too.
+        let paying = yama_play::pay::paying(&state.waiting_for, owner);
+        let as_act = if paying { Act::from_payment_action(&action) } else { Act::from_action(&action) };
+        let as_person = as_act.and_then(|a| {
+            let vs = filter_state_for_viewer(&state, owner);
+            let candidates: Vec<_> = contract.candidates.iter().map(|c| c.action.clone()).collect();
+            let covered = match a {
+                // Special actions are matched to the engine's own options (rare.rs).
+                Act::CancelCast | Act::CastSpell { .. } | Act::Ninjutsu { .. } | Act::TurnFaceUp { .. } | Act::Foretell { .. } | Act::CompanionToHand | Act::UseSerumPowder { .. } => true,
+                Act::TapMana { .. } | Act::UntapMana { .. } | Act::KeepMana => paying,
+                _ => yama_play::Pending::of(&vs, owner, &candidates, &[]).is_some(),
+            };
+            covered.then_some(a)
+        });
+        let result = if let Some(a) = as_person {
+            match answer(&mut state, owner, &a) {
+                Ok(done) => {
+                    *acted.entry(a.kind()).or_default() += 1;
+                    for a in done.actions {
+                        log.push_action(done.actor, a);
+                    }
+                    Ok(done.result)
+                }
+                Err(why) => {
+                    // `act` refused an answer the AI found legal: a gap in `Pending`. Record it and
+                    // play the AI's answer directly so the game goes on.
+                    act_refused.push(format!("P{} {:?}: {}", owner.0, a, match why {
+                        Refusal::NotYours => "not their decision".to_string(),
+                        Refusal::DoesntFit(w) | Refusal::Engine(w) => w,
+                    }));
+                    let r = apply_interaction(&mut state, actor, owner, action.clone());
+                    if r.is_ok() { log.push_action(actor, action.clone()); }
+                    r
+                }
+            }
+        } else if verified_ai_stack_pass_player(&state, &action).is_some() {
             let r = apply_verified_ai_priority_pass(&mut state, actor, &contract, action.clone());
             if r.is_ok() { log.push_verified_ai_priority_pass(actor, owner); }
             r
@@ -196,6 +245,10 @@ fn run() {
     println!("stopped: {stop_reason}");
     println!("played {actions} actions in {elapsed:.1}s ({:.1} ms/action)", elapsed * 1000.0 / actions.max(1) as f64);
     println!("final: {}", summary(&state));
+    println!("act: {} answers sent as a person would ({acted:?}), {} refused", acted.values().sum::<usize>(), act_refused.len());
+    for r in &act_refused {
+        println!("  act refused: {r}");
+    }
     println!("commander damage: {:?}", state.commander_damage);
 
     // Per-seat views and legal actions.
@@ -253,5 +306,8 @@ fn run() {
             println!("replay final: {}", summary(replayed));
         }
         Err(e) => println!("replay FAILED: {e}"),
+    }
+    if !act_refused.is_empty() {
+        std::process::exit(1);
     }
 }

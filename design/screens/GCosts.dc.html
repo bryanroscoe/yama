@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Extra costs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="{{railTitle}}" body="{{railBody}}" primary="{{primary}}" secondary="{{secondary}}" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+
+  <section role="dialog" aria-label="{{title}}" style="position: absolute; left: 60px; top: 50px; width: 980px; padding: 22px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 16px">
+    <div role="tablist" aria-label="Example" style="display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--ground); width: fit-content">
+      <sc-for list="{{examples}}" as="e" hint-placeholder-count="3"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 34px; padding: 0 14px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 13px; font-weight: 700">{{e.label}}</button></sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; align-items: start">
+      <img src="{{srcImg}}" alt="{{srcName}}" style="width: 150px; border-radius: 8px">
+      <span style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 13px; color: var(--dim)">{{srcLine}}</span>
+        <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1">{{title}}</h2>
+        <span style="font-size: 15px">{{oracle}}</span>
+        <sc-if value="{{hasWarn}}" hint-placeholder-val="{{false}}"><span style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: rgb(240 122 98 / 0.12); color: var(--bad); font-size: 14px; font-weight: 700"><span aria-hidden="true">!</span>{{warn}}</span></sc-if>
+      </span>
+    </div>
+
+    <sc-if value="{{isKicker}}" hint-placeholder-val="{{true}}">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
+        <sc-for list="{{kickRows}}" as="k" hint-placeholder-count="2">
+          <button role="radio" aria-checked="{{k.on}}" onClick="{{k.pick}}" style="padding: 14px 16px; border-radius: 16px; border: none; background: {{k.bg}}; box-shadow: {{k.ring}}; text-align: left; display: flex; flex-direction: column; gap: 4px">
+            <span style="display: flex; justify-content: space-between; align-items: baseline"><b style="font-size: 17px">{{k.title}}</b><b style="font-family: var(--display); font-size: 26px">{{k.cost}}</b></span>
+            <span style="font-size: 13px; color: var(--dim)">{{k.text}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <span style="font-size: 13px; color: var(--dim)">A multikicker card asks again after each kick, showing how many times it’s kicked.</span>
+    </sc-if>
+
+    <sc-if value="{{isHand}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="display: flex; justify-content: space-between; font-size: 13px"><b>Your hand</b><span style="color: var(--dim)">{{counter}}</span></span>
+        <div style="display: flex; gap: 12px">
+          <sc-for list="{{hand}}" as="h" hint-placeholder-count="5">
+            <button onClick="{{h.click}}" aria-pressed="{{h.on}}" aria-label="{{h.name}}" style="position: relative; padding: 0; border: none; border-radius: 7px; background: transparent; box-shadow: {{h.ring}}; transform: translateY({{h.lift}}px); transition: transform 140ms">
+              <img src="{{h.img}}" alt="" style="display: block; width: 132px; border-radius: 7px">
+              <sc-if value="{{h.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); padding: 0 8px; border-radius: 999px; background: var(--text); color: var(--ground); font-size: 11px; font-weight: 800">Discard</span></sc-if>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+    <span style="font-size: 12px; color: var(--dim)">The rail confirms. Engine: {{engine}}. Card images from Scryfall, © Wizards of the Coast.</span>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, kick: true, pick: null };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const { ex, kick, pick } = this.state;
+    const tabs = ['Kicker', 'Discard as a cost', 'Ward'];
+    const hand = [['charm', 'Boros Charm', '2d80527eb5c346c24b35ad5381fe99a6'], ['warp', 'Chaos Warp', '0145ecf81c21d180a7799470623719f7'], ['will', 'Akroma’s Will', 'd2df35f8a45cc092aadf237d7374fc27'], ['fierce', 'Fierce Guardianship', 'c858d7cf7a488b3218bd7bbf1fe8b79c'], ['fortress', 'Glacial Fortress', 'e25b0374571373f1ab95c0e88cd1758e']];
+    const base = { examples: tabs.map((label, i) => ({ label, on: ex === i, bg: ex === i ? '#f2efe8' : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i, pick: null }) })),
+      isKicker: ex === 0, isHand: ex !== 0, kickRows: [], hand: [], counter: '', hasWarn: false, warn: '' };
+    const handVals = hand.map(([id, name, img]) => { const on = pick === id; return { name, img: A(img), on, lift: on ? -12 : 0, ring: on ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', click: () => this.setState((s) => ({ pick: s.pick === id ? null : id })) }; });
+    const pickedName = pick ? hand.find((h) => h[0] === pick)[1] : '';
+    if (ex === 0) {
+      const opt = (on) => ({ bg: on ? '#1e2125' : 'transparent', ring: on ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a' });
+      return { ...base, engine: 'OptionalCostChoice { cost, times_kicked }', srcImg: A('d63f877c102d887fc34bf0d1b82ba5e7'), srcName: 'Fight with Fire', srcLine: 'Fight with Fire, {2}{R}. Art: Yongjae Choi', title: 'Pay the kicker?',
+        oracle: 'Kicker {5}{R} (You may pay an additional {5}{R} as you cast this spell.) Fight with Fire deals 5 damage to target creature. If this spell was kicked, it deals 10 damage divided as you choose among any number of targets instead. (Those targets can include players and planeswalkers.)',
+        kickRows: [
+          { title: 'Kicked', cost: '{7}{R}{R}', text: 'Pay {2}{R} plus kicker {5}{R}.', on: kick, ...opt(kick), pick: () => this.setState({ kick: true }) },
+          { title: 'Not kicked', cost: '{2}{R}', text: 'Pay only the mana cost.', on: !kick, ...opt(!kick), pick: () => this.setState({ kick: false }) }
+        ],
+        railTitle: 'Kicker', railBody: 'Choose before targets and payment.', primary: kick ? 'Kick it' : 'Don’t kick', secondary: 'Cancel the spell' };
+    }
+    if (ex === 1) {
+      return { ...base, engine: 'PayCost { kind: discard, choices, count: 1 }', srcImg: A('30f751fb64ebd7009e5b1d5d2eeb62d6'), srcName: 'Thrill of Possibility', srcLine: 'Thrill of Possibility, {1}{R}. Art: Steve Argyle', title: 'Discard a card to cast it',
+        oracle: 'As an additional cost to cast this spell, discard a card. Draw two cards.', hand: handVals, counter: (pick ? 1 : 0) + ' of 1 chosen',
+        railTitle: 'Additional cost', railBody: 'Choose the card to discard. Cancel puts everything back.', primary: pick ? 'Discard ' + pickedName : 'Choose a card', secondary: 'Cancel the spell' };
+    }
+    return { ...base, engine: 'WardDiscardChoice { cards, remaining }', srcImg: A('aa79ee0c1a4ccb48bf81c711a1734208'), srcName: 'Maha, Its Feathers Night', srcLine: 'Sam’s Maha, Its Feathers Night. Art: Alessandra Pisano', title: 'Ward: discard a card',
+      oracle: 'Flying, trample. Ward—Discard a card. Creatures your opponents control have base toughness 1.', hand: handVals, counter: (pick ? 1 : 0) + ' of 1 chosen',
+      hasWarn: true, warn: 'If you don’t discard, your Swords to Plowshares is countered.',
+      railTitle: 'Ward', railBody: 'Your Swords to Plowshares targets Maha. Ward triggered.', primary: pick ? 'Discard ' + pickedName : 'Choose a card', secondary: 'Don’t discard' };
+  }
+}
+</script>
+</body>
+</html>

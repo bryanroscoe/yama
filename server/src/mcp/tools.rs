@@ -441,6 +441,27 @@ const TOOLS: &[Tool] = &[
         does: Does::Stage,
     },
     Tool {
+        name: "set_condition",
+        title: "Set the condition of cards",
+        description: staged!(
+            "Set the condition of every copy in one of their binders, deck boxes or lists, or only the copies of one card there: \
+             NM (near mint), LP (lightly played), MP (moderately played), HP (heavily played) or DMG (damaged)."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "container": {"type": "string", "description": "Their binder, deck box or list, by name."},
+                    "card": {"type": "string", "description": "Only this card's copies; every card there if left out."},
+                    "condition": {"type": "string", "enum": ["NM", "LP", "MP", "HP", "DMG"]},
+                },
+                "required": ["container", "condition"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
         name: "apply_change",
         title: "Apply a staged change",
         description: "Apply one staged change. Call it only after they have said yes to that exact change in this conversation; \
@@ -514,6 +535,7 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "cancel_lab_run" => changes::cancel_lab_run(st, user, via, args).await,
         "add_to_collection" => changes::add_to_collection(st, user, via, args).await,
         "move_cards" => changes::move_cards(st, user, via, args).await,
+        "set_condition" => changes::set_condition(st, user, via, args).await,
         "apply_change" => {
             let c = changes::apply(st, user, text_arg(args, "id")?).await?;
             match (c.status.as_str(), c.error) {
