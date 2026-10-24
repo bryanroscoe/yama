@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  addCosts,
+  blockOutcome,
   combatLines,
   combatText,
   dedupe,
@@ -16,10 +18,12 @@ import {
   stepIndex,
   stopsMessage,
   stopsSummary,
+  targetedBy,
+  targetedText,
   turnOrder,
 } from "./model";
 import { PREVIEW_H, PREVIEW_W, previewPlace } from "./model";
-import type { CardMeta, CardView, Decision, OptionView, PlayerView, View } from "./types";
+import type { CardMeta, CardView, Decision, OptionView, PlayerView, StackItem, View } from "./types";
 
 const card = (id: number, name: string, extra: Partial<CardView> = {}): CardView => ({
   id,
@@ -235,5 +239,66 @@ describe("previewPlace", () => {
     expect(p.left).toBe(1480 - 12 - PREVIEW_W);
     expect(p.top).toBeGreaterThanOrEqual(8);
     expect(p.top + PREVIEW_H).toBeLessThanOrEqual(1060 - 8);
+  });
+});
+
+describe("targets on the stack (GRespond)", () => {
+  const item = (controller: number, targets: StackItem["targets"], extra: Partial<StackItem> = {}): StackItem => ({ id: 100 + controller, name: "Chaos Warp", controller, targets, ...extra });
+  it("says who targets each card and player, top of the stack first", () => {
+    const stack = [
+      item(2, [{ target: { kind: "object", id: 7 }, name: "Éowyn", controller: 0 }]),
+      item(1, [{ target: { kind: "object", id: 7 }, name: "Éowyn", controller: 0 }, { target: { kind: "player", seat: 0 }, name: "Ana", controller: 0 }]),
+      // Still being cast: its targets aren't chosen yet. Hidden: no id to mark.
+      item(3, [{ target: { kind: "object", id: 9 }, name: "Adeline", controller: 0 }], { casting: true }),
+      item(4, [{ name: "a card" }]),
+    ];
+    const t = targetedBy(stack);
+    expect(t.cards.get(7)).toEqual([1, 2]);
+    expect(t.seats.get(0)).toEqual([1]);
+    expect(t.cards.has(9)).toBe(false);
+    const who = (n: number) => (n === 0 ? "you" : ["", "Sam", "Jules"][n]!);
+    expect(targetedText([1], who)).toBe("Targeted by Sam");
+    expect(targetedText([1, 2, 0], who)).toBe("Targeted by Sam, Jules and you");
+  });
+  it("opens a stack of tokens while you choose among them", () => {
+    const soldiers = [creature(1, "Soldier"), creature(2, "Soldier"), creature(3, "Soldier")];
+    expect(stackPermanents(soldiers).map((p) => p.ids)).toEqual([[1, 2, 3]]);
+    expect(stackPermanents(soldiers, new Set([2])).map((p) => p.ids)).toEqual([[1, 3], [2]]);
+    expect(rows(soldiers, new Set([1, 2, 3])).creatures).toHaveLength(3);
+    // Creatures blocking different attackers aren't one pile either.
+    const blocking = [creature(4, "Soldier", { blocking: true, blocks: [10] }), creature(5, "Soldier", { blocking: true, blocks: [11] })];
+    expect(stackPermanents(blocking)).toHaveLength(2);
+  });
+});
+
+describe("attack taxes and block outcomes (GCombatMore, GBlock)", () => {
+  it("adds attack taxes up in printed form", () => {
+    expect(addCosts(["{2}", "{2}"])).toBe("{4}");
+    expect(addCosts(["{1}{W}", "{2}"])).toBe("{3}{W}");
+    expect(addCosts(["{W}"])).toBe("{W}");
+    expect(addCosts([])).toBe("");
+  });
+  it("counts what gets through from printed numbers only", () => {
+    const titan = creature(20, "Grave Titan", { controller: 1, power: 6, toughness: 6, attacking: true, attacks: 0, keywords: ["Deathtouch"] });
+    const terra = creature(21, "Terra", { controller: 1, power: 3, toughness: 3, attacking: true, attacks: 0, commander: true });
+    const brute = creature(22, "Boggart Brute", { controller: 1, power: 3, toughness: 2, attacking: true, attacks: 0, keywords: ["Menace", "Trample"] });
+    const striker = creature(23, "Fencer", { controller: 1, power: 2, toughness: 2, attacking: true, attacks: 0, keywords: ["Double strike"] });
+    const aragorn = creature(30, "Aragorn", { power: 4, toughness: 4 });
+    const faramir = creature(31, "Faramir", { power: 2, toughness: 2, damage: 1 });
+    const cards = new Map([titan, terra, brute, striker, aragorn, faramir].map((c) => [c.id, c]));
+    const base = { attackers: [titan, terra, brute, striker], cards, life: 38, poison: 0, commanderDamage: { Terra: 3 } };
+    // Nothing blocked: 6 + 3 + 3 + 2×2.
+    const open = blockOutcome({ ...base, plan: new Map() });
+    expect([open.through, open.lifeAfter]).toEqual([16, 22]);
+    expect(open.commanders).toEqual([{ name: "Terra", now: 3, after: 6 }]);
+    // Aragorn blocks Terra: no commander damage. Faramir (1 toughness left) blocks the trampling
+    // Brute: 2 of its 3 come through.
+    const blocked = blockOutcome({ ...base, plan: new Map([[30, 21], [31, 22]]) });
+    expect([blocked.through, blocked.lifeAfter]).toEqual([6 + 2 + 4, 38 - 12]);
+    expect(blocked.commanders).toEqual([]);
+    // Infect is poison, not life.
+    const rats = creature(24, "Rats", { controller: 1, power: 2, toughness: 1, attacking: true, attacks: 0, keywords: ["Infect"] });
+    const poisoned = blockOutcome({ ...base, attackers: [rats], plan: new Map() });
+    expect([poisoned.through, poisoned.poisonAfter]).toEqual([0, 2]);
   });
 });

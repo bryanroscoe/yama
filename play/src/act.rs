@@ -24,8 +24,9 @@ use engine::game::filter_state_for_viewer;
 use engine::types::ability::{AbilityCost, FreeEntry, TargetRef};
 use engine::types::actions::{GameAction, MayTriggerAutoChoiceOp, PriorityYieldOp, ReplacementAutoChoice, ResolveAllScope};
 use engine::types::game_state::{
-    ActionResult, AutoMayChoice, CombatDamageAssignmentMode, DistributionUnit, GameState, MayTriggerAutoChoiceScope, MayTriggerAutoChoiceSelector,
-    MulliganDecisionPhase, ReplacementAutoChoiceId, ReplacementChoiceKind, WaitingFor, YieldScope, YieldTarget,
+    ActionResult, AutoMayChoice, CombatDamageAssignmentMode, CombatTaxContext, DistributionUnit, GameState, MayTriggerAutoChoiceScope,
+    MayTriggerAutoChoiceSelector, MulliganDecisionPhase, ReplacementAutoChoiceId, ReplacementChoiceKind, RetargetScope, WaitingFor, YieldScope,
+    YieldTarget,
 };
 use engine::types::identifiers::ObjectId;
 use engine::types::player::PlayerId;
@@ -72,6 +73,18 @@ pub enum Answer {
     AssignCombatDamage,
     DistributeAmong,
     ChoosePair,
+    /// A new target for a spell or ability on the stack (CR 115.7).
+    RetargetSpell,
+    /// Pay an attack or block tax, or don't (CR 508.1d, 509.1c).
+    PayCombatTax,
+    /// Exert an attacker as it attacks, or don't (CR 701.43).
+    ChooseExert,
+    /// Tap a creature for enlist, or none (CR 702.154a).
+    ChooseEnlist,
+    /// The creatures that crew a Vehicle (CR 702.122a).
+    CrewVehicle,
+    /// The creatures that saddle a Mount (CR 702.171a).
+    SaddleMount,
 }
 
 /// The card asking. The server adds its art, image and artist from Yama's card data.
@@ -118,6 +131,10 @@ pub struct Choice {
     /// Combat damage that counts as lethal for it (1 with deathtouch).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lethal: Option<u32>,
+    /// What it adds toward the decision's `need` when picked: crew or saddle power, which the
+    /// engine works out (it can differ from the creature's power).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub power: Option<i32>,
     /// It names a card, so the server sends that card's details.
     #[serde(skip)]
     pub card: bool,
@@ -198,6 +215,26 @@ pub struct Pending {
     /// it can, so the answer holds for the next copy too (and shows in the log when it's used).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub remember_same_card: bool,
+    /// Targets chosen one at a time (CR 601.2c): this one's place, from 0, and how many there are.
+    /// The engine moves on after each, so only the current one can still change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slot: Option<(usize, usize)>,
+    /// The targets already chosen for the earlier ones, by option id, in order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub picked: Vec<String>,
+    /// What a copy or a spell on the stack targets now, by option id (CR 707.10c, 115.7). Picking
+    /// it again keeps it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current: Option<String>,
+    /// Every remaining target of the copy may be kept at once (`Act::KeepAllCopyTargets`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub keep_rest: bool,
+    /// Crew or saddle: the total power the picked creatures must reach.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub need: Option<u32>,
+    /// `current` isn't one of the engine's alternatives, so picking it is sent as keeping it.
+    #[serde(skip)]
+    keeps_current: bool,
 }
 
 impl Pending {
@@ -231,6 +268,12 @@ impl Pending {
             unblocked: false,
             unit: None,
             remember_same_card: false,
+            slot: None,
+            picked: vec![],
+            current: None,
+            keep_rest: false,
+            need: None,
+            keeps_current: false,
         }
     }
 
@@ -279,6 +322,7 @@ fn card(vs: &GameState, id: &ObjectId, eligible: bool) -> Choice {
         eligible,
         toughness: o.and_then(|o| o.toughness),
         lethal: None,
+        power: None,
         card: true,
     }
 }
@@ -301,6 +345,7 @@ fn word(id: impl Into<String>, name: impl Into<String>) -> Choice {
         eligible: true,
         toughness: None,
         lethal: None,
+        power: None,
         card: false,
     }
 }
@@ -383,6 +428,33 @@ fn unless_cost_text(vs: &GameState, cost: &AbilityCost) -> String {
         return printed;
     }
     serde_json::to_value(cost).map(|v| phase_llm::render::action::describe_tagged(vs, &v)).unwrap_or_else(|_| "the cost".into())
+}
+
+/// "A", "A and B", "A, B and C".
+fn and_list(names: &[String]) -> String {
+    match names {
+        [] => "nothing".into(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// Crew or saddle (CR 702.122a, 702.171a): pick creatures to tap whose power, as the engine
+/// counts it for this, adds up to `need`.
+fn tap_for(vs: &GameState, answer: Answer, purpose: &'static str, source: ObjectId, need: u32, eligible: &[ObjectId], contributions: &[i32]) -> Pending {
+    let name = Match::name_in(vs, &source);
+    let mut options = cards(vs, eligible);
+    for (i, o) in options.iter_mut().enumerate() {
+        // Older states carry no contributions; the creature's power is the printed default.
+        o.power = contributions.get(i).copied().or_else(|| vs.objects.get(&eligible[i]).and_then(|c| c.power));
+    }
+    let verb = if purpose == "crew" { "Crew" } else { "Saddle" };
+    let n = options.len();
+    let mut p = Pending::new(Kind::Pick, answer, purpose, format!("{verb} {name}: tap creatures with total power {need} or more"), options)
+        .range(usize::from(need > 0), n, true)
+        .from(vs, Some(source));
+    p.need = Some(need);
+    p
 }
 
 /// A split from an engine answer, as the design's `defaultAnswer`: `{id: amount}`.
@@ -512,7 +584,112 @@ impl Pending {
                 };
                 let mut p = Pending::new(Kind::Pick, Answer::ChooseTarget, "target", prompt, options).range(if optional { 0 } else { 1 }, 1, optional).from(vs, source);
                 p.zone = common_zone(&p.options);
+                p.slot = (target_slots.len() > 1).then_some((slot, target_slots.len()));
+                p.picked = selection.selected_slots.iter().flatten().map(|t| target_id(&TargetView::from_ref(t))).collect();
                 p
+            }
+            WaitingFor::MultiTargetSelection { player, legal_targets, min_targets, max_targets, pending_ability } if *player == me => {
+                // "Any number of target creatures you control" (CR 601.2c, 115.1d).
+                let n = legal_targets.len();
+                let prompt = match (*min_targets, *max_targets) {
+                    (0, m) if m >= n => "Choose any number of targets".to_string(),
+                    (0, m) => format!("Choose up to {}", count(m, "target", "targets")),
+                    (a, b) if a == b => format!("Choose {}", count(a, "target", "targets")),
+                    (a, b) => format!("Choose {a} to {b} targets"),
+                };
+                Pending::new(Kind::Pick, Answer::SelectCards, "targets", prompt, cards(vs, legal_targets))
+                    .range(*min_targets, *max_targets, min_targets < max_targets)
+                    .from(vs, Some(pending_ability.source_id))
+            }
+            WaitingFor::CopyRetarget { player, copy_id, target_slots, current_slot, can_keep_rest, announcer_election: None, .. } if *player == me => {
+                // A copy's targets, one at a time (CR 707.10c): any of the engine's alternatives, or
+                // the one it has now, where keeping it is allowed (or none, where it may decline).
+                let slot = target_slots.get(*current_slot)?;
+                let mut options: Vec<Choice> = slot.legal_alternatives.iter().map(|t| target(vs, t, names)).collect();
+                let current = slot.current.as_ref().map(|t| target_id(&TargetView::from_ref(t)));
+                let mut keeps_current = false;
+                if let (Some(cur), Some(id)) = (&slot.current, &current)
+                    && !options.iter().any(|o| &o.id == id)
+                {
+                    let mut c = target(vs, cur, names);
+                    c.eligible = slot.can_keep;
+                    options.push(c);
+                    keeps_current = true;
+                }
+                let name = Match::name_in(vs, copy_id);
+                let what = if current.is_some() { "a new target" } else { "a target" };
+                let mut prompt = format!("Choose {what} for the copy of {name}");
+                if target_slots.len() > 1 {
+                    prompt.push_str(&format!(" ({} of {})", current_slot + 1, target_slots.len()));
+                }
+                let optional = slot.can_decline && slot.current.is_none();
+                let mut p = Pending::new(Kind::Pick, Answer::ChooseTarget, "copy", prompt, options).range(if optional { 0 } else { 1 }, 1, optional).from(vs, Some(*copy_id));
+                p.zone = common_zone(&p.options);
+                p.default_answer = current.clone().filter(|_| slot.can_keep).map(|c| json!([c]));
+                p.current = current;
+                p.keeps_current = keeps_current;
+                p.keep_rest = *can_keep_rest;
+                p.slot = (target_slots.len() > 1).then_some((*current_slot, target_slots.len()));
+                p
+            }
+            WaitingFor::RetargetChoice { player, stack_entry_index, scope, current_targets, slot_pools, legal_new_targets, .. } if *player == me => {
+                // One target to change (CR 115.7a). A spell with several targets to change, or one
+                // the engine sends to a fixed new target, keeps the buttons.
+                if current_targets.len() != 1 || matches!(scope, RetargetScope::ForcedTo(_)) {
+                    return None;
+                }
+                let pool = if slot_pools.is_empty() { legal_new_targets.as_slice() } else { slot_pools[0].as_slice() };
+                let mut options: Vec<Choice> = pool.iter().map(|t| target(vs, t, names)).collect();
+                let current = target_id(&TargetView::from_ref(&current_targets[0]));
+                let in_pool = options.iter().any(|o| o.id == current);
+                if !in_pool {
+                    let mut c = target(vs, &current_targets[0], names);
+                    c.eligible = false;
+                    options.push(c);
+                }
+                let entry = vs.stack.get(*stack_entry_index);
+                let spell = entry.map(|e| Match::name_in(vs, &e.source_id)).unwrap_or_else(|| "the spell".into());
+                let whose = match entry.map(|e| e.controller) {
+                    Some(c) if c == me => "your".to_string(),
+                    Some(c) => format!("{}'s", names.get(usize::from(c.0)).cloned().unwrap_or_else(|| format!("Player {}", c.0 + 1))),
+                    None => "the".to_string(),
+                };
+                let mut p = Pending::new(Kind::Pick, Answer::RetargetSpell, "retarget", format!("Choose a new target for {whose} {spell}"), options)
+                    .range(1, 1, false)
+                    .from(vs, entry.map(|e| e.source_id));
+                p.zone = common_zone(&p.options);
+                p.default_answer = in_pool.then(|| json!([current.clone()]));
+                p.current = Some(current);
+                p
+            }
+            WaitingFor::CombatTaxPayment { player, context, total_cost, per_creature, .. } if *player == me => {
+                // Propaganda, Ghostly Prison: the total for the creatures declared (CR 508.1d).
+                let cost = mana_cost_text(total_cost);
+                let who: Vec<String> = per_creature.iter().map(|(id, _)| Match::name_in(vs, id)).collect();
+                let verb = match context {
+                    CombatTaxContext::Attacking => "attack",
+                    CombatTaxContext::Blocking => "block",
+                };
+                Pending::new(Kind::Yesno, Answer::PayCombatTax, "tax", format!("Pay {cost} to {verb} with {}?", and_list(&who)), vec![])
+                    .yes_no(format!("Pay {cost}"), "Don't pay")
+            }
+            WaitingFor::ExertChoice { player, attacker, .. } if *player == me => {
+                let name = Match::name_in(vs, attacker);
+                Pending::new(Kind::Yesno, Answer::ChooseExert, "exert", format!("Exert {name} as it attacks?"), vec![])
+                    .yes_no("Exert", "Don't exert")
+                    .from(vs, Some(*attacker))
+            }
+            WaitingFor::EnlistChoice { player, attacker, eligible, .. } if *player == me => {
+                let name = Match::name_in(vs, attacker);
+                Pending::new(Kind::Pick, Answer::ChooseEnlist, "enlist", format!("Tap a creature to enlist for {name}?"), cards(vs, eligible))
+                    .range(0, 1, true)
+                    .from(vs, Some(*attacker))
+            }
+            WaitingFor::CrewVehicle { player, vehicle_id, crew_power, eligible_creatures, contributions } if *player == me => {
+                tap_for(vs, Answer::CrewVehicle, "crew", *vehicle_id, *crew_power, eligible_creatures, contributions)
+            }
+            WaitingFor::SaddleMount { player, mount_id, saddle_power, eligible_creatures, contributions } if *player == me => {
+                tap_for(vs, Answer::SaddleMount, "saddle", *mount_id, *saddle_power, eligible_creatures, contributions)
             }
             WaitingFor::UnlessPayment { player, cost, effect_description, pending_effect, .. } if *player == me => {
                 let cost = unless_cost_text(vs, cost);
@@ -797,6 +974,42 @@ impl Pending {
                     _ => Err("That answer doesn't fit this decision.".into()),
                 }
             }
+            (Answer::ChooseTarget, Act::KeepAllCopyTargets) => {
+                if self.keep_rest { Ok(()) } else { Err("The copy's targets can't all be kept.".into()) }
+            }
+            (Answer::RetargetSpell, Act::RetargetSpell { new_targets }) => match new_targets.as_slice() {
+                [Some(t)] if self.eligible(&target_id(t)) => Ok(()),
+                [Some(_)] => Err("That isn't a legal target.".into()),
+                _ => Err("Choose one new target.".into()),
+            },
+            (Answer::PayCombatTax, Act::PayCombatTax { .. }) => Ok(()),
+            (Answer::ChooseExert, Act::ChooseExert { .. }) => Ok(()),
+            (Answer::ChooseEnlist, Act::ChooseEnlist { target }) => match target {
+                None => Ok(()),
+                Some(id) if self.eligible(&id.to_string()) => Ok(()),
+                Some(_) => Err("That creature can't be tapped for enlist.".into()),
+            },
+            (Answer::CrewVehicle, Act::CrewVehicle { vehicle: source, creatures }) | (Answer::SaddleMount, Act::SaddleMount { mount: source, creatures }) => {
+                if self.source.as_ref().is_some_and(|s| s.id != *source) {
+                    return Err("That's a different card.".into());
+                }
+                let mut seen = std::collections::HashSet::new();
+                let mut total = 0i64;
+                for id in creatures {
+                    if !seen.insert(*id) {
+                        return Err("A creature was chosen twice.".into());
+                    }
+                    let Some(o) = self.options.iter().find(|o| o.id == id.to_string() && o.eligible) else {
+                        return Err("That creature can't be tapped for this.".into());
+                    };
+                    total += i64::from(o.power.unwrap_or(0));
+                }
+                let need = self.need.unwrap_or(0);
+                if total < i64::from(need) {
+                    return Err(format!("Tap creatures with total power {need} or more."));
+                }
+                Ok(())
+            }
             (Answer::ChoosePair, Act::ChoosePair { partner }) => match partner {
                 None if self.min == 0 => Ok(()),
                 None => Err("Choose a creature to pair with.".into()),
@@ -827,6 +1040,19 @@ impl Pending {
                 }
             }
             _ => Err("That answer doesn't fit this decision.".into()),
+        }
+    }
+}
+
+impl Pending {
+    /// The answer as the engine takes it: picking a copy's current target where it isn't one of
+    /// the engine's alternatives keeps it (`None`, CR 707.10c).
+    pub fn normalize(&self, act: &Act) -> Act {
+        match act {
+            Act::ChooseTarget { target: Some(t) } if self.keeps_current && self.current.as_deref() == Some(target_id(t).as_str()) => {
+                Act::ChooseTarget { target: None }
+            }
+            other => other.clone(),
         }
     }
 }
@@ -938,6 +1164,34 @@ pub enum Act {
     ChoosePair {
         partner: Option<u64>,
     },
+    /// New targets for a spell or ability on the stack, one for each it has.
+    RetargetSpell {
+        new_targets: Vec<Option<TargetView>>,
+    },
+    /// Keep every remaining target of a copy (CR 707.10c).
+    KeepAllCopyTargets,
+    /// Pay an attack or block tax, or don't (the taxed creatures stay out).
+    PayCombatTax {
+        accept: bool,
+    },
+    /// Exert the attacker, or don't.
+    ChooseExert {
+        exert: bool,
+    },
+    /// The creature to tap for enlist, or none.
+    ChooseEnlist {
+        target: Option<u64>,
+    },
+    /// The creatures that crew `vehicle`.
+    CrewVehicle {
+        vehicle: u64,
+        creatures: Vec<u64>,
+    },
+    /// The creatures that saddle `mount`.
+    SaddleMount {
+        mount: u64,
+        creatures: Vec<u64>,
+    },
     // The rest are a seat's own settings and table actions (GSettings, GPriority), not answers to
     // a decision: the preference ones may be sent at any time, as the engine allows.
     /// Turn off a remembered "may" answer (GSettings and GLog, "Turn off"), or all of them.
@@ -1040,6 +1294,13 @@ impl Act {
                 },
             },
             Act::ChoosePair { partner } => GameAction::ChoosePair { partner: partner.map(ObjectId) },
+            Act::RetargetSpell { new_targets } => GameAction::RetargetSpell { new_targets: new_targets.iter().map(|t| t.as_ref().map(TargetView::to_ref)).collect() },
+            Act::KeepAllCopyTargets => GameAction::KeepAllCopyTargets,
+            Act::PayCombatTax { accept } => GameAction::PayCombatTax { accept: *accept },
+            Act::ChooseExert { exert } => GameAction::ChooseExert { exert: *exert },
+            Act::ChooseEnlist { target } => GameAction::ChooseEnlist { target: target.map(ObjectId) },
+            Act::CrewVehicle { vehicle, creatures } => GameAction::CrewVehicle { vehicle_id: ObjectId(*vehicle), creature_ids: creatures.iter().map(|c| ObjectId(*c)).collect() },
+            Act::SaddleMount { mount, creatures } => GameAction::SaddleMount { mount_id: ObjectId(*mount), creature_ids: creatures.iter().map(|c| ObjectId(*c)).collect() },
             Act::SetMayTriggerAutoChoice { change } => GameAction::SetMayTriggerAutoChoice {
                 op: match change {
                     AnswerChange::Remove { selector } => MayTriggerAutoChoiceOp::Remove { selector: selector.clone() },
@@ -1105,6 +1366,13 @@ impl Act {
                 },
             },
             GameAction::ChoosePair { partner } => Act::ChoosePair { partner: partner.map(|p| p.0) },
+            GameAction::RetargetSpell { new_targets } => Act::RetargetSpell { new_targets: new_targets.iter().map(|t| t.as_ref().map(TargetView::from_ref)).collect() },
+            GameAction::KeepAllCopyTargets => Act::KeepAllCopyTargets,
+            GameAction::PayCombatTax { accept } => Act::PayCombatTax { accept: *accept },
+            GameAction::ChooseExert { exert } => Act::ChooseExert { exert: *exert },
+            GameAction::ChooseEnlist { target } => Act::ChooseEnlist { target: target.map(|t| t.0) },
+            GameAction::CrewVehicle { vehicle_id, creature_ids } => Act::CrewVehicle { vehicle: vehicle_id.0, creatures: creature_ids.iter().map(|c| c.0).collect() },
+            GameAction::SaddleMount { mount_id, creature_ids } => Act::SaddleMount { mount: mount_id.0, creatures: creature_ids.iter().map(|c| c.0).collect() },
             GameAction::SetMayTriggerAutoChoice { op } => Act::SetMayTriggerAutoChoice {
                 change: match op {
                     MayTriggerAutoChoiceOp::Remove { selector } => AnswerChange::Remove { selector: selector.clone() },
@@ -1143,6 +1411,13 @@ impl Act {
             Act::DecideOptionalEffectAndRemember { .. } => "decide_optional_effect_and_remember",
             Act::ChooseReplacementAndRemember { .. } => "choose_replacement_and_remember",
             Act::ChoosePair { .. } => "choose_pair",
+            Act::RetargetSpell { .. } => "retarget_spell",
+            Act::KeepAllCopyTargets => "keep_all_copy_targets",
+            Act::PayCombatTax { .. } => "pay_combat_tax",
+            Act::ChooseExert { .. } => "choose_exert",
+            Act::ChooseEnlist { .. } => "choose_enlist",
+            Act::CrewVehicle { .. } => "crew_vehicle",
+            Act::SaddleMount { .. } => "saddle_mount",
             Act::SetMayTriggerAutoChoice { .. } => "set_may_trigger_auto_choice",
             Act::SetReplacementAutoChoice { .. } => "set_replacement_auto_choice",
             Act::SetPriorityYield { .. } => "set_priority_yield",
@@ -1245,12 +1520,15 @@ pub fn answer(state: &mut GameState, owner: PlayerId, act: &Act) -> Result<Answe
         if !candidates.iter().any(|a| matches!(a, GameAction::CancelCast)) {
             return Err(Refusal::DoesntFit("There's nothing to cancel now.".into()));
         }
-    } else {
+    }
+    let mut act = act.clone();
+    if !matches!(act, Act::ResolveAll | Act::CancelCast) {
         let vs = filter_state_for_viewer(state, owner);
         let Some(pending) = Pending::of(&vs, owner, &candidates, &[]) else {
             return Err(Refusal::DoesntFit("Answer this one with the buttons.".into()));
         };
-        pending.admits(act).map_err(Refusal::DoesntFit)?;
+        pending.admits(&act).map_err(Refusal::DoesntFit)?;
+        act = pending.normalize(&act);
     }
     let actor = contract.authorized_actor;
     let action = act.to_action();

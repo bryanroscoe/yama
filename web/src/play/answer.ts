@@ -25,9 +25,27 @@ export type Draft =
   | { kind: "text"; value: string }
   | { kind: "yesno"; remember: Remember };
 
-/** Decisions these widgets answer. Targets keep the board's own targeting. */
+/** Decisions these widgets answer: every decision the server describes with `pending`. */
 export function chooserCovers(p: Pending | undefined | null): p is Pending {
-  return !!p && p.purpose !== "target";
+  return !!p;
+}
+
+/**
+ * Choosing targets (GTarget, GTargetsMore): for a spell or ability, any number of them, a copy's
+ * new targets, or a new target for a spell on the stack. They're picked on the board, players and
+ * the stack included, and each one waits for the main button.
+ */
+const TARGETING = new Set(["target", "targets", "copy", "retarget"]);
+export const isTargeting = (p: Pending | null | undefined): boolean => !!p && TARGETING.has(p.purpose);
+
+/** Tapping your own creatures for crew, saddle or enlist (GCombatMore), picked on the board. */
+const TAPPING = new Set(["crew", "saddle", "enlist"]);
+export const isTapping = (p: Pending | null | undefined): boolean => !!p && TAPPING.has(p.purpose);
+
+/** Crew or saddle: the power the picked creatures add up to, as the engine counts it. */
+export function powerOf(p: Pending, d: Draft): number {
+  if (d.kind !== "pick") return 0;
+  return d.ids.reduce((n, id) => n + (p.options.find((o) => o.id === id)?.power ?? 0), 0);
 }
 
 /** Triggers are shown in the order they'll resolve: the reverse of the order they go on the stack. */
@@ -179,6 +197,7 @@ export function ready(p: Pending, d: Draft): boolean {
   switch (d.kind) {
     case "pick":
       if (isScry(p)) return true;
+      if (p.need !== undefined && powerOf(p, d) < p.need) return false;
       return d.ids.length >= p.min && d.ids.length <= p.max;
     case "order":
       return d.ids.length === p.options.length;
@@ -204,10 +223,12 @@ export function canRememberOrder(p: Pending): boolean {
   return p.answer === "choose_replacement" && p.kind === "pick" && p.remember === "engine" && p.options.length === 2;
 }
 
-/** The empty answer: "Find nothing", "Return none", "Don't pair". */
+/** The empty answer: "Find nothing", "Return none", "Don't pair", "No target", "Don't enlist". */
 export function noneAct(p: Pending): Act | null {
   if (p.answer === "select_cards" && p.min === 0) return { kind: "select_cards", cards: [] };
   if (p.answer === "choose_pair" && p.min === 0) return { kind: "choose_pair", partner: null };
+  if (p.answer === "choose_target" && p.min === 0) return { kind: "choose_target", target: null };
+  if (p.answer === "choose_enlist") return { kind: "choose_enlist", target: null };
   return null;
 }
 
@@ -265,6 +286,18 @@ export function toAct(p: Pending, d: Draft, yes = true): Act | null {
         : null;
     case "choose_pair":
       return d.kind === "pick" ? { kind: "choose_pair", partner: d.ids[0] === undefined ? null : Number(d.ids[0]) } : null;
+    case "retarget_spell":
+      return d.kind === "pick" && d.ids[0] !== undefined ? { kind: "retarget_spell", new_targets: [target(d.ids[0])] } : null;
+    case "pay_combat_tax":
+      return { kind: "pay_combat_tax", accept: yes };
+    case "choose_exert":
+      return { kind: "choose_exert", exert: yes };
+    case "choose_enlist":
+      return d.kind === "pick" ? { kind: "choose_enlist", target: d.ids[0] === undefined ? null : Number(d.ids[0]) } : null;
+    case "crew_vehicle":
+      return d.kind === "pick" && p.source ? { kind: "crew_vehicle", vehicle: p.source.id, creatures: d.ids.map(Number) } : null;
+    case "saddle_mount":
+      return d.kind === "pick" && p.source ? { kind: "saddle_mount", mount: p.source.id, creatures: d.ids.map(Number) } : null;
   }
 }
 
@@ -328,7 +361,7 @@ export function pickVerb(p: Pending): string {
 
 const optionName = (p: Pending, id: string | undefined) => p.options.find((o) => o.id === id)?.name ?? "";
 
-export type SecondaryDoes = "no" | "cancel" | "clear" | "none" | "reset" | "ask" | "all-top";
+export type SecondaryDoes = "no" | "cancel" | "clear" | "none" | "reset" | "ask" | "all-top" | "all" | "keep-rest";
 
 /** The main and second buttons' words for a decision (design/screens/GButtons and each widget's board). */
 export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell: boolean }): { primary: string; secondary: string | null; secondaryDoes: SecondaryDoes | null } {
@@ -356,6 +389,8 @@ export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell:
       if (p.answer === "choose_pair") {
         return { primary: n ? `Pair with ${optionName(p, d.ids[0])}` : "Choose a creature", ...(p.min === 0 ? { secondary: "Don't pair", secondaryDoes: "none" as const } : none) };
       }
+      const picks = targetButtons(p, d, opts.spell);
+      if (picks) return { ...picks, ...(picks.secondary === undefined ? (cancel ?? none) : {}) } as ReturnType<typeof buttons>;
       // A search that may find nothing says so on its own button (GSearch); Done waits for a card.
       if (p.purpose === "search" && p.min === 0) {
         return { primary: n ? `Done (${n}/${p.max})` : "Choose a card", secondary: "Find nothing", secondaryDoes: "none" };
@@ -388,11 +423,60 @@ export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell:
   }
 }
 
+/**
+ * The main and second buttons for targets and for tapping creatures (GTarget, GTargetsMore,
+ * GCombatMore): "Cast it" once a spell's last target is picked, "Next target" before that, "Keep
+ * Éowyn" or "Change to Adeline" for a copy or a spell on the stack, "Crew (2 tapped)". The second
+ * button is left `undefined` where Cancel (when there is one) belongs.
+ */
+function targetButtons(p: Pending, d: Draft, spell: boolean): { primary: string; secondary?: string | null; secondaryDoes?: SecondaryDoes | null } | null {
+  if (d.kind !== "pick") return null;
+  const n = d.ids.length;
+  const name = optionName(p, d.ids[0]);
+  switch (p.purpose) {
+    case "target": {
+      const last = !p.slot || p.slot[0] === p.slot[1] - 1;
+      if (!n) return { primary: p.min === 0 ? "No target" : `Done (0/${p.max})` };
+      return { primary: !last ? "Next target" : spell ? "Cast it" : "Done" };
+    }
+    case "targets": {
+      const able = Math.min(p.max, p.options.filter((o) => o.eligible).length);
+      const primary = n ? `Done, ${n} ${n === 1 ? "target" : "targets"}` : p.min === 0 ? "No targets" : `Done (0/${p.max})`;
+      if (n < able && p.max > 1) return { primary, secondary: "Choose all", secondaryDoes: "all" };
+      return { primary, ...(n ? { secondary: "Clear", secondaryDoes: "clear" as const } : {}) };
+    }
+    case "copy":
+    case "retarget": {
+      const copy = p.purpose === "copy";
+      const primary = !n ? (p.min === 0 ? "No target" : "Choose a target") : d.ids[0] === p.current ? `${copy ? "Keep" : "Leave it on"} ${name}` : `${copy ? "Copy targets" : "Change to"} ${name}`;
+      const back = p.current !== undefined && d.ids[0] !== p.current && p.options.some((o) => o.id === p.current && o.eligible);
+      if (back) return { primary, secondary: `Back to ${optionName(p, p.current)}`, secondaryDoes: "reset" };
+      if (copy && p.keepRest && p.slot) return { primary, secondary: "Keep all targets", secondaryDoes: "keep-rest" };
+      return { primary, secondary: null, secondaryDoes: null };
+    }
+    case "enlist":
+      return { primary: n ? `Enlist ${name}` : "Choose a creature", secondary: "Don't enlist", secondaryDoes: "none" };
+    case "crew":
+    case "saddle": {
+      const got = powerOf(p, d);
+      const need = p.need ?? 0;
+      const verb = p.purpose === "crew" ? "Crew" : "Saddle";
+      return { primary: n && got >= need ? `${verb} (${n} tapped)` : `${got} of ${need} power` };
+    }
+    default:
+      return null;
+  }
+}
+
 /** "1 of up to 2 chosen", "2 of 3 chosen", "0 left", "2 on top". */
 export function counter(p: Pending, d: Draft): string {
   if (d.kind === "pick") {
     const n = d.ids.length;
     if (isScry(p)) return `${n} on top`;
+    if (p.purpose === "target") return `${(p.picked?.length ?? 0) + n} of ${p.slot?.[1] ?? p.max}`;
+    if (p.purpose === "targets") return p.min === 0 && p.max >= p.options.length ? `${n} chosen, any number` : `${n} of up to ${p.max} chosen`;
+    if (p.purpose === "copy" || p.purpose === "retarget") return p.slot ? `Target ${p.slot[0] + 1} of ${p.slot[1]}` : "Target 1 of 1";
+    if (p.need !== undefined) return `${powerOf(p, d)} of ${p.need} power`;
     if (p.answer === "select_modes" && p.min !== p.max) return `${n} of ${p.max - p.min === 1 ? `${p.min} or ${p.max}` : `up to ${p.max}`} chosen`;
     return p.upTo || p.min !== p.max ? `${n} of up to ${p.max} chosen` : `${n} of ${p.max} chosen`;
   }
@@ -409,15 +493,16 @@ export function orderTag(p: Pending, i: number, n: number): string {
   return i === n - 1 ? "Very bottom" : i === 0 ? "Highest of these" : "Then";
 }
 
-/** Picks can be made on the board when every option is a card in your hand or on the battlefield. */
+const BOARD_ANSWERS = new Set(["select_cards", "choose_pair", "choose_target", "retarget_spell", "choose_enlist", "crew_vehicle", "saddle_mount"]);
+
+/**
+ * Picks can be made on the board when every option is a card in your hand or on the battlefield;
+ * targets also when they're players or spells on the stack (each has a pane, portrait or stack row).
+ */
 export function onBoard(p: Pending): boolean {
-  return (
-    (p.kind === "pick" || p.kind === "pair") &&
-    (p.answer === "select_cards" || p.answer === "choose_pair") &&
-    !isScry(p) &&
-    p.options.length > 0 &&
-    p.options.every((o) => o.zone === "hand" || o.zone === "battlefield")
-  );
+  if ((p.kind !== "pick" && p.kind !== "pair") || !BOARD_ANSWERS.has(p.answer) || isScry(p) || !p.options.length) return false;
+  const zones = isTargeting(p) ? ["battlefield", "player", "stack"] : ["hand", "battlefield"];
+  return p.options.every((o) => zones.includes(o.zone ?? ""));
 }
 
 /**
@@ -430,8 +515,9 @@ export type Stage = "strip" | "board" | "steppers" | "dialog" | "sheet";
 
 export function stageOf(p: Pending, wide: boolean, splitOnBoard: boolean): Stage {
   if (p.kind === "yesno") return "strip";
+  // Targets and creatures to tap are chosen on the board on a phone too (GTargetPhone).
+  if (onBoard(p) && (wide || isTargeting(p) || isTapping(p))) return "board";
   if (!wide) return "sheet";
-  if (onBoard(p)) return "board";
   if (p.kind === "split" && splitOnBoard) return "steppers";
   return "dialog";
 }

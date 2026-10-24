@@ -460,11 +460,12 @@
 .opp-pane.active::after {
   box-shadow: inset 0 0 0 2px var(--text);
 }
+/* Attacked: a ring in the attacker's seat colour (GCombatView; yours blue). */
 .opp-pane.attacked::after {
-  box-shadow: inset 0 0 0 2px var(--bad);
+  box-shadow: inset 0 0 0 2px var(--attacker, var(--bad));
 }
 .opp-pane.active.attacked::after {
-  box-shadow: inset 0 0 0 2px var(--bad), inset 0 0 0 4px var(--text);
+  box-shadow: inset 0 0 0 2px var(--attacker, var(--bad)), inset 0 0 0 4px var(--text);
 }
 .opp-head {
   position: relative;
@@ -4193,4 +4194,660 @@ body.pb-dragging .pb-preview {
   color: var(--text);
   font-weight: 700;
   text-decoration: underline;
+}
+
+/* ── stack, targets and combat ──────────────────────────────────────────────
+   GTarget, GTargetsMore, GRespond, GAttack, GBlock, GCombatView and GCombatMore. Amber marks what
+   you can pick, white what you've picked (with its number); seat colours say whose a spell, an
+   arrow or an attack is; red is for warnings, with a word. */
+
+/* Whom an attacker attacks: that player's commander art, or the planeswalker's, in a circle. */
+.ft-defender {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  z-index: 3;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--raised);
+  box-shadow: 0 0 0 2px var(--seat, var(--seat-1)), 0 0 0 4px var(--ground);
+  font-size: 12px;
+  font-weight: 800;
+  pointer-events: none;
+}
+.ft-defender img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.opp-pane .ft-defender {
+  width: 22px;
+  height: 22px;
+  top: -6px;
+  left: -6px;
+}
+/* One line under a tile: who targets it, a combat rule, what picking it adds, or its keywords. */
+.ft-under {
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  z-index: 3;
+  transform: translateX(-50%);
+  max-width: calc(100% + 18px);
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--ground);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.ft-under.by {
+  max-width: calc(100% + 36px);
+  background: var(--by, var(--seat-1));
+  box-shadow: 0 0 0 2px var(--ground);
+  color: var(--ground);
+  font-weight: 800;
+}
+.ft-under.rule {
+  background: var(--text);
+  box-shadow: 0 0 0 2px var(--ground);
+  color: var(--ground);
+  font-weight: 800;
+}
+.ft-under.dim {
+  background: var(--raised);
+  color: var(--dim);
+}
+.pb.wide .pb-row.creatures .ft-under {
+  font-size: 11px;
+  bottom: -10px;
+}
+/* Rows leave room for the line under their tiles. */
+.pb-row:has(.ft-under) {
+  padding-bottom: 8px;
+}
+.opp-row:has(.ft-under) {
+  padding-bottom: 12px;
+}
+/* Targeted by a spell or ability on the stack: a ring in that player's colour. */
+.ft.targeted {
+  box-shadow: 0 0 0 3px var(--by, var(--seat-1));
+}
+.ft.targeted.pick {
+  box-shadow: 0 0 0 2px var(--pick), 0 0 0 5px var(--by, var(--seat-1));
+}
+.ft.targeted.picked {
+  box-shadow: 0 0 0 3px var(--text), 0 0 0 6px var(--by, var(--seat-1));
+}
+
+/* A player someone targets: their ring and a line in that player's colour. */
+.opp-pane.targeted::after {
+  box-shadow: inset 0 0 0 3px var(--by, var(--seat-1));
+}
+.opp-by,
+.portrait-by {
+  display: inline-block;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: var(--by, var(--seat-1));
+  color: var(--ground);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.opp-head .pick-badge.opp-pick {
+  top: 6px;
+  left: 6px;
+  z-index: 6;
+}
+/* While you declare attackers: each opponent's count, and the one you're aiming at (GAttack). */
+.opp-tag {
+  position: absolute;
+  left: 50%;
+  bottom: -1px;
+  z-index: 6;
+  transform: translate(-50%, 50%);
+  padding: 1px 12px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 0 0 3px var(--surface);
+}
+.opp-tag.aimed {
+  background: var(--text);
+  color: var(--ground);
+}
+.opp-tag.some {
+  background: var(--seat-1);
+  color: var(--ground);
+}
+.opp-tag.idle {
+  background: var(--raised);
+  color: var(--dim);
+}
+.opp-head:has(.opp-tag) {
+  overflow: visible;
+}
+/* Choosing blockers: a dot in that player's colour that pulses three times, then holds. */
+.opp-flag.blocking {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--seat, var(--seat-1));
+  animation: pulse-dot 1.4s ease-in-out 3;
+}
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.pb.motion-off .pulse-dot {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+}
+
+/* You as a target: the portrait is a button with an amber ring, white with a number once picked. */
+button.portrait {
+  min-height: 0;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  position: relative;
+}
+button.portrait:hover {
+  background: var(--raised);
+}
+.portrait.pick > img,
+.portrait.pick .portrait-blank {
+  box-shadow: 0 0 0 3px var(--pick);
+  animation: none;
+}
+.portrait.picked > img,
+.portrait.picked .portrait-blank {
+  box-shadow: 0 0 0 3px var(--text);
+  animation: none;
+}
+.portrait.targeted:not(.pick):not(.picked) > img,
+.portrait.targeted:not(.pick):not(.picked) .portrait-blank {
+  box-shadow: 0 0 0 3px var(--by, var(--seat-1));
+  animation: none;
+}
+.portrait .pick-badge {
+  top: -4px;
+  left: -2px;
+}
+.portrait-text .portrait-by {
+  margin-top: 3px;
+  color: var(--ground);
+}
+.portrait-text .portrait-credit {
+  margin-top: 2px;
+  font-size: 10px;
+}
+
+/* The stack (GRespond): each item outlined in its controller's colour, with its words, modes and
+   target chips. One you can pick as a target rings amber; picked, white with its number. */
+.stack-list li button {
+  position: relative;
+  align-items: start;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--seat, var(--line)) 60%, transparent);
+}
+.stack-list li.top button {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--seat, var(--line)) 80%, transparent);
+}
+.stack-list li.casting button {
+  box-shadow: inset 0 0 0 1px var(--line);
+  opacity: 0.85;
+}
+.stack-list li.pick button {
+  box-shadow: inset 0 0 0 2px var(--pick);
+}
+.stack-list li.picked button {
+  box-shadow: inset 0 0 0 3px var(--text);
+}
+.stack-list .pick-badge {
+  top: -6px;
+  left: auto;
+  right: -6px;
+}
+.stack-words {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #d5d7db;
+  white-space: pre-line;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.stack-list li:not(.top) .stack-words {
+  -webkit-line-clamp: 1;
+}
+.stack-words.modes {
+  color: var(--text);
+}
+.stack-targets {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.target-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 1px 9px 1px 2px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.target-chip img,
+.target-blank {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--raised);
+}
+
+/* Creatures attacking you, in a lane over your board in the attacker's colour (GBlock). */
+.pb-lane {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 12px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--seat, var(--bad)) 9%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--seat, var(--bad)) 55%, transparent);
+}
+.lane-label {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  line-height: 1.2;
+}
+.lane-label b {
+  color: var(--seat, var(--bad));
+}
+.lane-label span {
+  font-size: 13px;
+  color: var(--dim);
+}
+.pb-lane .pb-row {
+  padding-top: 0;
+}
+.pb.wide .pb-lane .pb-row.creatures {
+  --tile: 80px;
+}
+/* Attackers in the lane are already over your board, and all attack you: they don't step
+   forward like yours, or carry whom they attack. */
+.pb-mine .pb-lane .ft.attacking {
+  transform: none;
+}
+.pb-lane .ft-defender {
+  display: none;
+}
+.pb.phone .pb-lane {
+  margin: 0 0 8px;
+  padding: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.pb.phone .pb-lane .lane-label {
+  flex-direction: row;
+  gap: 6px;
+  align-items: baseline;
+}
+
+/* The attack and block summaries in the rail (GAttack, GBlock). */
+.combat-sum {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.all-at {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.all-at-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.all-at-row button {
+  min-height: 38px;
+  padding: 0 14px;
+}
+.plan-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+.plan-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.plan-head b:first-child {
+  display: inline-flex;
+  align-items: center;
+}
+.plan-power {
+  font-family: var(--display);
+  font-size: 24px;
+  line-height: 1;
+}
+.plan-none {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+.plan-line {
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14px;
+}
+.plan-line b {
+  white-space: nowrap;
+}
+.combat-sum .good,
+.dock-note.good {
+  color: var(--good);
+  font-weight: 700;
+}
+.combat-sum .bad,
+.dock-combat .bad {
+  color: var(--bad);
+}
+.combat-warn {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--bad);
+  color: var(--bad);
+  font-size: 14px;
+  font-weight: 700;
+}
+.outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--surface);
+}
+.outcome-big {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14px;
+}
+.outcome-big b {
+  font-family: var(--display);
+  font-size: 34px;
+  line-height: 1;
+}
+
+/* The fallback list of every target or creature you can pick, under the rail's help. */
+.chooser-list summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--dim);
+}
+.chooser-list ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chooser-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  justify-content: stretch;
+  min-height: 44px;
+  padding: 3px 10px 3px 3px;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 400;
+}
+.chooser-row img {
+  width: 40px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.chooser-row.picked {
+  background: var(--raised);
+  box-shadow: inset 0 0 0 2px var(--text);
+}
+
+/* Phones (GTargetPhone, GAttackPhone, GBlockPhone): the banner on top, chips on the tabs, the
+   player to pick in the focused board, and the plan or the outcome in the dock. */
+.phone-banner {
+  flex: none;
+  padding: 8px 8px 0;
+}
+.phone-banner .dw-banner {
+  width: 100%;
+  justify-content: space-between;
+  border-radius: 16px;
+  box-shadow: none;
+}
+.tab-pick {
+  position: absolute;
+  left: 6px;
+  bottom: 3px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--pick);
+  color: var(--ground);
+  font-size: 10px;
+  font-weight: 800;
+}
+.tab-pick.opp-tag {
+  transform: none;
+  bottom: 3px;
+  left: 6px;
+  padding: 0 7px;
+  font-size: 10px;
+  box-shadow: none;
+}
+.tab-by {
+  position: absolute;
+  right: 6px;
+  top: 3px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--by, var(--seat-1));
+  color: var(--ground);
+  font-size: 10px;
+  font-weight: 800;
+}
+.opp-tab:has(.tab-pick) .tab-flag {
+  display: none;
+}
+.focus-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.focus-pick {
+  position: relative;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--pick);
+  font-weight: 700;
+}
+.focus-pick.picked {
+  box-shadow: inset 0 0 0 2px var(--text);
+  padding-left: 26px;
+}
+.focus-pick .pick-badge {
+  top: 50%;
+  left: 4px;
+  transform: translateY(-50%);
+}
+.dock-pick-source {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+.dock-pick-source img {
+  width: 40px;
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px var(--seat-1);
+}
+.dock-pick-source > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 14px;
+}
+.dock-pick-source .dock-card-text {
+  font-size: 12px;
+  color: var(--dim);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.dock-combat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 4px;
+}
+.dock-combat button {
+  align-self: flex-start;
+  min-height: 40px;
+}
+.dock-plan {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.dock-plan-who {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dock-note {
+  font-size: 12px;
+  color: var(--dim);
+}
+.outcome-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dim);
+  line-height: 1.25;
+}
+.outcome-row b {
+  display: block;
+  font-family: var(--display);
+  font-size: 26px;
+  color: var(--text);
+}
+.outcome-row b.bad {
+  color: var(--bad);
+}
+.dock-combat .combat-warn {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+/* A pick, a target or a choice outranks the active player's breathing ring. */
+.opp-pane.aimed::after,
+.opp-pane.chosen::after,
+.opp-pane.targeted::after {
+  animation: none;
+}
+.opp-pane.active.aimed::after {
+  box-shadow: inset 0 0 0 3px var(--pick), inset 0 0 0 5px var(--text);
+}
+
+/* Someone else's spell on top, on a phone (GRespondPhone): its card, whose it is, its targets. */
+.dock-respond {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px 6px 6px;
+  border-radius: 12px;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--seat, var(--line)) 70%, transparent);
+  font-size: 14px;
+}
+.dock-respond img,
+.dock-respond .stack-img {
+  width: 36px;
+  border-radius: 3px;
+}
+/* A phone's attackers step forward less: its board scrolls under them. */
+.pb.phone .pb-row.creatures {
+  padding-top: 8px;
+}
+.pb.phone .pb-mine .ft.attacking {
+  transform: translateY(-6px);
 }

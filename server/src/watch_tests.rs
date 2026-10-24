@@ -55,6 +55,7 @@ fn board(turn: u32, life: i32, over: bool, reveal: bool) -> View {
         commander: false,
         tax: 0,
         sick: false,
+        ..Default::default()
     };
     View {
         revision: 0,

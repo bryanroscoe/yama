@@ -100,6 +100,18 @@ export interface TileLook {
   picked?: number;
   /** Part of the decision being put together, where no number applies (a split's target): a white ring. */
   chosen?: boolean;
+  /** Whom it attacks: that player's commander art, or the planeswalker's, in a small circle (GAttack). */
+  defender?: { art: string | null; name: string };
+  /**
+   * A line under the tile, one at a time (GRespond, GBlock, GCombatMore): who targets it, a rule
+   * on it in combat ("Must attack"), what picking it adds ("Power 2"), the target a spell has now,
+   * or its keywords.
+   */
+  under?: { text: string; tone: "by" | "rule" | "dim" | "plain" };
+  /** The seat colour (`seat-3`) of whoever targets it: its ring and the "Targeted by" line. */
+  by?: string;
+  /** Show its keyword badges under it (creatures in combat). */
+  keywords?: boolean;
 }
 
 /** Engine counter keys in words: "plus1plus1" is "+1/+1". */
@@ -134,6 +146,9 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
     look.pick && "can be chosen",
     look.picked && `chosen ${look.picked}`,
     look.chosen && "chosen",
+    look.defender && `attacking ${look.defender.name}`,
+    look.under?.text,
+    c.keywords?.length && c.keywords.join(", "),
     extraLabel,
   ]
     .filter(Boolean)
@@ -151,14 +166,19 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
     blocking && "blocking",
     c.commander && "commander",
     !meta?.art && "no-art",
+    look.by && "targeted",
   ]
     .filter(Boolean)
     .join(" ");
   const badge = attacking ? "Attacking" : blocking ? "Blocking" : look.tag ?? (c.sick && c.power !== null ? "Sick" : null);
+  // One line under the tile: who targets it, then a rule or a pick's worth, then its keywords.
+  const kw = look.keywords && c.keywords?.length ? { text: c.keywords.join(", "), tone: "plain" as const } : undefined;
+  const under = look.under ?? kw;
   return (
     <button
       type="button"
       className={cls}
+      style={look.by ? ({ ["--by" as string]: `var(--${look.by})` } as React.CSSProperties) : undefined}
       data-id={c.id}
       data-ids={pile.ids.join(" ")}
       aria-label={label}
@@ -192,6 +212,12 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
       {count > 1 && <span className="ft-count num">×{count}</span>}
       {look.playable && !look.target && <span className="dot" aria-hidden="true" />}
       {look.picked && <span className="pick-badge num" aria-hidden="true">{look.picked}</span>}
+      {look.defender && !look.picked && (
+        <span className="ft-defender" aria-hidden="true">
+          {look.defender.art ? <img src={look.defender.art} alt="" draggable={false} /> : look.defender.name.slice(0, 1)}
+        </span>
+      )}
+      {under && <span className={`ft-under ${under.tone}`} title={under.text}>{under.text}</span>}
       {look.target && (
         <svg className="aim" viewBox="0 0 16 16" aria-hidden="true">
           <circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" strokeWidth="1.8" />

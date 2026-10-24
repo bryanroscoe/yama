@@ -1,7 +1,7 @@
 // Pure helpers for the online board: steps and stops, seat order, stacking permanents, land
 // summaries, combat summaries and what the primary button says. No React here, so it's tested.
 
-import type { AttackAt, CardMeta, CardView, Decision, OptionView, PlayerView, View } from "./types";
+import type { AttackAt, CardMeta, CardView, Decision, OptionView, PlayerView, StackItem, View } from "./types";
 
 // ── steps and stops ────────────────────────────────────────────────────────
 
@@ -150,13 +150,14 @@ export function attachedTo(c: CardView): number | null {
  * Stack identical permanents (PP-14): same name, tapped or not, P/T, loyalty, damage, counters,
  * summoning sickness, combat role and commander. Permanents with something attached, and the
  * attachments themselves, never stack. Tapped and untapped copies are separate piles, so the
- * turned art shows which are tapped.
+ * turned art shows which are tapped. Cards in `apart` stand alone too: while you choose targets,
+ * a stack of tokens opens up so each one can be picked (GTarget).
  */
-export function stackPermanents(cards: CardView[]): Pile[] {
+export function stackPermanents(cards: CardView[], apart?: ReadonlySet<number>): Pile[] {
   const hosts = new Set(cards.map(attachedTo).filter((h): h is number => h !== null));
   const piles = new Map<string, Pile>();
   for (const c of cards) {
-    const alone = hosts.has(c.id) || attachedTo(c) !== null || c.commander || c.name === "Face-down card";
+    const alone = hosts.has(c.id) || attachedTo(c) !== null || c.commander || c.name === "Face-down card" || !!apart?.has(c.id);
     const key = alone
       ? `id:${c.id}`
       : [
@@ -168,8 +169,8 @@ export function stackPermanents(cards: CardView[]): Pile[] {
           c.damage,
           JSON.stringify(c.counters),
           c.sick ? "S" : "",
-          c.attacking ? `A${c.attacks ?? ""}` : "",
-          c.blocking ? "B" : "",
+          c.attacking ? `A${c.attacks ?? ""}:${c.attacks_card ?? ""}` : "",
+          c.blocking ? `B${(c.blocks ?? []).join(",")}` : "",
         ].join("|");
     const p = piles.get(key);
     if (p) p.ids.push(c.id);
@@ -183,8 +184,8 @@ export function stackPermanents(cards: CardView[]): Pile[] {
  * (planeswalkers first). Order inside a row is stable: lands by name with tapped copies after
  * untapped ones, the rest by when they arrived (object id), so nothing jumps when it taps.
  */
-export function rows(cards: CardView[]): { creatures: Pile[]; lands: Pile[]; others: Pile[] } {
-  const piles = stackPermanents(cards);
+export function rows(cards: CardView[], apart?: ReadonlySet<number>): { creatures: Pile[]; lands: Pile[]; others: Pile[] } {
+  const piles = stackPermanents(cards, apart);
   const first = (p: Pile) => Math.min(...p.ids);
   const creatures = piles.filter((p) => isCreature(p.card)).sort((a, b) => first(a) - first(b));
   const lands = piles
@@ -265,6 +266,117 @@ export function combatText(l: CombatLine, name: (seat: number) => string, you: n
 
 export function sameTarget(a: AttackAt, b: AttackAt): boolean {
   return a.kind === b.kind && (a.kind === "player" ? a.seat === (b as { seat: number }).seat : a.id === (b as { id: number }).id);
+}
+
+/** An attack target as a key ("p2", "pw41"), for maps. */
+export const atKey = (a: AttackAt): string => (a.kind === "player" ? `p${a.seat}` : `pw${a.id}`);
+
+/**
+ * Mana costs added up, in printed form: "{2}" and "{2}" make "{4}"; "{1}{W}" and "{2}" make
+ * "{3}{W}". Generic amounts add; every other symbol is kept. Empty when there's nothing to pay.
+ */
+export function addCosts(costs: string[]): string {
+  let generic = 0;
+  const rest: string[] = [];
+  for (const cost of costs) {
+    for (const m of cost.matchAll(/\{([^}]+)\}/g)) {
+      const sym = m[1]!;
+      if (/^\d+$/.test(sym)) generic += Number(sym);
+      else rest.push(`{${sym}}`);
+    }
+  }
+  return `${generic || !rest.length ? `{${generic}}` : ""}${rest.join("")}`.replace(/^\{0\}$/, "");
+}
+
+/**
+ * Who targets what on the stack (GRespond's "Targeted by Sam"): each card and each player a
+ * spell or ability targets, with the seats that control those spells, top of the stack first.
+ * A spell still being cast has no targets yet.
+ */
+export function targetedBy(stack: StackItem[]): { cards: Map<number, number[]>; seats: Map<number, number[]> } {
+  const cards = new Map<number, number[]>();
+  const seats = new Map<number, number[]>();
+  const add = (m: Map<number, number[]>, key: number, seat: number) => {
+    const list = m.get(key) ?? [];
+    if (!list.includes(seat)) list.push(seat);
+    m.set(key, list);
+  };
+  for (const item of [...stack].reverse()) {
+    if (item.casting) continue;
+    for (const t of item.targets ?? []) {
+      if (t.target?.kind === "object") add(cards, t.target.id, item.controller);
+      else if (t.target?.kind === "player") add(seats, t.target.seat, item.controller);
+    }
+  }
+  return { cards, seats };
+}
+
+/** "Targeted by Sam", "Targeted by you and Jules". */
+export function targetedText(seats: number[], who: (seat: number) => string): string {
+  const names = seats.map(who);
+  return `Targeted by ${names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0] ?? ""}`;
+}
+
+const has = (c: CardView, keyword: string) => !!c.keywords?.includes(keyword);
+
+/** Combat damage an attacker deals, by its printed numbers: power, twice with double strike. */
+function hits(c: CardView): number {
+  return Math.max(0, c.power ?? 0) * (has(c, "Double strike") ? 2 : 1);
+}
+
+export interface BlockOutcome {
+  /** Damage that reaches you (players' life only: not your planeswalkers, not infect). */
+  through: number;
+  life: number;
+  lifeAfter: number;
+  /** Poison counters, where an attacker has infect or toxic. */
+  poison: number;
+  poisonAfter: number;
+  /** Each attacking commander that would deal you damage: its total so far and after. */
+  commanders: { name: string; now: number; after: number }[];
+}
+
+/**
+ * What your blocks leave coming through (GBlock), from printed numbers only: an unblocked attacker
+ * deals its power (twice with double strike); a blocked one with trample deals what's left over
+ * once each blocker has lethal damage (1 each with deathtouch). Nothing else is counted: no
+ * triggers, pump spells or prevention ("Outcomes count printed numbers only").
+ */
+export function blockOutcome(p: {
+  /** Creatures attacking you (not your planeswalkers). */
+  attackers: CardView[];
+  /** Your blocks: blocker id to the attacker it blocks. */
+  plan: Map<number, number>;
+  cards: Map<number, CardView>;
+  life: number;
+  poison: number;
+  /** Commander damage you've taken so far, by commander name. */
+  commanderDamage: Record<string, number>;
+}): BlockOutcome {
+  let through = 0;
+  let poison = 0;
+  const commanders: BlockOutcome["commanders"] = [];
+  for (const a of p.attackers) {
+    const blockers = [...p.plan.entries()].filter(([, at]) => at === a.id).map(([b]) => p.cards.get(b)).filter((b): b is CardView => !!b);
+    let dealt = 0;
+    if (!blockers.length && !a.blocked) dealt = hits(a);
+    else if (has(a, "Trample")) {
+      const absorb = blockers.reduce((n, b) => n + (has(a, "Deathtouch") ? 1 : Math.max(0, (b.toughness ?? 0) - b.damage)), 0);
+      dealt = Math.max(0, Math.max(0, a.power ?? 0) - absorb);
+    }
+    if (!dealt) continue;
+    if (has(a, "Infect")) poison += dealt;
+    else {
+      through += dealt;
+      const toxic = a.keywords?.map((k) => /^Toxic (\d+)$/.exec(k)?.[1]).find(Boolean);
+      if (toxic) poison += Number(toxic);
+    }
+    if (a.commander && !has(a, "Infect")) {
+      const now = p.commanderDamage[a.name] ?? 0;
+      commanders.push({ name: a.name, now, after: now + dealt });
+    }
+  }
+  return { through, life: p.life, lifeAfter: p.life - through, poison: p.poison, poisonAfter: p.poison + poison, commanders };
 }
 
 // ── decisions ──────────────────────────────────────────────────────────────

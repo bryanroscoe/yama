@@ -20,6 +20,9 @@ import { Sheet } from "../components/ui";
 import { CardRulings } from "../components/Rulings";
 import { useCardArt } from "../components/useCardArt";
 import {
+  addCosts,
+  atKey,
+  blockOutcome,
   combatLines,
   combatText,
   decisionTitle,
@@ -42,8 +45,12 @@ import {
   stopText,
   turnOrder,
   previewPlace,
+  isCreature,
   isLand,
   stackPermanents,
+  targetedBy,
+  targetedText,
+  type BlockOutcome,
   type Pile,
   type SeatTone,
   type StopMap,
@@ -54,10 +61,24 @@ import type { Act, AttackAt, CardMeta, CardView, Decision, OptionView, PassMode,
 import { WatchControls, type WatchMessage } from "./WatchControls";
 import { seatLabel, seatName } from "./watch";
 import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayLine, readDrop, targetDrop, targetIndex, type Point } from "./drag";
-import { DragLayer, PlanArrows, seatHeadOf, tileOf, type ArrowTone, type DragLayerHandle, type PlanArrow } from "./DragLayer";
+import { DragLayer, PlanArrows, seatHeadOf, stackRowOf, tileOf, type ArrowTone, type DragLayerHandle, type PlanArrow } from "./DragLayer";
 import { MotionContext, Tick, useBoardMotion, type MotionOptions } from "./BoardMotion";
 import { DecisionRail, DecisionStage, PickBanner, SplitSteppers, type WidgetContext } from "./Decide";
-import { buttons as chooserButtons, changed as draftChanged, chooserCovers, initialDraft, noneAct, ready as draftReady, stageOf, toAct, togglePick, type Draft } from "./answer";
+import {
+  buttons as chooserButtons,
+  changed as draftChanged,
+  chooserCovers,
+  initialDraft,
+  isTapping,
+  isTargeting,
+  noneAct,
+  onBoard,
+  ready as draftReady,
+  stageOf,
+  toAct,
+  togglePick,
+  type Draft,
+} from "./answer";
 import { motionScale } from "./motion";
 import { answerOf, modeChip, passChoices, passKey, priorityPartner, settingsButtons, stopMapOf, waitingPartner, type Partner, type PassChoice, type SettingsSection } from "./turns";
 import { ConsentBody, GameSettings, ModeChip, PassList, PassMenu } from "./TurnControls";
@@ -217,6 +238,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const [defender, setDefender] = useState<AttackAt | null>(null);
   const [blockPlan, setBlockPlan] = useState<Map<number, number>>(new Map());
   const [pendingBlocker, setPendingBlocker] = useState<number | null>(null);
+  // A combat rule the plan runs into ("Bloodrock Cyclops attacks this combat if able"), in red.
+  const [combatWarn, setCombatWarn] = useState<string | null>(null);
   // The answer being put together for a decision `act` answers (Decide.tsx), kept with the
   // decision it's for, so a new board that leaves that decision alone keeps it (PP-06).
   const [draftState, setDraftState] = useState<{ key: number; draft: Draft } | null>(null);
@@ -328,12 +351,23 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     setAttackPlan(new Map());
     setBlockPlan(new Map());
     setPendingBlocker(null);
+    setCombatWarn(null);
     const d = view?.decision;
     if (d?.attack && view) {
       const order = turnOrder(view.players, you ?? 0).map((p) => p.seat);
       const players = order.filter((seat) => d.attack!.attackers.some((a) => a.targets.some((t) => t.kind === "player" && t.seat === seat)));
       const first = players[0];
-      setDefender(first !== undefined ? { kind: "player", seat: first } : d.attack.attackers[0]?.targets[0] ?? null);
+      const aim: AttackAt | null = first !== undefined ? { kind: "player", seat: first } : d.attack.attackers[0]?.targets[0] ?? null;
+      setDefender(aim);
+      // A creature that attacks if able starts in the plan (GCombatMore): at a defender it must
+      // attack, else the one you're aiming at.
+      const plan = new Map<number, AttackAt>();
+      for (const a of d.attack.attackers) {
+        if (!a.must) continue;
+        const at = a.must.find((m) => a.targets.some((t) => sameTarget(t, m))) ?? (aim ? a.targets.find((t) => sameTarget(t, aim)) : undefined) ?? a.targets[0];
+        if (at) plan.set(a.id, at);
+      }
+      setAttackPlan(plan);
     } else setDefender(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decisionKey]);
@@ -343,6 +377,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const aimKey = (() => {
     const d = view?.decision;
     if (!d || d.attack || d.block || watch || msg?.you === null || msg?.you === undefined) return null;
+    // Targets picked on the board (GTarget); older servers' target options.
+    if (d.pending) return isTargeting(d.pending) && onBoard(d.pending) ? d.revision : null;
     return d.options.some((o) => o.object === null && o.label.startsWith("Target ")) ? d.revision : null;
   })();
   useEffect(() => {
@@ -414,6 +450,18 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   // and long-press read a card (Tiles.tsx). A drag in progress ends first (its own listener), and
   // an open sheet or card closes itself (Sheet), so this only acts when neither is up.
   const escRef = useRef<(() => boolean) | null>(null);
+  // A sends everything at the player you're aiming at, while you declare attackers (GAttack).
+  const attackKeyRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "a" || e.repeat || e.ctrlKey || e.metaKey || e.altKey || !attackKeyRef.current) return;
+      if ((e.target as HTMLElement | null)?.closest("input, textarea, select, [contenteditable], .sheet, [role=dialog]")) return;
+      e.preventDefault();
+      attackKeyRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.repeat || e.defaultPrevented) return;
@@ -532,7 +580,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   // name matches one can be picked on the board as well as from the list (PP-26, without arrows).
   // Newer servers say exactly which card or player an option targets, so two cards with the same
   // name stay apart; older ones only name it.
-  const targets = targetIndex(decision && !decision.attack && !decision.block ? decision.options : []);
+  // Only for a decision with no `pending` (older servers): newer ones pick targets from it.
+  const targets = targetIndex(decision && !decision.attack && !decision.block && !decision.pending ? decision.options : []);
   const targetOptions = targets.byName;
   /** The target option for a card on the board (a stack of tokens: any of its cards). */
   const targetFor = (ids: number[], name: string): OptionView | undefined => {
@@ -558,6 +607,19 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const block: BlockState | null = decision?.block
     ? { valid: new Map(decision.block.blockers.map((b) => [b.id, b.attackers])), plan: blockPlan, pending: pendingBlocker }
     : null;
+  // The engine's combat rules for this declaration (GCombatMore, GBlock): must attack, can't
+  // attack, must block, can't block, and attackers that need more than one blocker.
+  const attackerInfo = new Map((decision?.attack?.attackers ?? []).map((a) => [a.id, a]));
+  const attackCant = new Set((decision?.attack?.cant ?? []).map((h) => h.id));
+  const blockerInfo = new Map((decision?.block?.blockers ?? []).map((b) => [b.id, b]));
+  const blockCant = new Set((decision?.block?.cant ?? []).map((h) => h.id));
+  const blockNeeds = new Map(decision?.block?.needs ?? []);
+  // Who targets what on the stack, for the "Targeted by" lines and rings (GRespond).
+  const targeted = targetedBy(view.stack);
+  const combatStep = ["BeginCombat", "DeclareAttackers", "DeclareBlockers", "FirstStrikeDamage", "CombatDamage", "EndCombat"].includes(view.phase);
+  // Creatures attacking the bottom seat (or its planeswalkers): they move into its "Attacking you" lane (GBlock).
+  const incoming = view.battlefield.filter((c) => c.attacking && c.attacks === bottom && c.controller !== bottom);
+  const incomingIds = new Set(incoming.map((c) => c.id));
 
   // A decision answered in full through `act` (play/src/act.rs) with the design's generic
   // widgets (Decide.tsx): a pick, an order, a split, a number, a word, a pairing or a yes or no.
@@ -568,8 +630,32 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   // Where it's answered (answer.ts stageOf): on the board, on its targets, in a dialog or a sheet.
   const stage = pend ? stageOf(pend, wide, splitFits(pend, view)) : null;
   const boardPick = stage === "board" && draft?.kind === "pick";
-  const pickable = new Set(boardPick ? pend!.options.filter((o) => o.eligible).map((o) => Number(o.id)) : []);
-  const picked = boardPick && draft?.kind === "pick" ? draft.ids.map(Number) : [];
+  // What can be picked on the board: cards by id, players by seat, spells on the stack by id.
+  const eligible = boardPick ? pend!.options.filter((o) => o.eligible) : [];
+  const pickable = new Set(eligible.filter((o) => o.zone !== "player" && o.zone !== "stack").map((o) => Number(o.id)));
+  const pickSeats = new Set(eligible.filter((o) => o.zone === "player" && o.controller !== undefined).map((o) => o.controller!));
+  const pickStack = new Set(eligible.filter((o) => o.zone === "stack").map((o) => Number(o.id)));
+  // Choosing targets (GTarget, GTargetsMore): picks wait for the main button, one slot at a time.
+  const targeting = boardPick && isTargeting(pend);
+  const pickedIds = boardPick && draft?.kind === "pick" ? draft.ids : [];
+  // The targets earlier slots of the same spell took (the engine moved on after each).
+  const earlier = targeting && pend!.purpose === "target" ? pend!.picked ?? [] : [];
+  /** A pick's number on the board: earlier slots first, then this choice's, in the order picked. */
+  const pickNo = (id: string): number | undefined => {
+    const i = pickedIds.indexOf(id);
+    if (i >= 0) return earlier.length + i + 1;
+    const j = earlier.indexOf(id);
+    return j >= 0 ? j + 1 : undefined;
+  };
+  const pickSeat = (seat: number) => {
+    if (draft?.kind === "pick" && pend) setDraft(togglePick(pend, draft, `p${seat}`));
+  };
+  const pickStackItem = (id: number) => {
+    if (draft?.kind === "pick" && pend) setDraft(togglePick(pend, draft, String(id)));
+  };
+  // While targets or creatures to tap are chosen, a stack of tokens opens up (GTarget); a card a
+  // spell on the stack targets stands apart from its pile too, so its line names the right one.
+  const apart = new Set([...targeted.cards.keys(), ...(boardPick && (targeting || isTapping(pend)) ? [...pickable, ...pickedIds.map(Number), ...earlier.map(Number)] : [])]);
   // A split on its targets: they get a white ring and a stepper (SplitSteppers).
   const splitIds = new Set(stage === "steppers" ? pend!.options.filter((o) => o.zone !== "player").map((o) => Number(o.id)) : []);
   const splitSeats = new Set(stage === "steppers" ? pend!.options.filter((o) => o.zone === "player" && o.controller !== undefined).map((o) => o.controller!) : []);
@@ -591,15 +677,29 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     if (!attack) return;
     const next = new Map(attack.plan);
     const able = ids.filter((i) => attack.valid.has(i));
-    if (!able.length) return;
-    const allIn = able.every((i) => next.has(i));
+    if (!able.length) {
+      // Clicking a creature that can't attack says why, in red (GCombatMore).
+      const held = decision?.attack?.cant?.find((h) => ids.includes(h.id));
+      if (held) setCombatWarn(`${cardById.get(held.id)?.name ?? "It"} can't attack${held.because?.length ? ` because of ${held.because.join(" and ")}` : ""}.`);
+      return;
+    }
+    // A click sends them at the player or planeswalker you're aiming at; once they all attack
+    // it, another click takes them back (GAttack). One that must attack stays in.
+    const aimFor = (i: number) => {
+      const ts = attack.valid.get(i)!;
+      return (attack.defender && ts.find((t) => sameTarget(t, attack.defender!))) ?? ts[0];
+    };
+    const allAimed = able.every((i) => {
+      const cur = next.get(i);
+      const at = aimFor(i);
+      return !!cur && !!at && sameTarget(cur, at);
+    });
     for (const i of able) {
-      if (allIn) next.delete(i);
-      else if (!next.has(i)) {
-        const targets = attack.valid.get(i)!;
-        const at = (attack.defender && targets.find((t) => sameTarget(t, attack.defender!))) ?? targets[0];
+      if (!allAimed) {
+        const at = aimFor(i);
         if (at) next.set(i, at);
-      }
+      } else if (attackerInfo.get(i)?.must) setCombatWarn(`${cardById.get(i)?.name ?? "It"} attacks this combat if able.`);
+      else next.delete(i);
     }
     setAttackPlan(next);
   };
@@ -656,6 +756,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     }
     const asTarget = targetFor(p.ids, p.card.name);
     if (asTarget) return choose(asTarget);
+    // A planeswalker or battle someone may attack: aim new attackers at it (GCombatMore).
+    const walker = attack ? defenderAt(p) : null;
+    if (walker) return setDefender(walker);
     if (attack && p.ids.some((i) => attack.valid.has(i))) return toggleAttack(p.ids);
     if (block) {
       const blocker = p.ids.find((i) => block.valid.has(i) && !block.plan.has(i)) ?? p.ids.find((i) => block.plan.has(i));
@@ -706,16 +809,73 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       blocking: !!block && any(block.plan),
       ready: (!!attack && any(attack.valid) && !any(attack.plan)) || (!!block && any(block.valid) && !any(block.plan)),
       target: !!targetFor(p.ids, p.card.name),
-      pick: boardPick && p.ids.some((i) => pickable.has(i) && !picked.includes(i)),
-      picked: boardPick ? (() => {
-        const at = picked.findIndex((i) => p.ids.includes(i));
-        return at >= 0 ? at + 1 : undefined;
-      })() : undefined,
+      pick: boardPick && p.ids.some((i) => pickable.has(i) && !pickedIds.includes(String(i))),
+      picked: boardPick ? p.ids.map((i) => pickNo(String(i))).find((n) => n !== undefined) : undefined,
       chosen: any(splitIds),
+      ...combatLook(p),
     };
+  };
+  /** A planeswalker or battle in this pile that some creature may attack, as an attack target. */
+  const defenderAt = (p: Pile): AttackAt | null => {
+    if (!attack) return null;
+    for (const ts of attack.valid.values()) {
+      const t = ts.find((x) => x.kind !== "player" && p.ids.includes(x.id));
+      if (t) return t;
+    }
+    return null;
+  };
+  /** The art for whom an attacker attacks: the player's commander, or the planeswalker or battle. */
+  const defenderArt = (seat: number | undefined, card: number | undefined) => {
+    if (card !== undefined) {
+      const c = cardById.get(card);
+      return { art: c ? meta[c.name]?.art ?? null : null, name: c?.name ?? "a permanent" };
+    }
+    return { art: seat === undefined ? null : art(seat).art, name: seat === undefined ? "a player" : Who(seat) };
+  };
+  /**
+   * The combat and stack marks on a tile: whom it attacks (GAttack), who targets it (GRespond),
+   * the rule it's under ("Must attack", "Needs 2 blockers"), what picking it adds ("Power 2"),
+   * the target a spell has now, and its keywords while there's combat.
+   */
+  const combatLook = (p: Pile): TileLook => {
+    const out: TileLook = {};
+    const c = p.card;
+    const planned = attack ? p.ids.map((i) => attack.plan.get(i)).find(Boolean) : undefined;
+    if (planned) out.defender = defenderArt(planned.kind === "player" ? planned.seat : undefined, planned.kind === "player" ? undefined : planned.id);
+    else if (!attack && c.attacking && c.attacks !== undefined) out.defender = defenderArt(c.attacks, c.attacks_card);
+    const by = p.ids.map((i) => targeted.cards.get(i)).find(Boolean);
+    const rule = ruleOf(p);
+    if (by?.length) {
+      out.under = { text: targetedText(by, (n) => (n === you ? "you" : who(n))), tone: "by" };
+      out.by = tones.get(by[0]!);
+    } else if (rule) out.under = rule;
+    else if (boardPick && pend?.need !== undefined) {
+      const o = pend.options.find((x) => p.ids.includes(Number(x.id)));
+      if (o?.power !== undefined) out.under = { text: `Power ${o.power}`, tone: "plain" };
+    } else if (boardPick && pend?.current !== undefined && p.ids.includes(Number(pend.current))) {
+      out.under = { text: pend.purpose === "copy" ? "Its target now" : "Targeted now", tone: "dim" };
+    }
+    out.keywords = isCreature(c) && (combatStep || c.attacking || c.blocking);
+    return out;
+  };
+  /** A combat rule on a creature, for the line under it (GCombatMore, GBlock). */
+  const ruleOf = (p: Pile): TileLook["under"] => {
+    if (attack) {
+      const a = p.ids.map((i) => attackerInfo.get(i)).find((x) => x?.must);
+      if (a) return { text: "Must attack", tone: "rule" };
+      if (attackCant.has(p.ids[0]!)) return { text: "Can't attack", tone: "dim" };
+    }
+    if (block) {
+      if (p.ids.some((i) => blockerInfo.get(i)?.must)) return { text: "Must block", tone: "rule" };
+      if (blockCant.has(p.ids[0]!)) return { text: "Can't block", tone: "dim" };
+      const need = p.ids.map((i) => blockNeeds.get(i)).find(Boolean);
+      if (need) return { text: `Needs ${need} blockers`, tone: "rule" };
+    }
+    return undefined;
   };
   const onSeat = (seat: number) => {
     if (justDragged()) return;
+    if (pickSeats.has(seat) || (boardPick && pickedIds.includes(`p${seat}`))) return pickSeat(seat);
     const asTarget = seatTarget(seat);
     if (asTarget) return choose(asTarget);
     if (attack) {
@@ -727,17 +887,26 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
 
   // ── drag and drop (PP-25 casting, PP-26 targets, PP-40/41 combat) ─────────
   // Laptop only for now: phones keep taps, where a drag would fight scrolling the hand sheet.
-  const aiming = wide && !watch && you !== null && !view.over && targets.size > 0;
+  const aiming = wide && !watch && you !== null && !view.over && (targets.size > 0 || targeting);
   const setHot = (el: HTMLElement | null) => {
     if (hotEl.current === el) return;
     hotEl.current?.classList.remove("drop-hot");
     el?.classList.add("drop-hot");
     hotEl.current = el;
   };
-  /** Where a target arrow starts: the card you just cast, else the spell on top of the stack. */
+  /**
+   * Where a target arrow starts: the card you just cast, the permanent whose ability it is, the
+   * spell's row on the stack, else the top of the stack.
+   */
   const aimOrigin = (): Point | null => {
     const parked = layer.current?.parkedAt();
     if (parked) return parked;
+    const src = pend?.source?.id;
+    const from = src === undefined || !boardRoot.current ? null : tileOf(boardRoot.current, src) ?? stackRowOf(boardRoot.current, src);
+    if (from) {
+      const r = from.getBoundingClientRect();
+      return from.matches("[data-stack-id]") ? { x: r.left + 8, y: r.top + r.height / 2 } : centre(r);
+    }
     const top = boardRoot.current?.querySelector<HTMLElement>(".stack-list li.top");
     if (top) {
       const r = top.getBoundingClientRect();
@@ -751,9 +920,15 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     return null;
   };
   /** The legal target under the pointer (and the element its arrow ends at). */
-  const targetAt = (x: number, y: number) => {
+  const targetAt = (x: number, y: number): { option?: OptionView; pick?: string; el: HTMLElement | null } | null => {
     const under = document.elementFromPoint(x, y);
     const at = readDrop(under);
+    if (targeting && boardRoot.current) {
+      const card = at.ids?.find((i) => pickable.has(i));
+      if (card !== undefined) return { pick: String(card), el: tileOf(boardRoot.current, card) };
+      if (at.seat !== null && pickSeats.has(at.seat)) return { pick: `p${at.seat}`, el: seatHeadOf(boardRoot.current, at.seat) };
+      return null;
+    }
     const cardTarget = (i: number) => targetFor([i], cardById.get(i)?.name ?? "");
     const option = targetDrop(at, cardTarget, seatTarget);
     if (!option || !boardRoot.current) return null;
@@ -769,6 +944,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     const start = from ?? aimOrigin();
     const hit = targetAt(x, y);
     setHot(hit?.el ?? null);
+    // Every target picked: the picks keep their own arrows, and the one following the pointer goes.
+    if (targeting && draft?.kind === "pick" && pend && draft.ids.length >= pend.max && !hit) return layer.current?.arrow(null);
     layer.current?.arrow(start, hit?.el ? anchor(hit.el, hit.el.classList.contains("opp-head")) : { x, y }, "aim");
   };
   const attackerOf = (pile: Pile) => pile.ids.find((i) => attack?.valid.has(i));
@@ -840,7 +1017,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     }
     if (s.kind === "aim") {
       const hit = targetAt(x, y);
-      if (hit) choose(hit.option);
+      // Dropped on a target: it's picked, and the main button confirms (GTarget).
+      if (hit?.pick && draft?.kind === "pick" && pend && !draft.ids.includes(hit.pick)) setDraft(togglePick(pend, draft, hit.pick));
+      else if (hit?.option) choose(hit.option);
       return;
     }
     const hit = combatAt(s, x, y);
@@ -951,21 +1130,60 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   // Arrows: the attack or blocks you're building in blue, and attacks already declared, yours in
   // blue and other seats' in their seat colors (design/tokens.md), pointing at whoever they attack.
   const tones = seatTones(view.players, bottom);
+  /** A seat's arrow tone: yours blue, everyone else's in their seat colour. */
+  const toneOf = (seat: number): PlanArrow["tone"] => {
+    const t = tones.get(seat);
+    return !t || t === "seat-1" ? "attack" : t;
+  };
+  /** Where the arrows of the spell or ability being chosen for start (GTarget, GTargetsMore). */
+  const pendFrom = ((): PlanArrow["from"] | null => {
+    const src = pend?.source?.id;
+    if (src === undefined) return null;
+    if (view.battlefield.some((c) => c.id === src)) return src;
+    const parked = layer.current?.parkedAt();
+    if (parked) return { point: parked };
+    const row = view.stack.find((s) => s.id === src || s.source === src);
+    return row?.id !== undefined ? { stack: row.id } : null;
+  })();
+  const toTarget = (id: string): PlanArrow["to"] => (id.startsWith("p") ? { seat: Number(id.slice(1)) } : { id: Number(id) });
+  // A copy or a spell being given new targets draws its own arrow; its old one would only confuse.
+  const retargeting = boardPick && (pend?.purpose === "copy" || pend?.purpose === "retarget") ? pend.source?.id : undefined;
+  const pendTone = pend?.purpose === "retarget" ? toneOf(view.stack.find((s) => s.id === retargeting)?.controller ?? bottom) : "attack";
   const planArrows: PlanArrow[] = [
+    // Everyone's combat (GCombatView): attacks at players, planeswalkers and battles, and blocks,
+    // each in the colour of the player who made them.
     ...(attack
       ? []
       : view.battlefield
           .filter((c) => c.attacking && c.attacks !== undefined)
-          .map((c): PlanArrow => {
-            const tone = tones.get(c.controller);
-            return { from: c.id, to: { seat: c.attacks! }, tone: !tone || tone === "seat-1" ? "attack" : tone };
-          })),
+          .map((c): PlanArrow => ({ from: c.id, to: c.attacks_card !== undefined ? { id: c.attacks_card } : { seat: c.attacks! }, tone: toneOf(c.controller) }))),
+    ...(block
+      ? []
+      : view.battlefield.flatMap((c) => (c.blocks ?? []).map((a): PlanArrow => ({ from: c.id, to: { id: a }, tone: c.controller === bottom ? "block" : toneOf(c.controller) })))),
     ...[...attackPlan.entries()].filter(() => !!attack).map(([from, at]): PlanArrow => ({ from, to: at.kind === "player" ? { seat: at.seat } : { id: at.id }, tone: "attack" })),
     ...[...blockPlan.entries()].filter(() => !!block).map(([from, to]): PlanArrow => ({ from, to: { id: to }, tone: "block" })),
+    // What each spell and ability on the stack targets, in its controller's colour (GRespond).
+    ...view.stack
+      .filter((s) => !s.casting && s.id !== undefined && s.id !== retargeting)
+      .flatMap((s) =>
+        (s.targets ?? []).flatMap((t): PlanArrow[] =>
+          t.target?.kind === "object"
+            ? [{ from: { stack: s.id! }, to: { id: t.target.id }, tone: toneOf(s.controller) }]
+            : t.target?.kind === "player"
+              ? [{ from: { stack: s.id! }, to: { seat: t.target.seat }, tone: toneOf(s.controller) }]
+              : [],
+        ),
+      ),
+    // The targets being picked, and those earlier slots took (GTarget).
+    ...(targeting && pendFrom !== null ? [...earlier, ...pickedIds].map((id): PlanArrow => ({ from: pendFrom, to: toTarget(id), tone: pendTone })) : []),
     // Soulbond: a white line from the creature entering to the one it pairs with (GPairUp).
     ...(boardPick && pend?.answer === "choose_pair" && pend.source && draft?.kind === "pick" && draft.ids[0] !== undefined
       ? [{ from: pend.source.id, to: { id: Number(draft.ids[0]) }, tone: "block" } as PlanArrow]
       : []),
+    // A divided spell's targets, each with its share on it (GTargetsMore).
+    ...(stage === "steppers" && pendFrom !== null ? pend!.options.map((o): PlanArrow => ({ from: pendFrom, to: toTarget(o.id), tone: "attack" })) : []),
+    // Creatures tapped for crew, saddle or enlist: white lines to them from what they serve.
+    ...(boardPick && isTapping(pend) && pend?.source ? pickedIds.map((id): PlanArrow => ({ from: pend.source!.id, to: { id: Number(id) }, tone: "block" })) : []),
   ];
 
   // What you'd be attacked by or attacking, for the strip.
@@ -1092,7 +1310,12 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           case "no":
             return sendAct(toAct(pend, draft, false));
           case "cancel":
-            return cancel ? choose(cancel) : undefined;
+            // Back out of the whole spell (CancelCast), as the engine offers.
+            return sendAct({ kind: "cancel_cast" });
+          case "all":
+            return void setDraft({ kind: "pick", ids: pend.options.filter((o) => o.eligible).map((o) => o.id).slice(0, pend.max) });
+          case "keep-rest":
+            return sendAct({ kind: "keep_all_copy_targets" });
           case "clear":
             return void setDraft({ kind: "pick", ids: [] });
           case "reset":
@@ -1171,9 +1394,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     if (block && blockPlan.size) return (setBlockPlan(new Map()), true);
     if (attack && attackPlan.size) return (setAttackPlan(new Map()), true);
     if (selected) return (setSelected(null), true);
-    // Choosing a target: backing out cancels the spell, as the Cancel option does.
-    const cancel = decision && targets.size > 0 ? optionOf(decision, "cancel") : undefined;
-    if (cancel && !pending) return (choose(cancel), true);
+    // Choosing a target with nothing picked: backing out cancels the spell (CancelCast).
+    const cancel = decision && (targets.size > 0 || targeting) ? optionOf(decision, "cancel") : undefined;
+    if (cancel && !pending) return (pend ? sendAct({ kind: "cancel_cast" }) : choose(cancel), true);
     return false;
   };
   primaryRef.current = watch
@@ -1195,7 +1418,25 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     (!!block && (o.label === "Don't block" || o.label.startsWith("Block: "))) ||
     (controls.primary?.label === o.label && decision?.options.length === 1);
 
-  const myRows = rows(view.battlefield.filter((c) => c.controller === bottom));
+  const myRows = rows(view.battlefield.filter((c) => c.controller === bottom), apart);
+  /** "Targeted by Sam" for a player, in Sam's colour (GRespond). */
+  const seatBy = (seat: number) => {
+    const by = targeted.seats.get(seat);
+    return by?.length ? { text: targetedText(by, (n) => (n === you ? "you" : who(n))), tone: tones.get(by[0]!) } : undefined;
+  };
+  // While you declare attackers: each opponent's count and whether you're aiming at them (GAttack).
+  const paneTag = (seat: number): { text: string; tone: "aimed" | "some" | "idle" } | undefined => {
+    if (!attack || ![...attack.valid.values()].some((ts) => ts.some((t) => t.kind === "player" && t.seat === seat))) return undefined;
+    const n = [...attack.plan.values()].filter((t) => t.kind === "player" && t.seat === seat).length;
+    const aimed = attack.defender?.kind === "player" && attack.defender.seat === seat;
+    if (n) return { text: `${n} attacking${aimed ? ", aimed" : ""}`, tone: aimed ? "aimed" : "some" };
+    return aimed ? { text: "Aimed here", tone: "aimed" } : { text: "Click to aim", tone: "idle" };
+  };
+  /** The colour of whoever attacks a seat now (GCombatView): yours blue. */
+  const attackerTone = (seat: number) => {
+    const by = view.battlefield.find((c) => c.attacking && c.attacks === seat);
+    return by ? (by.controller === you ? "seat-1" : tones.get(by.controller)) : attack && [...attack.plan.values()].some((t) => t.kind === "player" && t.seat === seat) ? "seat-1" : undefined;
+  };
   const myLands = view.battlefield.filter((c) => c.controller === bottom && c.types.includes("Land") && !c.types.includes("Creature"));
   const myCommanders = view.command_zone.filter((c) => c.owner === bottom);
   const commanderWhere = (() => {
@@ -1280,9 +1521,154 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       ) : null
     ) : null;
   const banner = widget && (stage === "board" || stage === "steppers") ? <PickBanner p={widget.p} draft={widget.draft} /> : null;
-  const phoneSheet = widget && !wide ? (
+  const phoneSheet = widget && !wide && stage !== "board" ? (
     <div className="dock-sheet">
       <DecisionStage {...widget} compact />
+    </div>
+  ) : null;
+  // Picking on the board on a phone (GTargetPhone): the dock names the card asking and its words;
+  // the banner on top says what to pick and how many.
+  const phonePick =
+    widget && !wide && stage === "board" ? (
+      <div className="dock-decision dock-pick">
+        {widget.p.source && (
+          <p className="dock-pick-source">
+            {meta[widget.p.source.name]?.image && <img src={meta[widget.p.source.name]!.image!} alt="" />}
+            <span>
+              <b>{widget.p.purpose === "target" && !view.battlefield.some((c) => c.id === widget.p.source!.id) ? `Casting ${widget.p.source.name}` : widget.p.source.name}</b>
+              {widget.p.oracle && <span className="dock-card-text">{widget.p.oracle}</span>}
+            </span>
+          </p>
+        )}
+      </div>
+    ) : null;
+  // ── combat summaries (GAttack, GBlock) ────────────────────────────────────
+  // The attack being built, by whom it attacks: printed power (twice with double strike), the
+  // attack tax, and what nothing blocked would mean. No triggers are counted.
+  const attackGroups = attack
+    ? (() => {
+        const groups = new Map<string, { at: AttackAt; seat: number; ids: number[] }>();
+        for (const [id, at] of attack.plan) {
+          const seat = at.kind === "player" ? at.seat : cardById.get(at.id)?.controller;
+          if (seat === undefined) continue;
+          const g = groups.get(atKey(at)) ?? { at, seat, ids: [] };
+          g.ids.push(id);
+          groups.set(atKey(at), g);
+        }
+        return [...groups.values()].map((g) => {
+          const cards = g.ids.map((i) => cardById.get(i)).filter((c): c is CardView => !!c);
+          const power = cards.reduce((n, c) => n + Math.max(0, c.power ?? 0) * (c.keywords?.includes("Double strike") ? 2 : 1), 0);
+          const tax = addCosts(g.ids.flatMap((i) => (attackerInfo.get(i)?.taxes ?? []).filter(([t]) => sameTarget(t, g.at)).map(([, c]) => c)));
+          const player = g.at.kind === "player" ? view.players.find((x) => x.seat === g.seat) : undefined;
+          const walker = g.at.kind !== "player" ? cardById.get(g.at.id) : undefined;
+          const lethal = player ? power >= player.life : walker ? power >= (walker.loyalty ?? Infinity) : false;
+          // Commander damage the defending player has taken from each attacking commander, and after.
+          const commander = player
+            ? cards.filter((c) => c.commander).map((c) => ({ name: c.name, after: (player.commander_damage[c.name] ?? 0) + Math.max(0, c.power ?? 0) * (c.keywords?.includes("Double strike") ? 2 : 1) }))
+            : [];
+          return { key: atKey(g.at), name: walker ? walker.name : Who(g.seat), tone: tones.get(g.seat), power, names: cards.map((c) => c.name), tax, lethal, commander, defender: player ? Who(g.seat) : walker?.name ?? "" };
+        });
+      })()
+    : [];
+  const attackTax = addCosts(attackGroups.map((g) => g.tax).filter(Boolean));
+  // Opponents someone can attack: "Attack with everything at" each of them (GAttack).
+  const allAt = attack ? opponents.filter((o) => [...attack.valid.values()].some((ts) => ts.some((t) => t.kind === "player" && t.seat === o.seat))) : [];
+  const everythingAt = (t: AttackAt) => {
+    if (!attack) return;
+    setDefender(t);
+    const next = new Map(attack.plan);
+    for (const [id, ts] of attack.valid) {
+      const m = ts.find((x) => sameTarget(x, t));
+      if (m) next.set(id, m);
+    }
+    setAttackPlan(next);
+  };
+  attackKeyRef.current = attack && attack.defender && !pending ? () => everythingAt(attack.defender!) : null;
+  const attackSummary = attack ? (
+    <div className="combat-sum">
+      {allAt.length > 0 && (
+        <div className="all-at">
+          <span className="dim small">Attack with everything at</span>
+          <span className="all-at-row">
+            {allAt.map((o) => (
+              <button key={o.seat} type="button" className="outline small" style={seatStyle(tones.get(o.seat))} onClick={() => everythingAt({ kind: "player", seat: o.seat })}>
+                <span className="seat-dot" aria-hidden="true" />
+                {Who(o.seat)}
+              </button>
+            ))}
+          </span>
+        </div>
+      )}
+      {attackGroups.map((g) => (
+        <div key={g.key} className="plan-group" style={seatStyle(g.tone)}>
+          <span className="plan-head">
+            <b><span className="seat-dot" aria-hidden="true" />{g.name}</b>
+            <b className="num plan-power" aria-label={`${g.power} power`}>{g.power}</b>
+          </span>
+          <span className="dim small">{g.names.join(", ")}</span>
+          {g.tax && <span className="small">Tax {g.tax}</span>}
+          {g.lethal && <span className="small good">Lethal if nothing is blocked</span>}
+          {g.commander.map((c) => (
+            <span key={c.name} className={`small${c.after >= 21 ? " good" : " dim"}`}>
+              {shortName(c.name)} would bring {g.defender} to {Math.min(c.after, 21)} of 21 commander damage{c.after >= 21 ? ", lethal" : ""}.
+            </span>
+          ))}
+        </div>
+      ))}
+      {!attackGroups.length && <p className="plan-none dim small">No one is attacking yet.</p>}
+      {attackTax && <p className="plan-line small"><span>Tax to pay</span><b>{attackTax}</b></p>}
+      {combatWarn && <p className="combat-warn" role="alert">{combatWarn}</p>}
+      <p className="dim small">Damage if nothing is blocked. Attack triggers aren't counted. A sends everything at the player you're aiming at.</p>
+    </div>
+  ) : null;
+  // Blocks being built: what still reaches you, from printed numbers only (GBlock).
+  const outcome: BlockOutcome | null =
+    block && me
+      ? blockOutcome({
+          attackers: incoming.filter((c) => c.attacks_card === undefined),
+          plan: blockPlan,
+          cards: cardById,
+          life: me.life,
+          poison: me.poison,
+          commanderDamage: me.commander_damage,
+        })
+      : null;
+  // An attacker that needs more blockers than it has in the plan (menace), in red.
+  const shortBlocks = block
+    ? [...blockNeeds.entries()].filter(([a, n]) => {
+        const k = [...blockPlan.values()].filter((x) => x === a).length;
+        return k > 0 && k < n;
+      })
+    : [];
+  const blockSummary = outcome ? (
+    <div className="combat-sum">
+      <div className="outcome">
+        <span className="outcome-big">
+          <span className="dim">Damage reaching you</span>
+          <b className="num">{outcome.through}</b>
+        </span>
+        <span className="plan-line">
+          <span className="dim">Your life after combat</span>
+          <b className={outcome.lifeAfter <= 0 ? "bad" : undefined}>{outcome.life} → {outcome.lifeAfter}{outcome.lifeAfter <= 0 ? ", lethal" : ""}</b>
+        </span>
+        {outcome.poisonAfter > outcome.poison && (
+          <span className="plan-line">
+            <span className="dim">Poison counters</span>
+            <b className={outcome.poisonAfter >= 10 ? "bad" : undefined}>{outcome.poison} → {outcome.poisonAfter}{outcome.poisonAfter >= 10 ? ", lethal" : ""}</b>
+          </span>
+        )}
+        {outcome.commanders.map((c) => (
+          <span key={c.name} className="plan-line">
+            <span className="dim">Commander damage from {shortName(c.name)}</span>
+            <b className={c.after >= 21 ? "bad" : undefined}>{Math.min(c.after, 21)} of 21{c.after >= 21 ? ", lethal" : ""}</b>
+          </span>
+        ))}
+      </div>
+      {shortBlocks.map(([a, n]) => (
+        <p key={a} className="combat-warn" role="alert">{cardById.get(a)?.name ?? "That attacker"} needs {n} blockers.</p>
+      ))}
+      {combatWarn && <p className="combat-warn" role="alert">{combatWarn}</p>}
+      <p className="dim small">Outcomes count printed power and toughness only: no tricks or triggers.</p>
     </div>
   ) : null;
   const decisionBody = (
@@ -1310,6 +1696,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       }}
       onPickBlocker={pickBlocker}
       pending={pending}
+      extra={attack ? attackSummary : block ? blockSummary : null}
     />
   );
   const buttons = (
@@ -1400,7 +1787,38 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     setInspect(c);
     setInspectStack(s ?? null);
   };
-  const stackList = <StackList view={view} meta={meta} you={you} who={Who} art={art} onHover={h.onHover} onRead={readStack} canHover={canHover} />;
+  const stackList = (
+    <StackList
+      view={view}
+      meta={meta}
+      you={you}
+      who={Who}
+      art={art}
+      onHover={h.onHover}
+      onRead={readStack}
+      canHover={canHover}
+      tones={tones}
+      cardById={cardById}
+      pick={boardPick && (pickStack.size > 0 || pickedIds.some((i) => view.stack.some((s) => String(s.id) === i))) ? { can: pickStack, no: (id) => pickNo(String(id)), on: pickStackItem } : undefined}
+    />
+  );
+  // Creatures attacking you move into a lane over your board, in their seat colour (GBlock).
+  const laneFrom = incoming[0]?.controller;
+  const laneName = bottom === you ? "Attacking you" : `Attacking ${Who(bottom)}`;
+  const lane =
+    laneFrom !== undefined ? (
+      <div className="pb-lane" style={seatStyle(tones.get(laneFrom))} aria-label={`${laneName}, from ${Who(laneFrom)}`}>
+        <span className="lane-label">
+          <b>{laneName}</b>
+          <span>From {Who(laneFrom)}</span>
+        </span>
+        <div className="pb-row creatures lane-row">
+          {stackPermanents(incoming, apart).map((p) => (
+            <FieldTile key={p.key} pile={p} meta={meta[p.card.name]} look={look(p)} h={h} />
+          ))}
+        </div>
+      </div>
+    ) : null;
   // Reading a trigger on the stack that someone else controls: Yama can pass for you while it's
   // on top, for this one, or for it and its copies (phase's AllCopies: the same physical card's
   // copies and tokens, not other cards with the same name) (GSettings, trigger yields).
@@ -1572,17 +1990,23 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
                 art={art(p.seat)}
                 active={view.active === p.seat}
                 deciding={view.waiting_on.includes(p.seat)}
-                attacked={attackedSeats.has(p.seat) || (!!attack?.defender && attack.defender.kind === "player" && attack.defender.seat === p.seat)}
+                attacked={attackedSeats.has(p.seat)}
+                attackedBy={attackerTone(p.seat)}
                 targetable={!!attack && [...attack.valid.values()].some((ts) => ts.some((t) => t.kind === "player" && t.seat === p.seat))}
-                aimed={!!seatTarget(p.seat)}
-                chosen={splitSeats.has(p.seat)}
+                aimed={!!seatTarget(p.seat) || pickSeats.has(p.seat)}
+                chosen={splitSeats.has(p.seat) || pickedIds.includes(`p${p.seat}`) || (attack?.defender?.kind === "player" && attack.defender.seat === p.seat)}
+                pickNo={pickNo(`p${p.seat}`)}
+                by={seatBy(p.seat)}
+                tag={paneTag(p.seat)}
+                blocking={view.phase === "DeclareBlockers" && view.waiting_on.includes(p.seat)}
+                apart={apart}
                 tax={taxOf(p.seat)}
                 toYou={damageFrom(p.seat)}
                 toWhom={watch ? seatName(seatInfo(bottom), bottom) : undefined}
                 onHand={reveal ? () => setSheet({ seat: p.seat, zone: "hand" }) : undefined}
                 exile={view.exile.filter((c) => c.owner === p.seat).length}
                 outTurn={outTurn(p.seat)}
-                cards={view.battlefield.filter((c) => c.controller === p.seat)}
+                cards={view.battlefield.filter((c) => c.controller === p.seat && !incomingIds.has(c.id))}
                 meta={meta}
                 look={look}
                 h={h}
@@ -1604,6 +2028,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           </div>
 
           <section className="pb-mine" aria-label="Your battlefield">
+            {lane}
             <div className="pb-row creatures">
               {myRows.creatures.map((p) => <FieldTile key={p.key} pile={p} meta={meta[p.card.name]} look={look(p)} h={h} />)}
               {!myRows.creatures.length && !myRows.lands.length && !myRows.others.length && (
@@ -1650,7 +2075,19 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
               label={watch ? `${seatName(seatInfo(bottom), bottom)}'s hand` : "Your hand"}
               hidden={watch ? "Hands are face down. Turn on Show every hand to see them." : "Hands stay hidden while you watch."}
             />
-            <Portrait seat={bottom} art={myArt.art} life={me?.life ?? 0} poison={me?.poison ?? 0} status={myStatus} active={view.active === bottom} />
+            <Portrait
+              seat={bottom}
+              art={myArt.art}
+              artist={myArt.artist}
+              life={me?.life ?? 0}
+              poison={me?.poison ?? 0}
+              status={myStatus}
+              active={view.active === bottom}
+              pick={pickSeats.has(bottom)}
+              pickNo={pickNo(`p${bottom}`)}
+              by={seatBy(bottom)}
+              onPick={() => pickSeat(bottom)}
+            />
           </div>
         </div>
 
@@ -1728,6 +2165,75 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     opponents.find((p) => p.seat === view.active) ??
     opponents[0];
   const handPlayable = view.hand.some((c) => optionObjects.has(c.id)) || myCommanders.some((c) => optionObjects.has(c.id));
+  // How many things each opponent offers to pick right now (GTargetPhone's tab chips).
+  const pickCount = (seat: number) => view.battlefield.filter((c) => c.controller === seat && pickable.has(c.id)).length + (pickSeats.has(seat) ? 1 : 0);
+  const phoneCombat = attack ? (
+    <div className="dock-combat">
+      {attackGroups.map((g) => (
+        <span key={g.key} className="dock-plan" style={seatStyle(g.tone)}>
+          <span className="seat-dot" aria-hidden="true" />
+          <span className="dock-plan-who">{g.name}: {g.names.join(", ")}</span>
+          <b className="num">{g.power}</b>
+        </span>
+      ))}
+      {attackTax && (
+        <span className="dock-plan">
+          <span className="dock-plan-who">Tax to pay</span>
+          <b>{attackTax}</b>
+        </span>
+      )}
+      {(() => {
+        const lethal = attackGroups.find((g) => g.lethal);
+        return (
+          <span className={`dock-note${lethal ? " good" : ""}`}>
+            {lethal ? `Lethal on ${lethal.name} if nothing is blocked.` : attackGroups.length ? "Damage if nothing is blocked. Attack triggers aren't counted." : "No one is attacking yet."}
+          </span>
+        );
+      })()}
+      {attack.defender && (
+        <button type="button" className="outline small" onClick={() => everythingAt(attack.defender!)}>
+          Everything at {attack.defender.kind === "player" ? Who(attack.defender.seat) : cardById.get(attack.defender.id)?.name ?? "it"}
+        </button>
+      )}
+      {combatWarn && <span className="combat-warn" role="alert">{combatWarn}</span>}
+    </div>
+  ) : outcome ? (
+    <div className="dock-combat">
+      <span className="outcome-row">
+        <span>Reaches you<b className="num">{outcome.through}</b></span>
+        <span>Life after<b className={`num${outcome.lifeAfter <= 0 ? " bad" : ""}`}>{outcome.lifeAfter}</b></span>
+        {outcome.commanders[0] && (
+          <span>From {shortName(outcome.commanders[0].name)}<b className={`num${outcome.commanders[0].after >= 21 ? " bad" : ""}`}>{Math.min(21, outcome.commanders[0].after)}/21</b></span>
+        )}
+      </span>
+      {shortBlocks.map(([a, n]) => (
+        <span key={a} className="combat-warn" role="alert">{cardById.get(a)?.name ?? "That attacker"} needs {n} blockers.</span>
+      ))}
+    </div>
+  ) : null;
+  // Someone else's spell or ability on top (GRespondPhone): whose it is and what it targets, in
+  // their colour, over the dock's answers. The whole stack is a tap away on its chip.
+  const top = view.stack[view.stack.length - 1];
+  const phoneRespond =
+    top && top.controller !== you && !top.casting && decision && !attack && !block && !pend ? (
+      <div className="dock-respond" style={seatStyle(tones.get(top.controller))}>
+        {meta[top.name]?.image ? <img src={meta[top.name]!.image!} alt="" /> : <span className="stack-img blank" />}
+        <span>
+          <b>
+            {Who(top.controller)}'s {top.name}
+          </b>
+          {!!top.targets?.length && (
+            <span className="dim">
+              {" "}
+              targets{" "}
+              {top.targets
+                .map((t) => (t.target?.kind === "player" ? (t.target.seat === you ? "you" : t.name) : `${t.controller === you ? "your " : ""}${t.name}`))
+                .join(" and ")}
+            </span>
+          )}
+        </span>
+      </div>
+    ) : null;
   const phoneHint = pend
     ? null
     : attack
@@ -1752,10 +2258,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   return (
     <MotionContext.Provider value={scale}>
     <div className={`pb phone${scale === 0 ? " motion-off" : ""}${stage === "sheet" ? " sheet-open" : stage === "strip" ? " strip-open" : ""}`} ref={boardRoot}>
+      {banner && <div className="phone-banner">{banner}</div>}
       <nav className="opp-tabs" aria-label="Opponents">
         {opponents.map((p) => {
           const on = p.seat === focus?.seat;
           const attacked = attackedSeats.has(p.seat) || (attack?.defender?.kind === "player" && attack.defender.seat === p.seat);
+          const picks = targeting ? pickCount(p.seat) : 0;
+          const tag = paneTag(p.seat);
           return (
             <button
               key={p.seat}
@@ -1772,7 +2281,14 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
                 <span className="tab-name"><span className="seat-dot" aria-hidden="true" />{p.seat === you ? "You" : seatInfo(p.seat)?.ai ? (watch ? seatName(seatInfo(p.seat), p.seat) : "Computer") : label(p.seat)}</span>
                 <b className="tab-life num" data-life-seat={p.eliminated ? undefined : p.seat}>{p.eliminated ? "Out" : <Tick value={p.life} />}</b>
               </span>
-              {view.waiting_on.includes(p.seat) && !view.over ? <span className="tab-flag warn">Deciding</span> : view.active === p.seat ? <span className="tab-flag">Turn</span> : null}
+              {view.waiting_on.includes(p.seat) && !view.over ? (
+                <span className="tab-flag warn">{view.phase === "DeclareBlockers" ? "Blocking" : "Deciding"}</span>
+              ) : view.active === p.seat ? (
+                <span className="tab-flag">Turn</span>
+              ) : null}
+              {picks > 0 && <span className="tab-pick">{picks} {picks === 1 ? "target" : "targets"}</span>}
+              {tag && <span className={`tab-pick opp-tag ${tag.tone}`}>{tag.text.replace("Click", "Tap")}</span>}
+              {seatBy(p.seat) && <span className="tab-by" style={{ ["--by" as string]: `var(--${seatBy(p.seat)!.tone})` } as React.CSSProperties}>Targeted</span>}
             </button>
           );
         })}
@@ -1788,12 +2304,15 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           toWhom={watch ? seatName(seatInfo(bottom), bottom) : undefined}
           onHand={reveal ? () => setSheet({ seat: focus.seat, zone: "hand" }) : undefined}
           exile={view.exile.filter((c) => c.owner === focus.seat).length}
-          cards={view.battlefield.filter((c) => c.controller === focus.seat)}
+          cards={view.battlefield.filter((c) => c.controller === focus.seat && !incomingIds.has(c.id))}
           meta={meta}
           look={look}
           h={h}
           optionObjects={optionObjects}
           onZone={(zone) => setSheet({ seat: focus.seat, zone })}
+          apart={apart}
+          pick={pickSeats.has(focus.seat) || pickNo(`p${focus.seat}`) !== undefined ? { no: pickNo(`p${focus.seat}`), on: () => pickSeat(focus.seat) } : undefined}
+          by={seatBy(focus.seat)}
         />
       )}
 
@@ -1806,6 +2325,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       </div>
 
       <section className="pb-mine phone" aria-label="Your board">
+        {lane}
         <div className="pb-row creatures">
           {myRows.creatures.map((p) => <FieldTile key={p.key} pile={p} meta={meta[p.card.name]} look={look(p)} h={h} />)}
           {myRows.others.filter((p) => p.card.types.includes("Planeswalker") || p.ids.some((i) => optionObjects.has(i))).map((p) => (
@@ -1857,6 +2377,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           </div>
         )}
         {phoneSheet}
+        {phonePick}
+        {phoneCombat}
+        {phoneRespond}
         {meOut && !view.over && (
           <div className="dock-decision">
             <p className="dock-prompt"><b>{title}</b></p>
@@ -1887,7 +2410,19 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         )}
         {status}
         <div className="dock-row">
-          <Portrait seat={bottom} art={myArt.art} life={me?.life ?? 0} poison={me?.poison ?? 0} status={myStatus} active={view.active === bottom} compact />
+          <Portrait
+            seat={bottom}
+            art={myArt.art}
+            life={me?.life ?? 0}
+            poison={me?.poison ?? 0}
+            status={myStatus}
+            active={view.active === bottom}
+            compact
+            pick={pickSeats.has(bottom)}
+            pickNo={pickNo(`p${bottom}`)}
+            by={seatBy(bottom)}
+            onPick={() => pickSeat(bottom)}
+          />
           <div className={`dock-buttons${controls.secondary ? "" : " one"}`}>{buttons}</div>
         </div>
         <div className="dock-links">
@@ -2023,15 +2558,47 @@ function Ladder({ phase, fullControl, stops, onToggle, vertical = false }: {
   );
 }
 
-function Portrait({ seat, art, life, poison, status, active, compact = false }: { seat: number; art: string | null; life: number; poison: number; status: string; active: boolean; compact?: boolean }) {
-  return (
-    <span className={`portrait${compact ? " compact" : ""}${active ? " active" : ""}`} data-seat={seat}>
+function Portrait({ seat, art, artist, life, poison, status, active, compact = false, pick, pickNo, by, onPick }: {
+  seat: number;
+  art: string | null;
+  /** Who painted the art, named under your life (design/tokens.md, "Credit"). */
+  artist?: string | null;
+  life: number;
+  poison: number;
+  status: string;
+  active: boolean;
+  compact?: boolean;
+  /** You can pick yourself as a target: an amber ring, and a click picks. */
+  pick?: boolean;
+  /** Your number among the targets picked: a white ring. */
+  pickNo?: number;
+  /** Who targets you on the stack, in their seat colour. */
+  by?: { text: string; tone?: string };
+  onPick?: () => void;
+}) {
+  const cls = `portrait${compact ? " compact" : ""}${active ? " active" : ""}${pick ? " pick" : ""}${pickNo !== undefined ? " picked" : ""}${by ? " targeted" : ""}`;
+  const style = by?.tone ? ({ ["--by" as string]: `var(--${by.tone})` } as React.CSSProperties) : undefined;
+  const body = (
+    <>
       {art ? <img src={art} alt="" /> : <span className="portrait-blank" />}
+      {pickNo !== undefined && <span className="pick-badge num" aria-hidden="true">{pickNo}</span>}
       <span className="portrait-text">
         <b className="num" data-life-seat={seat}><Tick value={life} /></b>
         {!compact && <span>{status}{poison ? `, ${poison} poison` : ""}</span>}
         {compact && poison > 0 && <span>{poison} poison</span>}
+        {by && <span className="portrait-by">{by.text}</span>}
+        {!compact && art && artist && <span className="portrait-credit">Art: {artist}</span>}
       </span>
+    </>
+  );
+  // Picking yourself as a target (GTarget): the portrait is a button for that.
+  return onPick && (pick || pickNo !== undefined) ? (
+    <button type="button" className={cls} style={style} data-seat={seat} onClick={onPick} aria-label={`You, ${life} life${pickNo !== undefined ? `, chosen target ${pickNo}` : ", can be targeted"}`}>
+      {body}
+    </button>
+  ) : (
+    <span className={cls} style={style} data-seat={seat}>
+      {body}
     </span>
   );
 }
@@ -2158,9 +2725,23 @@ function OppPane(props: {
   h: TileHandlers;
   onSeat: () => void;
   onZone: (zone: "graveyard" | "exile") => void;
+  /** Cards that stand alone while targets are picked (a stack of tokens opens up), shown even if they're lands. */
+  apart?: ReadonlySet<number>;
+  /** This player's number among the targets picked. */
+  pickNo?: number;
+  /** Who targets this player on the stack, in their seat colour (GRespond). */
+  by?: { text: string; tone?: string };
+  /** While you declare attackers: how many attack this player, and whether you're aiming at them (GAttack). */
+  tag?: { text: string; tone: "aimed" | "some" | "idle" };
+  /** The seat colour of whoever attacks this player (GCombatView). */
+  attackedBy?: string;
+  /** Choosing blockers now: a dot that pulses three times (GCombatView). */
+  blocking?: boolean;
 }) {
   const { p } = props;
-  const [landsOpen, setLandsOpen] = useState(false);
+  const [opened, setLandsOpen] = useState(false);
+  // A land you can pick (a target) shows even when their lands are folded away.
+  const landsOpen = opened || props.cards.some((c) => isLand(c) && !!props.apart?.has(c.id));
   if (p.eliminated) {
     // Out of the game: a thin strip with the name and when they went out. The others get the room.
     return (
@@ -2180,21 +2761,23 @@ function OppPane(props: {
       </article>
     );
   }
-  const r = rows(props.cards);
+  const r = rows(props.cards, props.apart);
   const back = [...(landsOpen || r.lands.length <= 4 ? r.lands : []), ...r.others];
   const lands = props.cards.filter((c) => c.types.includes("Land") && !c.types.includes("Creature"));
-  const clickable = props.targetable || !!props.aimed;
-  const cls = ["opp-pane", props.active && "active", props.attacked && "attacked", clickable && "targetable", props.aimed && "aimed", props.chosen && "chosen"].filter(Boolean).join(" ");
+  const clickable = props.targetable || !!props.aimed || props.pickNo !== undefined;
+  const cls = ["opp-pane", props.active && "active", props.attacked && "attacked", clickable && "targetable", props.aimed && "aimed", props.chosen && "chosen", props.by && "targeted"].filter(Boolean).join(" ");
+  const style = { ...seatStyle(props.tone), ...(props.attackedBy ? { ["--attacker" as string]: `var(--${props.attackedBy})` } : {}), ...(props.by?.tone ? { ["--by" as string]: `var(--${props.by.tone})` } : {}) } as React.CSSProperties;
   return (
-    <article className={cls} data-seat={p.seat} style={seatStyle(props.tone)} aria-label={`${props.label}, ${p.eliminated ? "out of the game" : `${p.life} life`}${props.active ? ", their turn" : ""}`}>
+    <article className={cls} data-seat={p.seat} style={style} aria-label={`${props.label}, ${p.eliminated ? "out of the game" : `${p.life} life`}${props.active ? ", their turn" : ""}${props.by ? `, ${props.by.text.toLowerCase()}` : ""}`}>
       <header
         className="opp-head"
         onClick={clickable ? props.onSeat : undefined}
         role={clickable ? "button" : undefined}
         tabIndex={clickable ? 0 : undefined}
         onKeyDown={clickable ? (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), props.onSeat()) : undefined}
-        aria-label={props.aimed ? `Target ${props.label}` : props.targetable ? `Attack ${props.label}` : undefined}
+        aria-label={props.aimed ? `Target ${props.label}` : props.pickNo !== undefined ? `${props.label}, chosen target ${props.pickNo}` : props.targetable ? `Attack ${props.label}` : undefined}
       >
+        {props.pickNo !== undefined && <span className="pick-badge num opp-pick" aria-hidden="true">{props.pickNo}</span>}
         {props.art.art && <img className="opp-art" src={props.art.art} alt="" />}
         <span className="opp-wash" aria-hidden="true" />
         <span className="opp-id">
@@ -2222,11 +2805,18 @@ function OppPane(props: {
             {props.art.art && <img src={props.art.art} alt="" />}
             {props.tax > 0 ? `Tax +${props.tax}, ` : ""}{props.toYou} to {props.toWhom ?? "you"}
           </span>
-          {props.deciding && !p.eliminated && <span className="opp-flag">Deciding</span>}
+          {props.by && <span className="opp-by">{props.by.text}</span>}
+          {props.deciding && !p.eliminated && (
+            <span className={`opp-flag${props.blocking ? " blocking" : ""}`}>
+              {props.blocking && <span className="pulse-dot" aria-hidden="true" />}
+              {props.blocking ? "Choosing blockers" : "Deciding"}
+            </span>
+          )}
           {props.active && !props.deciding && !p.eliminated && <span className="opp-flag turn">Their turn</span>}
         </span>
         <b className="opp-life num" data-life-seat={p.eliminated ? undefined : p.seat}>{p.eliminated ? "Out" : <Tick value={p.life} />}</b>
         {p.eliminated && <span className="opp-veil" aria-hidden="true" />}
+        {props.tag && <span className={`opp-tag ${props.tag.tone}`}>{props.tag.text}</span>}
       </header>
       {!p.eliminated && (
         <div className="opp-body">
@@ -2278,13 +2868,22 @@ function OppFocus(props: {
   h: TileHandlers;
   optionObjects: Set<number>;
   onZone: (zone: "graveyard" | "exile") => void;
+  /** Cards that stand alone while targets are picked (a stack of tokens opens up). */
+  apart?: ReadonlySet<number>;
+  /** This player can be picked as a target (or was: its number). */
+  pick?: { no?: number; on: () => void };
+  /** Who targets this player on the stack. */
+  by?: { text: string; tone?: string };
 }) {
   const { p } = props;
-  const r = rows(props.cards);
-  const [open, setOpen] = useState<"lands" | "others" | null>(null);
+  const r = rows(props.cards, props.apart);
+  const [chosenOpen, setOpen] = useState<"lands" | "others" | null>(null);
   const lands = props.cards.filter((c) => c.types.includes("Land") && !c.types.includes("Creature"));
   const front = [...r.creatures, ...r.others.filter((x) => x.card.types.includes("Planeswalker") || x.card.types.includes("Battle"))];
   const rest = r.others.filter((x) => !front.includes(x));
+  // A land or other permanent you can pick (a target) shows without opening its chip.
+  const picking = (ps: Pile[]) => ps.some((x) => x.ids.some((i) => props.apart?.has(i)));
+  const open = chosenOpen ?? (picking(r.lands) ? "lands" : picking(rest) ? "others" : null);
   return (
     <section className="opp-focus" style={seatStyle(props.tone)} aria-label={`${props.label}'s board`}>
       <div className="focus-meta">
@@ -2307,6 +2906,17 @@ function OppFocus(props: {
         </span>
         <span>{props.toYou} to {props.toWhom ?? "you"}</span>
       </div>
+      {(props.pick || props.by) && (
+        <div className="focus-target" style={props.by?.tone ? ({ ["--by" as string]: `var(--${props.by.tone})` } as React.CSSProperties) : undefined}>
+          {props.pick && (
+            <button type="button" className={`focus-pick${props.pick.no !== undefined ? " picked" : ""}`} onClick={props.pick.on} aria-pressed={props.pick.no !== undefined}>
+              {props.pick.no !== undefined && <span className="pick-badge num" aria-hidden="true">{props.pick.no}</span>}
+              {props.pick.no !== undefined ? `${props.label}, chosen` : `Choose ${props.label}`}
+            </button>
+          )}
+          {props.by && <span className="opp-by">{props.by.text}</span>}
+        </div>
+      )}
       {p.eliminated ? (
         <p className="zone-empty">{p.conceded ? "Conceded. They left the game." : "Out of the game."}</p>
       ) : (
@@ -2330,7 +2940,12 @@ function OppFocus(props: {
   );
 }
 
-function StackList({ view, meta, you, who, art, onHover, onRead, canHover }: {
+/**
+ * The stack, top first (GRespond): each item with its card, whose it is, its words (an ability's
+ * own, a spell's Oracle text), the modes chosen and what it targets, outlined in its controller's
+ * seat colour. A spell you may target now (a counterspell's) rings amber and is picked by a click.
+ */
+function StackList({ view, meta, you, who, art, onHover, onRead, canHover, tones, cardById, pick }: {
   view: View;
   meta: Record<string, CardMeta>;
   you: number | null;
@@ -2340,6 +2955,10 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover }: {
   /** Read the card behind an item; the item comes too, so a trigger can be yielded to. */
   onRead: (c: CardView, item?: StackItem) => void;
   canHover: boolean;
+  tones: Map<number, SeatTone>;
+  cardById: Map<number, CardView>;
+  /** Spells you can pick as a target now, the numbers of those picked, and picking one. */
+  pick?: { can: Set<number>; no: (id: number) => number | undefined; on: (id: number) => void };
 }) {
   if (!view.stack.length) return <p className="rail-empty">Empty.</p>;
   return (
@@ -2348,27 +2967,60 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover }: {
         const card = { ...emptyCard, name: s.name, controller: s.controller };
         const img = meta[s.name]?.image;
         const a = art(s.controller).art;
+        const whose = s.controller === you ? "Yours" : `${who(s.controller)}'s`;
+        // The option id for a spell on the stack is its entry's id (the same as its card's).
+        const ids = [s.id, s.source].filter((x): x is number => x !== undefined);
+        const pickId = ids.find((x) => pick?.can.has(x) || pick?.no(x) !== undefined);
+        const canPick = pickId !== undefined && !!pick?.can.has(pickId);
+        const no = pickId !== undefined ? pick?.no(pickId) : undefined;
+        // An ability's own words; a spell's are its Oracle text.
+        const words = s.text ?? (s.trigger || s.ability ? undefined : meta[s.name]?.oracle_text);
+        const cls = [i === 0 && "top", canPick && no === undefined && "pick", no !== undefined && "picked", s.casting && "casting"].filter(Boolean).join(" ");
+        const targetWords = (t: NonNullable<StackItem["targets"]>[number]) => {
+          if (t.target?.kind === "player") return t.target.seat === you ? "you" : t.name;
+          const owner = t.controller === undefined ? "" : t.controller === you ? ", yours" : `, ${who(t.controller)}'s`;
+          return `${t.name}${owner}`;
+        };
+        const targetArt = (t: NonNullable<StackItem["targets"]>[number]) =>
+          t.target?.kind === "player" ? art(t.target.seat).art : t.target?.kind === "object" ? meta[cardById.get(t.target.id)?.name ?? t.name]?.art ?? null : null;
         return (
-          <li key={`${view.stack.length - 1 - i}:${s.name}`} className={i === 0 ? "top" : ""}>
+          <li key={`${view.stack.length - 1 - i}:${s.name}`} className={cls} data-stack-id={s.id} style={seatStyle(tones.get(s.controller))}>
             <button
               type="button"
               onMouseEnter={(e) => onHover(card, e.currentTarget)}
               onMouseLeave={() => onHover(null)}
-              onClick={() => !canHover && onRead(card, s)}
+              onClick={() => (pickId !== undefined && pick ? pick.on(pickId) : !canHover && onRead(card, s))}
               onContextMenu={(e) => (e.preventDefault(), onRead(card, s))}
-              aria-label={`${s.name}, ${s.controller === you ? "yours" : `${who(s.controller)}'s`}${i === 0 ? ", resolves next" : ""}${s.yielded ? ", Yama passes for you" : ""}`}
+              aria-label={`${s.name}, ${whose.toLowerCase()}${i === 0 ? ", resolves next" : ""}${s.casting ? ", being cast" : ""}${s.targets?.length ? `, targets ${s.targets.map(targetWords).join(" and ")}` : ""}${s.yielded ? ", Yama passes for you" : ""}${canPick ? ", can be targeted" : ""}${no !== undefined ? `, chosen target ${no}` : ""}`}
             >
               {img ? <img className="stack-img" src={img} alt="" /> : <span className="stack-img blank" />}
               <span className="stack-text">
                 <b>{s.name}</b>
                 <span className="stack-who">
                   {a && <img src={a} alt="" />}
-                  {s.controller === you ? "Yours" : `${who(s.controller)}'s`}
+                  {whose}
                   {s.trigger ? " trigger" : ""}
                   {i === 0 ? ", resolves next" : ""}
+                  {s.casting ? ", being cast" : ""}
                   {s.yielded ? ", passing for you" : ""}
                 </span>
+                {words && <span className="stack-words">{words}</span>}
+                {!!s.modes?.length && <span className="stack-words modes">{s.modes.join(" ")}</span>}
+                {!!s.targets?.length && (
+                  <span className="stack-targets">
+                    {s.targets.map((t, k) => {
+                      const ta = targetArt(t);
+                      return (
+                        <span key={k} className="target-chip">
+                          {ta ? <img src={ta} alt="" /> : <span className="target-blank" aria-hidden="true" />}
+                          Targets {targetWords(t)}
+                        </span>
+                      );
+                    })}
+                  </span>
+                )}
               </span>
+              {no !== undefined && <span className="pick-badge num" aria-hidden="true">{no}</span>}
             </button>
           </li>
         );
@@ -2399,6 +3051,8 @@ function DecisionBody(props: {
   onCycleTarget: (id: number) => void;
   onPickBlocker: (id: number) => void;
   pending: boolean;
+  /** The plan's totals and warnings (GAttack, GBlock), over the list of creatures. */
+  extra?: React.ReactNode;
 }) {
   const { decision, attack, block, cardById, meta } = props;
   const artOf = (c: CardView | undefined) => (c ? meta[c.name]?.art ?? null : null);
@@ -2410,7 +3064,8 @@ function DecisionBody(props: {
     const ids = [...attack.valid.keys()];
     return (
       <>
-        <p className="rail-help">Click an opponent to choose whom you attack, then click your creatures to send them.</p>
+        <p className="rail-help">Click a player's panel to aim, then click creatures to send them. Click again to take one back.</p>
+        {props.extra}
         <ul className="combat-list">
           {ids.map((id) => {
             const c = cardById.get(id);
@@ -2444,8 +3099,9 @@ function DecisionBody(props: {
         <p className="rail-help">
           {block.pending !== null
             ? `Now click the attacker ${shortName(cardById.get(block.pending)?.name ?? "it")} blocks.`
-            : "Click one of your creatures to block. With more than one attacker, then click the one it blocks."}
+            : "Click one of your creatures, then the attacker it should block. Click a blocker again to undo."}
         </p>
+        {props.extra}
         <ul className="combat-list">
           {ids.map((id) => {
             const c = cardById.get(id);
