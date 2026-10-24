@@ -2491,6 +2491,9 @@ mod rare_tests;
 mod loop_tests;
 
 #[cfg(test)]
+mod card_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -227,6 +227,7 @@ export function toolActivity(name: string): string {
     case "start_lab_run":
     case "add_to_collection":
     case "move_cards":
+    case "set_condition":
       return "Staging a change for your review…";
     default:
       return "Looking something up…";

@@ -71,7 +71,7 @@ Write (staged):
 | `answer_review` | A review answer (`review` op) |
 | `mark_bought`, `mark_installed` | The existing `bought` and `installed` ops |
 | `start_lab_run` | A paired experiment: a deck or list against the same deck with adds and cuts, under the lab's usual allowance |
-| `add_to_collection`, `move_cards` | Collection ops (by name and printing) |
+| `add_to_collection`, `move_cards`, `set_condition` | Collection ops (by name and printing; a condition for every copy in a container, or one card's) |
 
 Plan swaps themselves can't be edited yet: imported plans are managed by the commander-decks repo
 (its `swaps.json` is the source of truth), and Yama-made plans (planner slice 7) aren't built. So a
