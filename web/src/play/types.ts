@@ -221,7 +221,19 @@ export type AnswerKind =
   | "select_targets"
   | "move_counters"
   | "remove_counters"
-  | "remove_counter_cost";
+  | "remove_counter_cost"
+  // Everyone takes part, and choosing a player (play/src/together.rs).
+  | "submit_vote_candidate"
+  | "submit_pile_partition"
+  | "choose_pile"
+  | "choose_branch"
+  | "select_coin_flips"
+  | "select_die_rolls"
+  | "choose_top_or_bottom"
+  | "redistribute_life"
+  | "choose_player"
+  // The library (play/src/library.rs).
+  | "learn";
 
 /** The card asking; the server adds its art, image and artist. */
 export interface DecisionSource {
@@ -257,7 +269,7 @@ export interface DecisionOption {
   counters?: [string, number][];
   /** The most a split may give it. */
   cap?: number;
-  /** The counter kind it stands for, by the engine's key ("P1P1"); moving counters shares one cap per kind. */
+  /** The counter kind it stands for, by the engine's key ("P1P1"); moving counters shares one cap per kind. A pile's card: "a" or "b". */
   group?: string;
 }
 
@@ -296,7 +308,10 @@ export interface Pending {
    * may, pay, name, damage or divide; ways to cast: cascade, discover, ripple, madness, miracle,
    * miracle_reveal, adventure, face, alt_cost, variant, mutate; permanents: legend, clone, equip,
    * ring, empower, host, populate, explore; counters: proliferate, move_counters,
-   * remove_counters, counter_cost.
+   * remove_counters, counter_cost; everyone takes part: vote, piles_split, piles_choose, branch,
+   * coin, die, guess, clash, life; a player: gift, entry_controller, zone_chooser,
+   * clash_opponent, announcer, pile_opponent; the library: top_or_bottom, partition, dig_split,
+   * reveal, kept, manifest, learn.
    */
   purpose: string;
   /** The order picked is the order they end up in (the first is on top). */
@@ -325,6 +340,14 @@ export interface Pending {
   rest?: string;
   /** Moving or removing counters: the permanent they come off, by option id. */
   origin?: string;
+  /** Cards shown that aren't options: the card going to the top or bottom, each clashing player's card, a pile's cards (`group` "a" or "b"). */
+  shown?: DecisionOption[];
+  /** Where the picked cards go, then where the rest go ("Onto the battlefield tapped", "Into your hand"). */
+  places?: string[];
+  /** An order whose first `topCount` cards go on top of the library and the rest to the bottom. */
+  topCount?: number;
+  /** The top and bottom piles are settled: only the order within each may change. */
+  fixedSplit?: boolean;
 }
 
 /** An answer sent with `{type: "act"}` (play/src/act.rs, Act). */
@@ -395,7 +418,24 @@ export type Act =
   /** Counters by the engine's key for their kind: onto (or, as a cost, off) a permanent. */
   | { kind: "move_counters"; moves: { on: number; counter: string; count: number }[] }
   | { kind: "remove_counters"; counters: { counter: string; count: number }[] }
-  | { kind: "remove_counter_cost"; counters: { on: number; counter: string; count: number }[] };
+  | { kind: "remove_counter_cost"; counters: { on: number; counter: string; count: number }[] }
+  // Everyone takes part, and choosing a player (play/src/together.rs).
+  /** A vote for the object at this place in the vote's list (a vote for a word is choose_option). */
+  | { kind: "submit_vote_candidate"; candidate: number }
+  /** The cards in pile A; the rest are pile B. */
+  | { kind: "submit_pile_partition"; pile_a: number[] }
+  | { kind: "choose_pile"; pile: "a" | "b" }
+  | { kind: "choose_branch"; index: number }
+  /** The coins kept, by their place among the results. */
+  | { kind: "select_coin_flips"; keep: number[] }
+  /** The rolls ignored, by their place among the results. */
+  | { kind: "select_die_rolls"; ignore: number[] }
+  | { kind: "choose_top_or_bottom"; top: boolean }
+  | { kind: "redistribute_life"; option: number }
+  /** A player, by seat: a gift's recipient, an opponent who chooses, separates or clashes, who a permanent enters under. */
+  | { kind: "choose_player"; seat: number }
+  /** Learn: discard this card and draw a card, or (null) don't. */
+  | { kind: "learn"; discard: number | null };
 
 /** "Tap mana for me" (GPay): automatic but ask before sacrificing, always automatic, or by hand. */
 export type TapMana = "ask" | "auto" | "manual";
@@ -488,6 +528,45 @@ export interface TurnsView {
   /** "Tap mana for me" (newer servers). */
   tap_mana?: TapMana;
 }
+
+/** A card as you may know it in a table-wide decision: its id while it's on the battlefield, its name unless hidden. */
+export interface SeenCard {
+  id?: number;
+  name?: string;
+  face_down?: boolean;
+}
+
+/**
+ * A decision everyone takes part in, as you may see it (play/src/together.rs, TogetherView): the
+ * votes cast so far and who votes next, the piles, who has faced a villainous choice, or a clash's
+ * revealed cards.
+ */
+export type TogetherView =
+  | {
+      kind: "vote";
+      source: SeenCard;
+      controller: number;
+      /** What is voted for: a permanent (with its id) or a word. */
+      options: SeenCard[];
+      /** Each vote so far: who cast it and the option's place in `options`. */
+      ballots: [number, number][];
+      voters: { seat: number; state: "voted" | "voting" | "next" }[];
+      /** A secret vote: no ballots are shown until it ends. */
+      secret?: boolean;
+    }
+  | {
+      kind: "piles";
+      source: SeenCard;
+      chooser: number;
+      splitter?: number;
+      step: "opponent" | "split" | "choose";
+      cards?: SeenCard[];
+      pile_a?: SeenCard[];
+      pile_b?: SeenCard[];
+      split?: boolean;
+    }
+  | { kind: "branch"; source: SeenCard; controller: number; facing: [number, "chose" | "choosing" | "waiting"][] }
+  | { kind: "clash"; source: SeenCard; cards: [number, SeenCard][]; placing: number };
 
 /** Someone asked to resolve the whole stack: who, and who has agreed (GTogether). */
 export interface ResolveAllView {
@@ -606,6 +685,8 @@ export interface View {
   turns?: TurnsView;
   /** Resolve all is being asked (newer servers). */
   resolve_all?: ResolveAllView;
+  /** A decision everyone takes part in: votes, piles, a villainous choice, a clash (newer servers). */
+  together?: TogetherView;
   /** The newest things that happened, as you may know them, oldest first (newer servers). */
   events?: Happening[];
   /** Players knocked out, in order, each with its cause. */

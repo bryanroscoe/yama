@@ -6553,3 +6553,800 @@ button.portrait:hover {
   left: auto;
   right: -7px;
 }
+
+/* Everyone takes part (GTogether): a vote, piles, a villainous choice, coins and dice. */
+.dw-vote,
+.dw-piles2,
+.dw-words,
+.dw-luck,
+.dw-seats,
+.dw-tob,
+.dw-places {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dw-vote-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 230px;
+  gap: 18px;
+  align-items: start;
+}
+.dw-vote-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px 14px;
+}
+.dw-vote-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-weight: 400;
+}
+.dw-vote-opt:disabled {
+  opacity: 1;
+}
+.dw-vote-art {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--raised);
+  transition: box-shadow 140ms;
+}
+.dw-vote-opt.pick .dw-vote-art {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-vote-opt.picked .dw-vote-art {
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-vote-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.dw-vote-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  padding: 2px 6px;
+  background: var(--art-chip);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dw-vote-grid.words .dw-vote-art {
+  aspect-ratio: auto;
+  min-height: 72px;
+  display: grid;
+  place-items: center;
+}
+.dw-vote-grid.words .dw-vote-name {
+  position: static;
+  background: transparent;
+  font-size: 18px;
+  text-align: center;
+}
+.dw-vote-count {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  color: var(--ground);
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 18px;
+}
+.dw-vote-under {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+}
+.dw-vote-owner {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  color: var(--dim);
+}
+.dw-vote-owner .seat-dot {
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+}
+.dw-voters {
+  margin-left: auto;
+  display: flex;
+  gap: 3px;
+}
+.dw-voters .seat-dot {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.dw-vote-art .dw-voters {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+}
+.dw-ledger {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dw-ledger > b {
+  font-size: 14px;
+}
+.dw-ledger-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 2px 8px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.25;
+}
+.dw-ledger-row .seat-dot {
+  width: 9px;
+  height: 9px;
+  margin: 0;
+}
+.dw-ledger-row > span:last-child {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--dim);
+}
+.dw-ledger-row.now {
+  background: var(--raised);
+}
+.dw-vote.compact .dw-vote-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dw-vote.compact .dw-vote-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.dw-vote.compact .dw-vote-art {
+  aspect-ratio: auto;
+  height: 96px;
+  border-radius: 12px;
+}
+.dw-vote.compact .dw-vote-name {
+  font-size: 11px;
+}
+.dw-vote.compact .dw-vote-count {
+  min-width: 24px;
+  height: 24px;
+  font-size: 14px;
+}
+.dw-vote.compact .dw-ledger {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dw-vote.compact .dw-ledger-row {
+  display: flex;
+  gap: 5px;
+  padding: 3px 10px 3px 7px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  font-size: 12px;
+}
+.dw-vote.compact .dw-ledger-row .seat-dot {
+  width: 7px;
+  height: 7px;
+}
+
+/* Piles (Fact or Fiction): separating the cards, or choosing a pile. */
+.dw-pile2-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.dw-pile2 {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 300px;
+  padding: 12px;
+  border: none;
+  border-radius: 18px;
+  background: var(--raised);
+  text-align: left;
+  font-weight: 400;
+}
+button.dw-pile2.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+button.dw-pile2.picked {
+  box-shadow: 0 0 0 3px var(--text);
+}
+button.dw-pile2:disabled {
+  opacity: 1;
+}
+.dw-pile2-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.dw-pile2-head span {
+  font-size: 13px;
+  color: var(--dim);
+}
+.dw-pile2-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.dw-pile2-cards .dw-row-img,
+.dw-pile2-card img,
+.dw-pile2-card .dw-card-name {
+  display: block;
+  width: 120px;
+  aspect-ratio: 488 / 680;
+  border-radius: 6px;
+}
+.dw-pile2-card {
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+}
+.dw-pile2-card.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-piles2.compact .dw-pile2-list {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.dw-piles2.compact .dw-pile2 {
+  min-height: 0;
+  padding: 10px;
+}
+.dw-piles2.compact .dw-pile2-cards .dw-row-img,
+.dw-piles2.compact .dw-pile2-card img,
+.dw-piles2.compact .dw-pile2-card .dw-card-name {
+  width: 62px;
+  border-radius: 4px;
+}
+
+/* A villainous choice: who else faces it. */
+.dw-facing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--ground);
+}
+.dw-facing > b {
+  font-size: 14px;
+}
+.dw-facing-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dw-chip-seat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 8px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  font-size: 13px;
+}
+.dw-chip-seat .seat-dot {
+  width: 8px;
+  height: 8px;
+  margin: 0;
+}
+.dw-chip-seat > span:last-child {
+  color: var(--dim);
+}
+
+/* Coins and dice. */
+.dw-luck-list {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 16px 0;
+}
+.dw-luck-opt {
+  width: 220px;
+  padding: 22px 16px;
+  border: none;
+  border-radius: 22px;
+  background: var(--raised);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  font-weight: 400;
+}
+.dw-luck-opt.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-luck-opt.picked {
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-luck-opt:disabled {
+  opacity: 1;
+}
+.dw-luck-face {
+  width: 120px;
+  height: 120px;
+  display: grid;
+  place-items: center;
+  background: var(--ground);
+  box-shadow: inset 0 0 0 3px var(--line);
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 64px;
+  line-height: 1;
+}
+.dw-luck-face.coin {
+  border-radius: 50%;
+  font-size: 56px;
+}
+.dw-luck-face.die {
+  border-radius: 22px;
+}
+.dw-luck-opt.picked .dw-luck-face {
+  box-shadow: inset 0 0 0 3px var(--text);
+}
+.dw-luck.compact .dw-luck-list {
+  gap: 10px;
+  padding: 4px 0;
+}
+.dw-luck.compact .dw-luck-opt {
+  width: calc(50% - 5px);
+  padding: 14px 8px;
+}
+.dw-luck.compact .dw-luck-face {
+  width: 76px;
+  height: 76px;
+  font-size: 40px;
+}
+
+/* Choosing a player (GRareRules): each player on their commander's art. */
+.dw-seat-list {
+  display: flex;
+  gap: 14px;
+}
+.dw-seat {
+  position: relative;
+  flex: 1;
+  height: 220px;
+  padding: 0;
+  border: none;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--raised);
+  text-align: left;
+}
+.dw-seat.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-seat.picked {
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-seat:disabled {
+  opacity: 1;
+}
+.dw-seat-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 30%;
+}
+.dw-seat-wash {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(11 12 14 / 0.15) 0%, rgb(11 12 14 / 0.88) 100%);
+}
+.dw-seat-text {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.2;
+}
+.dw-seat-text b {
+  display: flex;
+  align-items: center;
+  font-size: 20px;
+  color: var(--on-art);
+}
+.dw-seat-text .dw-credit {
+  color: rgb(255 255 255 / 0.75);
+}
+.dw-seat-life {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 40px;
+  line-height: 1;
+  color: var(--on-art);
+  text-shadow: var(--art-shadow);
+}
+.dw-seat-tag {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  color: var(--ground);
+  font-size: 12px;
+  font-weight: 800;
+}
+.dw-seats.compact .dw-seat-list {
+  flex-direction: column;
+  gap: 8px;
+}
+.dw-seats.compact .dw-seat {
+  flex: none;
+  height: 76px;
+  border-radius: 14px;
+}
+.dw-seats.compact .dw-seat-wash {
+  background: linear-gradient(90deg, rgb(11 12 14 / 0.88), rgb(11 12 14 / 0.5) 60%, rgb(11 12 14 / 0.2));
+}
+.dw-seats.compact .dw-seat-text {
+  top: 0;
+  bottom: 0;
+  right: 150px;
+  justify-content: center;
+}
+.dw-seats.compact .dw-seat-text b {
+  font-size: 16px;
+}
+.dw-seats.compact .dw-seat-life {
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 30px;
+}
+.dw-seats.compact .dw-seat-tag {
+  left: auto;
+  right: 64px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* The library (GLibrary): top or bottom, and cards split between two places. */
+.dw-tob-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+.dw-tob-cards {
+  display: flex;
+  gap: 14px;
+}
+.dw-tob-cards figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.dw-tob-cards .dw-row-img {
+  width: 200px;
+  border-radius: 10px;
+}
+.dw-tob-cards figure.mine .dw-row-img {
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-tob-cards figcaption {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+.dw-tob-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 6px;
+}
+.dw-tob-opt {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+  border: none;
+  border-radius: 18px;
+  background: transparent;
+  text-align: left;
+  font-weight: 400;
+}
+.dw-tob-opt.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-tob-opt.picked {
+  background: var(--raised);
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-tob-mark {
+  position: relative;
+  width: 44px;
+  height: 58px;
+  justify-self: center;
+  border-radius: 5px;
+  background: var(--ground);
+  box-shadow: 0 0 0 1px var(--line), 3px 3px 0 var(--surface), 3px 3px 0 1px var(--line);
+}
+.dw-tob-mark span {
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--pick);
+}
+.dw-tob-opt.top .dw-tob-mark span {
+  top: -6px;
+}
+.dw-tob-opt.bottom .dw-tob-mark span {
+  bottom: -6px;
+}
+.dw-tob-opt.picked .dw-tob-mark span {
+  background: var(--text);
+}
+.dw-tob-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.dw-tob-text b {
+  font-size: 20px;
+}
+.dw-tob-text span {
+  font-size: 14px;
+  color: var(--dim);
+}
+.dw-tob.compact .dw-tob-body {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.dw-tob.compact .dw-tob-cards .dw-row-img {
+  width: 110px;
+  border-radius: 6px;
+}
+.dw-tob.compact .dw-tob-opt {
+  padding: 8px 12px;
+  border-radius: 14px;
+}
+.dw-tob.compact .dw-tob-text b {
+  font-size: 15px;
+}
+.dw-place-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.dw-place {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 300px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--ground);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.dw-place.first {
+  background: var(--raised);
+}
+.dw-place-cards {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 24px;
+  flex: 1;
+}
+.dw-place-card {
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  transition: transform 160ms;
+}
+.dw-place-card.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-place-card.picked {
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-place-card.tapped {
+  transform: rotate(90deg);
+  margin: 30px 0;
+}
+.dw-place-card img,
+.dw-place-card .dw-card-name {
+  display: block;
+  width: 170px;
+  aspect-ratio: 488 / 680;
+  border-radius: 10px;
+}
+.dw-places.compact .dw-place-list {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.dw-places.compact .dw-place {
+  min-height: 0;
+}
+.dw-places.compact .dw-place-card img,
+.dw-places.compact .dw-place-card .dw-card-name {
+  width: 80px;
+  border-radius: 5px;
+}
+.dw-places.compact .dw-place-card.tapped {
+  margin: 10px 0;
+}
+/* A dig's rest split between the top and the bottom (Telling Time). */
+.dw-order-split {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  border-left: 2px dashed var(--line);
+  color: var(--dim);
+  font-size: 12px;
+  font-weight: 700;
+  writing-mode: vertical-rl;
+}
+.dw-order.compact .dw-order-split {
+  border-left: none;
+  border-top: 2px dashed var(--line);
+  padding: 6px 0 0;
+  writing-mode: horizontal-tb;
+}
+
+/* The rail and dock while someone else's table-wide decision runs. */
+.together {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.together-head {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+.together-head img {
+  width: 52px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.together-head span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.together-head span span {
+  font-size: 12px;
+  color: var(--dim);
+}
+.together-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.together-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.together-row .seat-dot {
+  width: 8px;
+  height: 8px;
+  margin: 0;
+}
+.together-row > span:last-child {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 12px;
+}
+.together-row.now > span:last-child {
+  color: var(--text);
+}
+.together-tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.together-tally span {
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  font-size: 12px;
+}
+.together-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.together-cards img,
+.together-cards .blank {
+  width: 52px;
+  aspect-ratio: 488 / 680;
+  border-radius: 3px;
+  background: var(--raised);
+}
+.together-pile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.together-pile b {
+  font-size: 12px;
+}
+.pb.phone .together-cards img,
+.pb.phone .together-cards .blank {
+  width: 40px;
+}
+
+/* The credit line under each battlefield: the artists of the tiles it shows (every art crop
+   credits its artist in the same view). Compact, at the battlefield's foot. */
+.field-credit {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--dim);
+}
+.pb-mine > .field-credit {
+  margin-top: -4px;
+}
+.opp-body > .field-credit {
+  padding: 0 2px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.pb.phone .pb-mine > .field-credit {
+  margin-top: auto;
+  padding-top: 8px;
+}
+.pb.phone .pb-mine > .field-credit + .pb-credit {
+  margin-top: 0;
+  padding-top: 2px;
+}
+.opp-focus > .field-credit {
+  padding: 0 4px;
+}

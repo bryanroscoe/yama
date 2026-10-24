@@ -66,6 +66,44 @@ export const isFaceChoice = (p: Pending | null | undefined): boolean => !!p && F
 const PERMANENTS = new Set(["legend", "clone", "equip", "ring", "empower", "host", "populate", "explore", "proliferate"]);
 export const isPermanentPick = (p: Pending | null | undefined): boolean => !!p && PERMANENTS.has(p.purpose);
 
+/**
+ * Decisions everyone takes part in (GTogether): a vote, splitting piles and choosing one, a
+ * villainous choice, coins and dice, a guess, a clash's top or bottom, life totals.
+ */
+const TOGETHER = new Set(["vote", "piles_split", "piles_choose", "branch", "coin", "die", "guess", "clash", "life"]);
+export const isTogether = (p: Pending | null | undefined): boolean => !!p && TOGETHER.has(p.purpose);
+
+/** Choosing a player (GRareRules' "Choosing a player"): the seat picker on art panels. */
+export const isSeatPick = (p: Pending | null | undefined): boolean => !!p && p.answer === "choose_player";
+
+/** Words the engine's options read as (no card): a villainous choice's branches, a guess, life totals. */
+export const isWordPick = (p: Pending | null | undefined): boolean => !!p && (p.purpose === "branch" || p.purpose === "guess" || p.purpose === "life");
+
+/** A card going to the top or the bottom of a library: its own (a clash), or its owner's. */
+export const isTopOrBottom = (p: Pending | null | undefined): boolean => !!p && p.answer === "choose_top_or_bottom";
+
+/** Cards split between two places (GLibrary): the Cultivate split, manifest dread. */
+export const isPlaces = (p: Pending | null | undefined): boolean => !!p && (p.places?.length ?? 0) === 2 && p.kind === "pick";
+
+/** A pile's cards, as a split shows them: pile A is what's picked, pile B the rest (CR 700.3a). */
+export function piles(p: Pending, d: Draft): { a: DecisionOption[]; b: DecisionOption[] } {
+  if (p.purpose === "piles_choose") {
+    const shown = p.shown ?? [];
+    return { a: shown.filter((o) => o.group === "a"), b: shown.filter((o) => o.group === "b") };
+  }
+  const ids = d.kind === "pick" ? d.ids : [];
+  return { a: p.options.filter((o) => ids.includes(o.id)), b: p.options.filter((o) => !ids.includes(o.id)) };
+}
+
+/**
+ * Whether an order may move the entry at `from` to `to`: a dig's rest split by someone else keeps
+ * its top and bottom piles (only the order within each changes).
+ */
+export function canMoveOrder(p: Pending, from: number, to: number): boolean {
+  if (!p.fixedSplit || p.topCount === undefined) return true;
+  return from < p.topCount === to < p.topCount;
+}
+
 /** The permanent a counter option is about: "123", or "123:P1P1" when it has several kinds. */
 export const objectOf = (id: string): number => Number(id.split(":")[0]);
 
@@ -321,6 +359,8 @@ export function toAct(p: Pending, d: Draft, yes = true): Act | null {
       return d.kind === "number" && d.value !== null ? { kind: "choose_x", value: d.value } : null;
     case "choose_option":
       if (d.kind === "number") return d.value === null ? null : { kind: "choose_option", choice: String(d.value) };
+      // A vote for a word or a guess: the word picked.
+      if (d.kind === "pick") return d.ids[0] === undefined ? null : { kind: "choose_option", choice: d.ids[0] };
       return d.kind === "text" ? { kind: "choose_option", choice: d.value.trim() } : null;
     case "pay_unless_cost":
       return { kind: "pay_unless_cost", pay: yes };
@@ -379,6 +419,15 @@ export function toAct(p: Pending, d: Draft, yes = true): Act | null {
     // Ways to cast, permanents and counters (play/src/ways.rs).
     case "cast_offer":
       return { kind: "cast_offer", cast: yes && castable(p) };
+    // Everyone takes part, choosing a player, and learn (play/src/together.rs, library.rs).
+    case "submit_pile_partition":
+      return d.kind === "pick" ? { kind: "submit_pile_partition", pile_a: d.ids.map(Number) } : null;
+    case "select_coin_flips":
+      return d.kind === "pick" ? { kind: "select_coin_flips", keep: d.ids.map(Number) } : null;
+    case "select_die_rolls":
+      return d.kind === "pick" ? { kind: "select_die_rolls", ignore: d.ids.map(Number) } : null;
+    case "learn":
+      return d.kind === "pick" ? { kind: "learn", discard: d.ids[0] === undefined ? null : Number(d.ids[0]) } : null;
   }
   if (d.kind === "split") {
     const given = p.options.filter((o) => (d.amounts[o.id] ?? 0) > 0);
@@ -413,6 +462,18 @@ export function toAct(p: Pending, d: Draft, yes = true): Act | null {
       return { kind: "choose_ring_bearer", target: Number(id) };
     case "equip":
       return p.source ? { kind: "equip", equipment: p.source.id, target: Number(id) } : null;
+    case "submit_vote_candidate":
+      return { kind: "submit_vote_candidate", candidate: Number(id) };
+    case "choose_pile":
+      return { kind: "choose_pile", pile: id === "b" ? "b" : "a" };
+    case "choose_branch":
+      return { kind: "choose_branch", index: Number(id) };
+    case "choose_top_or_bottom":
+      return { kind: "choose_top_or_bottom", top: id === "top" };
+    case "redistribute_life":
+      return { kind: "redistribute_life", option: Number(id) };
+    case "choose_player":
+      return { kind: "choose_player", seat: Number(id.slice(1)) };
   }
   return null;
 }
@@ -480,10 +541,14 @@ export function pickVerb(p: Pending): string {
 
 const optionName = (p: Pending, id: string | undefined) => p.options.find((o) => o.id === id)?.name ?? "";
 
-export type SecondaryDoes = "no" | "cancel" | "clear" | "none" | "reset" | "ask" | "all-top" | "all" | "keep-rest" | "keep-mana";
+export type SecondaryDoes = "no" | "cancel" | "clear" | "none" | "reset" | "ask" | "all-top" | "all" | "keep-rest" | "keep-mana" | "swap";
 
 /** The main and second buttons' words for a decision (design/screens/GButtons and each widget's board). */
-export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell: boolean }): { primary: string; secondary: string | null; secondaryDoes: SecondaryDoes | null } {
+export function buttons(
+  p: Pending,
+  d: Draft,
+  opts: { canCancel: boolean; spell: boolean; /** A seat as the board names it ("Sam", a computer's short commander name). */ who?: (seat: number) => string },
+): { primary: string; secondary: string | null; secondaryDoes: SecondaryDoes | null } {
   const cancel = opts.canCancel ? ({ secondary: "Cancel", secondaryDoes: "cancel" } as const) : null;
   const none = { secondary: null, secondaryDoes: null };
   switch (d.kind) {
@@ -510,6 +575,8 @@ export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell:
       if (p.answer === "choose_pair") {
         return { primary: n ? `Pair with ${optionName(p, d.ids[0])}` : "Choose a creature", ...(p.min === 0 ? { secondary: "Don't pair", secondaryDoes: "none" as const } : none) };
       }
+      const together = togetherButtons(p, d, changed(p, d), opts.who);
+      if (together) return { ...together, ...(together.secondary === undefined ? (cancel ?? none) : {}) } as ReturnType<typeof buttons>;
       const ways = waysButtons(p, d);
       if (ways) return { ...ways, ...(ways.secondary === undefined ? (cancel ?? none) : {}) } as ReturnType<typeof buttons>;
       const paying = payButtons(p, d);
@@ -557,6 +624,77 @@ export function buttons(p: Pending, d: Draft, opts: { canCancel: boolean; spell:
       return { primary: v ? `${named ? "Name" : "Choose"} ${v}` : `Choose a ${p.choiceType ?? "word"}`, ...(cancel ?? none) };
     }
   }
+}
+
+/** A seat picker's main button, by what the player is chosen for: "Give the gift to Sam", "Clash with Jules". */
+function playerButton(p: Pending, name: string): string {
+  switch (p.purpose) {
+    case "gift":
+      return `Give the gift to ${name}`;
+    case "clash_opponent":
+      return `Clash with ${name}`;
+    case "pile_opponent":
+      return `${name} separates them`;
+    case "entry_controller":
+      return `It enters under ${name}`;
+    case "announcer":
+      return `${name} chooses the target`;
+    default:
+      return `${name} chooses`;
+  }
+}
+
+/**
+ * The buttons for decisions everyone takes part in, choosing a player and the library (GTogether,
+ * GRareRules, GLibrary): "Vote for Éowyn", "Done: 2 and 3", "Take pile A (1)", "Keep heads",
+ * "Ignore the 4", "Give the gift to Sam", "Put it on the bottom", "Put Forest onto the battlefield
+ * tapped". The second button is left `undefined` where Cancel (when there is one) belongs.
+ */
+function togetherButtons(p: Pending, d: Draft, moved: boolean, who?: (seat: number) => string): { primary: string; secondary?: string | null; secondaryDoes?: SecondaryDoes | null } | null {
+  if (d.kind !== "pick") return null;
+  const n = d.ids.length;
+  const o = p.options.find((x) => x.id === d.ids[0]);
+  const name = o?.name ?? "";
+  const none = { secondary: null, secondaryDoes: null };
+  switch (p.purpose) {
+    case "vote":
+      return { primary: o ? `Vote for ${name}` : "Choose what to vote for", ...none };
+    case "piles_split": {
+      const { a, b } = piles(p, d);
+      return { primary: `Done: ${a.length} and ${b.length}`, ...(moved ? { secondary: "Reset", secondaryDoes: "reset" as const } : none) };
+    }
+    case "piles_choose": {
+      const { a, b } = piles(p, d);
+      return { primary: !o ? "Choose a pile" : `Take pile ${o.id.toUpperCase()} (${o.id === "a" ? a.length : b.length})`, ...none };
+    }
+    case "branch":
+      return { primary: o ? "Choose this one" : "Choose one", ...none };
+    case "coin":
+      return { primary: p.max > 1 ? `Keep (${n}/${p.max})` : o ? `Keep ${name.toLowerCase()}` : "Choose a coin", ...none };
+    case "die":
+      return { primary: p.max > 1 ? `Ignore (${n}/${p.max})` : o ? `Ignore the ${name}` : "Choose a roll", ...none };
+    case "guess":
+      return { primary: o ? `Guess ${name}` : "Make a guess", ...none };
+    case "life":
+      return { primary: o ? "Use these life totals" : "Choose one", ...none };
+    case "clash":
+    case "top_or_bottom":
+      return { primary: o ? `Put it on the ${o.id}` : "Choose top or bottom", ...none };
+    case "partition": {
+      // Every card has a place from the start (GLibrary's "Both placed"): Done sends it.
+      const swap = p.options.length === 2 && p.max === 1 && n === 1;
+      if (p.max > 1 || !o) return { primary: n === p.max ? "Done" : `Done (${n}/${p.max})`, ...none };
+      return { primary: "Done", ...(swap ? { secondary: "Swap them", secondaryDoes: "swap" as const } : none) };
+    }
+    case "manifest":
+      return { primary: o ? `Manifest ${name}` : "Choose a card", ...none };
+    case "learn":
+      return { primary: o ? `Discard ${name}, then draw` : "Don't discard", ...none };
+    case "reveal":
+      return { primary: o ? `Reveal ${name}` : p.min === 0 ? "Don't reveal" : "Choose a card", ...none };
+  }
+  if (p.answer === "choose_player") return { primary: o ? playerButton(p, who && o.controller !== undefined ? who(o.controller) : name) : "Choose a player" };
+  return null;
 }
 
 /**
@@ -704,6 +842,9 @@ export function counter(p: Pending, d: Draft): string {
     if (p.purpose === "copy" || p.purpose === "retarget") return p.slot ? `Target ${p.slot[0] + 1} of ${p.slot[1]}` : "Target 1 of 1";
     if (p.need !== undefined) return `${powerOf(p, d)} of ${p.need} power`;
     if (p.purpose === "proliferate") return `${n} chosen`;
+    if (p.purpose === "vote") return n ? "Voted" : (p.total ?? 1) === 1 ? "1 vote to cast" : `${p.total} votes to cast`;
+    if (p.purpose === "piles_split") return `${n} and ${p.options.length - n}`;
+    if (p.purpose === "partition" && p.options.length === 2 && p.max === 1) return n ? "Both placed" : "0 of 1 chosen";
     if (isFaceChoice(p)) return "";
     if (p.answer === "pay_phyrexian") return n ? `${n} with life` : "All with mana";
     if (p.answer === "decide_optional_cost" || p.answer === "choose_cost_branch" || p.answer === "choose_mana_color" || p.answer === "pay_mana_ability_mana" || p.answer === "tap_mana") return "";
@@ -723,6 +864,11 @@ export function counter(p: Pending, d: Draft): string {
 /** Where an entry of an order ends up, in words (GOrder, GTriggers). */
 export function orderTag(p: Pending, i: number, n: number): string {
   if (p.answer === "order_triggers") return i === 0 ? "Resolves first" : i === n - 1 ? "Resolves last" : "Then";
+  // A dig's rest split between the top and the bottom (Telling Time).
+  if (p.topCount !== undefined) {
+    if (i < p.topCount) return i === 0 ? "On top: drawn next" : "On top, under it";
+    return i === n - 1 ? "Very bottom" : i === p.topCount ? "Bottom: highest" : "Bottom: then";
+  }
   if (p.destination === "top") return i === 0 ? "On top: drawn next" : "Under it";
   return i === n - 1 ? "Very bottom" : i === 0 ? "Highest of these" : "Then";
 }
@@ -740,6 +886,7 @@ const BOARD_ANSWERS = new Set([
   "choose_ring_bearer",
   "equip",
   "select_targets",
+  "learn",
 ]);
 
 /**
@@ -763,7 +910,8 @@ export type Stage = "strip" | "board" | "steppers" | "dialog" | "sheet";
 
 export function stageOf(p: Pending, wide: boolean, splitOnBoard: boolean): Stage {
   // A card offered to cast is shown whole, with what cascade went through (GCastWays).
-  if (isCastOffer(p)) return wide ? "dialog" : "sheet";
+  // What a reveal-until found is shown whole, with the cards it went past (GLibrary).
+  if (isCastOffer(p) || p.purpose === "kept") return wide ? "dialog" : "sheet";
   if (p.kind === "yesno") return "strip";
   // Targets and creatures to tap are chosen on the board on a phone too (GTargetPhone).
   if (onBoard(p) && (wide || isTargeting(p) || isTapping(p))) return "board";

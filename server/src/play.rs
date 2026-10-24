@@ -1197,6 +1197,8 @@ pub(crate) fn view_names(view: &View) -> Vec<String> {
         .map(|c| c.name.clone())
         .chain(view.stack.iter().map(|s| s.name.clone()))
         .chain(view.decision.iter().filter_map(|d| d.pending.as_ref()).flat_map(|p| p.card_names()))
+        // A table-wide decision's public cards (votes for permanents, piles), as this viewer sees them.
+        .chain(view.together.iter().flat_map(|t| t.card_names()))
         // Cards named in what this viewer was told happened (already filtered for them), for the
         // log's art and the reveal panel's images.
         .chain(view.events.iter().flat_map(|h| h.card_names()))
@@ -1219,7 +1221,7 @@ pub(crate) fn dress_pending(view: &mut View, cards: &HashMap<String, CardMeta>) 
         src.artist = m.artist.clone();
         p.oracle = Some(m.oracle_text.clone()).filter(|t| !t.is_empty());
     }
-    for o in p.options.iter_mut().filter(|o| o.card) {
+    for o in p.options.iter_mut().chain(p.shown.iter_mut()).filter(|o| o.card) {
         if let Some(m) = cards.get(&o.name) {
             o.img = m.image.clone();
             o.art = m.art.clone();

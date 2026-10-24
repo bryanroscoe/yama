@@ -120,7 +120,22 @@ fn only_whitelisted_answers_parse() {
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"move_counters","moves":[{"on":7,"counter":"P1P1","count":2}]}}"#));
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"remove_counters","counters":[{"counter":"stun","count":1}]}}"#));
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"remove_counter_cost","counters":[{"on":7,"counter":"P1P1","count":1}]}}"#));
+    // Everyone takes part, choosing a player, and the library (play/src/together.rs, library.rs).
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"submit_vote_candidate","candidate":2}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"submit_pile_partition","pile_a":[7,9]}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_pile","pile":"b"}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_branch","index":1}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"select_coin_flips","keep":[0]}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"select_die_rolls","ignore":[1]}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_top_or_bottom","top":false}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"redistribute_life","option":0}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_player","seat":2}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"learn","discard":null}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_pile","pile":"c"}}"#));
     // Not the engine's own forms of them.
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_gift_recipient","opponent":2}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_pile_opponent","opponent":2}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"learn_decision","choice":{"type":"Skip"}}}"#));
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"cascade_choice","choice":{"type":"Cast"}}}"#));
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"cast_spell_as_madness","object_id":4,"card_id":4}}"#));
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_counter_move_distribution","selections":[]}}"#));

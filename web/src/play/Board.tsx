@@ -63,6 +63,7 @@ import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayL
 import { DragLayer, PlanArrows, seatHeadOf, stackRowOf, tileOf, type ArrowTone, type DragLayerHandle, type PlanArrow } from "./DragLayer";
 import { MotionContext, Tick, useBoardMotion, type MotionOptions } from "./BoardMotion";
 import { DecisionRail, DecisionStage, PickBanner, SplitSteppers, type WidgetContext } from "./Decide";
+import { TogetherBody } from "./Everyone";
 import {
   buttons as chooserButtons,
   changed as draftChanged,
@@ -1420,6 +1421,11 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     // You're out and the game goes on (GRareRules): keep watching, or leave.
     if (youreOut) return { primary: { label: "Keep watching", run: () => setWatchOn(true) }, secondary: { label: "Leave", run: () => navigate("/play") } };
     if (view.over || you === null || meOut) return { primary: null, secondary: null };
+    // Your own reveal stays up until you've read it, so everyone can (GLibrary's reveal-until: the
+    // engine asks nothing when the rest go to the bottom at random).
+    if (revealNow && revealNow[0]!.seat === you && !pend && !settingsOpen) {
+      return { primary: { label: "Done looking", run: dismissReveal }, secondary: null };
+    }
     // Game settings: Close or Done; conceding is confirmed here, with Cancel beside it (GSettings).
     if (settingsOpen) {
       const b = settingsButtons(settings!);
@@ -1445,7 +1451,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     if (pend && draft) {
       const cancel = optionOf(decision, "cancel");
       const sourceCard = pend.source ? cardById.get(pend.source.id) : undefined;
-      const b = chooserButtons(pend, draft, { canCancel: !!cancel, spell: !sourceCard || !view.battlefield.some((c) => c.id === sourceCard.id) });
+      const b = chooserButtons(pend, draft, { canCancel: !!cancel, spell: !sourceCard || !view.battlefield.some((c) => c.id === sourceCard.id), who: Who });
       const second = (): void => {
         switch (b.secondaryDoes) {
           case "no":
@@ -1468,6 +1474,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             return sendAct(noneAct(pend));
           case "ask":
             return void setDraft({ kind: "yesno", remember: "ask" });
+          case "swap":
+            // One of two cards placed (the Cultivate split): the other one instead.
+            return void (draft.kind === "pick" && setDraft({ kind: "pick", ids: pend.options.filter((o) => !draft.ids.includes(o.id)).map((o) => o.id).slice(0, pend.max) }));
           case "all-top":
             // Every card back on top: the ones kept stay in their order, the others go under them.
             return void (draft.kind === "pick" && setDraft({ kind: "pick", ids: [...draft.ids, ...pend.options.filter((o) => o.eligible && !draft.ids.includes(o.id)).map((o) => o.id)] }));
@@ -1620,6 +1629,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         : view.active === you ? "You, your turn" : "You";
 
   const credits = artCredits([...view.players.map((p) => art(p.seat))].filter((a) => a.art).map((a) => a.artist));
+  // The tiles your battlefield shows with art (folded lands show only the ones you can use).
+  const landsShown = landsOpen || paying || myRows.lands.length <= 8 ? myRows.lands : myRows.lands.filter((p) => p.ids.some((i) => optionObjects.has(i)));
+  const myCredit = fieldCredit([...myRows.creatures, ...landsShown, ...myRows.others], meta);
   // The rail's last few lines: what happened (newer servers), else the engine's log lines.
   const recent = view.events
     ? view.events
@@ -1672,6 +1684,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             damageOf: (id: number) => cardById.get(id)?.damage ?? 0,
             inPlay: [...new Map(view.battlefield.map((c) => [c.name, { name: c.name, seat: c.controller }])).values()],
             life: view.players.find((x) => x.seat === you)?.life,
+            together: view.together,
+            seat: (n: number) => ({ art: art(n).art, artist: art(n).artist, life: view.players.find((x) => x.seat === n)?.life ?? null }),
+            library: (n: number) => view.players.find((x) => x.seat === n)?.library,
           } satisfies WidgetContext,
         }
       : null;
@@ -1907,6 +1922,10 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const modeChipEl = modeNow ? <ModeChip label={modeChip(modeNow)} onStop={() => sendPass(null)} /> : null;
   const consentBody = (compact: boolean) =>
     view.resolve_all ? <ConsentBody ask={view.resolve_all} stack={view.stack} meta={meta} Who={Who} tone={(n) => tones.get(n)} you={you} compact={compact} /> : null;
+  // Someone else's vote, piles, villainous choice or clash (GTogether): its public part, for
+  // everyone at the table. Your own decision's dialog shows it beside your choice.
+  const togetherBody = (compact: boolean) =>
+    view.together && !widget ? <TogetherBody t={view.together} meta={meta} Who={Who} tone={(n) => tones.get(n)} you={you} compact={compact} /> : null;
   const settingsBody = (compact: boolean, foot?: React.ReactNode) =>
     settingsOpen && savedTurns ? (
       <GameSettings
@@ -2141,7 +2160,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         />
       )}
       {/* Cards revealed to everyone, or shown to you alone: up until dismissed (Reveal.tsx). */}
-      {revealNow && !inspect && (
+      {/* Under a decision's dialog or sheet it waits: it stays until dismissed anyway. */}
+      {revealNow && !inspect && stage !== "dialog" && stage !== "sheet" && (
         <RevealPanel group={revealNow} more={reveals.length - 1} names={names} meta={meta} tone={(n) => tones.get(n)} onRead={(name) => readCard(name)} onClose={dismissReveal} wide={wide} />
       )}
       {koNow && !youreOut && <KnockoutNote out={koNow} view={view} names={names} art={art} onClose={dismissKo} />}
@@ -2238,6 +2258,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
                 {myRows.others.map((p) => <FieldTile key={p.key} pile={p} meta={meta[p.card.name]} look={look(p)} h={h} />)}
               </div>
             </div>
+            {myCredit && <p className="field-credit">{myCredit}</p>}
           </section>
 
           <div className="pb-handrow" aria-label="Your hand and zones">
@@ -2298,7 +2319,12 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             {/* The choices scroll; the big button below them never leaves the screen. */}
             <div className="rail-body">
               {watch
-                ? watchControls(false)
+                ? (
+                  <>
+                    {watchControls(false)}
+                    {togetherBody(false)}
+                  </>
+                )
                 : settingsOpen
                   ? <p className="rail-empty">{settingsButtons(settings!).body}</p>
                   : consentBody(false) ??
@@ -2310,7 +2336,10 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
                     ) : paying ? (
                       <PaymentRail p={payment!} meta={meta} tapMana={tapMana} onTapMana={setTapMana} onAct={sendAct} disabled={pending || !connected} />
                     ) : (
-                      decisionBody
+                      <>
+                        {togetherBody(false)}
+                        {decisionBody}
+                      </>
                     ))}
             </div>
             <div className="rail-foot">
@@ -2558,6 +2587,15 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             {myRows.others.map((p) => <FieldTile key={p.key} pile={p} meta={meta[p.card.name]} look={look(p)} h={h} />)}
           </div>
         )}
+        {(() => {
+          const shown = [
+            ...myRows.creatures,
+            ...myRows.others.filter((p) => othersOpen || p.card.types.includes("Planeswalker") || p.ids.some((i) => optionObjects.has(i))),
+            ...myRows.lands.filter((p) => landsOpen || p.ids.some((i) => optionObjects.has(i))),
+          ];
+          const line = fieldCredit(shown, meta);
+          return line ? <p className="field-credit">{line}</p> : null;
+        })()}
         {credits && <p className="pb-credit">{credits}</p>}
       </section>
 
@@ -2610,6 +2648,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           </div>
         )}
         {view.resolve_all && !watch && <div className="dock-decision">{agree && <p className="dock-prompt"><b>{title}</b></p>}{consentBody(true)}</div>}
+        {view.together && !widget && <div className="dock-decision">{togetherBody(true)}</div>}
         {modeChipEl}
         {!view.resolve_all && (phoneHint || phoneChoices.length > 0 || (decision && !decision.prompt.startsWith("Priority") && !attack && !block && !widget && !paying)) && (
           <div className="dock-decision">
@@ -2664,6 +2703,15 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
 const single = (c: CardView): Pile => ({ key: String(c.id), card: c, ids: [c.id] });
 
 /**
+ * The credit line under a battlefield (Bryan's rule: every art crop credits its artist in the same
+ * view): the artists of the tiles it shows with art. Empty when none shows art.
+ */
+function fieldCredit(piles: Pile[], meta: Record<string, CardMeta>): string {
+  const artists = piles.filter((p) => meta[p.card.name]?.art).map((p) => meta[p.card.name]?.artist);
+  return artists.length ? artCredits(artists) : "";
+}
+
+/**
  * Whether a split can sit on its targets (laptop): every target is a player still in the game or
  * a permanent with a tile of its own. Two targets in one stack of tokens can't each carry a
  * stepper, and lands may be folded away, so those get the dialog's rows instead.
@@ -2714,7 +2762,10 @@ function zoneOf(p: Pending, view: View, you: number | null, Who: (n: number) => 
 /** How wide a decision's dialog is: card grids are wide, lists of words narrower (the boards' widths). */
 function dialogSize(p: Pending, d: Draft): "wide" | "mid" | "narrow" {
   // A card offered alone (madness, miracle) needs less room than a cascade's run.
-  if (isCastOffer(p)) return p.options.length > 1 ? "wide" : "mid";
+  if (isCastOffer(p) || p.purpose === "kept") return p.options.length > 1 ? "wide" : "mid";
+  // Coins and dice, a guess, a branch, life totals and top or bottom are a few choices (GTogether, GLibrary).
+  if (["coin", "die", "guess", "life", "top_or_bottom"].includes(p.purpose)) return "mid";
+  if (p.purpose === "branch") return "narrow";
   if (d.kind === "split" || d.kind === "number" || p.answer === "choose_replacement") return "mid";
   if (p.answer === "select_modes" || p.answer === "order_triggers") return "narrow";
   return "wide";
@@ -3060,6 +3111,7 @@ function OppPane(props: {
             {r.creatures.map((x) => <FieldTile key={x.key} pile={x} meta={props.meta[x.card.name]} look={props.look(x)} h={props.h} />)}
             {!props.cards.length && <p className="zone-empty">Nothing on the battlefield yet.</p>}
           </div>
+          {fieldCredit([...back, ...r.creatures], props.meta) && <p className="field-credit">{fieldCredit([...back, ...r.creatures], props.meta)}</p>}
         </div>
       )}
     </article>
@@ -3161,6 +3213,10 @@ function OppFocus(props: {
             {front.map((x) => <FieldTile key={x.key} pile={x} meta={props.meta[x.card.name]} look={props.look(x)} h={props.h} />)}
             {!front.length && <p className="zone-empty">No creatures.</p>}
           </div>
+          {(() => {
+            const line = fieldCredit([...front, ...(open === "lands" ? r.lands : open === "others" ? rest : [])], props.meta);
+            return line ? <p className="field-credit">{line}</p> : null;
+          })()}
         </>
       )}
     </section>
