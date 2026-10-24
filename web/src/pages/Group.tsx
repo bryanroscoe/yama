@@ -415,7 +415,6 @@ function Account() {
         <OfflineCardsSetting />
         {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
         {!me.data?.viewing && <AdvisorSettings />}
-        <ViewedNotice />
         {me.data?.is_admin && (
           <div className="grp-you-row">
             <span className="grp-you-text">
@@ -433,32 +432,6 @@ function Account() {
       </div>
       <p className="small dim" style={{ margin: 0 }}>Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast.</p>
     </section>
-  );
-}
-
-/** When an admin looked at this account with View as (read only), so it's never secret. */
-function ViewedNotice() {
-  const views = useQuery({
-    queryKey: ["me-viewed"],
-    queryFn: () => api<{ admin_name: string; started_at: string; until: string }[]>("/api/me/viewed"),
-  });
-  if (!views.data?.length) return null;
-  const day = (t: string) => new Date(t).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
-  const mins = (a: string, b: string) => Math.max(1, Math.round((Math.min(Date.parse(b), Date.now()) - Date.parse(a)) / 60_000));
-  return (
-    <div className="grp-you-row grp-you-stack">
-      <span className="grp-you-text">
-        <b>Admin views of your account</b>
-        <span>An admin can see your account read only, to help with a problem. Each time is listed here.</span>
-      </span>
-      <ul className="grp-viewed">
-        {views.data.slice(0, 5).map((v) => (
-          <li key={v.started_at}>
-            {v.admin_name}, {day(v.started_at)}, {mins(v.started_at, v.until)} min
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 

@@ -291,8 +291,7 @@ function ViewLog() {
     <section className="admin-section" aria-labelledby="adm-views">
       <h2 id="adm-views">Viewing log</h2>
       <p className="admin-lead">
-        View as shows Yama as that person sees it, read only, for up to 30 minutes. Every view is logged here, and the person sees it under
-        Group, You.
+        View as shows Yama as that person sees it, read only, for up to 30 minutes. Every view is logged here, for admins only.
       </p>
       <ErrorText error={log.error} />
       {log.data && n === 0 && <p className="dim">Nobody has used View as yet.</p>}

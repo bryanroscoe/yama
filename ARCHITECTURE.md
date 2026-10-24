@@ -394,7 +394,7 @@ Bryan (2026-10-22): "allow admins to impersonate other people to see their colle
 - **Hidden:** script keys (`/api/me/tokens`), connected apps (`/api/me/connected-apps`; the OAuth consent check refuses a view itself) and all of Ask Claude (`/api/advisor/*`): the status shows a stored key's last characters, conversations are private, and asking would spend their key or mint a one-question MCP token.
 - **Stale views:** a read with an ended view's cookie runs as the admin and clears the cookie; a write with one is refused, never run as the admin.
 - **The device:** the web app pauses plan and table sync while viewing (`viewingFlag.ts`), shows a banner with Stop and the time left on every page, and on stop (or expiry, or sign-out) deletes the person's plan bundle and unsent taps from the device. Other open tabs reload.
-- **Audit:** every view is a `view_sessions` row: Admin, People, Viewing log, and the viewed person's Group, You ("Admin views of your account", the last 180 days). Deleting either account deletes its rows (`admin/delete.rs`). The public privacy page says all this.
+- **Audit:** every view is a `view_sessions` row, listed in Admin, People, Viewing log, for admins only. Bryan (2026-10-23): too much auditability for an app made for friends, so the viewed person no longer sees a list under Group, You (`/api/me/viewed` is gone) and the privacy page no longer promises one; it still says admins can View as. Deleting either account deletes its rows (`admin/delete.rs`).
 
 ### Yama's tools for Claude (MCP, 2026-10-22)
 
