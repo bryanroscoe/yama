@@ -365,6 +365,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "applied_ops", &[("owner_id", t(&v))]).await;
     fill(&pool, "item_aliases", &[("owner_id", t(&v))]).await;
     fill(&pool, "mythic_imports", &[("owner_id", t(&v))]).await;
+    fill(&pool, "play_prefs", &[("user_id", t(&v))]).await;
 
     // Playgroups: one it owns with the bystander in it (passes on), one with only a guest
     // (deleted), and the bystander's with the victim in it (membership becomes a guest).

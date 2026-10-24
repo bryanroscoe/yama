@@ -9,7 +9,7 @@
 //! [`act`] with the decision's [`Pending`]), checked and applied to a copy of the game first.
 //! Each accepted action is appended to a replay log that reproduces the game from its seed.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -28,10 +28,11 @@ use engine::types::game_state::{GameState, MulliganDecisionPhase, WaitingFor};
 use engine::types::identifiers::ObjectId;
 use engine::game::combat::AttackTarget;
 use engine::types::ability::{AbilityCost, TargetRef};
-use engine::types::actions::{GameAction, MulliganChoice};
-use engine::types::log::{GameLogEntry, LogImportance, LogSegment, LogVisibility};
+use engine::types::actions::{GameAction, MulliganChoice, ResolveAllConsentDecision};
+use engine::types::events::GameEvent;
+use engine::types::game_state::{ActionResult, PriorityPassingMode, StackEntryKind};
+use engine::types::log::{LogImportance, LogSegment, LogVisibility};
 use engine::types::match_config::MatchConfig;
-use engine::types::phase::Phase;
 use engine::types::player::PlayerId;
 use engine::types::replay::{ReplayHeader, ReplayLog};
 use phase_ai::auto_play::eligible_ai_decision;
@@ -47,8 +48,10 @@ pub use phase_ai::config::AiDifficulty as Difficulty;
 pub mod act;
 pub mod lab;
 pub mod pilot;
+pub mod turns;
 
 pub use act::{Act, Pending};
+pub use turns::{Controls, PassMode, ResolveAllView, TurnsView};
 
 /// Engine build plus the card data it was built against. Stored with every game, because a
 /// replay only reproduces under the same pair.
@@ -254,8 +257,18 @@ impl Engine {
         m.rng = StdRng::seed_from_u64(log.header.seed ^ u64::from(n));
         m.revision = u64::from(n);
         m.state = state;
+        // Conceding leaves no mark in the engine's state; the log says who did.
+        m.conceded = log
+            .actions
+            .iter()
+            .filter_map(|a| match &a.action {
+                GameAction::Concede { player_id } => Some(player_id.0),
+                _ => None,
+            })
+            .collect();
         m.log = log;
         m.remark(None);
+        m.auto_watch = m.watch_automatic_answers();
         Ok(m)
     }
 
@@ -281,6 +294,9 @@ impl Engine {
             names: (1..=players).map(|n| format!("Player {n}")).collect(),
             fallback: false,
             marks: HashMap::new(),
+            controls: HashMap::new(),
+            conceded: BTreeSet::new(),
+            auto_watch: Vec::new(),
         };
         m.remark(None);
         Ok(m)
@@ -303,6 +319,12 @@ pub struct Match {
     fallback: bool,
     /// Each person's current decision: what it looked like and the revision it was issued at.
     marks: HashMap<u8, Mark>,
+    /// Each person's turn controls (turns.rs): stops, full control, a pass mode, holding priority.
+    controls: HashMap<u8, Controls>,
+    /// Seats that conceded (CR 104.3a), as opposed to losing; read back from the replay log.
+    conceded: BTreeSet<u8>,
+    /// Remembered answers the engine is about to give for people (turns.rs, `AutoWatch`).
+    auto_watch: Vec<turns::AutoWatch>,
 }
 
 /// A person's decision as of its issue (see [`Decision::revision`]).
@@ -316,13 +338,26 @@ struct Mark {
 pub struct LogLine {
     pub turn: u32,
     pub text: String,
+    /// Only this seat sees the line (an answer Yama gave for them). Everyone sees the rest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seat: Option<u8>,
+    /// An answer given automatically: its id in that seat's `TurnsView::answers`, so the line
+    /// can turn it off (GLog).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto: Option<String>,
+}
+
+impl LogLine {
+    fn public(turn: u32, text: String) -> Self {
+        LogLine { turn, text, seat: None, auto: None }
+    }
 }
 
 /// Where a person wants the game to stop for them, by step (phase's names, e.g.
 /// "PreCombatMain"), on their own turns and on everyone else's. Replaces the default smart
 /// stops (main phases, and an opponent's end step when a spell could be cast). Anything on the
 /// stack they could answer, and every decision other than priority, still waits for them.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stops {
     #[serde(default)]
     pub own: HashSet<String>,
@@ -458,12 +493,18 @@ pub enum OptionKind {
     Attack,
     Block,
     Target,
+    /// Someone asked to resolve the whole stack: agree (GTogether's consent tab).
+    Agree,
+    /// ... or keep your chance to act.
+    Refuse,
     Other,
 }
 
 impl OptionKind {
     fn of(action: &GameAction, waiting: &WaitingFor) -> Self {
         match action {
+            GameAction::RespondResolveAllConsent { decision: ResolveAllConsentDecision::Grant, .. } => Self::Agree,
+            GameAction::RespondResolveAllConsent { decision: ResolveAllConsentDecision::Decline, .. } => Self::Refuse,
             GameAction::PassPriority if matches!(waiting, WaitingFor::ManaPayment { .. }) => Self::PayRest,
             GameAction::PassPriority => Self::Pass,
             GameAction::CancelCast => Self::Cancel,
@@ -762,20 +803,28 @@ impl Match {
         let contract = AiDecisionContract::issue(&self.state, owner);
         let action = contract.candidates.get(index).ok_or(ChoiceError::BadIndex)?.action.clone();
         let actor = contract.authorized_actor;
+        // Passing over your own spell (or an empty stack) ends holding priority; passing over
+        // someone else's response doesn't, so you're still asked before your own resolves.
+        let passed = matches!(action, GameAction::PassPriority)
+            && matches!(self.state.waiting_for, WaitingFor::Priority { .. })
+            && self.state.stack.last().is_none_or(|top| top.controller == owner);
         match apply_ai_action_proposal(&mut self.state, &contract, actor, action.clone()) {
             AiProposalApplication::AppliedStackPass { result } => {
                 self.log.push_verified_ai_priority_pass(actor, owner);
-                self.accepted(&result.log_entries, Some(seat));
-                Ok(())
+                self.accepted(&result, Some(seat));
             }
             AiProposalApplication::AppliedAction { result } => {
                 self.log.push_action(actor, action);
-                self.accepted(&result.log_entries, Some(seat));
-                Ok(())
+                self.accepted(&result, Some(seat));
             }
-            AiProposalApplication::Stale => Err(ChoiceError::Stale),
-            AiProposalApplication::Rejected { rejection } => Err(ChoiceError::Rejected(format!("{rejection:?}"))),
+            AiProposalApplication::Stale => return Err(ChoiceError::Stale),
+            AiProposalApplication::Rejected { rejection } => return Err(ChoiceError::Rejected(format!("{rejection:?}"))),
         }
+        // Holding priority lasts until you pass over your own spell.
+        if passed && self.controls.get(&seat).is_some_and(|c| c.hold) {
+            self.set_hold(seat, false);
+        }
+        Ok(())
     }
 
     /// Declare any set of attackers, not only the engine's sample. The engine validates the
@@ -813,7 +862,7 @@ impl Match {
             Ok(result) => {
                 self.state = next;
                 self.log.push_action(actor, action);
-                self.accepted(&result.log_entries, Some(seat));
+                self.accepted(&result, Some(seat));
                 Ok(())
             }
             Err(e) => Err(ChoiceError::Rejected(self.plain_reason(owner, &e.to_string()))),
@@ -823,14 +872,24 @@ impl Match {
     /// Answer `seat`'s decision with `answer` (the client's `act` message). It must fit the
     /// decision's [`Pending`] (or be a cancel the engine offers), and is applied to a copy of the
     /// game first, so a refused answer leaves the game exactly as it was.
+    ///
+    /// A seat's own setting ([`Act::is_preference`]: turning off a remembered answer, a trigger
+    /// yield, hand order) can be sent at any time, whoever is deciding, so it carries no
+    /// revision check, and it leaves everyone's decision as it was.
     pub fn act(&mut self, seat: u8, revision: u64, answer: &Act) -> Result<(), ChoiceError> {
-        if !self.current(seat, revision) {
+        let preference = answer.is_preference();
+        if !preference && !self.current(seat, revision) {
             return Err(ChoiceError::Stale);
         }
         match act::answer(&mut self.state, PlayerId(seat), answer) {
             Ok(done) => {
                 self.log.push_action(done.actor, done.action);
-                self.accepted(&done.result.log_entries, Some(seat));
+                self.accepted(&done.result, (!preference).then_some(seat));
+                // Asking to resolve everything lets go of holding priority, so the engine's
+                // session passes your windows too once everyone agrees.
+                if matches!(answer, Act::ResolveAll) && self.controls.get(&seat).is_some_and(|c| c.hold) {
+                    self.set_hold(seat, false);
+                }
                 Ok(())
             }
             Err(act::Refusal::NotYours) => Err(ChoiceError::NotYourTurn),
@@ -930,6 +989,9 @@ impl Match {
             GameAction::Equip { equipment_id, target_id } => format!("Equip {} to {}", Self::name_in(vs, equipment_id), Self::name_in(vs, target_id)),
             GameAction::ChooseOption { choice } => choice.clone(),
             GameAction::CancelCast => "Cancel".into(),
+            GameAction::RespondResolveAllConsent { decision: ResolveAllConsentDecision::Grant, .. } => "Agree".into(),
+            GameAction::RespondResolveAllConsent { decision: ResolveAllConsentDecision::Decline, .. } => "Keep priority".into(),
+            GameAction::RevokeResolveAllConsent { .. } => "Take back your agreement".into(),
             GameAction::OrderTriggers { order } => {
                 let names: Vec<String> = match &vs.waiting_for {
                     WaitingFor::OrderTriggers { triggers, .. } => order
@@ -980,19 +1042,33 @@ impl Match {
         }
     }
 
-    /// Pass priority for people when stopping wouldn't help them, like Arena's smart stops:
-    /// a person stops in their own main phases, whenever someone else's spell or ability is on
-    /// top of the stack and they could respond, and at an opponent's end step if they could cast
-    /// a spell. Their own spell on top resolves without asking. Every other
-    /// decision (targets, blocks, mulligans) always waits. Seats in `full_control` stop at
-    /// every priority; seats with their own `stops` stop at the steps they chose instead of
-    /// the main phases and end step. Returns how many passes were made.
-    pub fn auto_pass(&mut self, humans: &[u8], full_control: &HashSet<u8>, stops: &HashMap<u8, Stops>) -> usize {
+    /// Pass priority for people when stopping wouldn't help them, by the rules in turns.rs
+    /// (`verdict`): Arena-like smart stops, each person's own stops, full control, holding
+    /// priority, trigger yields and the pass modes. Every decision other than priority (targets,
+    /// blocks, mulligans) always waits. Returns how many passes were made.
+    pub fn auto_pass(&mut self, humans: &[u8]) -> usize {
+        self.tidy_controls(humans);
         let mut passed = 0;
         loop {
-            let Some(seat) = self.waiting_on().into_iter().find(|s| humans.contains(s) && self.should_auto_pass(*s, full_control, stops.get(s))) else {
-                return passed;
-            };
+            let mut next = None;
+            for seat in self.waiting_on().into_iter().filter(|s| humans.contains(s)) {
+                let Some(w) = self.window(seat) else { continue };
+                let c = self.controls.get(&seat).cloned().unwrap_or_default();
+                match turns::verdict(&w, &c) {
+                    turns::Verdict::Pass => {
+                        next = Some(seat);
+                        break;
+                    }
+                    turns::Verdict::Stop => {}
+                    // Something happened: the pass mode ends and they're asked.
+                    turns::Verdict::Interrupt => {
+                        if let Some(c) = self.controls.get_mut(&seat) {
+                            c.passing = None;
+                        }
+                    }
+                }
+            }
+            let Some(seat) = next else { return passed };
             let contract = AiDecisionContract::issue(&self.state, PlayerId(seat));
             let Some(index) = contract.candidates.iter().position(|c| matches!(c.action, GameAction::PassPriority)) else {
                 return passed;
@@ -1001,17 +1077,39 @@ impl Match {
                 return passed;
             }
             passed += 1;
+            self.tidy_controls(humans);
         }
     }
 
-    fn should_auto_pass(&self, seat: u8, full_control: &HashSet<u8>, stops: Option<&Stops>) -> bool {
-        let WaitingFor::Priority { player } = &self.state.waiting_for else { return false };
+    /// End what no longer applies: a pass mode whose turn is over (or whose seat is out), and
+    /// holding priority once the stack is empty.
+    fn tidy_controls(&mut self, humans: &[u8]) {
+        let turn = self.state.turn_number;
+        let active = self.state.active_player.0;
+        let empty = self.state.stack.is_empty();
+        let mut released = vec![];
+        for seat in humans {
+            let out = self.state.players.iter().any(|p| p.id.0 == *seat && p.is_eliminated) || self.is_over();
+            let Some(c) = self.controls.get_mut(seat) else { continue };
+            if c.passing.is_some_and(|p| out || p.over(turn, active == *seat)) {
+                c.passing = None;
+            }
+            if c.hold && (empty || out) {
+                released.push(*seat);
+            }
+        }
+        for seat in released {
+            self.set_hold(seat, false);
+        }
+    }
+
+    /// `seat`'s priority window as the pass rules read it, if it holds priority now.
+    fn window(&self, seat: u8) -> Option<turns::Window> {
+        let WaitingFor::Priority { player } = &self.state.waiting_for else { return None };
         if player.0 != seat {
-            return false;
+            return None;
         }
         let contract = AiDecisionContract::issue(&self.state, PlayerId(seat));
-        // Land abilities (fetchlands and the like) don't make a stop worthwhile on their own;
-        // you still get them whenever you do stop.
         let is_land_ability = |a: &GameAction| match a {
             GameAction::ActivateAbility { source_id, .. } => self
                 .state
@@ -1020,47 +1118,111 @@ impl Match {
                 .is_some_and(|o| o.card_types.core_types.iter().any(|t| format!("{t:?}") == "Land")),
             _ => false,
         };
-        let mut others = contract
-            .candidates
-            .iter()
-            .filter(|c| !matches!(c.action, GameAction::PassPriority) && !is_land_ability(&c.action))
-            .peekable();
-        let anything_else = contract.candidates.iter().any(|c| !matches!(c.action, GameAction::PassPriority));
-        if !anything_else {
-            return true; // nothing else is legal
+        let others = || contract.candidates.iter().filter(|c| !matches!(c.action, GameAction::PassPriority));
+        Some(turns::Window {
+            phase: format!("{:?}", self.state.phase),
+            your_turn: self.state.active_player.0 == seat,
+            top: self.state.stack.last().map(|top| turns::Top {
+                yours: top.controller.0 == seat,
+                yielded: self.state.is_priority_yielded(PlayerId(seat), top),
+            }),
+            only_pass: others().next().is_none(),
+            can_act: others().any(|c| !is_land_ability(&c.action)),
+            can_cast: others().any(|c| matches!(c.action, GameAction::CastSpell { .. })),
+        })
+    }
+
+    /// `seat`'s saved settings: their stops (`None` for the usual ones) and full control.
+    pub fn set_prefs(&mut self, seat: u8, stops: Option<Stops>, full_control: bool) {
+        let c = self.controls.entry(seat).or_default();
+        c.stops = stops;
+        c.full_control = full_control;
+        self.sync_passing_mode(seat);
+    }
+
+    /// Full control on or off, keeping `seat`'s stops.
+    pub fn set_full_control(&mut self, seat: u8, on: bool) {
+        self.controls.entry(seat).or_default().full_control = on;
+        self.sync_passing_mode(seat);
+    }
+
+    /// `seat`'s own stops by step; `None` goes back to the usual ones.
+    pub fn set_stops(&mut self, seat: u8, stops: Option<Stops>) {
+        self.controls.entry(seat).or_default().stops = stops;
+    }
+
+    /// `seat`'s turn controls as they stand.
+    pub fn controls(&self, seat: u8) -> Controls {
+        self.controls.get(&seat).cloned().unwrap_or_default()
+    }
+
+    /// Start a pass mode for `seat` (GPriority), or stop one (`None`). If it's their priority
+    /// now and `revision` is the board they chose from, this window is passed first: choosing
+    /// a way to pass passes.
+    pub fn set_passing(&mut self, seat: u8, mode: Option<PassMode>, revision: u64) -> Result<(), ChoiceError> {
+        let Some(mode) = mode else {
+            self.controls.entry(seat).or_default().passing = None;
+            return Ok(());
+        };
+        if self.state.players.iter().any(|p| p.id.0 == seat && p.is_eliminated) || self.is_over() {
+            return Err(ChoiceError::DoesntFit("You're out of the game.".into()));
         }
-        if full_control.contains(&seat) {
-            return false;
+        let pass = self.window(seat).and_then(|_| {
+            AiDecisionContract::issue(&self.state, PlayerId(seat)).candidates.iter().position(|c| matches!(c.action, GameAction::PassPriority))
+        });
+        if let Some(index) = pass.filter(|_| self.current(seat, revision)) {
+            self.choose(seat, revision, index)?;
         }
-        if others.peek().is_none() {
-            return true; // only land abilities
+        self.controls.entry(seat).or_default().passing = Some(turns::Passing { mode, turn: self.state.turn_number });
+        Ok(())
+    }
+
+    /// "Hold priority": stop `seat` whenever they get priority while the stack isn't empty, even
+    /// for their own spell, until they pass with their own spell on top or the stack empties
+    /// (GButtons). The engine holds it too, so a stack session another seat's pass started
+    /// doesn't pass that window for them.
+    pub fn set_hold(&mut self, seat: u8, on: bool) {
+        self.controls.entry(seat).or_default().hold = on;
+        self.sync_passing_mode(seat);
+    }
+
+    /// Keep the engine's own passing mode in step with full control and holding priority:
+    /// `FullControl` keeps the engine's stack sessions from passing any of the seat's windows.
+    /// A change is an engine action, written to the replay log like any other.
+    fn sync_passing_mode(&mut self, seat: u8) {
+        let c = self.controls.get(&seat).cloned().unwrap_or_default();
+        let want = if c.full_control || c.hold { PriorityPassingMode::FullControl } else { PriorityPassingMode::Standard };
+        let me = PlayerId(seat);
+        if self.state.priority_passing_mode(me) == want || self.is_over() || usize::from(seat) >= self.state.players.len() {
+            return;
         }
-        if let Some(top) = self.state.stack.last() {
-            // Your own spell or ability on top resolves without asking you (PP-07; Bryan's
-            // decision 8, 2026-10-23). Everyone else still gets to respond, and if someone does,
-            // you're asked about theirs. Someone else's on top: you could respond, so stop.
-            return top.controller.0 == seat;
-        }
-        let mine = self.state.active_player.0 == seat;
-        if let Some(stops) = stops {
-            // The person's own stops: wait at the steps they chose, on their turns or others'.
-            let phase = format!("{:?}", self.state.phase);
-            return !(if mine { &stops.own } else { &stops.others }).contains(&phase);
-        }
-        match self.state.phase {
-            Phase::PreCombatMain | Phase::PostCombatMain => !mine,
-            Phase::End => mine || !others.any(|c| matches!(c.action, GameAction::CastSpell { .. })),
-            _ => true,
+        let action = GameAction::SetPriorityPassingMode { mode: want };
+        match engine::game::engine::apply(&mut self.state, me, action.clone()) {
+            Ok(result) => {
+                self.log.push_action(me, action);
+                self.accepted(&result, None);
+            }
+            // The engine takes this preference in any state; if it ever doesn't, Yama's own layer
+            // still holds the window, and only an engine stack session could pass it.
+            Err(e) => eprintln!("yama-play: couldn't set seat {seat}'s passing mode: {e}"),
         }
     }
 
-    /// `seat` leaves the game (CR 104.3a). Allowed at any time.
+    /// `seat` leaves the game (CR 104.3a). Allowed at any time. Every seat's view says so
+    /// (`PlayerView::conceded`, and a log line).
     pub fn concede(&mut self, seat: u8) -> anyhow::Result<()> {
         let me = PlayerId(seat);
+        if self.conceded.contains(&seat) {
+            return Ok(());
+        }
         let action = GameAction::Concede { player_id: me };
         let result = engine::game::engine::apply(&mut self.state, me, action.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
         self.log.push_action(me, action);
-        self.accepted(&result.log_entries, Some(seat));
+        self.conceded.insert(seat);
+        self.controls.remove(&seat);
+        self.accepted(&result, Some(seat));
+        let line = LogLine::public(self.state.turn_number, format!("{} conceded.", self.seat_name(me)));
+        self.lines.push(line);
         Ok(())
     }
 
@@ -1092,24 +1254,45 @@ impl Match {
                 r
             };
             let result = result.map_err(|e| anyhow::anyhow!("AI action for seat {} failed: {e}", actor.0))?;
-            self.accepted(&result.log_entries, None);
+            self.accepted(&result, None);
             steps += 1;
         }
         Ok(steps)
     }
 
-    /// Bookkeeping after the engine took an action: the revision, the public log, and which
-    /// people's decisions changed. `acted` is the person who answered, if one did.
-    fn accepted(&mut self, entries: &[GameLogEntry], acted: Option<u8>) {
+    /// Bookkeeping after the engine took an action: the revision, the log (public headline
+    /// lines, plus a private line for each answer the engine gave for someone from memory), and
+    /// which people's decisions changed. `acted` is the person who answered, if one did.
+    fn accepted(&mut self, result: &ActionResult, acted: Option<u8>) {
         self.revision += 1;
         self.remark(acted);
-        for e in entries {
+        for e in &result.log_entries {
             // Only public, headline entries: detail lines and anything revealing hidden cards stay out.
             if e.presentation.importance != LogImportance::Essential || e.presentation.visibility != LogVisibility::Public {
                 continue;
             }
-            self.lines.push(LogLine { turn: e.turn, text: segments_text(&e.segments) });
+            self.lines.push(LogLine::public(e.turn, segments_text(&e.segments)));
         }
+        let resolved: HashSet<u64> = result
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                GameEvent::StackResolved { object_id } => Some(object_id.0),
+                _ => None,
+            })
+            .collect();
+        for w in std::mem::take(&mut self.auto_watch) {
+            if resolved.contains(&w.entry) {
+                let answer = if w.accept { "yes" } else { "no" };
+                self.lines.push(LogLine {
+                    turn: self.state.turn_number,
+                    text: format!("Yama answered {answer} for {}, as you asked.", w.name),
+                    seat: Some(w.seat),
+                    auto: Some(w.id),
+                });
+            }
+        }
+        self.auto_watch = self.watch_automatic_answers();
         if self.lines.len() > LOG_LINES * 4 {
             self.lines.drain(..self.lines.len() - LOG_LINES);
         }
@@ -1188,6 +1371,7 @@ impl Match {
                 library: p.library.len(),
                 graveyard: p.graveyard.iter().filter_map(obj).collect(),
                 eliminated: p.is_eliminated,
+                conceded: self.conceded.contains(&p.id.0),
                 commander_damage: state
                     .commander_damage
                     .iter()
@@ -1208,13 +1392,28 @@ impl Match {
             stack: state
                 .stack
                 .iter()
-                .map(|s| StackView {
-                    name: match state.objects.get(&s.source_id) {
+                .map(|s| {
+                    let name = match state.objects.get(&s.source_id) {
                         Some(o) if o.face_down => "A face-down spell".into(),
                         Some(o) if !o.name.is_empty() => o.name.clone(),
                         _ => "An ability".into(),
-                    },
-                    controller: s.controller.0,
+                    };
+                    let (trigger, text) = match &s.kind {
+                        StackEntryKind::TriggeredAbility { description, .. } => (true, description.as_deref().map(|d| ability_text(d, &name))),
+                        _ => (false, None),
+                    };
+                    StackView {
+                        id: s.id.0,
+                        source: s.source_id.0,
+                        controller: s.controller.0,
+                        trigger,
+                        text,
+                        // The viewer passes for it while it's on top (a trigger yield).
+                        yielded: viewer.is_some_and(|seat| {
+                            self.state.stack.iter().find(|e| e.id == s.id).is_some_and(|e| self.state.is_priority_yielded(PlayerId(seat), e))
+                        }),
+                        name,
+                    }
                 })
                 .collect(),
             command_zone: state.command_zone.iter().filter_map(obj).collect(),
@@ -1229,9 +1428,16 @@ impl Match {
                 BTreeMap::new()
             },
             decision: viewer.and_then(|seat| self.decision(seat)),
-            log: self.lines.iter().rev().take(LOG_LINES).rev().cloned().collect(),
+            // A line only one seat may see (an answer Yama gave for them) goes to that seat alone.
+            log: {
+                let mut lines: Vec<LogLine> = self.lines.iter().rev().filter(|l| l.seat.is_none() || l.seat == viewer).take(LOG_LINES).cloned().collect();
+                lines.reverse();
+                lines
+            },
             over: self.is_over(),
             winner: self.winner(),
+            turns: viewer.filter(|seat| !self.is_ai(*seat)).map(|seat| self.turns_view(state, seat)),
+            resolve_all: self.resolve_all_view(),
         }
     }
 }
@@ -1305,6 +1511,12 @@ pub struct View {
     pub log: Vec<LogLine>,
     pub over: bool,
     pub winner: Option<u8>,
+    /// The viewer's own turn controls, yields and remembered answers (people only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turns: Option<TurnsView>,
+    /// Someone asked to resolve the whole stack: who, and who has agreed (everyone sees it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolve_all: Option<ResolveAllView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1316,6 +1528,9 @@ pub struct PlayerView {
     pub library: usize,
     pub graveyard: Vec<CardView>,
     pub eliminated: bool,
+    /// Out because they conceded (they left the game), rather than lost.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub conceded: bool,
     /// Commander damage this player has taken, by commander name.
     pub commander_damage: BTreeMap<String, u32>,
 }
@@ -1359,8 +1574,21 @@ fn is_zero(n: &u32) -> bool {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct StackView {
+    /// The stack entry.
+    pub id: u64,
+    /// The card or permanent it comes from.
+    pub source: u64,
     pub name: String,
     pub controller: u8,
+    /// A triggered ability (the kind a seat may yield to).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub trigger: bool,
+    /// A trigger's own words, from the engine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// The viewer yielded to it: Yama passes for them while it's on top.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub yielded: bool,
 }
 
 #[cfg(test)]

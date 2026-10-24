@@ -254,6 +254,8 @@ describe("yes or no, remembered", () => {
     expect(buttons(may, always, noCancel)).toEqual({ primary: "Always search", secondary: "Ask each time", secondaryDoes: "ask" });
     expect(toAct(may, always)).toEqual({ kind: "decide_optional_effect_and_remember", accept: true });
     expect(toAct(may, { kind: "yesno", remember: "never" })).toEqual({ kind: "decide_optional_effect_and_remember", accept: false });
+    // For every copy of the card where the engine allows it.
+    expect(toAct({ ...may, rememberSameCard: true }, always)).toEqual({ kind: "decide_optional_effect_and_remember", accept: true, same_card: true });
     expect(changed(may, always)).toBe(true);
   });
   it("names a long question's buttons by what it asks", () => {

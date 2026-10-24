@@ -50,7 +50,7 @@ import {
 } from "./model";
 import { promptText, shortName } from "./text";
 import { COLOR_NAME, counterName, FieldTile, HandCard, ManaDot, type TileHandlers, type TileLook } from "./Tiles";
-import type { Act, AttackAt, CardMeta, CardView, Decision, OptionView, Pending, PlayerView, SeatInfo, ServerMessage, View, WatchStatus } from "./types";
+import type { Act, AttackAt, CardMeta, CardView, Decision, OptionView, PassMode, Pending, PlayerView, SeatInfo, ServerMessage, StackItem, View, WatchStatus } from "./types";
 import { WatchControls, type WatchMessage } from "./WatchControls";
 import { seatLabel, seatName } from "./watch";
 import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayLine, readDrop, targetDrop, targetIndex, type Point } from "./drag";
@@ -59,6 +59,8 @@ import { MotionContext, Tick, useBoardMotion, type MotionOptions } from "./Board
 import { DecisionRail, DecisionStage, PickBanner, SplitSteppers, type WidgetContext } from "./Decide";
 import { buttons as chooserButtons, changed as draftChanged, chooserCovers, initialDraft, noneAct, ready as draftReady, stageOf, toAct, togglePick, type Draft } from "./answer";
 import { motionScale } from "./motion";
+import { answerOf, modeChip, passChoices, passKey, priorityPartner, settingsButtons, stopMapOf, waitingPartner, type Partner, type PassChoice, type SettingsSection } from "./turns";
+import { ConsentBody, GameSettings, ModeChip, PassList, PassMenu } from "./TurnControls";
 import "./board.css";
 
 type ViewMessage = Extract<ServerMessage, { type: "view" }>;
@@ -178,6 +180,8 @@ interface Control {
   run?: () => void;
   disabled?: boolean;
   art?: string | null;
+  /** A toggle that's on (Hold priority). */
+  pressed?: boolean;
 }
 
 // ── the board ──────────────────────────────────────────────────────────────
@@ -193,8 +197,14 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const [inspect, setInspect] = useState<CardView | null>(null);
   const [hover, setHover] = useState<{ card: CardView; left: number; top: number } | null>(null);
   const [sheet, setSheet] = useState<SheetKind>(null);
+  // This game's settings (GSettings), open at a section, and the ways to pass (GPriority's menu).
+  const [settings, setSettings] = useState<SettingsSection | null>(null);
+  const [passMenu, setPassMenu] = useState(false);
+  // A stack item being read, so a trigger can be yielded to from the card reader.
+  const [inspectStack, setInspectStack] = useState<StackItem | null>(null);
+  // Older servers: full control and stops kept on this device. Newer ones keep them per account
+  // (the view's `turns`); these then only carry settings over to the account once.
   const [fullControl, setFullControl] = useState(() => localStorage.getItem("yama.play.fullControl") === "1");
-  // Your own stops by step, kept on this device and sent whenever the board connects.
   const [stops, setStops] = useState<StopMap | null>(() => {
     try {
       return JSON.parse(localStorage.getItem("yama.play.stops") ?? "null") as StopMap | null;
@@ -253,18 +263,27 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       ws.onopen = () => {
         attempt = 0;
         setConnected(true);
-        if (watch) return;
-        // Always say, so a setting another device made for this seat doesn't linger unseen here.
-        ws.send(JSON.stringify({ type: "full_control", on: localStorage.getItem("yama.play.fullControl") === "1" }));
-        try {
-          // Always say, so stops another device set for this seat don't linger unseen here.
-          ws.send(JSON.stringify({ type: "stops", stops: stopsMessage(JSON.parse(localStorage.getItem("yama.play.stops") ?? "null") as StopMap | null) }));
-        } catch {
-          /* unreadable saved stops: the defaults apply */
-        }
       };
       ws.onmessage = (m) => {
         const data = JSON.parse(m.data) as ServerMessage;
+        if (data.type === "prefs") {
+          // Your account keeps your stops and full control now. Settings this device kept from
+          // before go to the account once, if it has none yet; then the device forgets them.
+          const local = localStorage.getItem("yama.play.stops");
+          const full = localStorage.getItem("yama.play.fullControl") === "1";
+          if (!data.saved && (local || full)) {
+            let saved: StopMap | null = null;
+            try {
+              saved = JSON.parse(local ?? "null") as StopMap | null;
+            } catch {
+              /* unreadable: the usual stops */
+            }
+            ws.send(JSON.stringify({ type: "prefs", stops: stopsMessage(saved), full_control: full }));
+          }
+          localStorage.removeItem("yama.play.stops");
+          localStorage.removeItem("yama.play.fullControl");
+          return;
+        }
         if (data.type === "view") {
           setMsg(data);
           // The server re-sends the board after refusing a move; keep the reason up until the
@@ -377,6 +396,20 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+  // The ways to pass from the keyboard (GPriority): Enter, Shift+Enter, P, and F for full control.
+  // Not while typing, in a sheet or dialog, or on a button or card (Enter does their own thing).
+  const passKeysRef = useRef<((e: KeyboardEvent) => boolean) | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || e.defaultPrevented || !passKeysRef.current) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, select, [contenteditable], .sheet, [role=dialog]")) return;
+      if (e.key === "Enter" && t?.closest("button, a, [role=button], .ft, .hc")) return;
+      if (passKeysRef.current(e)) e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // Esc backs out of what you're putting together (Bryan's decision 7, 2026-10-23); right-click
   // and long-press read a card (Tiles.tsx). A drag in progress ends first (its own listener), and
   // an open sheet or card closes itself (Sheet), so this only acts when neither is up.
@@ -402,20 +435,36 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [watch]);
-  const saveStops = (next: StopMap | null) => {
-    setStops(next);
-    if (next) localStorage.setItem("yama.play.stops", JSON.stringify(next));
-    else localStorage.removeItem("yama.play.stops");
-    if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify({ type: "stops", stops: stopsMessage(next) }));
+  // Your stops and full control as the game holds them (saved with your account), or as this
+  // device holds them for an older server.
+  const savedTurns = view?.turns;
+  const fullOn = savedTurns ? savedTurns.full_control : fullControl;
+  const stopsNow = savedTurns ? stopMapOf(savedTurns.stops) : stops;
+  /** Send something that doesn't answer your decision (a setting): the buttons don't wait for it. */
+  const sendRaw = (data: unknown) => {
+    if (socket.current?.readyState !== WebSocket.OPEN) return false;
+    socket.current.send(JSON.stringify(data));
+    return true;
   };
+  const savePrefs = (nextStops: StopMap | null, nextFull: boolean) => {
+    if (savedTurns) return sendRaw({ type: "prefs", stops: stopsMessage(nextStops), full_control: nextFull });
+    setStops(nextStops);
+    if (nextStops) localStorage.setItem("yama.play.stops", JSON.stringify(nextStops));
+    else localStorage.removeItem("yama.play.stops");
+    setFullControl(nextFull);
+    localStorage.setItem("yama.play.fullControl", nextFull ? "1" : "0");
+    sendRaw({ type: "stops", stops: stopsMessage(nextStops) });
+    return sendRaw({ type: "full_control", on: nextFull });
+  };
+  const saveStops = (next: StopMap | null) => savePrefs(next, fullOn);
+  const setFull = (on: boolean) => savePrefs(stopsNow, on);
   const toggleStop = (label: string, which: "mine" | "opp") => {
-    const base = stops ?? DEFAULT_STOPS;
+    const base = stopsNow ?? DEFAULT_STOPS;
     const cur = base[label] ?? { mine: false, opp: false };
     saveStops({ ...base, [label]: { ...cur, [which]: !cur[which] } });
   };
   const send = (data: unknown) => {
-    if (socket.current?.readyState !== WebSocket.OPEN) return false;
-    socket.current.send(JSON.stringify(data));
+    if (!sendRaw(data)) return false;
     setSentAt(Date.now());
     return true;
   };
@@ -940,17 +989,98 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     Object.entries(me?.commander_damage ?? {}).reduce((sum, [name, d]) => sum + (commanderOwner(name) === seat ? d : 0), 0);
   const taxOf = (seat: number) => view.command_zone.filter((c) => c.owner === seat).reduce((t, c) => t + (c.tax ?? 0), 0);
 
+  // Turn controls (turns.ts, TurnControls.tsx): the ways to pass, holding priority, Resolve all, settings.
+  const yourPriority = !!decision && !attack && !block && !pend && decision.options.some(isPass);
+  /** Start a way to pass, or stop one (`null`). From your own priority it passes now too. */
+  const sendPass = (mode: PassMode | null) => {
+    setPassMenu(false);
+    const data = { type: "pass", revision: decision?.revision ?? view.revision, mode };
+    if (mode && yourPriority) {
+      if (!pending) send(data);
+    } else sendRaw(data);
+  };
+  const setHold = (on: boolean) => sendRaw({ type: "hold", on });
+  /** A setting of yours (a yield, an automatic answer, hand order): any time, whoever is deciding. */
+  const sendPref = (a: Act) => sendRaw({ type: "act", revision: 0, action: a });
+  const resolveAll = () => {
+    setPassMenu(false);
+    if (decision && !pending) send({ type: "act", revision: decision.revision, action: { kind: "resolve_all" } satisfies Act });
+  };
+  const concede = () => {
+    if (sendRaw({ type: "concede" })) setSettings(null);
+  };
+  const runPartner = (p: Partner) => {
+    switch (p.does) {
+      case "end":
+      case "mine":
+        return sendPass(p.does);
+      // A laptop opens the menu over the rail; a phone, the stops and passing sheet.
+      case "menu":
+        return wide ? setPassMenu(true) : setSheet("stops");
+      case "hold":
+        return void setHold(true);
+      case "unhold":
+        return void setHold(false);
+    }
+  };
+  const pickPass = (c: PassChoice) => {
+    if (c.id === "once") {
+      setPassMenu(false);
+      const pass = decision?.options.find(isPass);
+      if (pass) choose(pass);
+    } else if (c.id === "resolve_all") resolveAll();
+    else if (c.id === "full") {
+      setPassMenu(false);
+      setFull(!fullOn);
+    } else sendPass(c.id);
+  };
+  const choices = passChoices({ yourTurn: view.active === you, yourPriority, stack: view.stack.length, fullControl: fullOn });
+  // Someone asked to resolve the whole stack and it's you being asked (GTogether).
+  const agree = decision?.options.find((o) => o.kind === "agree");
+  const refuse = decision?.options.find((o) => o.kind === "refuse");
+  const playing = !watch && you !== null && !view.over && !meOut;
+  const settingsOpen = settings !== null && playing;
+  passKeysRef.current = !playing || settingsOpen
+    ? null
+    : (e) => {
+        const k = passKey(e, view.active === you);
+        if (!k) return false;
+        if (k === "full") {
+          setFull(!fullOn);
+          return true;
+        }
+        // At your priority or while you wait, not in the middle of another decision.
+        if (decision && !yourPriority) return false;
+        sendPass(k);
+        return true;
+      };
+  const partnerControl = (p: Partner | null): Control | null => (p ? { label: p.label, run: () => runPartner(p), pressed: p.pressed } : null);
+
   const payingByHand = !!decision && !!optionOf(decision, "pay_rest");
   const selectedOptions = selected && decision && !attack && !block ? optionsFor(selected) : [];
   // The big button and its partner.
   const controls = ((): { primary: Control | null; secondary: Control | null } => {
     if (view.over || you === null || meOut) return { primary: null, secondary: null };
+    // Game settings: Close or Done; conceding is confirmed here, with Cancel beside it (GSettings).
+    if (settingsOpen) {
+      const b = settingsButtons(settings!);
+      return {
+        primary: { label: b.primary, run: settings === "concede" ? concede : () => setSettings(null) },
+        secondary: b.secondary ? { label: b.secondary, run: () => setSettings("yields") } : null,
+      };
+    }
     if (!decision) {
       const waiting = view.waiting_on.filter((s) => s !== you);
       const first = waiting[0];
       return {
         primary: { label: first === undefined ? "Waiting" : `Waiting for ${who(first)}`, disabled: true, art: first === undefined ? null : art(first).art },
-        secondary: null,
+        secondary: partnerControl(waitingPartner(view, you, savedTurns)),
+      };
+    }
+    if (agree && refuse) {
+      return {
+        primary: { label: "Agree", run: () => choose(agree), disabled: pending },
+        secondary: { label: "Keep priority", run: () => choose(refuse), disabled: pending },
       };
     }
     if (pend && draft) {
@@ -1025,7 +1155,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       };
     }
     const pass = decision.options.find(isPass);
-    if (pass) return { primary: { label: passLabel(view, you, decision), run: () => choose(pass), disabled: pending }, secondary: null };
+    if (pass) return { primary: { label: passLabel(view, you, decision), run: () => choose(pass), disabled: pending }, secondary: partnerControl(priorityPartner(view, you)) };
     const general = dedupe(decision.options.filter((o) => o.object === null));
     if (general.length === 1 && decision.options.length === 1) {
       return { primary: { label: general[0]!.label, run: () => choose(general[0]!), disabled: pending }, secondary: null };
@@ -1034,6 +1164,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   })();
   escRef.current = () => {
     if (dragRef.current?.started || inspect || sheet) return false;
+    if (passMenu) return (setPassMenu(false), true);
+    if (settingsOpen) return (setSettings(null), true);
     if (pend && draft && draftChanged(pend, draft)) return (setDraft(initialDraft(pend)), true);
     if (pendingBlocker !== null) return (setPendingBlocker(null), true);
     if (block && blockPlan.size) return (setBlockPlan(new Map()), true);
@@ -1048,7 +1180,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
     ? watchStatus && !watchStatus.finished
       ? () => sendWatch(watchStatus.playing ? { type: "pause" } : { type: "play" })
       : null
-    : controls.primary && !controls.primary.disabled && controls.primary.run ? controls.primary.run : null;
+    : // Space never concedes: that takes a click on the main button.
+      controls.primary && !controls.primary.disabled && controls.primary.run && !(settingsOpen && settings === "concede") ? controls.primary.run : null;
   // Options the buttons already cover don't repeat in the list.
   const onButtons = new Set(
     decision ? [optionOf(decision, "keep"), optionOf(decision, "mulligan"), optionOf(decision, "pay_rest"), payingByHand ? optionOf(decision, "cancel") : undefined] : [],
@@ -1056,6 +1189,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const covered = (o: OptionView) =>
     isPass(o) ||
     onButtons.has(o) ||
+    o.kind === "agree" ||
+    o.kind === "refuse" ||
     (!!attack && (o.label === "Don't attack" || o.label.startsWith("Attack: "))) ||
     (!!block && (o.label === "Don't block" || o.label.startsWith("Block: "))) ||
     (controls.primary?.label === o.label && decision?.options.length === 1);
@@ -1083,7 +1218,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
 
   const credits = artCredits([...view.players.map((p) => art(p.seat))].filter((a) => a.art).map((a) => a.artist));
   const recent = view.log.slice(-3);
-  const stopsLine = fullControl ? "Full control: stops at every step" : stopsSummary(stops) ?? "Stops only where you can act";
+  const stopsLine = fullOn ? "Full control: stops at every step" : stopsSummary(stopsNow) ?? "Stops only where you can act";
 
   const title = watch && watchStatus?.finished && !view.over
     ? "The game stopped"
@@ -1094,7 +1229,9 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         ? `Paused, ${who(view.active)}'s turn ${view.turn}`
         : `${Who(view.active)}'s turn ${view.turn}`
       : meOut
-      ? "You're out"
+      ? me?.conceded ? "You conceded" : "You're out"
+      : agree && refuse
+      ? "Resolve all?"
       : decision?.pending && !attack && !block
       ? decision.pending.prompt
       : decision
@@ -1178,7 +1315,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const buttons = (
     <>
       {controls.secondary && (
-        <button type="button" className="outline pb-secondary" onClick={controls.secondary.run} disabled={controls.secondary.disabled}>
+        <button
+          type="button"
+          className={`outline pb-secondary${controls.secondary.pressed ? " on" : ""}`}
+          onClick={controls.secondary.run}
+          disabled={controls.secondary.disabled}
+          aria-pressed={controls.secondary.pressed}
+        >
           {controls.secondary.label}
         </button>
       )}
@@ -1199,7 +1342,31 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       {!connected && live && !view.over && !watchStatus?.finished && <p className="small dim pb-status">Reconnecting…</p>}
     </>
   );
-  const ladder = <Ladder phase={view.phase} fullControl={fullControl} stops={stops} onToggle={you !== null && !view.over ? toggleStop : undefined} />;
+  const ladder = <Ladder phase={view.phase} fullControl={fullOn} stops={stopsNow} onToggle={you !== null && !view.over ? toggleStop : undefined} />;
+  // A way to pass in force: what it's doing, and Stop (GPriority).
+  const modeNow = playing ? savedTurns?.passing : undefined;
+  const modeChipEl = modeNow ? <ModeChip label={modeChip(modeNow)} onStop={() => sendPass(null)} /> : null;
+  const consentBody = (compact: boolean) =>
+    view.resolve_all ? <ConsentBody ask={view.resolve_all} stack={view.stack} meta={meta} Who={Who} tone={(n) => tones.get(n)} you={you} compact={compact} /> : null;
+  const settingsBody = (compact: boolean, foot?: React.ReactNode) =>
+    settingsOpen && savedTurns ? (
+      <GameSettings
+        section={settings!}
+        onSection={setSettings}
+        turns={savedTurns}
+        hand={view.hand}
+        meta={meta}
+        whose={(n) => (n === you ? "Your" : `${Who(n)}'s`)}
+        tone={(n) => tones.get(n)}
+        onAct={sendPref}
+        disabled={!connected}
+        compact={compact}
+        buttons={foot}
+      />
+    ) : null;
+  const settingsButton = playing && savedTurns ? (
+    <button type="button" className="rail-log" onClick={() => setSettings("yields")}>Settings</button>
+  ) : null;
   const whose = view.active === you ? (
     <span className="whose mine" key={`w${view.active}-${view.turn}`}>Your turn {view.turn}</span>
   ) : (
@@ -1229,7 +1396,30 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
       <WatchControls id={id} status={watchStatus} view={view} seats={seats} art={art} pov={bottom} onPov={setPov} send={sendWatch} compact={compact} />
     ) : null;
 
-  const stackList = <StackList view={view} meta={meta} you={you} who={Who} art={art} onHover={h.onHover} onRead={setInspect} canHover={canHover} />;
+  const readStack = (c: CardView, s?: StackItem) => {
+    setInspect(c);
+    setInspectStack(s ?? null);
+  };
+  const stackList = <StackList view={view} meta={meta} you={you} who={Who} art={art} onHover={h.onHover} onRead={readStack} canHover={canHover} />;
+  // Reading a trigger on the stack that someone else controls: Yama can pass for you while it's
+  // on top, for this one, or for it and its copies (phase's AllCopies: the same physical card's
+  // copies and tokens, not other cards with the same name) (GSettings, trigger yields).
+  const reading = inspect && inspectStack && inspectStack.name === inspect.name ? inspectStack : null;
+  const yieldExtra =
+    reading && reading.trigger && reading.controller !== you && reading.source !== undefined && playing && savedTurns ? (
+      reading.yielded ? (
+        <p className="small dim">Yama passes for you while this trigger is on top of the stack. Remove it in Settings.</p>
+      ) : (
+        <div className="inspector-options">
+          <button type="button" className="outline" onClick={() => (sendPref({ kind: "set_priority_yield", change: { op: "add", source: reading.source!, every: false } }), setInspect(null))}>
+            Always pass for this one
+          </button>
+          <button type="button" className="outline" onClick={() => (sendPref({ kind: "set_priority_yield", change: { op: "add", source: reading.source!, every: true } }), setInspect(null))}>
+            Always pass for it and its copies
+          </button>
+        </div>
+      )
+    ) : null;
 
   const sheets = (
     <>
@@ -1246,46 +1436,57 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
               <button className="quiet" onClick={() => setSheet(null)}>Close</button>
             </div>
             <ol className="pb-log">
-              {[...view.log].reverse().map((l, i) => (
-                <li key={i}><span className="dim small num">T{l.turn}</span> {named(l.text)}</li>
-              ))}
+              {[...view.log].reverse().map((l, i) => {
+                // An answer Yama gave for you from memory (GLog): turn it off from here.
+                const a = answerOf(l, savedTurns);
+                return (
+                  <li key={i} className={l.auto ? "auto" : undefined}>
+                    <span className="dim small num">T{l.turn}</span> {named(l.text)}
+                    {l.auto && (
+                      <>
+                        {" "}
+                        <span className="log-tag">Automatic</span>{" "}
+                        {a ? (
+                          <button type="button" className="link" onClick={() => sendPref(a.forget)} disabled={!connected}>Turn off</button>
+                        ) : (
+                          <span className="dim small">Turned off</span>
+                        )}
+                      </>
+                    )}
+                  </li>
+                );
+              })}
             </ol>
           </div>
         </Sheet>
       )}
       {sheet === "stops" && (
-        <Sheet label="Stops and controls" onClose={() => setSheet(null)}>
+        <Sheet label="Stops and ways to pass" onClose={() => setSheet(null)}>
           <div className="stack">
             <div className="sheet-head">
-              <h2>Stops</h2>
+              <h2>{playing ? "Stops and passing" : "Stops"}</h2>
               <button className="quiet" onClick={() => setSheet(null)}>Close</button>
             </div>
-            <p className="small dim">
-              Choose where the game stops for you: a filled dot on your turns, an outlined square on opponents' turns. Anything on the stack you could answer always stops, and declaring attackers and blockers always waits for you.
-            </p>
-            <Ladder phase={view.phase} fullControl={fullControl} stops={stops} onToggle={you !== null && !view.over ? toggleStop : undefined} vertical />
-            {stops && stopsSummary(stops) && (
-              <button type="button" className="outline" onClick={() => saveStops(null)}>Back to the usual stops</button>
-            )}
-            {you !== null && !view.over && (
+            {playing && (
               <>
-                <label className="pb-check">
-                  <input
-                    type="checkbox"
-                    checked={fullControl}
-                    onChange={(e) => {
-                      setFullControl(e.target.checked);
-                      localStorage.setItem("yama.play.fullControl", e.target.checked ? "1" : "0");
-                      send({ type: "full_control", on: e.target.checked });
-                      setSentAt(null);
-                    }}
-                  />
-                  Full control: stop at every step, not only where you can act
-                </label>
-                <button className="outline error" onClick={() => confirm("Concede this game?") && send({ type: "concede" }) && setSheet(null)}>Concede</button>
+                {modeChipEl}
+                <PassList choices={choices} onPick={(c) => (pickPass(c), setSheet(null))} keys={wide} disabled={pending} />
               </>
             )}
+            <h3 className="sheet-sub">Where Yama stops for you</h3>
+            <p className="small dim">
+              A filled dot stops on your turns, an outlined square on opponents' turns. Saved for every game. Yama always stops when a spell or ability could matter to you, when you must decide something, and for blockers when you're attacked.
+            </p>
+            <Ladder phase={view.phase} fullControl={fullOn} stops={stopsNow} onToggle={you !== null && !view.over ? toggleStop : undefined} vertical />
+            {stopsNow && stopsSummary(stopsNow) && (
+              <button type="button" className="outline" onClick={() => saveStops(null)}>Back to the usual stops</button>
+            )}
           </div>
+        </Sheet>
+      )}
+      {settingsOpen && !wide && (
+        <Sheet label="Game settings" onClose={() => setSettings(null)}>
+          {settingsBody(true, <div className={`gs-buttons${controls.secondary ? "" : " one"}`}>{buttons}</div>)}
         </Sheet>
       )}
       {sheet === "stack" && (
@@ -1335,14 +1536,15 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         />
       )}
       {inspect && (
-        <Sheet label={inspect.name} onClose={() => setInspect(null)}>
+        <Sheet label={inspect.name} onClose={() => (setInspect(null), setInspectStack(null))}>
           <Inspector
             card={inspect}
             meta={meta[inspect.name]}
             options={attack || block ? [] : optionsFor(selected && selected.includes(inspect.id) ? selected : [inspect.id])}
             onChoose={choose}
-            onClose={() => setInspect(null)}
+            onClose={() => (setInspect(null), setInspectStack(null))}
             disabled={pending}
+            extra={yieldExtra}
           />
         </Sheet>
       )}
@@ -1455,6 +1657,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         <aside className="pb-rail" aria-label="Stack and your options">
           <div className="rail-top">
             <Link to={leaveTo} className="rail-leave">Leave</Link>
+            {settingsButton}
             <button type="button" className="rail-log" onClick={() => setSheet("log")}>Game log</button>
           </div>
           <section className="rail-stack" aria-labelledby="pb-stack-h">
@@ -1462,9 +1665,15 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
             {stackList}
           </section>
           <section className="rail-decision" aria-live="polite" aria-labelledby="pb-dec-h">
-            <h2 id="pb-dec-h">{title}</h2>
+            <h2 id="pb-dec-h">{settingsOpen ? settingsButtons(settings!).title : title}</h2>
             {/* The choices scroll; the big button below them never leaves the screen. */}
-            <div className="rail-body">{watch ? watchControls(false) : chooserBody ?? decisionBody}</div>
+            <div className="rail-body">
+              {watch
+                ? watchControls(false)
+                : settingsOpen
+                  ? <p className="rail-empty">{settingsButtons(settings!).body}</p>
+                  : consentBody(false) ?? chooserBody ?? decisionBody}
+            </div>
             <div className="rail-foot">
               {recent.length > 0 && (
                 <section className="rail-recent" aria-label="Recent">
@@ -1475,11 +1684,19 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
                 </section>
               )}
               {status}
+              {modeChipEl}
               {you !== null && !view.over && (
                 <span role="status" className="stops-chip">
                   {stopsLine}
+                  {/* The stops sheet lists the ways to pass too; "More ways to pass" opens them here. */}
                   <button type="button" onClick={() => setSheet("stops")}>Change</button>
                 </span>
+              )}
+              {passMenu && playing && (
+                <PassMenu onClose={() => setPassMenu(false)}>
+                  <h3>Ways to pass</h3>
+                  <PassList choices={choices} onPick={pickPass} keys disabled={pending} />
+                </PassMenu>
               )}
               {buttons}
               {credits && <p className="pb-credit">{credits}</p>}
@@ -1488,6 +1705,13 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         </aside>
         <PlanArrows arrows={planArrows} root={boardRoot} />
         {stageOverlay}
+        {settingsOpen && (
+          <div className="gs-overlay">
+            <section className="gs-dialog" role="dialog" aria-label="Game settings">
+              {settingsBody(false)}
+            </section>
+          </div>
+        )}
         <DragLayer ref={layer} />
         <div className="motion-layer" ref={motionLayer} aria-hidden="true" />
         {dragNote && <p className="drag-toast" role="status">{dragNote}</p>}
@@ -1633,7 +1857,15 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           </div>
         )}
         {phoneSheet}
-        {(phoneHint || phoneChoices.length > 0 || (decision && !decision.prompt.startsWith("Priority") && !attack && !block && !widget)) && (
+        {meOut && !view.over && (
+          <div className="dock-decision">
+            <p className="dock-prompt"><b>{title}</b></p>
+            <p className="dock-hint">You can watch the rest of the game.</p>
+          </div>
+        )}
+        {view.resolve_all && !watch && <div className="dock-decision">{agree && <p className="dock-prompt"><b>{title}</b></p>}{consentBody(true)}</div>}
+        {modeChipEl}
+        {!view.resolve_all && (phoneHint || phoneChoices.length > 0 || (decision && !decision.prompt.startsWith("Priority") && !attack && !block && !widget)) && (
           <div className="dock-decision">
             {decision && !decision.prompt.startsWith("Priority") && !attack && !block && !widget && <p className="dock-prompt"><b>{title}</b></p>}
             {phoneHint && <p className="dock-hint">{phoneHint}</p>}
@@ -1660,6 +1892,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         </div>
         <div className="dock-links">
           <Link to={leaveTo}>Leave</Link>
+          {playing && savedTurns && <button type="button" className="quiet" onClick={() => setSettings("yields")}>Settings</button>}
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>
         </div>
       </div>
@@ -1937,7 +2170,9 @@ function OppPane(props: {
           <span className="opp-veil" aria-hidden="true" />
           <span className="opp-id">
             <span className="opp-name"><span className="seat-dot" aria-hidden="true" />{props.label}</span>
-            <span className="opp-counts">{props.outTurn ? `Out on turn ${props.outTurn}` : "Out of the game"}</span>
+            <span className="opp-counts">
+              {p.conceded ? (props.outTurn ? `Conceded on turn ${props.outTurn}` : "Conceded") : props.outTurn ? `Out on turn ${props.outTurn}` : "Out of the game"}
+            </span>
             {props.art.art && <span className="opp-credit">Art: {props.art.artist ?? "unknown"}</span>}
           </span>
           <b className="opp-life num">Out</b>
@@ -2073,7 +2308,7 @@ function OppFocus(props: {
         <span>{props.toYou} to {props.toWhom ?? "you"}</span>
       </div>
       {p.eliminated ? (
-        <p className="zone-empty">Out of the game.</p>
+        <p className="zone-empty">{p.conceded ? "Conceded. They left the game." : "Out of the game."}</p>
       ) : (
         <>
           <div className="pb-chips">
@@ -2102,7 +2337,8 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover }: {
   who: (n: number) => string;
   art: (n: number) => SeatArt;
   onHover: (c: CardView | null, el?: Element) => void;
-  onRead: (c: CardView) => void;
+  /** Read the card behind an item; the item comes too, so a trigger can be yielded to. */
+  onRead: (c: CardView, item?: StackItem) => void;
   canHover: boolean;
 }) {
   if (!view.stack.length) return <p className="rail-empty">Empty.</p>;
@@ -2118,9 +2354,9 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover }: {
               type="button"
               onMouseEnter={(e) => onHover(card, e.currentTarget)}
               onMouseLeave={() => onHover(null)}
-              onClick={() => !canHover && onRead(card)}
-              onContextMenu={(e) => (e.preventDefault(), onRead(card))}
-              aria-label={`${s.name}, ${s.controller === you ? "yours" : `${who(s.controller)}'s`}${i === 0 ? ", resolves next" : ""}`}
+              onClick={() => !canHover && onRead(card, s)}
+              onContextMenu={(e) => (e.preventDefault(), onRead(card, s))}
+              aria-label={`${s.name}, ${s.controller === you ? "yours" : `${who(s.controller)}'s`}${i === 0 ? ", resolves next" : ""}${s.yielded ? ", Yama passes for you" : ""}`}
             >
               {img ? <img className="stack-img" src={img} alt="" /> : <span className="stack-img blank" />}
               <span className="stack-text">
@@ -2128,7 +2364,9 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover }: {
                 <span className="stack-who">
                   {a && <img src={a} alt="" />}
                   {s.controller === you ? "Yours" : `${who(s.controller)}'s`}
+                  {s.trigger ? " trigger" : ""}
                   {i === 0 ? ", resolves next" : ""}
+                  {s.yielded ? ", passing for you" : ""}
                 </span>
               </span>
             </button>
@@ -2336,13 +2574,15 @@ function ZoneSheet({ title, cards, meta, onRead, onClose, newestFirst = true }: 
   );
 }
 
-function Inspector({ card, meta, options, onChoose, onClose, disabled }: {
+function Inspector({ card, meta, options, onChoose, onClose, disabled, extra }: {
   card: CardView;
   meta?: CardMeta;
   options: OptionView[];
   onChoose: (o: OptionView) => void;
   onClose: () => void;
   disabled: boolean;
+  /** More things to do with it (a trigger on the stack: always pass for it). */
+  extra?: React.ReactNode;
 }) {
   const [back, setBack] = useState(false);
   const counters = Object.entries(card.counters);
@@ -2363,6 +2603,7 @@ function Inspector({ card, meta, options, onChoose, onClose, disabled }: {
           ))}
         </div>
       )}
+      {extra}
       {meta?.image && (
         <div className="inspector-card">
           <img src={back && meta.back_image ? meta.back_image : meta.image} alt={card.name} />

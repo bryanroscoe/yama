@@ -81,9 +81,26 @@ fn only_whitelisted_answers_parse() {
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_replacement_and_remember","choice":{"type":"optional","index":0}}}"#));
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_pair","partner":12}}"#));
     assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_pair","partner":null}}"#));
-    // Only the remembering forms the whitelist spells: not the engine's own preference actions.
+    // A seat's own settings and Resolve all, in Yama's own shapes (play/src/turns.rs).
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"set_may_trigger_auto_choice","change":{"op":"clear_all"}}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"set_priority_yield","change":{"op":"add","source":44,"every":false}}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"set_replacement_auto_choice","id":null}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"reorder_hand","order":[3,1,2]}}"#));
+    assert!(ok(r#"{"type":"act","revision":3,"action":{"kind":"resolve_all"}}"#));
+    // Not the engine's own forms of them, nor other preference actions it has.
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"set_may_trigger_auto_choice","op":{}}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"set_priority_yield","change":{"op":"add_everything"}}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"begin_resolve_all","max_resolutions":0,"scope":{"type":"Shared"}}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"set_auto_pass","mode":{"type":"UntilStackEmpty"}}}"#));
+    assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"concede"}}"#));
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"choose_replacement_and_remember","choice":{"type":"forget"}}}"#));
+    // Turn controls.
+    assert!(ok(r#"{"type":"pass","revision":3,"mode":"mine"}"#));
+    assert!(ok(r#"{"type":"pass","revision":3,"mode":null}"#));
+    assert!(!ok(r#"{"type":"pass","revision":3,"mode":"forever"}"#));
+    assert!(ok(r#"{"type":"hold","on":true}"#));
+    assert!(ok(r#"{"type":"prefs","stops":{"own":["Upkeep"],"others":[]},"full_control":false}"#));
+    assert!(ok(r#"{"type":"prefs","stops":null,"full_control":true}"#));
     // Nothing outside the whitelist can be spelled: not a debug action, not a pass, not an
     // engine action in its own serialized form.
     assert!(!ok(r#"{"type":"act","revision":3,"action":{"kind":"debug","action":{}}}"#));
@@ -100,7 +117,7 @@ async fn act_is_checked_against_the_seats_own_decision() {
     let mine = deck(&[("Island", 50), ("Opt", 25), ("Preordain", 24)]);
     let theirs = deck(&[("Mountain", 60), ("Blaze", 39)]);
     let m = engine().new_match_first(5, vec![mine, theirs], &[], Some(0)).unwrap();
-    hub.spawn_game("game-act-1".into(), m, vec![seat(0, "Ana"), seat(1, "Ben")], pool.clone());
+    hub.spawn_game("game-act-1".into(), m, vec![seat(0, "Ana"), seat(1, "Ben")], HashMap::new(), pool.clone());
     let live = hub.live("game-act-1").unwrap();
 
     // Seat 0 mulligans twice (the first is free) and keeps: one card goes to the bottom.
@@ -183,4 +200,47 @@ fn decisions_get_their_cards_details() {
     dress_pending(&mut view, &cards);
     let p = view.decision.unwrap().pending.unwrap();
     assert!(p.options.iter().all(|o| o.img.as_deref() == Some("https://img/Island.jpg") && o.artist.as_deref() == Some("An Artist")));
+}
+
+#[tokio::test]
+async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
+    let pool = crate::db::test_pool().await;
+    let (user, _) = crate::testutil::user(&pool, "ana@example.com").await;
+    assert_eq!(load_prefs(&pool, &user).await.unwrap(), None);
+    // Only steps phase has are kept.
+    let sent = Stops { own: ["Upkeep".to_string(), "Teatime".to_string()].into(), others: ["End".to_string()].into() };
+    let prefs = PlayPrefs { stops: Some(clean_stops(sent)), full_control: true };
+    save_prefs(&pool, &user, &prefs).await.unwrap();
+    let back = load_prefs(&pool, &user).await.unwrap().unwrap();
+    assert_eq!(back, prefs);
+    assert!(back.stops.as_ref().unwrap().own.contains("Upkeep") && !back.stops.as_ref().unwrap().own.contains("Teatime"));
+    // Saving again replaces them.
+    save_prefs(&pool, &user, &PlayPrefs::default()).await.unwrap();
+    assert_eq!(load_prefs(&pool, &user).await.unwrap(), Some(PlayPrefs::default()));
+
+    // A live game starts with each seat's saved settings, and its board says what they are.
+    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()) });
+    let m = engine().new_match_first(5, vec![deck(&[("Mountain", 99)]), deck(&[("Forest", 99)])], &[], Some(0)).unwrap();
+    let saved = HashMap::from([(0u8, PlayPrefs { stops: None, full_control: true })]);
+    hub.spawn_game("game-turns-1".into(), m, vec![seat(0, "Ana"), seat(1, "Ben")], saved, pool.clone());
+    let live = hub.live("game-turns-1").unwrap();
+    let mine = board(&live, 0).await.turns.expect("a person's board has their controls");
+    assert!(mine.full_control);
+    assert!(!board(&live, 1).await.turns.unwrap().full_control);
+
+    // A way to pass while it isn't your priority is kept for when it is.
+    choose(&live, 0, OptionKind::Keep).await;
+    choose(&live, 1, OptionKind::Keep).await;
+    let v = board(&live, 1).await;
+    send(&live, |reply| Cmd::Passing { seat: 1, revision: v.revision, mode: Some(PassMode::Mine), reply }).await.unwrap();
+    let mut passing = None;
+    for _ in 0..100 {
+        passing = board(&live, 1).await.turns.unwrap().passing;
+        if passing.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(passing, Some(PassMode::Mine));
+    let _ = live.cmds.send(Cmd::Stop);
 }

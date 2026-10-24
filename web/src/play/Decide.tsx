@@ -394,9 +394,10 @@ function ReadButton({ className, label, disabled, onClick, onRead, children }: {
 
 /**
  * Drag to reorder: a press on a handle follows the pointer and moves its entry past each
- * neighbour's middle. The arrows do the same one step at a time.
+ * neighbour's middle. The arrows do the same one step at a time. `onEnd` runs when the press
+ * lets go (the hand order sends the new order then, not at every step).
  */
-function useReorder(axis: "x" | "y", onMove: (from: number, to: number) => void) {
+export function useReorder(axis: "x" | "y", onMove: (from: number, to: number) => void, onEnd?: () => void) {
   const list = useRef<HTMLOListElement>(null);
   const drag = useRef<{ i: number; pointer: number } | null>(null);
   return {
@@ -426,9 +427,11 @@ function useReorder(axis: "x" | "y", onMove: (from: number, to: number) => void)
         }
       },
       onPointerUp: () => {
+        if (drag.current) onEnd?.();
         drag.current = null;
       },
       onPointerCancel: () => {
+        if (drag.current) onEnd?.();
         drag.current = null;
       },
     }),

@@ -245,7 +245,8 @@ export function toAct(p: Pending, d: Draft, yes = true): Act | null {
     case "pay_unless_cost":
       return { kind: "pay_unless_cost", pay: yes };
     case "decide_optional_effect":
-      if (remember !== "ask") return { kind: "decide_optional_effect_and_remember", accept: remember === "always" };
+      // Every copy of the card where the engine allows it, else this one.
+      if (remember !== "ask") return { kind: "decide_optional_effect_and_remember", accept: remember === "always", ...(p.rememberSameCard ? { same_card: true } : {}) };
       return { kind: "decide_optional_effect", accept: yes };
     case "assign_combat_damage": {
       if (d.kind !== "split") return null;

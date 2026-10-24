@@ -27,7 +27,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, watch};
-use yama_play::{Act, AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, SeatDeck, Stops, View};
+use yama_play::{Act, AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, PassMode, SeatDeck, Stops, View};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -76,10 +76,17 @@ enum Cmd {
     /// A full answer to the seat's decision (cards picked, trigger order, X...; `yama_play::act`).
     Act { seat: u8, revision: u64, action: Act, reply: oneshot::Sender<Result<(), String>> },
     Concede { seat: u8 },
-    /// Stop at every priority instead of only where it matters.
+    /// The seat's saved settings (`play_prefs`): its stops and full control.
+    Prefs { seat: u8, prefs: PlayPrefs },
+    /// Older boards: full control alone, not saved.
     FullControl { seat: u8, on: bool },
-    /// The seat's own stops by step, or `None` for the default smart stops.
+    /// Older boards: the seat's own stops alone, not saved.
     Stops { seat: u8, stops: Option<Stops> },
+    /// A way to pass (GPriority's menu), or `None` to stop one. Passes now if it's the seat's
+    /// priority on the board it chose from.
+    Passing { seat: u8, revision: u64, mode: Option<PassMode>, reply: oneshot::Sender<Result<(), String>> },
+    /// "Hold priority" with your own spell on the stack (GButtons).
+    Hold { seat: u8, on: bool },
     /// End the game thread now without saving (an account in it is being deleted).
     Stop,
 }
@@ -150,12 +157,13 @@ impl PlayHub {
         for (game_id, seats, replay, log) in rows {
             let (Ok(seats), Some(replay)) = (serde_json::from_str::<Vec<SeatCfg>>(&seats), replay) else { continue };
             let Ok(engine) = self.engine() else { return };
+            let prefs = seat_prefs(pool, &seats).await;
             match engine.resume(&replay, &ai_seats(&seats)) {
                 Ok(mut m) => {
                     if let Some(lines) = log.and_then(|l| serde_json::from_str(&l).ok()) {
                         m.set_log_lines(lines);
                     }
-                    self.spawn_game(game_id.clone(), m, seats, pool.clone());
+                    self.spawn_game(game_id.clone(), m, seats, prefs, pool.clone());
                     tracing::info!(game_id, "resumed online game");
                 }
                 Err(e) => tracing::error!(game_id, error = %format!("{e:#}"), "couldn't resume online game"),
@@ -163,7 +171,8 @@ impl PlayHub {
         }
     }
 
-    fn spawn_game(self: &Arc<Self>, game_id: String, m: Match, seats: Vec<SeatCfg>, pool: SqlitePool) {
+    /// Run a live game on its own thread. `prefs` are the seated people's saved turn controls.
+    fn spawn_game(self: &Arc<Self>, game_id: String, m: Match, seats: Vec<SeatCfg>, prefs: HashMap<u8, PlayPrefs>, pool: SqlitePool) {
         let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
         let (view_tx, view_rx) = watch::channel(Arc::new(Snapshot::default()));
         self.live.lock().unwrap().insert(game_id.clone(), LiveGame { cmds: cmd_tx, views: view_rx });
@@ -173,7 +182,7 @@ impl PlayHub {
             .name(format!("game-{}", &game_id[..8]))
             .stack_size(STACK)
             .spawn(move || {
-                run_game(&game_id, m, &seats, cmd_rx, view_tx, &pool, &rt);
+                run_game(&game_id, m, &seats, &prefs, cmd_rx, view_tx, &pool, &rt);
                 hub.live.lock().unwrap().remove(&game_id);
             })
             .expect("game thread");
@@ -206,10 +215,12 @@ impl PlayHub {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_game(
     game_id: &str,
     mut m: Match,
     seats: &[SeatCfg],
+    prefs: &HashMap<u8, PlayPrefs>,
     cmds: std::sync::mpsc::Receiver<Cmd>,
     views: watch::Sender<Arc<Snapshot>>,
     pool: &SqlitePool,
@@ -231,12 +242,10 @@ fn run_game(
         }
     };
     let humans: Vec<u8> = seats.iter().filter(|s| s.kind == "human").map(|s| s.seat).collect();
-    // Let the computer act, and pass for people who have nothing else they could do, until a
-    // person has a real decision. Publish as it goes so the table can follow along.
-    let mut full_control: std::collections::HashSet<u8> = std::collections::HashSet::new();
-    let mut stops: HashMap<u8, Stops> = HashMap::new();
-    let ai_turns = |m: &mut Match, full_control: &std::collections::HashSet<u8>, stops: &HashMap<u8, Stops>| loop {
-        let passed = m.auto_pass(&humans, full_control, stops);
+    // Let the computer act, and pass for people where their turn controls say to (yama_play's
+    // turns.rs), until a person has a real decision. Publish as it goes so the table can follow.
+    let ai_turns = |m: &mut Match| loop {
+        let passed = m.auto_pass(&humans);
         match m.run_ai(AI_BATCH) {
             Ok(0) if passed == 0 => break,
             Ok(_) => {
@@ -251,8 +260,14 @@ fn run_game(
     };
 
     m.set_names(seats.iter().map(|s| s.name.clone()).collect());
+    // Everyone's saved stops and full control apply from the first priority.
+    for (seat, p) in prefs {
+        if humans.contains(seat) {
+            m.set_prefs(*seat, p.stops.clone(), p.full_control);
+        }
+    }
     publish(&m);
-    ai_turns(&mut m, &full_control, &stops);
+    ai_turns(&mut m);
     publish(&m);
     while !m.is_over() {
         let Ok(cmd) = cmds.recv() else { return };
@@ -263,10 +278,10 @@ fn run_game(
             if ok {
                 // Pass for people with nothing to do first, so the board sent out doesn't
                 // flash a stop that would be passed a moment later.
-                m.auto_pass(&humans, &full_control, &stops);
+                m.auto_pass(&humans);
                 publish(m);
                 save(m);
-                ai_turns(m, &full_control, &stops);
+                ai_turns(m);
             }
         };
         match cmd {
@@ -290,23 +305,41 @@ fn run_game(
                 if m.concede(seat).is_ok() {
                     publish(&m);
                     save(&m);
-                    ai_turns(&mut m, &full_control, &stops);
+                    ai_turns(&mut m);
                 }
+            }
+            // New stops apply from the next priority; the decision on screen stays put. Turning
+            // full control off may pass the window on screen now.
+            Cmd::Prefs { seat, prefs } => {
+                let was = m.controls(seat).full_control;
+                m.set_prefs(seat, prefs.stops, prefs.full_control);
+                if was && !prefs.full_control {
+                    ai_turns(&mut m);
+                }
+                save(&m);
             }
             Cmd::FullControl { seat, on } => {
-                if on {
-                    full_control.insert(seat);
-                } else {
-                    full_control.remove(&seat);
-                    ai_turns(&mut m, &full_control, &stops);
+                m.set_full_control(seat, on);
+                if !on {
+                    ai_turns(&mut m);
+                }
+                save(&m);
+            }
+            Cmd::Stops { seat, stops } => m.set_stops(seat, stops),
+            Cmd::Passing { seat, revision, mode, reply } => {
+                let result = m.set_passing(seat, mode, revision);
+                let ok = result.is_ok();
+                let _ = reply.send(result.map_err(|e| e.to_string()));
+                if ok && mode.is_some() {
+                    m.auto_pass(&humans);
+                    publish(&m);
+                    save(&m);
+                    ai_turns(&mut m);
                 }
             }
-            // New stops apply from the next priority; the decision on screen stays put.
-            Cmd::Stops { seat, stops: Some(s) } => {
-                stops.insert(seat, s);
-            }
-            Cmd::Stops { seat, stops: None } => {
-                stops.remove(&seat);
+            Cmd::Hold { seat, on } => {
+                m.set_hold(seat, on);
+                save(&m);
             }
             Cmd::Stop => return,
         }
@@ -970,7 +1003,8 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    st.play.spawn_game(id.to_string(), m, seats, st.pool.clone());
+    let prefs = seat_prefs(&st.pool, &seats).await;
+    st.play.spawn_game(id.to_string(), m, seats, prefs, st.pool.clone());
     Ok(())
 }
 
@@ -986,9 +1020,17 @@ enum ClientMessage {
     /// (a debug action, a made-up kind) doesn't parse and is dropped.
     Act { revision: u64, action: Act },
     Concede,
+    /// Your stops (`null` for the usual ones) and full control, saved to your account and applied
+    /// to this game.
+    Prefs { stops: Option<Stops>, full_control: bool },
+    /// Older boards: full control for this game only.
     FullControl { on: bool },
-    /// Your own stops by step; `null` goes back to the default smart stops.
+    /// Older boards: your own stops by step for this game only; `null` for the usual ones.
     Stops { stops: Option<Stops> },
+    /// A way to pass (`until`, `turn`, `end`, `mine`), or `null` to stop one.
+    Pass { revision: u64, mode: Option<PassMode> },
+    /// Hold priority while your own spell is on the stack, or stop holding it.
+    Hold { on: bool },
 }
 
 async fn connect(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, ws: WebSocketUpgrade) -> AppResult<Response> {
@@ -996,7 +1038,7 @@ async fn connect(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pat
     let seats = r.seats();
     let you = seats.iter().find(|s| s.user_id.as_deref() == Some(user.id.as_str())).map(|s| s.seat);
     let live = st.play.live(&id).ok_or_else(|| AppError::Conflict("that game isn't running".into()))?;
-    Ok(ws.on_upgrade(move |socket| watch_game(socket, st.pool.clone(), live, you, seats)))
+    Ok(ws.on_upgrade(move |socket| watch_game(socket, st.pool.clone(), live, you, seats, user.id)))
 }
 
 /// What the board needs to show a card readably: full-size image and rules text, by name.
@@ -1079,8 +1121,22 @@ pub(crate) async fn card_meta(pool: &SqlitePool, names: &[String], cache: &mut H
     names.iter().filter_map(|n| cache.get(n).cloned().flatten().map(|m| (n.clone(), m))).collect()
 }
 
-async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Option<u8>, seats: Vec<SeatCfg>) {
+async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Option<u8>, seats: Vec<SeatCfg>, user: String) {
     let (mut sink, mut stream) = socket.split();
+    // Your saved turn controls apply to this game whenever you connect (another game or device
+    // may have changed them). The board learns whether any are saved, to bring older settings
+    // kept on the device over once.
+    if let Some(seat) = you {
+        let saved = load_prefs(&pool, &user).await.ok().flatten();
+        if let Some(prefs) = saved.clone() {
+            let _ = live.cmds.send(Cmd::Prefs { seat, prefs });
+        }
+        let msg = serde_json::json!({ "type": "prefs", "saved": saved.is_some() }).to_string();
+        if sink.send(Message::Text(msg.into())).await.is_err() {
+            return;
+        }
+    }
+    let reader_pool = pool.clone();
     let mut views = live.views.clone();
     let mut meta_cache: HashMap<String, Option<CardMeta>> = HashMap::new();
     let arts = commander_arts(&pool, seats.iter()).await.unwrap_or_default();
@@ -1133,11 +1189,31 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                 ClientMessage::Concede => {
                     let _ = cmds.send(Cmd::Concede { seat });
                 }
+                ClientMessage::Prefs { stops, full_control } => {
+                    let prefs = PlayPrefs { stops: stops.map(clean_stops), full_control };
+                    if let Err(e) = save_prefs(&reader_pool, &user, &prefs).await {
+                        tracing::error!(error = %e, "saving play settings failed");
+                        let _ = err_tx.send("Your settings couldn't be saved; they apply to this game only.".into());
+                    }
+                    let _ = cmds.send(Cmd::Prefs { seat, prefs });
+                }
+                ClientMessage::Pass { revision, mode } => {
+                    let (tx, rx) = oneshot::channel();
+                    if cmds.send(Cmd::Passing { seat, revision, mode, reply: tx }).is_err() {
+                        break;
+                    }
+                    if let Ok(Err(e)) = rx.await {
+                        let _ = err_tx.send(e);
+                    }
+                }
+                ClientMessage::Hold { on } => {
+                    let _ = cmds.send(Cmd::Hold { seat, on });
+                }
                 ClientMessage::FullControl { on } => {
                     let _ = cmds.send(Cmd::FullControl { seat, on });
                 }
                 ClientMessage::Stops { stops } => {
-                    let _ = cmds.send(Cmd::Stops { seat, stops });
+                    let _ = cmds.send(Cmd::Stops { seat, stops: stops.map(clean_stops) });
                 }
             }
         }
@@ -1167,6 +1243,67 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
         }
     }
     reader.abort();
+}
+
+// ── saved turn controls ────────────────────────────────────────────────────
+
+/// A person's saved turn controls (`play_prefs`): their stops and full control, for every game.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PlayPrefs {
+    pub(crate) stops: Option<Stops>,
+    pub(crate) full_control: bool,
+}
+
+/// The steps a stop can name (phase's names). Anything else a client sends is dropped.
+const STEPS: &[&str] = &[
+    "Untap", "Upkeep", "Draw", "PreCombatMain", "BeginCombat", "DeclareAttackers", "DeclareBlockers", "FirstStrikeDamage", "CombatDamage",
+    "EndCombat", "PostCombatMain", "End", "Cleanup",
+];
+
+/// Stops with only the steps phase has.
+fn clean_stops(mut s: Stops) -> Stops {
+    s.own.retain(|p| STEPS.contains(&p.as_str()));
+    s.others.retain(|p| STEPS.contains(&p.as_str()));
+    s
+}
+
+pub(crate) async fn load_prefs(pool: &SqlitePool, user: &str) -> sqlx::Result<Option<PlayPrefs>> {
+    let row: Option<(Option<String>, i64)> =
+        sqlx::query_as("SELECT stops, full_control FROM play_prefs WHERE user_id = ?").bind(user).fetch_optional(pool).await?;
+    Ok(row.map(|(stops, full)| PlayPrefs {
+        // Unreadable stops fall back to the usual ones rather than failing the game.
+        stops: stops.and_then(|s| serde_json::from_str::<Stops>(&s).ok()).map(clean_stops),
+        full_control: full != 0,
+    }))
+}
+
+pub(crate) async fn save_prefs(pool: &SqlitePool, user: &str, prefs: &PlayPrefs) -> sqlx::Result<()> {
+    let stops = prefs.stops.as_ref().map(|s| serde_json::to_string(s).unwrap_or_default());
+    sqlx::query(
+        "INSERT INTO play_prefs (user_id, stops, full_control, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET stops = excluded.stops, full_control = excluded.full_control, updated_at = excluded.updated_at",
+    )
+    .bind(user)
+    .bind(stops)
+    .bind(i64::from(prefs.full_control))
+    .bind(now())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// The seated people's saved turn controls, by seat. A seat whose settings can't be read gets
+/// the usual ones.
+async fn seat_prefs(pool: &SqlitePool, seats: &[SeatCfg]) -> HashMap<u8, PlayPrefs> {
+    let mut out = HashMap::new();
+    for s in seats.iter().filter(|s| s.kind == "human") {
+        if let Some(user) = &s.user_id
+            && let Ok(Some(p)) = load_prefs(pool, user).await
+        {
+            out.insert(s.seat, p);
+        }
+    }
+    out
 }
 
 /// The board as it stands, over HTTP: for finished games (rebuilt from the replay log) and

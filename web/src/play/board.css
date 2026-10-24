@@ -3718,3 +3718,479 @@ body.pb-dragging .pb-preview {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ── turn controls (TurnControls.tsx; design/screens/GPriority, GButtons, GSettings) ───────── */
+
+.rail-top {
+  gap: 8px;
+}
+.rail-leave {
+  margin-right: auto;
+}
+.stops-chip {
+  flex-wrap: wrap;
+}
+/* A toggle on the main button's partner (Hold priority) reads as pressed: white ring. */
+.pb-secondary.on {
+  border-color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--text);
+}
+
+/* GPriority's ways to pass: one line each, with its key. */
+.pass-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pass-list button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  justify-items: start;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  font-weight: 400;
+}
+.pass-list button:hover:not(:disabled),
+.pass-list button.on {
+  background: var(--raised);
+}
+.pass-list b {
+  font-size: 15px;
+}
+.pass-list kbd {
+  justify-self: end;
+  padding: 1px 7px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: inherit;
+  font-size: 12px;
+  color: var(--dim);
+}
+.pass-list span {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  color: var(--dim);
+}
+.pass-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 26;
+}
+.pass-menu {
+  position: fixed;
+  z-index: 27;
+  right: 14px;
+  bottom: 166px;
+  width: 316px;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.6), 0 0 0 1px var(--line);
+}
+.pass-menu h3 {
+  margin: 4px 12px 6px;
+  font-family: var(--body);
+  font-size: 13px;
+  color: var(--dim);
+}
+.sheet-sub {
+  margin: 8px 0 0;
+  font-family: var(--body);
+  font-size: 15px;
+}
+
+/* A way to pass in force: a white pill with Stop. */
+.mode-chip {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 4px 4px 14px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  color: var(--ground);
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.5);
+}
+.mode-chip button {
+  min-height: 36px;
+  padding: 0 14px;
+  background: var(--ground);
+  color: var(--text);
+}
+.mode-chip button:hover {
+  background: var(--raised);
+}
+
+/* Resolve all (GTogether's consent tab): the stack, top first, and who has agreed. */
+.consent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.consent h3 {
+  margin: 4px 0 0;
+  font-family: var(--body);
+  font-size: 14px;
+}
+.consent-why {
+  margin: 0;
+  font-size: 14px;
+  color: var(--dim);
+}
+.consent-stack,
+.consent-ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.consent-stack li {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--raised);
+}
+.consent-stack img,
+.consent-stack .blank {
+  width: 48px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--surface);
+}
+.consent-stack li > span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  min-width: 0;
+}
+.consent-ledger li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+.consent-ledger li.you {
+  background: var(--raised);
+}
+.consent-ledger li > span:last-child {
+  margin-left: auto;
+  font-size: 12px;
+}
+.consent-ledger .good {
+  color: var(--good);
+}
+.consent.compact .consent-ledger {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.consent.compact .consent-ledger li {
+  padding: 3px 10px 3px 7px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  font-size: 12px;
+}
+.consent.compact .consent-ledger li > span:last-child {
+  margin-left: 4px;
+}
+
+/* GSettings: a dialog over the table on a laptop (the rail confirms), a sheet on a phone. */
+.gs-overlay {
+  position: fixed;
+  z-index: 25;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  right: 340px;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 0.6);
+}
+.gs-dialog {
+  width: min(1020px, 100%);
+  height: min(620px, 100%);
+  overflow: hidden;
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line);
+}
+.gs {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+}
+.gs-nav {
+  padding: 18px 12px;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gs-nav h2 {
+  margin: 0 8px 10px;
+  font-size: 30px;
+  line-height: 1;
+}
+.gs-nav button {
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+}
+.gs-nav button.on {
+  background: var(--raised);
+}
+.gs-nav button.bad,
+.gs-tabs button.bad:not(.on) {
+  color: var(--bad);
+}
+.gs-nav button span {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--dim);
+}
+.gs-note {
+  margin: auto 8px 0;
+  font-size: 12px;
+  color: var(--dim);
+}
+.gs-body {
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.gs-lede {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+  color: var(--dim);
+}
+.gs-lede b {
+  font-size: 20px;
+  color: var(--text);
+}
+.gs-row {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--raised);
+}
+.gs-row img,
+.gs-row .blank {
+  width: 60px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--surface);
+}
+.gs-what {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  min-width: 0;
+}
+.gs-row button {
+  min-height: 40px;
+  font-size: 13px;
+}
+.gs-empty {
+  margin: 0;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--raised);
+  color: var(--dim);
+  font-size: 14px;
+}
+.gs-hand {
+  list-style: none;
+  margin: 0;
+  padding: 18px 8px 8px;
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+}
+.gs-hand button {
+  padding: 0;
+  min-height: 0;
+  border-radius: 6px;
+  background: transparent;
+  touch-action: none;
+  transition: transform 140ms;
+}
+.gs-hand button.on {
+  box-shadow: 0 0 0 3px var(--text);
+  transform: translateY(-14px);
+}
+.gs-hand img {
+  display: block;
+  width: 120px;
+  border-radius: 6px;
+}
+.gs-card-name {
+  display: grid;
+  place-items: center;
+  width: 120px;
+  height: 167px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--raised);
+  font-size: 13px;
+}
+.gs-arrows {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gs-arrows button {
+  width: 52px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 18px;
+}
+/* Conceding: the warning in red, with an icon and a word (design/tokens.md, warnings). */
+.gs-warning {
+  padding: 16px;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 2px var(--bad);
+  background: var(--bad-tint);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+.gs-warning b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--bad);
+  font-size: 16px;
+}
+.gs.compact {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: auto;
+  min-height: min(70vh, 600px);
+}
+.gs-title {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 28px;
+  line-height: 1;
+}
+.gs-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--ground);
+}
+.gs-tabs button {
+  min-height: 40px;
+  padding: 0 4px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 13px;
+}
+.gs-tabs button.on {
+  background: var(--text);
+  color: var(--ground);
+}
+.gs.compact .gs-body {
+  padding: 0;
+  overflow: visible;
+}
+.gs.compact .gs-row {
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px;
+}
+.gs.compact .gs-row img,
+.gs.compact .gs-row .blank {
+  width: 48px;
+  height: 36px;
+}
+.gs.compact .gs-hand {
+  gap: 6px;
+  padding-top: 14px;
+}
+/* Centred while the cards fit; scrolls from the first card when they don't. */
+.gs-hand > li:first-child {
+  margin-left: auto;
+}
+.gs-hand > li:last-child {
+  margin-right: auto;
+}
+.gs.compact .gs-hand img,
+.gs.compact .gs-card-name {
+  width: 64px;
+}
+.gs.compact .gs-card-name {
+  height: 89px;
+  font-size: 10px;
+}
+.gs-buttons {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 8px;
+}
+.gs-buttons.one {
+  grid-template-columns: minmax(0, 1fr);
+}
+.gs-buttons .pb-primary {
+  grid-column: -2;
+}
+
+/* GLog: an answer Yama gave for you, tagged, with Turn off. */
+.log-tag {
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  color: var(--ground);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.pb-log button.link {
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: underline;
+}
