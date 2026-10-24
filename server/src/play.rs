@@ -24,10 +24,10 @@ use axum::{Json, Router};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, watch};
-use yama_play::{Act, AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, PassMode, PayMode, SeatDeck, Stops, View};
+use yama_play::{Act, AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, PassMode, PayMode, SeatDeck, Setup, Stops, View};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -234,14 +234,7 @@ fn run_game(
     rt: &tokio::runtime::Handle,
 ) {
     let publish = |m: &Match| {
-        let mut snap = Snapshot::default();
-        snap.views.insert(None, m.view(None));
-        for s in seats {
-            if s.kind == "human" {
-                snap.views.insert(Some(s.seat), m.view(Some(s.seat)));
-            }
-        }
-        let _ = views.send(Arc::new(snap));
+        let _ = views.send(Arc::new(snapshot(m, seats)));
     };
     let save = |m: &Match| {
         if let Err(e) = rt.block_on(persist(pool, game_id, m)) {
@@ -252,20 +245,17 @@ fn run_game(
     // Let the computer act, and pass for people where their turn controls say to (yama_play's
     // turns.rs), until a person has a real decision. Publish as it goes so the table can follow.
     let ai_turns = |m: &mut Match| loop {
-        let passed = m.auto_pass(&humans);
-        match m.run_ai(AI_BATCH) {
-            Ok(0) if passed == 0 => break,
-            Ok(_) => {
-                // Pass for people (and give the answers Yama remembers for them) before the board
-                // goes out, so it doesn't flash a decision answered a moment later.
-                m.auto_pass(&humans);
-                publish(m);
-                save(m);
-            }
-            Err(e) => {
-                tracing::error!(game_id, error = %format!("{e:#}"), "AI driver fault; game paused");
-                break;
-            }
+        let batch = ai_batch(m, &humans);
+        if batch.moved > 0 {
+            publish(m);
+            save(m);
+        }
+        if let Some(e) = batch.fault {
+            tracing::error!(game_id, error = %format!("{e:#}"), "AI driver fault; game paused");
+            break;
+        }
+        if batch.settled {
+            break;
         }
     };
 
@@ -363,6 +353,54 @@ fn run_game(
         publish(&m);
     }
     save(&m);
+}
+
+/// What one batch of the computer's moves did ([`ai_batch`]).
+struct Batch {
+    /// Actions taken: the AI seats' moves and the passes made for people.
+    moved: usize,
+    /// A person has a real decision (or the game is over): nothing more happens until they answer.
+    settled: bool,
+    /// The AI stopped on a fault (it found no move, the engine refused one, or a turn never ends).
+    fault: Option<anyhow::Error>,
+}
+
+/// AI seats act, and Yama passes for people where their turn controls say to, until a person has
+/// a real decision or about AI_BATCH actions have gone by, whichever is first; the game thread
+/// then shows the board and saves. Since every pass is its own engine action in games with loop
+/// detection (`Match::plain_passes`), the computer and a pass made for a person hand over often;
+/// showing the board at every hand-over cost a set of views and a save each time, which held up a
+/// person's next decision behind the AI's turns (docs/play-performance.md).
+fn ai_batch(m: &mut Match, humans: &[u8]) -> Batch {
+    let mut moved = 0;
+    loop {
+        let passed = m.auto_pass(humans);
+        moved += passed;
+        let acted = match m.run_ai(AI_BATCH.saturating_sub(moved).max(1)) {
+            Ok(n) => n,
+            Err(fault) => return Batch { moved, settled: true, fault: Some(fault) },
+        };
+        moved += acted;
+        let settled = passed + acted == 0 || m.is_over();
+        if settled || moved >= AI_BATCH {
+            // Pass for people (and give the answers Yama remembers for them) before the board goes
+            // out, so it doesn't flash a decision answered a moment later.
+            moved += m.auto_pass(humans);
+            return Batch { moved, settled, fault: None };
+        }
+    }
+}
+
+/// Every view a game publishes after a change: a spectator's and each person's.
+fn snapshot(m: &Match, seats: &[SeatCfg]) -> Snapshot {
+    let mut snap = Snapshot::default();
+    snap.views.insert(None, m.view(None));
+    for s in seats {
+        if s.kind == "human" {
+            snap.views.insert(Some(s.seat), m.view(Some(s.seat)));
+        }
+    }
+    snap
 }
 
 async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<()> {
@@ -1076,7 +1114,9 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     }
     let seed: u64 = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
     let ai = ai_seats(&seats);
-    let m = match engine.new_match(seed, decks, &ai) {
+    // Loops follow the rules (CR 732): the setting is saved in the replay log's header, so the
+    // game resumes and replays with it.
+    let m = match engine.new_match_with(seed, decks, &ai, Setup { first: None, loops: yama_play::PLAY_LOOPS }) {
         Ok(m) => m,
         Err(e) => {
             release().await;
@@ -1233,7 +1273,7 @@ pub(crate) fn view_names(view: &View) -> Vec<String> {
 /// Fill in the deciding seat's decision with Yama's card details, as the design's decision
 /// widgets read them: the source card's art, image, artist and Oracle text, and each card
 /// option's image, art and artist.
-pub(crate) fn dress_pending(view: &mut View, cards: &HashMap<String, CardMeta>) {
+pub(crate) fn dress_pending(view: &mut View, cards: &BTreeMap<String, CardMeta>) {
     let Some(p) = view.decision.as_mut().and_then(|d| d.pending.as_mut()) else { return };
     if let Some(src) = p.source.as_mut()
         && let Some(m) = cards.get(&src.name)
@@ -1253,7 +1293,8 @@ pub(crate) fn dress_pending(view: &mut View, cards: &HashMap<String, CardMeta>) 
 }
 
 /// Look up card details by name, remembering answers (including "unknown") for this connection.
-pub(crate) async fn card_meta(pool: &SqlitePool, names: &[String], cache: &mut HashMap<String, Option<CardMeta>>) -> HashMap<String, CardMeta> {
+/// Sorted by name, so the message comes out the same every time.
+pub(crate) async fn card_meta(pool: &SqlitePool, names: &[String], cache: &mut HashMap<String, Option<CardMeta>>) -> BTreeMap<String, CardMeta> {
     for name in names {
         if cache.contains_key(name) {
             continue;
@@ -1271,6 +1312,35 @@ pub(crate) async fn card_meta(pool: &SqlitePool, names: &[String], cache: &mut H
         cache.insert(name.clone(), meta);
     }
     names.iter().filter_map(|n| cache.get(n).cloned().flatten().map(|m| (n.clone(), m))).collect()
+}
+
+/// The `view` message as it goes on the wire.
+#[derive(Serialize)]
+struct ViewMessage<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    you: Option<u8>,
+    seats: &'a serde_json::Value,
+    cards: &'a BTreeMap<String, CardMeta>,
+    view: &'a View,
+}
+
+/// The `view` message one connection is sent: the board with the card details it names (looked up
+/// through this connection's cache), and the deciding seat's decision dressed with them. Written
+/// straight to text: building it as a JSON value first, and copying the whole view to dress a
+/// decision most views don't have, cost more than the rest of the message (docs/play-performance.md).
+async fn view_message(pool: &SqlitePool, view: &View, you: Option<u8>, infos: &serde_json::Value, cache: &mut HashMap<String, Option<CardMeta>>) -> String {
+    let cards = card_meta(pool, &view_names(view), cache).await;
+    let dressed;
+    let view = if view.decision.as_ref().is_some_and(|d| d.pending.is_some()) {
+        let mut copy = view.clone();
+        dress_pending(&mut copy, &cards);
+        dressed = copy;
+        &dressed
+    } else {
+        view
+    };
+    serde_json::to_string(&ViewMessage { kind: "view", you, seats: infos, cards: &cards, view }).expect("a view serializes")
 }
 
 async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Option<u8>, seats: Vec<SeatCfg>, user: String) {
@@ -1413,11 +1483,8 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
         first = false;
         let snap = views.borrow_and_update().clone();
         let Some(view) = snap.views.get(&you).or_else(|| snap.views.get(&None)) else { continue };
-        let cards = card_meta(&pool, &view_names(view), &mut meta_cache).await;
-        let mut view = view.clone();
-        dress_pending(&mut view, &cards);
-        let msg = serde_json::json!({ "type": "view", "you": you, "seats": infos, "cards": cards, "view": view });
-        if sink.send(Message::Text(msg.to_string().into())).await.is_err() {
+        let msg = view_message(&pool, view, you, &infos, &mut meta_cache).await;
+        if sink.send(Message::Text(msg.into())).await.is_err() {
             break;
         }
     }
@@ -1538,3 +1605,7 @@ async fn final_view(State(st): State<AppState>, CurrentUser(user): CurrentUser, 
 #[cfg(test)]
 #[path = "play_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "play_bench.rs"]
+mod bench;

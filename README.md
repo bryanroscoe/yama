@@ -54,6 +54,18 @@ mkdir -p data/engine && curl -o data/engine/card-data-eb309108eb0df708.json \
 ./target/debug/soak                     # all-AI game with Bryan's decks; checks replay determinism
 ```
 
+Checks on games people play (docs/play-performance.md), in release:
+
+```sh
+cargo build --release -p yama-play --bins
+./target/release/soak data/engine/card-data-eb309108eb0df708.json 80 1-20   # 20 full games, loop detection as online
+./target/release/playbench data/engine/card-data-eb309108eb0df708.json --games 2   # AI, engine and view times
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-eb309108eb0df708.json \
+  cargo test --release -p yama-play --test determinism -- --ignored          # same games twice, and resumed
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-eb309108eb0df708.json \
+  cargo test --release -p yama-server play::bench -- --ignored --nocapture   # a person's move, act to views sent
+```
+
 Optional:
 
 ```sh
@@ -106,8 +118,8 @@ server/            Rust (Axum, SQLite via sqlx). One binary: serve, import-cards
   src/cards/       Scryfall import and search
   src/plan/        Deck planner: plan file import, the per-user bundle, deck links, inputs and the inbox, script keys
   src/lab.rs, src/lab/  Simulation lab: precon catalog, rating runs, "Try a change" experiments and their worker
-play/              Online play on the phase-rs engine (local fork at ../yama-phase), soak test; the lab's game core
-                   (src/lab.rs) and batch runner (src/bin/lab.rs).
+play/              Online play on the phase-rs engine (local fork at ../yama-phase), soak test, playbench; the lab's
+                   game core (src/lab.rs) and batch runner (src/bin/lab.rs).
 packages/core/     Shared TypeScript: life counter, offline search, sample hands, mana colors, deck lists;
                    src/plan/ is the planner's logic (@yama/core/plan)
 web/               React app (Vite). Also the future Capacitor phone app. Planner pages in src/plan/, lab pages
