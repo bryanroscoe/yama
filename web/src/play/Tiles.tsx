@@ -98,6 +98,8 @@ export interface TileLook {
   pick?: boolean;
   /** Picked for the current choice: its place in the picks (a white ring and the number). */
   picked?: number;
+  /** Part of the decision being put together, where no number applies (a split's target): a white ring. */
+  chosen?: boolean;
 }
 
 /** Engine counter keys in words: "plus1plus1" is "+1/+1". */
@@ -131,6 +133,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
     look.target && "can be targeted",
     look.pick && "can be chosen",
     look.picked && `chosen ${look.picked}`,
+    look.chosen && "chosen",
     extraLabel,
   ]
     .filter(Boolean)
@@ -143,7 +146,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
     look.selected && "selected",
     look.target && "target",
     look.pick && "pick",
-    look.picked && "picked",
+    (look.picked || look.chosen) && "picked",
     attacking && "attacking",
     blocking && "blocking",
     c.commander && "commander",

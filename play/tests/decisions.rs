@@ -1,11 +1,11 @@
 //! What a person's decisions say and keep, on real games over a small slice of phase's card
 //! data (tests/fixtures/act-cards.json: basic lands, Opt, Preordain, Rampant Growth, Blaze,
-//! Chandra, Torch of Defiance and Combat Celebrant, taken from card-data-eb309108eb0df708.json
-//! with the printing lists, legalities and metadata removed).
+//! Chandra, Torch of Defiance, Combat Celebrant, Solemn Simulacrum and Silverblade Paladin, taken
+//! from card-data-eb309108eb0df708.json with the printing lists, legalities and metadata removed).
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use yama_play::act::{Answer, Kind};
+use yama_play::act::{Answer, Kind, RememberedReplacement};
 use yama_play::{Act, ChoiceError, Decision, Difficulty, Engine, Match, OptionKind, SeatDeck, TargetView};
 
 fn engine() -> Engine {
@@ -237,10 +237,64 @@ fn every_answer_round_trips_through_the_engines_action() {
         Act::ChooseReplacement { index: 1 },
         Act::AssignCombatDamage { assignments: vec![(5, 2), (6, 1)], trample: 3, controller: 0, unblocked: false },
         Act::DistributeAmong { distribution: vec![(TargetView::Player { seat: 2 }, 2), (TargetView::Object { id: 4 }, 1)] },
+        Act::DecideOptionalEffectAndRemember { accept: true, same_card: false },
+        Act::DecideOptionalEffectAndRemember { accept: false, same_card: true },
+        Act::ChooseReplacementAndRemember { choice: RememberedReplacement::Order { order: vec![1, 0] } },
+        Act::ChooseReplacementAndRemember { choice: RememberedReplacement::Optional { index: 1 } },
+        Act::ChoosePair { partner: Some(7) },
+        Act::ChoosePair { partner: None },
     ];
     for a in answers {
         assert_eq!(Act::from_action(&a.to_action()), Some(a.clone()));
         let json = serde_json::to_string(&a).unwrap();
         assert_eq!(serde_json::from_str::<Act>(&json).unwrap(), a, "{json}");
     }
+}
+
+#[test]
+fn a_may_trigger_can_be_answered_and_remembered() {
+    let e = engine();
+    let me = deck(&[("Mountain", 50), ("Solemn Simulacrum", 49)]);
+    let them = deck(&[("Forest", 99)]);
+    let mut m = e.new_match_first(6, vec![me, them], &[(1, Difficulty::Easy)], Some(0)).unwrap();
+    let lands = |m: &Match| m.view(Some(0)).battlefield.iter().filter(|c| c.controller == 0 && c.name == "Mountain" && !c.tapped).count();
+    let solemn = move |m: &Match, d: &Decision| option(d, OptionKind::Land).or_else(|| (lands(m) >= 4).then(|| d.options.iter().find(|o| o.label.starts_with("Cast Solemn")).map(|o| o.index)).flatten());
+    drive(&mut m, 4000, solemn, |m| pending(m, "may").is_some());
+    let d = m.decision(0).unwrap();
+    let p = d.pending.clone().unwrap();
+    // Solemn's own trigger: the engine can remember the answer for this card.
+    assert_eq!((p.kind, p.answer, p.remember), (Kind::Yesno, Answer::DecideOptionalEffect, Some("engine")));
+    assert_eq!(p.source.as_ref().map(|s| s.name.as_str()), Some("Solemn Simulacrum"));
+    m.act(0, d.revision, &Act::DecideOptionalEffectAndRemember { accept: true, same_card: false }).unwrap();
+    // Accepted: the search it offers comes next.
+    assert!(pending(&m, "search").is_some(), "{:?}", m.decision(0).map(|d| d.prompt));
+}
+
+#[test]
+fn soulbond_is_answered_with_a_partner() {
+    let e = engine();
+    let me = deck(&[("Mountain", 30), ("Plains", 30), ("Silverblade Paladin", 39)]);
+    let them = deck(&[("Forest", 99)]);
+    let mut m = e.new_match_first(8, vec![me, them], &[(1, Difficulty::Easy)], Some(0)).unwrap();
+    let untapped = |m: &Match| m.view(Some(0)).battlefield.iter().filter(|c| c.controller == 0 && c.types.iter().any(|t| t == "Land") && !c.tapped).count();
+    let celebrant_out = |m: &Match| m.view(Some(0)).battlefield.iter().any(|c| c.controller == 0 && c.name == "Combat Celebrant");
+    let play = move |m: &Match, d: &Decision| {
+        option(d, OptionKind::Land)
+            .or_else(|| (untapped(m) >= 3 && !celebrant_out(m)).then(|| d.options.iter().find(|o| o.label.starts_with("Cast Combat Celebrant")).map(|o| o.index)).flatten())
+            .or_else(|| (untapped(m) >= 3 && celebrant_out(m)).then(|| d.options.iter().find(|o| o.label.starts_with("Cast Silverblade")).map(|o| o.index)).flatten())
+            // The pairing may come as a "may" first: say yes.
+            .or_else(|| d.pending.as_ref().filter(|p| p.purpose == "may").and_then(|_| d.options.iter().find(|o| o.label.starts_with("Yes") || o.label.contains("ccept")).map(|o| o.index)))
+    };
+    drive(&mut m, 8000, play, |m| pending(m, "pair").is_some());
+    let d = m.decision(0).unwrap();
+    let p = d.pending.clone().unwrap();
+    assert_eq!((p.kind, p.answer, p.min, p.max), (Kind::Pair, Answer::ChoosePair, 0, 1));
+    let celebrant = p.options.iter().find(|o| o.name == "Combat Celebrant").expect("the commander can be paired");
+    let partner: u64 = celebrant.id.parse().unwrap();
+    // Something that isn't offered is refused, and the game stays as it was.
+    let before = m.revision;
+    assert!(m.act(0, d.revision, &Act::ChoosePair { partner: Some(partner + 100_000) }).is_err());
+    assert_eq!(m.revision, before);
+    m.act(0, d.revision, &Act::ChoosePair { partner: Some(partner) }).unwrap();
+    assert!(pending(&m, "pair").is_none());
 }

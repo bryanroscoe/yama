@@ -85,7 +85,8 @@ export type AnswerKind =
   | "choose_option"
   | "choose_replacement"
   | "assign_combat_damage"
-  | "distribute_among";
+  | "distribute_among"
+  | "choose_pair";
 
 /** The card asking; the server adds its art, image and artist. */
 export interface DecisionSource {
@@ -153,6 +154,8 @@ export interface Pending {
   previews?: [number, string][];
   /** Combat damage may all be assigned as though the attacker weren't blocked. */
   unblocked?: boolean;
+  /** What a split divides; damage gets a lethal hint. */
+  unit?: "damage" | "counters" | "life";
 }
 
 /** An answer sent with `{type: "act"}` (play/src/act.rs, Act). */
@@ -168,7 +171,13 @@ export type Act =
   | { kind: "choose_option"; choice: string }
   | { kind: "choose_replacement"; index: number }
   | { kind: "assign_combat_damage"; assignments: [number, number][]; trample: number; controller: number; unblocked?: boolean }
-  | { kind: "distribute_among"; distribution: [TargetView, number][] };
+  | { kind: "distribute_among"; distribution: [TargetView, number][] }
+  /** A "may" answered and remembered by the engine for this card (or, with same_card, every copy). */
+  | { kind: "decide_optional_effect_and_remember"; accept: boolean; same_card?: boolean }
+  /** Replacement effects chosen and remembered: the whole order by index, or a "you may" branch (0 yes, 1 no). */
+  | { kind: "choose_replacement_and_remember"; choice: { type: "order"; order: number[] } | { type: "optional"; index: number } }
+  /** Soulbond: the creature to pair with, or none. */
+  | { kind: "choose_pair"; partner: number | null };
 
 export interface Decision {
   /** When this seat's decision was issued; it holds while other seats act and it doesn't change. */

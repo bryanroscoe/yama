@@ -10,14 +10,18 @@
 //!
 //! Decisions with no [`Pending`] keep the index buttons (the AI's sampled option list), and so
 //! do the kinds of answer `Act` doesn't cover. Nothing loses its way to be answered.
+//!
+//! Where the engine itself can remember an answer (a "may" trigger, the order of replacement
+//! effects), `Pending::remember` is "engine" and the remembering forms of the answer are allowed.
 
 use engine::ai_support::AiDecisionContract;
 use engine::game::engine::apply_interaction;
 use engine::game::filter_state_for_viewer;
 use engine::types::ability::{AbilityCost, FreeEntry, TargetRef};
-use engine::types::actions::GameAction;
+use engine::types::actions::{GameAction, ReplacementAutoChoice};
 use engine::types::game_state::{
-    ActionResult, CombatDamageAssignmentMode, DistributionUnit, GameState, MulliganDecisionPhase, ReplacementChoiceKind, WaitingFor,
+    ActionResult, AutoMayChoice, CombatDamageAssignmentMode, DistributionUnit, GameState, MayTriggerAutoChoiceScope, MulliganDecisionPhase,
+    ReplacementChoiceKind, WaitingFor,
 };
 use engine::types::identifiers::ObjectId;
 use engine::types::player::PlayerId;
@@ -63,6 +67,7 @@ pub enum Answer {
     ChooseReplacement,
     AssignCombatDamage,
     DistributeAmong,
+    ChoosePair,
 }
 
 /// The card asking. The server adds its art, image and artist from Yama's card data.
@@ -181,6 +186,13 @@ pub struct Pending {
     /// Combat damage may all be assigned as though the attacker weren't blocked.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub unblocked: bool,
+    /// What a split divides: "damage", "counters" or "life" (damage gets a lethal hint).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<&'static str>,
+    /// The engine can also remember a "may" answer for every copy of the card (not only this
+    /// one); `admits` checks a same-card remember against it.
+    #[serde(skip)]
+    pub remember_same_card: bool,
 }
 
 impl Pending {
@@ -212,6 +224,8 @@ impl Pending {
             repeat: false,
             previews: vec![],
             unblocked: false,
+            unit: None,
+            remember_same_card: false,
         }
     }
 
@@ -318,11 +332,13 @@ fn count(n: usize, one: &str, many: &str) -> String {
     if n == 1 { format!("1 {one}") } else { format!("{n} {many}") }
 }
 
-/// "draw a card" as a question: "Draw a card?". Longer text (a whole ability, several
+/// "draw a card" as a question: "Draw a card?". A whole trigger ("When ~ enters, you may search
+/// your library…") asks what you may do ("Search your library…?"). Longer text (several
 /// sentences) is left as the engine wrote it, capitalised.
 fn question(text: &str) -> String {
     let text = one_line(text);
     let text = text.trim();
+    let text = text.split_once(", you may ").map_or(text, |(_, rest)| rest);
     let single = !text.trim_end_matches('.').contains(". ");
     let text = if single { text.trim_end_matches(['.', '?']) } else { text };
     let mut chars = text.chars();
@@ -340,6 +356,13 @@ fn effect_text(vs: &GameState, source: &ObjectId, text: &str) -> String {
         Some((cost, rest)) if cost.chars().all(|c| matches!(c, '+' | '−' | '-' | '0'..='9' | 'X')) => rest.to_string(),
         _ => named,
     }
+}
+
+/// The range of a named choice whose options are every whole number from one to another.
+fn number_range(options: &[String]) -> Option<(usize, usize)> {
+    let numbers: Vec<usize> = options.iter().map(|o| o.parse().ok()).collect::<Option<_>>()?;
+    let (min, max) = (*numbers.iter().min()?, *numbers.iter().max()?);
+    (numbers.len() == max - min + 1 && numbers.iter().collect::<std::collections::HashSet<_>>().len() == numbers.len()).then_some((min, max))
 }
 
 /// What a named choice names, in words: "card name", "creature type".
@@ -486,21 +509,27 @@ impl Pending {
                 p.zone = common_zone(&p.options);
                 p
             }
-            WaitingFor::UnlessPayment { player, cost, effect_description, .. } if *player == me => {
+            WaitingFor::UnlessPayment { player, cost, effect_description, pending_effect, .. } if *player == me => {
                 let cost = unless_cost_text(vs, cost);
                 let prompt = match effect_description {
                     Some(effect) => format!("Pay {cost}? If you don't: {}", one_line(effect)),
                     None => format!("Pay {cost}?"),
                 };
-                Pending::new(Kind::Yesno, Answer::PayUnlessCost, "pay", prompt, vec![]).yes_no(format!("Pay {cost}"), "Don't pay")
+                // The card asking (Rhystic Study, Mana Leak) is the source of the effect it holds back.
+                Pending::new(Kind::Yesno, Answer::PayUnlessCost, "pay", prompt, vec![])
+                    .yes_no(format!("Pay {cost}"), "Don't pay")
+                    .from(vs, Some(pending_effect.source_id))
             }
-            WaitingFor::OptionalEffectChoice { player, source_id, description, may_trigger_key, .. } if *player == me => {
+            WaitingFor::OptionalEffectChoice { player, source_id, description, may_trigger_key, same_card_may_trigger_choice_available, .. }
+                if *player == me =>
+            {
                 let prompt = description.as_deref().map(|d| question(&effect_text(vs, source_id, d))).unwrap_or_else(|| "Do it?".into());
                 let mut p = Pending::new(Kind::Yesno, Answer::DecideOptionalEffect, "may", prompt, vec![])
                     .yes_no("Yes", "No")
                     .from(vs, Some(*source_id));
                 // The engine can remember this answer for this card (DecideOptionalEffectAndRemember).
                 p.remember = may_trigger_key.is_some().then_some("engine");
+                p.remember_same_card = may_trigger_key.is_some() && *same_card_may_trigger_choice_available;
                 p
             }
             WaitingFor::OpponentMayChoice { player, source_id, description, .. } if *player == me => {
@@ -509,14 +538,32 @@ impl Pending {
                     .yes_no("Yes", "No")
                     .from(vs, Some(*source_id))
             }
-            WaitingFor::NamedChoice { player, choice_type, options, free_entry, .. } if *player == me => {
+            WaitingFor::NamedChoice { player, choice_type, options, free_entry, source, .. } if *player == me => {
                 let what = serde_json::to_value(choice_type).ok().as_ref().and_then(choice_type_name).unwrap_or_else(|| "option".into());
-                match free_entry {
+                // The card asking, as the engine names it ("As ~ enters, choose a card name"); it may
+                // not be on the battlefield yet, so it comes from the prompt's own binding.
+                let asking = source.as_ref().map(|s| Source {
+                    id: s.prompt.identity.reference.object_id.0,
+                    name: s.prompt.display_name.clone(),
+                    controller: s.prompt.controller.0,
+                    art: None,
+                    image: None,
+                    artist: None,
+                });
+                let mut p = match free_entry {
                     // A number in a range: answered with its digits.
                     Some(FreeEntry::Number { min, max }) => {
                         let mut p = Pending::new(Kind::Number, Answer::ChooseOption, "name", format!("Choose a number from {min} to {max}"), vec![]);
                         p.min = *min as usize;
                         p.max = *max as usize;
+                        p.choice_type = Some(what);
+                        p
+                    }
+                    // A list of consecutive numbers ("choose a number between 0 and 10") is a number too.
+                    None if let Some((min, max)) = number_range(options) => {
+                        let mut p = Pending::new(Kind::Number, Answer::ChooseOption, "name", format!("Choose a number from {min} to {max}"), vec![]);
+                        p.min = min;
+                        p.max = max;
                         p.choice_type = Some(what);
                         p
                     }
@@ -529,9 +576,11 @@ impl Pending {
                         p.choice_type = Some(what);
                         p
                     }
-                }
+                };
+                p.source = asking;
+                p
             }
-            WaitingFor::ReplacementChoice { player, candidates: items, kind, .. } if *player == me => {
+            WaitingFor::ReplacementChoice { player, candidates: items, kind, remember_identity, .. } if *player == me => {
                 let options: Vec<Choice> = items
                     .iter()
                     .enumerate()
@@ -543,7 +592,7 @@ impl Pending {
                         o
                     })
                     .collect();
-                if matches!(kind, ReplacementChoiceKind::OptionalBranch) {
+                let mut p = if matches!(kind, ReplacementChoiceKind::OptionalBranch) {
                     // One "you may" replacement: index 0 accepts, 1 declines.
                     let text = options.first().and_then(|o| o.text.clone()).unwrap_or_default();
                     let source = items.first().map(|c| c.source_id);
@@ -553,7 +602,10 @@ impl Pending {
                     p
                 } else {
                     Pending::new(Kind::Pick, Answer::ChooseReplacement, "replacement", "Choose which effect applies first", options)
-                }
+                };
+                // The engine offers to remember the order or the answer (ChooseReplacementAndRemember).
+                p.remember = remember_identity.is_some().then_some("engine");
+                p
             }
             WaitingFor::AssignCombatDamage { player, attacker_id, total_damage, blockers, trample, defending_player, assignment_modes, .. } if *player == me => {
                 let mut options: Vec<Choice> = blockers
@@ -573,6 +625,7 @@ impl Pending {
                 p.total = Some(*total_damage);
                 p.per_option_min = Some(0);
                 p.unblocked = assignment_modes.contains(&CombatDamageAssignmentMode::AsThoughUnblocked);
+                p.unit = Some("damage");
                 let defender = format!("p{}", defending_player.0);
                 p.default_answer = first(|a| matches!(a, GameAction::AssignCombatDamage { mode: CombatDamageAssignmentMode::Normal, .. })).map(|a| match a {
                     GameAction::AssignCombatDamage { assignments, trample_damage, .. } => split_answer(
@@ -583,20 +636,44 @@ impl Pending {
                 p
             }
             WaitingFor::DistributeAmong { player, total, targets, unit } if *player == me => {
-                let unit_name = match unit {
-                    DistributionUnit::Damage | DistributionUnit::EvenSplitDamage => "damage".to_string(),
-                    DistributionUnit::Counters(kind) => format!("{} counters", one_line(kind).to_lowercase()),
-                    DistributionUnit::Life => "life".to_string(),
+                let (unit_name, unit_kind) = match unit {
+                    DistributionUnit::Damage | DistributionUnit::EvenSplitDamage => ("damage".to_string(), "damage"),
+                    DistributionUnit::Counters(kind) => (format!("{} counters", one_line(kind).to_lowercase()), "counters"),
+                    DistributionUnit::Life => ("life".to_string(), "life"),
                 };
                 let options = targets.iter().map(|t| target(vs, t, names)).collect();
                 let mut p = Pending::new(Kind::Split, Answer::DistributeAmong, "divide", format!("Divide {total} {unit_name}"), options).from(vs, vs.pending_cast.as_ref().map(|c| c.object_id));
                 p.min = 0;
                 p.max = *total as usize;
                 p.total = Some(*total);
+                p.unit = Some(unit_kind);
                 // CR 601.2d: each target gets at least one.
                 p.per_option_min = Some(1);
                 p.default_answer = first(|a| matches!(a, GameAction::DistributeAmong { .. })).map(|a| match a {
                     GameAction::DistributeAmong { distribution } => split_answer(distribution.iter().map(|(t, n)| (target_id(&TargetView::from_ref(t)), *n))),
+                    _ => Value::Null,
+                });
+                p
+            }
+            WaitingFor::PairChoice { player, source_id, choices } if *player == me => {
+                // Soulbond (CR 702.95a): pair the source with one of these, or with none.
+                let name = Match::name_in(vs, source_id);
+                Pending::new(Kind::Pair, Answer::ChoosePair, "pair", format!("Pair {name} with another creature?"), cards(vs, choices))
+                    .range(0, 1, true)
+                    .from(vs, Some(*source_id))
+            }
+            WaitingFor::RevealUntilBottomOrder { player, source_id, cards: ids, .. } | WaitingFor::RippleBottomOrder { player, source_id, cards: ids, .. }
+                if *player == me =>
+            {
+                // The whole pile, in the order it goes to the bottom: the first is the highest of
+                // them, the last the very bottom (CR 401.4).
+                let mut p = Pending::new(Kind::Order, Answer::SelectCards, "order", "Put these on the bottom, in order", cards(vs, ids)).from(vs, Some(*source_id));
+                p.min = ids.len();
+                p.max = ids.len();
+                p.destination = Some("bottom");
+                p.ordered = true;
+                p.default_answer = first(|a| matches!(a, GameAction::SelectCards { .. })).map(|a| match a {
+                    GameAction::SelectCards { cards } => json!(cards.iter().map(|c| c.0.to_string()).collect::<Vec<_>>()),
                     _ => Value::Null,
                 });
                 p
@@ -679,6 +756,15 @@ impl Pending {
             },
             (Answer::PayUnlessCost, Act::PayUnlessCost { .. }) => Ok(()),
             (Answer::DecideOptionalEffect, Act::DecideOptionalEffect { .. }) => Ok(()),
+            (Answer::DecideOptionalEffect, Act::DecideOptionalEffectAndRemember { same_card, .. }) => {
+                if self.remember != Some("engine") {
+                    return Err("This answer can't be remembered.".into());
+                }
+                if *same_card && !self.remember_same_card {
+                    return Err("This answer can be remembered only for this card.".into());
+                }
+                Ok(())
+            }
             (Answer::ChooseOption, Act::ChooseOption { choice }) => {
                 let ok = match self.kind {
                     Kind::Number => choice.parse::<usize>().is_ok_and(|n| n >= self.min && n <= self.max),
@@ -690,6 +776,28 @@ impl Pending {
             (Answer::ChooseReplacement, Act::ChooseReplacement { index }) => {
                 if *index < self.options.len() { Ok(()) } else { Err("That isn't one of the choices.".into()) }
             }
+            (Answer::ChooseReplacement, Act::ChooseReplacementAndRemember { choice }) => {
+                if self.remember != Some("engine") {
+                    return Err("This answer can't be remembered.".into());
+                }
+                match (self.kind, choice) {
+                    // A "you may" replacement: 0 accepts, 1 declines.
+                    (Kind::Yesno, RememberedReplacement::Optional { index }) if *index < 2 => Ok(()),
+                    // Effects in order: every one of them, once.
+                    (Kind::Pick, RememberedReplacement::Order { order }) => {
+                        let mut sorted = order.clone();
+                        sorted.sort_unstable();
+                        if sorted == (0..self.options.len()).collect::<Vec<_>>() { Ok(()) } else { Err("Put every effect in the order once.".into()) }
+                    }
+                    _ => Err("That answer doesn't fit this decision.".into()),
+                }
+            }
+            (Answer::ChoosePair, Act::ChoosePair { partner }) => match partner {
+                None if self.min == 0 => Ok(()),
+                None => Err("Choose a creature to pair with.".into()),
+                Some(id) if self.eligible(&id.to_string()) => Ok(()),
+                Some(_) => Err("That creature can't be paired with it.".into()),
+            },
             (Answer::AssignCombatDamage, Act::AssignCombatDamage { assignments, trample, controller, unblocked }) => {
                 if *unblocked {
                     return if self.unblocked { Ok(()) } else { Err("This damage can't be assigned as though it weren't blocked.".into()) };
@@ -718,21 +826,42 @@ impl Pending {
     }
 }
 
+/// The modes question in the words cards use (CR 700.2): "Choose one", "Choose one or both",
+/// "Choose one or more", "Choose up to two".
+fn modes_prompt(min: usize, max: usize, count: usize) -> String {
+    let word = |n: usize| match n {
+        1 => "one".to_string(),
+        2 => "two".into(),
+        3 => "three".into(),
+        4 => "four".into(),
+        5 => "five".into(),
+        n => n.to_string(),
+    };
+    match (min, max) {
+        (a, b) if a == b => format!("Choose {}", word(a)),
+        (1, 2) if count == 2 => "Choose one or both".into(),
+        (1, b) if b >= count => "Choose one or more".into(),
+        (0, b) => format!("Choose up to {}", word(b)),
+        (a, b) => format!("Choose {} to {}", word(a), word(b)),
+    }
+}
+
 /// Choose modes of a modal spell or ability, from the engine's own mode descriptions.
 fn modes(vs: &GameState, modal: &engine::types::ability::ModalChoice, unavailable: &[usize], source: Option<ObjectId>) -> Pending {
+    // The engine's mode text is the card's Oracle bullet text, with "~" for the card's name.
+    let name = source.map(|id| Match::name_in(vs, &id));
     let options = (0..modal.mode_count)
         .map(|i| {
-            let mut c = word(i.to_string(), modal.mode_descriptions.get(i).map(|d| one_line(d)).unwrap_or_else(|| format!("Mode {}", i + 1)));
+            let text = modal.mode_descriptions.get(i).map(|d| match &name {
+                Some(name) => crate::ability_text(d, name),
+                None => one_line(d),
+            });
+            let mut c = word(i.to_string(), text.unwrap_or_else(|| format!("Mode {}", i + 1)));
             c.eligible = !unavailable.contains(&i);
             c
         })
         .collect();
-    let what = if modal.min_choices == modal.max_choices {
-        count(modal.min_choices, "mode", "modes")
-    } else {
-        format!("{} to {} modes", modal.min_choices, modal.max_choices)
-    };
-    let mut p = Pending::new(Kind::Pick, Answer::SelectModes, "modes", format!("Choose {what}"), options).from(vs, source);
+    let mut p = Pending::new(Kind::Pick, Answer::SelectModes, "modes", modes_prompt(modal.min_choices, modal.max_choices, modal.mode_count), options).from(vs, source);
     p.repeat = modal.allow_repeat_modes;
     // Repeatable modes may be chosen more often than there are modes, so no cap by count.
     p.min = modal.min_choices;
@@ -788,6 +917,31 @@ pub enum Act {
     DistributeAmong {
         distribution: Vec<(TargetView, u32)>,
     },
+    /// Answer a "may" and have the engine give the same answer from now on, for this card
+    /// (or, with `same_card`, every copy of it) for the rest of the game.
+    DecideOptionalEffectAndRemember {
+        accept: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        same_card: bool,
+    },
+    /// Choose among replacement effects and have the engine use the same choice whenever the
+    /// same effects apply to the same kind of event.
+    ChooseReplacementAndRemember {
+        choice: RememberedReplacement,
+    },
+    /// Soulbond: the creature to pair with, or none.
+    ChoosePair {
+        partner: Option<u64>,
+    },
+}
+
+/// A replacement choice to remember: the whole order of the effects (by index), or the branch
+/// of a single "you may" replacement (0 accepts, 1 declines).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RememberedReplacement {
+    Order { order: Vec<usize> },
+    Optional { index: usize },
 }
 
 impl TargetView {
@@ -828,6 +982,17 @@ impl Act {
             Act::DistributeAmong { distribution } => {
                 GameAction::DistributeAmong { distribution: distribution.iter().map(|(t, n)| (t.to_ref(), *n)).collect() }
             }
+            Act::DecideOptionalEffectAndRemember { accept, same_card } => GameAction::DecideOptionalEffectAndRemember {
+                choice: if *accept { AutoMayChoice::Accept } else { AutoMayChoice::Decline },
+                scope: if *same_card { MayTriggerAutoChoiceScope::SameCard } else { MayTriggerAutoChoiceScope::ExactInstance },
+            },
+            Act::ChooseReplacementAndRemember { choice } => GameAction::ChooseReplacementAndRemember {
+                choice: match choice {
+                    RememberedReplacement::Order { order } => ReplacementAutoChoice::Order { order: order.clone() },
+                    RememberedReplacement::Optional { index } => ReplacementAutoChoice::Optional { index: *index },
+                },
+            },
+            Act::ChoosePair { partner } => GameAction::ChoosePair { partner: partner.map(ObjectId) },
         }
     }
 
@@ -853,6 +1018,17 @@ impl Act {
             GameAction::DistributeAmong { distribution } => {
                 Act::DistributeAmong { distribution: distribution.iter().map(|(t, n)| (TargetView::from_ref(t), *n)).collect() }
             }
+            GameAction::DecideOptionalEffectAndRemember { choice, scope } => Act::DecideOptionalEffectAndRemember {
+                accept: *choice == AutoMayChoice::Accept,
+                same_card: *scope == MayTriggerAutoChoiceScope::SameCard,
+            },
+            GameAction::ChooseReplacementAndRemember { choice } => Act::ChooseReplacementAndRemember {
+                choice: match choice {
+                    ReplacementAutoChoice::Order { order } => RememberedReplacement::Order { order: order.clone() },
+                    ReplacementAutoChoice::Optional { index } => RememberedReplacement::Optional { index: *index },
+                },
+            },
+            GameAction::ChoosePair { partner } => Act::ChoosePair { partner: partner.map(|p| p.0) },
             _ => return None,
         })
     }
@@ -872,6 +1048,9 @@ impl Act {
             Act::ChooseReplacement { .. } => "choose_replacement",
             Act::AssignCombatDamage { .. } => "assign_combat_damage",
             Act::DistributeAmong { .. } => "distribute_among",
+            Act::DecideOptionalEffectAndRemember { .. } => "decide_optional_effect_and_remember",
+            Act::ChooseReplacementAndRemember { .. } => "choose_replacement_and_remember",
+            Act::ChoosePair { .. } => "choose_pair",
         }
     }
 }
@@ -932,7 +1111,14 @@ mod tests {
     use super::*;
     use crate::{Engine, SeatDeck};
     use engine::game::combat::{AttackTarget, TrampleKind};
-    use engine::types::game_state::{DamageSlot, PendingTriggerSummary};
+    use engine::types::game_state::{
+        DamageSlot, MayTriggerAutoChoiceKey, MayTriggerOrigin, PendingTriggerSummary, ReplacementAutoChoiceKey, ReplacementCandidateSummary,
+    };
+    use engine::types::ability::ChoiceType;
+    use engine::types::game_state::{NamedChoiceSource, NamedChoiceSourceBinding, PromptSourceBinding};
+    use engine::types::identifiers::{ObjectIdentityBinding, ObjectIncarnationRef};
+    use engine::types::replacements::ReplacementEvent;
+    use engine::types::zones::Zone;
 
     fn game() -> Match {
         let e = Engine::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/act-cards.json")).unwrap();
@@ -957,6 +1143,10 @@ mod tests {
     #[test]
     fn may_prompts_ask_in_the_engines_words() {
         assert_eq!(question("draw a card"), "Draw a card?");
+        assert_eq!(
+            question("When Solemn Simulacrum enters, you may search your library for a basic land card, put that card onto the battlefield tapped, then shuffle."),
+            "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle?"
+        );
         assert_eq!(question("Exile it. You may cast it."), "Exile it. You may cast it.");
         let mut m = game();
         let src = m.state.command_zone[0];
@@ -1033,5 +1223,175 @@ mod tests {
         assert_eq!(p.admits(&assign(2, 2)), Err("Assign all 5 damage.".into()));
         let elsewhere = Act::AssignCombatDamage { assignments: vec![(attacker.0, 5)], trample: 0, controller: 0, unblocked: false };
         assert!(p.admits(&elsewhere).is_err());
+        assert_eq!(p.unit, Some("damage"));
+    }
+
+    fn may(m: &mut Match, key: bool, same_card: bool) -> Pending {
+        let src = m.state.command_zone[0];
+        m.state.waiting_for = WaitingFor::OptionalEffectChoice {
+            player: PlayerId(0),
+            decision_subject_id: None,
+            source_id: src,
+            description: Some("draw a card".into()),
+            may_trigger_key: key.then(|| MayTriggerAutoChoiceKey { player: PlayerId(0), source_id: src, origin: MayTriggerOrigin::Printed { trigger_index: 0 } }),
+            same_card_may_trigger_choice_available: same_card,
+        };
+        Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &[]).unwrap()
+    }
+
+    #[test]
+    fn a_may_answer_is_remembered_only_where_the_engine_can() {
+        let mut m = game();
+        let remember = |same_card| Act::DecideOptionalEffectAndRemember { accept: true, same_card };
+        let p = may(&mut m, true, false);
+        assert_eq!(p.remember, Some("engine"));
+        assert!(p.admits(&remember(false)).is_ok());
+        assert_eq!(p.admits(&remember(true)), Err("This answer can be remembered only for this card.".into()));
+        assert!(may(&mut m, true, true).admits(&remember(true)).is_ok());
+        // No key: the engine can't remember it, so neither form is allowed and none is offered.
+        let p = may(&mut m, false, false);
+        assert_eq!(p.remember, None);
+        assert_eq!(p.admits(&remember(false)), Err("This answer can't be remembered.".into()));
+        assert!(p.admits(&Act::DecideOptionalEffect { accept: true }).is_ok());
+        // The wire form, and the engine action it stands for.
+        let json = serde_json::to_value(remember(false)).unwrap();
+        assert_eq!(json, json!({ "kind": "decide_optional_effect_and_remember", "accept": true }));
+        assert_eq!(
+            remember(true).to_action(),
+            GameAction::DecideOptionalEffectAndRemember { choice: AutoMayChoice::Accept, scope: MayTriggerAutoChoiceScope::SameCard }
+        );
+    }
+
+    #[test]
+    fn replacement_effects_can_be_put_in_order_and_remembered() {
+        let mut m = game();
+        let (a, b) = (m.state.command_zone[0], m.state.command_zone[1]);
+        let summary = |id, name: &str| ReplacementCandidateSummary { source_id: id, source_name: name.into(), description: "It happens twice instead.".into() };
+        let key = |kind| ReplacementAutoChoiceKey { player: PlayerId(0), event: ReplacementEvent::Draw, kind, candidates: vec![] };
+        let choice = |kind, n: usize, remember: bool| WaitingFor::ReplacementChoice {
+            player: PlayerId(0),
+            candidate_count: n,
+            candidates: [summary(a, "Hardened Scales"), summary(b, "Doubling Season")].into_iter().take(n).collect(),
+            kind,
+            last_applied_decides: false,
+            remember_identity: remember.then(|| key(kind)),
+        };
+        m.state.waiting_for = choice(ReplacementChoiceKind::Order, 2, true);
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &[]).unwrap();
+        assert_eq!((p.kind, p.remember, p.options[1].name.as_str()), (Kind::Pick, Some("engine"), "Doubling Season"));
+        let order = |order: Vec<usize>| Act::ChooseReplacementAndRemember { choice: RememberedReplacement::Order { order } };
+        assert!(p.admits(&order(vec![1, 0])).is_ok());
+        assert_eq!(p.admits(&order(vec![1, 1])), Err("Put every effect in the order once.".into()));
+        let optional = Act::ChooseReplacementAndRemember { choice: RememberedReplacement::Optional { index: 0 } };
+        assert!(p.admits(&optional).is_err());
+        // A single "you may" replacement is a yes or no; its remembered form names the branch.
+        m.state.waiting_for = choice(ReplacementChoiceKind::OptionalBranch, 1, true);
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &[]).unwrap();
+        assert_eq!((p.kind, p.remember), (Kind::Yesno, Some("engine")));
+        assert!(p.admits(&optional).is_ok());
+        assert!(p.admits(&order(vec![0])).is_err());
+        // Without the engine's identity, nothing is remembered.
+        m.state.waiting_for = choice(ReplacementChoiceKind::Order, 2, false);
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &[]).unwrap();
+        assert_eq!(p.remember, None);
+        assert_eq!(p.admits(&order(vec![0, 1])), Err("This answer can't be remembered.".into()));
+        assert_eq!(serde_json::to_value(order(vec![1, 0])).unwrap(), json!({ "kind": "choose_replacement_and_remember", "choice": { "type": "order", "order": [1, 0] } }));
+    }
+
+    #[test]
+    fn cards_put_on_the_bottom_in_any_order_are_an_order() {
+        let mut m = game();
+        let pile: Vec<ObjectId> = m.state.players[0].library.iter().take(3).copied().collect();
+        let src = m.state.command_zone[0];
+        m.state.waiting_for = WaitingFor::RevealUntilBottomOrder {
+            player: PlayerId(0),
+            source_id: src,
+            cards: pile.clone(),
+            clear_markers: vec![],
+            emit_reveal_until_resolved: None,
+            reveal_until_hit_snapshot: None,
+        };
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &[]).unwrap();
+        assert_eq!((p.kind, p.answer, p.min, p.max, p.destination), (Kind::Order, Answer::SelectCards, 3, 3, Some("bottom")));
+        let ids: Vec<u64> = pile.iter().map(|c| c.0).collect();
+        assert!(p.admits(&Act::SelectCards { cards: vec![ids[2], ids[0], ids[1]] }).is_ok());
+        assert!(p.admits(&Act::SelectCards { cards: vec![ids[2], ids[0]] }).is_err());
+        assert!(p.admits(&Act::SelectCards { cards: vec![ids[2], ids[2], ids[1]] }).is_err());
+    }
+
+    #[test]
+    fn soulbond_pairs_with_one_creature_or_none() {
+        let mut m = game();
+        let (src, other) = (m.state.command_zone[0], m.state.command_zone[1]);
+        m.state.waiting_for = WaitingFor::PairChoice { player: PlayerId(0), source_id: src, choices: vec![other] };
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &[]).unwrap();
+        assert_eq!((p.kind, p.answer, p.min, p.max, p.up_to), (Kind::Pair, Answer::ChoosePair, 0, 1, true));
+        assert_eq!(p.prompt, "Pair Combat Celebrant with another creature?");
+        assert!(p.admits(&Act::ChoosePair { partner: Some(other.0) }).is_ok());
+        assert!(p.admits(&Act::ChoosePair { partner: None }).is_ok());
+        assert!(p.admits(&Act::ChoosePair { partner: Some(src.0) }).is_err());
+        assert_eq!(Act::ChoosePair { partner: Some(other.0) }.to_action(), GameAction::ChoosePair { partner: Some(other) });
+    }
+
+    #[test]
+    fn a_named_choice_shows_the_card_asking() {
+        let mut m = game();
+        let src = m.state.command_zone[0];
+        let named = |source| WaitingFor::NamedChoice {
+            player: PlayerId(0),
+            choice_type: ChoiceType::CardName,
+            options: vec![],
+            source,
+            persist_player: None,
+            free_entry: None,
+        };
+        let binding = NamedChoiceSource {
+            prompt: PromptSourceBinding {
+                identity: ObjectIdentityBinding::new(ObjectIncarnationRef { object_id: src, incarnation: 0 }, Zone::Battlefield),
+                controller: PlayerId(0),
+                display_name: "Pithing Needle".into(),
+            },
+            binding: NamedChoiceSourceBinding::PendingEntry,
+            context: None,
+        };
+        m.state.waiting_for = named(Some(binding));
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &[]).unwrap();
+        assert_eq!((p.kind, p.free_entry, p.choice_type.as_deref()), (Kind::Text, Some(true), Some("card name")));
+        assert_eq!(p.source.as_ref().map(|s| (s.id, s.name.as_str())), Some((src.0, "Pithing Needle")));
+        assert!(p.card_names().contains(&"Pithing Needle".to_string()), "its details are sent too");
+        // A choice with no source names none.
+        m.state.waiting_for = named(None);
+        assert!(Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &[]).unwrap().source.is_none());
+    }
+
+    #[test]
+    fn a_list_of_numbers_is_a_number() {
+        assert_eq!(number_range(&(0..=10).map(|n| n.to_string()).collect::<Vec<_>>()), Some((0, 10)));
+        assert_eq!(number_range(&["1".into(), "3".into()]), None);
+        assert_eq!(number_range(&["1".into(), "Goblin".into()]), None);
+        assert_eq!(number_range(&[]), None);
+        let mut m = game();
+        m.state.waiting_for = WaitingFor::NamedChoice {
+            player: PlayerId(0),
+            choice_type: ChoiceType::CardName,
+            options: (0..=10).map(|n| n.to_string()).collect(),
+            source: None,
+            persist_player: None,
+            free_entry: None,
+        };
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &[]).unwrap();
+        assert_eq!((p.kind, p.min, p.max, p.prompt.as_str()), (Kind::Number, 0, 10, "Choose a number from 0 to 10"));
+        assert!(p.admits(&Act::ChooseOption { choice: "7".into() }).is_ok());
+        assert!(p.admits(&Act::ChooseOption { choice: "11".into() }).is_err());
+    }
+
+    #[test]
+    fn modes_are_asked_in_the_words_cards_use() {
+        assert_eq!(modes_prompt(1, 1, 3), "Choose one");
+        assert_eq!(modes_prompt(2, 2, 4), "Choose two");
+        assert_eq!(modes_prompt(1, 2, 2), "Choose one or both");
+        assert_eq!(modes_prompt(1, 3, 3), "Choose one or more");
+        assert_eq!(modes_prompt(0, 2, 3), "Choose up to two");
+        assert_eq!(modes_prompt(2, 3, 5), "Choose two to three");
     }
 }
