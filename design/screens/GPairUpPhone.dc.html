@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pair up on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.65)"></div>
+
+  <section role="dialog" aria-label="{{prompt}}" style="position: absolute; left: 0; right: 0; bottom: 0; top: 40px; padding: 8px 12px 14px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
+    <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 999px; background: var(--line)"></span>
+    <div style="display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; align-items: start">
+      <img src="{{srcImg}}" alt="{{srcName}}" style="width: 84px; border-radius: 5px">
+      <span style="display: flex; flex-direction: column; gap: 4px; line-height: 1.25">
+        <b style="font-family: var(--display); font-size: 24px; font-weight: 800; line-height: 1.05">{{prompt}}</b>
+        <span style="font-size: 12px; color: var(--dim)">{{oracle}}</span>
+      </span>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: center"><b style="font-size: 14px">Pair it with</b><span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 12px; font-weight: 700">{{counter}}</span></div>
+    <div role="radiogroup" aria-label="Creatures to pair with" style="display: flex; flex-direction: column; gap: 6px">
+      <sc-for list="{{right}}" as="r" hint-placeholder-count="6">
+        <button role="radio" aria-checked="{{r.on}}" onClick="{{r.pick}}" style="display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 52px; padding: 4px 12px 4px 4px; border: none; border-radius: 12px; background: var(--raised); box-shadow: {{r.ring}}; text-align: left">
+          <span style="width: 48px; height: 44px; border-radius: 8px; overflow: hidden; background: var(--ground)"><sc-if value="{{r.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{r.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if></span>
+          <b style="font-size: 14px">{{r.name}}</b>
+          <span style="font-size: 13px; font-weight: 700; color: {{r.tagInk}}">{{r.tag}}</span>
+        </button>
+      </sc-for>
+    </div>
+    <span style="margin-top: auto; font-size: 10px; color: var(--dim)">Art: Jason Chan, Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna. © Wizards of the Coast</span>
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px">
+      <sc-if value="{{hasSecondary}}" hint-placeholder-val="{{true}}"><button onClick="{{decline}}" style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button></sc-if>
+      <button style="grid-column: -2; min-height: 54px; border-radius: 999px; border: none; background: {{primaryBg}}; color: {{primaryInk}}; font-weight: 800; font-size: 16px">{{primary}}</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  // The engine's pending decision, as the builder's payload describes it
+  pending() {
+    const A = (id) => '/_blob/' + id;
+    return {
+      kind: 'pair',
+      source: { name: 'Silverblade Paladin', art: A('c6bd483ea5a21c852be3841274a36419'), artist: 'Jason Chan', image: A('983fc8b64f641e20eb5e79c45cc09876') },
+      prompt: 'Pair Silverblade Paladin with another creature?',
+      oracle: 'Soulbond (You may pair this creature with another unpaired creature when either enters. They remain paired for as long as you control both of them.) As long as this creature is paired with another creature, both creatures have double strike.',
+      options: [
+        { id: 'eowyn', name: 'Éowyn', art: A('c19490e7c081fb35071c85147c01bed4'), pt: '5/4', zone: 'battlefield', controller: 'you' },
+        { id: 'adeline', name: 'Adeline', art: A('93443cca264c2d66fac605d8e8311296'), pt: '6/4', zone: 'battlefield', controller: 'you' },
+        { id: 'aragorn', name: 'Aragorn', art: A('c2a67f4f687b666fcd3c4d8cb3b0bf63'), pt: '4/4', zone: 'battlefield', controller: 'you' },
+        { id: 'faramir', name: 'Faramir', art: A('62e4a477ddbf5628d609a86bc8d12c3a'), pt: '2/2', zone: 'battlefield', controller: 'you' },
+        { id: 's1', name: 'Soldier', art: '', pt: '1/1', zone: 'battlefield', controller: 'you' },
+        { id: 's2', name: 'Soldier', art: '', pt: '1/1', zone: 'battlefield', controller: 'you' }
+      ],
+      min: 0, max: 1, upTo: true, defaultAnswer: null
+    };
+  }
+  constructor(props) {
+    super(props);
+    this.state = { pick: 'adeline' };
+  }
+  renderVals() {
+    const d = this.pending();
+    const pick = this.state.pick;
+    const chosen = d.options.find((o) => o.id === pick);
+    return {
+      prompt: d.prompt, oracle: d.oracle, srcImg: d.source.image, srcName: d.source.name,
+      counter: (chosen ? 1 : 0) + ' of up to ' + d.max + ' chosen',
+      right: d.options.map((o) => {
+        const on = o.id === pick;
+        return { ...o, hasArt: !!o.art, on, tag: on ? 'Paired' : o.pt, tagInk: on ? '#f2efe8' : '#a9adb3',
+          ring: on ? '0 0 0 3px #f2efe8' : '0 0 0 2px #f0b45a', pick: () => this.setState((s) => ({ pick: s.pick === o.id ? null : o.id })) };
+      }),
+      hasSecondary: d.min === 0, secondary: 'Don’t pair',
+      primary: chosen ? 'Pair with ' + chosen.name : 'Choose a creature',
+      primaryBg: chosen ? '#f2efe8' : '#1e2125', primaryInk: chosen ? '#0b0c0e' : '#a9adb3',
+      decline: () => this.setState({ pick: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

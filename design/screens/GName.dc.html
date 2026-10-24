@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Name or text</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--pick:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="{{railTitle}}" body="{{railBody}}" primary="{{primary}}" secondary="{{secondary}}" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+
+  <div role="tablist" aria-label="Example" style="position: absolute; left: 60px; top: 30px; display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--surface); box-shadow: 0 0 0 1px var(--line)">
+    <sc-for list="{{examples}}" as="e" hint-placeholder-count="2"><button role="tab" aria-selected="{{e.on}}" onClick="{{e.pick}}" style="min-height: 36px; padding: 0 14px; border: none; border-radius: 999px; background: {{e.bg}}; color: {{e.ink}}; font-size: 13px; font-weight: 700">{{e.label}}</button></sc-for>
+  </div>
+
+  <section role="dialog" aria-label="{{prompt}}" style="position: absolute; left: 60px; top: 84px; width: 980px; height: 720px; padding: 24px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 16px">
+    <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 16px; align-items: center">
+      <img src="{{srcArt}}" alt="" style="width: 96px; height: 70px; border-radius: 12px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: var(--dim)">{{srcLine}}</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1">{{prompt}}</h2><span style="font-size: 14px; color: var(--dim)">{{oracle}}</span></span>
+      <span style="padding: 4px 12px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700; white-space: nowrap">{{counter}}</span>
+    </div>
+
+    <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 24px">
+      <div style="display: flex; flex-direction: column; gap: 10px; min-width: 0">
+        <span style="display: flex; align-items: center; min-height: 50px; padding: 0 16px; border-radius: 12px; background: var(--ground); box-shadow: inset 0 0 0 2px var(--text); font-size: 18px; font-weight: 700">{{typed}}<span aria-hidden="true" style="width: 2px; height: 22px; margin-left: 1px; background: var(--text)"></span><span style="margin-left: auto; font-size: 12px; font-weight: 400; color: var(--dim)">{{inputHint}}</span></span>
+        <div role="listbox" aria-label="Matches" style="display: flex; flex-direction: column; gap: 4px">
+          <sc-for list="{{matches}}" as="m" hint-placeholder-count="5">
+            <button role="option" aria-selected="{{m.on}}" onClick="{{m.pick}}" style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 48px; padding: 0 14px; border-radius: 12px; border: none; background: {{m.bg}}; box-shadow: {{m.ring}}; text-align: left">
+              <b style="font-size: 15px">{{m.name}}</b>
+              <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim)"><sc-if value="{{m.hasSeat}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{m.seat}}"></span></sc-if>{{m.where}}</span>
+            </button>
+          </sc-for>
+        </div>
+        <span style="font-size: 13px; color: var(--dim)">{{listNote}}</span>
+      </div>
+      <aside aria-label="Preview" style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-size: 13px; color: var(--dim)">Highlighted</span>
+        <sc-if value="{{hasPreview}}" hint-placeholder-val="{{true}}"><img src="{{previewArt}}" alt="" style="width: 260px; height: 190px; border-radius: 14px; object-fit: cover"></sc-if>
+        <sc-if value="{{noPreview}}" hint-placeholder-val="{{false}}"><span style="height: 190px; border-radius: 14px; background: var(--raised); display: grid; place-items: center; padding: 16px; text-align: center; font-size: 13px; color: var(--dim)">{{noPreviewText}}</span></sc-if>
+        <b style="font-size: 16px">{{previewName}}</b>
+        <span style="font-size: 12px; color: var(--dim)">{{previewNote}}</span>
+      </aside>
+    </div>
+    <span style="font-size: 12px; color: var(--dim)">↑ ↓ move through matches, Enter picks one, the rail confirms. {{credits}}</span>
+    <span style="font-size: 11px; color: var(--dim)">Driven by: kind, source, options (with zone and controller), freeEntry, defaultAnswer</span>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  // The engine's pending decisions, as the builder's payload describes them. NamedChoice { choice_type, options, free_entry }
+  pending(ex) {
+    const A = (id) => '/_blob/' + id;
+    if (ex === 0) return {
+      kind: 'text', choiceType: 'card name',
+      source: { name: 'Pithing Needle', art: A('639302e45711592fbaa493f62ba9cbc1'), artist: 'Anthony Palumbo', image: A('24d589e696c44e84121b6d42cb03b394') },
+      prompt: 'Choose a card name',
+      oracle: 'As this artifact enters, choose a card name. Activated abilities of sources with the chosen name can’t be activated unless they’re mana abilities.',
+      typed: 'Quin',
+      options: [
+        { id: 'qhc', name: 'Quintorius, History Chaser', zone: 'battlefield', controller: 'Computer', seat: '#b55af6', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan' },
+        { id: 'qk', name: 'Quintorius Kand', zone: 'card list' },
+        { id: 'qfh', name: 'Quintorius, Field Historian', zone: 'card list' }
+      ],
+      freeEntry: true, min: 1, max: 1, defaultAnswer: null
+    };
+    return {
+      kind: 'text', choiceType: 'planeswalker type',
+      source: { name: 'Deification', art: A('0a230e7b9e8407b8fb49382bc6e40c59'), artist: 'Maxime Minard', image: A('c73f6cc62c8cbc4e5dd94d6b2b681aed') },
+      prompt: 'Choose a planeswalker type',
+      oracle: 'As this enchantment enters, choose a planeswalker type. Planeswalkers you control of the chosen type have hexproof.',
+      typed: '',
+      options: ['Quintorius', 'Ajani', 'Chandra', 'Elspeth', 'Jace', 'Nissa', 'Sorin', 'Teferi'].map((n) => ({ id: n, name: n, zone: n === 'Quintorius' ? 'battlefield' : '', controller: n === 'Quintorius' ? 'Computer' : '', seat: n === 'Quintorius' ? '#b55af6' : '' })),
+      freeEntry: false, min: 1, max: 1, defaultAnswer: null
+    };
+  }
+  constructor(props) {
+    super(props);
+    this.state = { ex: 0, hi: 0, picked: null };
+  }
+  renderVals() {
+    const { ex, hi, picked } = this.state;
+    const d = this.pending(ex);
+    const hiOpt = d.options[hi] || d.options[0];
+    const chosen = d.options.find((o) => o.id === picked);
+    return {
+      examples: ['Pithing Needle: card name', 'Deification: planeswalker type'].map((label, i) => ({ label, on: ex === i, bg: ex === i ? '#f2efe8' : 'transparent', ink: ex === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ ex: i, hi: 0, picked: null }) })),
+      srcArt: d.source.art, srcLine: d.source.name + ', entering. Art: ' + d.source.artist + ', © Wizards of the Coast',
+      prompt: d.prompt, oracle: d.oracle,
+      counter: (chosen ? 1 : 0) + ' of 1 chosen',
+      typed: d.freeEntry ? d.typed : (d.typed || 'Filter types'),
+      inputHint: d.freeEntry ? 'Any card name' : 'Only the listed types',
+      matches: d.options.map((o, i) => {
+        const on = o.id === picked;
+        return { name: o.name, on, hasSeat: !!o.seat, seat: o.seat || '', where: o.zone === 'battlefield' ? 'On the battlefield, ' + o.controller : o.zone === 'card list' ? 'Card' : o.zone,
+          bg: on ? '#1e2125' : i === hi ? '#1e2125' : 'transparent',
+          ring: on ? '0 0 0 2px #f2efe8' : '0 0 0 1px #f0b45a',
+          pick: () => this.setState({ hi: i, picked: o.id }) };
+      }),
+      listNote: d.freeEntry ? 'Names come from Yama’s card list. Cards in play come first.' : 'Types come from the engine’s list. Ones in play come first.',
+      hasPreview: !!hiOpt.art, noPreview: !hiOpt.art,
+      previewArt: hiOpt.art || '', previewName: hiOpt.name,
+      noPreviewText: d.freeEntry ? 'The card’s image loads from Scryfall here.' : 'A type has no picture.',
+      previewNote: hiOpt.art ? 'Art: ' + hiOpt.artist + ', © Wizards of the Coast' : '',
+      credits: '',
+      railTitle: d.source.name,
+      railBody: d.prompt + '.',
+      primary: chosen ? 'Choose ' + chosen.name : 'Choose a ' + d.choiceType,
+      secondary: ''
+    };
+  }
+}
+</script>
+</body>
+</html>
