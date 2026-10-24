@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reading a card</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="Reading a card" body="Right-click any card, anywhere, or press Space while pointing at it. Esc closes." hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+  <span aria-hidden="true" style="position: absolute; left: 22px; top: 310px; width: 96px; height: 134px; border-radius: 8px; box-shadow: 0 0 0 3px #f2efe8"></span>
+
+  <section role="dialog" aria-label="Éowyn, Shieldmaiden" style="position: absolute; left: 150px; top: 60px; width: 900px; height: 760px; padding: 24px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: grid; grid-template-columns: 370px minmax(0, 1fr); gap: 28px">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <img src="/_blob/880ea875de8fc43aa9e52ca74551b646" alt="Éowyn, Shieldmaiden" style="width: 370px; border-radius: 17px; box-shadow: 0 20px 50px rgb(0 0 0 / 0.6)">
+      <span style="font-size: 12px; color: var(--dim)">Art: Craig Elliott, © Wizards of the Coast. Tales of Middle-earth Commander #1.</span>
+      <div style="display: flex; gap: 8px">
+        <button style="flex: 1; min-height: 44px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; font-size: 14px">Point at it</button>
+        <button style="flex: 1; min-height: 44px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; font-size: 14px">Open in Cards</button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 16px; min-width: 0">
+      <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px">
+        <span style="display: flex; flex-direction: column; gap: 2px"><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1">Éowyn, Shieldmaiden</h2><span style="color: var(--dim)">Legendary Creature, Human Knight. {2}{U}{R}{W}</span></span>
+        <button aria-label="Close" style="width: 44px; height: 44px; flex: none; border-radius: 50%; border: none; background: var(--raised); font-size: 20px">×</button>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
+        <sc-for list="{{facts}}" as="f" hint-placeholder-count="4">
+          <span style="padding: 10px 12px; border-radius: 14px; background: var(--raised); display: flex; flex-direction: column; line-height: 1.2"><span style="font-size: 12px; color: var(--dim)">{{f.k}}</span><b style="font-family: var(--display); font-size: 26px; font-weight: 800">{{f.v}}</b><span style="font-size: 12px; color: {{f.ink}}">{{f.note}}</span></span>
+        </sc-for>
+      </div>
+
+      <div role="tablist" aria-label="About this card" style="display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--ground); width: fit-content">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3"><button role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="min-height: 38px; padding: 0 16px; border: none; border-radius: 999px; background: {{t.bg}}; color: {{t.ink}}; font-weight: 700; font-size: 14px">{{t.label}}</button></sc-for>
+      </div>
+
+      <sc-if value="{{showPlain}}" hint-placeholder-state="true">
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{plain}}" as="p" hint-placeholder-count="3">
+            <span style="display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line)"><b style="font-size: 14px">{{p.k}}</b><span style="font-size: 15px">{{p.v}}</span></span>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{showNow}}" hint-placeholder-state="false">
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{now}}" as="p" hint-placeholder-count="5">
+            <span style="display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line)"><b style="font-size: 14px">{{p.k}}</b><span style="font-size: 15px">{{p.v}}</span></span>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{showRel}}" hint-placeholder-state="false">
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 14px; color: var(--dim)">Tokens and cards this one refers to.</span>
+          <div style="display: flex; gap: 10px">
+            <span style="width: 150px; padding: 12px; border-radius: 14px; background: var(--raised); display: flex; flex-direction: column; gap: 2px"><b>Human Knight</b><span style="font-size: 13px; color: var(--dim)">Token creature, 2/2, trample, haste</span></span>
+            <span style="width: 150px; padding: 12px; border-radius: 14px; background: var(--raised); display: flex; flex-direction: column; gap: 2px"><b>Humans you control</b><span style="font-size: 13px; color: var(--dim)">4 now: Adeline, Aragorn, Faramir, Éowyn</span></span>
+          </div>
+        </div>
+      </sc-if>
+
+      <p style="margin: auto 0 0; padding: 12px 14px; border-radius: 14px; background: var(--ground); font-size: 13px; color: var(--dim)">The card image is the printed text. The tabs are Yama’s own summary, written for this game, and can be wrong: the printed card wins.</p>
+    </div>
+  </section>
+
+  <aside aria-label="Hover preview" style="position: absolute; left: 1110px; top: 560px; width: 320px; padding: 14px; border-radius: 18px; background: rgb(11 12 14 / 0.9); box-shadow: 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 6px">
+    <b style="font-size: 14px">Lighter than this</b>
+    <span style="font-size: 13px; color: var(--dim)">Hovering a card for half a second shows a large copy beside the pointer, without opening anything. Hold Alt to keep it there while you move.</span>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 0 };
+  }
+  renderVals() {
+    const tab = this.state.tab;
+    return {
+      facts: [
+        { k: 'Power / toughness', v: '5/4', note: 'As printed', ink: '#a9adb3' },
+        { k: 'Damage', v: '0', note: 'This turn', ink: '#a9adb3' },
+        { k: 'Commander', v: 'Yours', note: 'Cast 1 time, tax {2}', ink: '#f0b45a' },
+        { k: 'State', v: 'Ready', note: 'Untapped, can attack', ink: '#8fd3a8' }
+      ],
+      tabs: ['In plain words', 'Right now', 'Related'].map((label, i) => ({ label, on: tab === i, bg: tab === i ? '#f2efe8' : 'transparent', ink: tab === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ tab: i }) })),
+      showPlain: tab === 0, showNow: tab === 1, showRel: tab === 2,
+      plain: [
+        { k: 'Each combat', v: 'At the start of combat on your turn, if another Human came in under you this turn, you make Human Knight tokens.' },
+        { k: 'The tokens', v: 'Two 2/2 Human Knights with trample and haste. Trample means damage past a blocker reaches the player.' },
+        { k: 'Watch for', v: 'Playing a Human before combat is what turns this on. Tokens count as Humans.' }
+      ],
+      now: [
+        { k: 'Controller', v: 'You' },
+        { k: 'Owner', v: 'You' },
+        { k: 'Came in', v: 'Turn 6, from the command zone' },
+        { k: 'Targeted by', v: 'Nothing right now' },
+        { k: 'Effects on it', v: 'None' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

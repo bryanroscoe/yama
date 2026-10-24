@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ordering triggers</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" phase="{{combat}}" title="Order your triggers" body="Three of your abilities trigger at the beginning of combat. Pick the order they resolve in." primary="Done" secondary="Use the default order" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.55)"></div>
+
+  <section role="dialog" aria-label="Order your triggers" style="position: absolute; left: 190px; top: 130px; width: 720px; padding: 22px; border-radius: 22px; background: var(--surface); box-shadow: 0 30px 70px rgb(0 0 0 / 0.7), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; justify-content: space-between; align-items: end; gap: 16px">
+      <span style="display: flex; flex-direction: column; gap: 4px"><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 38px; line-height: 1">Order your triggers</h2><span style="color: var(--dim); font-size: 14px">Beginning of combat, turn 9. The top one resolves first.</span></span>
+      <span style="font-size: 13px; color: {{savedInk}}; font-weight: 700">{{saved}}</span>
+    </div>
+    <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px">
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="3">
+        <li style="display: grid; grid-template-columns: 28px 30px 96px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 10px 12px; border-radius: 16px; background: var(--raised)">
+          <span aria-hidden="true" style="display: grid; grid-template-columns: repeat(2, 4px); gap: 4px; justify-content: center; cursor: grab"><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span><span style="width: 4px; height: 4px; border-radius: 50%; background: var(--dim)"></span></span>
+          <span style="font-family: var(--display); font-weight: 800; font-size: 28px; text-align: center">{{r.n}}</span>
+          <img src="{{r.art}}" alt="" style="width: 96px; height: 68px; border-radius: 10px; object-fit: cover">
+          <span style="display: flex; flex-direction: column; line-height: 1.3"><b>{{r.name}}</b><span style="font-size: 14px; color: var(--dim)">{{r.text}}</span><span style="font-size: 11px; color: var(--dim)">Art: {{r.artist}}</span></span>
+          <span style="display: flex; flex-direction: column; gap: 4px">
+            <button onClick="{{r.up}}" disabled="{{r.first}}" aria-label="Move {{r.name}} up" style="width: 44px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: {{r.upInk}}">↑</button>
+            <button onClick="{{r.down}}" disabled="{{r.last}}" aria-label="Move {{r.name}} down" style="width: 44px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: {{r.downInk}}">↓</button>
+          </span>
+        </li>
+      </sc-for>
+    </ol>
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
+      <span style="font-size: 13px; color: var(--dim); max-width: 46ch">Drag the handle, or use the arrows. A custom order is saved for the next time these cards trigger together. Settings can forget saved orders.</span>
+      <span style="display: flex; gap: 8px">
+        <button onClick="{{reset}}" style="min-height: 48px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Default order</button>
+        <button style="min-height: 52px; padding: 0 26px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">Done</button>
+      </span>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { order: [0, 1, 2] };
+  }
+  move(i, d) {
+    this.setState((s) => {
+      const o = s.order.slice(); const j = i + d;
+      if (j < 0 || j >= o.length) return null;
+      [o[i], o[j]] = [o[j], o[i]];
+      return { order: o };
+    });
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const items = [
+      { name: 'Legion Warboss', art: A('d8a193745dc4167c0c07387b7e27ae14'), artist: 'Alex Konstad', text: 'Make a 1/1 Goblin with haste. It attacks this combat if it can.' },
+      { name: 'Goblin Rabblemaster', art: A('2914c341463a4a99e021a71a5d83cd73'), artist: 'Svetlin Velinov', text: 'Make a 1/1 Goblin that attacks each combat if it can.' },
+      { name: 'Éowyn, Shieldmaiden', art: A('c19490e7c081fb35071c85147c01bed4'), artist: 'Craig Elliott', text: 'If another Human entered this turn, make two 2/2 Knights with trample and haste.' }
+    ];
+    const o = this.state.order;
+    const custom = o.join() !== '0,1,2';
+    return {
+      combat: 3,
+      rows: o.map((k, i) => ({ ...items[k], n: i + 1, first: i === 0, last: i === o.length - 1, upInk: i === 0 ? '#2a2e33' : '#f2efe8', downInk: i === o.length - 1 ? '#2a2e33' : '#f2efe8', up: () => this.move(i, -1), down: () => this.move(i, 1) })),
+      saved: custom ? 'Saved for next time' : 'Default order',
+      savedInk: custom ? '#8fd3a8' : '#a9adb3',
+      reset: () => this.setState({ order: [0, 1, 2] })
+    };
+  }
+}
+</script>
+</body>
+</html>

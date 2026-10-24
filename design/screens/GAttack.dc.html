@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Declaring attackers</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--me:#6cb0f5;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+
+  <sc-for list="{{panes}}" as="p" hint-placeholder-count="3">
+    <article aria-label="{{p.name}}, {{p.life}} life" style="position: absolute; left: {{p.x}}px; top: 10px; width: 352px; height: 240px; border-radius: 16px; background: var(--surface); overflow: hidden; box-shadow: {{p.ring}}; transition: box-shadow 160ms">
+      <header style="position: relative; height: 78px; padding: 8px 12px; display: flex; gap: 10px; align-items: end">
+        <img src="{{p.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.88) 0%, rgb(11 12 14 / 0.55) 55%, rgb(11 12 14 / 0.25) 100%)"></span>
+        <span style="position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15">
+          <b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{p.seat}}"></span>{{p.name}}</b>
+          <span style="font-size: 12px; color: #d5d7db">{{p.counts}}</span>
+          <span style="font-size: 10px; color: rgb(255 255 255 / 0.7)">Art: {{p.artist}}</span>
+        </span>
+        <b style="position: relative; font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">{{p.life}}</b>
+      </header>
+      <span style="position: absolute; left: 10px; top: 106px; padding: 3px 10px; border-radius: 999px; background: var(--raised); font-size: 12px">{{p.lands}}</span>
+      <span style="position: absolute; left: 10px; top: 140px; font-size: 12px; color: var(--dim)">{{p.blockers}}</span>
+      <button onClick="{{p.pick}}" aria-pressed="{{p.on}}" aria-label="Send new attackers at {{p.name}}" style="position: absolute; inset: 0; border: none; background: transparent; cursor: pointer"></button>
+    </article>
+  </sc-for>
+  <sc-for list="{{paneTags}}" as="g" hint-placeholder-count="3">
+    <span style="position: absolute; left: {{g.x}}px; top: 236px; transform: translateX(-50%); padding: 2px 12px; border-radius: 999px; background: {{g.bg}}; color: {{g.ink}}; font-size: 13px; font-weight: 800; white-space: nowrap; box-shadow: 0 0 0 3px var(--ground)">{{g.label}}</span>
+  </sc-for>
+
+  <div style="position: absolute; left: 14px; top: 262px; display: flex; align-items: center; gap: 12px">
+    <span style="display: flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; font-size: 14px"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover">Your turn 9, combat</span>
+  </div>
+
+  <section aria-label="Your battlefield" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 438px; border-radius: 16px; background: var(--surface)"></section>
+
+  <sc-for list="{{tiles}}" as="t" hint-placeholder-count="16">
+    <button onClick="{{t.click}}" aria-pressed="{{t.pressed}}" aria-label="{{t.label}}" style="position: absolute; left: {{t.x}}px; top: {{t.y}}px; width: {{t.s}}px; height: {{t.s}}px; padding: 0; border: none; border-radius: {{t.r}}px; background: var(--raised); box-shadow: {{t.ring}}; cursor: {{t.cursor}}; transition: top 160ms, box-shadow 160ms">
+      <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+        <sc-if value="{{t.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{t.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+        <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: {{t.fs}}px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span>
+        <sc-if value="{{t.many}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: rgb(11 12 14 / 0.85); font-size: 11px; font-weight: 700">{{t.count}}</span></sc-if>
+        <sc-if value="{{t.hasPt}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">{{t.pt}}</span></sc-if>
+      </span>
+      <sc-if value="{{t.hasChip}}" hint-placeholder-val="{{false}}"><img src="{{t.chip}}" alt="" style="position: absolute; left: -9px; top: -9px; width: 30px; height: 30px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #6cb0f5, 0 0 0 5px var(--ground)"></sc-if>
+    </button>
+  </sc-for>
+
+  <sc-for list="{{hand}}" as="h" hint-placeholder-count="4"><img src="{{h.img}}" alt="{{h.name}}" style="position: absolute; left: {{h.x}}px; top: 752px; width: 104px; border-radius: 5px; box-shadow: 0 -4px 14px rgb(0 0 0 / 0.5)"></sc-for>
+  <span style="position: absolute; left: 880px; top: 834px; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #6cb0f5"><b style="font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">38</b></span>
+
+  <svg aria-hidden="true" width="1440" height="900" viewBox="0 0 1440 900" style="position: absolute; inset: 0; pointer-events: none">
+    <sc-for list="{{arrows}}" as="a" hint-placeholder-count="2">
+      <path d="{{a.d}}" fill="none" stroke="#6cb0f5" stroke-width="4" stroke-linecap="round" opacity="0.9"></path>
+      <circle cx="{{a.ex}}" cy="{{a.ey}}" r="6" fill="#6cb0f5"></circle>
+    </sc-for>
+  </svg>
+
+  <div role="status" style="position: absolute; left: 545px; top: 262px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 7px 8px 7px 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 800; box-shadow: 0 12px 30px rgb(0 0 0 / 0.5); white-space: nowrap">
+    {{prompt}}
+    <span style="padding: 2px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 13px">{{count}}</span>
+  </div>
+
+  <aside aria-label="Attack plan" style="position: absolute; left: 1100px; top: 0; width: 340px; height: 900px; border-left: 1px solid var(--line); display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line)"><span style="font-weight: 700; color: var(--dim)">Leave</span><span style="padding: 6px 14px; border-radius: 999px; background: var(--surface); font-weight: 700; font-size: 14px">Game log</span></div>
+    <section style="padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1">Declare attackers</h2>
+      <p style="margin: 0; font-size: 14px; color: var(--dim)">Click a player’s panel to aim, then click creatures to send them. Click again to take one back.</p>
+
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 13px; color: var(--dim)">Attack with everything at</span>
+        <span style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+          <sc-for list="{{allAt}}" as="w" hint-placeholder-count="3"><button onClick="{{w.go}}" style="min-height: 40px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 6px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{w.seat}}"></span>{{w.name}}</button></sc-for>
+        </span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <sc-for list="{{plan}}" as="g" hint-placeholder-count="2">
+          <div style="padding: 10px 12px; border-radius: 14px; background: var(--surface); display: flex; flex-direction: column; gap: 4px">
+            <span style="display: flex; justify-content: space-between; align-items: center"><b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{g.seat}}"></span>{{g.name}}</b><b style="font-family: var(--display); font-size: 24px; line-height: 1">{{g.dmg}}</b></span>
+            <span style="font-size: 13px; color: var(--dim)">{{g.who}}</span>
+            <sc-if value="{{g.hasNote}}" hint-placeholder-val="{{false}}"><span style="font-size: 13px; font-weight: 700; color: {{g.noteInk}}">{{g.note}}</span></sc-if>
+          </div>
+        </sc-for>
+        <sc-if value="{{none}}" hint-placeholder-val="{{false}}"><p style="margin: 0; padding: 12px; border-radius: 14px; background: var(--surface); font-size: 14px; color: var(--dim)">No one is attacking yet.</p></sc-if>
+      </div>
+
+      <sc-if value="{{some}}" hint-placeholder-val="{{true}}">
+        <div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; border-radius: 12px; border: 1px solid var(--line)">
+          <img src="/_blob/93443cca264c2d66fac605d8e8311296" alt="" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover">
+          <span style="font-size: 13px; line-height: 1.35"><b>Adeline triggers when you attack.</b> One 1/1 Human joins, tapped and attacking, for each opponent. Her power becomes 9.</span>
+        </div>
+      </sc-if>
+
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
+        <p style="margin: 0; font-size: 12px; color: var(--dim)">Keys: A sends everything at the aimed player. Esc clears. Attackers tap when you confirm.</p>
+        <button onClick="{{clear}}" style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Clear</button>
+        <button style="min-height: 60px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 20px">{{doneLabel}}</button>
+      </div>
+    </section>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { aim: 'sam', atk: { eowyn: 'sam', adeline: 'sam' } };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const PX = [10, 374, 738];
+    const seats = {
+      computer: { name: 'Computer', seat: '#f1e4bc', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), life: 31, cx: PX[0] + 176, blockers: 'Can block: Spirit ×2' },
+      sam: { name: 'Sam', seat: '#f08a70', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), life: 24, cx: PX[1] + 176, blockers: 'Can block: Terra, Grave Titan, Zombie ×2' },
+      jules: { name: 'Jules', seat: '#6fd49a', art: A('383d04a073378ede76b3234038a68757'), life: 36, cx: PX[2] + 176, blockers: 'Can block: Mister Fantastic' }
+    };
+    const order = ['computer', 'sam', 'jules'];
+    const { aim, atk } = this.state;
+    const base = { ring: 'none', cursor: 'default', click: null, pressed: false, hasChip: false, chip: '' };
+    const tile = (o) => ({ ...base, ...o, art: o.art ? A(o.art) : '', hasArt: !!o.art, hasPt: !!o.pt, count: o.count ? '×' + o.count : '', many: !!o.count, label: o.label || o.name });
+    const land = (i, name, art, count) => tile({ name, art, count, x: 22 + i * 64, y: 666, s: 58, r: 10, fs: 10 });
+    const other = (i, name, art) => tile({ name, art, x: 892 + i * 64, y: 666, s: 58, r: 10, fs: 10 });
+    const small = (p, i, name, art) => tile({ name, art, x: PX[p] + 352 - 10 - (i + 1) * 50, y: 96, s: 44, r: 8, fs: 9 });
+    const opp = (x, name, art, pt, count) => tile({ name, art, pt, count, x, y: 172, s: 68, r: 10, fs: 11 });
+
+    const mineDefs = [
+      { id: 'eowyn', name: 'Éowyn', art: 'c19490e7c081fb35071c85147c01bed4', p: 5, t: 4, cmd: true },
+      { id: 'adeline', name: 'Adeline', art: '93443cca264c2d66fac605d8e8311296', p: 6, t: 4 },
+      { id: 'aragorn', name: 'Aragorn', art: 'c2a67f4f687b666fcd3c4d8cb3b0bf63', p: 4, t: 4 },
+      { id: 'faramir', name: 'Faramir', art: '62e4a477ddbf5628d609a86bc8d12c3a', p: 2, t: 2 },
+      { id: 'soldier', name: 'Human Soldier', art: '', p: 1, t: 1, n: 2 }
+    ];
+    const toggle = (id) => this.setState((s) => {
+      const a = { ...s.atk };
+      if (a[id] === s.aim) delete a[id]; else a[id] = s.aim;
+      return { atk: a };
+    });
+    const mine = mineDefs.map((c, i) => {
+      const d = atk[c.id];
+      const x = 22 + i * 106, y = d ? 296 : 310;
+      return tile({ name: c.name, art: c.art, pt: c.p + '/' + c.t, count: c.n, x, y, s: 96, r: 12, fs: 12, cursor: 'pointer', pressed: !!d,
+        ring: d ? '0 0 0 3px #6cb0f5, 0 14px 30px rgb(0 0 0 / 0.6)' : '0 0 0 1px #2a2e33',
+        hasChip: !!d, chip: d ? seats[d].art : '',
+        label: c.name + (d ? ', attacking ' + seats[d].name : ', not attacking'),
+        click: () => toggle(c.id) });
+    });
+
+    const groups = order.map((k) => {
+      const list = mineDefs.filter((c) => atk[c.id] === k);
+      const dmg = list.reduce((n, c) => n + c.p * (c.n || 1), 0);
+      return { k, list, dmg };
+    });
+    const count = mineDefs.reduce((n, c) => n + (atk[c.id] ? (c.n || 1) : 0), 0);
+    const anyAttack = count > 0;
+    // Adeline adds one attacking 1/1 per opponent and her power becomes 9 once the tokens arrive
+    const planned = groups.filter((g) => g.list.length).map((g) => {
+      const s = seats[g.k];
+      const adelineHere = g.list.some((c) => c.id === 'adeline');
+      const total = g.dmg + 1 + (adelineHere ? 3 : 0);
+      const eowynHere = g.list.some((c) => c.id === 'eowyn');
+      let note = '', noteInk = '#a9adb3';
+      if (total >= s.life) { note = 'Lethal if nothing is blocked'; noteInk = '#8fd3a8'; }
+      if (eowynHere && g.k === 'sam') { note = (note ? note + '. ' : '') + 'Éowyn would bring Sam to 15 of 21 commander damage.'; noteInk = note.startsWith('Lethal') ? '#8fd3a8' : '#f0b45a'; }
+      return { name: s.name, seat: s.seat, dmg: total, who: g.list.map((c) => c.name + (c.n ? ' ×' + c.n : '')).join(', ') + ', plus a 1/1 from Adeline', hasNote: !!note, note, noteInk };
+    });
+
+    const arrows = [];
+    mine.forEach((t, i) => {
+      const d = atk[mineDefs[i].id];
+      if (!d) return;
+      const x1 = t.x + t.s / 2, y1 = t.y, x2 = seats[d].cx + (i - 2) * 14, y2 = 250;
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, dx = x2 - x1, dy = y2 - y1, dd = Math.hypot(dx, dy) || 1, off = Math.min(60, 0.2 * dd);
+      const cx = mx - (dy / dd) * off, cy = my + (dx / dd) * off;
+      arrows.push({ d: 'M ' + x1 + ' ' + y1 + ' Q ' + cx.toFixed(0) + ' ' + cy.toFixed(0) + ' ' + x2 + ' ' + y2, ex: x2, ey: y2 });
+    });
+
+    return {
+      panes: order.map((k, i) => {
+        const s = seats[k];
+        return { name: s.name, seat: s.seat, art: s.art, life: s.life, x: PX[i], on: aim === k, blockers: s.blockers,
+          counts: ['Hand 4, library 71', 'Hand 6, library 74', 'Hand 2, library 70'][i],
+          artist: ['Darren Tan', 'Marta Nael', 'Gintas Galvanauskas'][i], lands: ['8 lands', '7 lands', '7 lands'][i],
+          ring: aim === k ? '0 0 0 3px #f2efe8' : '0 0 0 1px #2a2e33',
+          pick: () => this.setState({ aim: k }) };
+      }),
+      paneTags: order.map((k) => {
+        const g = groups.find((x) => x.k === k);
+        const n = g.list.reduce((m, c) => m + (c.n || 1), 0);
+        const aimed = aim === k;
+        return { x: seats[k].cx, label: n ? n + ' attacking' + (aimed ? ', aimed' : '') : aimed ? 'Aimed here' : 'Click to aim', bg: aimed ? '#f2efe8' : n ? '#6cb0f5' : '#1e2125', ink: aimed || n ? '#0b0c0e' : '#a9adb3' };
+      }),
+      tiles: [
+        land(0, 'Plains', '30df84aecfd8c45546b9a6bdd64b8552', 4), land(1, 'Island', '7a66b1e98da872225edb04cfeb9bd60e', 2), land(2, 'Mountain', '3bf02968b49b8af680661d10aa4e5547'), land(3, 'Battlefield Forge', '3599624673068d143c783b9871cd28b6'), land(4, 'Command Tower', 'f42c34fc11f085b17d9a7720c94e99fd'),
+        other(0, 'Sol Ring', '6eb6974115f1bfa5c775b479771e7166'), other(1, 'Arcane Signet', 'af66cc45335c7043758a263a745cbd02'), other(2, 'Anointed Procession', '39ddc54ea3b9ba45e6d3ac018401863e'),
+        small(0, 0, 'Sol Ring', '6eb6974115f1bfa5c775b479771e7166'), small(0, 1, 'Quintorius', '042e4cb280a5a896fb249a47c8f4a8a3'), small(1, 0, 'Arcane Signet', 'af66cc45335c7043758a263a745cbd02'), small(2, 0, 'Rhystic Study', 'a3e58275bd2364af6a346bbf2e6a38b9'),
+        opp(PX[0] + 10, 'Spirit', '', '3/2', 2),
+        opp(PX[1] + 10, 'Terra', '7678674b257c9f2d67041ed3a4ee2ab4', '3/3'), opp(PX[1] + 84, 'Grave Titan', '1dccd462a02a0872cc11a4d8518c111f', '6/6'), opp(PX[1] + 158, 'Zombie', '', '2/2', 2),
+        opp(PX[2] + 10, 'Mister Fantastic', '383d04a073378ede76b3234038a68757', '2/4')
+      ].concat(mine),
+      hand: [['Boros Charm', '2d80527eb5c346c24b35ad5381fe99a6'], ['Chaos Warp', '0145ecf81c21d180a7799470623719f7'], ['Akroma’s Will', 'd2df35f8a45cc092aadf237d7374fc27'], ['Fierce Guardianship', 'c858d7cf7a488b3218bd7bbf1fe8b79c']].map(([name, id], i) => ({ name, img: A(id), x: 360 + i * 112 })),
+      arrows,
+      prompt: 'Choose attackers, aimed at ' + seats[aim].name,
+      count: count + ' of 6',
+      allAt: order.map((k) => ({ name: seats[k].name, seat: seats[k].seat, go: () => this.setState({ aim: k, atk: Object.fromEntries(mineDefs.map((c) => [c.id, k])) }) })),
+      plan: planned, none: !anyAttack, some: anyAttack,
+      doneLabel: anyAttack ? 'Attack (' + count + ')' : 'No attacks',
+      clear: () => this.setState({ atk: {} })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Searching your library</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="Recruiter of the Guard" body="Search your library for a creature card with toughness 2 or less, reveal it, and put it into your hand." primary="Done" secondary="Find nothing" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+
+  <section role="dialog" aria-label="Search your library" style="position: absolute; left: 40px; top: 40px; width: 1020px; height: 820px; padding: 22px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 14px">
+    <div style="display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 16px; align-items: center">
+      <img src="/_blob/d4281310e8151118adef07e16fe5fc30" alt="" style="width: 90px; height: 66px; border-radius: 12px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--dim)">Recruiter of the Guard. Art: Eric Wilkerson, © Wizards of the Coast</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 38px; line-height: 1">Find a creature, toughness 2 or less</h2></span>
+      <span style="padding: 4px 12px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700">{{qualify}} of 79 cards qualify</span>
+    </div>
+
+    <div style="display: flex; gap: 10px; align-items: center">
+      <span style="flex: 1; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; background: var(--ground); box-shadow: inset 0 0 0 1px var(--line); color: var(--dim)"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M16 16l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>Type a name or a word from the text</span>
+      <span role="group" aria-label="Mana value" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
+        <sc-for list="{{filters}}" as="f" hint-placeholder-count="3"><button onClick="{{f.pick}}" aria-pressed="{{f.on}}" style="min-height: 38px; padding: 0 14px; border: none; border-radius: 999px; background: {{f.bg}}; color: {{f.ink}}; font-weight: 700; font-size: 14px">{{f.label}}</button></sc-for>
+      </span>
+      <span role="group" aria-label="Sort" style="display: flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ground)">
+        <sc-for list="{{sorts}}" as="f" hint-placeholder-count="2"><button onClick="{{f.pick}}" aria-pressed="{{f.on}}" style="min-height: 38px; padding: 0 14px; border: none; border-radius: 999px; background: {{f.bg}}; color: {{f.ink}}; font-weight: 700; font-size: 14px">{{f.label}}</button></sc-for>
+      </span>
+    </div>
+
+    <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(6, 146px); gap: 16px 18px; align-content: start">
+      <sc-for list="{{cards}}" as="c" hint-placeholder-count="8">
+        <button onClick="{{c.pick}}" aria-pressed="{{c.on}}" aria-label="{{c.name}}, mana value {{c.mv}}" style="position: relative; padding: 0; border: none; border-radius: 8px; background: transparent; cursor: pointer; box-shadow: {{c.ring}}; transform: translateY({{c.lift}}px); transition: transform 140ms, box-shadow 140ms">
+          <img src="{{c.img}}" alt="" style="display: block; width: 146px; border-radius: 8px">
+          <sc-if value="{{c.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -8px; top: -8px; width: 26px; height: 26px; border-radius: 50%; background: var(--text); color: var(--ground); display: grid; place-items: center; font-size: 13px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">1</span></sc-if>
+        </button>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 6px; border-top: 1px solid var(--line)">
+      <span style="font-size: 13px; color: var(--dim); max-width: 60ch">Only cards that qualify are shown. Your library is shuffled afterwards. Opponents see the card you reveal, nothing else.</span>
+      <span style="display: flex; gap: 8px">
+        <button onClick="{{none}}" style="min-height: 48px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Find nothing</button>
+        <button style="min-height: 52px; padding: 0 26px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 17px">{{doneLabel}}</button>
+      </span>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { pick: 'mentor', filter: 0, sort: 0 };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const all = [
+      { id: 'sentinel', name: 'Esper Sentinel', mv: 1, img: A('f91dfa789f2b0816a79359bb277f07b0') },
+      { id: 'pyro', name: 'Young Pyromancer', mv: 2, img: A('83f67844fe118ec8f0a94e7066cd52e3') },
+      { id: 'iconoclast', name: 'Third Path Iconoclast', mv: 2, img: A('e09d58de61f91eb32fe197f804b319b9') },
+      { id: 'mentor', name: 'Monastery Mentor', mv: 3, img: A('c8765d27dab83eefd46f6647d19b1791') },
+      { id: 'hanged', name: 'Hanged Executioner', mv: 3, img: A('830427c591de2ca48ded1aac2897dbd6') },
+      { id: 'warboss', name: 'Legion Warboss', mv: 3, img: A('0f5e5aefda39bc38ff3bfdf133d835da') },
+      { id: 'rabble', name: 'Goblin Rabblemaster', mv: 3, img: A('457b48727c89fd7cd1b206c04ad27994') },
+      { id: 'siege', name: 'Siege-Gang Commander', mv: 5, img: A('f6234aee99baeab4b683118ed4b91157') }
+    ];
+    const { pick, filter, sort } = this.state;
+    const fs = [['Any cost', () => true], ['2 or less', (c) => c.mv <= 2], ['3 or more', (c) => c.mv >= 3]];
+    let list = all.filter(fs[filter][1]);
+    list = list.slice().sort(sort === 0 ? (a, b) => a.mv - b.mv || a.name.localeCompare(b.name) : (a, b) => a.name.localeCompare(b.name));
+    const chosen = all.find((c) => c.id === pick);
+    const seg = (labels, cur, key) => labels.map((label, i) => ({ label, on: cur === i, bg: cur === i ? '#f2efe8' : 'transparent', ink: cur === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ [key]: i }) }));
+    return {
+      qualify: all.length,
+      filters: seg(fs.map((f) => f[0]), filter, 'filter'),
+      sorts: seg(['Cost', 'Name'], sort, 'sort'),
+      cards: list.map((c) => ({ ...c, on: c.id === pick, lift: c.id === pick ? -8 : 0,
+        ring: c.id === pick ? '0 0 0 3px #f2efe8, 0 16px 34px rgb(0 0 0 / 0.6)' : '0 6px 16px rgb(0 0 0 / 0.4)',
+        pick: () => this.setState((s) => ({ pick: s.pick === c.id ? null : c.id })) })),
+      none: () => this.setState({ pick: null }),
+      doneBg: chosen ? '#f2efe8' : '#1e2125', doneInk: chosen ? '#0b0c0e' : '#a9adb3',
+      doneLabel: chosen ? 'Reveal ' + chosen.name : 'Done (0/1)'
+    };
+  }
+}
+</script>
+</body>
+</html>

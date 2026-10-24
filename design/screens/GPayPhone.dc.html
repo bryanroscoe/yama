@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Paying mana on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.45)"></div>
+
+  <section role="dialog" aria-label="Pay for Akroma's Will" style="position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px 18px; border-radius: 24px 24px 0 0; background: var(--surface); box-shadow: 0 -20px 40px rgb(0 0 0 / 0.5); display: flex; flex-direction: column; gap: 12px">
+    <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 3px; background: var(--line)"></span>
+    <div style="display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center">
+      <img src="/_blob/d2df35f8a45cc092aadf237d7374fc27" alt="" style="width: 56px; border-radius: 3px">
+      <span style="display: flex; flex-direction: column; line-height: 1.2"><b style="font-size: 18px">Pay for Akroma's Will</b><span style="font-size: 13px; color: var(--dim)">{{status}}</span></span>
+    </div>
+    <span role="img" aria-label="{{pipsLabel}}" style="display: flex; gap: 8px; justify-content: center">
+      <sc-for list="{{pips}}" as="p" hint-placeholder-count="4"><span style="width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 22px; background: {{p.bg}}; color: {{p.ink}}; box-shadow: {{p.ring}}">{{p.label}}</span></sc-for>
+    </span>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <sc-for list="{{sources}}" as="s" hint-placeholder-count="6">
+        <button onClick="{{s.click}}" aria-label="{{s.label}}" style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; align-items: center; min-height: 52px; padding: 5px 10px 5px 5px; border-radius: 14px; border: 1px solid {{s.border}}; background: {{s.bg}}; text-align: left">
+          <img src="{{s.art}}" alt="" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover; transform: {{s.tf}}">
+          <span style="display: flex; flex-direction: column; line-height: 1.15; min-width: 0"><b style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.name}}</b><span style="font-size: 12px; color: {{s.subInk}}">{{s.sub}}</span></span>
+        </button>
+      </sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px">
+      <button onClick="{{cancel}}" style="min-height: 52px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Cancel</button>
+      <button onClick="{{confirm}}" style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">{{primary}}</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { taps: { plains: 1 }, cast: false };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const defs = [
+      { id: 'plains', name: 'Plains', art: '30df84aecfd8c45546b9a6bdd64b8552', n: 4, gives: ['W'], each: 'W' },
+      { id: 'island', name: 'Island', art: '7a66b1e98da872225edb04cfeb9bd60e', n: 2, gives: ['U'], each: 'U' },
+      { id: 'mountain', name: 'Mountain', art: '3bf02968b49b8af680661d10aa4e5547', n: 1, gives: ['R'], each: 'R' },
+      { id: 'tower', name: 'Command Tower', art: 'f42c34fc11f085b17d9a7720c94e99fd', n: 1, gives: ['W'], each: 'W' },
+      { id: 'sol', name: 'Sol Ring', art: '6eb6974115f1bfa5c775b479771e7166', n: 1, gives: ['C', 'C'], each: '2 colorless' },
+      { id: 'signet', name: 'Arcane Signet', art: 'af66cc45335c7043758a263a745cbd02', n: 1, gives: ['W'], each: 'W' }
+    ];
+    const taps = this.state.taps;
+    const pool = [];
+    defs.forEach((d) => { for (let i = 0; i < (taps[d.id] || 0); i++) d.gives.forEach((g) => pool.push(g)); });
+    const wPaid = pool.includes('W');
+    const gen = Math.min(3, pool.length - (wPaid ? 1 : 0));
+    const paid = wPaid && gen === 3;
+    const pip = (label, f) => ({ label, bg: f ? '#f2efe8' : 'transparent', ink: f ? '#0b0c0e' : '#a9adb3', ring: f ? 'none' : 'inset 0 0 0 2px #2a2e33' });
+    return {
+      status: this.state.cast ? 'On the stack.' : paid ? 'Paid in full.' : 'Tap a source to use it. Tap again to undo.',
+      pips: [pip('W', wPaid), pip('1', gen >= 1), pip('1', gen >= 2), pip('1', gen >= 3)],
+      pipsLabel: (wPaid ? 'White paid, ' : 'White not paid, ') + gen + ' of 3 generic paid',
+      sources: defs.map((d) => {
+        const k = taps[d.id] || 0, all = k === d.n;
+        return { name: d.name + (d.n > 1 ? ' ×' + d.n : ''), art: A(d.art), sub: k ? (d.n > 1 ? k + ' tapped' : 'Tapped') : d.each, subInk: k ? '#f0b45a' : '#a9adb3',
+          border: all ? '#2a2e33' : '#8fd3a8', bg: k ? '#1e2125' : 'transparent', tf: all ? 'rotate(90deg)' : 'none', label: d.name + ', ' + (k ? k + ' tapped' : 'untapped'),
+          click: () => this.setState((s) => ({ taps: { ...s.taps, [d.id]: (s.taps[d.id] || 0) < d.n ? (s.taps[d.id] || 0) + 1 : 0 } })) };
+      }),
+      primary: this.state.cast ? 'Cast' : paid ? 'Cast Akroma’s Will' : 'Pay the rest',
+      confirm: () => this.setState(paid ? { cast: true } : { taps: { sol: 1, plains: 2 } }),
+      cancel: () => this.setState({ taps: {}, cast: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

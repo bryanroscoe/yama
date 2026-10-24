@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mulligan</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; background: var(--ground); overflow: hidden; display: flex; flex-direction: column">
+  <header style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 14px 18px">
+    <sc-for list="{{opps}}" as="o" hint-placeholder-count="3">
+      <div style="position: relative; height: 72px; border-radius: 16px; overflow: hidden; display: flex; align-items: center; gap: 12px; padding: 0 16px">
+        <img src="{{o.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.9), rgb(11 12 14 / 0.4))"></span>
+        <span style="position: relative; display: flex; flex-direction: column; line-height: 1.2; flex: 1">
+          <b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{o.seat}}"></span>{{o.name}}</b>
+          <span style="font-size: 12px; color: rgb(255 255 255 / 0.7)">Art: {{o.artist}}</span>
+        </span>
+        <span style="position: relative; padding: 4px 12px; border-radius: 999px; background: rgb(11 12 14 / 0.75); font-size: 14px; font-weight: 700; color: {{o.ink}}">{{o.status}}</span>
+      </div>
+    </sc-for>
+  </header>
+
+  <main style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 0 40px">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center">
+      <span style="display: flex; align-items: center; gap: 10px; padding: 6px 16px 6px 6px; border-radius: 999px; background: var(--surface); font-weight: 700">
+        <span aria-hidden="true" style="width: 34px; height: 34px; border-radius: 9px; background: var(--text); color: var(--ground); display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 20px; transform: rotate(-8deg)">17</span>
+        You rolled 17 and go first
+      </span>
+      <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 56px; line-height: 1">{{title}}</h1>
+      <p style="margin: 0; color: var(--dim)">{{subtitle}}</p>
+    </div>
+
+    <ul aria-label="Your opening hand" style="margin: 0; padding: 0; list-style: none; display: flex; gap: 12px; justify-content: center">
+      <sc-for list="{{hand}}" as="c" hint-placeholder-count="7">
+        <li style="transform: {{c.lift}}; transition: transform 160ms ease-out">
+          <button onClick="{{c.pick}}" aria-pressed="{{c.picked}}" aria-label="{{c.label}}" disabled="{{c.disabled}}" style="display: block; padding: 0; border: none; background: transparent; border-radius: 4.75% / 3.4%; box-shadow: {{c.ring}}; cursor: {{c.cursor}}">
+            <img src="{{c.img}}" alt="" style="display: block; width: 156px; border-radius: 4.75% / 3.4%">
+          </button>
+        </li>
+      </sc-for>
+    </ul>
+
+    <sc-if value="{{showTray}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-radius: 16px; border: 1.5px dashed var(--line); min-width: 420px">
+        <span style="font-weight: 700">Bottom of library</span>
+        <span style="color: var(--dim); font-size: 14px">{{trayText}}</span>
+      </div>
+    </sc-if>
+
+    <div style="display: flex; gap: 12px; align-items: center">
+      <sc-if value="{{deciding}}" hint-placeholder-val="{{true}}">
+        <button onClick="{{mulligan}}" style="min-height: 56px; padding: 0 28px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700; font-size: 17px">{{mulliganLabel}}</button>
+        <button onClick="{{keep}}" style="min-height: 60px; padding: 0 40px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 20px">{{keepLabel}}</button>
+      </sc-if>
+      <sc-if value="{{bottoming}}" hint-placeholder-val="{{false}}">
+        <button onClick="{{reset}}" style="min-height: 56px; padding: 0 24px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Start over</button>
+        <button onClick="{{done}}" disabled="{{notReady}}" style="min-height: 60px; padding: 0 40px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 20px">{{doneLabel}}</button>
+      </sc-if>
+      <sc-if value="{{kept}}" hint-placeholder-val="{{false}}">
+        <span role="status" style="display: flex; align-items: center; gap: 10px; padding: 12px 22px; border-radius: 999px; background: var(--surface); font-weight: 700"><span style="width: 9px; height: 9px; border-radius: 50%; background: var(--warn)"></span>Kept. Waiting for Sam and Jules</span>
+        <button onClick="{{reset}}" style="min-height: 48px; padding: 0 20px; border-radius: 999px; border: none; background: transparent; color: var(--dim); font-weight: 700">Replay this mock</button>
+      </sc-if>
+    </div>
+    <p style="margin: 0; font-size: 13px; color: var(--dim)">Everyone decides at the same time. In Commander your first mulligan is free. Card images from Scryfall, © Wizards of the Coast.</p>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { stage: 'decide', mulls: 0, bottom: [] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const hands = [
+      [['Sol Ring', '93aeaa2a6917b9e736b5247340b2f26e'], ['Arcane Signet', '03e78afa359f0c0e0da6d048c29e844e'], ['Clifftop Retreat', '4b6f8a8ccbd66b04717e915e9e659b37'], ['Glacial Fortress', 'e25b0374571373f1ab95c0e88cd1758e'], ['Adeline, Resplendent Cathar', '7c226842e4dc64d727461e5c3c1fde3f'], ['Boros Charm', '2d80527eb5c346c24b35ad5381fe99a6'], ['Esper Sentinel', 'f91dfa789f2b0816a79359bb277f07b0']],
+      [['Akroma’s Will', 'd2df35f8a45cc092aadf237d7374fc27'], ['Cyclonic Rift', '4e274a0a80fefd3f3346bd10c98c1349'], ['Fierce Guardianship', 'c858d7cf7a488b3218bd7bbf1fe8b79c'], ['Flawless Maneuver', '2b7584e35f9b697ba24e7b43dae7b869'], ['Chaos Warp', '0145ecf81c21d180a7799470623719f7'], ['Swords to Plowshares', '25cc15a47dce134d446895cd6610ce40'], ['Preordain', '25c9e8e2f218685cb31346556f7a6b5f']],
+      [['Clifftop Retreat', '4b6f8a8ccbd66b04717e915e9e659b37'], ['Glacial Fortress', 'e25b0374571373f1ab95c0e88cd1758e'], ['Arcane Signet', '03e78afa359f0c0e0da6d048c29e844e'], ['Recruiter of the Guard', '1c9f97f5b7c3bf20ce099ea1a738fa06'], ['Legion Warboss', 'b2dc590a8ed8f0c00b3644fce8fd2ecd'], ['Boros Charm', '2d80527eb5c346c24b35ad5381fe99a6'], ['Fireball', 'a08c916127f412daefde4b295294e4ee']]
+    ];
+    const { stage, mulls, bottom } = this.state;
+    const handIdx = Math.min(mulls, 2);
+    const need = Math.max(0, mulls - 1);
+    const bottoming = stage === 'bottom';
+    const hand = hands[handIdx].map(([name, id], i) => {
+      const picked = bottom.includes(i);
+      return {
+        img: A(id), label: name + (picked ? ', going to the bottom' : ''), picked,
+        disabled: !bottoming, cursor: bottoming ? 'pointer' : 'default',
+        lift: picked ? 'translateY(36px) scale(0.92)' : 'none',
+        ring: picked ? '0 0 0 3px #f0b45a' : (bottoming ? '0 0 0 1px #2a2e33' : 'none'),
+        pick: () => this.setState((s) => {
+          if (s.stage !== 'bottom') return null;
+          const has = s.bottom.includes(i);
+          if (has) return { bottom: s.bottom.filter((x) => x !== i) };
+          if (s.bottom.length >= need) return { bottom: s.bottom.slice(1).concat(i) };
+          return { bottom: s.bottom.concat(i) };
+        })
+      };
+    });
+    const names = bottom.map((i) => hands[handIdx][i][0]);
+    const ready = bottom.length === need;
+    return {
+      opps: [
+        { name: 'Computer', seat: '#f1e4bc', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', status: 'Kept 7', ink: '#8fd3a8' },
+        { name: 'Sam', seat: '#f08a70', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', status: 'Thinking', ink: '#f2efe8' },
+        { name: 'Jules', seat: '#6fd49a', art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', status: 'Mulliganed once', ink: '#f0b45a' }
+      ],
+      title: bottoming ? 'Put ' + need + (need === 1 ? ' card' : ' cards') + ' on the bottom' : stage === 'kept' ? 'Your opening hand' : mulls === 0 ? 'Keep this hand?' : 'New hand, mulligan ' + mulls,
+      subtitle: bottoming ? 'Click a card to send it to the bottom. Click it again to take it back.' : stage === 'kept' ? 'The game starts when everyone has kept.' : ['2 lands and 2 mana rocks.', 'No lands and no mana rocks.', '2 lands and a mana rock.'][handIdx],
+      hand,
+      deciding: stage === 'decide', bottoming, kept: stage === 'kept',
+      showTray: bottoming,
+      trayText: names.length ? names.join(', ') : 'Nothing yet',
+      mulliganLabel: mulls === 0 ? 'Mulligan (free)' : 'Mulligan to ' + (7 - mulls),
+      keepLabel: need ? 'Keep ' + (7 - need) : 'Keep 7',
+      mulligan: () => this.setState({ mulls: Math.min(mulls + 1, 2), bottom: [] }),
+      keep: () => this.setState(need ? { stage: 'bottom', bottom: [] } : { stage: 'kept' }),
+      done: () => ready && this.setState({ stage: 'kept' }),
+      notReady: !ready,
+      doneBg: ready ? '#f2efe8' : '#1e2125', doneInk: ready ? '#0b0c0e' : '#a9adb3',
+      doneLabel: 'Done (' + bottom.length + '/' + need + ')',
+      reset: () => this.setState({ stage: 'decide', mulls: 0, bottom: [] })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Base board, phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: #0b0c0e; color: #f2efe8; font-family: 'Atkinson Hyperlegible Next', system-ui, sans-serif; font-size: 16px; line-height: 1.5; overflow: hidden">
+  <nav aria-label="Opponents" style="display: flex; gap: 6px; padding: 8px 8px 0">
+    <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+      <span style="flex: 1; position: relative; height: 56px; border-radius: 14px; overflow: hidden; box-shadow: {{t.ring}}">
+        <img src="{{t.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: rgb(11 12 14 / {{t.wash}})"></span>
+        <span style="position: absolute; inset: 0; padding: 4px 8px; display: flex; align-items: center; justify-content: space-between; gap: 4px">
+          <span style="display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden"><span style="width: 7px; height: 7px; border-radius: 50%; background: {{t.seat}}; flex: 0 0 auto"></span>{{t.name}}</span>
+          <b style="font-family: 'Big Shoulders', sans-serif; font-weight: 700; font-size: 28px; color: #fff">{{t.life}}</b>
+        </span>
+      </span>
+    </sc-for>
+  </nav>
+
+  <section aria-label="Sam's board" style="margin: 8px 8px 0; border-radius: 16px; background: #15171a; padding: 10px; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; justify-content: space-between; font-size: 12px; color: #a9adb3"><span>Sam. Hand 6, graveyard 3</span><span>Terra: 3 to you</span></div>
+    <div style="display: flex; gap: 6px">
+      <span style="padding: 2px 10px; border-radius: 999px; background: #1e2125; font-size: 12px">7 lands, all untapped</span>
+      <span style="padding: 2px 10px; border-radius: 999px; background: #1e2125; font-size: 12px">Arcane Signet</span>
+    </div>
+    <div style="display: flex; gap: 6px">
+      <sc-for list="{{samCreatures}}" as="c" hint-placeholder-count="3">
+        <span style="position: relative; width: 70px; height: 70px; border-radius: 12px; overflow: hidden; background: #1e2125; box-shadow: {{c.ring}}">
+          <sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+          <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{c.name}}</span>
+          <sc-if value="{{c.many}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: rgb(11 12 14 / 0.85); font-size: 11px; font-weight: 700">{{c.count}}</span></sc-if>
+          <span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: #f2efe8; color: #0b0c0e; font-size: 12px; font-weight: 700">{{c.pt}}</span>
+        </span>
+      </sc-for>
+    </div>
+  </section>
+
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px">
+    <span style="padding: 6px 12px; border-radius: 999px; background: #15171a; font-size: 13px; font-weight: 700">Your turn 9, main 1</span>
+    <span style="padding: 6px 12px; border-radius: 999px; background: #15171a; font-size: 13px; font-weight: 700">Stack 0</span>
+  </div>
+
+  <section aria-label="Your board" style="flex: 1; min-height: 0; margin: 0 8px; border-radius: 16px; background: #15171a; padding: 10px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; gap: 8px; flex-wrap: wrap">
+      <sc-for list="{{mine}}" as="c" hint-placeholder-count="5">
+        <span style="position: relative; width: 76px; height: 76px; border-radius: 12px; overflow: hidden; background: #1e2125; box-shadow: {{c.ring}}">
+          <sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+          <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{c.name}}</span>
+          <sc-if value="{{c.many}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: rgb(11 12 14 / 0.85); font-size: 11px; font-weight: 700">{{c.count}}</span></sc-if>
+          <span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: #f2efe8; color: #0b0c0e; font-size: 12px; font-weight: 700">{{c.pt}}</span>
+        </span>
+      </sc-for>
+    </div>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap">
+      <span style="display: flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; background: #1e2125; font-size: 13px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #F1E4BC"></span>4 <span style="width: 8px; height: 8px; border-radius: 50%; background: #2C78C4"></span>2 <span style="width: 8px; height: 8px; border-radius: 50%; background: #D4472E"></span>1, 9 lands untapped</span>
+      <span style="padding: 3px 10px; border-radius: 999px; background: #1e2125; font-size: 13px">Sol Ring, Arcane Signet, Anointed Procession</span>
+    </div>
+    <span style="margin-top: auto; font-size: 10px; color: #a9adb3">Art: Craig Elliott, Bryan Sola, Yongjae Choi, Anna Podedworna, Marta Nael. © Wizards of the Coast</span>
+  </section>
+
+  <div style="margin-top: 8px; background: #15171a; border-radius: 22px 22px 0 0; padding: 8px 10px 14px; display: flex; flex-direction: column; gap: 8px">
+    <span style="align-self: center; display: flex; align-items: end; height: 52px; padding-left: 28px">
+      <sc-for list="{{hand}}" as="h" hint-placeholder-count="5"><img src="{{h}}" alt="" style="width: 46px; margin-left: -24px; border-radius: 3px"></sc-for>
+      <span style="margin-left: 10px; font-size: 13px; font-weight: 700; color: #a9adb3">Hand 5</span>
+    </span>
+    <div style="display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px; align-items: center">
+      <span style="display: flex; align-items: center; gap: 6px"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #6cb0f5"><b style="font-family: 'Big Shoulders', sans-serif; font-weight: 700; font-size: 34px">38</b></span>
+      <span style="min-height: 50px; border-radius: 999px; border: 1px solid #2a2e33; display: grid; place-items: center; font-weight: 700; font-size: 14px">End turn</span>
+      <span style="min-height: 50px; border-radius: 999px; background: #f2efe8; color: #0b0c0e; display: grid; place-items: center; font-weight: 800; font-size: 17px">To combat</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const c = (name, art, pt, count, cmdr) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, count: count ? '×' + count : '', many: !!count, ring: cmdr ? 'inset 0 0 0 2px #f2efe8' : 'none' });
+    return {
+      tabs: [
+        { name: 'Computer', life: 31, seat: '#f1e4bc', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), wash: 0.6, ring: 'none' },
+        { name: 'Sam', life: 24, seat: '#f08a70', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), wash: 0.35, ring: '0 0 0 2px #f2efe8' },
+        { name: 'Jules', life: 36, seat: '#6fd49a', art: A('383d04a073378ede76b3234038a68757'), wash: 0.6, ring: 'none' }
+      ],
+      samCreatures: [c('Terra', '7678674b257c9f2d67041ed3a4ee2ab4', '3/3', 0, true), c('Grave Titan', '1dccd462a02a0872cc11a4d8518c111f', '6/6'), c('Zombie', '', '2/2', 2)],
+      mine: [c('Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4', 0, true), c('Adeline', '93443cca264c2d66fac605d8e8311296', '6/4'), c('Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4'), c('Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2'), c('Soldier', '', '1/1', 2)],
+      hand: ['2d80527eb5c346c24b35ad5381fe99a6', '0145ecf81c21d180a7799470623719f7', 'd2df35f8a45cc092aadf237d7374fc27', 'c858d7cf7a488b3218bd7bbf1fe8b79c', 'e25b0374571373f1ab95c0e88cd1758e'].map(A)
+    };
+  }
+}
+</script>
+</body>
+</html>

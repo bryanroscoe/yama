@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Game log</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.5)"></div>
+
+  <aside aria-label="Game log" style="position: absolute; right: 0; top: 0; width: 560px; height: 900px; background: var(--surface); box-shadow: -30px 0 70px rgb(0 0 0 / 0.6); display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 18px 10px">
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1">Game log</h2>
+      <button aria-label="Close the log" style="width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--raised); font-size: 20px">×</button>
+    </div>
+
+    <section aria-label="Since your last turn" style="margin: 0 18px; padding: 14px; border-radius: 16px; background: var(--raised); display: flex; flex-direction: column; gap: 8px">
+      <b>Since your last turn</b>
+      <sc-for list="{{since}}" as="s" hint-placeholder-count="3">
+        <span style="display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 14px"><img src="{{s.art}}" alt="" style="width: 30px; height: 30px; border-radius: 8px; object-fit: cover"><span>{{s.text}}</span></span>
+      </sc-for>
+    </section>
+
+    <div role="group" aria-label="Show" style="margin: 14px 18px 0; display: flex; gap: 6px; flex-wrap: wrap">
+      <sc-for list="{{filters}}" as="f" hint-placeholder-count="4"><button onClick="{{f.pick}}" aria-pressed="{{f.on}}" style="min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid {{f.border}}; background: {{f.bg}}; color: {{f.ink}}; font-size: 13px; font-weight: 700">{{f.label}}</button></sc-for>
+    </div>
+
+    <ol style="flex: 1; min-height: 0; overflow: hidden; margin: 10px 0 0; padding: 0 18px; list-style: none; display: flex; flex-direction: column">
+      <sc-for list="{{lines}}" as="l" hint-placeholder-count="10">
+        <sc-if value="{{l.head}}" hint-placeholder-val="{{false}}"><li style="padding: 12px 0 4px; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dim); font-weight: 700"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{l.seat}}"></span>{{l.text}}</li></sc-if>
+        <sc-if value="{{l.row}}" hint-placeholder-val="{{true}}"><li style="display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px">
+          <img src="{{l.art}}" alt="" style="width: 30px; height: 30px; border-radius: 6px; object-fit: cover">
+          <span>{{l.text}}</span>
+          <sc-if value="{{l.mine}}" hint-placeholder-val="{{false}}"><span style="padding: 0 8px; border-radius: 999px; background: {{l.tagBg}}; color: var(--ground); font-size: 11px; font-weight: 800; white-space: nowrap">{{l.tag}}</span></sc-if>
+        </li></sc-if>
+      </sc-for>
+    </ol>
+    <p style="margin: 0; padding: 12px 18px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim)">Hover a line to light up the cards it names on the board. Card art from Scryfall, © Wizards of the Coast.</p>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { f: 0 };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const art = { quint: A('042e4cb280a5a896fb249a47c8f4a8a3'), terra: A('7678674b257c9f2d67041ed3a4ee2ab4'), titan: A('1dccd462a02a0872cc11a4d8518c111f'), rhystic: A('a3e58275bd2364af6a346bbf2e6a38b9'), fant: A('383d04a073378ede76b3234038a68757'), eowyn: A('c19490e7c081fb35071c85147c01bed4'), warp: A('6759048df4816cbf74dda632d894a6a9'), plains: A('30df84aecfd8c45546b9a6bdd64b8552') };
+    const turns = [
+      { head: 'Computer, turn 8', seat: '#f1e4bc', rows: [
+        { art: art.quint, text: 'Computer played a land and cast nothing.', k: 'other' },
+        { art: art.quint, text: 'Spirit ×2 attacked Jules. Jules took 6, 42 → 36.', k: 'combat' }
+      ] },
+      { head: 'Sam, turn 8', seat: '#f08a70', rows: [
+        { art: art.titan, text: 'Sam cast Grave Titan. It made two 2/2 Zombies.', k: 'spell' },
+        { art: art.terra, text: 'Terra attacked you. You took 3, 41 → 38. Terra’s commander damage to you: 3 of 21.', k: 'combat', mine: true, tag: 'You', tagBg: '#f0b45a' }
+      ] },
+      { head: 'Jules, turn 8', seat: '#6fd49a', rows: [
+        { art: art.rhystic, text: 'Jules cast Rhystic Study.', k: 'spell' },
+        { art: art.rhystic, text: 'Computer cast a spell and didn’t pay {1}. Jules drew a card.', k: 'other' },
+        { art: art.fant, text: 'Mister Fantastic didn’t attack.', k: 'combat' }
+      ] },
+      { head: 'You, turn 9', seat: '#6cb0f5', rows: [
+        { art: art.warp, text: 'You drew Chaos Warp.', k: 'other', mine: true, tag: 'You', tagBg: '#6cb0f5' },
+        { art: art.plains, text: 'You played Plains.', k: 'other', mine: true, tag: 'You', tagBg: '#6cb0f5' }
+      ] }
+    ];
+    const f = this.state.f;
+    const keep = (r) => f === 0 || (f === 1 && r.mine) || (f === 2 && r.k === 'spell') || (f === 3 && r.k === 'combat');
+    const lines = [];
+    turns.forEach((t) => {
+      const rows = t.rows.filter(keep);
+      if (!rows.length) return;
+      lines.push({ head: true, row: false, text: t.head, seat: t.seat, art: '', mine: false, tag: '', tagBg: '' });
+      rows.forEach((r) => lines.push({ head: false, row: true, text: r.text, art: r.art, mine: !!r.mine, tag: r.tag || '', tagBg: r.tagBg || '', seat: '' }));
+    });
+    return {
+      since: [
+        { art: art.terra, text: 'Terra hit you for 3. You’re at 38, with 3 of 21 commander damage from Terra.' },
+        { art: art.titan, text: 'Sam now has Grave Titan and two Zombies, all untapped.' },
+        { art: art.rhystic, text: 'Jules has Rhystic Study. Your spells will ask about paying {1}.' }
+      ],
+      filters: ['Everything', 'About me', 'Spells', 'Combat'].map((label, i) => ({ label, on: f === i, bg: f === i ? '#f2efe8' : 'transparent', ink: f === i ? '#0b0c0e' : '#f2efe8', border: f === i ? '#f2efe8' : '#2a2e33', pick: () => this.setState({ f: i }) })),
+      lines
+    };
+  }
+}
+</script>
+</body>
+</html>

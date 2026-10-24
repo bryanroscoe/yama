@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scry on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.65)"></div>
+
+  <section role="dialog" aria-label="Scry 2" style="position: absolute; left: 0; right: 0; bottom: 0; top: 40px; padding: 8px 14px 16px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 12px">
+    <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 999px; background: var(--line)"></span>
+    <div style="display: flex; align-items: center; gap: 10px">
+      <img src="/_blob/ddbc9031630d9f4c09e7a7f9e77061ea" alt="" style="width: 52px; height: 40px; border-radius: 8px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; line-height: 1.15"><b style="font-family: var(--display); font-size: 28px; font-weight: 800">Scry 2</b><span style="font-size: 12px; color: var(--dim)">Preordain. Then you draw. Art: Svetlin Velinov</span></span>
+    </div>
+
+    <div style="padding: 10px; border-radius: 16px; background: var(--raised); display: flex; flex-direction: column; gap: 8px">
+      <span style="display: flex; justify-content: space-between; font-size: 13px"><b>Keep on top</b><span style="color: var(--dim)">First is drawn next</span></span>
+      <div style="display: flex; gap: 10px; min-height: 230px; align-items: start">
+        <sc-for list="{{top}}" as="c" hint-placeholder-count="2">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px">
+            <span style="padding: 0 8px; border-radius: 999px; background: {{c.tagBg}}; color: {{c.tagInk}}; font-size: 11px; font-weight: 800">{{c.tag}}</span>
+            <button onClick="{{c.move}}" aria-label="{{c.name}}. Send to the bottom" style="padding: 0; border: none; background: transparent"><img src="{{c.img}}" alt="{{c.name}}" style="width: 140px; border-radius: 7px"></button>
+            <button onClick="{{c.earlier}}" aria-label="Draw {{c.name}} first" style="min-height: 32px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-size: 12px; font-weight: 700; visibility: {{c.showEarlier}}">Draw this first</button>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="padding: 10px; border-radius: 16px; box-shadow: inset 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 8px">
+      <b style="font-size: 13px">Bottom of library</b>
+      <div style="display: flex; gap: 8px; min-height: 100px; align-items: center">
+        <sc-for list="{{bottom}}" as="c" hint-placeholder-count="0"><button onClick="{{c.move}}" aria-label="{{c.name}}. Keep on top" style="padding: 0; border: none; background: transparent"><img src="{{c.img}}" alt="{{c.name}}" style="width: 70px; border-radius: 4px"></button></sc-for>
+        <sc-if value="{{bottomEmpty}}" hint-placeholder-val="{{true}}"><span style="font-size: 13px; color: var(--dim)">Tap a card above to send it here.</span></sc-if>
+      </div>
+    </div>
+
+    <span style="margin-top: auto; font-size: 13px; color: var(--dim)">{{summary}}</span>
+    <button style="min-height: 54px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 17px">Done, draw</button>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { top: ['fortress', 'sunfall'], bottom: [] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const cards = {
+      fortress: { name: 'Glacial Fortress', img: A('e25b0374571373f1ab95c0e88cd1758e') },
+      sunfall: { name: 'Sunfall', img: A('4f17f1f93dbb25c0d47e2fcb9b2c0ae6') }
+    };
+    const { top, bottom } = this.state;
+    return {
+      top: top.map((id, i) => ({ ...cards[id], tag: i === 0 ? 'Next draw' : 'Then ' + (i + 1), tagBg: i === 0 ? '#f2efe8' : '#2a2e33', tagInk: i === 0 ? '#0b0c0e' : '#f2efe8',
+        showEarlier: i === 0 ? 'hidden' : 'visible',
+        move: () => this.setState((s) => ({ top: s.top.filter((x) => x !== id), bottom: s.bottom.concat(id) })),
+        earlier: () => this.setState((s) => ({ top: [id].concat(s.top.filter((x) => x !== id)) })) })),
+      bottom: bottom.map((id) => ({ ...cards[id], move: () => this.setState((s) => ({ bottom: s.bottom.filter((x) => x !== id), top: s.top.concat(id) })) })),
+      bottomEmpty: bottom.length === 0,
+      summary: top.length ? 'You’ll draw ' + cards[top[0]].name + '.' : 'Both go to the bottom. You’ll draw an unseen card.'
+    };
+  }
+}
+</script>
+</body>
+</html>

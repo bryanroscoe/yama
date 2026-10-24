@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Assigning combat damage</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" phase="{{damageStep}}" title="Split Adeline’s damage" body="Three creatures block her. Choose how her 9 damage is shared." primary="Done" secondary="Reset" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.55)"></div>
+
+  <section role="dialog" aria-label="Assign Adeline’s combat damage" style="position: absolute; left: 150px; top: 110px; width: 800px; padding: 24px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 18px">
+    <div style="display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 18px; align-items: center">
+      <img src="/_blob/93443cca264c2d66fac605d8e8311296" alt="" style="width: 120px; height: 88px; border-radius: 14px; object-fit: cover; box-shadow: 0 0 0 3px #6cb0f5">
+      <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--dim)">Adeline, 9/4, attacking Sam. Art: Bryan Sola</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 38px; line-height: 1">Split her damage</h2></span>
+      <span style="display: flex; flex-direction: column; align-items: end; line-height: 1"><b style="font-family: var(--display); font-weight: 800; font-size: 56px; color: {{leftInk}}">{{left}}</b><span style="font-size: 13px; color: var(--dim)">of 9 left</span></span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="3">
+        <div style="display: grid; grid-template-columns: 76px minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 10px 12px; border-radius: 16px; background: var(--raised)">
+          <span style="position: relative; width: 76px; height: 60px; border-radius: 10px; overflow: hidden; background: var(--ground)">
+            <sc-if value="{{r.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{r.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+            <span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">{{r.pt}}</span>
+          </span>
+          <span style="display: flex; flex-direction: column; line-height: 1.3"><b>{{r.name}}</b><span style="font-size: 13px; color: var(--dim)">Lethal damage: {{r.lethal}}</span></span>
+          <span style="padding: 2px 10px; border-radius: 999px; background: {{r.tagBg}}; color: var(--ground); font-size: 12px; font-weight: 800">{{r.tag}}</span>
+          <span style="display: flex; align-items: center; gap: 6px">
+            <button onClick="{{r.down}}" aria-label="One less to {{r.name}}" style="width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--ground); font-size: 20px">−</button>
+            <output aria-live="polite" style="width: 44px; text-align: center; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1">{{r.n}}</output>
+            <button onClick="{{r.up}}" aria-label="One more to {{r.name}}" style="width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--ground); font-size: 20px">+</button>
+            <button onClick="{{r.rest}}" style="min-height: 40px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-size: 13px; font-weight: 700">Rest here</button>
+          </span>
+        </div>
+      </sc-for>
+    </div>
+
+    <p style="margin: 0; padding: 12px 14px; border-radius: 14px; background: var(--ground); font-size: 13px; color: var(--dim)">Adeline has no trample, so all 9 goes to the blockers. With trample, Sam would get a row here too, open once every blocker has lethal damage. Deathtouch would make 1 lethal for each.</p>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
+      <span style="font-size: 14px; color: var(--dim)">{{summary}}</span>
+      <span style="display: flex; gap: 8px">
+        <button onClick="{{auto}}" style="min-height: 48px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Lethal to each</button>
+        <button style="min-height: 52px; padding: 0 28px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 17px">{{doneLabel}}</button>
+      </span>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { a: [2, 2, 3] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const blockers = [
+      { name: 'Zombie', art: '', pt: '2/2', lethal: 2 },
+      { name: 'Zombie', art: '', pt: '2/2', lethal: 2 },
+      { name: 'Terra, Sam’s commander', art: '7678674b257c9f2d67041ed3a4ee2ab4', pt: '3/3', lethal: 3 }
+    ];
+    const total = 9;
+    const a = this.state.a;
+    const used = a.reduce((x, y) => x + y, 0);
+    const left = total - used;
+    const set = (i, v) => this.setState((s) => {
+      const n = s.a.slice(); const others = n.reduce((x, y, j) => x + (j === i ? 0 : y), 0);
+      n[i] = Math.max(0, Math.min(total - others, v));
+      return { a: n };
+    });
+    const dying = blockers.filter((b, i) => a[i] >= b.lethal);
+    return {
+      damageStep: 6,
+      left, leftInk: left === 0 ? '#8fd3a8' : '#f2efe8',
+      rows: blockers.map((b, i) => ({ ...b, art: b.art ? A(b.art) : '', hasArt: !!b.art, n: a[i],
+        tag: a[i] >= b.lethal ? 'Dies' : a[i] ? 'Survives, ' + a[i] + ' damage' : 'No damage', tagBg: a[i] >= b.lethal ? '#8fd3a8' : a[i] ? '#f0b45a' : '#a9adb3',
+        down: () => set(i, a[i] - 1), up: () => set(i, a[i] + 1), rest: () => set(i, a[i] + left) })),
+      summary: dying.length === blockers.length ? 'All three blockers die.' : dying.length ? dying.length + ' of 3 blockers die.' : 'No blocker gets lethal damage yet.',
+      auto: () => this.setState({ a: [2, 2, 5] }),
+      doneBg: left === 0 ? '#f2efe8' : '#1e2125', doneInk: left === 0 ? '#0b0c0e' : '#a9adb3',
+      doneLabel: left === 0 ? 'Done' : left + ' left to assign'
+    };
+  }
+}
+</script>
+</body>
+</html>

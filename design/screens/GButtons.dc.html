@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The main button, every state</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; background: var(--ground); padding: 36px 44px; display: flex; flex-direction: column; gap: 20px">
+  <div style="display: flex; justify-content: space-between; align-items: end; gap: 20px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 52px; line-height: 0.95">The main button says what will happen</h1>
+      <p style="margin: 0; color: var(--dim); max-width: 80ch">One big button, bottom right on a laptop and at the right of the dock on a phone. Space presses it. The smaller button beside it covers the next most likely thing. Labels come from the engine's state, never "OK" or "Continue".</p>
+    </div>
+    <span style="flex: 0 0 auto; display: flex; gap: 8px; font-size: 13px; color: var(--dim)"><span style="padding: 3px 9px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--line)">Space</span>main button <span style="padding: 3px 9px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--line)">Z</span>undo what you're building</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; flex: 1">
+    <sc-for list="{{states}}" as="s" hint-placeholder-count="12">
+      <div style="padding: 14px; border-radius: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 10px">
+        <span style="display: flex; flex-direction: column; line-height: 1.3"><b>{{s.when}}</b><span style="font-size: 13px; color: var(--dim)">{{s.note}}</span></span>
+        <span style="margin-top: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 8px; align-items: center">
+          <span style="min-height: 44px; padding: 0 10px; border-radius: 999px; border: 1px solid {{s.secBorder}}; display: grid; place-items: center; font-size: 14px; font-weight: 700; color: {{s.secInk}}; text-align: center">{{s.secondary}}</span>
+          <span style="min-height: 52px; padding: 0 12px; border-radius: 999px; background: {{s.bg}}; color: {{s.ink}}; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800; font-size: 17px; text-align: center; box-shadow: {{s.ring}}">
+            <sc-if value="{{s.hasArt}}" hint-placeholder-val="{{false}}"><img src="{{s.art}}" alt="" style="width: 26px; height: 26px; border-radius: 50%; object-fit: cover"></sc-if>{{s.primary}}
+          </span>
+        </span>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const on = { bg: '#f2efe8', ink: '#0b0c0e', ring: 'none', hasArt: false, art: '' };
+    const sec = (t) => ({ secondary: t || '—', secBorder: t ? '#2a2e33' : 'transparent', secInk: t ? '#f2efe8' : '#a9adb3' });
+    const s = (when, note, primary, secondary, extra) => ({ when, note, primary, ...sec(secondary), ...on, ...(extra || {}) });
+    return {
+      states: [
+        s('Your first main phase', 'You have creatures that can attack.', 'To combat', 'End turn'),
+        s('Your first main phase', 'Nothing can attack.', 'Next', 'End turn'),
+        s('Your second main phase, or end step', '', 'End turn', ''),
+        s('Your spell or ability is on the stack', 'Opponents get a chance to respond first.', 'Resolve', 'Resolve all'),
+        s('An opponent’s spell is on the stack', 'You can respond with a glowing card.', 'Let it resolve', 'More ways to pass'),
+        s('Someone else’s turn', 'Nothing is waiting on you.', 'Pass', 'Pass to my turn'),
+        s('Declaring attackers', 'The count updates as you pick. With none picked it says so.', 'Attack (3)', 'Attack with all'),
+        s('Declaring blockers', 'With none assigned, the label is No blocks.', 'Block (2)', 'Reset blocks'),
+        s('Choosing targets or cards', 'Enabled once the minimum is met.', 'Done (2/3)', 'Cancel'),
+        s('Paying mana', 'Tap sources yourself, or let Yama finish.', 'Pay the rest', 'Cancel'),
+        s('Opening hand', 'The first mulligan is free.', 'Keep 7', 'Mulligan (free)'),
+        s('Waiting on another player', 'Disabled. Shows whose decision it is.', 'Waiting for Sam', '', { bg: '#1e2125', ink: '#a9adb3', ring: 'inset 0 0 0 2px #f08a70', hasArt: true, art: '/_blob/7678674b257c9f2d67041ed3a4ee2ab4' })
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

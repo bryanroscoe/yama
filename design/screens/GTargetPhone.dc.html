@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Choosing targets on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: var(--ground); overflow: hidden">
+  <div role="status" style="margin: 8px 8px 0; padding: 10px 14px; border-radius: 16px; background: var(--text); color: var(--ground); display: flex; justify-content: space-between; align-items: center; gap: 10px">
+    <b style="font-size: 15px">{{prompt}}</b>
+    <span style="padding: 2px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 12px; font-weight: 700; white-space: nowrap">{{count}}</span>
+  </div>
+
+  <nav aria-label="Opponents" style="display: flex; gap: 6px; padding: 8px 8px 0">
+    <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+      <button onClick="{{t.pick}}" aria-pressed="{{t.on}}" style="flex: 1; position: relative; height: 56px; padding: 0; border: none; border-radius: 14px; overflow: hidden; box-shadow: {{t.ring}}">
+        <img src="{{t.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: rgb(11 12 14 / {{t.wash}})"></span>
+        <span style="position: absolute; inset: 0; padding: 4px 8px; display: flex; align-items: center; justify-content: space-between">
+          <b style="font-size: 13px; color: #fff">{{t.name}}</b>
+          <b style="font-family: var(--display); font-weight: 700; font-size: 26px; color: #fff">{{t.life}}</b>
+        </span>
+        <span style="position: absolute; left: 6px; bottom: 4px; padding: 0 6px; border-radius: 999px; background: #f0b45a; color: var(--ground); font-size: 10px; font-weight: 800">{{t.legal}}</span>
+      </button>
+    </sc-for>
+  </nav>
+
+  <section aria-label="{{focusName}}'s creatures" style="margin: 8px 8px 0; padding: 10px; border-radius: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 8px">
+    <span style="font-size: 12px; color: var(--dim)">{{focusName}}'s creatures. Tap one to aim.</span>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap; padding-top: 4px">
+      <sc-for list="{{theirs}}" as="c" hint-placeholder-count="3">
+        <button onClick="{{c.pick}}" aria-label="{{c.label}}" style="position: relative; width: 82px; height: 82px; padding: 0; border: none; border-radius: 12px; background: var(--raised); box-shadow: {{c.ring}}">
+          <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden"><sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden">{{c.name}}</span><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">{{c.pt}}</span></span>
+          <span aria-hidden="true" style="position: absolute; right: -7px; top: -7px; width: 22px; height: 22px; border-radius: 50%; background: #f0b45a; color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--surface)">{{c.mark}}</span>
+        </button>
+      </sc-for>
+    </div>
+  </section>
+
+  <section aria-label="Your creatures" style="flex: 1; margin: 8px; padding: 10px; border-radius: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 8px">
+    <span style="font-size: 12px; color: var(--dim)">Yours. Also legal targets.</span>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; padding-top: 4px">
+      <sc-for list="{{mine}}" as="c" hint-placeholder-count="5">
+        <button onClick="{{c.pick}}" aria-label="{{c.label}}" style="position: relative; width: 64px; height: 64px; padding: 0; border: none; border-radius: 10px; background: var(--raised); box-shadow: {{c.ring}}">
+          <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden"><sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 4px; background: rgb(11 12 14 / 0.82); font-size: 10px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden">{{c.name}}</span><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 3px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 11px; font-weight: 700">{{c.pt}}</span></span>
+        </button>
+      </sc-for>
+    </div>
+  </section>
+
+  <div style="background: var(--surface); border-radius: 22px 22px 0 0; padding: 12px 12px 16px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 10px; align-items: center">
+      <img src="/_blob/25cc15a47dce134d446895cd6610ce40" alt="" style="width: 46px; border-radius: 3px; box-shadow: 0 0 0 2px #6cb0f5">
+      <span style="display: flex; flex-direction: column; line-height: 1.2"><b style="font-size: 14px">Casting Swords to Plowshares</b><span style="font-size: 12px; color: var(--dim)">{{detail}}</span></span>
+    </div>
+    <div style="display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px">
+      <button onClick="{{cancel}}" style="min-height: 52px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Cancel</button>
+      <button style="min-height: 54px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 17px">{{doneLabel}}</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { focus: 1, pick: null };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const boards = [
+      { name: 'Computer', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), life: 31, cr: [['spirit', 'Spirit', '', '3/2'], ['spirit2', 'Spirit', '', '3/2']] },
+      { name: 'Sam', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), life: 24, cr: [['terra', 'Terra', '7678674b257c9f2d67041ed3a4ee2ab4', '3/3'], ['titan', 'Grave Titan', '1dccd462a02a0872cc11a4d8518c111f', '6/6'], ['z1', 'Zombie', '', '2/2'], ['z2', 'Zombie', '', '2/2']] },
+      { name: 'Jules', art: A('383d04a073378ede76b3234038a68757'), life: 36, cr: [['fant', 'Mister Fantastic', '383d04a073378ede76b3234038a68757', '2/4']] }
+    ];
+    const { focus, pick } = this.state;
+    const ring = (id) => pick === id ? '0 0 0 3px #f0b45a, 0 0 0 7px rgb(240 180 90 / 0.25)' : '0 0 0 2px #f0b45a';
+    const all = [];
+    boards.forEach((b) => b.cr.forEach((c) => all.push({ id: c[0], name: c[1], owner: b.name, pt: c[3] })));
+    const myCr = [['eowyn', 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4'], ['adeline', 'Adeline', '93443cca264c2d66fac605d8e8311296', '6/4'], ['aragorn', 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4'], ['faramir', 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2'], ['soldier', 'Soldier', '', '1/1']];
+    myCr.forEach((c) => all.push({ id: c[0], name: c[1], owner: 'You', pt: c[3] }));
+    const chosen = all.find((c) => c.id === pick);
+    const toggle = (id) => () => this.setState((s) => ({ pick: s.pick === id ? null : id }));
+    return {
+      prompt: chosen ? 'Exile ' + chosen.name + '?' : 'Choose a creature to exile',
+      count: (chosen ? 1 : 0) + ' of 1',
+      tabs: boards.map((b, i) => ({ name: b.name, life: b.life, art: b.art, on: i === focus, wash: i === focus ? 0.35 : 0.6, ring: i === focus ? '0 0 0 2px #f2efe8' : 'none', legal: b.cr.length + (b.cr.length === 1 ? ' target' : ' targets'), pick: () => this.setState({ focus: i }) })),
+      focusName: boards[focus].name,
+      theirs: boards[focus].cr.map(([id, name, art, pt]) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, ring: ring(id), mark: pick === id ? '1' : '+', label: name + (pick === id ? ', chosen' : ', legal target'), pick: toggle(id) })),
+      mine: myCr.map(([id, name, art, pt]) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, ring: ring(id), label: name + ', yours', pick: toggle(id) })),
+      detail: chosen ? (chosen.owner === 'You' ? 'You gain ' : chosen.owner + ' gains ') + chosen.pt.split('/')[0] + ' life.' : 'Its controller gains life equal to its power.',
+      doneBg: chosen ? '#f2efe8' : '#1e2125', doneInk: chosen ? '#0b0c0e' : '#a9adb3',
+      doneLabel: chosen ? 'Cast it' : 'Done (0/1)',
+      cancel: () => this.setState({ pick: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

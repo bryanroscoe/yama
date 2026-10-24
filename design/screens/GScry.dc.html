@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scry</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="Preordain" body="Look at the top two cards of your library. Keep any on top in any order, put the rest on the bottom, then draw." primary="Done" secondary="Keep both on top" hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+
+  <section role="dialog" aria-label="Scry 2" style="position: absolute; left: 70px; top: 70px; width: 960px; padding: 24px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 18px">
+    <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 16px; align-items: center">
+      <img src="/_blob/ddbc9031630d9f4c09e7a7f9e77061ea" alt="" style="width: 96px; height: 70px; border-radius: 12px; object-fit: cover">
+      <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--dim)">Preordain. Art: Svetlin Velinov, © Wizards of the Coast</span><h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 40px; line-height: 1">Scry 2</h2></span>
+      <span style="font-size: 14px; color: var(--dim); max-width: 26ch; text-align: right">Then you draw the card on the left of Top.</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px">
+      <div style="padding: 14px; border-radius: 18px; background: var(--raised); display: flex; flex-direction: column; gap: 10px; min-height: 410px">
+        <span style="display: flex; justify-content: space-between"><b>Top of library</b><span style="font-size: 13px; color: var(--dim)">Left is drawn first</span></span>
+        <div style="display: flex; gap: 14px; align-items: start">
+          <sc-for list="{{top}}" as="c" hint-placeholder-count="2">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 8px">
+              <span style="padding: 1px 10px; border-radius: 999px; background: {{c.tagBg}}; color: {{c.tagInk}}; font-size: 12px; font-weight: 800">{{c.tag}}</span>
+              <button onClick="{{c.move}}" aria-label="{{c.name}}. Send to the bottom" style="padding: 0; border: none; background: transparent; cursor: pointer"><img src="{{c.img}}" alt="{{c.name}}" style="width: 200px; border-radius: 10px; box-shadow: 0 14px 30px rgb(0 0 0 / 0.5)"></button>
+              <span style="display: flex; gap: 6px">
+                <button onClick="{{c.left}}" disabled="{{c.first}}" aria-label="Move {{c.name}} earlier" style="width: 44px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: {{c.leftInk}}">←</button>
+                <button onClick="{{c.move}}" style="min-height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: transparent; font-size: 13px; font-weight: 700">To bottom</button>
+                <button onClick="{{c.right}}" disabled="{{c.last}}" aria-label="Move {{c.name}} later" style="width: 44px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: {{c.rightInk}}">→</button>
+              </span>
+            </div>
+          </sc-for>
+          <sc-if value="{{topEmpty}}" hint-placeholder-val="{{false}}"><p style="margin: 40px auto; color: var(--dim); font-size: 14px">Nothing kept. You’ll draw a card you haven’t seen.</p></sc-if>
+        </div>
+      </div>
+      <div style="padding: 14px; border-radius: 18px; background: var(--ground); box-shadow: inset 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 10px">
+        <span style="display: flex; justify-content: space-between"><b>Bottom of library</b><span style="font-size: 13px; color: var(--dim)">Order doesn’t matter</span></span>
+        <div style="display: flex; gap: 10px; align-items: start; flex-wrap: wrap">
+          <sc-for list="{{bottom}}" as="c" hint-placeholder-count="0">
+            <button onClick="{{c.move}}" aria-label="{{c.name}}. Put back on top" style="padding: 0; border: none; background: transparent; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px"><img src="{{c.img}}" alt="{{c.name}}" style="width: 150px; border-radius: 8px"><span style="font-size: 12px; color: var(--dim)">Click to keep on top</span></button>
+          </sc-for>
+          <sc-if value="{{bottomEmpty}}" hint-placeholder-val="{{true}}"><p style="margin: 40px auto; color: var(--dim); font-size: 14px; text-align: center; max-width: 24ch">Click a card on the left to send it here.</p></sc-if>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
+      <span style="font-size: 14px; color: var(--dim)">{{summary}}</span>
+      <button style="min-height: 54px; padding: 0 32px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 18px">Done, draw</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { top: ['fortress', 'sunfall'], bottom: [] };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const cards = {
+      fortress: { name: 'Glacial Fortress', img: A('e25b0374571373f1ab95c0e88cd1758e') },
+      sunfall: { name: 'Sunfall', img: A('4f17f1f93dbb25c0d47e2fcb9b2c0ae6') }
+    };
+    const { top, bottom } = this.state;
+    const toBottom = (id) => this.setState((s) => ({ top: s.top.filter((x) => x !== id), bottom: s.bottom.concat(id) }));
+    const toTop = (id) => this.setState((s) => ({ bottom: s.bottom.filter((x) => x !== id), top: s.top.concat(id) }));
+    const swap = (i, d) => this.setState((s) => { const t = s.top.slice(); const j = i + d; if (j < 0 || j >= t.length) return null; [t[i], t[j]] = [t[j], t[i]]; return { top: t }; });
+    return {
+      top: top.map((id, i) => ({ ...cards[id], tag: i === 0 ? 'Next draw' : 'Then ' + (i + 1), tagBg: i === 0 ? '#f2efe8' : '#2a2e33', tagInk: i === 0 ? '#0b0c0e' : '#f2efe8',
+        first: i === 0, last: i === top.length - 1, leftInk: i === 0 ? '#2a2e33' : '#f2efe8', rightInk: i === top.length - 1 ? '#2a2e33' : '#f2efe8',
+        move: () => toBottom(id), left: () => swap(i, -1), right: () => swap(i, 1) })),
+      bottom: bottom.map((id) => ({ ...cards[id], move: () => toTop(id) })),
+      topEmpty: top.length === 0, bottomEmpty: bottom.length === 0,
+      summary: top.length ? 'You’ll draw ' + cards[top[0]].name + '.' + (bottom.length ? ' ' + bottom.map((b) => cards[b].name).join(' and ') + ' goes to the bottom.' : '') : 'Both go to the bottom.'
+    };
+  }
+}
+</script>
+</body>
+</html>

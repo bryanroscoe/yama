@@ -1,7 +1,7 @@
 # Yama design handoff (Night table)
 
 - The visual system is in [tokens.md](tokens.md).
-- The live canvas is https://claude.ai/artifact/A54Pqc1rPe5U8c4ipARc1q, page "Night table". It's private to Bryan.
+- The live canvas is https://claude.ai/artifact/A54Pqc1rPe5U8c4ipARc1q: page "Night table" for the screens, page "Game interactions" for play. It's private to Bryan.
 - `screens/` holds each artboard's `.dc.html` source. They're HTML with inline styles: read them for layout, spacing and copy. They can't run outside the canvas.
 
 ## Screens
@@ -33,6 +33,43 @@ Each screen has a laptop artboard and a phone artboard.
 | Lab: precons | Lab | LabPhone |
 | Try a change | LabTry | LabTryPhone |
 | My runs | (phone layout scales up) | LabRuns |
+
+## Game interactions
+
+The canvas page "Game interactions" designs every decision in an online game, in the same Night table style. The requirements are in [play-polish-requirements.md](../docs/play-polish-requirements.md); the PP column names the requirement each board answers. Most boards are clickable on the canvas.
+
+Five rules run through all of them:
+- One main button in the rail always says what happens next (GButtons lists every state).
+- Choices happen on the board: rings on what you can pick, arrows to what you picked. A dialog opens only when the choice isn't about something on the board.
+- Amber means you can pick it. Your own arrows are blue (#6cb0f5); everyone else's use their seat color.
+- Nothing is committed until you press the button. Esc, or right-click, backs out.
+- Every image of a card shows the card's own art and credits the artist.
+
+| Interaction | Laptop | Phone | PP |
+|---|---|---|---|
+| Mulligan | GMulligan | GMulliganPhone | 51 |
+| Priority, passing, stops | GPriority | (dock on every phone board) | 33, 34, 36 |
+| The main button, every state | GButtons | | 32 |
+| Playing a card, using a permanent | GCast | | 25, 28 |
+| Paying mana | GPay | GPayPhone | 29, 30, 31 |
+| Choosing targets | GTarget | GTargetPhone | 26 |
+| Modes and X | GModes | | 27 |
+| Responding to an opponent's spell | GRespond | GRespondPhone | 45, 46, 47 |
+| Ordering triggers | GTriggers | | 48 |
+| Reading a card | GInspector | GInspectorPhone | 23, 24 |
+| Declaring attackers | GAttack | GAttackPhone | 40, 44 |
+| Declaring blockers | GBlock | GBlockPhone | 41, 44 |
+| Combat damage assignment | GDamage | | 43 |
+| Watching other players' combat | GCombatView | | 42 |
+| Scry | GScry | GScryPhone | 49 |
+| Library search | GSearch | | 50 |
+| Other choices: pay or not, name a card, a color, discard, command zone | GChoices | GChoicesPhone | 35, 52 |
+| Graveyard, exile and reveals | GZones | | 22 |
+| A player knocked out | GKnockout | | 18, 61 |
+| Game over | GGameOver | GGameOverPhone | 61 |
+| Game log, since your last turn | GLog | | 58, 59 |
+
+BoardBase and BoardBasePhone are the boards drawn behind the dialogs. The boards where rings and arrows must land on exact cards (GTarget, GPay, GRespond, GAttack, GBlock) draw their own board at fixed positions instead.
 
 ## Images in the artboards
 
@@ -129,6 +166,20 @@ The table maps each image id prefix to its Scryfall card. a = art_crop, n = norm
 | e4c32638 | a Transmogrify |
 | e03284c9 | a Venser, Fervent Forger |
 | 1ebe33f8 | a Volcanic Island |
+| eb17e450 | a Fireball (Xavier Ribeiro) |
+| 2914c341 | a Goblin Rabblemaster (Svetlin Velinov) |
+| d8a19374 | a Legion Warboss (Alex Konstad) |
+| 639302e4 | a Pithing Needle (Anthony Palumbo) |
+| ddbc9031 | a Preordain (Svetlin Velinov) |
+| d4281310 | a Recruiter of the Guard (Eric Wilkerson) |
+| aef381f1 | a Swords to Plowshares (Jesper Ejsing) |
+| a08c9161 | n Fireball |
+| 24d589e6 | n Pithing Needle |
+| 25c9e8e2 | n Preordain |
+| 1c9f97f5 | n Recruiter of the Guard |
+| 25cc15a4 | n Swords to Plowshares |
+| ed088f5c | n Goblin Rabblemaster (a second upload of 457b4872) |
+| b2dc590a | n Legion Warboss (a second upload of 0f5e5aef) |
 
 ## Sample data
 

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Graveyards, exile and reveals</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--sam:#f08a70;--me:#6cb0f5;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="Looking at zones" body="Click any player’s graveyard or exile count to open it. Everyone can look at these any time, even while waiting." hint-size="1440px,900px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1100px; height: 900px; background: rgb(0 0 0 / 0.6)"></div>
+
+  <section role="dialog" aria-label="Sam’s zones" style="position: absolute; left: 30px; top: 40px; width: 740px; height: 820px; padding: 20px; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; align-items: center; gap: 12px">
+      <img src="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" alt="" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #f08a70">
+      <h2 style="margin: 0; flex: 1; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1">Sam’s cards</h2>
+      <button aria-label="Close" style="width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--raised); font-size: 20px">×</button>
+    </div>
+    <div role="tablist" aria-label="Zone" style="display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--ground); width: fit-content">
+      <sc-for list="{{zones}}" as="z" hint-placeholder-count="3"><button role="tab" aria-selected="{{z.on}}" onClick="{{z.pick}}" style="min-height: 38px; padding: 0 16px; border: none; border-radius: 999px; background: {{z.bg}}; color: {{z.ink}}; font-weight: 700; font-size: 14px">{{z.label}}</button></sc-for>
+    </div>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap">
+      <sc-for list="{{types}}" as="t" hint-placeholder-count="4"><button onClick="{{t.pick}}" aria-pressed="{{t.on}}" style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid {{t.border}}; background: transparent; font-size: 13px; font-weight: 700">{{t.label}}</button></sc-for>
+    </div>
+    <div style="flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: repeat(4, 160px); gap: 14px 16px; align-content: start">
+      <sc-for list="{{cards}}" as="c" hint-placeholder-count="6">
+        <figure style="margin: 0; display: flex; flex-direction: column; gap: 4px">
+          <img src="{{c.img}}" alt="{{c.name}}" style="width: 160px; border-radius: 8px">
+          <figcaption style="font-size: 12px; color: var(--dim); line-height: 1.3">{{c.how}}</figcaption>
+        </figure>
+      </sc-for>
+      <sc-if value="{{empty}}" hint-placeholder-val="{{false}}"><p style="grid-column: 1 / -1; margin: 0; color: var(--dim)">Nothing here matches.</p></sc-if>
+    </div>
+    <span style="font-size: 12px; color: var(--dim)">{{foot}} Hover a card for a large copy; right-click to read it.</span>
+  </section>
+
+  <aside aria-label="Revealed" style="position: absolute; left: 800px; top: 40px; width: 290px; padding: 16px; border-radius: 22px; background: var(--surface); box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 10px">
+    <span style="display: flex; align-items: center; gap: 8px; font-size: 14px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: var(--me)"></span><b>You revealed</b></span>
+    <img src="/_blob/c8765d27dab83eefd46f6647d19b1791" alt="Monastery Mentor" style="width: 100%; border-radius: 12px">
+    <span style="font-size: 13px; color: var(--dim)">For Recruiter of the Guard. Computer, Sam and Jules all see this card, then it goes to your hand.</span>
+    <span style="display: flex; gap: 6px; flex-wrap: wrap">
+      <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 12px">Seen by everyone</span>
+      <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 12px">Logged</span>
+    </span>
+    <span style="font-size: 12px; color: var(--dim)">Reveals stay up for 4 seconds, or until clicked, and are kept in the game log.</span>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { zone: 0, type: 0 };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const grave = [
+      { name: 'Ashen Rider', type: 'Creature', img: A('dc22f2e32cfd4e29fe4da92f2ad86ec6'), how: 'Died in combat, turn 8' },
+      { name: 'Swords to Plowshares', type: 'Instant', img: A('25cc15a47dce134d446895cd6610ce40'), how: 'Cast on turn 7' },
+      { name: 'Jhoira, Weatherlight Corsair', type: 'Creature', img: A('d8c70b8814cd778f98052c8d7693fcf3'), how: 'Discarded, turn 6' },
+      { name: 'Brimaz, King of Oreskos', type: 'Creature', img: A('dec1c1cc0b94bb66bc355c5e278505c4'), how: 'Destroyed, turn 5' },
+      { name: 'Venser, Fervent Forger', type: 'Creature', img: A('a68bb9faf5fcb06053a10b272013f54a'), how: 'Milled, turn 4' },
+      { name: 'Emeria Angel', type: 'Creature', img: A('c45912d7b154a21f71e50096de918a08'), how: 'Died in combat, turn 4' }
+    ];
+    const exile = [
+      { name: 'Agent of Treachery', type: 'Creature', img: A('55daf9f77cffa21f0c01041497fec8ca'), how: 'Exiled, turn 7' }
+    ];
+    const { zone, type } = this.state;
+    const src = zone === 0 ? grave : exile;
+    const tf = ['All', 'Creatures', 'Instants and sorceries', 'Other'];
+    const match = (c) => type === 0 || (type === 1 && c.type === 'Creature') || (type === 2 && (c.type === 'Instant' || c.type === 'Sorcery')) || (type === 3 && !['Creature', 'Instant', 'Sorcery'].includes(c.type));
+    const cards = src.filter(match);
+    return {
+      zones: ['Graveyard ' + grave.length, 'Exile ' + exile.length, 'Library 73, hidden'].map((label, i) => ({ label, on: zone === i, bg: zone === i ? '#f2efe8' : 'transparent', ink: zone === i ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ zone: i === 2 ? zone : i, type: 0 }) })),
+      types: tf.map((label, i) => ({ label: label + ' ' + src.filter((c) => i === 0 || (i === 1 && c.type === 'Creature') || (i === 2 && (c.type === 'Instant' || c.type === 'Sorcery')) || (i === 3 && !['Creature', 'Instant', 'Sorcery'].includes(c.type))).length, on: type === i, border: type === i ? '#f2efe8' : '#2a2e33', pick: () => this.setState({ type: i }) })),
+      cards, empty: cards.length === 0,
+      foot: zone === 0 ? 'Newest first. A library is never shown, only its count.' : 'Face-up exile. Face-down cards show only to whoever may look at them.'
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reading a card on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBasePhone" hint-size="390px,844px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.65)"></div>
+
+  <section role="dialog" aria-label="Éowyn, Shieldmaiden" style="position: absolute; left: 0; right: 0; bottom: 0; top: 48px; padding: 8px 16px 16px; border-radius: 24px 24px 0 0; background: var(--surface); display: flex; flex-direction: column; gap: 12px">
+    <span aria-hidden="true" style="align-self: center; width: 40px; height: 5px; border-radius: 999px; background: var(--line)"></span>
+    <div style="display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 14px; align-items: start">
+      <img src="/_blob/880ea875de8fc43aa9e52ca74551b646" alt="Éowyn, Shieldmaiden" style="width: 150px; border-radius: 7px">
+      <span style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1">Éowyn, Shieldmaiden</h2>
+        <span style="font-size: 13px; color: var(--dim)">Legendary Creature, Human Knight</span>
+        <span style="display: flex; flex-wrap: wrap; gap: 6px">
+          <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700">5/4</span>
+          <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700; color: var(--good)">Ready</span>
+          <span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 13px; font-weight: 700; color: var(--warn)">Commander, tax {2}</span>
+        </span>
+        <span style="font-size: 11px; color: var(--dim)">Art: Craig Elliott, © Wizards of the Coast</span>
+      </span>
+    </div>
+    <button style="min-height: 44px; border-radius: 12px; border: 1px solid var(--line); background: transparent; font-size: 14px; font-weight: 700">Show the card full screen</button>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <b style="font-size: 15px">In plain words</b>
+      <sc-for list="{{plain}}" as="p" hint-placeholder-count="3">
+        <span style="display: flex; flex-direction: column; padding-bottom: 8px; border-bottom: 1px solid var(--line); line-height: 1.35"><span style="font-size: 12px; color: var(--dim)">{{p.k}}</span><span style="font-size: 14px">{{p.v}}</span></span>
+      </sc-for>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px">
+      <span style="color: var(--dim)">Controller<br><b style="color: var(--text)">You</b></span>
+      <span style="color: var(--dim)">Came in<br><b style="color: var(--text)">Turn 6, command zone</b></span>
+    </div>
+
+    <span style="margin-top: auto; font-size: 11px; color: var(--dim)">Yama’s summary can be wrong; the printed card wins. Swipe down or tap outside to close.</span>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+      <button style="min-height: 52px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Point at it</button>
+      <button style="min-height: 52px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800">Close</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      plain: [
+        { k: 'Each combat', v: 'At the start of combat on your turn, if another Human came in under you this turn, you make Human Knight tokens.' },
+        { k: 'The tokens', v: 'Two 2/2 Human Knights with trample and haste.' },
+        { k: 'Watch for', v: 'Play a Human before combat to turn this on.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

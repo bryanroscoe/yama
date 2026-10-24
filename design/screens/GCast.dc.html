@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Playing a card, using a permanent</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" title="Playing cards" body="Drag a glowing card up past the line, or double-click it. One click shows only that card's choices. Right-click, or long-press on a phone, reads it." hint-size="1440px,900px"></dc-import>
+
+  <span aria-hidden="true" style="position: absolute; left: 300px; top: 724px; width: 560px; border-top: 2px dashed #8fd3a8"></span>
+  <span style="position: absolute; left: 300px; top: 700px; padding: 1px 10px; border-radius: 999px; background: #8fd3a8; color: var(--ground); font-size: 12px; font-weight: 800">Release above this line to play</span>
+
+  <div style="position: absolute; left: 500px; top: 470px; transform: rotate(-4deg); display: flex; flex-direction: column; align-items: center; gap: 8px">
+    <img src="/_blob/0145ecf81c21d180a7799470623719f7" alt="Chaos Warp, being dragged" style="width: 150px; border-radius: 7px; box-shadow: 0 0 0 2px #8fd3a8, 0 30px 60px rgb(0 0 0 / 0.8)">
+  </div>
+  <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" style="position: absolute; left: 600px; top: 650px"><path d="M5 3l14 8-6 2-3 6z" fill="#f2efe8" stroke="#0b0c0e" stroke-width="1.5" stroke-linejoin="round"></path></svg>
+
+  <span aria-hidden="true" style="position: absolute; left: 150px; top: 666px; width: 58px; height: 58px; border-radius: 10px; box-shadow: 0 0 0 3px #f0b45a"></span>
+  <span aria-hidden="true" style="position: absolute; left: 892px; top: 666px; width: 58px; height: 58px; border-radius: 10px; box-shadow: 0 0 0 3px #f0b45a"></span>
+  <span style="position: absolute; left: 138px; top: 630px; padding: 1px 8px; border-radius: 999px; background: #f0b45a; color: var(--ground); font-size: 11px; font-weight: 800">Will tap</span>
+  <span style="position: absolute; left: 880px; top: 630px; padding: 1px 8px; border-radius: 999px; background: #f0b45a; color: var(--ground); font-size: 11px; font-weight: 800">Will tap</span>
+
+  <section aria-label="Use Command Tower" style="position: absolute; left: 230px; top: 420px; width: 250px; padding: 8px; border-radius: 16px; background: var(--surface); box-shadow: 0 20px 50px rgb(0 0 0 / 0.7), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 2px">
+    <span style="padding: 6px 8px 8px; display: flex; align-items: center; gap: 8px"><img src="/_blob/f42c34fc11f085b17d9a7720c94e99fd" alt="" style="width: 32px; height: 32px; border-radius: 6px; object-fit: cover"><b>Command Tower</b></span>
+    <sc-for list="{{abilities}}" as="a" hint-placeholder-count="3">
+      <button style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 10px; border-radius: 10px; border: none; background: {{a.bg}}; text-align: left; font-weight: 700"><span aria-hidden="true" style="width: 14px; height: 14px; border-radius: 50%; background: {{a.fill}}; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.3)"></span>{{a.label}}<span style="margin-left: auto; font-size: 12px; font-weight: 400; color: var(--dim)">Tap</span></button>
+    </sc-for>
+  </section>
+  <span aria-hidden="true" style="position: absolute; left: 300px; top: 610px; width: 2px; height: 52px; background: var(--line)"></span>
+
+  <div style="position: absolute; left: 640px; top: 330px; width: 420px; padding: 16px; border-radius: 18px; background: rgb(11 12 14 / 0.88); box-shadow: 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 10px">
+    <b style="font-size: 15px">How playing works</b>
+    <sc-for list="{{rules}}" as="r" hint-placeholder-count="5">
+      <span style="display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px; font-size: 13px"><span style="color: var(--dim)">{{r.k}}</span><span>{{r.v}}</span></span>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      abilities: [{ label: 'Add white', fill: '#F1E4BC', bg: '#1e2125' }, { label: 'Add blue', fill: '#2C78C4', bg: 'transparent' }, { label: 'Add red', fill: '#D4472E', bg: 'transparent' }],
+      rules: [
+        { k: 'Drag up and release', v: 'Plays the card. Below the line, it goes back.' },
+        { k: 'Double-click', v: 'Same as dragging it up.' },
+        { k: 'One click', v: 'Shows only that card’s choices in the rail.' },
+        { k: 'Two ways to play', v: 'A small menu opens where you dropped it, for example an adventure or flashback.' },
+        { k: 'Click a permanent', v: 'Uses it. Several abilities open a menu with their costs, like Command Tower here.' },
+        { k: 'Esc', v: 'Backs out of anything not yet confirmed.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Game over</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <header style="position: relative; height: 380px; overflow: hidden">
+    <img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 25%">
+    <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.35) 0%, rgb(11 12 14 / 0.6) 55%, #0b0c0e 100%)"></span>
+    <div style="position: absolute; left: 60px; bottom: 36px; display: flex; flex-direction: column; gap: 6px">
+      <span style="font-size: 16px; color: #e6e3dc">Commander game, 4 players, ended on turn 14</span>
+      <h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 120px; line-height: 0.9">You won</h1>
+      <span style="font-size: 18px">With Éowyn, Shieldmaiden. Last one out: Jules, to combat damage.</span>
+    </div>
+    <span style="position: absolute; right: 24px; bottom: 16px; font-size: 12px; color: rgb(255 255 255 / 0.75)">Art: Craig Elliott, © Wizards of the Coast</span>
+  </header>
+
+  <div style="position: absolute; left: 60px; top: 410px; width: 780px; display: flex; flex-direction: column; gap: 10px">
+    <h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px">Standings</h2>
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="4">
+      <div style="display: grid; grid-template-columns: 34px 56px minmax(0, 1fr) 150px 70px; gap: 14px; align-items: center; padding: 8px 14px 8px 8px; border-radius: 16px; background: {{r.bg}}">
+        <b style="font-family: var(--display); font-weight: 800; font-size: 30px; text-align: center">{{r.place}}</b>
+        <img src="{{r.art}}" alt="" style="width: 56px; height: 56px; border-radius: 12px; object-fit: cover">
+        <span style="display: flex; flex-direction: column; line-height: 1.25"><b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{r.seat}}"></span>{{r.name}}</b><span style="font-size: 13px; color: var(--dim)">{{r.deck}}</span></span>
+        <span style="font-size: 14px; color: {{r.howInk}}">{{r.how}}</span>
+        <b style="font-family: var(--display); font-weight: 700; font-size: 30px; text-align: right">{{r.life}}</b>
+      </div>
+    </sc-for>
+    <span style="font-size: 12px; color: var(--dim)">Last column: life at the end, or when they went out. Commander art: Craig Elliott, Gintas Galvanauskas, Marta Nael, Darren Tan.</span>
+  </div>
+
+  <aside style="position: absolute; left: 880px; top: 410px; width: 500px; display: flex; flex-direction: column; gap: 14px">
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px">
+      <sc-for list="{{stats}}" as="s" hint-placeholder-count="3">
+        <span style="padding: 12px 14px; border-radius: 16px; background: var(--surface); display: flex; flex-direction: column; line-height: 1.2"><b style="font-family: var(--display); font-weight: 800; font-size: 36px">{{s.v}}</b><span style="font-size: 13px; color: var(--dim)">{{s.k}}</span></span>
+      </sc-for>
+    </div>
+    <label style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 16px; background: var(--surface); cursor: pointer"><button role="switch" aria-checked="{{counts}}" onClick="{{toggle}}" style="width: 48px; height: 28px; flex: none; padding: 3px; border-radius: 999px; border: none; background: {{trackBg}}; display: flex; justify-content: {{knobSide}}"><span style="width: 22px; height: 22px; border-radius: 50%; background: {{knobBg}}"></span></button><span style="display: flex; flex-direction: column; line-height: 1.25"><b style="font-size: 15px">Count toward your group’s stats</b><span style="font-size: 13px; color: var(--dim)">{{countsNote}}</span></span></label>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+      <button style="min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Watch the replay</button>
+      <button style="min-height: 48px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Game log</button>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px">
+      <button style="min-height: 56px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Back to lobby</button>
+      <button style="min-height: 60px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 20px">Rematch</button>
+    </div>
+    <span style="font-size: 13px; color: var(--dim)">Rematch keeps the same seats and decks. Sam and Jules have 60 seconds to join; Computer always does.</span>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { counts: true };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const on = this.state.counts;
+    return {
+      rows: [
+        { place: 1, name: 'You', deck: 'Éowyn, Shieldmaiden', seat: '#6cb0f5', art: A('c19490e7c081fb35071c85147c01bed4'), how: 'Winner', howInk: '#8fd3a8', life: 17, bg: '#1e2125' },
+        { place: 2, name: 'Jules', deck: 'Mister Fantastic', seat: '#6fd49a', art: A('383d04a073378ede76b3234038a68757'), how: 'Out on turn 14, combat damage', howInk: '#a9adb3', life: 0, bg: '#15171a' },
+        { place: 3, name: 'Sam', deck: 'Terra, Herald of Hope', seat: '#f08a70', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), how: 'Out on turn 11, combat damage', howInk: '#a9adb3', life: 0, bg: '#15171a' },
+        { place: 4, name: 'Computer, medium', deck: 'Quintorius, History Chaser', seat: '#f1e4bc', art: A('042e4cb280a5a896fb249a47c8f4a8a3'), how: 'Out on turn 9, 21 commander damage', howInk: '#a9adb3', life: 26, bg: '#15171a' }
+      ],
+      stats: [{ v: '1 h 12', k: 'Length' }, { v: '14', k: 'Turns' }, { v: '58', k: 'Damage Éowyn dealt' }],
+      counts: on, trackBg: on ? '#8fd3a8' : '#2a2e33', knobSide: on ? 'flex-end' : 'flex-start', knobBg: on ? '#0b0c0e' : '#a9adb3',
+      countsNote: on ? 'Adds this win to your record and the deck’s. Games with a computer player are marked.' : 'Kept in your history only. Group and deck records stay as they were.',
+      toggle: () => this.setState((s) => ({ counts: !s.counts }))
+    };
+  }
+}
+</script>
+</body>
+</html>

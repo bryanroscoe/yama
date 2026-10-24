@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A player is knocked out</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+
+  <article aria-label="Computer, out" style="position: absolute; left: 10px; top: 10px; width: 1080px; height: 54px; border-radius: 14px; overflow: hidden; background: var(--surface)">
+    <img src="/_blob/042e4cb280a5a896fb249a47c8f4a8a3" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+    <span aria-hidden="true" style="position: absolute; inset: 0; background: rgb(11 12 14 / 0.82)"></span>
+    <span style="position: absolute; inset: 0; padding: 0 16px; display: flex; align-items: center; gap: 12px">
+      <span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 2px #f1e4bc"></span>
+      <b>Computer</b><span style="color: var(--dim)">Out on turn 9: 21 commander damage from your Éowyn</span>
+      <span style="margin-left: auto; font-size: 12px; color: var(--dim)">Final life 26. Art: Darren Tan</span>
+    </span>
+  </article>
+
+  <sc-for list="{{panes}}" as="p" hint-placeholder-count="2">
+    <article aria-label="{{p.name}}, {{p.life}} life" style="position: absolute; left: {{p.x}}px; top: 72px; width: 536px; height: 178px; border-radius: 16px; background: var(--surface); overflow: hidden">
+      <header style="position: relative; height: 78px; padding: 8px 12px; display: flex; gap: 10px; align-items: end">
+        <img src="{{p.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.88) 0%, rgb(11 12 14 / 0.55) 55%, rgb(11 12 14 / 0.25) 100%)"></span>
+        <span style="position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15">
+          <b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{p.seat}}"></span>{{p.name}}</b>
+          <span style="font-size: 12px; color: #d5d7db">{{p.counts}}</span>
+          <span style="font-size: 10px; color: rgb(255 255 255 / 0.7)">Art: {{p.artist}}</span>
+        </span>
+        <b style="position: relative; font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">{{p.life}}</b>
+      </header>
+      <div style="padding: 10px; display: flex; gap: 6px; align-items: center">
+        <span style="padding: 3px 10px; border-radius: 999px; background: var(--raised); font-size: 12px">{{p.lands}}</span>
+        <sc-for list="{{p.creatures}}" as="c" hint-placeholder-count="3"><span style="position: relative; width: 68px; height: 68px; border-radius: 10px; overflow: hidden; background: var(--raised)"><sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden">{{c.name}}</span><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">{{c.pt}}</span></span></sc-for>
+      </div>
+    </article>
+  </sc-for>
+
+  <section aria-label="Your battlefield" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 438px; border-radius: 16px; background: var(--surface); padding: 12px; display: flex; flex-direction: column; justify-content: space-between">
+    <div style="display: flex; gap: 10px">
+      <sc-for list="{{mine}}" as="c" hint-placeholder-count="5"><span style="position: relative; width: 96px; height: 96px; border-radius: 12px; overflow: hidden; background: var(--raised); box-shadow: {{c.ring}}"><sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700">{{c.name}}</span><span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 13px; font-weight: 700">{{c.pt}}</span></span></sc-for>
+    </div>
+    <span style="font-size: 12px; color: var(--dim)">Your lands and artifacts, unchanged</span>
+  </section>
+  <div style="position: absolute; left: 14px; top: 262px; display: flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; font-size: 14px"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover">Your turn 9, combat damage</div>
+
+  <div role="status" style="position: absolute; left: 300px; top: 470px; width: 500px; padding: 18px; border-radius: 22px; background: var(--ground); box-shadow: 0 0 0 1px var(--line), 0 30px 70px rgb(0 0 0 / 0.8); display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 16px; align-items: center">
+    <span style="position: relative; width: 110px; height: 110px; border-radius: 50%; overflow: hidden"><img src="/_blob/042e4cb280a5a896fb249a47c8f4a8a3" alt="" style="width: 100%; height: 100%; object-fit: cover"></span>
+    <span style="display: flex; flex-direction: column; gap: 4px">
+      <b style="font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1">Computer is out</b>
+      <span style="font-size: 15px">Éowyn has dealt it 21 commander damage.</span>
+      <span style="font-size: 13px; color: var(--dim)">Everything it owned leaves the game. Your Éowyn stays. Two players left.</span>
+    </span>
+  </div>
+
+  <aside style="position: absolute; left: 1100px; top: 0; width: 340px; height: 900px; border-left: 1px solid var(--line); padding: 14px; display: flex; flex-direction: column; gap: 12px">
+    <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1">Knocked out</h2>
+    <p style="margin: 0; font-size: 14px; color: var(--dim)">The panel shrinks to one line and stays at the top, so the order players went out is never lost. The others widen to fill the space.</p>
+    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 14px">
+      <span style="color: var(--dim)">Just now</span>
+      <span>Éowyn dealt 5 combat damage to Computer.</span>
+      <span>Computer reached 21 commander damage from Éowyn and lost.</span>
+      <span>Quintorius, 2 Spirits and 8 lands left the game.</span>
+    </div>
+    <p style="margin: 0; padding: 12px; border-radius: 14px; background: var(--surface); font-size: 13px; color: var(--dim)">If a player concedes or drops, the same strip says so: “Conceded on turn 7” or “Left the game, turn 7”.</p>
+    <button style="margin-top: auto; min-height: 60px; border-radius: 999px; border: none; background: var(--text); color: var(--ground); font-weight: 800; font-size: 20px">To main 2</button>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const c = (name, art, pt, ring) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, ring: ring || '0 0 0 1px #2a2e33' });
+    return {
+      panes: [
+        { name: 'Sam', seat: '#f08a70', x: 10, life: 24, counts: 'Hand 5, library 73. Terra: 3 to you', artist: 'Marta Nael', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), lands: '7 lands', creatures: [c('Terra', '7678674b257c9f2d67041ed3a4ee2ab4', '3/3'), c('Grave Titan', '1dccd462a02a0872cc11a4d8518c111f', '6/6'), c('Zombie ×2', '', '2/2')] },
+        { name: 'Jules', seat: '#6fd49a', x: 554, life: 36, counts: 'Hand 2, library 70', artist: 'Gintas Galvanauskas', art: A('383d04a073378ede76b3234038a68757'), lands: '7 lands', creatures: [c('Mister Fantastic', '383d04a073378ede76b3234038a68757', '2/4')] }
+      ],
+      mine: [c('Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4', '0 0 0 3px #6cb0f5'), c('Adeline', '93443cca264c2d66fac605d8e8311296', '9/4'), c('Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4'), c('Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2'), c('Human ×5', '', '1/1')]
+    };
+  }
+}
+</script>
+</body>
+</html>

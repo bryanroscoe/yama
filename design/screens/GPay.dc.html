@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Paying mana</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <sc-for list="{{panes}}" as="p" hint-placeholder-count="3">
+    <article style="position: absolute; left: {{p.x}}px; top: 10px; width: 352px; height: 240px; border-radius: 16px; background: var(--surface); overflow: hidden">
+      <header style="position: relative; height: 78px; padding: 8px 12px; display: flex; gap: 10px; align-items: end">
+        <img src="{{p.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.88) 0%, rgb(11 12 14 / 0.55) 55%, rgb(11 12 14 / 0.25) 100%)"></span>
+        <span style="position: relative; flex: 1; display: flex; flex-direction: column; line-height: 1.15"><b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{p.seat}}"></span>{{p.name}}</b><span style="font-size: 10px; color: rgb(255 255 255 / 0.7)">Art: {{p.artist}}</span></span>
+        <b style="position: relative; font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">{{p.life}}</b>
+      </header>
+      <span style="position: absolute; left: 10px; top: 106px; padding: 3px 10px; border-radius: 999px; background: var(--raised); font-size: 12px">{{p.lands}}</span>
+      <span style="position: absolute; left: 10px; top: 172px; display: flex; gap: 6px">
+        <sc-for list="{{p.cr}}" as="c" hint-placeholder-count="2"><span style="position: relative; width: 68px; height: 68px; border-radius: 10px; overflow: hidden; background: var(--raised)"><sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden">{{c.name}}</span><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">{{c.pt}}</span></span></sc-for>
+      </span>
+    </article>
+  </sc-for>
+
+  <span style="position: absolute; left: 14px; top: 258px; display: flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; font-size: 14px"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover">Your turn 9, main 1</span>
+
+  <section aria-label="Your battlefield" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 438px; border-radius: 16px; background: var(--surface)"></section>
+  <sc-for list="{{creatures}}" as="c" hint-placeholder-count="5">
+    <span style="position: absolute; left: {{c.x}}px; top: 310px; width: 96px; height: 96px; border-radius: 12px; overflow: hidden; background: var(--raised); box-shadow: {{c.ring}}"><sc-if value="{{c.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{c.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if><span style="position: absolute; left: 0; right: 0; top: 0; padding: 2px 6px; background: rgb(11 12 14 / 0.82); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden">{{c.name}}</span><span style="position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 14px; font-weight: 700">{{c.pt}}</span></span>
+  </sc-for>
+
+  <sc-for list="{{sources}}" as="s" hint-placeholder-count="7">
+    <button onClick="{{s.click}}" aria-label="{{s.label}}" style="position: absolute; left: {{s.x}}px; top: 660px; width: 64px; height: 64px; padding: 0; border: none; border-radius: 10px; background: var(--raised); box-shadow: {{s.ring}}; transform: {{s.tf}}; transition: transform 180ms ease-out, box-shadow 160ms; cursor: pointer">
+      <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden"><img src="{{s.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"><span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 4px; background: rgb(11 12 14 / 0.82); font-size: 10px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden">{{s.name}}</span></span>
+      <span style="position: absolute; left: 50%; bottom: -12px; transform: translateX(-50%); padding: 0 7px; border-radius: 999px; background: {{s.chipBg}}; color: {{s.chipInk}}; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 0 0 2px var(--surface)">{{s.chip}}</span>
+    </button>
+  </sc-for>
+
+  <section aria-label="Paying for Akroma's Will" style="position: absolute; left: 330px; top: 440px; width: 500px; padding: 16px; border-radius: 18px; background: var(--ground); box-shadow: 0 0 0 1px var(--line), 0 20px 50px rgb(0 0 0 / 0.6); display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
+      <span style="display: flex; flex-direction: column; line-height: 1.2"><b style="font-size: 17px">Pay for Akroma's Will</b><span style="font-size: 13px; color: var(--dim)">{{status}}</span></span>
+      <span role="img" aria-label="{{pipsLabel}}" style="display: flex; gap: 6px">
+        <sc-for list="{{pips}}" as="p" hint-placeholder-count="4"><span style="width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 20px; background: {{p.bg}}; color: {{p.ink}}; box-shadow: {{p.ring}}">{{p.label}}</span></sc-for>
+      </span>
+    </div>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap; min-height: 30px; align-items: center">
+      <span style="font-size: 13px; color: var(--dim)">Mana:</span>
+      <sc-for list="{{pool}}" as="m" hint-placeholder-count="2"><span style="padding: 2px 10px; border-radius: 999px; background: var(--raised); font-size: 13px">{{m}}</span></sc-for>
+    </div>
+    <div style="display: flex; gap: 8px">
+      <button onClick="{{cancel}}" style="min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Cancel</button>
+      <button onClick="{{autopay}}" style="flex: 1; min-height: 44px; border-radius: 999px; border: none; background: var(--raised); font-weight: 700">Pay the rest for me</button>
+    </div>
+  </section>
+
+  <sc-for list="{{hand}}" as="h" hint-placeholder-count="4"><img src="{{h.img}}" alt="{{h.name}}" style="position: absolute; left: {{h.x}}px; top: 752px; width: 104px; border-radius: 5px; box-shadow: 0 -4px 14px rgb(0 0 0 / 0.5)"></sc-for>
+  <span style="position: absolute; left: 880px; top: 834px; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #6cb0f5"><b style="font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">{{life}}</b></span>
+
+  <aside style="position: absolute; left: 1100px; top: 0; width: 340px; height: 900px; border-left: 1px solid var(--line); display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line)"><span style="font-weight: 700; color: var(--dim)">Leave</span><span style="padding: 6px 14px; border-radius: 999px; background: var(--surface); font-weight: 700; font-size: 14px">Game log</span></div>
+    <section style="padding: 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px">
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 20px">Stack</h2>
+      <sc-if value="{{cast}}" hint-placeholder-val="{{false}}">
+        <div style="display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px #6cb0f5">
+          <img src="/_blob/d2df35f8a45cc092aadf237d7374fc27" alt="" style="width: 52px; border-radius: 3px">
+          <span style="display: flex; flex-direction: column; line-height: 1.25"><b>Akroma's Will</b><span style="font-size: 12px; color: var(--dim)">Yours, resolves next. Waiting for opponents to respond.</span></span>
+        </div>
+      </sc-if>
+      <sc-if value="{{notCast}}" hint-placeholder-val="{{true}}"><p style="margin: 0; font-size: 14px; color: var(--dim)">Empty.</p></sc-if>
+    </section>
+    <section style="padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 10px">
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1">{{railTitle}}</h2>
+      <p style="margin: 0; font-size: 14px; color: var(--dim)">{{railBody}}</p>
+      <label style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; color: var(--dim)">Tap mana for me
+        <select style="min-height: 42px; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-size: 14px; font-weight: 400"><option>Auto, but ask before sacrificing</option><option>Always auto</option><option>I'll tap</option></select>
+      </label>
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
+        <button onClick="{{cancel}}" style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">{{secondary}}</button>
+        <button onClick="{{confirm}}" style="min-height: 60px; border-radius: 999px; border: none; background: {{primaryBg}}; color: {{primaryInk}}; font-weight: 800; font-size: 20px">{{primary}}</button>
+      </div>
+    </section>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { taps: {}, cast: false };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const defs = [
+      { id: 'plains', name: 'Plains ×4', art: '30df84aecfd8c45546b9a6bdd64b8552', n: 4, gives: ['W'], each: 'W' },
+      { id: 'island', name: 'Island ×2', art: '7a66b1e98da872225edb04cfeb9bd60e', n: 2, gives: ['U'], each: 'U' },
+      { id: 'mountain', name: 'Mountain', art: '3bf02968b49b8af680661d10aa4e5547', n: 1, gives: ['R'], each: 'R' },
+      { id: 'forge', name: 'Battlefield Forge', art: '3599624673068d143c783b9871cd28b6', n: 1, gives: ['W'], each: 'W, 1 damage', hurts: 1 },
+      { id: 'tower', name: 'Command Tower', art: 'f42c34fc11f085b17d9a7720c94e99fd', n: 1, gives: ['W'], each: 'W' },
+      { id: 'sol', name: 'Sol Ring', art: '6eb6974115f1bfa5c775b479771e7166', n: 1, gives: ['C', 'C'], each: 'CC', x: 892 },
+      { id: 'signet', name: 'Arcane Signet', art: 'af66cc45335c7043758a263a745cbd02', n: 1, gives: ['W'], each: 'W', x: 962 }
+    ];
+    const taps = this.state.taps;
+    const pool = [], poolLabels = [];
+    let hurt = 0;
+    defs.forEach((d) => {
+      const k = taps[d.id] || 0;
+      for (let i = 0; i < k; i++) { d.gives.forEach((g) => pool.push(g)); }
+      if (k) { poolLabels.push((d.gives.length * k === 1 ? d.gives[0] : d.gives.length * k + ' ' + (d.gives[0] === 'C' ? 'colorless' : d.gives[0])) + ' from ' + d.name.replace(' ×4', '').replace(' ×2', '')); hurt += (d.hurts || 0) * k; }
+    });
+    const wPaid = pool.includes('W');
+    const genericPaid = Math.min(3, pool.length - (wPaid ? 1 : 0));
+    const paid = wPaid && genericPaid === 3;
+    const extra = Math.max(0, pool.length - 4);
+    const tap = (d) => () => this.setState((s) => {
+      if (s.cast) return null;
+      const k = s.taps[d.id] || 0;
+      return { taps: { ...s.taps, [d.id]: k < d.n ? k + 1 : 0 } };
+    });
+    const sources = defs.map((d, i) => {
+      const k = taps[d.id] || 0;
+      const all = k === d.n;
+      return {
+        name: d.name, art: A(d.art), x: d.x ?? 22 + i * 72,
+        label: d.name + ', makes ' + d.each + (k ? ', ' + k + ' tapped' : ''),
+        ring: all ? '0 0 0 1px #2a2e33' : '0 0 0 2px #8fd3a8',
+        tf: all ? 'rotate(90deg) scale(0.9)' : 'none',
+        chip: k ? (d.n > 1 ? k + ' of ' + d.n + ' tapped' : 'Tapped') : d.each,
+        chipBg: k ? '#f2efe8' : '#1e2125', chipInk: k ? '#0b0c0e' : '#f2efe8',
+        click: tap(d)
+      };
+    });
+    const pip = (label, filled) => ({ label, bg: filled ? '#f2efe8' : 'transparent', ink: filled ? '#0b0c0e' : '#a9adb3', ring: filled ? 'none' : 'inset 0 0 0 2px #2a2e33' });
+    const pips = [pip('W', wPaid), pip('1', genericPaid >= 1), pip('1', genericPaid >= 2), pip('1', genericPaid >= 3)];
+    const cast = this.state.cast;
+    return {
+      panes: [
+        { name: 'Computer', seat: '#f1e4bc', x: 10, life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', lands: '8 lands', cr: [{ name: 'Spirit ×2', art: '', hasArt: false, pt: '3/2' }] },
+        { name: 'Sam', seat: '#f08a70', x: 374, life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', lands: '7 lands', cr: [{ name: 'Terra', art: A('7678674b257c9f2d67041ed3a4ee2ab4'), hasArt: true, pt: '3/3' }, { name: 'Grave Titan', art: A('1dccd462a02a0872cc11a4d8518c111f'), hasArt: true, pt: '6/6' }, { name: 'Zombie ×2', art: '', hasArt: false, pt: '2/2' }] },
+        { name: 'Jules', seat: '#6fd49a', x: 738, life: 36, art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', lands: '7 lands', cr: [{ name: 'Mister Fantastic', art: A('383d04a073378ede76b3234038a68757'), hasArt: true, pt: '2/4' }] }
+      ],
+      creatures: [['Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4', true], ['Adeline', '93443cca264c2d66fac605d8e8311296', '6/4'], ['Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4'], ['Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2'], ['Soldier ×2', '', '1/1']].map(([name, art, pt, cmd], i) => ({ name, art: art ? A(art) : '', hasArt: !!art, pt, x: 22 + i * 106, ring: cmd ? 'inset 0 0 0 2px #f2efe8' : 'none' })),
+      sources,
+      pips, pipsLabel: 'Cost: one white and three generic. ' + (wPaid ? 'White paid. ' : '') + genericPaid + ' of 3 generic paid.',
+      pool: poolLabels.length ? poolLabels : ['none yet'],
+      status: paid ? (extra ? 'Paid, with ' + extra + ' extra floating until the step ends.' : 'Paid in full.') : 'Click a glowing land or rock to tap it. Click again to untap.',
+      hand: [['Boros Charm', '2d80527eb5c346c24b35ad5381fe99a6'], ['Chaos Warp', '0145ecf81c21d180a7799470623719f7'], ['Fierce Guardianship', 'c858d7cf7a488b3218bd7bbf1fe8b79c'], ['Glacial Fortress', 'e25b0374571373f1ab95c0e88cd1758e']].map(([name, id], i) => ({ name, img: A(id), x: 400 + i * 64 })),
+      life: 38 - hurt,
+      cast, notCast: !cast,
+      railTitle: cast ? 'Akroma’s Will is on the stack' : 'Paying mana',
+      railBody: cast ? 'Opponents can respond before it resolves. Nothing to do until then.' : 'Akroma’s Will costs {3}{W}. Pay it yourself, or press Pay the rest and Yama taps for you, as cheaply as it can.',
+      secondary: cast ? 'Undo is no longer possible' : 'Cancel the spell',
+      primary: cast ? 'Waiting for Computer' : paid ? 'Cast Akroma’s Will' : 'Pay the rest',
+      primaryBg: cast ? '#1e2125' : '#f2efe8', primaryInk: cast ? '#a9adb3' : '#0b0c0e',
+      autopay: () => this.setState({ taps: { sol: 1, plains: 2 } }),
+      confirm: () => this.setState((s) => s.cast ? null : (paid ? { cast: true } : { taps: { sol: 1, plains: 2 } })),
+      cancel: () => this.setState({ taps: {}, cast: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

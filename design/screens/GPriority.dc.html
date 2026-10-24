@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Priority, passing and stops</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--stop-mine:#f0b45a;--stop-opp:#7fb0ff;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+  <dc-import name="BoardBase" turn="Sam's turn 9" turn-art="/_blob/7678674b257c9f2d67041ed3a4ee2ab4" mine-turn="{{no}}" phase="{{endStep}}" title="Sam's end step" body="Sam is about to pass the turn to Jules. You can still act." primary="Pass" secondary="More ways to pass" hint-size="1440px,900px"></dc-import>
+
+  <span aria-hidden="true" style="position: absolute; left: 372px; top: 10px; width: 356px; height: 250px; border-radius: 16px; box-shadow: 0 0 0 3px #f08a70; pointer-events: none"></span>
+  <span style="position: absolute; left: 388px; top: 268px; padding: 2px 10px; border-radius: 999px; background: #f08a70; color: var(--ground); font-size: 12px; font-weight: 800">Sam's turn</span>
+
+  <span style="position: absolute; left: 860px; top: 784px; display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 800"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--ground)"></span>Your priority</span>
+
+  <sc-if value="{{hasMode}}" hint-placeholder-val="{{false}}">
+    <div role="status" style="position: absolute; left: 50%; top: 286px; transform: translateX(-62%); display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 18px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 800; box-shadow: 0 12px 30px rgb(0 0 0 / 0.5)">
+      {{modeLabel}}
+      <button onClick="{{stopMode}}" style="min-height: 36px; padding: 0 14px; border-radius: 999px; border: none; background: var(--ground); color: var(--text); font-weight: 700">Stop</button>
+    </div>
+  </sc-if>
+
+  <section aria-label="Stops" style="position: absolute; left: 14px; top: 300px; width: 760px; padding: 16px; border-radius: 18px; background: var(--surface); box-shadow: 0 20px 50px rgb(0 0 0 / 0.6), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 26px">Where Yama stops for you</h2>
+      <span style="font-size: 13px; color: var(--dim)">Saved for every game. L shows or hides this.</span>
+    </div>
+    <div style="display: grid; grid-template-columns: 150px repeat(9, minmax(0, 1fr)); gap: 4px; align-items: center; font-size: 13px">
+      <span></span>
+      <sc-for list="{{stops}}" as="s" hint-placeholder-count="9"><span style="text-align: center; color: var(--dim); white-space: nowrap">{{s.label}}</span></sc-for>
+      <span style="display: flex; align-items: center; gap: 8px; font-weight: 700"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: var(--stop-mine)"></span>Your turns</span>
+      <sc-for list="{{stops}}" as="s" hint-placeholder-count="9"><button onClick="{{s.toggleMine}}" aria-pressed="{{s.mine}}" aria-label="Stop at {{s.label}} on your turns" style="height: 40px; border-radius: 10px; border: 1px solid var(--line); background: {{s.mineBg}}; display: grid; place-items: center"><span style="width: 14px; height: 14px; border-radius: 50%; background: {{s.mineDot}}; box-shadow: inset 0 0 0 2px #f0b45a"></span></button></sc-for>
+      <span style="display: flex; align-items: center; gap: 8px; font-weight: 700"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 3px; box-shadow: inset 0 0 0 2px var(--stop-opp)"></span>Opponents' turns</span>
+      <sc-for list="{{stops}}" as="s" hint-placeholder-count="9"><button onClick="{{s.toggleOpp}}" aria-pressed="{{s.opp}}" aria-label="Stop at {{s.label}} on opponents' turns" style="height: 40px; border-radius: 10px; border: 1px solid var(--line); background: {{s.oppBg}}; display: grid; place-items: center"><span style="width: 14px; height: 14px; border-radius: 3px; box-shadow: inset 0 0 0 {{s.oppStroke}} #7fb0ff"></span></button></sc-for>
+    </div>
+    <p style="margin: 0; font-size: 13px; color: var(--dim)">Yama always stops when a spell or ability could matter to you, when you must decide something, and for blockers when you're attacked. These stops are extra places to get priority.</p>
+  </section>
+
+  <section aria-label="Ways to pass" style="position: absolute; right: 14px; bottom: 140px; width: 316px; padding: 8px; border-radius: 18px; background: var(--surface); box-shadow: 0 20px 50px rgb(0 0 0 / 0.6), 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 2px">
+    <sc-for list="{{modes}}" as="m" hint-placeholder-count="5">
+      <button onClick="{{m.pick}}" style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 10px 12px; border-radius: 12px; border: none; background: {{m.bg}}; text-align: left">
+        <b style="font-size: 15px">{{m.label}}</b>
+        <span style="font-size: 12px; color: var(--dim); padding: 1px 7px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--line)">{{m.key}}</span>
+        <span style="grid-column: 1 / -1; font-size: 13px; color: var(--dim)">{{m.hint}}</span>
+      </button>
+    </sc-for>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { mine: [false, false, true, false, false, true, false, true, false], opp: [false, false, false, false, false, true, false, false, true], mode: null };
+  }
+  flip(key, i) {
+    this.setState((s) => { const a = s[key].slice(); a[i] = !a[i]; return { [key]: a }; });
+  }
+  renderVals() {
+    const labels = ['Upkeep', 'Draw', 'Main 1', 'Combat', 'Attackers', 'Blockers', 'Damage', 'Main 2', 'End'];
+    const modes = [
+      ['once', 'Pass once', 'Space', 'Hand priority on. Sam’s turn ends if everyone passes.'],
+      ['until', 'Pass until something happens', 'Enter', 'Stops for spells, triggers and your own stops.'],
+      ['turn', 'Pass the rest of this turn', 'Shift Enter', 'Stops only for blockers and your stops.'],
+      ['mine', 'Pass to my turn', 'P', 'Through Jules’s turn too. Spells still stop you.'],
+      ['full', 'Full control', 'Ctrl', 'Stop at every chance to act, even with nothing to do.']
+    ];
+    const chips = { until: 'Passing until something happens', turn: 'Passing the rest of this turn', mine: 'Passing to your turn', full: 'Full control is on' };
+    const m = this.state.mode;
+    return {
+      no: false, endStep: 8,
+      stops: labels.map((label, i) => ({
+        label, mine: this.state.mine[i], opp: this.state.opp[i],
+        mineBg: this.state.mine[i] ? 'rgb(240 180 90 / 0.14)' : 'transparent', mineDot: this.state.mine[i] ? '#f0b45a' : 'transparent',
+        oppBg: this.state.opp[i] ? 'rgb(127 176 255 / 0.14)' : 'transparent', oppStroke: this.state.opp[i] ? '7px' : '2px',
+        toggleMine: () => this.flip('mine', i), toggleOpp: () => this.flip('opp', i)
+      })),
+      modes: modes.map(([id, label, key, hint]) => ({ label, key, hint, bg: m === id ? '#1e2125' : 'transparent', pick: () => this.setState({ mode: id === 'once' ? null : id }) })),
+      hasMode: !!m && !!chips[m], modeLabel: chips[m] || '',
+      stopMode: () => this.setState({ mode: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

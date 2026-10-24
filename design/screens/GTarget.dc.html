@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Choosing targets</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&amp;family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: var(--ground)">
+
+  <sc-for list="{{panes}}" as="p" hint-placeholder-count="3">
+    <article aria-label="{{p.name}}, {{p.life}} life" style="position: absolute; left: {{p.x}}px; top: 10px; width: 352px; height: 240px; border-radius: 16px; background: var(--surface); overflow: hidden; box-shadow: {{p.ring}}">
+      <header style="position: relative; height: 78px; padding: 8px 12px; display: flex; gap: 10px; align-items: end">
+        <img src="{{p.art}}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%">
+        <span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(90deg, rgb(11 12 14 / 0.88) 0%, rgb(11 12 14 / 0.55) 55%, rgb(11 12 14 / 0.25) 100%)"></span>
+        <span style="position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15">
+          <b style="display: flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 50%; background: {{p.seat}}"></span>{{p.name}}</b>
+          <span style="font-size: 12px; color: #d5d7db">{{p.counts}}</span>
+          <span style="font-size: 10px; color: rgb(255 255 255 / 0.7)">Art: {{p.artist}}</span>
+        </span>
+        <span style="position: relative; padding: 1px 8px 1px 2px; border-radius: 999px; background: rgb(11 12 14 / 0.75); font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 4px; white-space: nowrap"><img src="{{p.art}}" alt="" style="width: 18px; height: 18px; border-radius: 50%; object-fit: cover">{{p.cmdr}}</span>
+        <b style="position: relative; font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">{{p.life}}</b>
+      </header>
+      <span style="position: absolute; left: 10px; top: 106px; padding: 3px 10px; border-radius: 999px; background: var(--raised); font-size: 12px">{{p.lands}}</span>
+    </article>
+  </sc-for>
+
+  <div style="position: absolute; left: 14px; top: 258px; display: flex; align-items: center; gap: 12px">
+    <span style="display: flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; font-size: 14px"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover">Your turn 9, main 1</span>
+  </div>
+
+  <section aria-label="Your battlefield" style="position: absolute; left: 10px; top: 298px; width: 1080px; height: 438px; border-radius: 16px; background: var(--surface)"></section>
+
+  <sc-for list="{{tiles}}" as="t" hint-placeholder-count="16">
+    <button onClick="{{t.click}}" aria-label="{{t.label}}" style="position: absolute; left: {{t.x}}px; top: {{t.y}}px; width: {{t.s}}px; height: {{t.s}}px; padding: 0; border: none; border-radius: {{t.r}}px; background: var(--raised); box-shadow: {{t.ring}}; cursor: {{t.cursor}}; transition: box-shadow 160ms">
+      <span style="position: absolute; inset: 0; border-radius: inherit; overflow: hidden">
+        <sc-if value="{{t.hasArt}}" hint-placeholder-val="{{true}}"><img src="{{t.art}}" alt="" style="width: 100%; height: 100%; object-fit: cover"></sc-if>
+        <span style="position: absolute; left: 0; right: 0; top: 0; padding: 1px 5px; background: rgb(11 12 14 / 0.82); font-size: {{t.fs}}px; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.name}}</span>
+        <sc-if value="{{t.many}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: rgb(11 12 14 / 0.85); font-size: 11px; font-weight: 700">{{t.count}}</span></sc-if>
+        <sc-if value="{{t.hasPt}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: var(--text); color: var(--ground); font-size: 12px; font-weight: 700">{{t.pt}}</span></sc-if>
+      </span>
+      <sc-if value="{{t.hasMark}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="position: absolute; right: -8px; top: -8px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: {{t.markBg}}; color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800; box-shadow: 0 0 0 3px var(--ground)">{{t.mark}}</span></sc-if>
+    </button>
+  </sc-for>
+
+  <sc-for list="{{hand}}" as="h" hint-placeholder-count="4"><img src="{{h.img}}" alt="{{h.name}}" style="position: absolute; left: {{h.x}}px; top: 752px; width: 104px; border-radius: 5px; box-shadow: 0 -4px 14px rgb(0 0 0 / 0.5)"></sc-for>
+  <div style="position: absolute; left: 470px; top: 500px; display: flex; flex-direction: column; align-items: center; gap: 6px">
+    <img src="/_blob/25cc15a47dce134d446895cd6610ce40" alt="Swords to Plowshares, being cast" style="width: 132px; border-radius: 6px; box-shadow: 0 0 0 2px #6cb0f5, 0 24px 50px rgb(0 0 0 / 0.7)">
+    <span style="padding: 2px 10px; border-radius: 999px; background: #6cb0f5; color: var(--ground); font-size: 12px; font-weight: 800">Casting</span>
+  </div>
+  <span style="position: absolute; left: 880px; top: 834px; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; background: var(--surface)"><img src="/_blob/c19490e7c081fb35071c85147c01bed4" alt="" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #6cb0f5"><b style="font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1">38</b></span>
+
+  <svg aria-hidden="true" width="1440" height="900" viewBox="0 0 1440 900" style="position: absolute; inset: 0; pointer-events: none">
+    <sc-for list="{{arrows}}" as="a" hint-placeholder-count="1">
+      <path d="{{a.d}}" fill="none" stroke="{{a.c}}" stroke-width="4" stroke-linecap="round" stroke-dasharray="{{a.dash}}"></path>
+      <circle cx="{{a.ex}}" cy="{{a.ey}}" r="7" fill="{{a.c}}"></circle>
+    </sc-for>
+  </svg>
+
+  <div role="status" style="position: absolute; left: 545px; top: 254px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 7px 8px 7px 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 800; box-shadow: 0 12px 30px rgb(0 0 0 / 0.5); white-space: nowrap">
+    {{prompt}}
+    <span style="padding: 2px 10px; border-radius: 999px; background: var(--ground); color: var(--text); font-size: 13px">{{count}}</span>
+  </div>
+
+  <aside aria-label="Stack and your options" style="position: absolute; left: 1100px; top: 0; width: 340px; height: 900px; border-left: 1px solid var(--line); display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line)"><span style="font-weight: 700; color: var(--dim)">Leave</span><span style="padding: 6px 14px; border-radius: 999px; background: var(--surface); font-weight: 700; font-size: 14px">Game log</span></div>
+    <section style="padding: 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px">
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 20px">Stack</h2>
+      <p style="margin: 0; font-size: 14px; color: var(--dim)">Empty. Your spell goes here once you finish choosing.</p>
+    </section>
+    <section style="padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: center">
+        <img src="/_blob/aef381f1775ab18d41c7a55527277846" alt="" style="width: 64px; height: 46px; border-radius: 8px; object-fit: cover">
+        <span style="display: flex; flex-direction: column; line-height: 1.2"><b>Swords to Plowshares</b><span style="font-size: 13px; color: var(--dim)">W, instant</span></span>
+      </div>
+      <h2 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1">{{railTitle}}</h2>
+      <p style="margin: 0; font-size: 14px; color: var(--dim)">{{railBody}}</p>
+      <sc-if value="{{chosen}}" hint-placeholder-val="{{false}}">
+        <div style="display: grid; grid-template-columns: 26px 48px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; border-radius: 12px; background: var(--surface)">
+          <span style="width: 22px; height: 22px; border-radius: 50%; background: var(--warn); color: var(--ground); display: grid; place-items: center; font-size: 12px; font-weight: 800">1</span>
+          <img src="{{pickArt}}" alt="" style="width: 48px; height: 36px; border-radius: 6px; object-fit: cover">
+          <span style="display: flex; flex-direction: column; line-height: 1.2"><b style="font-size: 14px">{{pickName}}</b><span style="font-size: 12px; color: var(--dim)">{{pickWhose}}</span></span>
+        </div>
+      </sc-if>
+      <details style="font-size: 14px">
+        <summary style="cursor: pointer; color: var(--dim); font-weight: 700">All {{legalCount}} legal targets as a list</summary>
+        <p style="margin: 6px 0 0; color: var(--dim)">Terra, Grave Titan, Zombie ×2, Mister Fantastic, Spirit ×2, and your own creatures.</p>
+      </details>
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
+        <p style="margin: 0; font-size: 12px; color: var(--dim)">Esc or right-click backs out. Nothing is cast until you press the button.</p>
+        <button onClick="{{cancel}}" style="min-height: 46px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-weight: 700">Cancel</button>
+        <button style="min-height: 60px; border-radius: 999px; border: none; background: {{doneBg}}; color: {{doneInk}}; font-weight: 800; font-size: 20px">{{doneLabel}}</button>
+      </div>
+    </section>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { pick: null };
+  }
+  renderVals() {
+    const A = (id) => '/_blob/' + id;
+    const PX = [10, 374, 738];
+    const base = { ring: 'none', hasMark: false, mark: '', markBg: '#f0b45a', cursor: 'default', click: null, legal: false };
+    const tile = (o) => ({ ...base, ...o, art: o.art ? A(o.art) : '', hasArt: !!o.art, hasPt: !!o.pt, count: o.count ? '×' + o.count : '', many: !!o.count, label: o.label || o.name });
+    const opp = (p, i, name, art, pt, extra) => tile({ name, art, pt, x: PX[p] + 10 + i * 74, y: 172, s: 68, r: 10, fs: 11, ...(extra || {}) });
+    const mine = (i, name, art, pt, extra) => tile({ name, art, pt, x: 22 + i * 106, y: 310, s: 96, r: 12, fs: 12, ...(extra || {}) });
+    const land = (i, name, art, count) => tile({ name, art, count, x: 22 + i * 64, y: 666, s: 58, r: 10, fs: 10 });
+    const other = (i, name, art) => tile({ name, art, x: 892 + i * 64, y: 666, s: 58, r: 10, fs: 10 });
+    const small = (p, i, name, art) => tile({ name, art, x: PX[p] + 352 - 10 - (i + 1) * 50, y: 96, s: 44, r: 8, fs: 9 });
+
+    const creatures = [
+      opp(0, 0, 'Spirit', '', '3/2', { count: 2, id: 'spirit', whose: 'Computer’s token' }),
+      opp(1, 0, 'Terra', '7678674b257c9f2d67041ed3a4ee2ab4', '3/3', { id: 'terra', whose: 'Sam’s commander', cmd: true }),
+      opp(1, 1, 'Grave Titan', '1dccd462a02a0872cc11a4d8518c111f', '6/6', { id: 'titan', whose: 'Sam’s' }),
+      opp(1, 2, 'Zombie', '', '2/2', { count: 2, id: 'zombie', whose: 'Sam’s tokens' }),
+      opp(2, 0, 'Mister Fantastic', '383d04a073378ede76b3234038a68757', '2/4', { id: 'fant', whose: 'Jules’s commander', cmd: true }),
+      mine(0, 'Éowyn', 'c19490e7c081fb35071c85147c01bed4', '5/4', { id: 'eowyn', whose: 'Yours', cmd: true }),
+      mine(1, 'Adeline', '93443cca264c2d66fac605d8e8311296', '6/4', { id: 'adeline', whose: 'Yours' }),
+      mine(2, 'Aragorn', 'c2a67f4f687b666fcd3c4d8cb3b0bf63', '4/4', { id: 'aragorn', whose: 'Yours' }),
+      mine(3, 'Faramir', '62e4a477ddbf5628d609a86bc8d12c3a', '2/2', { id: 'faramir', whose: 'Yours' }),
+      mine(4, 'Human Soldier', '', '1/1', { count: 2, id: 'soldier', whose: 'Your tokens' })
+    ];
+    const pick = this.state.pick;
+    const legalTiles = creatures.map((c) => {
+      const chosen = pick === c.id;
+      const ring = chosen ? '0 0 0 3px #f0b45a, 0 0 0 7px rgb(240 180 90 / 0.25)' : '0 0 0 2px #f0b45a';
+      const cmdRing = c.cmd && !chosen ? ', inset 0 0 0 2px #f2efe8' : '';
+      return { ...c, legal: true, ring: ring + cmdRing, cursor: 'pointer', hasMark: true, mark: chosen ? '1' : '+', markBg: '#f0b45a',
+        label: c.name + ', ' + c.whose + (chosen ? ', chosen target 1' : ', legal target'),
+        click: () => this.setState({ pick: chosen ? null : c.id }) };
+    });
+    const nonCreatures = [
+      land(0, 'Plains', '30df84aecfd8c45546b9a6bdd64b8552', 4), land(1, 'Island', '7a66b1e98da872225edb04cfeb9bd60e', 2), land(2, 'Mountain', '3bf02968b49b8af680661d10aa4e5547'), land(3, 'Battlefield Forge', '3599624673068d143c783b9871cd28b6'), land(4, 'Command Tower', 'f42c34fc11f085b17d9a7720c94e99fd'),
+      other(0, 'Sol Ring', '6eb6974115f1bfa5c775b479771e7166'), other(1, 'Arcane Signet', 'af66cc45335c7043758a263a745cbd02'), other(2, 'Anointed Procession', '39ddc54ea3b9ba45e6d3ac018401863e'),
+      small(0, 0, 'Sol Ring', '6eb6974115f1bfa5c775b479771e7166'), small(0, 1, 'Quintorius', '042e4cb280a5a896fb249a47c8f4a8a3'), small(1, 0, 'Arcane Signet', 'af66cc45335c7043758a263a745cbd02'), small(2, 0, 'Rhystic Study', 'a3e58275bd2364af6a346bbf2e6a38b9')
+    ];
+    const chosenTile = legalTiles.find((t) => t.id === pick);
+    const sx = 536, sy = 500;
+    const curve = (x1, y1, x2, y2) => {
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, dx = x2 - x1, dy = y2 - y1, d = Math.hypot(dx, dy) || 1, off = Math.min(80, 0.3 * d);
+      const cx = mx - (dy / d) * off, cy = my + (dx / d) * off;
+      return 'M ' + x1 + ' ' + y1 + ' Q ' + cx.toFixed(0) + ' ' + cy.toFixed(0) + ' ' + x2 + ' ' + y2;
+    };
+    let arrows;
+    if (chosenTile) {
+      const tx = chosenTile.x + chosenTile.s / 2, ty = chosenTile.y + chosenTile.s / 2;
+      arrows = [{ d: curve(sx, sy, tx, ty), c: '#6cb0f5', dash: 'none', ex: tx, ey: ty }];
+    } else {
+      arrows = [{ d: curve(sx, sy, 520, 236), c: '#6cb0f5', dash: '2 10', ex: 520, ey: 236 }];
+    }
+    const whoGains = chosenTile ? (chosenTile.whose.startsWith('Sam') ? 'Sam' : chosenTile.whose.startsWith('Jules') ? 'Jules' : chosenTile.whose.startsWith('Computer') ? 'Computer' : 'You') : '';
+    return {
+      panes: [
+        { name: 'Computer, medium', seat: '#f1e4bc', x: PX[0], counts: 'Hand 4, library 71', cmdr: 'Tax +2, 0 to you', life: 31, art: A('042e4cb280a5a896fb249a47c8f4a8a3'), artist: 'Darren Tan', lands: '8 lands', ring: 'none' },
+        { name: 'Sam', seat: '#f08a70', x: PX[1], counts: 'Hand 6, library 74', cmdr: 'Tax +0, 3 to you', life: 24, art: A('7678674b257c9f2d67041ed3a4ee2ab4'), artist: 'Marta Nael', lands: '7 lands', ring: 'none' },
+        { name: 'Jules', seat: '#6fd49a', x: PX[2], counts: 'Hand 2, library 70', cmdr: 'Tax +2, 0 to you', life: 36, art: A('383d04a073378ede76b3234038a68757'), artist: 'Gintas Galvanauskas', lands: '7 lands', ring: 'none' }
+      ],
+      tiles: nonCreatures.concat(legalTiles),
+      hand: [['Boros Charm', '2d80527eb5c346c24b35ad5381fe99a6'], ['Chaos Warp', '0145ecf81c21d180a7799470623719f7'], ['Akroma’s Will', 'd2df35f8a45cc092aadf237d7374fc27'], ['Fierce Guardianship', 'c858d7cf7a488b3218bd7bbf1fe8b79c']].map(([name, id], i) => ({ name, img: A(id), x: 360 + i * 64 + (i >= 2 ? 120 : 0) })),
+      arrows,
+      prompt: chosenTile ? 'Exile ' + chosenTile.name + '?' : 'Choose a creature to exile',
+      count: (chosenTile ? 1 : 0) + ' of 1',
+      chosen: !!chosenTile,
+      pickArt: chosenTile ? chosenTile.art : '', pickName: chosenTile ? chosenTile.name : '', pickWhose: chosenTile ? chosenTile.whose : '',
+      railTitle: chosenTile ? 'Ready to cast' : 'Choose a target',
+      railBody: chosenTile ? (whoGains === 'You' ? 'You' : whoGains) + ' will gain life equal to its power, ' + chosenTile.pt.split('/')[0] + '.' : 'Click any creature with an amber ring. Its controller gains life equal to its power.',
+      legalCount: 13,
+      doneBg: chosenTile ? '#f2efe8' : '#1e2125', doneInk: chosenTile ? '#0b0c0e' : '#a9adb3',
+      doneLabel: chosenTile ? 'Cast it' : 'Done (0/1)',
+      cancel: () => this.setState({ pick: null })
+    };
+  }
+}
+</script>
+</body>
+</html>
