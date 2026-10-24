@@ -4,6 +4,7 @@
 // beside their choice (Decide.tsx). Words are in together.ts.
 
 import { facingWord, pilesLine, tally, voterState } from "./together";
+import { shortcutCount } from "./rare";
 import type { CardMeta, SeenCard, TogetherView } from "./types";
 
 const seatDot = (tone: string | undefined): React.CSSProperties | undefined => (tone ? ({ ["--seat" as string]: `var(--${tone})` } as React.CSSProperties) : undefined);
@@ -29,7 +30,7 @@ export function TogetherBody({ t, meta, Who, tone, you, compact }: {
 }) {
   const src = t.source.name ? meta[t.source.name] : undefined;
   const whose = (seat: number) => (seat === you ? "Your" : `${Who(seat)}'s`);
-  const owner = t.kind === "vote" || t.kind === "branch" ? t.controller : t.kind === "piles" ? t.chooser : undefined;
+  const owner = t.kind === "vote" || t.kind === "branch" ? t.controller : t.kind === "piles" ? t.chooser : t.kind === "shortcut" ? t.shortcut.proposer : undefined;
   const head = (
     <span className="together-head">
       {src?.art ? <img src={src.art} alt="" /> : <span />}
@@ -96,6 +97,21 @@ export function TogetherBody({ t, meta, Who, tone, you, compact }: {
           <span className="together-rows">{t.facing.map(([seat, state]) => row(seat, facingWord[state], state === "choosing"))}</span>
         </div>
       );
+    case "shortcut": {
+      // A proposed loop shortcut (GRareRules): what repeats and how often, and who has answered.
+      const s = t.shortcut;
+      const word = { answered: "Answered", deciding: "Deciding", next: "Next" } as const;
+      return (
+        <div className="together" aria-label="The shortcut">
+          {head}
+          <span className="small">
+            {s.proposer === you ? "You propose" : `${Who(s.proposer)} proposes`} repeating it {shortcutCount(s.count)}.
+            {s.grows?.length ? ` Grows without limit: ${s.grows.join(", ")}.` : ""}
+          </span>
+          <span className="together-rows">{s.responders.map(([seat, state]) => row(seat, word[state], state === "deciding"))}</span>
+        </div>
+      );
+    }
     case "clash":
       return (
         <div className="together" aria-label="The clash">

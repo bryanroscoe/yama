@@ -50,7 +50,7 @@ fn table(e: &Engine, players: usize, cards: &[(&str, At)]) -> (Match, Vec<Object
     let deck = |seat: usize| {
         let mut main: Vec<String> = cards.iter().filter(|(_, at)| seat_of(at) == seat).map(|(n, _)| n.to_string()).collect();
         main.resize(99, "Plains".into());
-        SeatDeck { commander: vec!["Combat Celebrant".into()], main }
+        SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main }
     };
     let mut m = e.new_match_first(3, (0..players).map(deck).collect(), &[], Some(0)).unwrap();
     m.set_names(["Ana", "Ben", "Cy", "Di"].iter().take(players).map(|n| n.to_string()).collect());
@@ -251,7 +251,7 @@ fn an_ai_seat_votes_at_once_beside_people() {
     let deck = |seat: usize| {
         let mut main: Vec<String> = cards.iter().filter(|(_, at)| seat_of(at) == seat).map(|(n, _)| n.to_string()).collect();
         main.resize(99, "Plains".into());
-        SeatDeck { commander: vec!["Combat Celebrant".into()], main }
+        SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main }
     };
     let mut m = e.new_match_first(3, (0..3).map(deck).collect(), &[(1, crate::Difficulty::Easy)], Some(0)).unwrap();
     m.set_names(vec!["Ana".into(), "Computer".into(), "Cy".into()]);

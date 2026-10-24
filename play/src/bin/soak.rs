@@ -177,7 +177,8 @@ fn run() {
             let vs = filter_state_for_viewer(&state, owner);
             let candidates: Vec<_> = contract.candidates.iter().map(|c| c.action.clone()).collect();
             let covered = match a {
-                Act::CancelCast | Act::CastSpell { .. } => true,
+                // Special actions are matched to the engine's own options (rare.rs).
+                Act::CancelCast | Act::CastSpell { .. } | Act::Ninjutsu { .. } | Act::TurnFaceUp { .. } | Act::Foretell { .. } | Act::CompanionToHand | Act::UseSerumPowder { .. } => true,
                 Act::TapMana { .. } | Act::UntapMana { .. } | Act::KeepMana => paying,
                 _ => yama_play::Pending::of(&vs, owner, &candidates, &[]).is_some(),
             };

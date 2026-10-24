@@ -70,7 +70,7 @@ function InspectorBody({ card, meta, view, names, cardById, options, onChoose, o
     card.power !== null && card.toughness !== null && card.id >= 0 ? `${card.power}/${card.toughness}` : null,
     ...(card.keywords ?? []),
     card.commander ? `${whose} commander` : null,
-    card.face_down ? "Face down" : null,
+    card.face_down ? (card.under || card.name !== "Face-down card" ? "Face down: only you can see what it is" : "Face down") : null,
     onField ? (card.tapped ? "Tapped" : "Untapped") : null,
     onField && card.sick ? "Summoning sick" : null,
   ].filter((c): c is string => !!c);

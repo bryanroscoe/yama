@@ -125,6 +125,9 @@ pub struct Window {
     pub can_act: bool,
     /// A spell you could cast now.
     pub can_cast: bool,
+    /// Ninjutsu you could activate now (CR 702.49a): only after blockers are declared, a window the
+    /// usual stops never reach (GRareCards).
+    pub ninjutsu: bool,
 }
 
 /// What to do with a window.
@@ -147,7 +150,8 @@ pub enum Verdict {
 /// - otherwise the smart stops: someone else's spell or ability on top that you could answer
 ///   stops you (unless you yielded to it); your own on top resolves without asking (PP-07,
 ///   Bryan's decision 8 of 2026-10-23); on an empty stack, your stops by step, or by default
-///   your main phases and an opponent's end step when you could cast a spell.
+///   your main phases and an opponent's end step when you could cast a spell; and the window
+///   after blockers are declared when you could activate ninjutsu, whatever your stops.
 pub fn verdict(w: &Window, c: &Controls) -> Verdict {
     if w.only_pass {
         return Verdict::Pass;
@@ -166,6 +170,10 @@ pub fn verdict(w: &Window, c: &Controls) -> Verdict {
         return Verdict::Pass;
     }
     if c.full_control {
+        return Verdict::Stop;
+    }
+    // Ninjutsu is offered only while an unblocked attacker and the card are there (CR 702.49a).
+    if w.ninjutsu && w.top.is_none() {
         return Verdict::Stop;
     }
     if !w.can_act {
@@ -229,14 +237,19 @@ pub struct YieldView {
     pub remove: Act,
 }
 
-/// An answer the engine gives for this seat without asking (GSettings, GLog's "Turn off").
+/// An answer given for this seat without asking (GSettings, GLog's "Turn off"): by the engine,
+/// or by Yama (remember.rs).
 #[derive(Debug, Clone, Serialize)]
 pub struct AnswerView {
     pub id: String,
-    /// "may" (a "you may" trigger) or "replacement" (which replacement effect applies first).
+    /// "may" (a "you may" trigger) or "replacement" (which replacement effect applies first), which
+    /// the engine remembers; "yama", which Yama remembers (an unless-cost, the command zone).
     pub kind: &'static str,
     /// The card asking.
     pub name: String,
+    /// Whose card it is, where it's someone else's ("Jules's Rhystic Study").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<u8>,
     /// The answer, in the engine's words where it has them.
     pub answer: String,
     /// "card": this card; "copies": every copy of it.
@@ -304,6 +317,7 @@ impl Match {
                 };
                 AnswerView {
                     id: short_id("m", &r.selector),
+                    owner: None,
                     kind: "may",
                     name: name.unwrap_or_else(|| "A card".into()),
                     answer: if r.choice == AutoMayChoice::Accept { "Always yes".into() } else { "Always no".into() },
@@ -330,6 +344,7 @@ impl Match {
             };
             AnswerView {
                 id: format!("r{}", r.id.0),
+                owner: None,
                 kind: "replacement",
                 name: source.and_then(|s| object_name(vs, &s)).unwrap_or_else(|| "Replacement effects".into()),
                 answer,
@@ -337,6 +352,8 @@ impl Match {
                 forget: Act::SetReplacementAutoChoice { id: Some(r.id.0.clone()) },
             }
         }));
+        // Yama's own remembered answers, beside the engine's (remember.rs).
+        answers.extend(self.remembered_views(seat));
         TurnsView {
             full_control: c.full_control,
             stops: c.stops.clone(),
@@ -436,7 +453,7 @@ mod tests {
     use super::*;
 
     fn window(phase: &str, your_turn: bool, top: Option<Top>) -> Window {
-        Window { phase: phase.into(), your_turn, top, only_pass: false, can_act: true, can_cast: true }
+        Window { phase: phase.into(), your_turn, top, only_pass: false, can_act: true, can_cast: true, ninjutsu: false }
     }
     fn passing(mode: PassMode) -> Controls {
         Controls { passing: Some(Passing { mode, turn: 3 }), ..Controls::default() }
@@ -507,6 +524,16 @@ mod tests {
         assert_eq!(verdict(&window("PreCombatMain", false, THEIRS), &mine), Verdict::Interrupt);
         // A pass mode outranks full control: passing is what was asked for.
         assert_eq!(verdict(&window("Upkeep", false, None), &Controls { full_control: true, ..mine }), Verdict::Pass);
+    }
+
+    #[test]
+    fn ninjutsu_stops_after_blockers_unless_a_pass_mode_runs() {
+        let ninja = Window { ninjutsu: true, ..window("DeclareBlockers", true, None) };
+        assert_eq!(verdict(&window("DeclareBlockers", true, None), &Controls::default()), Verdict::Pass);
+        assert_eq!(verdict(&ninja, &Controls::default()), Verdict::Stop);
+        let own = Controls { stops: Some(Stops::default()), ..Controls::default() };
+        assert_eq!(verdict(&ninja, &own), Verdict::Stop, "your own stops don't hide it");
+        assert_eq!(verdict(&ninja, &passing(PassMode::End)), Verdict::Pass, "End turn passes it");
     }
 
     #[test]

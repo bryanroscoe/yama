@@ -138,8 +138,10 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
   const counters = Object.entries(c.counters);
   const attacking = look.attacking || !!c.attacking;
   const blocking = look.blocking || !!c.blocking;
+  // A face-down card (CR 708.2a): a plain 2/2 with no name; its controller sees what it is.
+  const down = !!c.face_down;
   const label = [
-    count > 1 ? `${count} ${c.name}` : c.name,
+    down ? `Face down${c.under ? `, ${c.under}` : ", no name"}` : count > 1 ? `${count} ${c.name}` : c.name,
     c.commander && "commander",
     c.tapped && "tapped",
     attacking && "attacking",
@@ -172,6 +174,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
     blocking && "blocking",
     c.commander && "commander",
     !meta?.art && "no-art",
+    down && "fd",
     look.by && "targeted",
     look.will && "will-tap",
   ]
@@ -204,13 +207,23 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
       onPointerCancel={press.onPointerCancel}
       onContextMenu={press.onContextMenu}
     >
-      <span className="ft-art" aria-hidden="true">
-        {meta?.art && <img src={meta.art} alt="" loading="lazy" draggable={false} />}
-      </span>
-      <span className="ft-bar">
-        <span className="ft-name">{shortName(c.name)}</span>
-        {c.tapped && <TapMark />}
-      </span>
+      {down ? (
+        <span className="ft-fd" aria-hidden="true">
+          <span className="ft-fd-head">Face down</span>
+          <b className="ft-fd-name">{c.under ? shortName(c.under) : "No name"}</b>
+          {c.tapped && <TapMark />}
+        </span>
+      ) : (
+        <>
+          <span className="ft-art" aria-hidden="true">
+            {meta?.art && <img src={meta.art} alt="" loading="lazy" draggable={false} />}
+          </span>
+          <span className="ft-bar">
+            <span className="ft-name">{shortName(c.name)}</span>
+            {c.tapped && <TapMark />}
+          </span>
+        </>
+      )}
       {counters.length > 0 && (
         <span className="ft-counters">{counters.map(([k, v]) => `${counterName(k)} ×${v}`).join(", ")}</span>
       )}

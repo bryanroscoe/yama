@@ -117,6 +117,8 @@ export function answerOf(line: LogLine, turns: TurnsView | undefined): AnswerVie
 
 /** Who remembers an answer, in GSettings' words. */
 export function answerBy(a: AnswerView): string {
+  // Yama's own (play/src/remember.rs): an unless-cost, the command zone.
+  if (a.kind === "yama") return "Yama answers for you";
   if (a.kind === "replacement") return "Remembered by the engine whenever these effects meet";
   return a.scope === "copies" ? "Remembered by the engine for every copy of this card" : "Remembered by the engine for this card";
 }

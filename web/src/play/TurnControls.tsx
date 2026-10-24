@@ -170,7 +170,7 @@ export function GameSettings({ section, onSection, turns, hand, meta, whose, ton
       {nav}
       <div className="gs-body">
         {section === "yields" && <Yields turns={turns} meta={meta} whose={whose} tone={tone} onAct={onAct} disabled={disabled} compact={compact} />}
-        {section === "answers" && <Answers turns={turns} meta={meta} onAct={onAct} disabled={disabled} />}
+        {section === "answers" && <Answers turns={turns} meta={meta} whose={whose} onAct={onAct} disabled={disabled} />}
         {section === "hand" && <HandOrder hand={hand} meta={meta} onAct={onAct} disabled={disabled} compact={compact} />}
         {section === "pay" && <Paying value={turns.tap_mana} onChange={onTapMana} disabled={disabled} />}
         {section === "concede" && <Concede compact={compact} />}
@@ -207,7 +207,7 @@ function Yields({ turns, meta, whose, tone, onAct, disabled, compact }: { turns:
   );
 }
 
-function Answers({ turns, meta, onAct, disabled }: { turns: TurnsView; meta: Record<string, CardMeta>; onAct: (a: Act) => void; disabled: boolean }) {
+function Answers({ turns, meta, whose, onAct, disabled }: { turns: TurnsView; meta: Record<string, CardMeta>; whose: (seat: number) => string; onAct: (a: Act) => void; disabled: boolean }) {
   return (
     <>
       <p className="gs-lede">
@@ -218,7 +218,7 @@ function Answers({ turns, meta, onAct, disabled }: { turns: TurnsView; meta: Rec
         <div key={a.id} className="gs-row">
           {meta[a.name]?.art ? <img src={meta[a.name]!.art!} alt="" /> : <span className="blank" />}
           <span className="gs-what">
-            <b>{a.name}</b>
+            <b>{a.owner !== undefined ? `${whose(a.owner)} ${a.name}` : a.name}</b>
             <span>{a.answer}</span>
             <span className="dim small">{answerBy(a)}</span>
           </span>

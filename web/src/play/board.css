@@ -7350,3 +7350,497 @@ button.dw-pile2:disabled {
 .opp-focus > .field-credit {
   padding: 0 4px;
 }
+
+/* ── The rarer cards and rules (GRareCards, GRareRules) ─────────────────────── */
+
+/* A face-down 2/2 on the battlefield: no art and no name; its controller sees what it is. */
+.ft.fd {
+  background: var(--raised);
+}
+/* Its edge is drawn inside, so the rings around it (pick, attacking, selected) still show. */
+.ft.fd::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px var(--line);
+  pointer-events: none;
+}
+/* The words sit above the badges and P/T along the bottom. */
+.ft-fd {
+  position: absolute;
+  inset: 0 0 30% 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 6px 0;
+  text-align: center;
+  color: var(--text);
+  overflow: hidden;
+}
+.ft-fd-head {
+  font-size: 11px;
+  line-height: 1.1;
+  color: var(--dim);
+}
+.ft-fd-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.ft-fd .tap-mark {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+/* The same tile in a decision's "what you see" panels. */
+.fd-tile {
+  position: relative;
+  flex: 0 0 auto;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  border-radius: 12px;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 2px var(--line);
+  text-align: center;
+}
+.fd-head {
+  font-size: 12px;
+  color: var(--dim);
+}
+.fd-name {
+  font-size: 13px;
+  line-height: 1.2;
+}
+.fd-pt {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--text);
+  color: var(--ground);
+  font-size: 13px;
+  font-weight: 700;
+}
+.dw-fd,
+.dw-companion,
+.dw-meld,
+.dw-dungeons,
+.dw-rooms,
+.dw-time,
+.dw-shortcut {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.dw-fd-body {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.dw-fd-body > .dw-row-img {
+  width: 170px;
+  height: auto;
+  aspect-ratio: 488 / 680;
+  border-radius: 8px;
+}
+.dw-fd-views {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.dw-fd-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--raised);
+}
+.dw-fd-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.dw-fd.compact .dw-fd-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dw-fd.compact .dw-fd-views {
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.dw-fd.compact .dw-fd-view {
+  padding: 10px;
+  align-items: center;
+}
+.dw-fd.compact .dw-fd-row {
+  flex-direction: column;
+  gap: 8px;
+}
+.dw-fd.compact .fd-tile {
+  width: 104px;
+  height: 104px;
+}
+
+/* Your companion beside your commander: a card with its {3} while you could take it. */
+.companion-card:disabled {
+  opacity: 1;
+}
+
+/* Meld: the two cards and what they become. */
+.dw-meld-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dw-meld-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 18px;
+  background: transparent;
+  text-align: left;
+}
+.dw-meld-row.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-meld-row.picked {
+  background: var(--raised);
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-meld-row .dw-row-img {
+  width: 130px;
+  height: auto;
+  aspect-ratio: 488 / 680;
+  border-radius: 8px;
+}
+.dw-meld-op {
+  font-family: var(--display);
+  font-size: 36px;
+}
+.dw-meld-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--dim);
+}
+.dw-meld-text b {
+  font-size: 16px;
+  color: var(--text);
+}
+.dw-meld.compact .dw-meld-row .dw-row-img {
+  width: 76px;
+}
+.dw-meld.compact .dw-meld-op {
+  font-size: 22px;
+}
+.dw-meld.compact .dw-meld-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Dungeons: the cards to choose from, then the room map. */
+.dw-dungeon-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+.dw-dungeon {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 16px;
+  background: transparent;
+  text-align: left;
+}
+.dw-dungeon.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-dungeon.picked {
+  background: var(--raised);
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-dungeon img {
+  width: 100%;
+  border-radius: 8px;
+}
+.dw-dungeons.compact .dw-dungeon-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dw-dungeons.compact .dw-dungeon {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+}
+.dw-dungeons.compact .dw-dungeon img {
+  grid-row: span 2;
+}
+.dw-rooms-body {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.dw-rooms-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dw-rooms-card img {
+  width: 250px;
+  border-radius: 10px;
+}
+.dw-room-map {
+  position: relative;
+  max-width: 100%;
+}
+.dw-room-map svg {
+  position: absolute;
+  inset: 0;
+}
+.dw-room-edge {
+  stroke: var(--line);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.dw-room-edge.can {
+  stroke: var(--pick);
+}
+.dw-room-edge.on {
+  stroke: var(--text);
+}
+.dw-room {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: var(--ground);
+  box-shadow: 0 0 0 1px var(--line);
+  text-align: left;
+}
+.dw-room:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.dw-room.here {
+  background: var(--line);
+  box-shadow: 0 0 0 2px var(--seat);
+}
+.dw-room.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-room.picked {
+  background: var(--raised);
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-room-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 13px;
+}
+.dw-room-tag {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--pick);
+  white-space: nowrap;
+}
+.dw-room.here .dw-room-tag {
+  color: var(--seat);
+}
+.dw-room.picked .dw-room-tag {
+  color: var(--text);
+}
+.dw-room-text {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--dim);
+}
+.dw-rooms.compact .dw-rooms-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dw-rooms.compact .dw-room {
+  padding: 6px 8px;
+}
+.dw-rooms.compact .dw-room-text {
+  font-size: 11px;
+}
+
+/* Time travel: a row per card with remove one, leave or add one. */
+.dw-time-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dw-time-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--raised);
+}
+.dw-time-row .dw-row-img {
+  width: 90px;
+  height: auto;
+  aspect-ratio: 488 / 680;
+  border-radius: 6px;
+}
+.dw-time-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dw-time-text .num {
+  font-family: var(--display);
+  font-size: 22px;
+}
+.dw-time .dw-seg {
+  background: var(--ground);
+}
+.dw-time .dw-seg button {
+  min-height: 44px;
+  padding: 0 14px;
+}
+.dw-time .dw-seg button.pick {
+  box-shadow: inset 0 0 0 1px var(--pick);
+  color: var(--text);
+}
+.dw-time.compact .dw-time-row {
+  grid-template-columns: 60px minmax(0, 1fr);
+}
+.dw-time.compact .dw-time-row .dw-seg {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  display: grid;
+  grid-auto-flow: column;
+}
+.dw-time.compact .dw-time-row .dw-row-img {
+  width: 60px;
+}
+
+/* Loop shortcuts: the loop the engine found, the count, and who has answered. */
+.dw-loop-found {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--raised);
+}
+.dw-loop-found .dw-row-img {
+  width: 110px;
+  height: auto;
+  aspect-ratio: 488 / 680;
+  border-radius: 6px;
+}
+.dw-loop-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--dim);
+}
+.dw-loop-text b {
+  color: var(--text);
+}
+.dw-loop-ask {
+  font-size: 16px;
+}
+.dw-loop-stop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--raised);
+  font-size: 14px;
+}
+.dw-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.dw-stepper button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--ground);
+  font-size: 20px;
+}
+.dw-stepper output {
+  min-width: 64px;
+  text-align: center;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 36px;
+  line-height: 1;
+}
+.dw-shortcut.compact .dw-loop-found .dw-row-img {
+  width: 64px;
+}
+/* The next room on a phone: the card, the room you're in, the rooms you can go to. */
+.dw-rooms-thumb {
+  width: 120px;
+  align-self: center;
+  border-radius: 8px;
+}
+.dw-room-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dw-room-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--ground);
+  box-shadow: 0 0 0 1px var(--line);
+  text-align: left;
+}
+.dw-room-row.here {
+  background: var(--line);
+  box-shadow: 0 0 0 2px var(--seat);
+}
+.dw-room-row.here .dw-room-tag {
+  color: var(--seat);
+}
+.dw-room-row.pick {
+  box-shadow: 0 0 0 2px var(--pick);
+}
+.dw-room-row.picked {
+  background: var(--raised);
+  box-shadow: 0 0 0 3px var(--text);
+}
+.dw-room-row.picked .dw-room-tag {
+  color: var(--text);
+}

@@ -11,7 +11,7 @@ fn engine() -> Engine {
 }
 
 fn deck(cards: &[(&str, usize)]) -> SeatDeck {
-    SeatDeck { commander: vec!["Combat Celebrant".into()], main: cards.iter().flat_map(|(name, n)| vec![name.to_string(); *n]).collect() }
+    SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: cards.iter().flat_map(|(name, n)| vec![name.to_string(); *n]).collect() }
 }
 
 fn option(d: &Decision, kind: OptionKind) -> Option<usize> {

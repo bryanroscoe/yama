@@ -46,7 +46,7 @@ fn table(e: &Engine, cards: &[(&str, At)]) -> (Match, Vec<ObjectId>) {
     let deck = |seat: usize| {
         let mut main: Vec<String> = cards.iter().filter(|(_, at)| seat_of(at) == seat).map(|(n, _)| n.to_string()).collect();
         main.resize(99, "Plains".into());
-        SeatDeck { commander: vec!["Combat Celebrant".into()], main }
+        SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main }
     };
     let mut m = e.new_match_first(3, vec![deck(0), deck(1)], &[], Some(0)).unwrap();
     m.set_names(vec!["Ana".into(), "Ben".into()]);

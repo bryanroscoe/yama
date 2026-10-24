@@ -35,6 +35,8 @@ export interface CardView {
   sick?: boolean;
   /** Face down; its name is "Face-down card" unless you may look at it (newer servers). */
   face_down?: boolean;
+  /** The card under a face-down card, sent only to a seat that may look at it (its controller). */
+  under?: string;
   /** How a card in a graveyard, exile or the command zone got there, as you saw it. */
   came?: Came;
   /** Auras, Equipment and other permanents attached to it. */
@@ -91,7 +93,8 @@ export type Happening = { seq: number; turn: number; active: number } & (
   | { kind: "revealed"; seat: number; cards: Seen[] }
   | { kind: "looked"; seat: number; whose?: number; cards: Seen[] }
   | { kind: "drew"; seat: number; count: number; cards: Seen[] }
-  | { kind: "automatic"; seat: number; name: string; accept: boolean; answer: string }
+  /** An answer given for you from memory: the engine's yes or no to a "may", or what Yama did (`did`). */
+  | { kind: "automatic"; seat: number; name: string; accept: boolean; answer: string; did?: string }
   | { kind: "out"; seat: number }
   | { kind: "over"; winner?: number }
 );
@@ -144,10 +147,32 @@ export interface PlayerView {
   /** Out because they conceded (left the game), rather than lost (newer servers). */
   conceded?: boolean;
   commander_damage: Record<string, number>;
+  /** The companion they revealed before the game (public), and whether it's been put into their hand. */
+  companion?: { name: string; used?: boolean };
 }
 
 /** What an option does (play/src/lib.rs, OptionKind). `pay_rest` is the engine's pass while you pay mana by hand. */
-export type OptionKind = "pass" | "pay_rest" | "cancel" | "land" | "spell" | "ability" | "keep" | "mulligan" | "attack" | "block" | "target" | "agree" | "refuse" | "other";
+export type OptionKind =
+  | "pass"
+  | "pay_rest"
+  | "cancel"
+  | "land"
+  | "spell"
+  | "ability"
+  | "keep"
+  | "mulligan"
+  | "attack"
+  | "block"
+  | "target"
+  | "agree"
+  | "refuse"
+  // Special actions (play/src/rare.rs), sent with their own `act`.
+  | "ninjutsu"
+  | "face_up"
+  | "foretell"
+  | "companion"
+  | "serum_powder"
+  | "other";
 
 /** A target on an option or a decision: a card by object id, or a player by seat. */
 export type TargetView = { kind: "object"; id: number } | { kind: "player"; seat: number };
@@ -160,8 +185,10 @@ export interface OptionView {
   object: number | null;
   /** An activated ability's index on its card, so a planeswalker's abilities stay apart. */
   ability?: number;
-  /** A target choice: exactly which card or player it targets (newer servers). */
+  /** A target choice: exactly which card or player it targets (newer servers); ninjutsu's attacker to return. */
   target?: TargetView;
+  /** What a special action costs, printed ("{1}{U}"). */
+  cost?: string;
 }
 
 /** The opening hand: the sizes the keep and mulligan buttons name. */
@@ -233,7 +260,19 @@ export type AnswerKind =
   | "redistribute_life"
   | "choose_player"
   // The library (play/src/library.rs).
-  | "learn";
+  | "learn"
+  // The rarer cards and rules (play/src/rare.rs).
+  | "declare_companion"
+  | "choose_meld_pair"
+  | "choose_entry_attack_target"
+  | "cipher_encode"
+  | "choose_dungeon"
+  | "choose_dungeon_room"
+  | "time_travel"
+  | "propose_shortcut"
+  | "respond_to_shortcut"
+  // A special action at priority, when the board puts its pick together itself (ninjutsu).
+  | "ninjutsu";
 
 /** The card asking; the server adds its art, image and artist. */
 export interface DecisionSource {
@@ -311,7 +350,10 @@ export interface Pending {
    * remove_counters, counter_cost; everyone takes part: vote, piles_split, piles_choose, branch,
    * coin, die, guess, clash, life; a player: gift, entry_controller, zone_chooser,
    * clash_opponent, announcer, pile_opponent; the library: top_or_bottom, partition, dig_split,
-   * reveal, kept, manifest, learn.
+   * reveal, kept, manifest, learn; the rarer cards and rules: companion, meld, entry_attack,
+   * cipher, dungeon, dungeon_room, time_travel, shortcut, shortcut_response, precast_shortcut,
+   * precast_response, repeat, commander_zone, face_down (a morph cast face down), and the board's
+   * own ninjutsu.
    */
   purpose: string;
   /** The order picked is the order they end up in (the first is on top). */
@@ -348,6 +390,39 @@ export interface Pending {
   topCount?: number;
   /** The top and bottom piles are settled: only the order within each may change. */
   fixedSplit?: boolean;
+  /** Dungeons: each dungeon offered, or the one being explored, with every room (play/src/rare.rs). */
+  dungeons?: DungeonMap[];
+  /** Time travel: "remove" (the engine asks about removing first) or "add". */
+  step?: "remove" | "add";
+  /** A loop shortcut: what repeats, and where everyone is in answering it. */
+  shortcut?: ShortcutView;
+  /** A special action's cost, printed, for a pick the board puts together itself (ninjutsu's "{1}{U}"). */
+  cost?: string;
+}
+
+/** A dungeon as the board draws it: its card, its rooms with what each leads to and where it's drawn (thousandths of the card), and the room the marker is on. */
+export interface DungeonMap {
+  id: string;
+  name: string;
+  /** The dungeon card's image on Scryfall (dungeon cards credit no artist there). */
+  image: string;
+  rooms: { index: number; name: string; text: string; next: number[]; x: number; y: number }[];
+  current?: number;
+}
+
+/** A proposed shortcut (play/src/rare.rs, ShortcutView). */
+export interface ShortcutView {
+  proposer: number;
+  /** How many times it repeats; absent until a player loses. */
+  count?: number;
+  /** What grows each time round, in words. */
+  grows?: string[];
+  /** How it ends the game, when the engine says. */
+  wins?: string;
+  winner?: number;
+  /** Everyone else, in the order they answer. */
+  responders: [number, "answered" | "deciding" | "next"][];
+  shortened_by?: number;
 }
 
 /** An answer sent with `{type: "act"}` (play/src/act.rs, Act). */
@@ -435,7 +510,36 @@ export type Act =
   /** A player, by seat: a gift's recipient, an opponent who chooses, separates or clashes, who a permanent enters under. */
   | { kind: "choose_player"; seat: number }
   /** Learn: discard this card and draw a card, or (null) don't. */
-  | { kind: "learn"; discard: number | null };
+  | { kind: "learn"; discard: number | null }
+  // The rarer cards and rules (play/src/rare.rs).
+  /** Reveal this companion before the game (by name), or none. */
+  | { kind: "declare_companion"; name: string | null }
+  | { kind: "choose_meld_pair"; source: number; partner: number }
+  /** What a permanent entering attacking attacks. */
+  | { kind: "choose_entry_attack_target"; target: TargetView }
+  /** Encode the cipher spell on this creature, or (null) don't. */
+  | { kind: "cipher_encode"; creature: number | null }
+  /** By the engine's name for the dungeon ("LostMineOfPhandelver"). */
+  | { kind: "choose_dungeon"; dungeon: string }
+  | { kind: "choose_dungeon_room"; room: number }
+  /** Time travel: a time counter off each of `remove`, then onto each of `add`. */
+  | { kind: "time_travel"; remove: TargetView[]; add: TargetView[] }
+  /** Propose the shortcut: repeat it `count` times, or (null) until a player loses. */
+  | { kind: "propose_shortcut"; count: number | null }
+  | { kind: "decline_shortcut" }
+  /** Accept a shortcut (null), or stop it after that many repetitions (or at the engine's stopping place with that id). */
+  | { kind: "respond_to_shortcut"; stop_at: number | null }
+  // Special actions at priority and at the mulligan, matched to the engine's own options.
+  | { kind: "ninjutsu"; card: number; attacker: number }
+  | { kind: "turn_face_up"; object: number }
+  | { kind: "foretell"; object: number }
+  | { kind: "companion_to_hand" }
+  | { kind: "use_serum_powder"; object: number }
+  // Answers Yama remembers (play/src/remember.rs).
+  /** Answer, and have Yama give the same answer from now on. */
+  | { kind: "remember_answer"; accept: boolean }
+  /** Stop one (any time). */
+  | { kind: "forget_answer"; id: string };
 
 /** "Tap mana for me" (GPay): automatic but ask before sacrificing, always automatic, or by hand. */
 export type TapMana = "ask" | "auto" | "manual";
@@ -504,11 +608,13 @@ export interface YieldView {
   remove: Act;
 }
 
-/** An answer the engine gives for you from memory (GSettings, GLog). */
+/** An answer given for you from memory (GSettings, GLog): by the engine, or by Yama ("yama"). */
 export interface AnswerView {
   id: string;
-  kind: "may" | "replacement";
+  kind: "may" | "replacement" | "yama";
   name: string;
+  /** Whose card it is, when it's someone else's ("Jules's Rhystic Study"). */
+  owner?: number;
   answer: string;
   /** This card only, or every copy of it. */
   scope: "card" | "copies";
@@ -566,7 +672,9 @@ export type TogetherView =
       split?: boolean;
     }
   | { kind: "branch"; source: SeenCard; controller: number; facing: [number, "chose" | "choosing" | "waiting"][] }
-  | { kind: "clash"; source: SeenCard; cards: [number, SeenCard][]; placing: number };
+  | { kind: "clash"; source: SeenCard; cards: [number, SeenCard][]; placing: number }
+  /** A proposed shortcut being answered: what repeats, and who has answered. */
+  | { kind: "shortcut"; source: SeenCard; shortcut: ShortcutView };
 
 /** Someone asked to resolve the whole stack: who, and who has agreed (GTogether). */
 export interface ResolveAllView {
@@ -601,6 +709,8 @@ export interface StackItem {
   casting?: boolean;
   /** You yielded to it: Yama passes for you while it's on top. */
   yielded?: boolean;
+  /** A face-down spell's card, for its caster only. */
+  under?: string;
 }
 
 /** A log line. `seat` lines are only yours (an answer Yama gave for you); `auto` names that answer. */

@@ -152,12 +152,12 @@ impl PlayHub {
 
     /// Restart every game that was live when the server stopped, by replaying its log.
     async fn resume_live(self: &Arc<Self>, pool: &SqlitePool) {
-        let rows: Vec<(String, String, Option<String>, Option<String>)> =
-            sqlx::query_as("SELECT game_id, seats, replay, log FROM online_games WHERE stage = 'live'")
+        let rows: Vec<(String, String, Option<String>, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT game_id, seats, replay, log, answers FROM online_games WHERE stage = 'live'")
                 .fetch_all(pool)
                 .await
                 .unwrap_or_default();
-        for (game_id, seats, replay, log) in rows {
+        for (game_id, seats, replay, log, answers) in rows {
             let (Ok(seats), Some(replay)) = (serde_json::from_str::<Vec<SeatCfg>>(&seats), replay) else { continue };
             let Ok(engine) = self.engine() else { return };
             let prefs = seat_prefs(pool, &seats).await;
@@ -165,6 +165,10 @@ impl PlayHub {
                 Ok(mut m) => {
                     if let Some(lines) = log.and_then(|l| serde_json::from_str(&l).ok()) {
                         m.set_log_lines(lines);
+                    }
+                    // The answers Yama remembers for people (yama_play's remember.rs).
+                    if let Some(answers) = answers.and_then(|a| serde_json::from_str(&a).ok()) {
+                        m.set_remembered(answers);
                     }
                     self.spawn_game(game_id.clone(), m, seats, prefs, pool.clone());
                     tracing::info!(game_id, "resumed online game");
@@ -252,6 +256,9 @@ fn run_game(
         match m.run_ai(AI_BATCH) {
             Ok(0) if passed == 0 => break,
             Ok(_) => {
+                // Pass for people (and give the answers Yama remembers for them) before the board
+                // goes out, so it doesn't flash a decision answered a moment later.
+                m.auto_pass(&humans);
                 publish(m);
                 save(m);
             }
@@ -360,9 +367,10 @@ fn run_game(
 
 async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<()> {
     let stage = if m.is_over() { "over" } else { "live" };
-    sqlx::query("UPDATE online_games SET replay = ?, log = ?, revision = ?, stage = ?, updated_at = ? WHERE game_id = ?")
+    sqlx::query("UPDATE online_games SET replay = ?, log = ?, answers = ?, revision = ?, stage = ?, updated_at = ? WHERE game_id = ?")
         .bind(m.replay_json())
         .bind(serde_json::to_string(m.log_lines())?)
+        .bind((!m.remembered().is_empty()).then(|| serde_json::to_string(m.remembered())).transpose()?)
         .bind(m.revision as i64)
         .bind(stage)
         .bind(now())
@@ -692,7 +700,15 @@ pub(crate) fn deck_lines(cards: &[DeckCard]) -> Vec<DeckLine<'_>> {
 }
 
 pub(crate) fn resolve(engine: &Engine, cards: &[DeckCard]) -> (SeatDeck, yama_play::DeckReport) {
-    engine.resolve_deck(&deck_lines(cards))
+    let (mut deck, report) = engine.resolve_deck(&deck_lines(cards));
+    // A companion waits on the sideboard (CR 702.139a): the first card there with the keyword.
+    let side: Vec<DeckLine> = cards
+        .iter()
+        .filter(|c| c.board == Board::Side)
+        .map(|c| DeckLine { oracle_id: &c.oracle_id, name: &c.name, qty: c.qty.max(0) as u32, commander: false })
+        .collect();
+    deck.companion = engine.companion_of(&side).into_iter().collect();
+    (deck, report)
 }
 
 #[derive(Serialize)]
@@ -1196,6 +1212,12 @@ pub(crate) fn view_names(view: &View) -> Vec<String> {
         .chain(view.hands.values().flatten())
         .map(|c| c.name.clone())
         .chain(view.stack.iter().map(|s| s.name.clone()))
+        // The card under a face-down card, in the view of a seat that may look at it (its
+        // controller), so that seat can read it; nobody else's view names it.
+        .chain(view.battlefield.iter().chain(&view.exile).filter_map(|c| c.under.clone()))
+        .chain(view.stack.iter().filter_map(|s| s.under.clone()))
+        // Revealed companions are public.
+        .chain(view.players.iter().filter_map(|p| p.companion.as_ref().map(|c| c.name.clone())))
         .chain(view.decision.iter().filter_map(|d| d.pending.as_ref()).flat_map(|p| p.card_names()))
         // A table-wide decision's public cards (votes for permanents, piles), as this viewer sees them.
         .chain(view.together.iter().flat_map(|t| t.card_names()))

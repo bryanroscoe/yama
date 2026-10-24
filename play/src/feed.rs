@@ -155,8 +155,17 @@ pub enum What {
     /// Cards drawn: named only for whoever may see them, a count for everyone else.
     Drew { seat: u8, count: u32, cards: Vec<Seen> },
     /// An answer Yama gave for `seat` from memory ("Always pay"); only that seat's feed has it.
-    /// `answer` is its id in the seat's remembered answers, so the log can turn it off.
-    Automatic { seat: u8, name: String, accept: bool, answer: String },
+    /// `answer` is its id in the seat's remembered answers, so the log can turn it off. `did` says
+    /// what Yama did for an answer Yama itself remembers ("paid {1} for Jules's Rhystic Study");
+    /// the engine's own are a yes or no to `name`'s "may".
+    Automatic {
+        seat: u8,
+        name: String,
+        accept: bool,
+        answer: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        did: Option<String>,
+    },
     /// `seat` is out of the game; the cause is in the view's `outs`.
     Out { seat: u8 },
     Over {
@@ -272,7 +281,13 @@ impl Feed {
 
     /// An answer Yama gave for `seat` from memory, in that seat's feed only.
     pub(crate) fn automatic(&mut self, seat: u8, name: &str, accept: bool, answer: &str, state: &GameState) {
-        let what = What::Automatic { seat, name: name.to_string(), accept, answer: answer.to_string() };
+        let what = What::Automatic { seat, name: name.to_string(), accept, answer: answer.to_string(), did: None };
+        self.push(Some(seat), state.turn_number, state.active_player.0, what);
+    }
+
+    /// An answer Yama gave for `seat` from its own memory (remember.rs), in that seat's feed only.
+    pub(crate) fn automatic_by_yama(&mut self, seat: u8, name: &str, accept: bool, answer: &str, did: &str, state: &GameState) {
+        let what = What::Automatic { seat, name: name.to_string(), accept, answer: answer.to_string(), did: Some(did.to_string()) };
         self.push(Some(seat), state.turn_number, state.active_player.0, what);
     }
 
