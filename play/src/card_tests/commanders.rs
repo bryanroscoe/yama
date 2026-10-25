@@ -490,7 +490,6 @@ fn jace_minus_three_trades_a_creature_for_the_next_one_in_the_library() {
 /// "At the beginning of combat on each opponent's turn, they may pay {2}. If they don't,
 /// creatures they control can't attack Jaces you control this turn."
 #[test]
-#[ignore = "phase bug: Jace, Multiverse Architect's \"can't attack Jaces you control\" is unimplemented, so an opponent who doesn't pay can still attack him"]
 fn jace_keeps_attackers_off_unless_they_pay() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Jace, Multiverse Architect").field(1, "Grizzly Bears").lands(1, "Island", 2).active(1).build();
