@@ -1,9 +1,9 @@
 # Card coverage in the phase engine
 
-Generated 2026-10-24 by `play/src/bin/coverage.rs` from card data `card-data-eb309108eb0df708.json` (phase-v0.113.0+0571ee32-yama1/cards-eb309108). The machine-readable copy is [card-coverage.json](card-coverage.json). Regenerate with:
+Generated 2026-10-25 by `play/src/bin/coverage.rs` from card data `card-data-2905717cc9fe0f53.json` (phase-v0.113.0+0571ee32-yama1/cards-eb309108). The machine-readable copy is [card-coverage.json](card-coverage.json). Regenerate with:
 
 ```sh
-cargo run -p yama-play --bin coverage -- data/engine/card-data-eb309108eb0df708.json ../commander-decks \
+cargo run -p yama-play --bin coverage -- data/engine/card-data-2905717cc9fe0f53.json ../commander-decks \
     --fixture play/tests/fixtures/deck-cards.json --smoke play/src/card_tests/smoke_cards.rs
 ```
 
@@ -27,8 +27,8 @@ The tests are in `play/src/card_tests/` and run with the rest of the play crate 
 
 | | Cards | Full | Uncertain | Partial | Missing | Phase clean |
 |---|---:|---:|---:|---:|---:|---:|
-| Bryan's decks and candidates | 779 | 731 (93.8%) | 14 | 34 | 0 | 730 (93.7%) |
-| Precon catalog (174 precons) | 6429 | 5864 (91.2%) | 150 | 415 | 0 | 5851 (91.0%) |
+| Bryan's decks and candidates | 779 | 738 (94.7%) | 13 | 28 | 0 | 737 (94.6%) |
+| Precon catalog (174 precons) | 6429 | 5871 (91.3%) | 149 | 409 | 0 | 5858 (91.1%) |
 
 By deck and list (distinct cards, basic lands counted once):
 
@@ -37,29 +37,29 @@ By deck and list (distinct cards, basic lands counted once):
 | Fantastic Four | Mister Fantastic | stock | 87 | 86 | 0 | 1 | 0 |
 | Fantastic Four | Mister Fantastic | now | 87 | 86 | 0 | 1 | 0 |
 | Fantastic Four | Mister Fantastic | after-prints | 87 | 86 | 0 | 1 | 0 |
-| Riders of Rohan | Éowyn, Shieldmaiden | stock | 84 | 77 | 3 | 4 | 0 |
-| Riders of Rohan | Éowyn, Shieldmaiden | now | 83 | 78 | 2 | 3 | 0 |
+| Riders of Rohan | Éowyn, Shieldmaiden | stock | 84 | 78 | 2 | 4 | 0 |
+| Riders of Rohan | Éowyn, Shieldmaiden | now | 83 | 79 | 1 | 3 | 0 |
 | Riders of Rohan | Éowyn, Shieldmaiden | after-prints | 85 | 84 | 1 | 0 | 0 |
 | Riders of Rohan | Éowyn, Shieldmaiden | candidate | 7 | 6 | 0 | 1 | 0 |
-| Lorehold Spirit | Quintorius, History Chaser | stock | 85 | 79 | 0 | 6 | 0 |
-| Lorehold Spirit | Quintorius, History Chaser | now | 85 | 79 | 0 | 6 | 0 |
+| Lorehold Spirit | Quintorius, History Chaser | stock | 85 | 80 | 0 | 5 | 0 |
+| Lorehold Spirit | Quintorius, History Chaser | now | 85 | 80 | 0 | 5 | 0 |
 | Lorehold Spirit | Quintorius, History Chaser | after-prints | 85 | 82 | 0 | 3 | 0 |
-| Prismari Artistry | Rootha, Mastering the Moment | stock | 87 | 80 | 3 | 4 | 0 |
-| Prismari Artistry | Rootha, Mastering the Moment | now | 87 | 83 | 2 | 2 | 0 |
+| Prismari Artistry | Rootha, Mastering the Moment | stock | 87 | 81 | 3 | 3 | 0 |
+| Prismari Artistry | Rootha, Mastering the Moment | now | 87 | 84 | 2 | 1 | 0 |
 | Prismari Artistry | Rootha, Mastering the Moment | after-prints | 88 | 85 | 3 | 0 | 0 |
 | Revival Trance | Terra, Herald of Hope | stock | 93 | 90 | 0 | 3 | 0 |
 | Revival Trance | Terra, Herald of Hope | now | 93 | 90 | 0 | 3 | 0 |
 | Revival Trance | Terra, Herald of Hope | after-prints | 93 | 91 | 0 | 2 | 0 |
-| World Shaper | Hearthhull, the Worldseed | stock | 87 | 84 | 0 | 3 | 0 |
-| World Shaper | Hearthhull, the Worldseed | now | 87 | 85 | 0 | 2 | 0 |
-| World Shaper | Hearthhull, the Worldseed | after-prints | 88 | 86 | 0 | 2 | 0 |
-| Tricky Terrain | Omo, Queen of Vesuva | stock | 95 | 86 | 4 | 5 | 0 |
-| Tricky Terrain | Omo, Queen of Vesuva | now | 95 | 87 | 4 | 4 | 0 |
-| Tricky Terrain | Omo, Queen of Vesuva | after-prints | 95 | 88 | 4 | 3 | 0 |
-| Multiverse Reforged | Jace, Multiverse Architect | stock | 93 | 84 | 3 | 6 | 0 |
-| Multiverse Reforged | Jace, Multiverse Architect | precon | 93 | 84 | 3 | 6 | 0 |
-| Multiverse Reforged | Jace, Multiverse Architect | after-local-buys | 93 | 87 | 3 | 3 | 0 |
-| Multiverse Reforged | Jace, Multiverse Architect | proposed-bracket-3 | 93 | 88 | 1 | 4 | 0 |
+| World Shaper | Hearthhull, the Worldseed | stock | 87 | 85 | 0 | 2 | 0 |
+| World Shaper | Hearthhull, the Worldseed | now | 87 | 86 | 0 | 1 | 0 |
+| World Shaper | Hearthhull, the Worldseed | after-prints | 88 | 87 | 0 | 1 | 0 |
+| Tricky Terrain | Omo, Queen of Vesuva | stock | 95 | 88 | 4 | 3 | 0 |
+| Tricky Terrain | Omo, Queen of Vesuva | now | 95 | 89 | 4 | 2 | 0 |
+| Tricky Terrain | Omo, Queen of Vesuva | after-prints | 95 | 90 | 4 | 1 | 0 |
+| Multiverse Reforged | Jace, Multiverse Architect | stock | 93 | 86 | 3 | 4 | 0 |
+| Multiverse Reforged | Jace, Multiverse Architect | precon | 93 | 86 | 3 | 4 | 0 |
+| Multiverse Reforged | Jace, Multiverse Architect | after-local-buys | 93 | 89 | 3 | 1 | 0 |
+| Multiverse Reforged | Jace, Multiverse Architect | proposed-bracket-3 | 93 | 90 | 1 | 2 | 0 |
 | Multiverse Reforged | Jace, Multiverse Architect | candidate | 30 | 28 | 0 | 2 | 0 |
 
 ## Engine bugs found
@@ -119,7 +119,6 @@ Fixed on phase branch `cardfix-1` (based on fa59aea), carried as `patches/phase/
 | Creative Technique | partial | Prismari Artistry (stock) | Effect:unparsed_verb_arguments ("reveal cards from the top of it until you reveal a nonland card") |
 | Dack Fayden, Helping Hand | partial | Multiverse Reforged (stock, precon) | Effect:unparsed_quantity ("For each of those permanents, choose a different opponent"); Effect:unrecognized_clause_head ("They're goaded") |
 | Dance with Calamity | partial | Prismari Artistry (stock) | Effect:unrecognized_clause_head ("As many times as you choose") |
-| Darksteel Angel | partial | Multiverse Reforged (stock, precon, after-local-buys, proposed-bracket-3) | Effect:static_structure ("Creatures you control can't have -1/-1 counters put on them.") |
 | Dearly Departed | partial | Riders of Rohan (stock) | Effect:as_long_as_gate ("As long as ~ is in your graveyard, each Human creature you control enters with an additional +1/+1 counter on it.") |
 | Deification | partial | Lorehold Spirit (now, after-prints); Multiverse Reforged (proposed-bracket-3, candidate) | Effect:unknown ("As ~ enters, choose a planeswalker type."); Swallow:Replacement_Instead ("[warning:swallowed-clause] Replacement_Instead — As long as you control a creature, if damage dealt to a planeswalker you control of the chosen type would result in all loyalty counters on") |
 | Edgar, Master Machinist | partial | Revival Trance (stock, now, after-prints) | Effect:static_structure ("Once during each of your turns, you may cast an artifact spell from your graveyard. If you cast a spell this way, that artifact enters tapped.") |
@@ -128,25 +127,19 @@ Fixed on phase branch `cardfix-1` (based on fa59aea), carried as `patches/phase/
 | Fealty to the Realm | partial | Riders of Rohan (stock, now) | Effect:unknown ("The monarch controls enchanted creature.") |
 | Ginger, Queen of Sweets | partial | Multiverse Reforged (stock, precon) | Effect:unparsed_verb_arguments ("create a Gingerbrute token") |
 | Jace's Machinations | partial | Multiverse Reforged (proposed-bracket-3, candidate) | Effect:unbound_subject ("Until end of turn, you may activate loyalty abilities of Jace planeswalkers you control on any player's turn any time you could cast an instant. Empower Jace 8.") |
-| Jace, Multiverse Architect (commander) | partial | Multiverse Reforged (stock, precon, after-local-buys, proposed-bracket-3) | Effect:unrecognized_clause_head ("creatures they control can't attack Jaces you control") |
 | Loamcrafter Faun | partial | World Shaper (stock) | Effect:unparsed_verb_arguments ("discard one or more land cards") |
 | Negative Zone Portal | partial | Fantastic Four (stock, now, after-prints) | Effect:unparsed_condition ("if there are four or more creature cards exiled with ~, flip a coin. If you lose the flip, sacrifice ~ and return a card exiled with it at random to its owner's hand") |
 | Nissa, Steward of Elements | partial | Tricky Terrain (stock, now) | Effect:unrecognized_clause_head ("or a creature card with mana value less than or equal to the number of loyalty counters on ~") |
 | Niv-Mizzet, Ghost Counsel | partial | Multiverse Reforged (stock, precon) | Effect:unparsed_verb_arguments ("pay that much life") |
-| Planar Nexus | partial | Tricky Terrain (stock, now, after-prints) | Effect:effect_structure ("~ is every nonbasic land type.") |
 | Rejoin the Fight | partial | Revival Trance (stock, now) | Effect:unrecognized_clause_head ("starting with the next opponent in turn order") |
-| Sage of the Maze | partial | Tricky Terrain (stock, now, after-prints) | Effect:unparsed_verb_arguments ("{T}: Until end of turn, target land you control becomes an X/X Citizen creature with haste in addition to its other types, where X is twice the number of Gates you control. Activate only as a sorcery.") |
 | Serra Paragon | partial | Lorehold Spirit (stock, now, after-prints) | Effect:static_structure ("Once during each of your turns, you may play a land from your graveyard or cast a permanent spell with mana value 3 or less from your graveyard. If you do, it gains "When ~ is put into a graveyard from the battlefield, exile it and you gain 2 life."") |
 | Squandered Resources | partial | World Shaper (after-prints) | Effect:unparsed_verb_arguments ("Sacrifice a land: Add one mana of any type the sacrificed land could produce.") |
-| Study Hall | partial | Lorehold Spirit (stock, now); Prismari Artistry (stock, now) | Effect:unparsed_quantity ("When you spend this mana to cast your commander, scry X, where X is the number of times it's been cast from the command zone this game") |
 | Summon: Esper Valigarmanda | partial | Revival Trance (stock, now, after-prints) | Effect:linked_exile_resolution_cast ("an instant or sorcery card exiled with ~"); Effect:standalone_mana_spend_concession ("mana of any type can be spent to cast that spell") |
 | Sunken Palace | partial | Tricky Terrain (stock, now, after-prints) | Effect:orphaned_copy_retarget ("You may choose new targets for the copy"); Effect:unrecognized_clause_head ("When you spend this mana to cast a spell or activate an ability, copy that spell or ability") |
 | The Ur-Sphinx | partial | Multiverse Reforged (stock, precon, after-local-buys) | Effect:unparsed_quantity ("For each player, you may cast a card that player milled this way without paying its mana cost") |
 | Venerable Warsinger | partial | Lorehold Spirit (stock) | Effect:where_x_binding ("where X is the amount of damage ~ dealt to that player") |
-| Windgrace's Judgment | partial | World Shaper (stock, now, after-prints) | Effect:unrecognized_clause_head ("For any number of opponents, destroy target nonland permanent that player controls.") |
 | Wonderscape Sage | partial | Tricky Terrain (stock) | Effect:Unsupported unless clause ("discard a card unless that land had a nonbasic land type (unless: that land had a nonbasic land type)") |
 | Combat Celebrant | uncertain | Riders of Rohan (stock, now, after-prints) | Swallow:Duration_ThisTurn ("[warning:swallowed-clause] Duration_ThisTurn — If this creature hasn't been exerted this turn, you may exert it as it attacks. When you do, untap all other creatures you control and after") |
-| Crown of Gondor | uncertain | Riders of Rohan (stock, now) | Swallow:Condition_If ("[warning:swallowed-clause] Condition_If — Equip {4}. This ability costs {3} less to activate if you're the monarch.") |
 | Furygale Flocking | uncertain | Prismari Artistry (stock, now, after-prints) | Swallow:Condition_If ("[warning:swallowed-clause] Condition_If — For each opponent, create two 3/3 blue and red Elemental creature tokens with flying that attack that opponent this turn if able. They gain") |
 | Jhoira, Weatherlight Corsair | uncertain | Multiverse Reforged (stock, precon, after-local-buys) | Swallow:DynamicQty ("[warning:swallowed-clause] DynamicQty — Whenever Jhoira enters or attacks, target opponent reveals cards from the top of their library until they reveal a historic permanent card.") |
 | Mana Reflection | uncertain | Tricky Terrain (stock, now, after-prints) | Swallow:DynamicQty ("[warning:swallowed-clause] DynamicQty — If you tap a permanent for mana, it produces twice as much of that mana instead.") |
@@ -328,7 +321,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Commander's Sphere | stock | full | yes | enters, adds mana |  |
 | Coppercoat Vanguard | after-prints | full | yes | enters, printed 2/2 |  |
 | Court of Ire | stock | full | yes | enters |  |
-| Crown of Gondor | stock, now | uncertain | no | enters | Swallow:Condition_If ("[warning:swallowed-clause] Condition_If — Equip {4}. This ability costs {3} less to activate if you're the monarch.") |
+| Crown of Gondor | stock, now | full | yes | enters |  |
 | Cyclonic Rift | after-prints | full | yes | resolves |  |
 | Dearly Departed | stock | partial | no | enters, printed 5/5 | Effect:as_long_as_gate ("As long as ~ is in your graveyard, each Human creature you control enters with an additional +1/+1 counter on it.") |
 | Deflecting Swat | after-prints | full | yes | resolves |  |
@@ -549,7 +542,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Spiteful Banditry | after-prints | full | yes | enters |  |
 | Squee, Goblin Nabob | stock, now, after-prints | full | yes | enters, printed 1/1 |  |
 | Staff of the Storyteller | stock, now, after-prints | full | yes | enters, makes 1 token |  |
-| Study Hall | stock, now | partial | no | plays as a land, adds mana | Effect:unparsed_quantity ("When you spend this mana to cast your commander, scry X, where X is the number of times it's been cast from the command zone this game") |
+| Study Hall | stock, now | full | yes | plays as a land, adds mana |  |
 | Sun Titan | stock, now, after-prints | full | yes | enters, printed 6/6 |  |
 | Sunscorched Divide | stock, now | full | yes | plays as a land |  |
 | Swords to Plowshares | stock, now, after-prints | full | yes | resolves |  |
@@ -677,7 +670,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Storm-Kiln Artist | stock, now, after-prints | full | yes | enters, printed 2/2 |  |
 | Stormcarved Coast | now, after-prints | full | yes | plays as a land, adds mana |  |
 | Stormcatch Mentor | stock, now, after-prints | full | yes | enters, printed 1/1 |  |
-| Study Hall | stock, now | partial | no | plays as a land, adds mana | Effect:unparsed_quantity ("When you spend this mana to cast your commander, scry X, where X is the number of times it's been cast from the command zone this game") |
+| Study Hall | stock, now | full | yes | plays as a land, adds mana |  |
 | Sulfur Falls | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
 | Surge to Victory | stock, now, after-prints | full | yes | resolves |  |
 | Talisman of Creativity | stock, now, after-prints | full | yes | enters, adds mana, adds mana |  |
@@ -962,7 +955,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Vernal Fen | stock, now, after-prints | full | yes | plays as a land, adds mana, adds mana |  |
 | Viridescent Bog | stock, now | full | yes | plays as a land |  |
 | Wastes | stock, now | full | yes | plays as a land, adds mana |  |
-| Windgrace's Judgment | stock, now, after-prints | partial | no | resolves | Effect:unrecognized_clause_head ("For any number of opponents, destroy target nonland permanent that player controls.") |
+| Windgrace's Judgment | stock, now, after-prints | full | yes | resolves |  |
 | Wooded Foothills | after-prints | full | yes | plays as a land |  |
 | World Breaker | stock, now | full | yes | enters, printed 5/7 |  |
 | Worldsoul's Rage | stock, now, after-prints | full | yes | resolves |  |
@@ -1019,7 +1012,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Growth Spiral | stock, now, after-prints | full | yes | resolves, draws 1 |  |
 | Hakbal of the Surging Soul | after-prints | full | yes | enters, printed 3/3 |  |
 | Harmonize | stock, now | full | yes | resolves, draws 3 |  |
-| Hashep Oasis | stock, now, after-prints | full | yes | ignored: phase bug: paying "Sacrifice a Desert" with Hashep Oasis itself is refused (it sacrifices first, then can't tap) |  |
+| Hashep Oasis | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
 | Herald of Hoofbeats | after-prints | full | yes | enters, printed 3/3 |  |
 | Heroic Intervention | after-prints | full | yes | resolves |  |
 | Hidden Cataract | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
@@ -1032,7 +1025,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Island | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
 | Jyoti, Moag Ancient | stock, now, after-prints | full | yes | enters, printed 2/4 |  |
 | Lair of the Hydra | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
-| Lazotep Quarry | stock, now, after-prints | full | yes | ignored: phase bug: an {X} ability with "Sacrifice a Desert" can't be activated (casting_costs.rs: non-self sacrifice cost unhandled) |  |
+| Lazotep Quarry | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
 | Lightning Greaves | after-prints | full | yes | enters |  |
 | Lord of the Unreal | after-prints | full | yes | enters, printed 2/2 |  |
 | Lumbering Falls | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
@@ -1051,7 +1044,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Omo, Queen of Vesuva | stock, now, after-prints | full | yes | enters, printed 1/5 |  |
 | Oracle of Mul Daya | now, after-prints | full | yes | enters, printed 2/2 |  |
 | Overflowing Basin | stock, now, after-prints | full | yes | plays as a land |  |
-| Planar Nexus | stock, now, after-prints | partial | no | plays as a land, adds mana | Effect:effect_structure ("~ is every nonbasic land type.") |
+| Planar Nexus | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
 | Poison Dart Frog | stock, now | full | yes | enters, printed 1/1, adds mana |  |
 | Pongify | stock, now, after-prints | full | yes | resolves |  |
 | Priest of Titania | after-prints | full | yes | enters, printed 1/1, adds mana |  |
@@ -1062,7 +1055,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Ramunap Excavator | stock, now, after-prints | full | yes | enters, printed 2/3 |  |
 | Replication Technique | stock, now | full | yes | resolves |  |
 | Roaming Throne | after-prints | full | yes | enters, printed 4/4 |  |
-| Sage of the Maze | stock, now, after-prints | partial | no | enters, printed 1/3, adds mana | Effect:unparsed_verb_arguments ("{T}: Until end of turn, target land you control becomes an X/X Citizen creature with haste in addition to its other types, where X is twice the number of Gates you control. Activate only as a sorcery.") |
+| Sage of the Maze | stock, now, after-prints | full | yes | enters, printed 1/3, adds mana |  |
 | Satyr Wayfinder | stock | full | yes | enters, printed 1/1 |  |
 | Scute Swarm | stock, now, after-prints | full | yes | enters, printed 1/1 |  |
 | Seer's Sundial | stock, now | full | yes | enters |  |
@@ -1136,7 +1129,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Currency Converter | stock, precon, after-local-buys | full | yes | enters |  |
 | Cursed Mirror | stock, precon, after-local-buys | full | yes | enters, adds mana |  |
 | Dack Fayden, Helping Hand | stock, precon | partial | no | enters, printed 4/6 | Effect:unparsed_quantity ("For each of those permanents, choose a different opponent"); Effect:unrecognized_clause_head ("They're goaded") |
-| Darksteel Angel | stock, precon, after-local-buys, proposed-bracket-3 | partial | no | enters, printed 4/4 | Effect:static_structure ("Creatures you control can't have -1/-1 counters put on them.") |
+| Darksteel Angel | stock, precon, after-local-buys, proposed-bracket-3 | full | yes | enters, printed 4/4 |  |
 | Deification | proposed-bracket-3, candidate | partial | no | enters | candidate jace-deification; Effect:unknown ("As ~ enters, choose a planeswalker type."); Swallow:Replacement_Instead ("[warning:swallowed-clause] Replacement_Instead — As long as you control a creature, if damage dealt to a planeswalker you control of the chosen type would result in all loyalty counters on") |
 | Demonic Tutor | candidate | full | yes | resolves | candidate jace-demonic-tutor |
 | Despark | stock, precon, after-local-buys, proposed-bracket-3 | full | yes | resolves |  |
@@ -1164,7 +1157,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Isolated Chapel | stock, precon, after-local-buys, proposed-bracket-3 | full | yes | plays as a land, adds mana |  |
 | Izzet Signet | stock, precon, after-local-buys | full | yes | enters |  |
 | Jace's Machinations | proposed-bracket-3, candidate | partial | no | resolves | candidate jace-jaces-machinations; Effect:unbound_subject ("Until end of turn, you may activate loyalty abilities of Jace planeswalkers you control on any player's turn any time you could cast an instant. Empower Jace 8.") |
-| Jace, Multiverse Architect | stock, precon, after-local-buys, proposed-bracket-3 | partial | no | enters, loyalty 4 | Effect:unrecognized_clause_head ("creatures they control can't attack Jaces you control") |
+| Jace, Multiverse Architect | stock, precon, after-local-buys, proposed-bracket-3 | full | yes | enters, loyalty 4 |  |
 | Jhoira, Weatherlight Corsair | stock, precon, after-local-buys | uncertain | no | enters, printed 4/5 | Swallow:DynamicQty ("[warning:swallowed-clause] DynamicQty — Whenever Jhoira enters or attacks, target opponent reveals cards from the top of their library until they reveal a historic permanent card.") |
 | Kher Keep | stock, precon, after-local-buys, proposed-bracket-3 | full | yes | plays as a land, adds mana |  |
 | Lingering Souls | stock, precon, after-local-buys, proposed-bracket-3 | full | yes | resolves, makes 2 tokens |  |
@@ -1239,7 +1232,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 
 | Card | Precons | What phase reports |
 |---|---:|---|
-| Study Hall | 10 | Effect:unparsed_quantity ("When you spend this mana to cast your commander, scry X, where X is the number of times it's been cast from the command zone this game") |
 | Forge of Heroes | 7 | Effect:put_counter_tail ("Put a +1/+1 counter on it if it's a creature and a loyalty counter on it") |
 | Duplicant | 6 | Static:Unrecognized(a card exiled with ~ is a creature card) |
 | Kazuul, Tyrant of the Cliffs | 6 | Effect:unparsed_condition ("if you're the defending player, create a 3/3 red Ogre creature token unless that creature's controller pays {3}") |
@@ -1250,7 +1242,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Reins of Power | 4 | Effect:unbound_subject ("You and that opponent each gain control of all creatures the other controls until end of turn") |
 | Stalking Leonin | 4 | Effect:effect_structure ("Reveal the player you chose: Exile target creature that's attacking you if it's controlled by the chosen player. Activate only once.") |
 | Voice of Many | 4 | Effect:unparsed_quantity ("draw a card for each opponent who controls fewer creatures than you") |
-| Windgrace's Judgment | 4 | Effect:unrecognized_clause_head ("For any number of opponents, destroy target nonland permanent that player controls.") |
 | Call the Coppercoats | 3 | Effect:unparsed_quantity ("Create X 1/1 white Human Soldier creature tokens, where X is the number of creatures those opponents control") |
 | Curse of Bounty | 3 | Effect:unrecognized_clause_head ("attacking that player untaps all nonland permanents they control") |
 | Dearly Departed | 3 | Effect:as_long_as_gate ("As long as ~ is in your graveyard, each Human creature you control enters with an additional +1/+1 counter on it.") |
@@ -1367,7 +1358,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Círdan the Shipwright | 1 | Effect:unparsed_quantity ("draw a card for each vote they received"); Effect:unrecognized_clause_head ("vote for a player") |
 | Dack Fayden, Helping Hand | 1 | Effect:unparsed_quantity ("For each of those permanents, choose a different opponent"); Effect:unrecognized_clause_head ("They're goaded") |
 | Danse Macabre | 1 | Effect:unparsed_verb_arguments ("Roll a d20 and add the toughness of the creature you sacrificed this way"); Effect:unrecognized_clause_head ("1—14 \| Return a creature card put into a graveyard this way to the battlefield under your control.") |
-| Darksteel Angel | 1 | Effect:static_structure ("Creatures you control can't have -1/-1 counters put on them.") |
 | Daxos the Returned | 1 | Effect:unparsed_verb_arguments ("{1}{W}{B}: Create a white and black Spirit enchantment creature token. It has "~'s power and toughness are each equal to the number of experience counters you have."") |
 | Defenders of Humanity | 1 | Effect:unparsed_condition ("Activate only if you control no creatures and only during your turn") |
 | Denry Klin, Editor in Chief | 1 | Effect:unparsed_verb_arguments ("put the same number of each kind of counter on that creature") |
@@ -1454,7 +1444,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Ion Storm | 1 | Cost:Remove a +1/+1 counter or a charge counter from a permanent you control ("Remove a +1/+1 counter or a charge counter from a permanent you control") |
 | Izzet Generatorium | 1 | Effect:replacement_structure ("If you would get one or more {E} , you get that many plus one {E} instead."); Effect:unparsed_condition ("Activate only if you've paid or lost four or more {E}") |
 | Jace, Mirror Mage | 1 | Effect:unparsed_quantity ("Remove a number of loyalty counters equal to that card's mana value from ~") |
-| Jace, Multiverse Architect | 1 | Effect:unrecognized_clause_head ("creatures they control can't attack Jaces you control") |
 | Jared Carthalion | 1 | Effect:unparsed_quantity ("put a number of +1/+1 counters on it equal to the number of colors it is"); Swallow:Condition_If ("[warning:swallowed-clause] Condition_If — [−6]: Return target multicolored card from your graveyard to your hand. If that card was all colors, draw a card and create two Treasure t") |
 | Jason Bright, Glowing Prophet | 1 | Effect:unparsed_condition ("if its power was different from its base power, draw a card") |
 | Jegantha, the Wellspring | 1 | Effect:unbound_subject ("This mana can't be spent to pay generic mana costs") |
@@ -1522,7 +1511,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Overclocked Electromancer | 1 | Effect:unparsed_quantity ("get X {E}, where X is that excess damage") |
 | Phyrexian Ingester | 1 | Effect:static_structure ("~ gets +X/+Y, where X is the exiled creature card's power and Y is its toughness.") |
 | Phyrexian Processor | 1 | Effect:unknown ("As ~ enters, pay any amount of life."); Effect:unparsed_quantity ("{4}, {T}: Create an X/X black Phyrexian Minion creature token, where X is the life paid as ~ entered.") |
-| Planar Nexus | 1 | Effect:effect_structure ("~ is every nonbasic land type.") |
 | Plasm Capture | 1 | Effect:unrecognized_clause_head ("At the beginning of your next first main phase, add X mana in any combination of colors, where X is that spell's mana value") |
 | Plasma Caster | 1 | Effect:otherwise ("Otherwise") |
 | Plaza of Harmony | 1 | Effect:unparsed_verb_arguments ("{T}: Add one mana of any type that a Gate you control could produce.") |
@@ -1552,7 +1540,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Rowan Kenrith | 1 | Effect:unparsed_verb_arguments ("attack if able"); Effect:unrecognized_clause_head ("[+2]: During target player's next turn, each creature that player controls attacks if able.") |
 | Ruthless Radrat | 1 | Effect:unknown ("Squad—Exile four cards from your graveyard.") |
 | Sadistic Shell Game | 1 | Effect:unrecognized_clause_head ("Starting with the next opponent in turn order, each player chooses a creature you don't control. Destroy the chosen creatures.") |
-| Sage of the Maze | 1 | Effect:unparsed_verb_arguments ("{T}: Until end of turn, target land you control becomes an X/X Citizen creature with haste in addition to its other types, where X is twice the number of Gates you control. Activate only as a sorcery.") |
 | Salt Road Ambushers | 1 | Effect:unparsed_verb_arguments ("if it's a creature, put two +1/+1 counters on it") |
 | Salvation Colossus | 1 | Effect:unknown ("Unearth—Pay eight {E}.") |
 | Sanwell, Avenger Ace | 1 | Effect:unrepresentable_cast_cap ("a vehicle or artifact creature spell from among them") |
@@ -1659,19 +1646,19 @@ The most common gaps among the catalog's uncertain and partial cards:
 
 | Gap | Cards |
 |---|---:|
-| Effect:unrecognized_clause_head | 104 |
-| Effect:unparsed_verb_arguments | 86 |
-| Effect:unparsed_quantity | 64 |
+| Effect:unrecognized_clause_head | 102 |
+| Effect:unparsed_verb_arguments | 85 |
+| Effect:unparsed_quantity | 63 |
 | Swallow:DynamicQty | 51 |
-| Swallow:Condition_If | 39 |
+| Swallow:Condition_If | 38 |
 | Effect:unparsed_condition | 36 |
-| Effect:static_structure | 27 |
+| Effect:static_structure | 26 |
 | Effect:unknown | 25 |
 | Effect:unbound_subject | 15 |
 | Effect:where_x_binding | 13 |
 | Effect:otherwise | 11 |
 | Effect:put_counter_tail | 11 |
-| Effect:effect_structure | 10 |
+| Effect:effect_structure | 9 |
 | Swallow:Replacement_Instead | 8 |
 | Replacement:as_enters_projection | 7 |
 | Effect:replacement_structure | 6 |

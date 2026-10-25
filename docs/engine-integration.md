@@ -105,6 +105,26 @@ So one game per tokio task should be fine, with the CPU-heavy calls (`apply`, AI
   - Phase's compatibility key (`scripts/engine-fingerprint.sh`) hashes `crates/`, `Cargo.lock`, `rust-toolchain.toml`, the card-data SHA and the draft-pools SHA.
   - Yama should store the card-data SHA alongside the engine commit and fetch by hash at deploy time, not at build time.
   - Nothing is needed at compile time except files already in the repo (`crates/engine/data/*`, 6.1 MB, embedded through `build.rs`).
+- **Yama's own build [ran 2026-10-25]:** the downloaded file comes from upstream's parser, so Yama's parser fixes (patches 0016-0030) reach games only through a file built at the pinned commit.
+  - Generator, at `deploy/phase-rev` (3bbfea6): `cargo build --profile tool -p phase-engine --features cli --bin oracle-gen --bin card-data-validate`. Then `GATED_SETS_AS_OF=2026-10-25 oracle-gen <data> --stats --names-out card-names.json > card-data.json`, `card-data-validate card-data.json`, and name it `card-data-<first 16 hex of its SHA-256>.json`.
+  - That is `scripts/gen-card-data.sh` without the steps that rewrite tracked files (`--write-subtypes`, the token catalog), so the generator is the engine Yama compiles.
+  - Inputs: MTGJSON only, no Scryfall. Build 5.3.0+20261024: `AtomicCards.json`, `SetList.json`, `CardTypes.json` and `Meta.json`, plus 460 set files in `mtgjson/sets/`, and the fork's `data/bracket_lists.json`.
+  - The 460 set files are the 341 token sets `fetch-token-sets.sh` takes and 119 more draft sets (`fetch-draft-sets.sh`). Upstream's deploy has the draft sets in its cache; without them, 7,225 cards lose rarities.
+  - Output: `card-data-2905717cc9fe0f53.json`, 101,462,596 bytes, SHA-256 `2905717cc9fe0f53549f113f0991e998ccd969c56357f07deba5efcd0f1fc76a`. A second run gave the same bytes.
+  - Kept on saget next to the old file, and on the Mac in `data/engine/` (gitignored): the file, `.json.zst` (7.6 MB, SHA-256 `e2a3c279…e031`), and the inputs as `card-data-2905717cc9fe0f53-inputs.tar.zst` (129 MB, SHA-256 `7a798b5b…97df`; MTGJSON keeps no old builds).
+  - **Against `eb309108` (v0.113.0's file):** 35,844 entries unchanged, 80 changed, 127 added (new cards) and 1 removed (an Un-card).
+  - A control run of v0.113.0's generator on the same inputs splits the 80. Parser: 28. MTGJSON drift: 52 (12 Oracle errata, none in Bryan's decks; Arena format legalities; printings metadata). None changed both ways.
+  - The 28 parser changes are the cardfix cards plus 17 the same patterns reach (per-opponent attacking tokens, "on each opponent's turn", "exile all the cards from your hand/library", the triggering player paying). No card gained an unimplemented part or a warning.
+  - Yama's coverage: Bryan's cards fully supported go from 731 to 738 (partial from 34 to 28); the precon catalog goes from 5,864 to 5,871; none got worse.
+- **Switching to it:** the steps are in order.
+  1. The file is already at `/mnt/user/appdata/yama/data/engine/` on saget (99:100).
+  2. Point the server at it. Either set `YAMA_ENGINE_CARD_DATA=/data/engine/card-data-2905717cc9fe0f53.json` in saget's `yama.env`, or change the default in `server/src/config.rs`.
+  3. Set `ENGINE_VERSION` in `play/src/lib.rs` to end in `/cards-2905717c`. Every game stores it, and a replay only reproduces under the same engine and card data.
+  4. Change `CARD_FILE` in `deploy/lab.sh`, and the `eb309108` defaults in `soak.rs`, `determinism.rs` and the README.
+  5. Deploy. Leave the old file in place for replays of earlier games.
+  - **Fresh installs:** `data.phase-rs.dev` doesn't have this file. Proposal: a release asset on `bryanroscoe/yama` (tag `carddata-2905717c`, the `.json.zst` and the inputs bundle).
+  - `first-time.sh` would set `CARD_DATA`/`SHA` to the values above. When the server copy fails the check, it would download, decompress, check and copy the file, with `gh release download carddata-2905717c -R bryanroscoe/yama -p "$CARD_DATA.zst"`, then `zstd -d`, `shasum -a 256 -c` and `scp`.
+  - Fallback: rebuild from the inputs bundle with the generator above. The output is deterministic.
 - **Mapping Yama decks [read]:**
   - `CardDatabase::get_face_by_oracle_id(&str)` (card_db.rs:264) uses `CardFace::scryfall_oracle_id` (MTGJSON's `identifiers.scryfallOracleId`, the same value as Scryfall's `oracle_id`).
   - Map each Yama `{oracle_id, name, qty, board}` entry by oracle_id first, falling back to `get_face_by_name`, then push `face.name` `qty` times into `PlayerDeckList`.
