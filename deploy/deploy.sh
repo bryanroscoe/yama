@@ -45,7 +45,11 @@ if ! ssh "$HOST" "cd $DIR/build && docker build -f yama/deploy/Dockerfile.adviso
 fi
 
 echo "Building yama-forge:$REV on saget (log: $DIR/build/forge-build.log; the first build downloads Forge)…"
-if ! ssh "$HOST" "cd $DIR/build && docker build -f yama/deploy/Dockerfile.forge-worker --build-arg FORGE_WORKER_GIT_SHA=$REV \
+# The worker's results carry its source, not Yama's commit: a pod whose two Forge games ran under
+# different labels is left out of a run's difference, so a deploy that doesn't touch the worker
+# mustn't change the label of games already played (2026-10-24, run b8c61ce0).
+FORGE_SRC=$(git rev-parse --short=7 HEAD:forge-worker)
+if ! ssh "$HOST" "cd $DIR/build && docker build -f yama/deploy/Dockerfile.forge-worker --build-arg FORGE_WORKER_GIT_SHA=$FORGE_SRC \
     -t yama-forge:latest -t yama-forge:$REV yama/forge-worker > forge-build.log 2>&1"; then
   ssh "$HOST" "tail -30 $DIR/build/forge-build.log"; echo "Forge worker build failed."; exit 1
 fi
