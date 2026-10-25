@@ -774,27 +774,30 @@ struct RunInfo {
     /// Pod templates (games per engine in solo and versus).
     pods: usize,
     engine: String,
-    settle_pods: Option<u32>,
+    /// Each engine's results so far (phase's half first in a "both" run).
+    summaries: Vec<crate::lab::stats::Summary>,
 }
 
 async fn run_info(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<RunInfo> {
-    let row: Option<(String, String, Option<String>, i64, Option<String>, Option<i64>)> = sqlx::query_as(
+    type Row = (String, String, Option<String>, i64, Option<String>, Option<String>, Option<String>);
+    let row: Option<Row> = sqlx::query_as(
         "SELECT name, status, json_extract(spec, '$.mode'), json_extract(spec, '$.pods'), json_extract(spec, '$.engines.mode'),
-                json_extract(summary, '$.paired.settle_pods')
+                summary, summary_forge
          FROM lab_experiments WHERE id = ? AND owner_id = ?",
     )
     .bind(id)
     .bind(owner)
     .fetch_optional(pool)
     .await?;
-    let (name, status, mode, pods, engine, settle) = row.ok_or(AppError::NotFound("experiment"))?;
+    let (name, status, mode, pods, engine, summary, forge) = row.ok_or(AppError::NotFound("experiment"))?;
+    let summaries = [summary, forge].into_iter().flatten().filter_map(|t| serde_json::from_str(&t).ok()).collect();
     Ok(RunInfo {
         name,
         status,
         mode: mode.unwrap_or_else(|| "change".into()),
         pods: usize::try_from(pods).unwrap_or(0),
         engine: engine.unwrap_or_else(|| "phase".into()),
-        settle_pods: settle.and_then(|n| u32::try_from(n).ok()),
+        summaries,
     })
 }
 
@@ -812,9 +815,9 @@ pub async fn more_lab_games(st: &AppState, user: &User, via: &Via, args: &Value)
     if run.status != "done" {
         return Err(AppError::bad(format!("Only a finished run can take more games; this one is {}.", run.status)));
     }
-    // Enough for the run's settle estimate, where it has one.
+    // Enough for the run's settle estimate, where it has one (the larger of the two engines').
     let per = per_pod(&run.mode);
-    let default = run.settle_pods.map(|n| games_at_least(user, (n as usize).saturating_sub(run.pods) * per));
+    let default = run.summaries.iter().filter_map(crate::lab::stats::pods_to_add).max().map(|n| games_at_least(user, n as usize * per));
     let games = games_arg(user, args, default)?;
     let new_pods = games as usize / per;
     let mut detail = format!(
@@ -822,8 +825,10 @@ pub async fn more_lab_games(st: &AppState, user: &User, via: &Via, args: &Value)
         if run.engine == "both" { " on each engine" } else { "" },
         run.pods
     );
-    if let Some(n) = run.settle_pods {
-        let _ = write!(detail, " If the difference holds, about {n} pods in all would settle it.");
+    for sm in &run.summaries {
+        if let Some(n) = sm.paired.settle_pods {
+            let _ = write!(detail, " If the difference holds, about {n} counted pods would settle it ({} so far).", sm.paired.pods);
+        }
     }
     let summary = format!("More lab games, {}: {games} more", run.name);
     stage(st, user, via, Staged { kind: "more_lab_games", summary, detail, payload: json!({"experiment": id, "games": games, "seen_pods": run.pods}) }).await

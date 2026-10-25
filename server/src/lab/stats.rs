@@ -345,6 +345,18 @@ pub fn verdict(paired: &Paired, is_final: bool) -> Verdict {
 /// Most pods [`pods_to_settle`] will name; beyond that it says nothing.
 const SETTLE_MAX: f64 = 20_000.0;
 
+/// Pods to add to a finished run so its counted pods (both games scored) reach the settle
+/// estimate, at the share of its pods that counted so far. None without an estimate, or once it's
+/// reached.
+pub fn pods_to_add(s: &Summary) -> Option<u32> {
+    let target = s.paired.settle_pods?;
+    if s.pods == 0 || s.paired.pods == 0 || target <= s.paired.pods {
+        return None;
+    }
+    let kept = f64::from(s.paired.pods) / f64::from(s.pods);
+    Some((f64::from(target - s.paired.pods) / kept).ceil() as u32)
+}
+
 /// About how many paired pods in all an unclear difference needs before its interval clears zero by
 /// the verdict's whole point, if the difference and the share of pods where only one list won stay
 /// as they are: n >= Z^2 (p - d^2) / (|d| - 0.0075)^2, where p is that share and d the difference
@@ -913,6 +925,15 @@ mod tests {
         // A summary names it only while the verdict can't tell.
         let unclear = summarize(&[], true);
         assert_eq!(unclear.paired.settle_pods, None);
+        // Pods to add: the counted pods still missing, at the share that counted (83 of 100), as
+        // the run page's "Add games" says (web/src/lab/logic.ts, gamesToSettle).
+        let mut s = summarize(&[], true);
+        s.pods = 100;
+        s.paired = paired(83, 14, 9);
+        s.paired.settle_pods = Some(267);
+        assert_eq!(pods_to_add(&s), Some(222));
+        s.paired.settle_pods = Some(80);
+        assert_eq!(pods_to_add(&s), None, "already there");
     }
 
     /// The closed-form interval against analyze.py's method (percentile bootstrap over pods, 2000

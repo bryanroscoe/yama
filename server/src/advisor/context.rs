@@ -695,7 +695,7 @@ async fn experiment(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Strin
             }
             Some(sm) => {
                 let _ = writeln!(out, "\nResults on {engine}:");
-                out.push_str(&summary_text(sm, e.mode, &a, &b, both));
+                out.push_str(&summary_text(sm, e.mode, &a, &b, both, engine == "Forge"));
             }
         }
     }
@@ -716,7 +716,8 @@ async fn experiment(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Strin
 
 /// One engine's results in words: every number the run page shows, and what to do about an
 /// unclear answer.
-fn summary_text(sm: &crate::lab::stats::Summary, mode: crate::lab::experiments::Mode, a: &str, b: &str, both: bool) -> String {
+/// `forge`: Forge's half, whose limit is wall time rather than CPU time.
+fn summary_text(sm: &crate::lab::stats::Summary, mode: crate::lab::experiments::Mode, a: &str, b: &str, both: bool, forge: bool) -> String {
     use crate::lab::experiments::Mode;
     use crate::lab::stats::ListStats;
     let mut out = String::new();
@@ -775,7 +776,11 @@ fn summary_text(sm: &crate::lab::stats::Summary, mode: crate::lab::experiments::
     } else {
         let mut why = vec![];
         if u.time_cap > 0 {
-            why.push(format!("{} ran out of CPU time", u.time_cap));
+            why.push(if forge {
+                format!("{} ran past Forge's {} s limit (wall time)", u.time_cap, crate::lab::forge::FORGE_MAX_SECONDS)
+            } else {
+                format!("{} ran out of CPU time", u.time_cap)
+            });
         }
         if u.error > 0 {
             why.push(format!("{} failed (a hang, the wall-clock safety net or an engine error; lab_games has each reason)", u.error));
@@ -790,13 +795,19 @@ fn summary_text(sm: &crate::lab::stats::Summary, mode: crate::lab::experiments::
         let _ = writeln!(out, "- Scored with nobody winning: {} ({} draws, {} at the turn cap, {} at the action cap).", n.total, n.draw, n.turn_cap, n.action_cap);
     }
     if let Some(settle) = sm.paired.settle_pods.filter(|_| sm.versus.is_none() && mode != Mode::Solo) {
-        let more = settle.saturating_sub(sm.pods);
-        let _ = writeln!(
-            out,
-            "- If the difference stays where it is, about {settle} pods in all ({more} more, {} more games{}) would settle it; more_lab_games adds them to this run.",
-            more * 2,
-            if both { " on each engine" } else { "" }
-        );
+        let _ = write!(out, "- If the difference stays where it is, about {settle} counted pods would settle it ({} so far)", sm.paired.pods);
+        if !sm.verdict.is_final {
+            out.push_str("; the pods still to play may get there.\n");
+        } else if let Some(add) = crate::lab::stats::pods_to_add(sm) {
+            let _ = writeln!(
+                out,
+                "; about {add} more pods ({} more games{}) should get there, and more_lab_games adds them to this run.",
+                add * 2,
+                if both { " on each engine" } else { "" }
+            );
+        } else {
+            out.push_str(".\n");
+        }
     }
     out
 }
