@@ -35,8 +35,8 @@ use engine::types::actions::{AlternativeCastDecision, CastChoice, GameAction, Ma
 use engine::types::game_state::{
     ActionResult, AutoMayChoice, CombatDamageAssignmentMode, CombatTaxContext, CostResume, CounterCostChoice, CounterMoveChoice, CounterRemoveChoice, DistributionUnit, GameState, ManaChoice,
     ManaChoiceContext, ManaChoicePrompt, MayTriggerAutoChoiceScope, MayTriggerAutoChoiceSelector, MulliganDecisionPhase, PayCostKind,
-    ReplacementAutoChoiceId, ReplacementChoiceKind, RetargetScope, ShardChoice, ShardOptions, WaitingFor, YieldScope,
-    YieldTarget,
+    ReplacementAutoChoiceId, ReplacementCandidateSummary, ReplacementChoiceKind, RetargetScope, ShardChoice, ShardOptions, WaitingFor,
+    YieldScope, YieldTarget,
 };
 use engine::types::mana::{ManaCost, ManaType};
 use engine::types::identifiers::ObjectId;
@@ -304,9 +304,9 @@ pub struct Pending {
     /// "kicker", "optional" and "either" (extra costs), "cost" (cards or permanents as a cost),
     /// "cost_branch", "cost_type", "ward" and "return". Ways to cast (ways.rs): "cascade",
     /// "discover", "ripple", "madness", "miracle", "miracle_reveal", "adventure", "face",
-    /// "alt_cost", "variant" and "mutate"; permanents: "legend", "clone", "equip", "ring",
-    /// "empower", "host", "populate" and "explore"; counters: "proliferate", "move_counters",
-    /// "remove_counters" and "counter_cost". Everyone takes part (together.rs): "vote",
+    /// "alt_cost", "variant", "mutate" and "free_cast_window"; permanents: "legend", "clone",
+    /// "equip", "ring", "empower", "host", "populate" and "explore"; counters: "proliferate",
+    /// "move_counters", "remove_counters" and "counter_cost". Everyone takes part (together.rs): "vote",
     /// "piles_split", "piles_choose", "branch", "coin", "die", "guess", "clash" and "life";
     /// choosing a player: "gift", "entry_controller", "zone_chooser", "clash_opponent",
     /// "announcer" and "pile_opponent". The library (library.rs): "top_or_bottom", "partition",
@@ -566,6 +566,28 @@ fn count(n: usize, one: &str, many: &str) -> String {
 /// "draw a card" as a question: "Draw a card?". A whole trigger ("When ~ enters, you may search
 /// your library…") asks what you may do ("Search your library…?"). Longer text (several
 /// sentences) is left as the engine wrote it, capitalised.
+/// What happens if candidate `index` of a replacement ordering is picked, where that's plain:
+/// the engine applies the effect picked first and then the others (CR 616.1e, 616.1f), so of
+/// two effects that each say whether a permanent enters tapped (a land that enters tapped and
+/// Spelunking's "lands you control enter untapped") the other one, applied last, decides.
+/// `None` for any other ordering, where each effect still happens and only the order differs.
+pub(crate) fn replacement_order_outcome(items: &[ReplacementCandidateSummary], index: usize) -> Option<&'static str> {
+    // The engine's own labels for a self tap or untap as it enters (replacement.rs,
+    // `replacement_choice_label`).
+    let tap_state = |c: &ReplacementCandidateSummary| match c.description.as_str() {
+        "Enters tapped" => Some(true),
+        "Enters untapped" => Some(false),
+        _ => None,
+    };
+    let [a, b] = items else { return None };
+    let (first, last) = if index == 0 { (a, b) } else if index == 1 { (b, a) } else { return None };
+    match (tap_state(first)?, tap_state(last)?) {
+        (true, false) => Some("it enters untapped"),
+        (false, true) => Some("it enters tapped"),
+        _ => None,
+    }
+}
+
 fn question(text: &str) -> String {
     let text = one_line(text);
     let text = text.trim();
@@ -1070,7 +1092,13 @@ impl Pending {
                         let mut o = card(vs, &c.source_id, true);
                         o.id = i.to_string();
                         o.name = one_line(&c.source_name);
-                        o.text = Some(effect_text(vs, &c.source_id, &c.description));
+                        let text = effect_text(vs, &c.source_id, &c.description);
+                        // An ordering where the effect applied last decides (a tapland and
+                        // Spelunking) says how it ends up, not only what the effect does.
+                        o.text = Some(match (kind, replacement_order_outcome(items, i)) {
+                            (ReplacementChoiceKind::Order, Some(outcome)) => format!("{text}. Applied first, so {outcome}"),
+                            _ => text,
+                        });
                         o
                     })
                     .collect();
@@ -2417,6 +2445,8 @@ impl Act {
     pub fn from_action(action: &GameAction) -> Option<Act> {
         Some(match action {
             GameAction::SelectCards { cards } => Act::SelectCards { cards: cards.iter().map(|c| c.0).collect() },
+            // A free-cast window is answered with the card picked, or none (ways.rs).
+            GameAction::FreeCastWindowChoice { selection } => Act::SelectCards { cards: selection.iter().map(|c| c.0).collect() },
             GameAction::OrderTriggers { order } => Act::OrderTriggers { order: order.clone() },
             GameAction::SelectModes { indices } => Act::SelectModes { indices: indices.clone() },
             GameAction::ChooseX { value } => Act::ChooseX { value: *value },
@@ -2788,6 +2818,8 @@ pub fn answer(state: &mut GameState, owner: PlayerId, act: &Act) -> Result<Answe
                 Act::DeclareCompanion { .. } | Act::ChooseEntryAttackTarget { .. } | Act::ProposeShortcut { .. } | Act::DeclineShortcut | Act::RespondToShortcut { .. } => {
                     crate::rare::action_for(&state.waiting_for, &candidates, act)
                 }
+                // A free-cast window: the card to cast, or none to finish (ways.rs).
+                Act::SelectCards { cards } if pending.purpose == "free_cast_window" => crate::ways::free_cast_window_action(&candidates, cards),
                 _ => pending.normalize(act).to_action(),
             }
             .ok_or_else(|| doesnt_fit("That answer doesn't fit this decision."))?;

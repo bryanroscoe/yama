@@ -77,6 +77,9 @@ pub const HELPERS: &[&str] = &[
     "Craw Wurm",
     "Memnite",
     "Opt",
+    // Prismari Performance's commander: the per-card test for its magecraft loop (the lab's
+    // Prismari Performance games ended in action caps).
+    "Zaffai, Thunder Conductor",
 ];
 
 /// The order the decks are listed in, by their file name in decks/compare/.

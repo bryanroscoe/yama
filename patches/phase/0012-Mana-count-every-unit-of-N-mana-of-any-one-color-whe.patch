@@ -1,0 +1,161 @@
+From da1a4f317aec63ca3a0ebdf3514a5585cba523a6 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Sat, 24 Oct 2026 20:25:14 -0500
+Subject: [PATCH 12/30] Mana: count every unit of "N mana of any one color"
+ when planning payment
+
+Resonating Lute: "Lands you control have '{T}: Add two mana of any one
+color. Spend this mana only to cast instant and sorcery spells.'"
+CR 106.1 + CR 605.3b: one activation adds all N units at once.
+
+The auto-tap planner listed an "any one color" ability as one row per
+color with no combination, so it counted one mana per source. A spell
+that needs the extra mana (Divination from two Islands under the Lute)
+was never offered as castable, and a player who only taps lands while
+paying could not cast it at all. A count above one now gives one atomic
+row per color ([U, U], ...), as fixed multi-mana productions already do.
+CR 106.6: the spend restriction still filters the rows, so a creature
+spell can't use the Lute's mana.
+
+A manual pick of a sacrificial "any one color" source still offers one
+choice that asks its color after the cost (CR 605.3b): the per-color
+combinations are planner data, so the deferred selection drops them.
+
+Test: tests/integration/any_one_color_multi_mana_castability.rs.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/engine/src/game/mana_sources.rs        | 31 ++++++++++
+ .../any_one_color_multi_mana_castability.rs   | 61 +++++++++++++++++++
+ crates/engine/tests/integration/main.rs       |  1 +
+ 3 files changed, 93 insertions(+)
+ create mode 100644 crates/engine/tests/integration/any_one_color_multi_mana_castability.rs
+
+diff --git a/crates/engine/src/game/mana_sources.rs b/crates/engine/src/game/mana_sources.rs
+index fbe76f7..a015e89 100644
+--- a/crates/engine/src/game/mana_sources.rs
++++ b/crates/engine/src/game/mana_sources.rs
+@@ -667,6 +667,9 @@ fn manual_selection_for_option(
+         // inert while `output` is deferred and canonicalizes all planner rows.
+         selection.mana_type = ManaType::Colorless;
+         selection.output = ManaSourceOutput::DeferredColorChoice { quantity };
++        // An "N mana of any one color" row per color carries its own atomic
++        // [c; N] combination for the planner; the deferred choice names none.
++        selection.atomic_combination = None;
+     }
+     Some(selection)
+ }
+@@ -3494,6 +3497,34 @@ fn emit_source_rows(
+                 })
+                 .collect()
+         }
++        // CR 106.1 + CR 605.3b: "Add N mana of any one color" with N above one
++        // (the "{T}: Add two mana of any one color" Resonating Lute grants to
++        // lands) makes every unit in one activation. Emit one atomic row per
++        // color, as the fixed multi-mana productions above do, so the planner
++        // counts all N; a plain row per color plans one mana per source, and
++        // a spell that needs the extra mana is never offered.
++        ManaProduction::AnyOneColor { color_options, .. } => {
++            let resolved =
++                super::ability_utils::build_resolved_from_def(ability, object_id, controller);
++            let units =
++                super::effects::mana::resolve_mana_types_for_ability(produced, state, &resolved)
++                    .len();
++            let mut types: Vec<ManaType> = Vec::new();
++            for color in color_options {
++                let mana_type = mana_color_to_type(color);
++                if !types.contains(&mana_type) {
++                    types.push(mana_type);
++                }
++            }
++            types
++                .into_iter()
++                .map(|mana_type| SourceRow {
++                    mana_type,
++                    atomic_combination: (units > 1).then(|| vec![mana_type; units]),
++                    restrictions: concrete_restrictions.clone(),
++                })
++                .collect()
++        }
+         // CR 106.5 + CR 607.2d: a pure chosen-color source whose linked choice
+         // was never made cannot produce mana. Display/preview paths may show
+         // all five colors, but auto-tap must not plan a payment around an
+diff --git a/crates/engine/tests/integration/any_one_color_multi_mana_castability.rs b/crates/engine/tests/integration/any_one_color_multi_mana_castability.rs
+new file mode 100644
+index 0000000..917a38a
+--- /dev/null
++++ b/crates/engine/tests/integration/any_one_color_multi_mana_castability.rs
+@@ -0,0 +1,61 @@
++//! CR 106.1 + CR 605.3b + CR 601.2g: an activation that adds N mana of any one
++//! color adds all N at once, so a spell that needs that much mana is castable.
++//!
++//! Resonating Lute gives each land "{T}: Add two mana of any one color. Spend
++//! this mana only to cast instant and sorcery spells." Two Islands then pay for
++//! Divination ({2}{U}): one Island makes {U}{U}, the other {U}{U}. Before the
++//! fix the auto-tap planner counted one mana per land for the granted ability,
++//! so Divination was never offered (and a person who pays by tapping lands
++//! while paying could not cast it at all). The spend restriction still holds:
++//! Hill Giant ({3}{R}) can't use the Lute's mana.
++
++use engine::ai_support::legal_actions_full;
++use engine::game::scenario::{GameScenario, P0};
++use engine::types::actions::GameAction;
++use engine::types::mana::{ManaColor, ManaCost, ManaCostShard};
++use engine::types::phase::Phase;
++
++/// Verbatim Oracle text (MTGJSON).
++const RESONATING_LUTE: &str = "Lands you control have \"{T}: Add two mana of any one color. Spend this mana only to cast instant and sorcery spells.\"\n{T}: Draw a card. Activate only if you have seven or more cards in your hand.";
++
++fn castable(state: &engine::types::game_state::GameState, id: engine::types::identifiers::ObjectId) -> bool {
++    let (actions, _, _) = legal_actions_full(state);
++    actions
++        .iter()
++        .any(|a| matches!(a, GameAction::CastSpell { object_id, .. } if *object_id == id))
++}
++
++#[test]
++fn two_lute_lands_pay_for_a_three_mana_sorcery_but_not_a_creature() {
++    let mut scenario = GameScenario::new();
++    scenario.at_phase(Phase::PreCombatMain);
++    scenario
++        .add_artifact_from_oracle(P0, "Resonating Lute", RESONATING_LUTE)
++        .id();
++    scenario.add_basic_land(P0, ManaColor::Blue);
++    scenario.add_basic_land(P0, ManaColor::Blue);
++    let divination = scenario
++        .add_spell_to_hand_from_oracle(P0, "Divination", false, "Draw two cards.")
++        .with_mana_cost(ManaCost::Cost {
++            shards: vec![ManaCostShard::Blue],
++            generic: 2,
++        })
++        .id();
++    let giant = scenario
++        .add_creature_to_hand(P0, "Hill Giant", 3, 3)
++        .with_mana_cost(ManaCost::Cost {
++            shards: vec![ManaCostShard::Red],
++            generic: 3,
++        })
++        .id();
++    let runner = scenario.build();
++
++    assert!(
++        castable(runner.state(), divination),
++        "two lands with the Lute's two-mana ability make four mana for a sorcery"
++    );
++    assert!(
++        !castable(runner.state(), giant),
++        "CR 106.6: the Lute's mana can't be spent on a creature spell"
++    );
++}
+diff --git a/crates/engine/tests/integration/main.rs b/crates/engine/tests/integration/main.rs
+index 63170d0..34efb10 100644
+--- a/crates/engine/tests/integration/main.rs
++++ b/crates/engine/tests/integration/main.rs
+@@ -2025,3 +2025,4 @@ mod celes_kotis_graveyard_origin_batch;
+ mod squall_attack_batch_chosen_number;
+ mod strago_cast_this_way_rider;
+ mod tifa_additional_combat;
++mod any_one_color_multi_mana_castability;
+-- 
+2.53.0
+

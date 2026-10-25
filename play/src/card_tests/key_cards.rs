@@ -154,7 +154,6 @@ fn abstract_paintmage_adds_mana_for_instants_and_sorceries() {
 /// instant and sorcery spells.'" Two Islands pay for Divination ({2}{U}). phase only finds the
 /// Lute's mana once it's in the pool, and a person in Yama taps mana only while paying.
 #[test]
-#[ignore = "phase bug: a spell that needs Resonating Lute's two-mana land ability isn't offered (the auto-tap check uses one mana per land)"]
 fn resonating_lute_doubles_land_mana_for_spells() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Resonating Lute").lands(0, "Island", 2).hand(0, "Divination").hand(0, "Hill Giant").build();
@@ -546,7 +545,6 @@ fn esper_sentinel_draws_unless_they_pay() {
 /// each opponent, create a 1/1 white Human creature token that's tapped and attacking that
 /// player."
 #[test]
-#[ignore = "phase bug: Adeline's tokens all attack the same player, not one each opponent (the parse drops \"attacking that player\")"]
 fn adeline_makes_an_attacking_human_for_each_opponent() {
     big_stack(|| {
         let mut t = Board::new(3).field(0, "Adeline, Resplendent Cathar").field(0, "Grizzly Bears").build();
@@ -865,7 +863,6 @@ fn smothering_tithe_makes_a_treasure_when_they_dont_pay() {
 /// except it enters with an additional loyalty counter on it if it's a planeswalker, and it
 /// isn't legendary." A second Jace with five loyalty.
 #[test]
-#[ignore = "phase bug: Spark Double copying a planeswalker enters with 1 loyalty counter instead of the printed loyalty plus one (the ruling)"]
 fn spark_double_copies_jace_with_one_more_loyalty_and_no_legend_rule() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Jace, Multiverse Architect").hand(0, "Spark Double").lands(0, "Island", 4).build();
@@ -1056,7 +1053,6 @@ fn fellwar_stone_makes_only_an_opponents_colours() {
 /// "Exile all the cards from your hand, then draw that many cards. Until the end of your next
 /// turn, you may play cards exiled this way."
 #[test]
-#[ignore = "phase bug: Hex Magic exiles nothing and draws nothing (\"exile all the cards from your hand\" parses with no cards to move)"]
 fn hex_magic_swaps_your_hand_and_lets_you_play_the_old_one() {
     big_stack(|| {
         let mut t = Board::new(2).hand(0, "Hex Magic").hand(0, "Forest").hand(0, "Opt").lands(0, "Mountain", 3).lands(0, "Island", 1).build();
@@ -1185,22 +1181,21 @@ fn improvisation_capstone_casts_the_exiled_spells_free() {
         let mut t = Board::new(2).hand(0, "Improvisation Capstone").lands(0, "Mountain", 7).top(0, "Grizzly Bears").top(0, "Savannah Lions").top(0, "Opt").build();
         let (spell, bears, lions) = (t.id("Improvisation Capstone"), t.id("Grizzly Bears"), t.id("Savannah Lions"));
         t.cast(spell);
-        // The free casts are offered as option buttons, one per card ("Selection: <id>").
-        for _ in 0..20 {
-            if t.settled() {
-                break;
+        // The free casts are asked one at a time, by the cards' names, until none is picked.
+        let mut windows = 0;
+        t.drive_answering(|tbl, seat, d| {
+            let p = d.pending.as_ref().filter(|p| seat == 0 && p.purpose == "free_cast_window")?;
+            windows += 1;
+            assert!(p.options.iter().all(|o| ["Grizzly Bears", "Savannah Lions", "Opt"].contains(&o.name.as_str())), "the exiled cards by name: {:?}", p.options);
+            let wanted = [bears, lions].into_iter().find(|id| p.options.iter().any(|o| o.eligible && o.id == id.0.to_string()));
+            if let Some(id) = wanted {
+                let name = &tbl.state().objects[&id].name;
+                assert!(d.options.iter().any(|o| o.label == format!("Cast {name} without paying its mana cost")), "{:?}", d.options);
             }
-            let seat = t.m.waiting_on()[0];
-            let d = t.decision(seat);
-            let wanted = [bears, lions].into_iter().find(|id| d.options.iter().any(|o| o.label.contains(&format!("Selection: {}", id.0))));
-            match wanted {
-                Some(id) => t.choose(seat, |o| o.label.contains(&format!("Selection: {}", id.0))),
-                None => {
-                    let mut dr = super::Drove::default();
-                    t.answer_once(&mut dr).unwrap();
-                }
-            }
-        }
+            Some(Act::SelectCards { cards: wanted.map(|id| vec![id.0]).unwrap_or_default() })
+        })
+        .unwrap();
+        assert!(windows >= 2, "a window for each cast");
         assert!(t.on_field(bears) && t.on_field(lions), "1 + 1 + 2: both creatures cast free");
     });
 }
@@ -1238,6 +1233,42 @@ fn spelunking_draws_puts_a_land_and_untaps_entering_lands() {
         })
         .unwrap();
         assert_eq!(t.drawn(0), 1);
+        assert!(t.on_field(field));
+        assert!(!t.tapped(field), "Field of the Dead enters untapped");
+    });
+}
+
+/// The same ordering, by its buttons: the effect picked applies first and the other one last
+/// (CR 616.1e, 616.1f), so each button says how the land ends up, and pressing "Field of the Dead
+/// first" leaves it untapped.
+#[test]
+fn spelunking_order_buttons_say_how_the_land_enters() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Spelunking").hand(0, "Field of the Dead").lands(0, "Forest", 3).build();
+        let (spell, field) = (t.id("Spelunking"), t.id("Field of the Dead"));
+        t.cast(spell);
+        for _ in 0..40 {
+            if matches!(t.state().waiting_for, engine::types::game_state::WaitingFor::ReplacementChoice { .. }) {
+                break;
+            }
+            let seat = t.m.waiting_on()[0];
+            let d = t.decision(seat);
+            if d.pending.as_ref().is_some_and(|p| p.answer == Answer::SelectCards && p.options.iter().any(|o| o.id == field.0.to_string())) {
+                t.act(seat, Act::SelectCards { cards: vec![field.0] });
+                continue;
+            }
+            let mut dr = super::Drove::default();
+            t.answer_once(&mut dr).unwrap();
+        }
+        let d = t.decision(0);
+        let labels: Vec<&str> = d.options.iter().map(|o| o.label.as_str()).collect();
+        assert!(labels.contains(&"Spelunking first, so it enters tapped"), "{labels:?}");
+        assert!(labels.contains(&"Field of the Dead first, so it enters untapped"), "{labels:?}");
+        let p = d.pending.as_ref().expect("the ordering has a Pending");
+        let spelunking = p.options.iter().find(|o| o.name == "Spelunking").expect("Spelunking is an option");
+        assert_eq!(spelunking.text.as_deref(), Some("Enters untapped. Applied first, so it enters tapped"));
+        t.choose(0, |o| o.label == "Field of the Dead first, so it enters untapped");
+        t.drive().unwrap();
         assert!(t.on_field(field));
         assert!(!t.tapped(field), "Field of the Dead enters untapped");
     });
@@ -1647,7 +1678,6 @@ fn archfiend_of_depravity_leaves_each_opponent_two_creatures() {
 /// "When this creature enters, for each opponent, you may put up to one target creature card
 /// from that player's graveyard onto the battlefield under your control."
 #[test]
-#[ignore = "phase bug: Sepulchral Primordial gets one target in all, not one in each opponent's graveyard"]
 fn sepulchral_primordial_takes_a_creature_from_each_opponents_graveyard() {
     big_stack(|| {
         let mut t = Board::new(3).hand(0, "Sepulchral Primordial").lands(0, "Swamp", 7).grave(1, "Hill Giant").grave(2, "Craw Wurm").build();
@@ -1673,5 +1703,51 @@ fn port_town_enters_untapped_when_you_reveal_a_plains() {
         })
         .unwrap();
         assert!(!t.tapped(town));
+    });
+}
+
+// ── Precon commanders the lab plays ─────────────────────────────────────────────────────────
+
+/// Zaffai, Thunder Conductor (Prismari Performance): "Magecraft — Whenever you cast or copy an
+/// instant or sorcery spell, scry 1. If that spell's mana value is 5 or greater, create a 4/4
+/// blue and red Elemental creature token. If that spell's mana value is 10 or greater, Zaffai
+/// deals 10 damage to an opponent chosen at random." A small spell: the scry, and nothing more.
+#[test]
+fn zaffai_scries_for_a_small_spell() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Zaffai, Thunder Conductor").hand(0, "Opt").lands(0, "Island", 1).build();
+        let opt = t.id("Opt");
+        t.cast(opt);
+        t.drive().unwrap();
+        assert!(t.tokens(0).is_empty(), "Opt's mana value is 1");
+        assert_eq!(t.life(1), 40);
+    });
+}
+
+/// The same trigger for a five-mana sorcery makes the Elemental, and the game settles: phase
+/// put the rest of the trigger back on the stack again and again, so the token was never made.
+#[test]
+fn zaffai_makes_an_elemental_for_a_five_mana_spell() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Zaffai, Thunder Conductor").hand(0, "Hour of Promise").lands(0, "Forest", 5).build();
+        let spell = t.id("Hour of Promise");
+        t.cast(spell);
+        t.drive().unwrap();
+        let elementals: Vec<_> = t.tokens(0).into_iter().filter(|k| t.subtypes(*k).contains(&"Elemental".to_string())).collect();
+        assert_eq!(elementals.len(), 1, "one Elemental");
+        assert_eq!(t.pt(elementals[0]), (4, 4));
+        assert_eq!(t.life(1), 40, "the spell's mana value is under 10");
+    });
+}
+
+/// A ten-mana spell adds 10 damage to an opponent chosen at random (the only one here).
+#[test]
+fn zaffai_deals_ten_to_an_opponent_for_a_ten_mana_spell() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Zaffai, Thunder Conductor").hand(0, "Furygale Flocking").lands(0, "Mountain", 10).build();
+        let spell = t.id("Furygale Flocking");
+        t.cast(spell);
+        t.drive().unwrap();
+        assert_eq!(t.life(1), 30);
     });
 }

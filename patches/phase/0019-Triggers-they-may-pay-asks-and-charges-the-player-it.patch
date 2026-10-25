@@ -1,0 +1,74 @@
+From 6e6536530c5fa16daea3bdc49b98f75396220a38 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Sat, 24 Oct 2026 20:40:56 -0500
+Subject: [PATCH 19/30] Triggers: "they may pay" asks and charges the player it
+ names
+
+Jace, Multiverse Architect: "At the beginning of combat on each
+opponent's turn, they may pay {2}. If they don't, creatures they control
+can't attack Jaces you control this turn."
+
+CR 608.2d + CR 118.1: the player offered "they may pay {N}" is the one
+who pays. A bare "pay" clause defaults its payer to the ability's
+controller, and PayCost offers its choice to its payer, so Jace's
+controller was asked to pay {2} for the opponent; with the previous
+commit's restriction in place, an opponent who wanted to pay could never
+attack Jace.
+
+- When the trigger body opens with "they may", a PayCost payer left at
+  the controller default becomes that player.
+- CR 109.5 + CR 608.2c: on a phase trigger scoped to another player's
+  turn ("on each opponent's turn"), "they" is that turn's player, bound
+  as the scoped player (as "creatures they control" already is).
+
+Horn of Plenty and Wandering Archaic already name the payer and are
+unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/engine/src/parser/oracle_trigger.rs | 22 +++++++++++++++++++++-
+ 1 file changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/crates/engine/src/parser/oracle_trigger.rs b/crates/engine/src/parser/oracle_trigger.rs
+index 1cbeb66..679157e 100644
+--- a/crates/engine/src/parser/oracle_trigger.rs
++++ b/crates/engine/src/parser/oracle_trigger.rs
+@@ -1655,7 +1655,17 @@ pub(crate) fn parse_trigger_line_with_index_ir(
+             }
+         };
+     let optional_player = optional_player_from_effect_body(&effect_without_if)
+-        .or_else(|| after_structural_if.and_then(optional_player_from_effect_body));
++        .or_else(|| after_structural_if.and_then(optional_player_from_effect_body))
++        // CR 109.5 + CR 608.2c: on a phase trigger scoped to another player's
++        // turn ("at the beginning of combat on each opponent's turn, they
++        // may …"), "they" is that turn's player, bound as the scoped player.
++        .map(|player| {
++            if condition_introduces_scoped_phase_player(&cond_lower) {
++                TargetFilter::ScopedPlayer
++            } else {
++                player
++            }
++        });
+ 
+     // CR 608.2c (resolution-order instructions): "You may" at the start of
+     // the effect text makes the triggered effect optional at resolution.
+@@ -2264,6 +2274,16 @@ pub(crate) fn lower_trigger_ir(ir: &TriggerIr) -> TriggerDefinition {
+             if ability.optional_player.is_none() && ability.optional_for.is_none() {
+                 ability.optional_player = Some(optional_player.clone());
+             }
++            // CR 608.2d + CR 118.1: "they may pay {N}" — the player offered the
++            // choice is the one who pays. A bare "pay" clause defaults its payer
++            // to the ability's controller, and `PayCost` offers its choice to its
++            // payer, so the controller was asked to pay for the opponent (Jace,
++            // Multiverse Architect's {2}).
++            if let Effect::PayCost { payer, .. } = &mut *ability.effect {
++                if *payer == TargetFilter::Controller {
++                    *payer = optional_player.clone();
++                }
++            }
+         }
+     }
+     // CR 603.2c: A `TrackedSetAggregate { source: TriggeringBatch }` reduces the
+-- 
+2.53.0
+

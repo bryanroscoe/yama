@@ -237,17 +237,18 @@ fn study_hall_pays_for_a_colour_you_have_no_land_for() {
 /// The same with generic mana to pay as well: Augusta ({2}{W}) with a Mountain, three Wastes and
 /// Study Hall ({W} from Study Hall, paid with a Wastes; the Mountain and a Wastes for {2}).
 #[test]
-#[ignore = "phase bug: a spell with generic mana and a colour only Study Hall's {1}, {T} makes isn't offered (the auto-tap check fails it)"]
 fn study_hall_pays_for_a_colour_with_generic_mana_too() {
     big_stack(|| {
-        let t = Board::new(2).field(0, "Study Hall").lands(0, "Mountain", 1).lands(0, "Wastes", 3).hand(0, "Augusta, Order Returned").build();
+        let mut t = Board::new(2).field(0, "Study Hall").lands(0, "Mountain", 1).lands(0, "Wastes", 3).hand(0, "Augusta, Order Returned").build();
         let augusta = t.id("Augusta, Order Returned");
         assert!(t.decision(0).options.iter().any(|o| o.kind == OptionKind::Spell && o.object == Some(augusta.0)));
+        t.cast(augusta);
+        t.drive().unwrap();
+        assert!(t.on_field(augusta));
     });
 }
 
 #[test]
-#[ignore = "phase bug: Study Hall's \"when you spend this mana to cast your commander, scry X\" is unimplemented (and here the commander isn't even offered: the auto-tap check above)"]
 fn study_hall_scries_when_its_mana_casts_the_commander() {
     big_stack(|| {
         // Quintorius ({2}{R}{W}) after one cast: {R} from the Mountain, {W} only from Study Hall
@@ -490,7 +491,6 @@ fn squandered_resources_turns_a_land_into_its_mana() {
 
 /// "For any number of opponents, destroy target nonland permanent that player controls."
 #[test]
-#[ignore = "phase bug: Windgrace's Judgment can't be cast at all (\"for any number of opponents, destroy target nonland permanent that player controls\" is unimplemented)"]
 fn windgraces_judgment_destroys_one_per_opponent() {
     big_stack(|| {
         let mut t = Board::new(3).hand(0, "Windgrace's Judgment").lands(0, "Swamp", 2).lands(0, "Forest", 3).field(1, "Hill Giant").field(2, "Spellbook").build();
@@ -535,7 +535,6 @@ fn nissa_puts_a_land_from_the_top_onto_the_battlefield() {
 
 /// "This land is every nonbasic land type."
 #[test]
-#[ignore = "phase bug: Planar Nexus isn't every nonbasic land type (the static is unimplemented)"]
 fn planar_nexus_is_every_nonbasic_land_type() {
     big_stack(|| {
         let t = Board::new(2).field(0, "Planar Nexus").build();
@@ -551,15 +550,16 @@ fn planar_nexus_is_every_nonbasic_land_type() {
 /// "{T}: Until end of turn, target land you control becomes an X/X Citizen creature with haste
 /// in addition to its other types, where X is twice the number of Gates you control."
 #[test]
-#[ignore = "phase bug: Sage of the Maze's land-animating ability is unimplemented"]
 fn sage_of_the_maze_animates_a_land() {
     big_stack(|| {
-        let mut t = Board::new(2).field(0, "Sage of the Maze").field(0, "Forest").build();
+        // One Gate, so X is 2 (with none the land would be a 0/0 and die).
+        let mut t = Board::new(2).field(0, "Sage of the Maze").field(0, "Forest").field(0, "Simic Guildgate").build();
         let (sage, forest) = (t.id("Sage of the Maze"), t.id("Forest"));
         t.activate_labelled(sage, |l| l.contains("Citizen"));
         t.drive_aiming(&[forest]);
         assert!(t.is_creature(forest));
         assert!(t.has(forest, Keyword::Haste));
+        assert_eq!(t.pt(forest), (2, 2), "twice the number of Gates");
     });
 }
 
@@ -691,7 +691,6 @@ fn dack_fayden_gives_each_opponent_a_goaded_creature() {
 /// "Creatures you control can't have -1/-1 counters put on them." Yawgmoth puts one on Ana's
 /// Bears.
 #[test]
-#[ignore = "phase bug: Darksteel Angel's \"creatures you control can't have -1/-1 counters put on them\" is unimplemented"]
 fn darksteel_angel_stops_minus_counters_on_your_creatures() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Darksteel Angel").field(0, "Grizzly Bears").field(1, "Yawgmoth, Thran Physician").field(1, "Savannah Lions").active(1).build();
@@ -867,7 +866,6 @@ fn combat_celebrant_exerts_for_another_combat() {
 
 /// "Equip {4}. This ability costs {3} less to activate if you're the monarch."
 #[test]
-#[ignore = "phase bug: Crown of Gondor's equip doesn't cost {3} less for the monarch (the clause is swallowed)"]
 fn crown_of_gondor_equips_for_one_as_the_monarch() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Crown of Gondor").field(0, "Grizzly Bears").lands(0, "Plains", 1).build();
@@ -884,7 +882,6 @@ fn crown_of_gondor_equips_for_one_as_the_monarch() {
 /// each opponent, create two 3/3 blue and red Elemental creature tokens with flying that attack
 /// that opponent this turn if able. They gain haste until end of turn."
 #[test]
-#[ignore = "phase bug: Furygale Flocking's tokens have no flying and only some get haste"]
 fn furygale_flocking_makes_two_flyers_per_opponent() {
     big_stack(|| {
         let mut t = Board::new(3).hand(0, "Furygale Flocking").lands(0, "Mountain", 10).build();

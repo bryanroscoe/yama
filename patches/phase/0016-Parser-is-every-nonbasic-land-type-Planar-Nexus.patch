@@ -1,0 +1,501 @@
+From af237b0f7561a64a311a2b5bd42c8f27d36d9867 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Sat, 24 Oct 2026 20:26:14 -0500
+Subject: [PATCH 16/30] Parser: "~ is every nonbasic land type" (Planar Nexus)
+
+Planar Nexus: "This land is every nonbasic land type. (Nonbasic land
+types include Cave, Desert, Gate, Lair, Locus, Mine, Power-Plant, Sphere,
+Tower, and Urza's.)"
+
+CR 205.3i lists the land types; CR 305.6 names the five basic ones. The
+line is a characteristic-defining ability (CR 604.3: printed on the land,
+defines only its own subtypes, unconditional), so it functions in every
+zone. phase parsed the sentence as an unimplemented spell effect, so the
+land had no subtypes at all and Desert, Gate, Locus and Urza's payoffs
+never counted it.
+
+New ContinuousModification::AddAllNonbasicLandTypes (layer 4, additive,
+no mana abilities: those come only with basic types), parsed from the
+self-reference sentence as a CDA beside the "is every creature type"
+form, and routed to the static parser by the classifier. Handled in every
+exhaustive match, including phase-ai's (beneficial, like
+AddAllLandTypes).
+
+A sibling of AddAllBasicLandTypes and AddAllLandTypes rather than a
+parameterized refactor of the three: the existing variants are in the
+deployed card data, which must keep deserializing.
+
+Tests: oracle_static tests self_ref_every_nonbasic_land_type_is_cda;
+tests/integration/planar_nexus_every_nonbasic_land_type.rs.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/engine/src/game/ability_rw.rs          |  1 +
+ crates/engine/src/game/ability_scan.rs        |  1 +
+ crates/engine/src/game/ability_utils.rs       |  1 +
+ crates/engine/src/game/coverage.rs            |  1 +
+ crates/engine/src/game/effects/become_copy.rs |  1 +
+ crates/engine/src/game/layers.rs              | 17 +++++-
+ .../src/game/off_zone_characteristics.rs      |  1 +
+ crates/engine/src/game/quantity.rs            |  1 +
+ crates/engine/src/parser/oracle.rs            |  3 ++
+ crates/engine/src/parser/oracle_classifier.rs |  4 ++
+ .../engine/src/parser/oracle_effect/lower.rs  |  2 +
+ .../src/parser/oracle_static/dispatch.rs      |  6 +++
+ .../engine/src/parser/oracle_static/shared.rs |  1 +
+ .../engine/src/parser/oracle_static/tests.rs  | 20 +++++++
+ .../src/parser/oracle_static/type_change.rs   | 28 ++++++++++
+ crates/engine/src/types/ability.rs            |  6 +++
+ crates/engine/src/types/ability_visit.rs      |  1 +
+ crates/engine/src/types/layers.rs             |  1 +
+ crates/engine/tests/integration/main.rs       |  1 +
+ .../planar_nexus_every_nonbasic_land_type.rs  | 53 +++++++++++++++++++
+ crates/phase-ai/src/features/devotion.rs      |  1 +
+ .../phase-ai/src/policies/effect_classify.rs  |  1 +
+ crates/phase-ai/src/policies/x_reference.rs   |  1 +
+ 23 files changed, 152 insertions(+), 1 deletion(-)
+ create mode 100644 crates/engine/tests/integration/planar_nexus_every_nonbasic_land_type.rs
+
+diff --git a/crates/engine/src/game/ability_rw.rs b/crates/engine/src/game/ability_rw.rs
+index ef7b0d8..a41152a 100644
+--- a/crates/engine/src/game/ability_rw.rs
++++ b/crates/engine/src/game/ability_rw.rs
+@@ -2976,6 +2976,7 @@ fn legacy_continuous_modification(m: &ContinuousModification) -> bool {
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+diff --git a/crates/engine/src/game/ability_scan.rs b/crates/engine/src/game/ability_scan.rs
+index 598ecc2..94a73e8 100644
+--- a/crates/engine/src/game/ability_scan.rs
++++ b/crates/engine/src/game/ability_scan.rs
+@@ -6454,6 +6454,7 @@ fn scan_continuous_modification(m: &ContinuousModification, mode: ScanMode) -> A
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+diff --git a/crates/engine/src/game/ability_utils.rs b/crates/engine/src/game/ability_utils.rs
+index 83bdacb..7af06ad 100644
+--- a/crates/engine/src/game/ability_utils.rs
++++ b/crates/engine/src/game/ability_utils.rs
+@@ -7110,6 +7110,7 @@ fn immediate_modification_target_slot_filter(
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+diff --git a/crates/engine/src/game/coverage.rs b/crates/engine/src/game/coverage.rs
+index 099bc26..161ca01 100644
+--- a/crates/engine/src/game/coverage.rs
++++ b/crates/engine/src/game/coverage.rs
+@@ -5258,6 +5258,7 @@ fn fmt_modification(m: &crate::types::ability::ContinuousModification) -> String
+         ContinuousModification::AddAllCreatureTypes => "all creature types".into(),
+         ContinuousModification::AddAllBasicLandTypes => "all basic land types".into(),
+         ContinuousModification::AddAllLandTypes => "all land types".into(),
++        ContinuousModification::AddAllNonbasicLandTypes => "all nonbasic land types".into(),
+         ContinuousModification::AddChosenSubtype { .. } => "add chosen subtype".into(),
+         ContinuousModification::AddChosenColor { mode } => match mode {
+             crate::types::ability::ColorChangeMode::Set => "set chosen color".into(),
+diff --git a/crates/engine/src/game/effects/become_copy.rs b/crates/engine/src/game/effects/become_copy.rs
+index 15d73a6..fe4b5d6 100644
+--- a/crates/engine/src/game/effects/become_copy.rs
++++ b/crates/engine/src/game/effects/become_copy.rs
+@@ -412,6 +412,7 @@ impl<'a> CopyExceptionOperation<'a> {
+             | ContinuousModification::AddAllCreatureTypes
+             | ContinuousModification::AddAllBasicLandTypes
+             | ContinuousModification::AddAllLandTypes
++            | ContinuousModification::AddAllNonbasicLandTypes
+             | ContinuousModification::AddChosenSubtype { .. }
+             | ContinuousModification::AddChosenColor { .. }
+             | ContinuousModification::RemoveChosenKeyword
+diff --git a/crates/engine/src/game/layers.rs b/crates/engine/src/game/layers.rs
+index 460f29d..a0b0980 100644
+--- a/crates/engine/src/game/layers.rs
++++ b/crates/engine/src/game/layers.rs
+@@ -5626,7 +5626,8 @@ fn modification_characteristic_writes_at(
+         }
+         ContinuousModification::SetCardTypes { .. }
+         | ContinuousModification::AddAllBasicLandTypes
+-        | ContinuousModification::AddAllLandTypes => land_type_line_writes(true),
++        | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes => land_type_line_writes(true),
+         ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddSupertype { .. }
+         | ContinuousModification::RemoveSupertype { .. } => CharacteristicKinds::CARD_TYPES,
+@@ -9773,6 +9774,7 @@ fn depends_on(a: &ActiveContinuousEffect, b: &ActiveContinuousEffect, _state: &G
+             | ContinuousModification::AddAllCreatureTypes
+             | ContinuousModification::AddAllBasicLandTypes
+             | ContinuousModification::AddAllLandTypes
++            | ContinuousModification::AddAllNonbasicLandTypes
+             | ContinuousModification::AddChosenSubtype { .. }
+             | ContinuousModification::SetBasicLandType { .. }
+             | ContinuousModification::SetChosenBasicLandType
+@@ -11450,6 +11452,7 @@ fn apply_continuous_effect_filtered(
+             | ContinuousModification::AddAllCreatureTypes
+             | ContinuousModification::AddAllBasicLandTypes
+             | ContinuousModification::AddAllLandTypes
++            | ContinuousModification::AddAllNonbasicLandTypes
+             | ContinuousModification::AddChosenSubtype { .. }
+             | ContinuousModification::AddChosenColor { .. }) => {
+                 let applied = apply_type_or_color_modification(
+@@ -11893,6 +11896,18 @@ pub(crate) fn apply_type_or_color_modification(
+                 }
+             }
+         }
++        // CR 205.3i: every land subtype except the five basic land types
++        // (CR 305.6). Additive, and no intrinsic mana ability comes with it.
++        ContinuousModification::AddAllNonbasicLandTypes => {
++            for subtype in crate::types::card_type::LAND_SUBTYPES
++                .iter()
++                .filter(|subtype| subtype.parse::<BasicLandType>().is_err())
++            {
++                if !obj.card_types.subtypes.iter().any(|s| s == subtype) {
++                    obj.card_types.subtypes.push((*subtype).to_string());
++                }
++            }
++        }
+         ContinuousModification::AddChosenSubtype { .. } => {
+             if let Some(subtype) = chosen_subtype {
+                 if !obj.card_types.subtypes.iter().any(|s| s == subtype) {
+diff --git a/crates/engine/src/game/off_zone_characteristics.rs b/crates/engine/src/game/off_zone_characteristics.rs
+index e745ba2..d494620 100644
+--- a/crates/engine/src/game/off_zone_characteristics.rs
++++ b/crates/engine/src/game/off_zone_characteristics.rs
+@@ -745,6 +745,7 @@ fn modification_can_add_keyword_kind(
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::SetColor { .. }
+diff --git a/crates/engine/src/game/quantity.rs b/crates/engine/src/game/quantity.rs
+index d127af9..81b1b58 100644
+--- a/crates/engine/src/game/quantity.rs
++++ b/crates/engine/src/game/quantity.rs
+@@ -2518,6 +2518,7 @@ pub(crate) fn continuous_modification_dynamic_quantity(
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+diff --git a/crates/engine/src/parser/oracle.rs b/crates/engine/src/parser/oracle.rs
+index ef2d16e..4f7f22e 100644
+--- a/crates/engine/src/parser/oracle.rs
++++ b/crates/engine/src/parser/oracle.rs
+@@ -9617,6 +9617,7 @@ fn resolve_guards_in_continuous_mod(modification: &mut ContinuousModification) {
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+@@ -10644,6 +10645,7 @@ fn demote_lifetimes_in_modification(modification: &mut ContinuousModification) {
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+@@ -11269,6 +11271,7 @@ pub(crate) fn render_modification_descriptions(
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+diff --git a/crates/engine/src/parser/oracle_classifier.rs b/crates/engine/src/parser/oracle_classifier.rs
+index b73413a..8643d88 100644
+--- a/crates/engine/src/parser/oracle_classifier.rs
++++ b/crates/engine/src/parser/oracle_classifier.rs
+@@ -513,6 +513,10 @@ const STATIC_CONTAINS_PATTERNS: &[&str] = &[
+     // false-positive into other pattern classes.
+     "is every creature type",
+     "are every creature type",
++    // CR 205.3i + CR 604.3: "~ is every nonbasic land type" (Planar Nexus) —
++    // the land-type sibling of the line above; the phrase names no other
++    // pattern class.
++    "is every nonbasic land type",
+     // CR 502.3 + CR 113.6: Seedborn-class untap permission — "untap <subject>
+     // during each other player's untap step" is always a continuous static, so
+     // route it to `parse_static_line` regardless of subject (covers the self-ref
+diff --git a/crates/engine/src/parser/oracle_effect/lower.rs b/crates/engine/src/parser/oracle_effect/lower.rs
+index eb510b7..6e47b20 100644
+--- a/crates/engine/src/parser/oracle_effect/lower.rs
++++ b/crates/engine/src/parser/oracle_effect/lower.rs
+@@ -12507,6 +12507,7 @@ fn apply_where_x_continuous_modification(
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+@@ -12611,6 +12612,7 @@ fn rebind_target_anaphor_continuous_modification(modification: &mut ContinuousMo
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+diff --git a/crates/engine/src/parser/oracle_static/dispatch.rs b/crates/engine/src/parser/oracle_static/dispatch.rs
+index 48c7bb0..5cc6f4c 100644
+--- a/crates/engine/src/parser/oracle_static/dispatch.rs
++++ b/crates/engine/src/parser/oracle_static/dispatch.rs
+@@ -1992,6 +1992,12 @@ pub(crate) fn parse_static_line_inner(
+         return Some(def);
+     }
+ 
++    // CR 205.3i + CR 604.3: "~ is every nonbasic land type" (Planar Nexus), the
++    // land-type sibling of the self-reference CDA above.
++    if let Some(def) = parse_self_every_nonbasic_land_type(&tp, &text) {
++        return Some(def);
++    }
++
+     // CR 702.16k: Player-subject protection ("You have protection from <X>")
+     // must be claimed before the permanent-subject continuous path, which would
+     // otherwise grant the protection keyword to permanents you control instead
+diff --git a/crates/engine/src/parser/oracle_static/shared.rs b/crates/engine/src/parser/oracle_static/shared.rs
+index fe4b923..79506b5 100644
+--- a/crates/engine/src/parser/oracle_static/shared.rs
++++ b/crates/engine/src/parser/oracle_static/shared.rs
+@@ -1014,6 +1014,7 @@ fn continuous_modification_dynamic_quantity_mut(
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+diff --git a/crates/engine/src/parser/oracle_static/tests.rs b/crates/engine/src/parser/oracle_static/tests.rs
+index bc4bbb2..83966b1 100644
+--- a/crates/engine/src/parser/oracle_static/tests.rs
++++ b/crates/engine/src/parser/oracle_static/tests.rs
+@@ -20726,6 +20726,26 @@ fn self_ref_every_creature_type_is_cda() {
+     assert!(matches!(def.affected, Some(TargetFilter::SelfRef)));
+ }
+ 
++// --- CR 205.3i + CR 604.3: "~ is every nonbasic land type" ---
++
++#[test]
++fn self_ref_every_nonbasic_land_type_is_cda() {
++    // Planar Nexus. Like the creature-type form above, the self-reference
++    // grant defines the land's own subtypes, so it is a CDA (all zones).
++    let def = parse_static_line("~ is every nonbasic land type.").unwrap();
++    assert_eq!(def.mode, StaticMode::Continuous);
++    assert!(def.characteristic_defining);
++    assert_eq!(
++        def.modifications,
++        vec![ContinuousModification::AddAllNonbasicLandTypes]
++    );
++    assert!(matches!(def.affected, Some(TargetFilter::SelfRef)));
++    // Negative: a trailing clause is outside the grant and must not be dropped.
++    assert!(parse_static_line("~ is every nonbasic land type and is a creature.")
++        .is_none_or(|def| def.modifications
++            != vec![ContinuousModification::AddAllNonbasicLandTypes]));
++}
++
+ #[test]
+ fn creatures_you_control_every_creature_type_maskwood_nexus() {
+     // CR 702.73a + CR 205.3: Maskwood Nexus first sentence. Filter-subject
+diff --git a/crates/engine/src/parser/oracle_static/type_change.rs b/crates/engine/src/parser/oracle_static/type_change.rs
+index 4d805af..e7ea44e 100644
+--- a/crates/engine/src/parser/oracle_static/type_change.rs
++++ b/crates/engine/src/parser/oracle_static/type_change.rs
+@@ -3210,6 +3210,34 @@ pub(crate) fn parse_all_creature_types_grant(
+     )
+ }
+ 
++/// CR 205.3i + CR 604.3 + CR 613.1d: Parse "~ is every nonbasic land type"
++/// (Planar Nexus) — the land-type sibling of the self-reference arm of
++/// [`parse_all_creature_types_grant`]. The ability defines the object's own
++/// subtypes, is printed on the object it affects and is unconditional, so it
++/// is a characteristic-defining ability and functions in all zones (CR 604.3):
++/// Planar Nexus is a Desert in the library as well as on the battlefield.
++///
++/// Only the self-reference subject is claimed; no printed card grants every
++/// nonbasic land type to other objects.
++pub(crate) fn parse_self_every_nonbasic_land_type(
++    tp: &TextPair<'_>,
++    text: &str,
++) -> Option<StaticDefinition> {
++    let ((), _) = nom_on_lower(tp.original, tp.lower, |input| {
++        let (input, _) = tag("~ is every nonbasic land type").parse(input)?;
++        let (input, _) = opt(tag(".")).parse(input)?;
++        let (input, _) = eof.parse(input)?;
++        Ok((input, ()))
++    })?;
++    Some(
++        StaticDefinition::continuous()
++            .affected(TargetFilter::SelfRef)
++            .modifications(vec![ContinuousModification::AddAllNonbasicLandTypes])
++            .cda()
++            .description(text.to_string()),
++    )
++}
++
+ /// CR 205.3 + CR 613.1d: Map the subject of an "{is|are} every creature
+ /// type" static into a TargetFilter restricting which battlefield objects
+ /// receive the grant. Sibling of `parse_land_type_change_subject` for the
+diff --git a/crates/engine/src/types/ability.rs b/crates/engine/src/types/ability.rs
+index 8300a03..6f0563f 100644
+--- a/crates/engine/src/types/ability.rs
++++ b/crates/engine/src/types/ability.rs
+@@ -35293,6 +35293,12 @@ pub enum ContinuousModification {
+     /// their mana abilities, additive. Distinct from AddAllBasicLandTypes
+     /// (CR 305.6, 5 basic types). Omo, Queen of Vesuva. Layer 4.
+     AddAllLandTypes,
++    /// CR 205.3i: grants every NONBASIC land type (the land subtypes other than
++    /// the five basic land types of CR 305.6), additive. A nonbasic land type
++    /// carries no intrinsic mana ability (CR 305.6 grants those only to the
++    /// basic types), so unlike `AddAllLandTypes` this adds no mana abilities.
++    /// Planar Nexus ("This land is every nonbasic land type"). Layer 4.
++    AddAllNonbasicLandTypes,
+     /// Adds the source object's chosen subtype (creature type or basic land type).
+     /// Resolved at layer evaluation time from the source's `chosen_attributes`.
+     AddChosenSubtype {
+diff --git a/crates/engine/src/types/ability_visit.rs b/crates/engine/src/types/ability_visit.rs
+index 6863799..d0a9077 100644
+--- a/crates/engine/src/types/ability_visit.rs
++++ b/crates/engine/src/types/ability_visit.rs
+@@ -463,6 +463,7 @@ where
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+diff --git a/crates/engine/src/types/layers.rs b/crates/engine/src/types/layers.rs
+index 8b34c22..2c5a004 100644
+--- a/crates/engine/src/types/layers.rs
++++ b/crates/engine/src/types/layers.rs
+@@ -161,6 +161,7 @@ impl ContinuousModification {
+             | ContinuousModification::AddAllCreatureTypes
+             | ContinuousModification::AddAllBasicLandTypes
+             | ContinuousModification::AddAllLandTypes
++            | ContinuousModification::AddAllNonbasicLandTypes
+             | ContinuousModification::AddChosenSubtype { .. }
+             | ContinuousModification::SetBasicLandType { .. }
+             | ContinuousModification::SetChosenBasicLandType => Layer::Type,
+diff --git a/crates/engine/tests/integration/main.rs b/crates/engine/tests/integration/main.rs
+index 2253fed..96d7cdf 100644
+--- a/crates/engine/tests/integration/main.rs
++++ b/crates/engine/tests/integration/main.rs
+@@ -2028,3 +2028,4 @@ mod tifa_additional_combat;
+ mod any_one_color_multi_mana_castability;
+ mod hashep_oasis_sacrifices_itself;
+ mod lazotep_quarry_x_ability_with_tap;
++mod planar_nexus_every_nonbasic_land_type;
+diff --git a/crates/engine/tests/integration/planar_nexus_every_nonbasic_land_type.rs b/crates/engine/tests/integration/planar_nexus_every_nonbasic_land_type.rs
+new file mode 100644
+index 0000000..cdf870a
+--- /dev/null
++++ b/crates/engine/tests/integration/planar_nexus_every_nonbasic_land_type.rs
+@@ -0,0 +1,53 @@
++//! CR 205.3i + CR 604.3 — Planar Nexus: "This land is every nonbasic land type."
++//!
++//! The line is a characteristic-defining ability (printed on the land, defines
++//! only its own subtypes, unconditional), so once the layers are applied the
++//! land has every nonbasic land type and none of the five basic land types
++//! (CR 305.6). Before the fix the sentence parsed as an unimplemented spell
++//! effect and the land had no subtypes at all, so Desert, Gate, Locus and
++//! Urza's payoffs never counted it.
++
++use engine::game::layers::evaluate_layers;
++use engine::game::scenario::{GameScenario, P0};
++use engine::types::phase::Phase;
++
++/// Verbatim Oracle text (MTGJSON), reminder text included.
++const PLANAR_NEXUS: &str = "This land is every nonbasic land type. (Nonbasic land types include Cave, Desert, Gate, Lair, Locus, Mine, Power-Plant, Sphere, Tower, and Urza's.)\n{T}: Add {C}.\n{1}, {T}: Add one mana of any color.";
++
++#[test]
++fn planar_nexus_is_every_nonbasic_land_type_and_no_basic_one() {
++    let mut scenario = GameScenario::new();
++    scenario.at_phase(Phase::PreCombatMain);
++    let nexus = scenario
++        .add_land_from_oracle(P0, "Planar Nexus", PLANAR_NEXUS)
++        .id();
++    let mut runner = scenario.build();
++    evaluate_layers(runner.state_mut());
++
++    let subtypes = &runner.state().objects[&nexus].card_types.subtypes;
++    for nonbasic in [
++        "Cave",
++        "Desert",
++        "Gate",
++        "Lair",
++        "Locus",
++        "Mine",
++        "Planet",
++        "Power-Plant",
++        "Sphere",
++        "Tower",
++        "Town",
++        "Urza's",
++    ] {
++        assert!(
++            subtypes.iter().any(|s| s == nonbasic),
++            "Planar Nexus must be a {nonbasic}: {subtypes:?}"
++        );
++    }
++    for basic in ["Plains", "Island", "Swamp", "Mountain", "Forest"] {
++        assert!(
++            !subtypes.iter().any(|s| s == basic),
++            "Planar Nexus must not be a {basic} (CR 305.6 basic types): {subtypes:?}"
++        );
++    }
++}
+diff --git a/crates/phase-ai/src/features/devotion.rs b/crates/phase-ai/src/features/devotion.rs
+index ccf0c52..e54d885 100644
+--- a/crates/phase-ai/src/features/devotion.rs
++++ b/crates/phase-ai/src/features/devotion.rs
+@@ -428,6 +428,7 @@ fn continuous_modification_quantity(
+         | CM::AddAllCreatureTypes
+         | CM::AddAllBasicLandTypes
+         | CM::AddAllLandTypes
++        | CM::AddAllNonbasicLandTypes
+         | CM::AddChosenSubtype { .. }
+         | CM::AddChosenColor { .. }
+         | CM::RemoveChosenKeyword
+diff --git a/crates/phase-ai/src/policies/effect_classify.rs b/crates/phase-ai/src/policies/effect_classify.rs
+index bc22c7a..6c9bcba 100644
+--- a/crates/phase-ai/src/policies/effect_classify.rs
++++ b/crates/phase-ai/src/policies/effect_classify.rs
+@@ -2114,6 +2114,7 @@ pub(crate) fn modification_polarity(m: &ContinuousModification) -> EffectPolarit
+         // away. Setting a land's type (Blood Moon) is a different modification.
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddColor { .. }
+         | ContinuousModification::AddType { .. }
+         | ContinuousModification::AddSubtype { .. } => EffectPolarity::Beneficial,
+diff --git a/crates/phase-ai/src/policies/x_reference.rs b/crates/phase-ai/src/policies/x_reference.rs
+index 679422e..7548e92 100644
+--- a/crates/phase-ai/src/policies/x_reference.rs
++++ b/crates/phase-ai/src/policies/x_reference.rs
+@@ -207,6 +207,7 @@ fn continuous_modification_references_x(modification: &ContinuousModification) -
+         | ContinuousModification::AddAllCreatureTypes
+         | ContinuousModification::AddAllBasicLandTypes
+         | ContinuousModification::AddAllLandTypes
++        | ContinuousModification::AddAllNonbasicLandTypes
+         | ContinuousModification::AddChosenSubtype { .. }
+         | ContinuousModification::AddChosenColor { .. }
+         | ContinuousModification::RemoveChosenKeyword
+-- 
+2.53.0
+

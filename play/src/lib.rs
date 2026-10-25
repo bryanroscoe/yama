@@ -24,7 +24,7 @@ use engine::game::filter_state_for_viewer;
 use engine::game::replay::{ReplayPlayer, reconstruct_initial_state};
 use engine::types::format::FormatConfig;
 use engine::game::mulligan::kept_hand_size_after;
-use engine::types::game_state::{GameState, MulliganDecisionPhase, WaitingFor};
+use engine::types::game_state::{GameState, MulliganDecisionPhase, ReplacementChoiceKind, WaitingFor};
 pub use engine::types::game_state::LoopDetectionMode;
 use engine::types::identifiers::ObjectId;
 use engine::game::ability_utils::declared_targets_in_chain;
@@ -1296,6 +1296,9 @@ impl Match {
             GameAction::ChooseTarget { target: None } => "No target".into(),
             GameAction::SelectCards { cards } if cards.is_empty() => "Choose none".into(),
             GameAction::SelectCards { cards } => format!("Choose {}", cards.iter().map(|c| Self::name_in(vs, c)).collect::<Vec<_>>().join(", ")),
+            // A free-cast window (CR 608.2g): one card cast free, or finish.
+            GameAction::FreeCastWindowChoice { selection: Some(id) } => format!("Cast {} without paying its mana cost", Self::name_in(vs, id)),
+            GameAction::FreeCastWindowChoice { selection: None } => "Finish casting".into(),
             GameAction::DecideOptionalEffect { accept } => if *accept { "Yes".into() } else { "No".into() },
             GameAction::DecideOptionalCost { pay } => if *pay { "Pay the extra cost".into() } else { "Don't pay it".into() },
             GameAction::PayUnlessCost { pay } => if *pay { "Pay the cost".into() } else { "Don't pay".into() },
@@ -1337,6 +1340,13 @@ impl Match {
                 format!("Choose: {}", text.join(" + "))
             }
             GameAction::ChooseReplacement { index } => match &vs.waiting_for {
+                // The effect picked applies first (CR 616.1e): where the one applied last decides
+                // how a permanent enters, the button says how it ends up.
+                WaitingFor::ReplacementChoice { candidates, kind: ReplacementChoiceKind::Order, .. }
+                    if let (Some(c), Some(outcome)) = (candidates.get(*index), act::replacement_order_outcome(candidates, *index)) =>
+                {
+                    format!("{} first, so {outcome}", c.source_name)
+                }
                 WaitingFor::ReplacementChoice { candidates, .. } => candidates
                     .get(*index)
                     .map(|c| if c.description.is_empty() { c.source_name.clone() } else { c.description.clone() })
