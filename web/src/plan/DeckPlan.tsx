@@ -43,6 +43,7 @@ import { cantJudge, pct, pctRange, pointsRange, pointsWord, worstConfidence } fr
 import { pairedFor, simShort, stateLabel, useRuns, variantState, type PlanSim } from "../lab/paired";
 import { AskClaude } from "../advisor/AskClaude";
 import { CardSheet } from "../pages/Cards";
+import { SwapInSheet } from "./SwapIn";
 import { linkDeck, makeYamaDeck } from "./api";
 import { deviceId, outbox, useOutbox } from "./outbox";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
@@ -381,6 +382,7 @@ function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
   const logs = useMemo(() => deckLogs(deck), [deck]);
   const row = (s: Swap) => <SwapRow key={s.key} s={s} view={view} userId={userId} logs={logs} standins={c.standins.get(s.key) ?? []} />;
   const nothing = !c.now.length && !c.prints.length && !c.optional.length && !c.proposed.length && !c.loose.length;
+  const [swapping, setSwapping] = useState(false);
   const shownArtists = [...c.now, ...c.prints, ...c.loose, ...c.optional, ...c.proposed.flatMap((g) => g.swaps)].flatMap((s) => [s.in, s.out]).map((n) => view.card(n)?.artist);
   const group = (title: string, list: Swap[], about?: string) =>
     list.length > 0 && (
@@ -396,6 +398,15 @@ function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
     <div className="plan-changes">
       {nothing && <p className="empty">No swaps or proposals for this deck yet.</p>}
       {group("Swap in now", c.now)}
+      {c.prints.length > 0 && deck.status === "active" && (
+        <div className="row plan-swapin">
+          <button className="outline" onClick={() => setSwapping(true)}>
+            Swap in the prints
+          </button>
+          <Link to="/decks/plan/prints/swap">Swap sheet to print</Link>
+        </div>
+      )}
+      {swapping && <SwapInSheet deckKey={deck.key} deckName={deck.name} onClose={() => setSwapping(false)} />}
       {group("When your prints arrive", c.prints)}
       {group("Stand-ins", c.loose)}
       {group("Optional extras", c.optional, "Cards you have for this deck that the plan doesn't need a slot for.")}

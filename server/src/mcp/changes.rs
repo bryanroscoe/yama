@@ -15,7 +15,7 @@
 //! fails with the reason and stays pending.
 
 use super::Via;
-use super::tools::{card_info, checks, deck_id, near_names, text_arg};
+use super::tools::{card_info, checks, deck_id, near_names, precon_id, text_arg};
 use crate::auth::{CurrentUser, User};
 use crate::decks::{Board, DeckCard};
 use crate::error::{AppError, AppResult};
@@ -542,6 +542,26 @@ pub async fn mark_installed(st: &AppState, user: &User, via: &Via, args: &Value)
     .await
 }
 
+pub async fn swap_in_prints(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let (key, name) = plan_deck(&st.pool, &user.id, text_arg(args, "plan")?).await?;
+    let preview = crate::plan::swap_in::run(&st.pool, &user.id, &key, true).await?;
+    if preview.done {
+        return Ok(preview.text());
+    }
+    stage(
+        st,
+        user,
+        via,
+        Staged {
+            kind: "swap_in_prints",
+            summary: format!("Swap the prints into {name}: {} proxies, {} cards moved, {} swaps ticked installed", preview.proxies_added, preview.moved, preview.ticks.len()),
+            detail: preview.text(),
+            payload: json!({"deck_key": key, "deck": name}),
+        },
+    )
+    .await
+}
+
 /// The planner op a plan change becomes. Its op id is the change's, so it applies once.
 fn plan_op(kind: &str, id: &str, p: &Value) -> Value {
     let at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
@@ -598,46 +618,160 @@ async fn apply_plan(st: &AppState, user: &User, kind: &str, id: &str, p: &Value)
     Ok(json!({"label": label, "link": format!("/decks/plan/d/{}", p["deck_key"].as_str().unwrap_or_default())}))
 }
 
-// ── start_lab_run ───────────────────────────────────────────────────────────
+// ── lab runs ────────────────────────────────────────────────────────────────
+
+/// One of their decks by name or id, else a precon by name or slug: the lab's list choice and its
+/// name.
+async fn list_choice(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(Value, String)> {
+    match deck_id(pool, owner, wanted).await {
+        Ok(id) => {
+            let name: String = sqlx::query_scalar("SELECT name FROM decks WHERE id = ?").bind(&id).fetch_one(pool).await?;
+            Ok((json!({"kind": "deck", "id": id}), name))
+        }
+        Err(AppError::NotFound(_)) => match precon_id(pool, wanted).await {
+            Ok((id, name)) => Ok((json!({"kind": "precon", "id": id}), name)),
+            Err(AppError::NotFound(_)) => Err(AppError::bad(format!("No deck of theirs and no precon matches \"{wanted}\"."))),
+            Err(e) => Err(e),
+        },
+        Err(e) => Err(e),
+    }
+}
+
+/// A list from `deck` (their deck or a precon) or `list` (pasted, named by `label`).
+async fn list_arg(pool: &SqlitePool, owner: &str, args: &Value, deck: &str, list: &str, label: &str, what: &str) -> AppResult<(Value, String)> {
+    match (opt_text(args, deck, 300)?, opt_text(args, list, crate::lab::experiments::MAX_TEXT_BYTES)?) {
+        (Some(d), None) => list_choice(pool, owner, &d).await,
+        (None, Some(text)) => {
+            let label = opt_text(args, label, 120)?.unwrap_or_else(|| "A pasted list".into());
+            Ok((json!({"kind": "list", "text": text, "label": label}), label))
+        }
+        _ => Err(AppError::bad(format!("Give {what}: either {deck} (one of their decks or a precon) or {list} (a whole list), not both."))),
+    }
+}
+
+/// A game count the caller may choose (as the lab checks it), or the default.
+fn games_arg(user: &User, args: &Value, default: Option<u32>) -> AppResult<u32> {
+    let games = match args.get("games").filter(|v| !v.is_null()) {
+        None => default.unwrap_or(crate::lab::experiments::game_choices(user)[0]),
+        Some(v) => v.as_u64().and_then(|g| u32::try_from(g).ok()).ok_or_else(|| AppError::bad("games must be a whole number"))?,
+    };
+    crate::lab::experiments::check_games(user, games)?;
+    Ok(games)
+}
+
+/// The fewest games the caller may choose that are at least `wanted`, else the most.
+fn games_at_least(user: &User, wanted: usize) -> u32 {
+    let wanted = u32::try_from(wanted).unwrap_or(u32::MAX);
+    if user.is_admin {
+        return (wanted.max(2).div_ceil(2) * 2).min(crate::lab::experiments::ADMIN_MAX_GAMES);
+    }
+    let choices = crate::lab::experiments::game_choices(user);
+    choices.iter().copied().find(|&c| c >= wanted).unwrap_or(choices[choices.len() - 1])
+}
+
+fn engine_words(engine: &str, ai: &str, forge_ai: &str) -> String {
+    match engine {
+        "forge" => format!("on Forge with its {forge_ai} AI"),
+        "both" => format!("on phase ({ai} AI) and Forge ({forge_ai} AI) side by side, each playing every pod"),
+        _ => format!("on phase with the {ai} AI"),
+    }
+}
 
 pub async fn start_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
-    let (base, base_label) = match (opt_text(args, "deck", 300)?, opt_text(args, "list", crate::lab::experiments::MAX_TEXT_BYTES)?) {
-        (Some(d), None) => {
-            let id = deck_id(pool, &user.id, &d).await?;
-            let name: String = sqlx::query_scalar("SELECT name FROM decks WHERE id = ?").bind(&id).fetch_one(pool).await?;
-            (json!({"kind": "deck", "id": id}), name)
-        }
-        (None, Some(text)) => {
-            let label = opt_text(args, "label", 120)?.unwrap_or_else(|| "A pasted list".into());
-            (json!({"kind": "list", "text": text, "label": label}), label)
-        }
-        _ => return Err(AppError::bad("Give either deck (one of their decks) or list (a whole list), not both.")),
-    };
-    let (add, cut) = (names_arg(args, "add")?, names_arg(args, "cut")?);
-    if add.is_empty() && cut.is_empty() {
-        return Err(AppError::bad("Name at least one card to add or cut."));
+    let mode = opt_text(args, "mode", 20)?.unwrap_or_else(|| "change".into());
+    let games = games_arg(user, args, None)?;
+    let engine = opt_text(args, "engine", 10)?.unwrap_or_else(|| "phase".into());
+    crate::lab::forge::EngineMode::parse(Some(&engine)).map_err(AppError::bad)?;
+    let ai = opt_text(args, "ai", 10)?.unwrap_or_else(|| "Easy".into());
+    if !["Easy", "Medium"].contains(&ai.as_str()) && !user.is_admin {
+        return Err(AppError::bad("ai must be Easy or Medium"));
     }
-    let known = known_cards(pool, &[add.clone(), cut.clone()].concat()).await?;
-    let canon = |names: &[String]| -> Vec<String> { names.iter().map(|n| known[n].1.clone()).collect() };
-    let (add, cut) = (canon(&add), canon(&cut));
-    let choices = crate::lab::experiments::game_choices(user);
-    let games = match args.get("games").and_then(Value::as_u64) {
-        None => choices[0],
-        Some(g) => choices.iter().copied().find(|c| u64::from(*c) == g).ok_or_else(|| {
-            AppError::bad(format!("games must be one of {}", choices.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")))
-        })?,
-    };
+    let forge_ai = opt_text(args, "forge_ai", 20)?.unwrap_or_else(|| crate::lab::forge::DEFAULT_PROFILE.into());
+    if !crate::lab::forge::FORGE_PROFILES.contains(&forge_ai.as_str()) {
+        return Err(AppError::bad(format!("forge_ai must be one of {}", crate::lab::forge::FORGE_PROFILES.join(", "))));
+    }
     let (field, against) = match opt_text(args, "opponents", 20)?.as_deref() {
-        None | Some("strongest") => (json!({"kind": "precons_top", "n": crate::lab::experiments::DEFAULT_FIELD}), "the strongest precons"),
-        Some("my_decks") => (json!({"kind": "my_decks"}), "their own decks"),
-        Some(other) => return Err(AppError::bad(format!("opponents: \"{other}\" isn't strongest or my_decks"))),
+        None | Some("strongest") => (json!({"kind": "precons_top", "n": crate::lab::experiments::DEFAULT_FIELD}), "the strongest precons".to_string()),
+        Some("similar") => match opt_text(args, "near", 300)? {
+            Some(near) => {
+                let (id, name) = precon_id(pool, &near).await?;
+                (json!({"kind": "precons_near", "n": crate::lab::experiments::DEFAULT_FIELD, "ids": [id]}), format!("the precons nearest in strength to {name}"))
+            }
+            None => (json!({"kind": "precons_near", "n": crate::lab::experiments::DEFAULT_FIELD}), "the precons nearest in strength to the list".to_string()),
+        },
+        Some("all_precons") => (json!({"kind": "precons_all"}), "every precon".to_string()),
+        Some("my_decks") => (json!({"kind": "my_decks"}), "their own decks".to_string()),
+        Some(other) => return Err(AppError::bad(format!("opponents: \"{other}\" isn't strongest, similar, all_precons or my_decks"))),
     };
-    let mut parts: Vec<String> = add.iter().map(|c| format!("+{c}")).collect();
-    parts.extend(cut.iter().map(|c| format!("\u{2212}{c}")));
-    let summary = format!("Lab run, {base_label}: {}", parts.join(", "));
-    let detail = format!("{games} games against {against}, the base list against the changed one, on the lab's usual engine and AI level.");
-    let request = json!({"mode": "change", "base": base, "variant": {"add": add, "cut": cut}, "field": field, "games": games});
+    let mut request = json!({"mode": mode, "field": field, "games": games, "difficulty": ai});
+    if engine != "phase" {
+        request["engine"] = json!(engine);
+        request["forge_ai"] = json!(forge_ai);
+    }
+    let summary = match mode.as_str() {
+        "change" | "solo" => {
+            let (base, base_label) = list_arg(pool, &user.id, args, "deck", "list", "label", "the list to start from").await?;
+            request["base"] = base;
+            let (add, cut) = (names_arg(args, "add")?, names_arg(args, "cut")?);
+            if mode == "solo" {
+                if !add.is_empty() || !cut.is_empty() {
+                    return Err(AppError::bad("A solo run plays the list as it is: leave out add and cut, or use mode change."));
+                }
+                format!("Lab run, {base_label} as it is")
+            } else {
+                if add.is_empty() && cut.is_empty() {
+                    return Err(AppError::bad("Name at least one card to add or cut (or use mode solo to run the list as it is)."));
+                }
+                let known = known_cards(pool, &[add.clone(), cut.clone()].concat()).await?;
+                let canon = |names: &[String]| -> Vec<String> { names.iter().map(|n| known[n].1.clone()).collect() };
+                let (add, cut) = (canon(&add), canon(&cut));
+                let mut parts: Vec<String> = add.iter().map(|c| format!("+{c}")).collect();
+                parts.extend(cut.iter().map(|c| format!("\u{2212}{c}")));
+                request["variant"] = json!({"add": add, "cut": cut});
+                format!("Lab run, {base_label}: {}", parts.join(", "))
+            }
+        }
+        "compare" => {
+            let (a, a_label) = list_arg(pool, &user.id, args, "deck", "list", "label", "the first list").await?;
+            let (b, b_label) = list_arg(pool, &user.id, args, "other", "other_list", "other_label", "the second list").await?;
+            request["base"] = a;
+            request["other"] = b;
+            format!("Lab run, {a_label} against {b_label}")
+        }
+        "versus" => {
+            let names: Vec<String> = match args.get("entrants") {
+                Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).map(str::trim).filter(|n| !n.is_empty() && n.len() <= 300).map(String::from).collect(),
+                _ => vec![],
+            };
+            if !(2..=crate::lab::experiments::MAX_ENTRANTS).contains(&names.len()) {
+                return Err(AppError::bad(format!("versus needs 2 to {} entrants", crate::lab::experiments::MAX_ENTRANTS)));
+            }
+            let mut entrants = Vec::new();
+            let mut labels = Vec::new();
+            for n in &names {
+                let (choice, label) = list_choice(pool, &user.id, n).await?;
+                entrants.push(choice);
+                labels.push(label);
+            }
+            let pod = args.get("pod").and_then(Value::as_u64).unwrap_or(4);
+            request["entrants"] = json!(entrants);
+            request["pod"] = json!(pod);
+            if pod == 2 || entrants.len() >= 4 {
+                request.as_object_mut().map(|o| o.remove("field"));
+            }
+            format!("Lab run, head to head: {}", labels.join(", "))
+        }
+        other => return Err(AppError::bad(format!("mode: \"{other}\" isn't change, compare, solo or versus"))),
+    };
+    let engines = engine_words(&engine, &ai, &forge_ai);
+    let detail = match mode.as_str() {
+        "change" => format!("{games} games against {against}, the base list against the changed one in the same pods, {engines}."),
+        "compare" => format!("{games} games against {against}, the two lists in the same pods, {engines}."),
+        "solo" => format!("{games} games against {against}, {engines}."),
+        _ if request.get("field").is_some() => format!("{games} games, with {against} filling empty seats, {engines}."),
+        _ => format!("{games} games, {engines}."),
+    };
     stage(st, user, via, Staged { kind: "start_lab_run", summary, detail, payload: request }).await
 }
 
@@ -650,6 +784,133 @@ async fn apply_lab_run(st: &AppState, user: &User, id: &str, p: &Value) -> AppRe
     st.lab.wake();
     st.lab.wake_forge();
     Ok(json!({"label": format!("Lab run queued: {}", made.item.name), "link": format!("/decks/lab/runs/{}", made.item.id)}))
+}
+
+/// One of the caller's experiments as staging needs it.
+struct RunInfo {
+    name: String,
+    status: String,
+    mode: String,
+    /// Pod templates (games per engine in solo and versus).
+    pods: usize,
+    engine: String,
+    /// Each engine's results so far (phase's half first in a "both" run).
+    summaries: Vec<crate::lab::stats::Summary>,
+}
+
+async fn run_info(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<RunInfo> {
+    type Row = (String, String, Option<String>, i64, Option<String>, Option<String>, Option<String>);
+    let row: Option<Row> = sqlx::query_as(
+        "SELECT name, status, json_extract(spec, '$.mode'), json_extract(spec, '$.pods'), json_extract(spec, '$.engines.mode'),
+                summary, summary_forge
+         FROM lab_experiments WHERE id = ? AND owner_id = ?",
+    )
+    .bind(id)
+    .bind(owner)
+    .fetch_optional(pool)
+    .await?;
+    let (name, status, mode, pods, engine, summary, forge) = row.ok_or(AppError::NotFound("experiment"))?;
+    let summaries = [summary, forge].into_iter().flatten().filter_map(|t| serde_json::from_str(&t).ok()).collect();
+    Ok(RunInfo {
+        name,
+        status,
+        mode: mode.unwrap_or_else(|| "change".into()),
+        pods: usize::try_from(pods).unwrap_or(0),
+        engine: engine.unwrap_or_else(|| "phase".into()),
+        summaries,
+    })
+}
+
+/// Games one pod takes on one engine.
+fn per_pod(mode: &str) -> usize {
+    if matches!(mode, "solo" | "versus") { 1 } else { 2 }
+}
+
+pub async fn more_lab_games(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let id = text_arg(args, "id")?;
+    let run = run_info(&st.pool, &user.id, id).await?;
+    if run.mode == "versus" {
+        return Err(AppError::bad("A head-to-head run can't take more games; use run_lab_again."));
+    }
+    if run.status != "done" {
+        return Err(AppError::bad(format!("Only a finished run can take more games; this one is {}.", run.status)));
+    }
+    // Enough for the run's settle estimate, where it has one (the larger of the two engines').
+    let per = per_pod(&run.mode);
+    let default = run.summaries.iter().filter_map(crate::lab::stats::pods_to_add).max().map(|n| games_at_least(user, n as usize * per));
+    let games = games_arg(user, args, default)?;
+    let new_pods = games as usize / per;
+    let mut detail = format!(
+        "{games} more games{}: {} pods so far, then {new_pods} more that continue the same schedule and pool with them.",
+        if run.engine == "both" { " on each engine" } else { "" },
+        run.pods
+    );
+    for sm in &run.summaries {
+        if let Some(n) = sm.paired.settle_pods {
+            let _ = write!(detail, " If the difference holds, about {n} counted pods would settle it ({} so far).", sm.paired.pods);
+        }
+    }
+    let summary = format!("More lab games, {}: {games} more", run.name);
+    stage(st, user, via, Staged { kind: "more_lab_games", summary, detail, payload: json!({"experiment": id, "games": games, "seen_pods": run.pods}) }).await
+}
+
+async fn apply_more_games(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    let id = p["experiment"].as_str().unwrap_or_default();
+    let games = p["games"].as_u64().and_then(|g| u32::try_from(g).ok()).unwrap_or(0);
+    let seen = p["seen_pods"].as_u64().and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+    let run = run_info(&st.pool, &user.id, id).await?;
+    if run.pods != seen {
+        return Err(AppError::Conflict(format!("The run has {} pods now, not the {seen} it had when this was staged; stage it again.", run.pods)));
+    }
+    let sim = st.lab.simulator()?;
+    let d = crate::lab::experiments::more_with(&st.pool, user, id, games, seen, sim.as_ref(), &st.cfg.lab_quota, &st.lab.forge_access()).await?;
+    st.lab.wake();
+    st.lab.wake_forge();
+    Ok(json!({"label": format!("{games} more games queued: {}", d.item.name), "link": format!("/decks/lab/runs/{id}")}))
+}
+
+pub async fn run_lab_again(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let id = text_arg(args, "id")?;
+    let run = run_info(&st.pool, &user.id, id).await?;
+    let had = run.pods * per_pod(&run.mode);
+    let games = games_arg(user, args, Some(games_at_least(user, had)))?;
+    let summary = format!("Lab run again, {}: {games} games", run.name);
+    let detail = format!(
+        "A new run with the same lists, opponents, engines and AI{}, and a new seed. The first run stays as it is.",
+        if run.engine == "both" { format!(" ({games} games on each engine)") } else { String::new() }
+    );
+    stage(st, user, via, Staged { kind: "run_lab_again", summary, detail, payload: json!({"experiment": id, "games": games}) }).await
+}
+
+async fn apply_again(st: &AppState, user: &User, change: &str, p: &Value) -> AppResult<Value> {
+    let id = p["experiment"].as_str().unwrap_or_default();
+    let games = p["games"].as_u64().and_then(|g| u32::try_from(g).ok()).unwrap_or(0);
+    let sim = st.lab.simulator()?;
+    let op = format!("{DEVICE}-{change}");
+    let d = crate::lab::experiments::again_with(&st.pool, user, id, games, Some(&op), sim.as_ref(), &st.cfg.lab_quota, &st.lab.forge_access()).await?;
+    st.lab.wake();
+    st.lab.wake_forge();
+    Ok(json!({"label": format!("Lab run queued: {}", d.item.name), "link": format!("/decks/lab/runs/{}", d.item.id)}))
+}
+
+pub async fn cancel_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let id = text_arg(args, "id")?;
+    let run = run_info(&st.pool, &user.id, id).await?;
+    if !matches!(run.status.as_str(), "queued" | "running") {
+        return Err(AppError::bad(format!("This run is {}, so there's nothing to cancel.", run.status)));
+    }
+    let summary = format!("Cancel lab run, {}", run.name);
+    let detail = "Games already playing finish and count; no new ones start. The results so far stay.".to_string();
+    stage(st, user, via, Staged { kind: "cancel_lab_run", summary, detail, payload: json!({"experiment": id}) }).await
+}
+
+async fn apply_cancel(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    let id = p["experiment"].as_str().unwrap_or_default();
+    let lab = &st.lab;
+    let d = crate::lab::experiments::cancel(&st.pool, &user.id, id, &|e: &str| lab.playing(e)).await?;
+    lab.wake();
+    let label = if d.item.status == "cancelled" { format!("Lab run cancelled: {}", d.item.name) } else { format!("{} was already {}", d.item.name, d.item.status) };
+    Ok(json!({"label": label, "link": format!("/decks/lab/runs/{id}")}))
 }
 
 // ── collection ──────────────────────────────────────────────────────────────
@@ -923,6 +1184,20 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
     Ok(json!({"label": label, "link": "/collection"}))
 }
 
+/// Runs the swap-in against the plan, box and deck as they are now; it plans from state, so a
+/// change applied twice (or after the person did it on the web) finds nothing left to do.
+async fn apply_swap_in(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    st.limits.deck_writes.check_user(user)?;
+    let key = p["deck_key"].as_str().unwrap_or_default();
+    let done = crate::plan::swap_in::run(&st.pool, &user.id, key, false).await?;
+    let label = if done.done {
+        format!("{} already held its after-prints list", done.plan_name)
+    } else {
+        format!("Prints swapped into {}: {} proxies added, {} cards moved", done.plan_name, done.proxies_added, done.moved)
+    };
+    Ok(json!({"label": label, "link": format!("/decks/plan/d/{key}")}))
+}
+
 // ── applying and discarding ─────────────────────────────────────────────────
 
 /// One apply at a time on this server, so two taps (or a tap and `apply_change`) can't both run a
@@ -945,7 +1220,11 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
         "edit_deck" => apply_edit_deck(st, user, &row.summary, &p).await,
         "propose_swap" | "answer_review" | "mark_bought" | "mark_installed" => apply_plan(st, user, &row.kind, &row.id, &p).await,
         "start_lab_run" => apply_lab_run(st, user, &row.id, &p).await,
+        "more_lab_games" => apply_more_games(st, user, &p).await,
+        "run_lab_again" => apply_again(st, user, &row.id, &p).await,
+        "cancel_lab_run" => apply_cancel(st, user, &p).await,
         "add_to_collection" | "move_cards" | "set_condition" => apply_collection(st, user, &row.kind, &row.id, &p).await,
+        "swap_in_prints" => apply_swap_in(st, user, &p).await,
         other => Err(AppError::Other(anyhow::anyhow!("unknown change kind {other}"))),
     };
     let at = now();

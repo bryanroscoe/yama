@@ -1561,3 +1561,25 @@ button.conf-mark:focus-visible {
   font-size: var(--t-md, 1.1rem);
   margin: 0 0 4px;
 }
+/* How a paired run's games count, under its verdict. */
+.lab-counts {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  margin: 0 0 1rem;
+  max-width: 44rem;
+}
+.lab-counts h3 {
+  margin: 0 0 6px;
+  font-size: var(--t-md, 1.1rem);
+}
+.lab-counts p {
+  margin: 0 0 6px;
+}
+.lab-counts p:last-child {
+  margin-bottom: 0;
+}
+.lab-more h2 {
+  margin-bottom: 4px;
+}

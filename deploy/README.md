@@ -5,7 +5,7 @@ Yama runs as one container on saget, Bryan's Unraid server at `<saget-lan-addres
 - **Directory:** `/mnt/user/appdata/yama` on the cache SSD. It holds `compose.yaml`, a server-local `yama.env` (not in git), and `data/` (the SQLite database, engine card data and backups).
 - **LAN:** http://<saget-lan-address>:8099. The container listens on 8787.
 - **Public:** joins the existing `novalyst_default` Docker network, so the existing Cloudflare tunnel (`novalyst-cloudflared`) can route a hostname to `http://yama:8787`. No router ports are opened. Never restart `novalyst-cloudflared` or any other container for a Yama deploy.
-- **Container hardening:** runs as `99:100`, read-only filesystem, all capabilities dropped, 3 GB memory cap. The rules engine uses about 720 MB.
+- **Container hardening:** runs as `99:100`, read-only filesystem, all capabilities dropped, 5 GB memory cap. The rules engine uses about 720 MB; the lab's game threads and live games take the rest. At its cap a container doesn't fail, it slows down: every allocation waits on the kernel reclaiming pages. That is how 3 GB once turned minute-long lab games into time-outs.
 
 ## Rules (from the sagetserver repo)
 

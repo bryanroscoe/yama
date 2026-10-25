@@ -74,7 +74,7 @@ own costs nothing; say so.";
 const NO_CHANGES: &str = "You can't change anything in Yama.";
 const WITH_CHANGES: &str = "You can't change anything in Yama yourself, but when they ask you to make a change, or say \
 yes to one you suggested, stage it with a write tool (`edit_deck`, `propose_swap`, `answer_review`, `mark_bought`, \
-`mark_installed`, `start_lab_run`, `add_to_collection`, `move_cards`, `set_condition`). A staged change shows under your answer with \
+`mark_installed`, `start_lab_run`, `more_lab_games`, `run_lab_again`, `cancel_lab_run`, `add_to_collection`, `move_cards`, `set_condition`). A staged change shows under your answer with \
 Apply and Discard, and nothing changes until they apply it: say it's waiting for their review, never that it's done. \
 Don't stage changes they didn't ask for, and check `changes` before staging one that may already be waiting.";
 
@@ -258,14 +258,18 @@ struct SwapLine {
     why: Option<String>,
     why_out: Option<String>,
     when: Option<String>,
+    /// Installed in the real deck: a Yama tick, else the plan's own record (data/upgrades.json).
+    installed: bool,
 }
 
 async fn swaps_for(pool: &SqlitePool, owner: &str, deck_key: Option<&str>, stage: Option<&str>) -> AppResult<Vec<(String, SwapLine)>> {
     #[allow(clippy::type_complexity)]
-    let rows: Vec<(String, String, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
+    let rows: Vec<(String, String, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, bool)> =
         sqlx::query_as(
-            "SELECT d.name, s.ext_key, s.stage, s.role, s.src, s.in_name, s.out_name, s.tier, s.group_label, s.why, s.why_out, s.when_text
+            "SELECT d.name, s.ext_key, s.stage, s.role, s.src, s.in_name, s.out_name, s.tier, s.group_label, s.why, s.why_out, s.when_text,
+                    COALESCE(m.value, json_extract(s.upgrade, '$.status') = 'installed', 0)
              FROM plan_swaps s JOIN plan_decks d ON d.id = s.plan_deck_id AND d.owner_id = s.owner_id
+             LEFT JOIN plan_marks m ON m.owner_id = s.owner_id AND m.swap_key = s.ext_key AND m.kind = 'installed'
              WHERE s.owner_id = ? AND s.retired_at IS NULL AND d.status != 'archived'
                AND (?2 IS NULL OR d.key = ?2) AND (?3 IS NULL OR s.stage = ?3)
              ORDER BY d.sort, d.key, s.stage, s.sort, s.ext_key",
@@ -277,8 +281,8 @@ async fn swaps_for(pool: &SqlitePool, owner: &str, deck_key: Option<&str>, stage
         .await?;
     Ok(rows
         .into_iter()
-        .map(|(deck, key, stage, role, src, in_name, out_name, tier, group, why, why_out, when)| {
-            (deck, SwapLine { key, stage, role, src, in_name, out_name, tier, group, why, why_out, when })
+        .map(|(deck, key, stage, role, src, in_name, out_name, tier, group, why, why_out, when, installed)| {
+            (deck, SwapLine { key, stage, role, src, in_name, out_name, tier, group, why, why_out, when, installed })
         })
         .collect())
 }
@@ -307,6 +311,9 @@ fn swap_text(sw: &SwapLine, answers: &Answers) -> String {
     }
     tags.extend(sw.tier.clone());
     tags.extend(sw.group.clone());
+    if sw.stage == "planned" {
+        tags.push(if sw.installed { "installed" } else { "not installed" }.into());
+    }
     let _ = write!(line, " [{}]", tags.join(", "));
     if let Some(w) = sw.why.as_deref().filter(|w| !w.is_empty()) {
         let _ = write!(line, "\n  Why: {w}");
@@ -599,32 +606,220 @@ async fn precon(pool: &SqlitePool, id: &str) -> AppResult<String> {
 // ── experiment ("Try a change") ─────────────────────────────────────────────
 
 async fn experiment(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<String> {
+    use crate::lab::experiments::{LabCard, Mode};
+    use crate::lab::forge::EngineMode;
     let d = crate::lab::experiments::detail(pool, owner, id).await?;
-    let v = serde_json::to_value(&d).map_err(anyhow::Error::from)?;
-    let mut out = format!("Their lab experiment (\"Try a change\"): {} ({})\n", s(&v, "name"), s(&v, "status"));
-    let _ = writeln!(out, "Label: {}", v["label"]);
-    let _ = writeln!(out, "Progress: {}", v["progress"]);
-    let base = v["lists"]["base"]["cards"].as_array().cloned().unwrap_or_default();
-    let variant = v["lists"]["variant"]["cards"].as_array().cloned().unwrap_or_default();
-    let _ = writeln!(out, "Base list \"{}\":\n{}", s(&v["lists"]["base"], "label"), card_list(&base));
-    let (added, removed) = diff(&base, &variant);
+    let e = &d.item;
+    let lab_list = |cards: &[LabCard]| {
+        let names = |commander: bool| cards.iter().filter(|c| c.commander == commander).map(|c| if c.qty > 1 { format!("{} {}", c.qty, c.name) } else { c.name.clone() }).collect::<Vec<_>>();
+        let main: u32 = cards.iter().filter(|c| !c.commander).map(|c| c.qty).sum();
+        format!("Commander: {}\nMain ({main}): {}", names(true).join(", "), names(false).join(", "))
+    };
+    let mut out = format!("Their lab experiment: {} ({}), id {}\n", e.name, e.status, e.id);
     let _ = writeln!(
         out,
-        "Changed list \"{}\" differs from the base by:\n+ {}\n- {}",
-        s(&v["lists"]["variant"], "label"),
-        if added.is_empty() { "nothing".into() } else { added.join(", ") },
-        if removed.is_empty() { "nothing".into() } else { removed.join(", ") }
+        "Mode: {}",
+        match e.mode {
+            Mode::Change => "try a change (the base list against the same list with cards added and cut, in the same pods)",
+            Mode::Compare => "compare (two lists, each played in the same pods)",
+            Mode::Solo => "solo (one list as it is against the field)",
+            Mode::Versus => "head to head (the lists play each other)",
+        }
     );
-    let opponents: Vec<String> = v["opponents"].as_array().into_iter().flatten().map(|o| s(o, "label")).collect();
-    if !opponents.is_empty() {
-        let _ = writeln!(out, "Opponents: {}", opponents.join(", "));
+    let profile = e.engines.profile();
+    let _ = writeln!(
+        out,
+        "Engines: {}. Builds: {}; card data {}.",
+        match e.engines.mode {
+            EngineMode::Phase => format!("phase, {} AI", e.label.difficulty),
+            EngineMode::Forge => format!("Forge, {profile} AI"),
+            EngineMode::Both => format!("phase ({} AI) and Forge ({profile} AI) side by side, each playing every pod", e.label.difficulty),
+        },
+        e.label.engine,
+        e.label.card_data
+    );
+    let l = &d.limits;
+    let _ = writeln!(
+        out,
+        "Limits per game: {} turns (every player's turn counts, so about {} rounds in a 4-player game), {} actions, {} s of the game thread's CPU time. \
+         A game with no move for 5 minutes is written off as hung. A phase game the machine cut short (CPU time, a hang) is played once more after the rest; \
+         only a second time-out or hang stays unscored.",
+        l.max_turns,
+        l.max_turns / 4,
+        l.max_actions,
+        l.max_seconds
+    );
+    let p = &e.progress;
+    let _ = write!(out, "Progress: {} of {} games", p.done, p.total);
+    if let Some(g) = e.forge_games {
+        let _ = write!(out, " ({} of {} on Forge)", g.done, g.total);
     }
-    let _ = writeln!(out, "Results (paired, same pods and shuffles for both lists): {}", v["summary"]);
-    for w in v["warnings"].as_array().into_iter().flatten() {
-        let _ = writeln!(out, "Warning: {}", w.as_str().unwrap_or_default());
+    if let Some(eta) = p.eta_seconds {
+        let _ = write!(out, ", about {} min left", (eta + 59) / 60);
     }
-    if let Some(e) = v["error"].as_str() {
-        let _ = writeln!(out, "Error: {e}");
+    out.push('\n');
+    match e.mode {
+        Mode::Versus => {
+            for (i, list) in d.lists.entrants.iter().enumerate() {
+                let _ = writeln!(out, "Entrant {} \"{}\":\n{}", i + 1, list.label, lab_list(&list.cards));
+            }
+        }
+        Mode::Compare => {
+            let _ = writeln!(out, "First list \"{}\":\n{}", d.lists.base.label, lab_list(&d.lists.base.cards));
+            if let Some(v) = &d.lists.variant {
+                let _ = writeln!(out, "Second list \"{}\":\n{}", v.label, lab_list(&v.cards));
+            }
+        }
+        _ => {
+            let _ = writeln!(out, "Base list \"{}\":\n{}", d.lists.base.label, lab_list(&d.lists.base.cards));
+            if let Some(v) = &d.lists.variant {
+                let (added, cut) = crate::lab::experiments::diff(&d.lists.base.cards, &v.cards);
+                let names = |cs: &[LabCard]| if cs.is_empty() { "nothing".to_string() } else { cs.iter().map(|c| if c.qty > 1 { format!("{} {}", c.qty, c.name) } else { c.name.clone() }).collect::<Vec<_>>().join(", ") };
+                let _ = writeln!(out, "Changed list \"{}\" differs from the base by:\n+ {}\n- {}", v.label, names(&added), names(&cut));
+            }
+        }
+    }
+    if !d.opponents.is_empty() {
+        let field = e.field.as_ref().map(|f| format!(" ({})", f.label)).unwrap_or_default();
+        let _ = writeln!(out, "Opponents{field}: {}", d.opponents.iter().map(|o| o.label.as_str()).collect::<Vec<_>>().join(", "));
+    }
+    let (a, b) = match e.mode {
+        Mode::Compare => (d.lists.base.label.clone(), d.lists.variant.as_ref().map_or("the second list".into(), |v| v.label.clone())),
+        _ => ("the base list".to_string(), "the changed list".to_string()),
+    };
+    let both = e.engines.mode == EngineMode::Both;
+    let halves = [
+        (if e.engines.mode == EngineMode::Forge { "Forge" } else { "phase" }, e.summary.as_ref()),
+        ("Forge", if both { e.summary_forge.as_ref() } else { None }),
+    ];
+    for (i, (engine, summary)) in halves.into_iter().enumerate() {
+        if i == 1 && !both {
+            break;
+        }
+        match summary {
+            None => {
+                let _ = writeln!(out, "\nResults on {engine}: none yet.");
+            }
+            Some(sm) => {
+                let _ = writeln!(out, "\nResults on {engine}:");
+                out.push_str(&summary_text(sm, e.mode, &a, &b, both, engine == "Forge"));
+            }
+        }
+    }
+    if let Some(ag) = &e.agreement {
+        let _ = writeln!(out, "\nThe two engines: {}", ag.text);
+    }
+    if let Some(sm) = &e.summary {
+        let _ = writeln!(out, "\nHow it's scored: {}", sm.method);
+    }
+    for w in &d.warnings {
+        let _ = writeln!(out, "Warning: {w}");
+    }
+    if let Some(err) = &e.error {
+        let _ = writeln!(out, "Error: {err}");
     }
     Ok(out)
+}
+
+/// One engine's results in words: every number the run page shows, and what to do about an
+/// unclear answer.
+/// `forge`: Forge's half, whose limit is wall time rather than CPU time.
+fn summary_text(sm: &crate::lab::stats::Summary, mode: crate::lab::experiments::Mode, a: &str, b: &str, both: bool, forge: bool) -> String {
+    use crate::lab::experiments::Mode;
+    use crate::lab::stats::ListStats;
+    let mut out = String::new();
+    let wilson = |w: Option<[f64; 2]>| w.map_or(String::new(), |[lo, hi]| format!(", 90% interval {:.0} to {:.0}%", lo * 100.0, hi * 100.0));
+    let place = |p: Option<f64>| p.map_or(String::new(), |p| format!(", average place {p:.2}"));
+    let list = |name: &str, l: &ListStats| {
+        format!("{name}: {} wins in {} scored games ({}{}){}", l.wins, l.games, pct(l.win_rate), wilson(l.wilson), place(l.avg_place))
+    };
+    if let Some(v) = &sm.versus {
+        let _ = writeln!(out, "{} scored games of {} players{}.", v.games, v.pod, if v.pending > 0 { format!(", {} still to play", v.pending) } else { String::new() });
+        for en in &v.entrants {
+            let _ = writeln!(out, "- {}, went first in {}", list(&en.label, &ListStats { games: en.games, wins: en.wins, win_rate: en.win_rate, wilson: en.wilson, avg_place: en.avg_place, ..Default::default() }), en.first);
+        }
+        for m in &v.meetings {
+            let (x, y) = (&v.entrants[m.a].label, &v.entrants[m.b].label);
+            let _ = writeln!(out, "- {x} finished ahead of {y} in {} of {} untied games ({}{}); {} ties", m.a_ahead, m.a_ahead + m.b_ahead, pct(m.a_share), wilson(m.a_share_ci), m.ties);
+        }
+        if v.filler_wins > 0 {
+            let _ = writeln!(out, "- Precons filling empty seats won {} games.", v.filler_wins);
+        }
+        if let Some(t) = v.avg_turns {
+            let _ = writeln!(out, "- Games took {t:.0} turns on average.");
+        }
+    } else if mode == Mode::Solo {
+        let _ = writeln!(out, "{} games scheduled.", sm.pods);
+        let _ = writeln!(out, "- {}", list("The list", &sm.base));
+    } else {
+        let pr = &sm.paired;
+        let _ = writeln!(
+            out,
+            "{} pods scheduled; {} count in the difference (both games scored{}).",
+            sm.pods,
+            pr.pods,
+            if pr.split_builds > 0 { format!("; {} left out because their two games ran on different builds", pr.split_builds) } else { String::new() }
+        );
+        let _ = writeln!(out, "- {}", list(&cap(b), &sm.variant));
+        let _ = writeln!(out, "- {}", list(&cap(a), &sm.base));
+        let ci = pr.delta_ci.map_or("no interval".into(), |[lo, hi]| format!("90% interval {:+.1} to {:+.1} points", lo * 100.0, hi * 100.0));
+        let _ = writeln!(
+            out,
+            "- Difference ({b} minus {a}): {} points of win rate, {ci}. Pods only {b} won: {}; only {a}: {}; both: {}; neither: {}.",
+            pr.delta_win_rate.map_or("?".into(), |d| format!("{:+.1}", d * 100.0)),
+            pr.variant_only,
+            pr.base_only,
+            pr.both_won,
+            pr.neither
+        );
+        if let (Some(dp), Some([lo, hi])) = (pr.delta_avg_place, pr.delta_avg_place_ci) {
+            let _ = writeln!(out, "- Average place difference: {dp:+.2} (90% interval {lo:+.2} to {hi:+.2}; negative is better for {b}).");
+        }
+    }
+    let _ = writeln!(out, "- Verdict{}: {}", if sm.verdict.is_final { "" } else { " so far" }, sm.verdict.text);
+    let u = &sm.unscored;
+    if u.total == 0 {
+        out.push_str("- Every game played so far was scored.\n");
+    } else {
+        let mut why = vec![];
+        if u.time_cap > 0 {
+            why.push(if forge {
+                format!("{} ran past Forge's {} s limit (wall time)", u.time_cap, crate::lab::forge::FORGE_MAX_SECONDS)
+            } else {
+                format!("{} ran out of CPU time", u.time_cap)
+            });
+        }
+        if u.error > 0 {
+            why.push(format!("{} failed (a hang, the wall-clock safety net or an engine error; lab_games has each reason)", u.error));
+        }
+        if u.panic > 0 {
+            why.push(format!("{} crashed", u.panic));
+        }
+        let _ = writeln!(out, "- Not scored: {} games: {}.", u.total, why.join(", "));
+    }
+    let n = &sm.no_winner;
+    if n.total > 0 {
+        let _ = writeln!(out, "- Scored with nobody winning: {} ({} draws, {} at the turn cap, {} at the action cap).", n.total, n.draw, n.turn_cap, n.action_cap);
+    }
+    if let Some(settle) = sm.paired.settle_pods.filter(|_| sm.versus.is_none() && mode != Mode::Solo) {
+        let _ = write!(out, "- If the difference stays where it is, about {settle} counted pods would settle it ({} so far)", sm.paired.pods);
+        if !sm.verdict.is_final {
+            out.push_str("; the pods still to play may get there.\n");
+        } else if let Some(add) = crate::lab::stats::pods_to_add(sm) {
+            let _ = writeln!(
+                out,
+                "; about {add} more pods ({} more games{}) should get there, and more_lab_games adds them to this run.",
+                add * 2,
+                if both { " on each engine" } else { "" }
+            );
+        } else {
+            out.push_str(".\n");
+        }
+    }
+    out
+}
+
+fn cap(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map_or(String::new(), |f| f.to_uppercase().collect::<String>() + c.as_str())
 }

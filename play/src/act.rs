@@ -388,6 +388,11 @@ pub struct Pending {
     /// `current` isn't one of the engine's alternatives, so picking it is sent as keeping it.
     #[serde(skip)]
     keeps_current: bool,
+    /// The engine takes choosing no target here: keeping a copy's target or declining one
+    /// (CR 707.10c, 115.6), as its own options say. The board keeps by picking the current target;
+    /// an answer of none is taken too.
+    #[serde(skip)]
+    none_ok: bool,
     /// Phyrexian mana: how each symbol may be paid, to check an answer against.
     #[serde(skip)]
     shards: Vec<ShardOptions>,
@@ -440,6 +445,7 @@ impl Pending {
             step: None,
             shortcut: None,
             keeps_current: false,
+            none_ok: false,
             shards: vec![],
         }
     }
@@ -880,6 +886,7 @@ impl Pending {
                     _ => None,
                 };
                 let mut p = Pending::new(Kind::Pick, Answer::ChooseTarget, "target", prompt, options).range(if optional { 0 } else { 1 }, 1, optional).from(vs, source);
+                p.none_ok = offers_no_target(candidates);
                 p.zone = common_zone(&p.options);
                 p.slot = (target_slots.len() > 1).then_some((slot, target_slots.len()));
                 p.picked = selection.selected_slots.iter().flatten().map(|t| target_id(&TargetView::from_ref(t))).collect();
@@ -925,6 +932,7 @@ impl Pending {
                 p.default_answer = current.clone().filter(|_| slot.can_keep).map(|c| json!([c]));
                 p.current = current;
                 p.keeps_current = keeps_current;
+                p.none_ok = offers_no_target(candidates);
                 p.keep_rest = *can_keep_rest;
                 p.slot = (target_slots.len() > 1).then_some((*current_slot, target_slots.len()));
                 p
@@ -1556,7 +1564,7 @@ impl Pending {
                 Ok(())
             }
             (Answer::ChooseTarget, Act::ChooseTarget { target }) => match target {
-                None if self.min == 0 => Ok(()),
+                None if self.min == 0 || self.none_ok => Ok(()),
                 None => Err("This needs a target.".into()),
                 Some(t) if self.eligible(&target_id(t)) => Ok(()),
                 Some(_) => Err("That isn't a legal target.".into()),
@@ -1853,6 +1861,11 @@ impl Pending {
             other => other.clone(),
         }
     }
+}
+
+/// Whether the engine's own options include choosing no target.
+fn offers_no_target(candidates: &[GameAction]) -> bool {
+    candidates.iter().any(|a| matches!(a, GameAction::ChooseTarget { target: None }))
 }
 
 /// The modes question in the words cards use (CR 700.2): "Choose one", "Choose one or both",
@@ -2859,6 +2872,30 @@ mod tests {
         let e = Engine::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/act-cards.json")).unwrap();
         let deck = SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: vec!["Island".into(); 99] };
         e.new_match_first(1, vec![deck.clone(), deck], &[], Some(0)).unwrap()
+    }
+
+    #[test]
+    fn keeping_a_copys_target_is_taken_as_none_or_as_the_current_target() {
+        // A copy of a spell targeting Ben, which Ana may retarget to herself or keep on Ben
+        // (CR 707.10c). The engine's options are the new target and "none" (keep).
+        let mut m = game();
+        let copy = m.state.players[0].library[0];
+        m.state.waiting_for = serde_json::from_value(serde_json::json!({
+            "type": "CopyRetarget",
+            "data": {
+                "player": 0, "copy_id": copy.0, "current_slot": 0,
+                "target_slots": [{ "current": { "Player": 1 }, "legal_alternatives": [{ "Player": 0 }], "can_keep": true }]
+            }
+        }))
+        .unwrap();
+        let candidates = [GameAction::ChooseTarget { target: Some(TargetRef::Player(PlayerId(0))) }, GameAction::ChooseTarget { target: None }];
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &candidates, &[]).unwrap();
+        assert_eq!((p.purpose, p.min, p.max), ("copy", 1, 1), "the board keeps by picking the current target");
+        assert!(p.admits(&Act::ChooseTarget { target: None }).is_ok(), "none is the engine's own keep");
+        assert!(p.admits(&Act::ChooseTarget { target: Some(TargetView::Player { seat: 1 }) }).is_ok());
+        // Where the engine offers no "none", choosing none still needs a target.
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &candidates[..1], &[]).unwrap();
+        assert!(p.admits(&Act::ChooseTarget { target: None }).unwrap_err().contains("needs a target"));
     }
 
     #[test]

@@ -253,6 +253,9 @@ export interface Summary {
     delta_avg_place: number | null;
     delta_avg_place_ci: [number, number] | null;
     split_builds: number;
+    /** While the verdict can't tell: about how many counted pods in all would settle it if the
+     * difference stayed as it is. Missing on runs summarized before 2026-10-23. */
+    settle_pods?: number | null;
   };
   unscored: { time_cap: number; panic: number; error: number; total: number };
   no_winner: { draw: number; turn_cap: number; action_cap: number; total: number };

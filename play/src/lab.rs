@@ -24,12 +24,14 @@
 //! step, so a watchdog can write off a game stuck inside one engine or AI step
 //! ([`hung_result`]).
 //!
-//! Three differences from live Yama games: seat 0 always takes the first turn (live games roll a
+//! Four differences from live Yama games: seat 0 always takes the first turn (live games roll a
 //! d20), so a schedule's seat rotation is a rotation of turn order; when the AI returns no
-//! action, phase's own `fallback_action` answers from the engine-issued options; and a turn with
-//! more than MAX_TURN_ACTIONS AI actions is treated as a loop and ends the game as an action cap.
-//! The last two happen only where a live game would stop or loop, and are reported in the game's
-//! notes with what caused them.
+//! action, phase's own `fallback_action` answers from the engine-issued options; a turn with
+//! more than MAX_TURN_ACTIONS AI actions is treated as a loop and ends the game as an action cap;
+//! and the engine's loop detection (CR 732) stays off, as it was for every result so far, unless
+//! [`GameOptions::loops`] turns it on for an experiment (label "+loops"). The second and third
+//! happen only where a live game would stop or loop, and are reported in the game's notes with
+//! what caused them.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -43,7 +45,7 @@ use engine::game::deck_loading::{DeckList, PlayerDeckList};
 use engine::game::engine::{apply_interaction, apply_verified_ai_priority_pass, verified_ai_stack_pass_player};
 use engine::game::replay::reconstruct_initial_state;
 use engine::types::format::FormatConfig;
-use engine::types::game_state::{GameState, WaitingFor};
+use engine::types::game_state::{GameState, LoopDetectionMode, WaitingFor};
 use engine::types::log::GameLogEntry;
 use engine::types::match_config::MatchConfig;
 use engine::types::player::PlayerId;
@@ -62,9 +64,20 @@ use crate::{DeckLine, Engine, SeatDeck};
 /// The engine label every result line carries. Since 22 Oct 2026 the fork carries
 /// patches/phase/0002-0008: the AI fixes ("+aifix": Omo's counters, man-lands, land
 /// copies), the free-for-all tempo changes ("+tempo") and the two-player endgame
-/// change ("+endgame"). Results under the plain "phase-rs v0.113.0" label are the
-/// earlier engine and must not be pooled with these.
-pub const ENGINE: &str = "phase-rs v0.113.0+aifix+tempo+endgame";
+/// change ("+endgame"). Since 24 Oct 2026 it also carries 0010-0011, two fixes for AI
+/// decisions that could run without end ("+stallfix"). Results under an earlier label are
+/// another engine and must not be pooled with these.
+pub const ENGINE: &str = "phase-rs v0.113.0+aifix+tempo+endgame+stallfix";
+/// Added to [`ENGINE`] on result lines of games played with the engine's loop detection on
+/// ([`GameOptions::loops`]), so they're never pooled with the usual results.
+pub const LOOPS_SUFFIX: &str = "+loops";
+
+/// The engine label a result line carries: [`ENGINE`], plus [`LOOPS_SUFFIX`] when the games ran
+/// with loop detection.
+pub fn engine_label(loops: bool) -> String {
+    if loops { format!("{ENGINE}{LOOPS_SUFFIX}") } else { ENGINE.to_string() }
+}
+
 /// The source this crate was built from (see build.rs): a short SHA, or
 /// "<sha>-dirty-<source hash>" for uncommitted changes.
 pub const RUNNER: &str = env!("YAMA_LAB_RUNNER");
@@ -265,6 +278,21 @@ impl GameResult {
     /// The JSON line, without a newline.
     pub fn to_line(&self) -> String {
         serde_json::to_string(self).expect("result serializes")
+    }
+
+    /// Whether the machine, not the game, may have ended it: the CPU-time cap, a hang (no move
+    /// for a while) or the wall-clock safety net. On a starved machine each comes far sooner than
+    /// it would on a healthy one. Without an LLM seat a game replays move for move from its
+    /// schedule line, so playing it again on a healthy machine gives its real result.
+    pub fn cut_short_by_machine(&self) -> bool {
+        if self.pilots.iter().flatten().any(|p| p.starts_with("llm:")) {
+            return false;
+        }
+        match self.end {
+            End::TimeCap => true,
+            End::Error => self.error.as_deref().is_some_and(|e| e.starts_with("hung:") || e.starts_with("wall-clock safety limit:")),
+            _ => false,
+        }
     }
 }
 
@@ -618,11 +646,16 @@ pub struct GameOptions {
     pub hang_after: Option<usize>,
     /// How LLM seats reach their model. A game with an LLM pilot and no setup is an error.
     pub llm: Option<Arc<LlmSetup>>,
+    /// Play with phase's interactive loop detection (CR 732), as games people play do
+    /// (`crate::PLAY_LOOPS`), passes included (every pass an ordinary engine pass), for an
+    /// experiment. Off by default, so results stay comparable; with it on, result lines carry
+    /// [`engine_label`]'s "+loops".
+    pub loops: bool,
 }
 
 impl Default for GameOptions {
     fn default() -> Self {
-        Self { turn_action_cap: MAX_TURN_ACTIONS, panic_after: None, hang_after: None, llm: None }
+        Self { turn_action_cap: MAX_TURN_ACTIONS, panic_after: None, hang_after: None, llm: None, loops: false }
     }
 }
 
@@ -829,6 +862,8 @@ struct Limits {
     turn_action_cap: usize,
     panic_after: Option<usize>,
     hang_after: Option<usize>,
+    /// Loop detection on ([`GameOptions::loops`]).
+    loops: bool,
 }
 
 /// Build the game as `Engine::new_match` does (except that seat 0 goes first) and let the AI
@@ -856,9 +891,10 @@ fn play(
     let players = lists.len() as u8;
     let mut it = lists.into_iter();
     let deck_list = DeckList { player: it.next().unwrap(), opponent: it.next().unwrap(), ai_decks: it.collect(), ..Default::default() };
+    let loop_detection = if lim.loops { crate::PLAY_LOOPS } else { LoopDetectionMode::Off };
     let header = ReplayHeader {
         format_config: FormatConfig::commander(),
-        match_config: MatchConfig::default(),
+        match_config: MatchConfig { loop_detection, ..MatchConfig::default() },
         player_count: players,
         // Seat 0 takes the first turn (no d20 roll), so the schedule's seat order is the turn
         // order and its seat rotation balances who goes first.
@@ -901,7 +937,8 @@ fn play(
     // Set when the engine refused a model's choice: the next decision goes to the heuristic AI.
     let mut skip_llm_once = false;
     let session = AiSession::arc_from_game(&state);
-    // Same AI seed derivation as the play crate's matches.
+    // One stream for the whole game, as the play crate's matches had before they took one per
+    // decision (`ai_rng`); kept, so a schedule line still plays the game it always did.
     let mut rng = StdRng::seed_from_u64(job.seed ^ 0x9e37_79b9_7f4a_7c15);
 
     // Turn 1 is underway: record who has it.
@@ -1006,7 +1043,9 @@ fn play(
                 if near_turn_cap || p.actions + STALL_WINDOW >= job.max_actions {
                     p.record_stall(state.turn_number, stall_label(&state, actor, &action));
                 }
-                let stack_pass = verified_ai_stack_pass_player(&state, &action).is_some();
+                // With loop detection on, passes are ordinary engine passes, as in live games (see
+                // `Match::plain_passes`); without it, as the lab has always played.
+                let stack_pass = !lim.loops && verified_ai_stack_pass_player(&state, &action).is_some();
                 if !stack_pass && !contract.permits(&state, actor, &action) {
                     return Ending::Error(format!("AI for seat {} chose an action outside its options: {action:?} ({})", actor.0, where_in(&state)));
                 }
@@ -1123,6 +1162,7 @@ pub fn play_game(
     let _current = CurrentGame::set(&spec.game);
     let players = spec.decks.len();
     let mut result = GameResult::new(spec, card_data);
+    result.engine = engine_label(opts.loops);
     let mut notes = Vec::new();
 
     let lim = Limits {
@@ -1132,6 +1172,7 @@ pub fn play_game(
         turn_action_cap: opts.turn_action_cap,
         panic_after: opts.panic_after,
         hang_after: opts.hang_after,
+        loops: opts.loops,
     };
     let mut progress = Progress::new(players);
     let llm = opts.llm.as_deref();
@@ -1378,13 +1419,43 @@ mod tests {
         r.eliminations = vec![Elimination { seat: 1, turn: 3 }];
         let line = r.to_line();
         let expected = format!(
-            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"phase-rs v0.113.0+aifix+tempo+endgame","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
+            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"phase-rs v0.113.0+aifix+tempo+endgame+stallfix","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
         );
         assert_eq!(line, expected);
         assert_eq!(serde_json::from_str::<GameResult>(&line).unwrap(), r);
         for end in [End::Win, End::Draw, End::TurnCap, End::ActionCap, End::TimeCap, End::Panic, End::Error] {
             assert_eq!(serde_json::to_string(&end).unwrap(), format!("\"{}\"", end.as_str()));
         }
+    }
+
+    #[test]
+    fn only_the_machine_s_limits_count_as_cut_short_by_it() {
+        let spec = GameSpec {
+            game: "g".into(),
+            seed: 7,
+            decks: vec!["a".into(), "b".into()],
+            difficulty: "Easy".into(),
+            max_turns: 40,
+            max_actions: 100,
+            max_seconds: 60,
+            pilots: None,
+        };
+        let with = |end: End, error: Option<&str>| {
+            let mut r = GameResult::new(&spec, "x");
+            r.end = end;
+            r.error = error.map(String::from);
+            r
+        };
+        assert!(with(End::TimeCap, None).cut_short_by_machine());
+        assert!(with(End::Error, Some("hung: no move for 300s, stuck inside one engine or AI step")).cut_short_by_machine());
+        assert!(with(End::Error, Some("wall-clock safety limit: 2400s elapsed")).cut_short_by_machine());
+        for (end, error) in [(End::Win, None), (End::TurnCap, None), (End::ActionCap, None), (End::Panic, Some("boom")), (End::Error, Some("deck errors: x")), (End::Error, Some("AI for seat 1 found no action"))] {
+            assert!(!with(end, error).cut_short_by_machine(), "{end:?} {error:?}");
+        }
+        // A game with an LLM seat doesn't replay move for move.
+        let mut r = with(End::TimeCap, None);
+        r.pilots = Some(vec!["llm:m".into(), "easy".into()]);
+        assert!(!r.cut_short_by_machine());
     }
 
     #[test]
@@ -1454,6 +1525,13 @@ mod tests {
         }
         assert_eq!(p.stall.len(), STALL_WINDOW);
         assert_eq!(p.stall_summary(), format!("last {STALL_WINDOW} actions (turn 1): {STALL_WINDOW}x x"));
+    }
+
+    #[test]
+    fn loop_detection_is_off_unless_asked_for_and_labels_its_results() {
+        assert!(!GameOptions::default().loops, "the lab stays without loop detection");
+        assert_eq!(engine_label(false), ENGINE);
+        assert_eq!(engine_label(true), format!("{ENGINE}+loops"));
     }
 
     #[test]

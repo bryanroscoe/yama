@@ -25,6 +25,7 @@ use engine::game::replay::{ReplayPlayer, reconstruct_initial_state};
 use engine::types::format::FormatConfig;
 use engine::game::mulligan::kept_hand_size_after;
 use engine::types::game_state::{GameState, MulliganDecisionPhase, ReplacementChoiceKind, WaitingFor};
+pub use engine::types::game_state::LoopDetectionMode;
 use engine::types::identifiers::ObjectId;
 use engine::game::ability_utils::declared_targets_in_chain;
 use engine::game::combat::{AttackTarget, CombatRequirement, compute_attack_tax};
@@ -93,6 +94,24 @@ pub struct SeatDeck {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub companion: Vec<String>,
 }
+
+/// How a new game is set up, besides its seed, decks and AI seats.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Setup {
+    /// Who takes the first turn (seat 0 or 1), instead of the engine's d20 roll.
+    pub first: Option<u8>,
+    /// What the engine does about loops (CR 732), for the whole game:
+    /// - `Off` (the engine's default): loops run until something breaks them. The lab keeps it,
+    ///   so its results stay comparable.
+    /// - `Interactive`, for games people play: a loop nobody can break that wins is taken to its
+    ///   end at once (CR 732.2a); one somebody could break is offered as a shortcut, which each
+    ///   other player accepts or shortens (CR 732.2b, c); and a loop of mandatory actions only, in
+    ///   which nobody can win or lose, is a draw (CR 732.4, 104.4b).
+    pub loops: LoopDetectionMode,
+}
+
+/// The loop setting games people play start with (see [`Setup::loops`]).
+pub const PLAY_LOOPS: LoopDetectionMode = LoopDetectionMode::Interactive;
 
 /// One card line from a Yama deck.
 pub struct DeckLine<'a> {
@@ -235,7 +254,8 @@ impl Engine {
         lines.iter().filter(|l| self.face_name(l).is_none()).map(|l| l.name.to_string()).collect()
     }
 
-    /// Start a Commander game. Seat order is the order of `decks`.
+    /// Start a Commander game. Seat order is the order of `decks`. Loop detection stays off
+    /// ([`Setup`]); games people play start with [`Engine::new_match_with`].
     pub fn new_match(&self, seed: u64, decks: Vec<SeatDeck>, ai: &[(u8, AiDifficulty)]) -> anyhow::Result<Match> {
         self.new_match_first(seed, decks, ai, None)
     }
@@ -244,6 +264,12 @@ impl Engine {
     /// phase's game setup only honours seat 0 or 1 here; to start anyone else, rotate the decks
     /// so that player is seat 0 (turn order is the same cycle).
     pub fn new_match_first(&self, seed: u64, decks: Vec<SeatDeck>, ai: &[(u8, AiDifficulty)], first: Option<u8>) -> anyhow::Result<Match> {
+        self.new_match_with(seed, decks, ai, Setup { first, ..Setup::default() })
+    }
+
+    /// Start a Commander game with the given [`Setup`].
+    pub fn new_match_with(&self, seed: u64, decks: Vec<SeatDeck>, ai: &[(u8, AiDifficulty)], setup: Setup) -> anyhow::Result<Match> {
+        let Setup { first, loops } = setup;
         if first.is_some_and(|f| f > 1) {
             bail!("phase can only start seat 0 or 1; rotate the seats so the first player is seat 0");
         }
@@ -264,7 +290,10 @@ impl Engine {
         };
         let header = ReplayHeader {
             format_config: FormatConfig::commander(),
-            match_config: MatchConfig::default(),
+            // The loop setting lives in the header, so the saved replay log carries it: a resumed
+            // or replayed game uses the mode it started with, and a log from before the setting
+            // (no `loop_detection` key) reads as off.
+            match_config: MatchConfig { loop_detection: loops, ..MatchConfig::default() },
             player_count,
             first_player: first,
             seed,
@@ -328,10 +357,7 @@ impl Engine {
         state.debug_mode = false;
         state.all_card_names = self.db.card_names().into();
         let players = header.player_count;
-        let ai_configs = ai
-            .iter()
-            .map(|(seat, d)| (PlayerId(*seat), create_config_for_players(*d, Platform::Native, players)))
-            .collect();
+        let ai_configs = ai.iter().map(|(seat, d)| (PlayerId(*seat), ai_config(*d, players, header.seed, AI_CLOCK))).collect();
         let session = AiSession::arc_from_game(&state);
         let mut m = Match {
             rng: StdRng::seed_from_u64(header.seed ^ 0x9e37_79b9_7f4a_7c15),
@@ -343,6 +369,11 @@ impl Engine {
             lines: Vec::new(),
             names: (1..=players).map(|n| format!("Player {n}")).collect(),
             fallback: false,
+            ai_thinking: std::time::Duration::ZERO,
+            turn_began: (0, 0),
+            moved_on: (0, 0),
+            stall_limit: STALL_ACTION_LIMIT,
+            costs: Costs::default(),
             marks: HashMap::new(),
             controls: HashMap::new(),
             conceded: BTreeSet::new(),
@@ -353,6 +384,8 @@ impl Engine {
             remembered: Vec::new(),
             remembered_tried: None,
         };
+        m.turn_began = (m.state.turn_number, 0);
+        m.moved_on = (progress_mark(&m.state), 0);
         m.remark(None);
         Ok(m)
     }
@@ -364,6 +397,8 @@ pub struct Match {
     log: ReplayLog,
     session: Arc<AiSession>,
     ai: HashMap<PlayerId, AiConfig>,
+    /// Only for settling a physical contest among AI seats in games nobody replays
+    /// ([`Match::settle_ai_contest`]); each AI decision gets its own ([`ai_rng`]).
     rng: StdRng,
     /// Bumped on every accepted action. Clients send it back so a stale tap is refused.
     pub revision: u64,
@@ -394,6 +429,29 @@ pub struct Match {
     /// A remembered answer Yama couldn't give for this seat's decision at this revision (it
     /// couldn't pay, or the engine refused): they're asked instead.
     remembered_tried: Option<(u8, u64)>,
+    /// The CPU time the AI spent choosing during the last [`Match::run_ai`] ([`Busy`]).
+    ai_thinking: std::time::Duration,
+    /// The turn in progress, and how many actions the replay log held when it began
+    /// ([`TURN_ACTION_LIMIT`]).
+    turn_began: (u32, usize),
+    /// The board's last [`progress_mark`], and how many actions the log held when it changed.
+    moved_on: (u64, usize),
+    /// Actions in a row with nothing changing on the board before the AI stops
+    /// ([`STALL_ACTION_LIMIT`]).
+    stall_limit: usize,
+    /// CPU time spent in Yama's bookkeeping after each action ([`Match::take_costs`]).
+    costs: Costs,
+}
+
+/// CPU time Yama's bookkeeping took after accepted actions, since the last
+/// [`Match::take_costs`]: for benchmarks.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Costs {
+    /// Telling every viewer what happened (feed.rs): each viewer's filtered copy of the game.
+    pub feed: std::time::Duration,
+    /// Re-issuing each person's decision to see whether it changed (`remark`).
+    pub remark: std::time::Duration,
 }
 
 /// A person's decision as of its issue (see [`Decision::revision`]).
@@ -426,12 +484,13 @@ impl LogLine {
 /// "PreCombatMain"), on their own turns and on everyone else's. Replaces the default smart
 /// stops (main phases, and an opponent's end step when a spell could be cast). Anything on the
 /// stack they could answer, and every decision other than priority, still waits for them.
+/// Sorted, so a seat's view comes out the same every time.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stops {
     #[serde(default)]
-    pub own: HashSet<String>,
+    pub own: BTreeSet<String>,
     #[serde(default)]
-    pub others: HashSet<String>,
+    pub others: BTreeSet<String>,
 }
 
 /// What one seat may do right now.
@@ -463,6 +522,20 @@ pub struct Decision {
     /// While paying: the cost, the pool and the sources this seat can use (pay.rs).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payment: Option<PaymentView>,
+}
+
+/// A person's move as the board sends it, each with the decision's revision ([`Match::ai_move_for`]).
+#[doc(hidden)]
+#[derive(Debug, Clone)]
+pub enum PersonMove {
+    /// One of the decision's options, by index (`choose`).
+    Option(u64, usize),
+    /// An attack declaration (`attack`).
+    Attack(u64, Vec<(u64, AttackAt)>),
+    /// A block declaration (`block`).
+    Block(u64, Vec<(u64, u64)>),
+    /// A full answer (`act`).
+    Act(u64, Act),
 }
 
 /// The opening hand decision, from the engine's mulligan count and the bottom cards it would
@@ -731,13 +804,20 @@ impl Match {
 
     /// Options for `seat`, or `None` if it isn't that seat's decision.
     pub fn decision(&self, seat: u8) -> Option<Decision> {
+        if !self.state.waiting_for.acting_players().contains(&PlayerId(seat)) {
+            return None;
+        }
+        // Labels come from what this seat may see, never the full state.
+        self.decision_seen(&filter_state_for_viewer(&self.state, PlayerId(seat)), seat)
+    }
+
+    /// [`Match::decision`], given `vs`, the game as `seat` may see it (a view has made it already).
+    fn decision_seen(&self, vs: &GameState, seat: u8) -> Option<Decision> {
         let me = PlayerId(seat);
         if !self.state.waiting_for.acting_players().contains(&me) {
             return None;
         }
         let contract = AiDecisionContract::issue(&self.state, me);
-        // Labels come from what this seat may see, never the full state.
-        let vs = filter_state_for_viewer(&self.state, me);
         let mut options: Vec<OptionView> = contract
             .candidates
             .iter()
@@ -969,6 +1049,12 @@ impl Match {
             return Err(ChoiceError::NotYourTurn);
         }
         let contract = AiDecisionContract::issue(&self.state, owner);
+        self.choose_issued(seat, contract, index)
+    }
+
+    /// [`Match::choose`], with `seat`'s decision already issued for the game as it stands.
+    fn choose_issued(&mut self, seat: u8, contract: AiDecisionContract, index: usize) -> Result<(), ChoiceError> {
+        let owner = PlayerId(seat);
         let action = contract.candidates.get(index).ok_or(ChoiceError::BadIndex)?.action.clone();
         let actor = contract.authorized_actor;
         // Passing over your own spell (or an empty stack) ends holding priority; passing over
@@ -976,6 +1062,19 @@ impl Match {
         let passed = matches!(action, GameAction::PassPriority)
             && matches!(self.state.waiting_for, WaitingFor::Priority { .. })
             && self.state.stack.last().is_none_or(|top| top.controller == owner);
+        if self.plain_passes() && matches!(action, GameAction::PassPriority) {
+            if !contract.permits(&self.state, actor, &action) {
+                return Err(ChoiceError::Stale);
+            }
+            let result = apply_interaction(&mut self.state, actor, owner, action.clone())
+                .map_err(|e| ChoiceError::Rejected(self.plain_reason(owner, &e.to_string())))?;
+            self.log.push_action(actor, action);
+            self.accepted(&result, Some(seat));
+            if passed && self.controls.get(&seat).is_some_and(|c| c.hold) {
+                self.set_hold(seat, false);
+            }
+            return Ok(());
+        }
         match apply_ai_action_proposal(&mut self.state, &contract, actor, action.clone()) {
             AiProposalApplication::AppliedStackPass { result } => {
                 self.log.push_verified_ai_priority_pass(actor, owner);
@@ -1321,11 +1420,11 @@ impl Match {
             }
             let mut next = None;
             for seat in self.waiting_on().into_iter().filter(|s| humans.contains(s)) {
-                let Some(w) = self.window(seat) else { continue };
+                let Some((w, contract)) = self.window_issued(seat) else { continue };
                 let c = self.controls.get(&seat).cloned().unwrap_or_default();
                 match turns::verdict(&w, &c) {
                     turns::Verdict::Pass => {
-                        next = Some(seat);
+                        next = Some((seat, contract));
                         break;
                     }
                     turns::Verdict::Stop => {}
@@ -1337,12 +1436,13 @@ impl Match {
                     }
                 }
             }
-            let Some(seat) = next else { return passed };
-            let contract = AiDecisionContract::issue(&self.state, PlayerId(seat));
+            // The decision the window was read from is the one passed: nothing has changed since,
+            // so it isn't issued again (issuing one is most of a pass's cost on a big board).
+            let Some((seat, contract)) = next else { return passed };
             let Some(index) = contract.candidates.iter().position(|c| matches!(c.action, GameAction::PassPriority)) else {
                 return passed;
             };
-            if self.choose(seat, self.revision, index).is_err() {
+            if self.choose_issued(seat, contract, index).is_err() {
                 return passed;
             }
             passed += 1;
@@ -1374,6 +1474,11 @@ impl Match {
 
     /// `seat`'s priority window as the pass rules read it, if it holds priority now.
     fn window(&self, seat: u8) -> Option<turns::Window> {
+        self.window_issued(seat).map(|(w, _)| w)
+    }
+
+    /// [`Match::window`], with the decision it was read from.
+    fn window_issued(&self, seat: u8) -> Option<(turns::Window, AiDecisionContract)> {
         let WaitingFor::Priority { player } = &self.state.waiting_for else { return None };
         if player.0 != seat {
             return None;
@@ -1388,7 +1493,7 @@ impl Match {
             _ => false,
         };
         let others = || contract.candidates.iter().filter(|c| !matches!(c.action, GameAction::PassPriority));
-        Some(turns::Window {
+        let window = turns::Window {
             phase: format!("{:?}", self.state.phase),
             your_turn: self.state.active_player.0 == seat,
             top: self.state.stack.last().map(|top| turns::Top {
@@ -1399,7 +1504,8 @@ impl Match {
             can_act: others().any(|c| !is_land_ability(&c.action)),
             can_cast: others().any(|c| matches!(c.action, GameAction::CastSpell { .. })),
             ninjutsu: others().any(|c| matches!(c.action, GameAction::ActivateNinjutsu { .. })),
-        })
+        };
+        Some((window, contract))
     }
 
     /// `seat`'s saved settings: their stops (`None` for the usual ones) and full control.
@@ -1506,16 +1612,22 @@ impl Match {
     pub fn run_ai(&mut self, max_steps: usize) -> anyhow::Result<usize> {
         let ai_players: HashSet<PlayerId> = self.ai.keys().copied().collect();
         let mut steps = 0;
+        self.ai_thinking = std::time::Duration::ZERO;
         while steps < max_steps && !self.is_over() {
+            self.check_turn_length()?;
             let Some((owner, actor)) = eligible_ai_decision(&self.state, &ai_players) else { break };
             let contract = AiDecisionContract::issue(&self.state, owner);
             let config = &self.ai[&actor];
-            let chosen = choose_action_with_session(&self.state, owner, config, &mut self.rng, &self.session)
+            let mut rng = ai_rng(self.log.header.seed, self.log.actions.len());
+            let thinking = Busy::start();
+            let searched = ai_search_state(&self.state);
+            let chosen = choose_action_with_session(searched.as_ref(), owner, config, &mut rng, &self.session)
                 .or_else(|| if self.fallback { phase_ai::search::fallback_action(&self.state, config, &contract) } else { None });
+            self.ai_thinking += thinking.elapsed();
             let Some(action) = chosen else {
                 bail!("AI for seat {} found no action", actor.0);
             };
-            let result = if verified_ai_stack_pass_player(&self.state, &action).is_some() {
+            let result = if !self.plain_passes() && verified_ai_stack_pass_player(&self.state, &action).is_some() {
                 let r = apply_verified_ai_priority_pass(&mut self.state, actor, &contract, action);
                 if r.is_ok() {
                     self.log.push_verified_ai_priority_pass(actor, owner);
@@ -1540,7 +1652,9 @@ impl Match {
     /// which people's decisions changed. `acted` is the person who answered, if one did.
     fn accepted(&mut self, result: &ActionResult, acted: Option<u8>) {
         self.revision += 1;
+        let busy = Busy::start();
         self.remark(acted);
+        self.costs.remark += busy.elapsed();
         // A payment ends (cast, cancelled or abandoned) with its spell or ability.
         if self.state.pending_cast.is_none() {
             self.kept.clear();
@@ -1552,9 +1666,12 @@ impl Match {
             }
             self.lines.push(LogLine::public(e.turn, segments_text(&e.segments)));
         }
+        let busy = Busy::start();
         self.feed.record(&result.events, &self.state, &self.conceded);
+        self.costs.feed += busy.elapsed();
         self.note_automatic_answers(result);
         self.facing = together::facing_after(&self.state, self.facing.take());
+        self.note_turn(self.log.actions.len());
         if self.lines.len() > LOG_LINES * 4 {
             self.lines.drain(..self.lines.len() - LOG_LINES);
         }
@@ -1593,6 +1710,147 @@ impl Match {
         self.feed.record(&result.events, &self.state, &self.conceded);
         self.note_automatic_answers(result);
         self.facing = together::facing_after(&self.state, self.facing.take());
+        // While resuming, the revision counts the actions replayed so far.
+        self.note_turn(self.revision as usize);
+    }
+
+    /// Keep where the turn in progress began, and when the board last moved on (`logged`: actions
+    /// in the replay log so far).
+    fn note_turn(&mut self, logged: usize) {
+        if self.state.turn_number != self.turn_began.0 {
+            self.turn_began = (self.state.turn_number, logged);
+        }
+        let mark = progress_mark(&self.state);
+        if mark != self.moved_on.0 {
+            self.moved_on = (mark, logged);
+        }
+    }
+
+    /// Stop the AI when the game is going nowhere: [`STALL_ACTION_LIMIT`] actions in a row with
+    /// nothing changing on the board, or [`TURN_ACTION_LIMIT`] in one turn whatever they do. Only
+    /// something the engine repeats without end gets there, which its loop detection doesn't
+    /// catch (Zaffai, Thunder Conductor's trigger re-entering the stack after its scry, seen
+    /// 2026-10-24); a long turn that keeps changing the board (Scute Swarm doubling its copies) is
+    /// left to finish. Everyone is told once, in the log; the people at the table can concede.
+    fn check_turn_length(&mut self) -> anyhow::Result<()> {
+        let logged = self.log.actions.len();
+        let this_turn = logged.saturating_sub(self.turn_began.1);
+        let still = logged.saturating_sub(self.moved_on.1);
+        let long_turn = self.state.turn_number == self.turn_began.0 && this_turn >= TURN_ACTION_LIMIT;
+        if still < self.stall_limit && !long_turn {
+            return Ok(());
+        }
+        let repeating = self
+            .state
+            .stack
+            .last()
+            .and_then(|top| self.state.objects.get(&top.source_id))
+            .filter(|o| !o.face_down && !o.name.is_empty())
+            .map(|o| format!("{}'s ability", o.name))
+            .unwrap_or_else(|| "the same step".into());
+        let text = format!("The game can't go on: the rules engine keeps repeating {repeating} and this turn doesn't end. Concede to leave the game.");
+        if self.lines.last().map(|l| &l.text) != Some(&text) {
+            self.lines.push(LogLine::public(self.state.turn_number, text));
+        }
+        bail!(
+            "turn {}: {still} actions with nothing changing on the board, {this_turn} this turn; the engine is repeating {repeating}; the AI has stopped",
+            self.state.turn_number
+        )
+    }
+
+    /// The game's loop setting, from its replay header ([`Setup::loops`]).
+    pub fn loops(&self) -> LoopDetectionMode {
+        self.state.loop_detection
+    }
+
+    /// The CPU time the AI spent choosing during the last [`Match::run_ai`] (the rest of that call
+    /// is the engine applying its choices and Yama's bookkeeping).
+    pub fn ai_thinking(&self) -> std::time::Duration {
+        self.ai_thinking
+    }
+
+    /// Give the AI seats phase's wall-clock search budget back (or take it away), for measuring
+    /// what [`AI_CLOCK`] changes. A game played with the clock doesn't replay its AI's choices from
+    /// its seed, only from its log.
+    #[doc(hidden)]
+    pub fn set_ai_clock(&mut self, clock: bool) {
+        let players = self.log.header.player_count;
+        let seed = self.log.header.seed;
+        for config in self.ai.values_mut() {
+            *config = ai_config(config.difficulty, players, seed, clock);
+        }
+    }
+
+    /// Whether every pass is the engine's ordinary `PassPriority`, for people and AI seats alike:
+    /// in games with loop detection on. Otherwise a pass over a nonempty stack goes through
+    /// phase's verified AI pass, which starts a stack-resolution session that passes for every
+    /// player with nothing meaningful to do until the stack changes. That session carries the
+    /// ids of the stack entries it covers, and phase's loop detection compares whole positions
+    /// with it, so no two positions of a loop compare equal while one runs: a loop of mandatory
+    /// triggers nobody can win would never be found to be a draw (CR 732.4). Yama's own pass
+    /// layer (turns.rs) still passes for people where stopping wouldn't help them.
+    fn plain_passes(&self) -> bool {
+        self.state.loop_detection.samples()
+    }
+
+    /// The move phase's AI (at `level`) would make for `seat`, in the form a person sends one: an
+    /// option, an attack or block declaration, or an `act` answer. For benchmarks and tests of
+    /// people's moves ([`Match::send_move`]); live games never call it.
+    #[doc(hidden)]
+    pub fn ai_move_for(&self, seat: u8, level: AiDifficulty) -> Option<PersonMove> {
+        let d = self.decision(seat)?;
+        let me = PlayerId(seat);
+        let config = ai_config(level, self.log.header.player_count, self.log.header.seed, false);
+        let mut rng = ai_rng(self.log.header.seed ^ 0x5eed, self.log.actions.len());
+        let searched = ai_search_state(&self.state);
+        let fallback = || d.options.iter().find(|o| matches!(o.kind, OptionKind::Pass | OptionKind::Keep)).or(d.options.first()).map(|o| PersonMove::Option(d.revision, o.index));
+        let Some(action) = choose_action_with_session(searched.as_ref(), me, &config, &mut rng, &self.session) else { return fallback() };
+        let contract = AiDecisionContract::issue(&self.state, me);
+        if let Some(i) = contract.candidates.iter().position(|c| c.action == action) {
+            return Some(PersonMove::Option(d.revision, i));
+        }
+        match &action {
+            GameAction::DeclareAttackers { attacks, .. } => {
+                return Some(PersonMove::Attack(d.revision, attacks.iter().map(|(a, t)| (a.0, AttackAt::from_engine(t))).collect()));
+            }
+            GameAction::DeclareBlockers { assignments } => {
+                return Some(PersonMove::Block(d.revision, assignments.iter().map(|(b, a)| (b.0, a.0)).collect()));
+            }
+            _ => {}
+        }
+        let answer = if pay::paying(&self.state.waiting_for, me) { Act::from_payment_action(&action) } else { Act::from_action(&action) };
+        // An answer `act` doesn't take: the closest option instead (pass, keep, or the first).
+        answer.map(|a| PersonMove::Act(d.revision, a)).or_else(fallback)
+    }
+
+    /// Send `seat`'s move as the board would ([`Match::ai_move_for`]).
+    #[doc(hidden)]
+    pub fn send_move(&mut self, seat: u8, mv: &PersonMove) -> Result<(), ChoiceError> {
+        match mv {
+            PersonMove::Option(revision, index) => self.choose(seat, *revision, *index),
+            PersonMove::Attack(revision, attacks) => self.declare_attackers(seat, *revision, attacks),
+            PersonMove::Block(revision, blocks) => self.declare_blockers(seat, *revision, blocks),
+            PersonMove::Act(revision, answer) => self.act(seat, *revision, answer),
+        }
+    }
+
+    /// The bookkeeping costs since the last call, for benchmarks.
+    #[doc(hidden)]
+    pub fn take_costs(&mut self) -> Costs {
+        std::mem::take(&mut self.costs)
+    }
+
+    /// A lower [`STALL_ACTION_LIMIT`] for this game, so a test reaches it quickly.
+    #[doc(hidden)]
+    pub fn set_stall_limit(&mut self, actions: usize) {
+        self.stall_limit = actions;
+    }
+
+    /// The engine's whole state, for tests and benchmarks (determinism checks, an AI playing a
+    /// person's seat). It names every hidden card: never send it to anyone.
+    #[doc(hidden)]
+    pub fn engine_state(&self) -> &GameState {
+        &self.state
     }
 
     /// Answer with phase's `fallback_action` when the AI finds no action (see the field).
@@ -1611,6 +1869,11 @@ impl Match {
             self.remark(None);
         }
         ran
+    }
+
+    /// How many actions the replay log holds.
+    pub fn actions_logged(&self) -> usize {
+        self.log.actions.len()
     }
 
     /// The replay log (header + every accepted action), for persistence.
@@ -1801,7 +2064,8 @@ impl Match {
             } else {
                 BTreeMap::new()
             },
-            decision: viewer.and_then(|seat| self.decision(seat)),
+            // The seat's own filtered view is `state` here (`Match::view`), so it isn't made twice.
+            decision: viewer.and_then(|seat| self.decision_seen(state, seat)),
             // A line only one seat may see (an answer Yama gave for them) goes to that seat alone.
             log: {
                 let mut lines: Vec<LogLine> = self.lines.iter().rev().filter(|l| l.seat.is_none() || l.seat == viewer).take(LOG_LINES).cloned().collect();
@@ -1829,6 +2093,96 @@ impl Match {
     pub fn outs(&self) -> &[Out] {
         self.feed.outs()
     }
+}
+
+/// Actions in a row with nothing changing on the board ([`progress_mark`]) before Yama stops the
+/// AI ([`Match::run_ai`]). Real 4-player turns average under 60 actions, and a step in which
+/// nothing happens is a few passes, so only something the engine repeats without end gets near it.
+pub const STALL_ACTION_LIMIT: usize = 3_000;
+
+/// Actions one turn may take, whatever they do, before Yama stops the AI: a bound for a loop that
+/// keeps changing the board without end, and for a legal turn the engine can't finish in
+/// reasonable time. In a soak game on 2026-10-24 Scute Swarm copies doubled on every landfall of a
+/// World Shaper turn: past 3,000 actions each action took longer as the board grew, and the turn
+/// was still going after 50 minutes. 12,000 is about the lab's 3,000-action loop guard once every
+/// pass is its own action (four players pass for each thing that resolves).
+pub const TURN_ACTION_LIMIT: usize = 12_000;
+
+/// What the board shows of a game's progress: the turn and step, each player's life, poison and
+/// whether they're out, and how many cards are in each zone. A run of actions that leaves all of
+/// it as it was is going nowhere.
+#[doc(hidden)]
+pub fn progress_mark(state: &GameState) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    state.turn_number.hash(&mut h);
+    std::mem::discriminant(&state.phase).hash(&mut h);
+    for p in &state.players {
+        (p.life, p.poison_counters, p.is_eliminated, p.hand.len(), p.library.len(), p.graveyard.len()).hash(&mut h);
+    }
+    (state.battlefield.len(), state.exile.len(), state.command_zone.len()).hash(&mut h);
+    h.finish()
+}
+
+/// The position the AI searches from: the game itself, but with loop detection off unless the
+/// decision is about a loop. phase's search plays lines out on copies of the game, and with loop
+/// detection on every resolution in those lines copies the position again for the detector: on
+/// Hard that made AI decisions take about 60% longer (docs/play-performance.md). The
+/// AI's choice is still checked and applied on the real game, where loops are found.
+#[doc(hidden)]
+pub fn ai_search_state(state: &GameState) -> std::borrow::Cow<'_, GameState> {
+    let about_a_loop = matches!(
+        state.waiting_for,
+        WaitingFor::LoopShortcut { .. }
+            | WaitingFor::RespondToShortcut { .. }
+            | WaitingFor::PrecastCopyShortcutOffer { .. }
+            | WaitingFor::RespondToPrecastCopyShortcut { .. }
+    );
+    if state.loop_detection.is_off() || about_a_loop {
+        return std::borrow::Cow::Borrowed(state);
+    }
+    let mut copy = state.clone();
+    copy.loop_detection = LoopDetectionMode::Off;
+    std::borrow::Cow::Owned(copy)
+}
+
+/// Whether AI seats in games people play search against phase's wall-clock budget (1.5 s a
+/// decision) rather than to their node and depth budgets only ([`ai_config`]). Off since
+/// 2026-10-24: with the clock, a decision long enough to reach the budget depends on how busy the
+/// server is, so the same game doesn't play the same way twice and a loaded server plays a weaker
+/// AI. Without it every AI choice depends only on the game (as in the lab), at the cost of the
+/// rare long decision running past 1.5 s on Hard and VeryHard (docs/play-performance.md).
+pub const AI_CLOCK: bool = false;
+
+/// An AI seat's configuration: phase's for its level and the table size; with `clock` off, in
+/// phase's measurement mode, where every choice depends only on the game (as in the lab).
+fn ai_config(difficulty: AiDifficulty, players: u8, seed: u64, clock: bool) -> AiConfig {
+    let config = create_config_for_players(difficulty, Platform::Native, players);
+    if clock { config } else { config.into_measurement(seed) }
+}
+
+/// Time spent by the calling thread on the CPU (wall-clock time where the system doesn't say), so
+/// a measurement doesn't count the time other work on the machine had the core.
+#[doc(hidden)]
+pub struct Busy(f64, std::time::Instant);
+
+impl Busy {
+    pub fn start() -> Self {
+        Busy(lab::thread_cpu_secs().unwrap_or(0.0), std::time::Instant::now())
+    }
+
+    pub fn elapsed(&self) -> std::time::Duration {
+        match lab::thread_cpu_secs() {
+            Some(now) => std::time::Duration::from_secs_f64((now - self.0).max(0.0)),
+            None => self.1.elapsed(),
+        }
+    }
+}
+
+/// The AI's randomness for one decision: from the game's seed and how many actions the replay
+/// log holds, so a game rebuilt from its log after a restart decides exactly as it would have.
+fn ai_rng(seed: u64, logged: usize) -> StdRng {
+    StdRng::seed_from_u64(seed ^ 0x9e37_79b9_7f4a_7c15 ^ (logged as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9))
 }
 
 /// The card under a face-down object as one viewer's board may show it: the name the engine's
@@ -2142,6 +2496,9 @@ mod together_tests;
 
 #[cfg(test)]
 mod rare_tests;
+
+#[cfg(test)]
+mod loop_tests;
 
 #[cfg(test)]
 mod card_tests;

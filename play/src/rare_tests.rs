@@ -5,7 +5,7 @@
 //! Timey-wimey, Rotating Fireplace, Serum Powder, Rhystic Study, Opt, Shock and a few creatures)
 //! put straight onto a board of two people at seat 0's main phase, then answered through `act` as
 //! the board does. Decisions the engine raises only with its loop detection on (shortcuts) are
-//! checked from states built by hand.
+//! checked from states built by hand here, and from real loops in loop_tests.rs.
 
 use engine::game::layers::evaluate_layers;
 use engine::types::game_state::WaitingFor;

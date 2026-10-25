@@ -21,6 +21,13 @@
 //!   off as an error (as the batch runner does). A thread can't be stopped from outside, so it stays
 //!   behind, still busy, and the worker plays one game fewer at a time until that thread ends or the
 //!   server restarts. The log says so.
+//! - A phase game cut short by the machine (the CPU-time cap, a hang, the wall-clock safety net;
+//!   [`GameResult::cut_short_by_machine`]) isn't stored the first time: it goes back in the queue,
+//!   once, behind the run's other games. A game replays move for move from its schedule line, so
+//!   on a healthy machine the retry gives the game's real result; a game that really is that long
+//!   ends the same way again and is stored then. A retry of a hung game whose first thread has
+//!   finished meanwhile keeps that thread's result instead of playing it again; one whose first
+//!   thread is still busy isn't played again (it would only hang a second thread).
 //! - Cancelling stops an experiment's remaining games from starting; games already running finish
 //!   and are kept. Its summary is marked final only once none of its games is playing: by the
 //!   cancel itself when none is, otherwise by the worker when the last one is stored
@@ -78,6 +85,20 @@ pub trait Simulator: Send + Sync + 'static {
     fn stuck(&self) -> usize {
         0
     }
+    /// What became of an earlier try of `game` that was written off as hung (in this process).
+    fn earlier_try(&self, _game: &str) -> EarlierTry {
+        EarlierTry::Unknown
+    }
+}
+
+/// An earlier try of a game written off as hung.
+pub enum EarlierTry {
+    /// Never written off as hung in this process (or its result was taken already).
+    Unknown,
+    /// Its thread is still busy.
+    Playing,
+    /// Its thread finished after all, with this result.
+    Finished(GameResult),
 }
 
 /// The build a simulator plays on: the engine and runner this server was built with, and the
@@ -100,11 +121,13 @@ pub struct EngineSim {
     hang: Duration,
     /// Games written off as hung whose threads are still running.
     stuck: Arc<AtomicUsize>,
+    /// Games written off as hung, by game id: None while the thread is busy, then its result.
+    late: Arc<Mutex<HashMap<String, Option<GameResult>>>>,
 }
 
 impl EngineSim {
     pub fn new(engine: Arc<Engine>, card_data: String) -> Self {
-        Self { engine, card_data, hang: Duration::from_secs(HANG_SECS), stuck: Arc::default() }
+        Self { engine, card_data, hang: Duration::from_secs(HANG_SECS), stuck: Arc::default(), late: Arc::default() }
     }
 }
 
@@ -157,6 +180,15 @@ impl Simulator for EngineSim {
         self.stuck.load(Ordering::SeqCst)
     }
 
+    fn earlier_try(&self, game: &str) -> EarlierTry {
+        let mut late = lock(&self.late);
+        match late.get(game) {
+            None => EarlierTry::Unknown,
+            Some(None) => EarlierTry::Playing,
+            Some(Some(_)) => late.remove(game).flatten().map_or(EarlierTry::Unknown, EarlierTry::Finished),
+        }
+    }
+
     fn play(&self, spec: &GameSpec, decks: &[Arc<LabList>], limits: &Limits) -> GameResult {
         let failed = |end: End, why: String| GameReport::failed(spec, &self.card_data, end, why).result;
         let difficulty = match spec.check() {
@@ -185,12 +217,18 @@ impl Simulator for EngineSim {
         let started = {
             let exit = ThreadExit { state: Arc::clone(&state), stuck: Arc::clone(&self.stuck), game: spec.game.clone() };
             let (engine, spec, card_data, live) = (Arc::clone(&self.engine), spec.clone(), self.card_data.clone(), Arc::clone(&live));
+            let (state, late) = (Arc::clone(&state), Arc::clone(&self.late));
             std::thread::Builder::new().name(format!("game {}", spec.game)).stack_size(STACK).spawn(move || {
                 let _exit = exit;
                 let report = lab::play_game(&engine, &spec, difficulty, seats, &card_data, &opts, &live);
-                // Sent before `_exit` marks the thread finished, so a watcher that sees it finished
-                // finds the report waiting.
-                let _ = tx.send(report);
+                // Marked finished before it is sent: a watcher that then fails to write it off waits
+                // for the report. A game already written off keeps its result for its retry, and
+                // `_exit` frees its place among the stuck threads.
+                if state.compare_exchange(RUNNING, FINISHED, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                    let _ = tx.send(report);
+                } else {
+                    lock(&late).insert(spec.game.clone(), Some(report.result));
+                }
             })
         };
         if let Err(e) = started {
@@ -213,6 +251,8 @@ impl Simulator for EngineSim {
                         // It finished just now: take its result.
                         continue;
                     }
+                    // Unless the thread has already left its result here (it finished in between).
+                    lock(&self.late).entry(spec.game.clone()).or_insert(None);
                     tracing::error!(
                         game = %spec.game,
                         at = %l.at,
@@ -274,6 +314,8 @@ pub(crate) struct Job {
     pub decks: Result<Vec<Arc<LabList>>, String>,
     /// The Forge AI profile (Forge games only; phase games use the schedule line's difficulty).
     pub profile: String,
+    /// Put back in the queue once already, after the machine cut its first try short.
+    pub retried: bool,
 }
 
 pub struct LabWorker {
@@ -422,11 +464,34 @@ impl LabWorker {
         Ok(ids.len())
     }
 
+    /// Rewrite the summaries of finished experiments summarized before `settle_pods` (2026-10-23),
+    /// so an unclear run says how many pods would settle it. The games aren't touched. Returns how
+    /// many it rewrote.
+    pub async fn resummarize_old(&self) -> AppResult<usize> {
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM lab_experiments WHERE status IN ('done','failed') AND summary IS NOT NULL
+               AND json_valid(summary) AND json_type(summary, '$.paired.settle_pods') IS NULL",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        for id in &ids {
+            let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+            refresh(&mut tx, id, true).await?;
+            tx.commit().await?;
+        }
+        Ok(ids.len())
+    }
+
     fn spawn_settle_left_over(self: &Arc<Self>) {
         let w = Arc::clone(self);
         tokio::spawn(async move {
             if let Err(e) = w.settle_left_over().await {
                 tracing::error!(error = %e, "lab: settling cancelled experiments failed");
+            }
+            match w.resummarize_old().await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(experiments = n, "lab: summaries of finished experiments rewritten"),
+                Err(e) => tracing::error!(error = %e, "lab: rewriting old summaries failed"),
             }
         });
     }
@@ -743,9 +808,15 @@ impl LabWorker {
     }
 
     async fn play_one(self: Arc<Self>, sim: Arc<dyn Simulator>, job: Job) {
-        let result = match job.decks {
-            Err(why) => GameReport::failed(&job.spec, &sim.card_data(), End::Error, why).result,
-            Ok(decks) => {
+        let earlier = if job.retried { sim.earlier_try(&job.game) } else { EarlierTry::Unknown };
+        let result = match (earlier, job.decks) {
+            (EarlierTry::Finished(r), _) => {
+                tracing::info!(experiment = %job.experiment, game = %job.game, end = r.end.as_str(), "lab: a game written off as hung finished after all; its result is kept");
+                r
+            }
+            (EarlierTry::Playing, _) => GameReport::failed(&job.spec, &sim.card_data(), End::Error, STILL_HUNG.into()).result,
+            (EarlierTry::Unknown, Err(why)) => GameReport::failed(&job.spec, &sim.card_data(), End::Error, why).result,
+            (EarlierTry::Unknown, Ok(decks)) => {
                 let (spec, limits) = (job.spec.clone(), job.limits);
                 let s = Arc::clone(&sim);
                 tokio::task::spawn_blocking(move || s.play(&spec, &decks, &limits))
@@ -753,7 +824,22 @@ impl LabWorker {
                     .unwrap_or_else(|e| GameReport::failed(&job.spec, &sim.card_data(), End::Panic, format!("the game's runner stopped: {e}")).result)
             }
         };
-        if let Err(e) = store(&self.pool, &job.experiment, &job.game, &result).await {
+        let deferred = !job.retried
+            && result.cut_short_by_machine()
+            && defer(&self.pool, &job.experiment, &job.game).await.unwrap_or_else(|e| {
+                tracing::error!(experiment = %job.experiment, game = %job.game, error = %e, "lab: putting a game back in the queue failed; its result is stored");
+                false
+            });
+        if deferred {
+            tracing::info!(
+                experiment = %job.experiment,
+                game = %job.game,
+                end = result.end.as_str(),
+                turn = result.turns,
+                actions = result.actions,
+                "lab: the machine cut this game short; it plays once more after the run's other games"
+            );
+        } else if let Err(e) = store(&self.pool, &job.experiment, &job.game, &result).await {
             // The game stays unplayed in the database and is played again on a later pass.
             tracing::error!(experiment = %job.experiment, game = %job.game, error = %e, "storing a lab result failed");
             tokio::time::sleep(Duration::from_secs(5)).await;
@@ -800,8 +886,9 @@ impl LabWorker {
                 continue;
             }
             let busy = in_flight.iter().filter(|(e, _)| *e == id).count();
-            let rows: Vec<(String, String, i64)> = sqlx::query_as(
-                "SELECT game, spec, attempts FROM lab_experiment_games WHERE experiment_id = ? AND engine = ? AND result IS NULL ORDER BY ord LIMIT ?",
+            // Games put back after the machine cut them short come after the rest.
+            let rows: Vec<(String, String, i64, bool)> = sqlx::query_as(
+                "SELECT game, spec, attempts, retried FROM lab_experiment_games WHERE experiment_id = ? AND engine = ? AND result IS NULL ORDER BY retried, ord LIMIT ?",
             )
             .bind(&id)
             .bind(engine)
@@ -809,7 +896,7 @@ impl LabWorker {
             .fetch_all(&self.pool)
             .await?;
             let mut frozen: Option<Result<Arc<Frozen>, String>> = None;
-            for (game, spec, attempts) in rows {
+            for (game, spec, attempts, retried) in rows {
                 if jobs.len() >= free {
                     break;
                 }
@@ -826,7 +913,7 @@ impl LabWorker {
                         // Store it as failed rather than retrying a line that can't be read.
                         let g = GameSpec { game: game.clone(), seed: 0, decks: vec![], difficulty: String::new(), max_turns: 0, max_actions: 0, max_seconds: 0, pilots: None };
                         let profile = frozen.as_ref().map_or_else(|_| forge::DEFAULT_PROFILE.to_string(), |f| f.profile.clone());
-                        jobs.push(Job { experiment: id.clone(), game, spec: g, limits: LIMITS, decks: Err(format!("unreadable schedule line: {e}")), profile });
+                        jobs.push(Job { experiment: id.clone(), game, spec: g, limits: LIMITS, decks: Err(format!("unreadable schedule line: {e}")), profile, retried });
                         continue;
                     }
                 };
@@ -849,7 +936,7 @@ impl LabWorker {
                         Ok(f) => spec.decks.iter().map(|d| f.lists.get(d).cloned().ok_or_else(|| format!("{DECK_ERRORS} {d}: not in the experiment"))).collect(),
                     }
                 };
-                jobs.push(Job { experiment: id.clone(), game, spec, limits, decks, profile });
+                jobs.push(Job { experiment: id.clone(), game, spec, limits, decks, profile, retried });
             }
         }
         // Forget the lists of experiments that are finished, cancelled or deleted.
@@ -912,6 +999,29 @@ impl LabWorker {
             let _ = tokio::time::timeout(Duration::from_millis(100), self.wake.notified()).await;
         }
     }
+}
+
+/// The error of a hung game's retry while its first thread is still busy.
+const STILL_HUNG: &str = "hung: stuck inside one engine or AI step, and still stuck after the run's other games had played, so it wasn't played \
+     again (a second try would only hang a second thread)";
+
+/// Put a game the machine cut short back in the queue, once: it plays again after the experiment's
+/// other games. Its attempts start again (the first try did end, so it isn't a crash). Only while
+/// the experiment is queued or running, and only a game not put back before: false otherwise (then
+/// store its result).
+pub async fn defer(pool: &SqlitePool, experiment: &str, game: &str) -> AppResult<bool> {
+    let n = sqlx::query(
+        "UPDATE lab_experiment_games SET retried = 1, attempts = 0
+         WHERE experiment_id = ? AND game = ? AND result IS NULL AND retried = 0
+           AND EXISTS (SELECT 1 FROM lab_experiments e WHERE e.id = ? AND e.status IN ('queued','running'))",
+    )
+    .bind(experiment)
+    .bind(game)
+    .bind(experiment)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(n > 0)
 }
 
 /// Store one game's result line, then the experiment's progress and summary, and finish the

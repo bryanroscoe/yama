@@ -151,8 +151,32 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "lab_run",
         title: "One lab experiment",
-        description: "One simulation experiment: the base and changed lists, opponents, and the paired result with its interval and warnings.",
+        description: "One simulation experiment: its lists, opponents, engines and limits, and each engine's result: the \
+                      paired difference with its interval and verdict, the games that weren't scored and why, and how many \
+                      pods would likely settle an unclear answer.",
         schema: || obj(&[("id", "string", "The experiment id from `lab_runs`.")], &["id"]),
+        does: Does::Read,
+    },
+    Tool {
+        name: "lab_games",
+        title: "A lab experiment's games",
+        description: "An experiment's games pod by pod on one engine: each game's end, turns, CPU seconds, place and \
+                      error. With `game`, that one game's schedule line, result line and every seat's list, enough to \
+                      replay it with the lab runner (games replay move for move from their schedule line on the same \
+                      engine build).",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "The experiment id from `lab_runs`."},
+                    "engine": {"type": "string", "enum": ["phase", "forge"], "description": "Which engine's games (default: the run's first)."},
+                    "only": {"type": "string", "enum": ["all", "unscored"], "description": "unscored: only pods with a game that wasn't scored (default all)."},
+                    "game": {"type": "string", "description": "One game id (from this list) for its schedule line, result line and lists."},
+                },
+                "required": ["id"],
+                "additionalProperties": false,
+            })
+        },
         does: Does::Read,
     },
     Tool {
@@ -265,6 +289,26 @@ const TOOLS: &[Tool] = &[
         does: Does::Stage,
     },
     Tool {
+        name: "swap_in_prints",
+        title: "Swap a plan deck's prints in",
+        description: staged!(
+            "When their printed proxies have arrived and they have sleeved them into a deck: take that plan deck from its now list to its \
+             after-prints list in Yama. The linked Yama deck gets the after list as a new version; the prints go into the deck's box as \
+             proxies; cards moving in from another deck come out of that deck's box; each card leaving goes to the deck that takes it next, \
+             the deck's swap bag box (cards that go back in at a lower bracket) or a box called Spares; and the swaps are ticked installed. \
+             The reply previews exactly what applying does."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {"plan": {"type": "string", "description": "The plan key or deck name from `overview`."}},
+                "required": ["plan"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
         name: "mark_installed",
         title: "Mark a plan swap installed",
         description: staged!("Mark a swap in one of their plans as installed in the real deck (value false clears it)."),
@@ -285,27 +329,91 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "start_lab_run",
-        title: "Test a change in the lab",
+        title: "Start a lab run",
         description: staged!(
-            "Simulate a change: one of their decks (or a whole list) against the same list with cards added and cut, in \
-             paired games against the strongest precons or their own decks. Applying queues it under their lab \
-             allowance; results come in over the next while (see lab_run)."
+            "Simulate in the lab, under their lab allowance; results come in over the next while (see lab_run). Modes: \
+             change (the default: a list against the same list with cards added and cut, in paired games), compare (two \
+             lists in the same pods), solo (one list's win rate as it is) and versus (2 to 4 lists head to head). Lists \
+             are their decks or precons by name, or a pasted list. Applying runs every check the lab's pages run."
         ),
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
-                    "deck": {"type": "string", "description": "One of their decks, by name or id."},
-                    "list": {"type": "string", "description": "Or a whole list, one card per line, commander first."},
+                    "mode": {"type": "string", "enum": ["change", "compare", "solo", "versus"]},
+                    "deck": {"type": "string", "description": "change, solo: the list to start from; compare: the first list. One of their decks or a precon, by name or id."},
+                    "list": {"type": "string", "description": "Or a whole list instead of deck, one card per line, commander first."},
                     "label": {"type": "string", "description": "A name for a pasted list."},
-                    "add": {"type": "array", "items": {"type": "string"}},
-                    "cut": {"type": "array", "items": {"type": "string"}},
-                    "games": {"type": "integer", "description": "100 (the default), 200 or 400."},
-                    "opponents": {"type": "string", "enum": ["strongest", "my_decks"]},
+                    "other": {"type": "string", "description": "compare: the second list, one of their decks or a precon."},
+                    "other_list": {"type": "string", "description": "compare: or a whole second list."},
+                    "other_label": {"type": "string", "description": "A name for the second pasted list."},
+                    "entrants": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4, "description": "versus: 2 to 4 of their decks or precons."},
+                    "pod": {"type": "integer", "enum": [4, 2], "description": "versus: 4 players (the default; precons fill empty seats) or 2 (1v1, two lists)."},
+                    "add": {"type": "array", "items": {"type": "string"}, "description": "change: cards to add."},
+                    "cut": {"type": "array", "items": {"type": "string"}, "description": "change: cards to cut."},
+                    "games": {"type": "integer", "description": "Games per engine: 100 (the default), 200 or 400 (admins up to 2,000)."},
+                    "opponents": {
+                        "type": "string",
+                        "enum": ["strongest", "similar", "all_precons", "my_decks"],
+                        "description": "strongest (the default): the 20 strongest precons; similar: the 20 precons nearest in strength to `near` (or to the list, when it's a precon); all_precons; my_decks: their other decks.",
+                    },
+                    "near": {"type": "string", "description": "similar: the precon whose power level to match."},
+                    "engine": {"type": "string", "enum": ["phase", "forge", "both"], "description": "phase (the default), forge, or both side by side (each engine plays every pod; costs both)."},
+                    "ai": {"type": "string", "enum": ["Easy", "Medium"], "description": "phase's AI level (default Easy)."},
+                    "forge_ai": {"type": "string", "enum": crate::lab::forge::FORGE_PROFILES, "description": "Forge's AI profile (default Default)."},
                 },
                 "additionalProperties": false,
             })
         },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "more_lab_games",
+        title: "Add games to a lab run",
+        description: staged!(
+            "Add games to one of their finished runs (not versus) so its answer gets clearer: the new pods continue the \
+             run's schedule and pool with the results so far, on each of its engines. Without `games`, enough to reach \
+             the run's estimate of the pods that would settle it, where it has one. A run whose engine has changed since \
+             can't take more games; use run_lab_again."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "The experiment id."},
+                    "games": {"type": "integer", "description": "Games per engine to add: 100, 200 or 400 (admins up to 2,000)."},
+                },
+                "required": ["id"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "run_lab_again",
+        title: "Run a lab experiment again",
+        description: staged!(
+            "Run one of their experiments again as a new run: the same frozen lists, opponents, engines and AI, a new seed. \
+             Use it when the engine has changed since, or for a fresh sample."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "The experiment id."},
+                    "games": {"type": "integer", "description": "Games per engine (default: as many as the run had)."},
+                },
+                "required": ["id"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "cancel_lab_run",
+        title: "Cancel a lab run",
+        description: staged!("Stop one of their queued or running experiments: games already playing finish and count, no new ones start."),
+        schema: || obj(&[("id", "string", "The experiment id.")], &["id"]),
         does: Does::Stage,
     },
     Tool {
@@ -441,7 +549,11 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "answer_review" => changes::answer_review(st, user, via, args).await,
         "mark_bought" => changes::mark_bought(st, user, via, args).await,
         "mark_installed" => changes::mark_installed(st, user, via, args).await,
+        "swap_in_prints" => changes::swap_in_prints(st, user, via, args).await,
         "start_lab_run" => changes::start_lab_run(st, user, via, args).await,
+        "more_lab_games" => changes::more_lab_games(st, user, via, args).await,
+        "run_lab_again" => changes::run_lab_again(st, user, via, args).await,
+        "cancel_lab_run" => changes::cancel_lab_run(st, user, via, args).await,
         "add_to_collection" => changes::add_to_collection(st, user, via, args).await,
         "move_cards" => changes::move_cards(st, user, via, args).await,
         "set_condition" => changes::set_condition(st, user, via, args).await,
@@ -472,6 +584,7 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "check_list" => check_list(pool, args).await,
         "lab_runs" => lab_runs(pool, user).await,
         "lab_run" => context::build(pool, user, "experiment", Some(text_arg(args, "id")?)).await,
+        "lab_games" => lab_games(pool, user, args).await,
         "precon" => precon(pool, user, text_arg(args, "precon")?).await,
         other => Err(AppError::bad(format!("unknown tool \"{other}\""))),
     }
@@ -784,7 +897,161 @@ async fn lab_runs(pool: &SqlitePool, user: &User) -> AppResult<String> {
     Ok(out)
 }
 
+/// An experiment's games pod by pod on one engine, or one game in full (`game`).
+async fn lab_games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
+    use crate::lab::experiments::{GameView, pods_for};
+    let id = text_arg(args, "id")?;
+    let engine = args.get("engine").and_then(Value::as_str).map(str::trim).filter(|e| !e.is_empty());
+    if let Some(game) = args.get("game").and_then(Value::as_str).map(str::trim).filter(|g| !g.is_empty()) {
+        return lab_game(pool, user, id, game).await;
+    }
+    let unscored_only = match args.get("only").and_then(Value::as_str) {
+        None | Some("all") => false,
+        Some("unscored") => true,
+        Some(other) => return Err(AppError::bad(format!("only: \"{other}\" isn't all or unscored"))),
+    };
+    let pods = pods_for(pool, &user.id, id, engine).await?;
+    let (base, variant): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT json_extract(spec, '$.base.label'), json_extract(spec, '$.variant.label') FROM lab_experiments WHERE id = ? AND owner_id = ?")
+            .bind(id)
+            .bind(&user.id)
+            .fetch_one(pool)
+            .await?;
+    let engine_name = match engine {
+        Some(e) => e.to_string(),
+        None => sqlx::query_scalar("SELECT engine FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord LIMIT 1").bind(id).fetch_optional(pool).await?.unwrap_or_else(|| "phase".into()),
+    };
+    let unscored = |g: &Option<GameView>| g.as_ref().is_some_and(|g| !g.scored);
+    let shown: Vec<_> = pods.iter().filter(|p| !unscored_only || unscored(&p.base) || unscored(&p.variant) || p.game.as_ref().is_some_and(|g| !g.scored)).collect();
+    let mut out = format!(
+        "{} pod{} on {engine_name}{}. Seat 1 takes the first turn. A game that ran out of CPU time, crashed or failed isn't scored. \
+         Ask for one game's id with `game` to get what's needed to replay it.\n",
+        shown.len(),
+        if shown.len() == 1 { "" } else { "s" },
+        if unscored_only { format!(" with a game that wasn't scored (of {})", pods.len()) } else { String::new() },
+    );
+    let (base, variant) = (base.unwrap_or_else(|| "base".into()), variant.unwrap_or_else(|| "changed".into()));
+    for p in shown {
+        if let Some(g) = &p.game {
+            let seats: Vec<String> = p.seats.iter().map(|s| s.clone().unwrap_or_default()).collect();
+            let result = if !g.scored {
+                end_words(&g.end, g.error.as_deref())
+            } else if let Some(w) = &g.winner {
+                format!("{w} won")
+            } else {
+                end_words(&g.end, None)
+            };
+            let _ = writeln!(out, "- Game {} ({}): {result}, {} turns, {:.0} s CPU [{}]", p.pod, seats.join(", "), g.turns, g.seconds, g.game);
+            continue;
+        }
+        let others: Vec<&str> = p.seats.iter().flatten().map(String::as_str).collect();
+        let _ = writeln!(
+            out,
+            "- Pod {} (tested seat {}; others {}): {}: {}; {}: {}",
+            p.pod,
+            p.seat + 1,
+            others.join(", "),
+            base,
+            game_words(p.base.as_ref()),
+            variant,
+            game_words(p.variant.as_ref())
+        );
+    }
+    Ok(out)
+}
+
+fn game_words(g: Option<&crate::lab::experiments::GameView>) -> String {
+    let Some(g) = g else { return "not played yet".into() };
+    let what = if !g.scored {
+        end_words(&g.end, g.error.as_deref())
+    } else if g.won {
+        "won".into()
+    } else {
+        match (g.end.as_str(), g.place) {
+            ("win", Some(p)) => format!("lost (place {})", fmt_place(p)),
+            (end, _) => end_words(end, None),
+        }
+    };
+    format!("{what}, {} turns, {:.0} s CPU [{}]", g.turns, g.seconds, g.game)
+}
+
+fn fmt_place(p: f64) -> String {
+    if p.fract() == 0.0 { format!("{p:.0}") } else { format!("{p:.1}") }
+}
+
+/// A game's end in words; `error` adds the reason a failed game gave.
+fn end_words(end: &str, error: Option<&str>) -> String {
+    let why = error.map(|e| format!(": {}", e.chars().take(300).collect::<String>())).unwrap_or_default();
+    match end {
+        "win" => "won".into(),
+        "draw" => "a draw".into(),
+        "turn_cap" => "nobody won by the turn cap".into(),
+        "action_cap" => "nobody won by the action cap".into(),
+        "time_cap" => "ran out of CPU time (not scored)".into(),
+        "panic" => format!("crashed (not scored){why}"),
+        "error" => format!("failed (not scored){why}"),
+        other => format!("{other}{why}"),
+    }
+}
+
+/// One game of the owner's experiment in full: schedule line, result line, and each seat's list
+/// in the lab runner's deck format.
+async fn lab_game(pool: &SqlitePool, user: &User, id: &str, game: &str) -> AppResult<String> {
+    let row: Option<(String, Option<String>, String, i64, i64, String)> = sqlx::query_as(
+        "SELECT g.spec, g.result, g.engine, g.attempts, g.retried, e.spec FROM lab_experiment_games g JOIN lab_experiments e ON e.id = g.experiment_id
+         WHERE g.experiment_id = ? AND e.owner_id = ? AND g.game = ?",
+    )
+    .bind(id)
+    .bind(&user.id)
+    .bind(game)
+    .fetch_optional(pool)
+    .await?;
+    let Some((line, result, engine, attempts, retried, spec)) = row else { return Err(AppError::NotFound("game")) };
+    let spec: crate::lab::experiments::ExperimentSpec = serde_json::from_str(&spec).map_err(anyhow::Error::from)?;
+    let game_spec: yama_play::lab::GameSpec = serde_json::from_str(&line).map_err(anyhow::Error::from)?;
+    let lists: HashMap<&str, &crate::lab::experiments::LabList> = std::iter::once(&spec.base)
+        .chain(spec.variant.iter())
+        .chain(spec.entrants.iter())
+        .chain(spec.opponents.iter().map(|o| &o.list))
+        .map(|l| (l.id.as_str(), l))
+        .collect();
+    let mut out = format!("Game {game} on {engine}, started {attempts} time{}", if attempts == 1 { "" } else { "s" });
+    if retried != 0 {
+        out.push_str(", played a second time after the machine cut its first try short");
+    }
+    out.push_str(".\n");
+    let _ = writeln!(out, "Schedule line:\n{line}");
+    let _ = writeln!(out, "Result line:\n{}", result.as_deref().unwrap_or("(not played yet)"));
+    if engine == "forge" {
+        out.push_str("Forge games are played by the Forge worker and don't replay with the lab runner.\n");
+    } else {
+        out.push_str(
+            "To replay: save each list below as <decks-root>/<deck id>.txt and the schedule line as a one-line file, then \
+             `lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file> --out <results.jsonl>`, or \
+             `labtrace ... --game <id>` for a turn-by-turn trace. It replays move for move on the build the result line names \
+             (engine and card_data).\n",
+        );
+    }
+    for (seat, deck) in game_spec.decks.iter().enumerate() {
+        match lists.get(deck.as_str()) {
+            Some(l) => {
+                let _ = writeln!(out, "\nSeat {}: {} ({deck}.txt)\n{}", seat + 1, l.label, crate::lab::experiments::list_text(&l.cards));
+            }
+            None => {
+                let _ = writeln!(out, "\nSeat {}: {deck} (its list isn't in the experiment)", seat + 1);
+            }
+        }
+    }
+    Ok(out)
+}
+
 async fn precon(pool: &SqlitePool, user: &User, wanted: &str) -> AppResult<String> {
+    let (id, _) = precon_id(pool, wanted).await?;
+    context::build(pool, user, "precon", Some(&id)).await
+}
+
+/// A precon by slug or name (or part of one): (slug, name).
+pub(super) async fn precon_id(pool: &SqlitePool, wanted: &str) -> AppResult<(String, String)> {
     let rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT id, name FROM precons WHERE id = ?1 OR lower(name) = lower(?1) OR instr(lower(name), lower(?1)) > 0
          ORDER BY id = ?1 DESC, lower(name) = lower(?1) DESC, released DESC LIMIT 10",
@@ -792,18 +1059,15 @@ async fn precon(pool: &SqlitePool, user: &User, wanted: &str) -> AppResult<Strin
     .bind(wanted)
     .fetch_all(pool)
     .await?;
-    let id = match rows.as_slice() {
-        [] => return Err(AppError::NotFound("precon")),
-        [(id, _)] => id.clone(),
-        [(id, name), ..] if id == wanted || name.eq_ignore_ascii_case(wanted) => id.clone(),
-        many => {
-            return Err(AppError::bad(format!(
-                "Several precons match \"{wanted}\": {}. Say which.",
-                many.iter().map(|(id, n)| format!("{n} ({id})")).collect::<Vec<_>>().join(", ")
-            )));
-        }
-    };
-    context::build(pool, user, "precon", Some(&id)).await
+    match rows.as_slice() {
+        [] => Err(AppError::NotFound("precon")),
+        [one] => Ok(one.clone()),
+        [first, ..] if first.0 == wanted || first.1.eq_ignore_ascii_case(wanted) => Ok(first.clone()),
+        many => Err(AppError::bad(format!(
+            "Several precons match \"{wanted}\": {}. Say which.",
+            many.iter().map(|(id, n)| format!("{n} ({id})")).collect::<Vec<_>>().join(", ")
+        ))),
+    }
 }
 
 // ── staged changes ──────────────────────────────────────────────────────────

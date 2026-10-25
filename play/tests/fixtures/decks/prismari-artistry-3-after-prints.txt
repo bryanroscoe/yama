@@ -1,0 +1,91 @@
+Commander
+1 Rootha, Mastering the Moment
+
+Deck
+1 Abstract Paintmage
+1 Ancient Tomb
+1 Arcane Signet
+1 Archmage Emeritus
+1 Ashling, Rekindled
+1 Blasphemous Act
+1 Bloodstained Mire
+1 Cascade Bluffs
+1 Chandra's Ignition
+1 Chaos Warp
+1 Coastal Peak
+1 Command Tower
+1 Curiosity Crafter
+1 Cursed Mirror
+1 Cyclonic Rift
+1 Deflecting Swat
+1 Determined Iteration
+1 Dig Through Time
+1 Dirgur Focusmage
+1 Exotic Orchard
+1 Expressive Iteration
+1 Fabled Passage
+1 Fellwar Stone
+1 Ferrous Lake
+1 Fierce Guardianship
+1 Fiery Emancipation
+1 Flooded Strand
+1 Full Throttle
+1 Furygale Flocking
+1 Galazeth Prismari
+1 Goldspan Dragon
+1 Harmonic Prodigy
+1 Inspired Skypainter
+1 Into the Story
+1 Izzet Signet
+1 Jeska's Will
+1 Lightning Greaves
+1 Magma Opus
+1 Magnus the Red
+1 Mana Confluence
+1 Mana Drain
+1 Mana Geyser
+1 Manaform Hellkite
+1 Mizzix's Mastery
+1 Muddle, the Ever-Changing
+1 Mystic Sanctuary
+1 Mystical Tutor
+1 Otawara, Soaring City
+1 Polluted Delta
+1 Prismari Charm
+1 Prismari Command
+1 Prismari Pianist
+1 Reality Shift
+1 Redoubled Stormsinger
+1 Resculpt
+1 Resonating Lute
+1 Rhystic Study
+1 Rionya, Fire Dancer
+1 Rite of Replication
+1 Roaming Throne
+1 Scalding Tarn
+1 Scorched Geyser
+1 Shark Typhoon
+1 Shivan Reef
+1 Sol Ring
+1 Spectacle Summit
+1 Steam Vents
+1 Storm-Kiln Artist
+1 Stormcarved Coast
+1 Stormcatch Mentor
+1 Sulfur Falls
+1 Surge to Victory
+1 Talisman of Creativity
+1 Terror of the Peaks
+1 The One Ring
+1 The Scarlet Witch
+1 Thunderclap Drake
+1 Training Center
+1 Treasure Cruise
+1 Turbulent Springs
+1 Twinflame
+1 Veyran, Voice of Duality
+1 Volcanic Island
+1 Volcanic Salvo
+1 Wooded Foothills
+7 Island
+7 Mountain

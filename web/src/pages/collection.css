@@ -116,7 +116,8 @@
 .coll-page .coll-cards-head h2 {
   margin: 0 auto 0 0;
 }
-.coll-page .coll-sort > button {
+.coll-page .coll-sort > button,
+.coll-page .coll-kind > button {
   min-height: 36px;
   padding: 0 0.9rem;
   font-size: var(--t-sm);

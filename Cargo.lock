@@ -3778,6 +3778,7 @@ dependencies = [
  "futures-util",
  "hex",
  "jsonwebtoken",
+ "mimalloc",
  "reqwest",
  "serde",
  "serde_json",

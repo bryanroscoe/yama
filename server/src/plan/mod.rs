@@ -11,6 +11,7 @@ pub mod decks;
 pub mod import;
 pub mod inputs;
 pub mod model;
+pub mod swap_in;
 pub mod tokens;
 
 use crate::auth::CurrentUser;
@@ -42,6 +43,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/plan/bundle", get(bundle_route))
         .route("/api/plan/decks/{key}", patch(decks::patch_deck))
         .route("/api/plan/decks/{key}/yama-deck", post(decks::make_yama_deck))
+        .route("/api/plan/decks/{key}/swap-in", get(swap_in::preview_route).post(swap_in::apply_route))
         .merge(inputs::router())
         .merge(tokens::router())
 }
@@ -141,8 +143,10 @@ pub async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<(
         .ok_or(AppError::NotFound("plan deck"))
 }
 
-/// Resolve card names (any face, any case) to oracle ids in one query. Unknown names are left
-/// out; callers keep them by name.
+/// Resolve card names (any face, any case) to oracle ids in one query. A card whose whole name
+/// matches wins over another card's face of that name (Reanimate, not Grave Researcher //
+/// Reanimate), as `cards::resolve_names` orders them. Unknown names are left out; callers keep
+/// them by name.
 pub async fn resolve_names<'c, E>(db: E, names: &[String]) -> AppResult<HashMap<String, String>>
 where
     E: sqlx::Executor<'c, Database = Sqlite>,
@@ -151,7 +155,9 @@ where
     let rows: Vec<(String, Option<String>)> = sqlx::query_as(
         "SELECT j.value,
            (SELECT n.oracle_id FROM card_names n JOIN cards c ON c.oracle_id = n.oracle_id
-            WHERE n.name = j.value ORDER BY IFNULL(c.layout, '') IN ('token', 'double_faced_token', 'art_series') LIMIT 1)
+            WHERE n.name = j.value
+            ORDER BY IFNULL(c.layout, '') IN ('token', 'double_faced_token', 'art_series'), c.name = n.name COLLATE NOCASE DESC,
+                     IFNULL(c.edhrec_rank, 1000000000) LIMIT 1)
          FROM json_each(?) j",
     )
     .bind(serde_json::to_string(&trimmed).map_err(anyhow::Error::from)?)
