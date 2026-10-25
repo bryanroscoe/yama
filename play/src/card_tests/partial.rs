@@ -882,7 +882,6 @@ fn crown_of_gondor_equips_for_one_as_the_monarch() {
 /// each opponent, create two 3/3 blue and red Elemental creature tokens with flying that attack
 /// that opponent this turn if able. They gain haste until end of turn."
 #[test]
-#[ignore = "phase bug: Furygale Flocking's tokens have no flying and only some get haste"]
 fn furygale_flocking_makes_two_flyers_per_opponent() {
     big_stack(|| {
         let mut t = Board::new(3).hand(0, "Furygale Flocking").lands(0, "Mountain", 10).build();
