@@ -65,9 +65,11 @@ use crate::{DeckLine, Engine, SeatDeck};
 /// patches/phase/0002-0008: the AI fixes ("+aifix": Omo's counters, man-lands, land
 /// copies), the free-for-all tempo changes ("+tempo") and the two-player endgame
 /// change ("+endgame"). Since 24 Oct 2026 it also carries 0010-0011, two fixes for AI
-/// decisions that could run without end ("+stallfix"). Results under an earlier label are
+/// decisions that could run without end ("+stallfix"), and 0012-0030, rules fixes for cards in
+/// Bryan's decks found by the card tests ("+cardfix": Jace, Adeline, Resonating Lute, Study Hall,
+/// Spark Double, Zaffai and more; docs/card-coverage.md). Results under an earlier label are
 /// another engine and must not be pooled with these.
-pub const ENGINE: &str = "phase-rs v0.113.0+aifix+tempo+endgame+stallfix";
+pub const ENGINE: &str = "phase-rs v0.113.0+aifix+tempo+endgame+stallfix+cardfix";
 /// Added to [`ENGINE`] on result lines of games played with the engine's loop detection on
 /// ([`GameOptions::loops`]), so they're never pooled with the usual results.
 pub const LOOPS_SUFFIX: &str = "+loops";
@@ -1419,7 +1421,7 @@ mod tests {
         r.eliminations = vec![Elimination { seat: 1, turn: 3 }];
         let line = r.to_line();
         let expected = format!(
-            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"phase-rs v0.113.0+aifix+tempo+endgame+stallfix","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
+            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"phase-rs v0.113.0+aifix+tempo+endgame+stallfix+cardfix","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
         );
         assert_eq!(line, expected);
         assert_eq!(serde_json::from_str::<GameResult>(&line).unwrap(), r);
