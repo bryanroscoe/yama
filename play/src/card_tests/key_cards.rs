@@ -154,7 +154,6 @@ fn abstract_paintmage_adds_mana_for_instants_and_sorceries() {
 /// instant and sorcery spells.'" Two Islands pay for Divination ({2}{U}). phase only finds the
 /// Lute's mana once it's in the pool, and a person in Yama taps mana only while paying.
 #[test]
-#[ignore = "phase bug: a spell that needs Resonating Lute's two-mana land ability isn't offered (the auto-tap check uses one mana per land)"]
 fn resonating_lute_doubles_land_mana_for_spells() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Resonating Lute").lands(0, "Island", 2).hand(0, "Divination").hand(0, "Hill Giant").build();
@@ -546,7 +545,6 @@ fn esper_sentinel_draws_unless_they_pay() {
 /// each opponent, create a 1/1 white Human creature token that's tapped and attacking that
 /// player."
 #[test]
-#[ignore = "phase bug: Adeline's tokens all attack the same player, not one each opponent (the parse drops \"attacking that player\")"]
 fn adeline_makes_an_attacking_human_for_each_opponent() {
     big_stack(|| {
         let mut t = Board::new(3).field(0, "Adeline, Resplendent Cathar").field(0, "Grizzly Bears").build();
@@ -865,7 +863,6 @@ fn smothering_tithe_makes_a_treasure_when_they_dont_pay() {
 /// except it enters with an additional loyalty counter on it if it's a planeswalker, and it
 /// isn't legendary." A second Jace with five loyalty.
 #[test]
-#[ignore = "phase bug: Spark Double copying a planeswalker enters with 1 loyalty counter instead of the printed loyalty plus one (the ruling)"]
 fn spark_double_copies_jace_with_one_more_loyalty_and_no_legend_rule() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Jace, Multiverse Architect").hand(0, "Spark Double").lands(0, "Island", 4).build();

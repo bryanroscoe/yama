@@ -535,7 +535,6 @@ fn nissa_puts_a_land_from_the_top_onto_the_battlefield() {
 
 /// "This land is every nonbasic land type."
 #[test]
-#[ignore = "phase bug: Planar Nexus isn't every nonbasic land type (the static is unimplemented)"]
 fn planar_nexus_is_every_nonbasic_land_type() {
     big_stack(|| {
         let t = Board::new(2).field(0, "Planar Nexus").build();

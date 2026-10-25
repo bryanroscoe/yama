@@ -298,7 +298,6 @@ smoke! {
     harmonize("Harmonize", "Omo, Queen of Vesuva");
     harrow("Harrow", "Hearthhull, the Worldseed");
     harsh_mentor("Harsh Mentor", "Éowyn, Shieldmaiden");
-    #[ignore = "phase bug: paying \"Sacrifice a Desert\" with Hashep Oasis itself is refused (it sacrifices first, then can't tap)"]
     hashep_oasis("Hashep Oasis", "Omo, Queen of Vesuva");
     haunted_ridge("Haunted Ridge", "Terra, Herald of Hope");
     hearthhull_the_worldseed("Hearthhull, the Worldseed", "Hearthhull, the Worldseed");
@@ -358,7 +357,6 @@ smoke! {
     laelia_the_blade_reforged("Laelia, the Blade Reforged", "Quintorius, History Chaser");
     lair_of_the_hydra("Lair of the Hydra", "Omo, Queen of Vesuva");
     laughing_mad("Laughing Mad", "Terra, Herald of Hope");
-    #[ignore = "phase bug: an {X} ability with \"Sacrifice a Desert\" can't be activated (casting_costs.rs: non-self sacrifice cost unhandled)"]
     lazotep_quarry("Lazotep Quarry", "Omo, Queen of Vesuva");
     legions_to_ashes("Legions to Ashes", "Terra, Herald of Hope");
     leitmotif_composer("Leitmotif Composer", "Rootha, Mastering the Moment");
