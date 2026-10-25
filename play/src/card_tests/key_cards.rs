@@ -1679,7 +1679,6 @@ fn archfiend_of_depravity_leaves_each_opponent_two_creatures() {
 /// "When this creature enters, for each opponent, you may put up to one target creature card
 /// from that player's graveyard onto the battlefield under your control."
 #[test]
-#[ignore = "phase bug: Sepulchral Primordial gets one target in all, not one in each opponent's graveyard"]
 fn sepulchral_primordial_takes_a_creature_from_each_opponents_graveyard() {
     big_stack(|| {
         let mut t = Board::new(3).hand(0, "Sepulchral Primordial").lands(0, "Swamp", 7).grave(1, "Hill Giant").grave(2, "Craw Wurm").build();
