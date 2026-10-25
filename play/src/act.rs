@@ -35,8 +35,8 @@ use engine::types::actions::{AlternativeCastDecision, CastChoice, GameAction, Ma
 use engine::types::game_state::{
     ActionResult, AutoMayChoice, CombatDamageAssignmentMode, CombatTaxContext, CostResume, CounterCostChoice, CounterMoveChoice, CounterRemoveChoice, DistributionUnit, GameState, ManaChoice,
     ManaChoiceContext, ManaChoicePrompt, MayTriggerAutoChoiceScope, MayTriggerAutoChoiceSelector, MulliganDecisionPhase, PayCostKind,
-    ReplacementAutoChoiceId, ReplacementChoiceKind, RetargetScope, ShardChoice, ShardOptions, WaitingFor, YieldScope,
-    YieldTarget,
+    ReplacementAutoChoiceId, ReplacementCandidateSummary, ReplacementChoiceKind, RetargetScope, ShardChoice, ShardOptions, WaitingFor,
+    YieldScope, YieldTarget,
 };
 use engine::types::mana::{ManaCost, ManaType};
 use engine::types::identifiers::ObjectId;
@@ -560,6 +560,28 @@ fn count(n: usize, one: &str, many: &str) -> String {
 /// "draw a card" as a question: "Draw a card?". A whole trigger ("When ~ enters, you may search
 /// your library…") asks what you may do ("Search your library…?"). Longer text (several
 /// sentences) is left as the engine wrote it, capitalised.
+/// What happens if candidate `index` of a replacement ordering is picked, where that's plain:
+/// the engine applies the effect picked first and then the others (CR 616.1e, 616.1f), so of
+/// two effects that each say whether a permanent enters tapped (a land that enters tapped and
+/// Spelunking's "lands you control enter untapped") the other one, applied last, decides.
+/// `None` for any other ordering, where each effect still happens and only the order differs.
+pub(crate) fn replacement_order_outcome(items: &[ReplacementCandidateSummary], index: usize) -> Option<&'static str> {
+    // The engine's own labels for a self tap or untap as it enters (replacement.rs,
+    // `replacement_choice_label`).
+    let tap_state = |c: &ReplacementCandidateSummary| match c.description.as_str() {
+        "Enters tapped" => Some(true),
+        "Enters untapped" => Some(false),
+        _ => None,
+    };
+    let [a, b] = items else { return None };
+    let (first, last) = if index == 0 { (a, b) } else if index == 1 { (b, a) } else { return None };
+    match (tap_state(first)?, tap_state(last)?) {
+        (true, false) => Some("it enters untapped"),
+        (false, true) => Some("it enters tapped"),
+        _ => None,
+    }
+}
+
 fn question(text: &str) -> String {
     let text = one_line(text);
     let text = text.trim();
@@ -1062,7 +1084,13 @@ impl Pending {
                         let mut o = card(vs, &c.source_id, true);
                         o.id = i.to_string();
                         o.name = one_line(&c.source_name);
-                        o.text = Some(effect_text(vs, &c.source_id, &c.description));
+                        let text = effect_text(vs, &c.source_id, &c.description);
+                        // An ordering where the effect applied last decides (a tapland and
+                        // Spelunking) says how it ends up, not only what the effect does.
+                        o.text = Some(match (kind, replacement_order_outcome(items, i)) {
+                            (ReplacementChoiceKind::Order, Some(outcome)) => format!("{text}. Applied first, so {outcome}"),
+                            _ => text,
+                        });
                         o
                     })
                     .collect();

@@ -1242,6 +1242,42 @@ fn spelunking_draws_puts_a_land_and_untaps_entering_lands() {
     });
 }
 
+/// The same ordering, by its buttons: the effect picked applies first and the other one last
+/// (CR 616.1e, 616.1f), so each button says how the land ends up, and pressing "Field of the Dead
+/// first" leaves it untapped.
+#[test]
+fn spelunking_order_buttons_say_how_the_land_enters() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Spelunking").hand(0, "Field of the Dead").lands(0, "Forest", 3).build();
+        let (spell, field) = (t.id("Spelunking"), t.id("Field of the Dead"));
+        t.cast(spell);
+        for _ in 0..40 {
+            if matches!(t.state().waiting_for, engine::types::game_state::WaitingFor::ReplacementChoice { .. }) {
+                break;
+            }
+            let seat = t.m.waiting_on()[0];
+            let d = t.decision(seat);
+            if d.pending.as_ref().is_some_and(|p| p.answer == Answer::SelectCards && p.options.iter().any(|o| o.id == field.0.to_string())) {
+                t.act(seat, Act::SelectCards { cards: vec![field.0] });
+                continue;
+            }
+            let mut dr = super::Drove::default();
+            t.answer_once(&mut dr).unwrap();
+        }
+        let d = t.decision(0);
+        let labels: Vec<&str> = d.options.iter().map(|o| o.label.as_str()).collect();
+        assert!(labels.contains(&"Spelunking first, so it enters tapped"), "{labels:?}");
+        assert!(labels.contains(&"Field of the Dead first, so it enters untapped"), "{labels:?}");
+        let p = d.pending.as_ref().expect("the ordering has a Pending");
+        let spelunking = p.options.iter().find(|o| o.name == "Spelunking").expect("Spelunking is an option");
+        assert_eq!(spelunking.text.as_deref(), Some("Enters untapped. Applied first, so it enters tapped"));
+        t.choose(0, |o| o.label == "Field of the Dead first, so it enters untapped");
+        t.drive().unwrap();
+        assert!(t.on_field(field));
+        assert!(!t.tapped(field), "Field of the Dead enters untapped");
+    });
+}
+
 /// "Return all creatures to their owners' hands except for Krakens, Leviathans, Octopuses, and
 /// Serpents."
 #[test]

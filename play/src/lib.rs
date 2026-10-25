@@ -24,7 +24,7 @@ use engine::game::filter_state_for_viewer;
 use engine::game::replay::{ReplayPlayer, reconstruct_initial_state};
 use engine::types::format::FormatConfig;
 use engine::game::mulligan::kept_hand_size_after;
-use engine::types::game_state::{GameState, MulliganDecisionPhase, WaitingFor};
+use engine::types::game_state::{GameState, MulliganDecisionPhase, ReplacementChoiceKind, WaitingFor};
 use engine::types::identifiers::ObjectId;
 use engine::game::ability_utils::declared_targets_in_chain;
 use engine::game::combat::{AttackTarget, CombatRequirement, compute_attack_tax};
@@ -1241,6 +1241,13 @@ impl Match {
                 format!("Choose: {}", text.join(" + "))
             }
             GameAction::ChooseReplacement { index } => match &vs.waiting_for {
+                // The effect picked applies first (CR 616.1e): where the one applied last decides
+                // how a permanent enters, the button says how it ends up.
+                WaitingFor::ReplacementChoice { candidates, kind: ReplacementChoiceKind::Order, .. }
+                    if let (Some(c), Some(outcome)) = (candidates.get(*index), act::replacement_order_outcome(candidates, *index)) =>
+                {
+                    format!("{} first, so {outcome}", c.source_name)
+                }
                 WaitingFor::ReplacementChoice { candidates, .. } => candidates
                     .get(*index)
                     .map(|c| if c.description.is_empty() { c.source_name.clone() } else { c.description.clone() })
