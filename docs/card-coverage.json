@@ -1,7 +1,7 @@
 {
-  "generated": "2026-10-24",
+  "generated": "2026-10-25",
   "engine": "phase-v0.113.0+0571ee32-yama1/cards-eb309108",
-  "card_data": "card-data-eb309108eb0df708.json",
+  "card_data": "card-data-2905717cc9fe0f53.json",
   "sources": [
     "commander-decks decks/compare/*.txt",
     "commander-decks data/shopping/candidates.json",
@@ -19,11 +19,11 @@
   },
   "bryan": {
     "cards": 779,
-    "full": 731,
-    "uncertain": 14,
-    "partial": 34,
+    "full": 738,
+    "uncertain": 13,
+    "partial": 28,
     "missing": 0,
-    "phase_supported": 730
+    "phase_supported": 737
   },
   "bryan_decks": [
     {
@@ -64,22 +64,22 @@
       "commander": "Éowyn, Shieldmaiden",
       "list": "stock",
       "cards": 84,
-      "full": 77,
-      "uncertain": 3,
+      "full": 78,
+      "uncertain": 2,
       "partial": 4,
       "missing": 0,
-      "phase_supported": 77
+      "phase_supported": 78
     },
     {
       "deck": "Riders of Rohan",
       "commander": "Éowyn, Shieldmaiden",
       "list": "now",
       "cards": 83,
-      "full": 78,
-      "uncertain": 2,
+      "full": 79,
+      "uncertain": 1,
       "partial": 3,
       "missing": 0,
-      "phase_supported": 78
+      "phase_supported": 79
     },
     {
       "deck": "Riders of Rohan",
@@ -108,22 +108,22 @@
       "commander": "Quintorius, History Chaser",
       "list": "stock",
       "cards": 85,
-      "full": 79,
+      "full": 80,
       "uncertain": 0,
-      "partial": 6,
+      "partial": 5,
       "missing": 0,
-      "phase_supported": 79
+      "phase_supported": 80
     },
     {
       "deck": "Lorehold Spirit",
       "commander": "Quintorius, History Chaser",
       "list": "now",
       "cards": 85,
-      "full": 79,
+      "full": 80,
       "uncertain": 0,
-      "partial": 6,
+      "partial": 5,
       "missing": 0,
-      "phase_supported": 79
+      "phase_supported": 80
     },
     {
       "deck": "Lorehold Spirit",
@@ -141,22 +141,22 @@
       "commander": "Rootha, Mastering the Moment",
       "list": "stock",
       "cards": 87,
-      "full": 80,
+      "full": 81,
       "uncertain": 3,
-      "partial": 4,
+      "partial": 3,
       "missing": 0,
-      "phase_supported": 80
+      "phase_supported": 81
     },
     {
       "deck": "Prismari Artistry",
       "commander": "Rootha, Mastering the Moment",
       "list": "now",
       "cards": 87,
-      "full": 83,
+      "full": 84,
       "uncertain": 2,
-      "partial": 2,
+      "partial": 1,
       "missing": 0,
-      "phase_supported": 83
+      "phase_supported": 84
     },
     {
       "deck": "Prismari Artistry",
@@ -207,17 +207,6 @@
       "commander": "Hearthhull, the Worldseed",
       "list": "stock",
       "cards": 87,
-      "full": 84,
-      "uncertain": 0,
-      "partial": 3,
-      "missing": 0,
-      "phase_supported": 84
-    },
-    {
-      "deck": "World Shaper",
-      "commander": "Hearthhull, the Worldseed",
-      "list": "now",
-      "cards": 87,
       "full": 85,
       "uncertain": 0,
       "partial": 2,
@@ -227,40 +216,29 @@
     {
       "deck": "World Shaper",
       "commander": "Hearthhull, the Worldseed",
-      "list": "after-prints",
-      "cards": 88,
+      "list": "now",
+      "cards": 87,
       "full": 86,
       "uncertain": 0,
-      "partial": 2,
+      "partial": 1,
       "missing": 0,
       "phase_supported": 86
     },
     {
-      "deck": "Tricky Terrain",
-      "commander": "Omo, Queen of Vesuva",
-      "list": "stock",
-      "cards": 95,
-      "full": 86,
-      "uncertain": 4,
-      "partial": 5,
-      "missing": 0,
-      "phase_supported": 86
-    },
-    {
-      "deck": "Tricky Terrain",
-      "commander": "Omo, Queen of Vesuva",
-      "list": "now",
-      "cards": 95,
+      "deck": "World Shaper",
+      "commander": "Hearthhull, the Worldseed",
+      "list": "after-prints",
+      "cards": 88,
       "full": 87,
-      "uncertain": 4,
-      "partial": 4,
+      "uncertain": 0,
+      "partial": 1,
       "missing": 0,
       "phase_supported": 87
     },
     {
       "deck": "Tricky Terrain",
       "commander": "Omo, Queen of Vesuva",
-      "list": "after-prints",
+      "list": "stock",
       "cards": 95,
       "full": 88,
       "uncertain": 4,
@@ -269,48 +247,70 @@
       "phase_supported": 88
     },
     {
+      "deck": "Tricky Terrain",
+      "commander": "Omo, Queen of Vesuva",
+      "list": "now",
+      "cards": 95,
+      "full": 89,
+      "uncertain": 4,
+      "partial": 2,
+      "missing": 0,
+      "phase_supported": 89
+    },
+    {
+      "deck": "Tricky Terrain",
+      "commander": "Omo, Queen of Vesuva",
+      "list": "after-prints",
+      "cards": 95,
+      "full": 90,
+      "uncertain": 4,
+      "partial": 1,
+      "missing": 0,
+      "phase_supported": 90
+    },
+    {
       "deck": "Multiverse Reforged",
       "commander": "Jace, Multiverse Architect",
       "list": "stock",
       "cards": 93,
-      "full": 84,
+      "full": 86,
       "uncertain": 3,
-      "partial": 6,
+      "partial": 4,
       "missing": 0,
-      "phase_supported": 83
+      "phase_supported": 85
     },
     {
       "deck": "Multiverse Reforged",
       "commander": "Jace, Multiverse Architect",
       "list": "precon",
       "cards": 93,
-      "full": 84,
+      "full": 86,
       "uncertain": 3,
-      "partial": 6,
+      "partial": 4,
       "missing": 0,
-      "phase_supported": 83
+      "phase_supported": 85
     },
     {
       "deck": "Multiverse Reforged",
       "commander": "Jace, Multiverse Architect",
       "list": "after-local-buys",
       "cards": 93,
-      "full": 87,
+      "full": 89,
       "uncertain": 3,
-      "partial": 3,
+      "partial": 1,
       "missing": 0,
-      "phase_supported": 86
+      "phase_supported": 88
     },
     {
       "deck": "Multiverse Reforged",
       "commander": "Jace, Multiverse Architect",
       "list": "proposed-bracket-3",
       "cards": 93,
-      "full": 88,
+      "full": 90,
       "uncertain": 1,
-      "partial": 4,
+      "partial": 2,
       "missing": 0,
-      "phase_supported": 87
+      "phase_supported": 89
     },
     {
       "deck": "Multiverse Reforged",
@@ -326,11 +326,11 @@
   ],
   "catalog": {
     "cards": 6429,
-    "full": 5864,
-    "uncertain": 150,
-    "partial": 415,
+    "full": 5871,
+    "uncertain": 149,
+    "partial": 409,
     "missing": 0,
-    "phase_supported": 5851
+    "phase_supported": 5858
   },
   "catalog_precons": 174,
   "bryan_cards": [
@@ -3563,21 +3563,12 @@
     },
     {
       "name": "Crown of Gondor",
-      "support": "uncertain",
-      "phase_supported": false,
+      "support": "full",
+      "phase_supported": true,
       "faces": [
         {
           "name": "Crown of Gondor",
-          "types": "Legendary Artifact — Equipment",
-          "gaps": [
-            {
-              "handler": "Swallow:Condition_If",
-              "text": "[warning:swallowed-clause] Condition_If — Equip {4}. This ability costs {3} less to activate if you're the monarch."
-            }
-          ],
-          "warnings": [
-            "[warning:swallowed-clause] Condition_If — Equip {4}. This ability costs {3} less to activate if you're the monarch."
-          ]
+          "types": "Legendary Artifact — Equipment"
         }
       ],
       "smoke_checks": [
@@ -3902,19 +3893,12 @@
     },
     {
       "name": "Darksteel Angel",
-      "support": "partial",
-      "phase_supported": false,
+      "support": "full",
+      "phase_supported": true,
       "faces": [
         {
           "name": "Darksteel Angel",
-          "types": "Artifact Creature — Angel",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:static_structure",
-              "text": "Creatures you control can't have -1/-1 counters put on them."
-            }
-          ]
+          "types": "Artifact Creature — Angel"
         }
       ],
       "smoke_checks": [
@@ -8039,19 +8023,12 @@
     },
     {
       "name": "Jace, Multiverse Architect",
-      "support": "partial",
-      "phase_supported": false,
+      "support": "full",
+      "phase_supported": true,
       "faces": [
         {
           "name": "Jace, Multiverse Architect",
-          "types": "Legendary Planeswalker — Jace",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "creatures they control can't attack Jaces you control"
-            }
-          ]
+          "types": "Legendary Planeswalker — Jace"
         }
       ],
       "smoke_checks": [
@@ -11031,19 +11008,12 @@
     },
     {
       "name": "Planar Nexus",
-      "support": "partial",
-      "phase_supported": false,
+      "support": "full",
+      "phase_supported": true,
       "faces": [
         {
           "name": "Planar Nexus",
-          "types": "Land",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:effect_structure",
-              "text": "~ is every nonbasic land type."
-            }
-          ]
+          "types": "Land"
         }
       ],
       "smoke_checks": [
@@ -12894,19 +12864,12 @@
     },
     {
       "name": "Sage of the Maze",
-      "support": "partial",
-      "phase_supported": false,
+      "support": "full",
+      "phase_supported": true,
       "faces": [
         {
           "name": "Sage of the Maze",
-          "types": "Creature — Elf Wizard",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_verb_arguments",
-              "text": "{T}: Until end of turn, target land you control becomes an X/X Citizen creature with haste in addition to its other types, where X is twice the number of Gates you control. Activate only as a sorcery."
-            }
-          ]
+          "types": "Creature — Elf Wizard"
         }
       ],
       "smoke_checks": [
@@ -14538,19 +14501,12 @@
     },
     {
       "name": "Study Hall",
-      "support": "partial",
-      "phase_supported": false,
+      "support": "full",
+      "phase_supported": true,
       "faces": [
         {
           "name": "Study Hall",
-          "types": "Land",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "When you spend this mana to cast your commander, scry X, where X is the number of times it's been cast from the command zone this game"
-            }
-          ]
+          "types": "Land"
         }
       ],
       "smoke_checks": [
@@ -17781,19 +17737,12 @@
     },
     {
       "name": "Windgrace's Judgment",
-      "support": "partial",
-      "phase_supported": false,
+      "support": "full",
+      "phase_supported": true,
       "faces": [
         {
           "name": "Windgrace's Judgment",
-          "types": "Instant",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "For any number of opponents, destroy target nonland permanent that player controls."
-            }
-          ]
+          "types": "Instant"
         }
       ],
       "smoke_checks": [
@@ -20061,30 +20010,6 @@
       "precons": 2
     },
     {
-      "name": "Crown of Gondor",
-      "support": "uncertain",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Crown of Gondor",
-          "types": "Legendary Artifact — Equipment",
-          "gaps": [
-            {
-              "handler": "Swallow:Condition_If",
-              "text": "[warning:swallowed-clause] Condition_If — Equip {4}. This ability costs {3} less to activate if you're the monarch."
-            }
-          ],
-          "warnings": [
-            "[warning:swallowed-clause] Condition_If — Equip {4}. This ability costs {3} less to activate if you're the monarch."
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Cruel Entertainment",
       "support": "partial",
       "phase_supported": false,
@@ -20328,29 +20253,6 @@
       ],
       "smoke_checks": [
         "resolves"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Darksteel Angel",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Darksteel Angel",
-          "types": "Artifact Creature — Angel",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:static_structure",
-              "text": "Creatures you control can't have -1/-1 counters put on them."
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 4/4"
       ],
       "precons": 1
     },
@@ -23580,29 +23482,6 @@
       "precons": 1
     },
     {
-      "name": "Jace, Multiverse Architect",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Jace, Multiverse Architect",
-          "types": "Legendary Planeswalker — Jace",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "creatures they control can't attack Jaces you control"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "loyalty 4"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Jared Carthalion",
       "support": "partial",
       "phase_supported": false,
@@ -26674,29 +26553,6 @@
       "precons": 1
     },
     {
-      "name": "Planar Nexus",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Planar Nexus",
-          "types": "Land",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:effect_structure",
-              "text": "~ is every nonbasic land type."
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "plays as a land",
-        "adds mana"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Plasm Capture",
       "support": "partial",
       "phase_supported": false,
@@ -27772,30 +27628,6 @@
       ],
       "smoke_checks": [
         "resolves"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Sage of the Maze",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Sage of the Maze",
-          "types": "Creature — Elf Wizard",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_verb_arguments",
-              "text": "{T}: Until end of turn, target land you control becomes an X/X Citizen creature with haste in addition to its other types, where X is twice the number of Gates you control. Activate only as a sorcery."
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 1/3",
-        "adds mana"
       ],
       "precons": 1
     },
@@ -28969,29 +28801,6 @@
         "printed 7/7"
       ],
       "precons": 1
-    },
-    {
-      "name": "Study Hall",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Study Hall",
-          "types": "Land",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "When you spend this mana to cast your commander, scry X, where X is the number of times it's been cast from the command zone this game"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "plays as a land",
-        "adds mana"
-      ],
-      "precons": 10
     },
     {
       "name": "Sudden Salvation",
@@ -31230,28 +31039,6 @@
       "precons": 1
     },
     {
-      "name": "Windgrace's Judgment",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Windgrace's Judgment",
-          "types": "Instant",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "For any number of opponents, destroy target nonland permanent that player controls."
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "resolves"
-      ],
-      "precons": 4
-    },
-    {
       "name": "Winding Constrictor",
       "support": "partial",
       "phase_supported": false,
@@ -32576,6 +32363,7 @@
     "Crossway Troublemakers",
     "Crowded Crypt",
     "Crown of Doom",
+    "Crown of Gondor",
     "Crown of Skemfar",
     "Crucible of Fire",
     "Crucible of the Spirit Dragon",
@@ -32679,6 +32467,7 @@
     "Darkmoss Bridge",
     "Darkness",
     "Darkslick Shores",
+    "Darksteel Angel",
     "Darksteel Citadel",
     "Darksteel Ingot",
     "Darksteel Juggernaut",
@@ -34073,6 +33862,7 @@
     "Jace Beleren",
     "Jace's Archivist",
     "Jace's Sanctum",
+    "Jace, Multiverse Architect",
     "Jace, Vryn's Prodigy",
     "Jacked Rabbit",
     "Jadar, Ghoulcaller of Nephalia",
@@ -35206,6 +34996,7 @@
     "Plains",
     "Plan for All Outcomes",
     "Planar Chaos",
+    "Planar Nexus",
     "Planar Outburst",
     "Planeswalker's Mischief",
     "Planetary Annihilation",
@@ -35670,6 +35461,7 @@
     "Sacred Peaks",
     "Sage of Fables",
     "Sage of the Beyond",
+    "Sage of the Maze",
     "Sage's Nouliths",
     "Sagu Mauler",
     "Saheeli's Artistry",
@@ -36281,6 +36073,7 @@
     "Stronghold Assassin",
     "Struggle",
     "Struggle for Project Purity",
+    "Study Hall",
     "Stuffy Doll",
     "Stumpsquall Hydra",
     "Subjugate the Hobbits",
@@ -37234,6 +37027,7 @@
     "Windbrisk Heights",
     "Windcrag Siege",
     "Windfall",
+    "Windgrace's Judgment",
     "Winding Way",
     "Windreader Sphinx",
     "Winds of Rath",
