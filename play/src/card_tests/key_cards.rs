@@ -1053,7 +1053,6 @@ fn fellwar_stone_makes_only_an_opponents_colours() {
 /// "Exile all the cards from your hand, then draw that many cards. Until the end of your next
 /// turn, you may play cards exiled this way."
 #[test]
-#[ignore = "phase bug: Hex Magic exiles nothing and draws nothing (\"exile all the cards from your hand\" parses with no cards to move)"]
 fn hex_magic_swaps_your_hand_and_lets_you_play_the_old_one() {
     big_stack(|| {
         let mut t = Board::new(2).hand(0, "Hex Magic").hand(0, "Forest").hand(0, "Opt").lands(0, "Mountain", 3).lands(0, "Island", 1).build();
