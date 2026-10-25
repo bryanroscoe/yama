@@ -490,7 +490,6 @@ fn squandered_resources_turns_a_land_into_its_mana() {
 
 /// "For any number of opponents, destroy target nonland permanent that player controls."
 #[test]
-#[ignore = "phase bug: Windgrace's Judgment can't be cast at all (\"for any number of opponents, destroy target nonland permanent that player controls\" is unimplemented)"]
 fn windgraces_judgment_destroys_one_per_opponent() {
     big_stack(|| {
         let mut t = Board::new(3).hand(0, "Windgrace's Judgment").lands(0, "Swamp", 2).lands(0, "Forest", 3).field(1, "Hill Giant").field(2, "Spellbook").build();
