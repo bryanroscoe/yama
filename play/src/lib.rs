@@ -1197,6 +1197,9 @@ impl Match {
             GameAction::ChooseTarget { target: None } => "No target".into(),
             GameAction::SelectCards { cards } if cards.is_empty() => "Choose none".into(),
             GameAction::SelectCards { cards } => format!("Choose {}", cards.iter().map(|c| Self::name_in(vs, c)).collect::<Vec<_>>().join(", ")),
+            // A free-cast window (CR 608.2g): one card cast free, or finish.
+            GameAction::FreeCastWindowChoice { selection: Some(id) } => format!("Cast {} without paying its mana cost", Self::name_in(vs, id)),
+            GameAction::FreeCastWindowChoice { selection: None } => "Finish casting".into(),
             GameAction::DecideOptionalEffect { accept } => if *accept { "Yes".into() } else { "No".into() },
             GameAction::DecideOptionalCost { pay } => if *pay { "Pay the extra cost".into() } else { "Don't pay it".into() },
             GameAction::PayUnlessCost { pay } => if *pay { "Pay the cost".into() } else { "Don't pay".into() },

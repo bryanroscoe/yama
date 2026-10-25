@@ -1185,22 +1185,21 @@ fn improvisation_capstone_casts_the_exiled_spells_free() {
         let mut t = Board::new(2).hand(0, "Improvisation Capstone").lands(0, "Mountain", 7).top(0, "Grizzly Bears").top(0, "Savannah Lions").top(0, "Opt").build();
         let (spell, bears, lions) = (t.id("Improvisation Capstone"), t.id("Grizzly Bears"), t.id("Savannah Lions"));
         t.cast(spell);
-        // The free casts are offered as option buttons, one per card ("Selection: <id>").
-        for _ in 0..20 {
-            if t.settled() {
-                break;
+        // The free casts are asked one at a time, by the cards' names, until none is picked.
+        let mut windows = 0;
+        t.drive_answering(|tbl, seat, d| {
+            let p = d.pending.as_ref().filter(|p| seat == 0 && p.purpose == "free_cast_window")?;
+            windows += 1;
+            assert!(p.options.iter().all(|o| ["Grizzly Bears", "Savannah Lions", "Opt"].contains(&o.name.as_str())), "the exiled cards by name: {:?}", p.options);
+            let wanted = [bears, lions].into_iter().find(|id| p.options.iter().any(|o| o.eligible && o.id == id.0.to_string()));
+            if let Some(id) = wanted {
+                let name = &tbl.state().objects[&id].name;
+                assert!(d.options.iter().any(|o| o.label == format!("Cast {name} without paying its mana cost")), "{:?}", d.options);
             }
-            let seat = t.m.waiting_on()[0];
-            let d = t.decision(seat);
-            let wanted = [bears, lions].into_iter().find(|id| d.options.iter().any(|o| o.label.contains(&format!("Selection: {}", id.0))));
-            match wanted {
-                Some(id) => t.choose(seat, |o| o.label.contains(&format!("Selection: {}", id.0))),
-                None => {
-                    let mut dr = super::Drove::default();
-                    t.answer_once(&mut dr).unwrap();
-                }
-            }
-        }
+            Some(Act::SelectCards { cards: wanted.map(|id| vec![id.0]).unwrap_or_default() })
+        })
+        .unwrap();
+        assert!(windows >= 2, "a window for each cast");
         assert!(t.on_field(bears) && t.on_field(lions), "1 + 1 + 2: both creatures cast free");
     });
 }

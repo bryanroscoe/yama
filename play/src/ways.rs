@@ -418,9 +418,36 @@ fn cast_offer(vs: &GameState, kind: &CastOfferKind, candidates: &[GameAction]) -
             ];
             Some(Pending::new(Kind::Pick, Answer::ChooseAdventureFace, "adventure", "Which half do you cast?", options).range(1, 1, false).from(vs, Some(*object_id)))
         }
-        // Paradigm, a free-cast window and a paid cast from a graveyard keep the buttons.
+        CastOfferKind::FreeCastWindow { candidates: offered_cards, remaining_casts, .. } => Some(free_cast_window(vs, offered_cards, *remaining_casts, candidates)),
+        // Paradigm and a paid cast from a graveyard keep the buttons.
         _ => None,
     }
+}
+
+/// A free-cast window (Improvisation Capstone, Abstract Performance): cast one of the offered
+/// cards without paying its mana cost, or none to finish (CR 608.2g). The engine offers the
+/// window again after each cast while casts are left, so this asks for one card at a time.
+fn free_cast_window(vs: &GameState, offered_cards: &[ObjectId], left: Option<u8>, candidates: &[GameAction]) -> Pending {
+    let options = offered_cards
+        .iter()
+        .map(|id| card(vs, id, offered(candidates, |a| matches!(a, GameAction::FreeCastWindowChoice { selection: Some(s) } if s == id))))
+        .collect();
+    let prompt = match left {
+        Some(1) => "Cast one more of them without paying its mana cost, or finish".to_string(),
+        Some(n) => format!("Cast one of them without paying its mana cost ({n} casts left), or finish"),
+        None => "Cast one of them without paying its mana cost, or finish".to_string(),
+    };
+    Pending::new(Kind::Pick, Answer::SelectCards, "free_cast_window", prompt, options).range(0, 1, true)
+}
+
+/// The engine's answer to a free-cast window: cast the card picked, or finish with none.
+pub(crate) fn free_cast_window_action(candidates: &[GameAction], cards: &[u64]) -> Option<GameAction> {
+    let selection = match cards {
+        [] => None,
+        [id] => Some(ObjectId(*id)),
+        _ => return None,
+    };
+    candidates.iter().find(|a| matches!(a, GameAction::FreeCastWindowChoice { selection: s } if *s == selection)).cloned()
 }
 
 /// Cascade, discover or ripple: the cards the engine went through (shown, not choosable), then the

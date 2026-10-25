@@ -304,9 +304,9 @@ pub struct Pending {
     /// "kicker", "optional" and "either" (extra costs), "cost" (cards or permanents as a cost),
     /// "cost_branch", "cost_type", "ward" and "return". Ways to cast (ways.rs): "cascade",
     /// "discover", "ripple", "madness", "miracle", "miracle_reveal", "adventure", "face",
-    /// "alt_cost", "variant" and "mutate"; permanents: "legend", "clone", "equip", "ring",
-    /// "empower", "host", "populate" and "explore"; counters: "proliferate", "move_counters",
-    /// "remove_counters" and "counter_cost". Everyone takes part (together.rs): "vote",
+    /// "alt_cost", "variant", "mutate" and "free_cast_window"; permanents: "legend", "clone",
+    /// "equip", "ring", "empower", "host", "populate" and "explore"; counters: "proliferate",
+    /// "move_counters", "remove_counters" and "counter_cost". Everyone takes part (together.rs): "vote",
     /// "piles_split", "piles_choose", "branch", "coin", "die", "guess", "clash" and "life";
     /// choosing a player: "gift", "entry_controller", "zone_chooser", "clash_opponent",
     /// "announcer" and "pile_opponent". The library (library.rs): "top_or_bottom", "partition",
@@ -2404,6 +2404,8 @@ impl Act {
     pub fn from_action(action: &GameAction) -> Option<Act> {
         Some(match action {
             GameAction::SelectCards { cards } => Act::SelectCards { cards: cards.iter().map(|c| c.0).collect() },
+            // A free-cast window is answered with the card picked, or none (ways.rs).
+            GameAction::FreeCastWindowChoice { selection } => Act::SelectCards { cards: selection.iter().map(|c| c.0).collect() },
             GameAction::OrderTriggers { order } => Act::OrderTriggers { order: order.clone() },
             GameAction::SelectModes { indices } => Act::SelectModes { indices: indices.clone() },
             GameAction::ChooseX { value } => Act::ChooseX { value: *value },
@@ -2775,6 +2777,8 @@ pub fn answer(state: &mut GameState, owner: PlayerId, act: &Act) -> Result<Answe
                 Act::DeclareCompanion { .. } | Act::ChooseEntryAttackTarget { .. } | Act::ProposeShortcut { .. } | Act::DeclineShortcut | Act::RespondToShortcut { .. } => {
                     crate::rare::action_for(&state.waiting_for, &candidates, act)
                 }
+                // A free-cast window: the card to cast, or none to finish (ways.rs).
+                Act::SelectCards { cards } if pending.purpose == "free_cast_window" => crate::ways::free_cast_window_action(&candidates, cards),
                 _ => pending.normalize(act).to_action(),
             }
             .ok_or_else(|| doesnt_fit("That answer doesn't fit this decision."))?;
