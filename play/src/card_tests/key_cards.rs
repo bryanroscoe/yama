@@ -1707,3 +1707,49 @@ fn port_town_enters_untapped_when_you_reveal_a_plains() {
         assert!(!t.tapped(town));
     });
 }
+
+// ── Precon commanders the lab plays ─────────────────────────────────────────────────────────
+
+/// Zaffai, Thunder Conductor (Prismari Performance): "Magecraft — Whenever you cast or copy an
+/// instant or sorcery spell, scry 1. If that spell's mana value is 5 or greater, create a 4/4
+/// blue and red Elemental creature token. If that spell's mana value is 10 or greater, Zaffai
+/// deals 10 damage to an opponent chosen at random." A small spell: the scry, and nothing more.
+#[test]
+fn zaffai_scries_for_a_small_spell() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Zaffai, Thunder Conductor").hand(0, "Opt").lands(0, "Island", 1).build();
+        let opt = t.id("Opt");
+        t.cast(opt);
+        t.drive().unwrap();
+        assert!(t.tokens(0).is_empty(), "Opt's mana value is 1");
+        assert_eq!(t.life(1), 40);
+    });
+}
+
+/// The same trigger for a five-mana sorcery makes the Elemental, and the game settles: phase
+/// put the rest of the trigger back on the stack again and again, so the token was never made.
+#[test]
+fn zaffai_makes_an_elemental_for_a_five_mana_spell() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Zaffai, Thunder Conductor").hand(0, "Hour of Promise").lands(0, "Forest", 5).build();
+        let spell = t.id("Hour of Promise");
+        t.cast(spell);
+        t.drive().unwrap();
+        let elementals: Vec<_> = t.tokens(0).into_iter().filter(|k| t.subtypes(*k).contains(&"Elemental".to_string())).collect();
+        assert_eq!(elementals.len(), 1, "one Elemental");
+        assert_eq!(t.pt(elementals[0]), (4, 4));
+        assert_eq!(t.life(1), 40, "the spell's mana value is under 10");
+    });
+}
+
+/// A ten-mana spell adds 10 damage to an opponent chosen at random (the only one here).
+#[test]
+fn zaffai_deals_ten_to_an_opponent_for_a_ten_mana_spell() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Zaffai, Thunder Conductor").hand(0, "Furygale Flocking").lands(0, "Mountain", 10).build();
+        let spell = t.id("Furygale Flocking");
+        t.cast(spell);
+        t.drive().unwrap();
+        assert_eq!(t.life(1), 30);
+    });
+}
