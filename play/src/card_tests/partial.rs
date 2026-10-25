@@ -864,7 +864,6 @@ fn combat_celebrant_exerts_for_another_combat() {
 
 /// "Equip {4}. This ability costs {3} less to activate if you're the monarch."
 #[test]
-#[ignore = "phase bug: Crown of Gondor's equip doesn't cost {3} less for the monarch (the clause is swallowed)"]
 fn crown_of_gondor_equips_for_one_as_the_monarch() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Crown of Gondor").field(0, "Grizzly Bears").lands(0, "Plains", 1).build();
