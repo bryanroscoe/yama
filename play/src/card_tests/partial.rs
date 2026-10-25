@@ -689,7 +689,6 @@ fn dack_fayden_gives_each_opponent_a_goaded_creature() {
 /// "Creatures you control can't have -1/-1 counters put on them." Yawgmoth puts one on Ana's
 /// Bears.
 #[test]
-#[ignore = "phase bug: Darksteel Angel's \"creatures you control can't have -1/-1 counters put on them\" is unimplemented"]
 fn darksteel_angel_stops_minus_counters_on_your_creatures() {
     big_stack(|| {
         let mut t = Board::new(2).field(0, "Darksteel Angel").field(0, "Grizzly Bears").field(1, "Yawgmoth, Thran Physician").field(1, "Savannah Lions").active(1).build();
