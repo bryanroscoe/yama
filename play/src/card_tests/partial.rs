@@ -237,12 +237,14 @@ fn study_hall_pays_for_a_colour_you_have_no_land_for() {
 /// The same with generic mana to pay as well: Augusta ({2}{W}) with a Mountain, three Wastes and
 /// Study Hall ({W} from Study Hall, paid with a Wastes; the Mountain and a Wastes for {2}).
 #[test]
-#[ignore = "phase bug: a spell with generic mana and a colour only Study Hall's {1}, {T} makes isn't offered (the auto-tap check fails it)"]
 fn study_hall_pays_for_a_colour_with_generic_mana_too() {
     big_stack(|| {
-        let t = Board::new(2).field(0, "Study Hall").lands(0, "Mountain", 1).lands(0, "Wastes", 3).hand(0, "Augusta, Order Returned").build();
+        let mut t = Board::new(2).field(0, "Study Hall").lands(0, "Mountain", 1).lands(0, "Wastes", 3).hand(0, "Augusta, Order Returned").build();
         let augusta = t.id("Augusta, Order Returned");
         assert!(t.decision(0).options.iter().any(|o| o.kind == OptionKind::Spell && o.object == Some(augusta.0)));
+        t.cast(augusta);
+        t.drive().unwrap();
+        assert!(t.on_field(augusta));
     });
 }
 
