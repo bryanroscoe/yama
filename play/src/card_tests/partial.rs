@@ -550,15 +550,16 @@ fn planar_nexus_is_every_nonbasic_land_type() {
 /// "{T}: Until end of turn, target land you control becomes an X/X Citizen creature with haste
 /// in addition to its other types, where X is twice the number of Gates you control."
 #[test]
-#[ignore = "phase bug: Sage of the Maze's land-animating ability is unimplemented"]
 fn sage_of_the_maze_animates_a_land() {
     big_stack(|| {
-        let mut t = Board::new(2).field(0, "Sage of the Maze").field(0, "Forest").build();
+        // One Gate, so X is 2 (with none the land would be a 0/0 and die).
+        let mut t = Board::new(2).field(0, "Sage of the Maze").field(0, "Forest").field(0, "Simic Guildgate").build();
         let (sage, forest) = (t.id("Sage of the Maze"), t.id("Forest"));
         t.activate_labelled(sage, |l| l.contains("Citizen"));
         t.drive_aiming(&[forest]);
         assert!(t.is_creature(forest));
         assert!(t.has(forest, Keyword::Haste));
+        assert_eq!(t.pt(forest), (2, 2), "twice the number of Gates");
     });
 }
 
