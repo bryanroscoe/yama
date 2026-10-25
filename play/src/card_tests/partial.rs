@@ -249,7 +249,6 @@ fn study_hall_pays_for_a_colour_with_generic_mana_too() {
 }
 
 #[test]
-#[ignore = "phase bug: Study Hall's \"when you spend this mana to cast your commander, scry X\" is unimplemented (and here the commander isn't even offered: the auto-tap check above)"]
 fn study_hall_scries_when_its_mana_casts_the_commander() {
     big_stack(|| {
         // Quintorius ({2}{R}{W}) after one cast: {R} from the Mountain, {W} only from Study Hall
