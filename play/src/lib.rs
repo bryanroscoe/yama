@@ -71,7 +71,7 @@ pub use turns::{Controls, PassMode, ResolveAllView, TurnsView};
 
 /// Engine build plus the card data it was built against. Stored with every game, because a
 /// replay only reproduces under the same pair.
-pub const ENGINE_VERSION: &str = "phase-v0.113.0+0571ee32-yama1/cards-eb309108";
+pub const ENGINE_VERSION: &str = "phase-v0.113.0+3bbfea64-yama/cards-2905717c";
 
 /// How many lines of game log each view carries.
 const LOG_LINES: usize = 60;

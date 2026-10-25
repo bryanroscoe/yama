@@ -21,7 +21,7 @@ cd "$(dirname "$0")/.."
 HOST=root@<saget-lan-address>
 DIR=/mnt/user/appdata/yama-lab
 CARDS=/mnt/user/appdata/yama/data/engine
-CARD_FILE=card-data-eb309108eb0df708.json
+CARD_FILE=card-data-2905717cc9fe0f53.json
 
 cmd=${1:-}
 case "$cmd" in
