@@ -1,0 +1,169 @@
+From 53c324faac3bb7311bb633662b7b057db0fb4a4e Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Sat, 24 Oct 2026 21:04:53 -0500
+Subject: [PATCH 23/30] Tokens: Furygale Flocking's flyers all get flying and
+ haste
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Furygale Flocking: "For each opponent, create two 3/3 blue and red
+Elemental creature tokens with flying that attack that opponent this turn
+if able. They gain haste until end of turn."
+
+- Parser (token.rs): the keyword list after "with" stops at a relative
+  clause (" that …"), which describes the tokens' behaviour, not more
+  keywords. The whole "flying that attack that opponent this turn if
+  able" had failed to parse as a keyword, so the tokens had no flying.
+- CR 608.2c: "They" names every token the repeated instruction made.
+  The repeat loop ran the token creation once per opponent and the
+  following haste instruction once after it, reading only the last
+  iteration's tokens; it now publishes every token the loop created.
+
+Not done: "attack that opponent this turn if able" is still not
+enforced (the clause stays flagged by the swallowed-clause check).
+
+Tests: token.rs keyword_clause_stops_at_a_relative_clause;
+tests/integration/furygale_flocking_tokens_per_opponent.rs.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/engine/src/game/effects/mod.rs         | 14 ++++++
+ .../engine/src/parser/oracle_effect/token.rs  | 14 +++++-
+ .../furygale_flocking_tokens_per_opponent.rs  | 50 +++++++++++++++++++
+ crates/engine/tests/integration/main.rs       |  1 +
+ 4 files changed, 78 insertions(+), 1 deletion(-)
+ create mode 100644 crates/engine/tests/integration/furygale_flocking_tokens_per_opponent.rs
+
+diff --git a/crates/engine/src/game/effects/mod.rs b/crates/engine/src/game/effects/mod.rs
+index 1cbc37a..124624e 100644
+--- a/crates/engine/src/game/effects/mod.rs
++++ b/crates/engine/src/game/effects/mod.rs
+@@ -17485,6 +17485,7 @@ fn resolve_chain_body(
+             // CR 405.3 + CR 707.10: a batch of copies of several spells is
+             // ordered by its controller, one copy at a time.
+             let copy_order_fixed = per_member_copy_counts.then_some(0);
++            let mut repeated_tokens: Vec<ObjectId> = Vec::new();
+             while iteration < iterations {
+                 if open_spell_copy_order_choice(
+                     state,
+@@ -17706,6 +17707,19 @@ fn resolve_chain_body(
+                     }
+                     break;
+                 }
++                // CR 608.2c: an instruction after the loop that names the
++                // created tokens ("They gain haste until end of turn" after
++                // "For each opponent, create two … tokens", Furygale Flocking)
++                // names every token the repeated instruction made, not only the
++                // last iteration's.
++                if !repeated_full_chain && matches!(effective.effect, Effect::Token { .. }) {
++                    for id in &state.last_created_token_ids {
++                        if !repeated_tokens.contains(id) {
++                            repeated_tokens.push(*id);
++                        }
++                    }
++                    state.last_created_token_ids = repeated_tokens.clone();
++                }
+                 iteration += 1;
+             }
+             if repeated_full_chain {
+diff --git a/crates/engine/src/parser/oracle_effect/token.rs b/crates/engine/src/parser/oracle_effect/token.rs
+index 17ee7f0..b72a95c 100644
+--- a/crates/engine/src/parser/oracle_effect/token.rs
++++ b/crates/engine/src/parser/oracle_effect/token.rs
+@@ -1637,7 +1637,10 @@ fn strip_token_keyword_clause_suffixes(text: &str) -> &str {
+     if let Ok((_, head)) = take_until::<_, _, nom::error::Error<&str>>("\"").parse(clause) {
+         clause = head;
+     }
+-    for marker in [" where ", " equal to ", " attached ", " named "] {
++    // A relative clause after the keyword list ("with flying that attack that
++    // opponent this turn if able", Furygale Flocking) describes the tokens'
++    // behaviour, not more keywords: cut it off so the keywords still parse.
++    for marker in [" where ", " equal to ", " attached ", " named ", " that "] {
+         clause = truncate_token_keyword_clause_before(clause, marker);
+     }
+     clause
+@@ -2806,6 +2809,15 @@ mod tests {
+         assert_eq!(kws, vec![Keyword::Flying]);
+     }
+ 
++    /// Furygale Flocking: "… Elemental creature tokens with flying that attack
++    /// that opponent this turn if able." The relative clause is not a keyword.
++    #[test]
++    fn keyword_clause_stops_at_a_relative_clause() {
++        let kws =
++            parse_token_keyword_clause("with flying that attack that opponent this turn if able");
++        assert_eq!(kws, vec![Keyword::Flying]);
++    }
++
+     /// Issue #2854 (Broodspinner): "with flying equal to …" must not treat the
+     /// count clause as part of the keyword name.
+     #[test]
+diff --git a/crates/engine/tests/integration/furygale_flocking_tokens_per_opponent.rs b/crates/engine/tests/integration/furygale_flocking_tokens_per_opponent.rs
+new file mode 100644
+index 0000000..71d6fe8
+--- /dev/null
++++ b/crates/engine/tests/integration/furygale_flocking_tokens_per_opponent.rs
+@@ -0,0 +1,50 @@
++//! Furygale Flocking — "This spell costs {1} less to cast for each instant
++//! and sorcery card in your graveyard. For each opponent, create two 3/3 blue
++//! and red Elemental creature tokens with flying that attack that opponent
++//! this turn if able. They gain haste until end of turn."
++//!
++//! Two seams, each failing before the fix:
++//! - the token keyword list stops at the relative clause "that attack that
++//!   opponent …", so the tokens have flying;
++//! - CR 608.2c: "They" names every token the repeated instruction made, so
++//!   all four get haste, not only the last opponent's two.
++//!
++//! Not covered (not implemented): the requirement to attack that opponent.
++
++use engine::game::scenario::{GameScenario, P0};
++use engine::types::keywords::Keyword;
++use engine::types::mana::{ManaColor, ManaCost};
++use engine::types::phase::Phase;
++
++/// Verbatim Oracle text (MTGJSON).
++const FURYGALE_FLOCKING: &str = "This spell costs {1} less to cast for each instant and sorcery card in your graveyard.\nFor each opponent, create two 3/3 blue and red Elemental creature tokens with flying that attack that opponent this turn if able. They gain haste until end of turn.";
++
++#[test]
++fn furygale_flocking_makes_two_hasty_flyers_for_each_opponent() {
++    let mut scenario = GameScenario::new_n_player(3, 7);
++    scenario.at_phase(Phase::PreCombatMain);
++    for _ in 0..10 {
++        scenario.add_basic_land(P0, ManaColor::Red);
++    }
++    let spell = scenario
++        .add_spell_to_hand_from_oracle(P0, "Furygale Flocking", false, FURYGALE_FLOCKING)
++        .with_mana_cost(ManaCost::generic(10))
++        .id();
++    let mut runner = scenario.build();
++    let outcome = runner.cast(spell).resolve();
++
++    let tokens: Vec<_> = outcome
++        .state()
++        .battlefield
++        .iter()
++        .filter(|id| outcome.state().objects[*id].is_token)
++        .copied()
++        .collect();
++    assert_eq!(tokens.len(), 4, "two for each of two opponents");
++    for id in tokens {
++        let token = &outcome.state().objects[&id];
++        assert!(token.keywords.contains(&Keyword::Flying), "flying");
++        assert!(token.keywords.contains(&Keyword::Haste), "haste for every token");
++        assert_eq!((token.power, token.toughness), (Some(3), Some(3)));
++    }
++}
+diff --git a/crates/engine/tests/integration/main.rs b/crates/engine/tests/integration/main.rs
+index 53f165a..5b1e8d2 100644
+--- a/crates/engine/tests/integration/main.rs
++++ b/crates/engine/tests/integration/main.rs
+@@ -2032,3 +2032,4 @@ mod planar_nexus_every_nonbasic_land_type;
+ mod jace_multiverse_architect_attack_restriction;
+ mod zaffai_thunder_conductor_magecraft;
+ mod windgraces_judgment_one_per_opponent;
++mod furygale_flocking_tokens_per_opponent;
+-- 
+2.53.0
+

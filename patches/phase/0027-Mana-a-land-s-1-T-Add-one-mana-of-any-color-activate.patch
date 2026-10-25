@@ -1,0 +1,271 @@
+From 379f842a051f47ec6e90a7e05e8f382e5b32bae0 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Sat, 24 Oct 2026 22:10:07 -0500
+Subject: [PATCH 27/30] Mana: a land's "{1}, {T}: Add one mana of any color"
+ activates when chosen
+
+Study Hall: "{T}: Add {C}. {1}, {T}: Add one mana of any color. When you
+spend this mana to cast your commander, scry X, ..."
+
+CR 605.3b + CR 601.2g + CR 117.1d: a player may activate mana abilities
+while paying, and an any-color ability's color is chosen as it resolves.
+The mana-source list offers a land's any-color ability as one selection
+with a deferred color, but tapping a land checked the selection against
+the per-color rows only, so it was refused as stale. The castability
+check walks exactly that route (a Wastes for the {1}, then Study Hall),
+so a spell such as {2}{W} with W only from Study Hall was never offered.
+Tapping a land now accepts the deferred selection, as nonland sources
+already do, and the ability asks for its color as it resolves. A
+concrete selection still has to match exactly one live row.
+
+Test: tests/integration/study_hall_costed_any_color_land.rs.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/engine/src/game/engine.rs              | 13 ++-
+ crates/engine/src/game/mana_sources.rs        | 53 ++++++-----
+ crates/engine/tests/integration/main.rs       |  1 +
+ .../study_hall_costed_any_color_land.rs       | 93 +++++++++++++++++++
+ 4 files changed, 137 insertions(+), 23 deletions(-)
+ create mode 100644 crates/engine/tests/integration/study_hall_costed_any_color_land.rs
+
+diff --git a/crates/engine/src/game/engine.rs b/crates/engine/src/game/engine.rs
+index 5c319f7..c508510 100644
+--- a/crates/engine/src/game/engine.rs
++++ b/crates/engine/src/game/engine.rs
+@@ -14061,7 +14061,7 @@ fn apply_non_priority_pass_action(
+                 &mut events,
+             )?;
+             // CR 605.1b + CR 605.4a: the manual land tap has no cursor wrapper
+-            // of its own — `activate_mana_source_option`'s no-ability branch
++            // of its own — `activate_mana_source_option_with_output`'s no-ability branch
+             // taps and produces directly — so this arm IS its completed mana
+             // frame and runs the same typed empty-ledger preparation the cursor
+             // path runs internally. It resolves the TapsForMana triggered mana
+@@ -17868,7 +17868,16 @@ pub(super) fn handle_tap_land_for_mana(
+     // is revalidated against live engine-authored options before any cost or
+     // production is applied.
+     let option = mana_sources::live_land_mana_option_for_selection(state, player, selection)?;
+-    mana_sources::activate_mana_source_option(state, player, &option, events, resume)
++    // CR 605.3b: a deferred any-color selection keeps its color choice for
++    // the ability's resolution; a concrete one produces the color it names.
++    mana_sources::activate_mana_source_option_with_output(
++        state,
++        player,
++        &option,
++        selection.output,
++        events,
++        resume,
++    )
+ }
+ 
+ /// CR 605.3b: Reverse a manual land tap — untap source and remove its mana from pool.
+diff --git a/crates/engine/src/game/mana_sources.rs b/crates/engine/src/game/mana_sources.rs
+index a015e89..c45c6bc 100644
+--- a/crates/engine/src/game/mana_sources.rs
++++ b/crates/engine/src/game/mana_sources.rs
+@@ -719,6 +719,10 @@ pub(crate) fn live_land_mana_option_for_selection(
+     selection: &ManaSourceSelection,
+ ) -> Result<ManaSourceOption, EngineError> {
+     let object_id = selection.source.object_id;
++    let deferred = matches!(
++        selection.output,
++        ManaSourceOutput::DeferredColorChoice { .. }
++    );
+     let aura_sources = taps_for_mana_trigger_sources(state);
+     let gates = mana_abilities::ManaActivationGates::compute(state);
+     let mut matches = activatable_land_mana_options_indexed_gated(
+@@ -729,13 +733,25 @@ pub(crate) fn live_land_mana_option_for_selection(
+         &gates,
+     )
+     .into_iter()
+-    .filter(|option| option.semantic_selection(state).as_ref() == Some(selection));
++    .filter(|option| {
++        option.semantic_selection(state).as_ref() == Some(selection)
++            || (deferred && manual_selection_for_option(state, option).as_ref() == Some(selection))
++    });
+     let option = matches.next().ok_or_else(|| {
+         EngineError::ActionNotAllowed(
+             "Mana source selection is stale or no longer legal".to_string(),
+         )
+     })?;
+-    if matches.next().is_some() {
++    // CR 605.3b: a deferred "one mana of any color" selection (the only form
++    // `activatable_mana_source_selections` offers for a land's any-color
++    // ability, Study Hall's "{1}, {T}: Add one mana of any color") names every
++    // per-color row of that one ability; its color is chosen as it resolves.
++    let ambiguous = if deferred {
++        matches.any(|other| other.ability_index != option.ability_index)
++    } else {
++        matches.next().is_some()
++    };
++    if ambiguous {
+         return Err(EngineError::InvalidAction(
+             "Mana source selection ambiguously matches multiple live options".to_string(),
+         ));
+@@ -1012,6 +1028,17 @@ pub(crate) fn preflight_tap_land_action(
+     .into_iter()
+     .filter(|candidate| candidate == action)
+     .count();
++    // CR 605.3b: a land's any-color ability is offered as one deferred
++    // selection whose color is chosen as it resolves; it names the per-color
++    // rows of that ability rather than any one of them.
++    if matches == 0
++        && matches!(
++            selection.output,
++            ManaSourceOutput::DeferredColorChoice { .. }
++        )
++    {
++        return live_land_mana_option_for_selection(state, waiting_player, selection).map(|_| ());
++    }
+     match matches {
+         1 => Ok(()),
+         0 => Err(EngineError::ActionNotAllowed(
+@@ -1023,30 +1050,14 @@ pub(crate) fn preflight_tap_land_action(
+     }
+ }
+ 
+-/// Activate one already-revalidated live land-mana option.
++/// Activate one already-revalidated live mana option.
+ ///
+ /// This is the single manual-activation authority for indexed printed mana
+ /// abilities and subtype/Aura-derived fallback rows. It owns the exact
+ /// production override, triggered-mana override provenance, tap/cost payment,
+ /// mana production, and undo bookkeeping.
+-pub(crate) fn activate_mana_source_option(
+-    state: &mut GameState,
+-    player: PlayerId,
+-    option: &ManaSourceOption,
+-    events: &mut Vec<GameEvent>,
+-    resume: ManaAbilityResume,
+-) -> Result<WaitingFor, EngineError> {
+-    activate_mana_source_option_with_output(
+-        state,
+-        player,
+-        option,
+-        ManaSourceOutput::Concrete(option.mana_type),
+-        events,
+-        resume,
+-    )
+-}
+-
+-/// Activate a live source using the preserved output provenance. Deferred
++///
++/// It activates using the preserved output provenance. Deferred
+ /// flexible outputs deliberately pass no production override, so the existing
+ /// ManaChoice flow remains the single authority for the eventual color choice.
+ pub(crate) fn activate_mana_source_option_with_output(
+diff --git a/crates/engine/tests/integration/main.rs b/crates/engine/tests/integration/main.rs
+index fb3876d..d185ff0 100644
+--- a/crates/engine/tests/integration/main.rs
++++ b/crates/engine/tests/integration/main.rs
+@@ -1458,6 +1458,7 @@ mod stensian_sanguinist_prepare;
+ mod strategic_betrayal_6505;
+ mod strefan_maurer_progenitor;
+ mod strider_ranger_of_the_north;
++mod study_hall_costed_any_color_land;
+ mod subject_anchored_optional_announcer;
+ mod subtype_list_seams;
+ mod summer_bloom_5979;
+diff --git a/crates/engine/tests/integration/study_hall_costed_any_color_land.rs b/crates/engine/tests/integration/study_hall_costed_any_color_land.rs
+new file mode 100644
+index 0000000..4c70e9b
+--- /dev/null
++++ b/crates/engine/tests/integration/study_hall_costed_any_color_land.rs
+@@ -0,0 +1,93 @@
++//! CR 605.3b + CR 601.2g + CR 117.1d: a land's "{1}, {T}: Add one mana of any
++//! color" (Study Hall) can be activated while paying, so a spell whose color
++//! only that ability makes, with generic mana besides, is castable.
++//!
++//! Study Hall, a Mountain and three Wastes pay for {2}{W}: one Wastes pays
++//! Study Hall's {1}, Study Hall makes {W}, and the Mountain and a Wastes pay
++//! {2}. The mana-source list offers Study Hall's ability as one selection whose
++//! color is chosen as it resolves, but tapping a land checked that selection
++//! against the per-color rows only, so the activation was refused as stale.
++//! The castability check walks exactly that route, so the spell was never
++//! offered.
++
++use engine::ai_support::legal_actions_full;
++use engine::game::mana_sources::activatable_mana_source_selections;
++use engine::game::scenario::{GameScenario, P0};
++use engine::types::actions::GameAction;
++use engine::types::game_state::{ManaChoice, WaitingFor};
++use engine::types::mana::{ManaColor, ManaCost, ManaCostShard, ManaSourceOutput, ManaType};
++use engine::types::phase::Phase;
++
++/// Verbatim Oracle text (MTGJSON).
++const STUDY_HALL: &str = "{T}: Add {C}.\n{1}, {T}: Add one mana of any color. When you spend this mana to cast your commander, scry X, where X is the number of times it's been cast from the command zone this game.";
++
++#[test]
++fn study_hall_makes_the_color_a_spell_with_generic_mana_needs() {
++    let mut scenario = GameScenario::new();
++    scenario.at_phase(Phase::PreCombatMain);
++    let hall = scenario.add_land_from_oracle(P0, "Study Hall", STUDY_HALL).id();
++    scenario.add_basic_land(P0, ManaColor::Red);
++    let wastes = scenario
++        .add_land_from_oracle(P0, "Wastes", "{T}: Add {C}.")
++        .id();
++    scenario.add_land_from_oracle(P0, "Wastes", "{T}: Add {C}.");
++    scenario.add_land_from_oracle(P0, "Wastes", "{T}: Add {C}.");
++    let spell = scenario
++        .add_creature_to_hand(P0, "White Three-Drop", 2, 2)
++        .with_mana_cost(ManaCost::Cost {
++            shards: vec![ManaCostShard::White],
++            generic: 2,
++        })
++        .id();
++    let mut runner = scenario.build();
++
++    let (actions, _, _) = legal_actions_full(runner.state());
++    assert!(
++        actions
++            .iter()
++            .any(|a| matches!(a, GameAction::CastSpell { object_id, .. } if *object_id == spell)),
++        "{{2}}{{W}} is payable with {{W}} from Study Hall"
++    );
++
++    // The route by hand: a Wastes for the {1}, then Study Hall's any-color
++    // ability, whose color is asked for as it resolves.
++    let selections = activatable_mana_source_selections(runner.state(), P0);
++    let wastes_tap = selections
++        .iter()
++        .find(|s| s.source.object_id == wastes)
++        .expect("the Wastes taps for mana")
++        .clone();
++    runner
++        .act(GameAction::TapLandForMana {
++            selection: wastes_tap,
++        })
++        .expect("tap the Wastes");
++    let hall_any_color = activatable_mana_source_selections(runner.state(), P0)
++        .into_iter()
++        .find(|s| s.source.object_id == hall && s.ability_index == Some(1))
++        .expect("Study Hall's {1}, {T} ability is offered with {C} floating");
++    assert!(matches!(
++        hall_any_color.output,
++        ManaSourceOutput::DeferredColorChoice { .. }
++    ));
++    runner
++        .act(GameAction::TapLandForMana {
++            selection: hall_any_color,
++        })
++        .expect("the offered selection activates Study Hall");
++    assert!(
++        matches!(runner.state().waiting_for, WaitingFor::ChooseManaColor { .. }),
++        "the color is chosen as the ability resolves: {:?}",
++        runner.state().waiting_for
++    );
++    runner
++        .act(GameAction::ChooseManaColor {
++            choice: ManaChoice::SingleColor(ManaType::White),
++            count: 1,
++        })
++        .expect("choose white");
++    let pool = &runner.state().players[0].mana_pool;
++    assert_eq!(pool.count_color(ManaType::White), 1);
++    assert_eq!(pool.count_color(ManaType::Colorless), 0, "the {{1}} was paid");
++    assert!(runner.state().objects[&hall].tapped);
++}
+-- 
+2.53.0
+

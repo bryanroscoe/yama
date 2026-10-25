@@ -1,0 +1,187 @@
+From 91429a7c9f2b5ce094257d218667dc36ef4bb5c7 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Sat, 24 Oct 2026 21:24:19 -0500
+Subject: [PATCH 26/30] =?UTF-8?q?Parser:=20"for=20each=20opponent,=20?=
+ =?UTF-8?q?=E2=80=A6=20up=20to=20one=20target=20=E2=80=A6=20from=20that=20?=
+ =?UTF-8?q?player's=20graveyard"?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Sepulchral Primordial: "When this creature enters, for each opponent, you
+may put up to one target creature card from that player's graveyard onto
+the battlefield under your control."
+
+CR 115.1 + CR 601.2c: the trigger has up to one target per opponent,
+each from that opponent's graveyard. phase parsed one target in all (and
+the swallow check flagged the lost iteration). The sentence now reads as
+"you may put any number of target creature cards from an opponent's
+graveyard controlled by different players onto the battlefield under
+your control", the grammar Windgrace's Judgment uses: an unbounded
+multi-target with TargetSelectionConstraint::DifferentObjectControllers.
+CR 108.4a: a card in a graveyard is controlled by its owner, so no two
+targets come from the same graveyard. The swallow check counts that form
+as the per-opponent iteration. Only the "put" instruction is rewritten;
+a per-opponent free cast keeps its paired fan-out.
+
+Card data: the parse change reaches games only with card data generated
+by this parser.
+
+Test: tests/integration/sepulchral_primordial_one_per_graveyard.rs.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/engine/src/parser/oracle_effect/mod.rs | 41 +++++++++++++++-
+ crates/engine/src/parser/swallow_check.rs     | 12 +++++
+ crates/engine/tests/integration/main.rs       |  1 +
+ ...sepulchral_primordial_one_per_graveyard.rs | 47 +++++++++++++++++++
+ 4 files changed, 100 insertions(+), 1 deletion(-)
+ create mode 100644 crates/engine/tests/integration/sepulchral_primordial_one_per_graveyard.rs
+
+diff --git a/crates/engine/src/parser/oracle_effect/mod.rs b/crates/engine/src/parser/oracle_effect/mod.rs
+index b0d3364..fa45295 100644
+--- a/crates/engine/src/parser/oracle_effect/mod.rs
++++ b/crates/engine/src/parser/oracle_effect/mod.rs
+@@ -41933,6 +41933,43 @@ fn for_any_number_of_opponents_equivalent(text: &str) -> Option<String> {
+     ))
+ }
+ 
++/// CR 115.1 + CR 601.2c + CR 608.2c: "For each opponent, you may put up to
++/// one target <card> from that player's graveyard <rest>" (Sepulchral
++/// Primordial) is up to one target from each opponent's graveyard: any number
++/// of targets from opponents' graveyards, no two owned by the same player (a
++/// card in a graveyard is controlled by its owner, CR 108.4a). Its equivalent
++/// wording, or `None` for any other text. See `parse_effect_chain_ir_body`.
++fn for_each_opponent_graveyard_target_equivalent(text: &str) -> Option<String> {
++    let lower = text.to_ascii_lowercase();
++    let head = "for each opponent, ";
++    let (_, (_, may, verb, _, thing, _, rest)) = (
++        tag::<_, _, OracleError<'_>>(head),
++        opt(tag("you may ")),
++        take_until(" up to one target "),
++        tag(" up to one target "),
++        take_until(" from that player's graveyard"),
++        tag(" from that player's graveyard"),
++        nom::combinator::rest,
++    )
++        .parse(lower.as_str())
++        .ok()?;
++    // Only the put-onto-the-battlefield instruction: a per-opponent free cast
++    // ("you may cast up to one target … from that player's graveyard without
++    // paying its mana cost") keeps its own paired fan-out.
++    if verb != "put" {
++        return None;
++    }
++    let mut at = head.len() + may.map_or(0, str::len);
++    let verb_original = &text[at..at + verb.len()];
++    at += verb.len() + " up to one target ".len();
++    let thing_original = &text[at..at + thing.len()];
++    let rest_original = &text[text.len() - rest.len()..];
++    let may = if may.is_some() { "you may " } else { "" };
++    Some(format!(
++        "{may}{verb_original} any number of target {thing_original} from an opponent's graveyard controlled by different players{rest_original}"
++    ))
++}
++
+ pub(crate) fn parse_effect_chain_ir(
+     text: &str,
+     kind: AbilityKind,
+@@ -41956,7 +41993,9 @@ fn parse_effect_chain_ir_body(
+     // the "any number of target" and "controlled by different players" grammar
+     // already lowers (an unbounded multi-target with
+     // `TargetSelectionConstraint::DifferentObjectControllers`).
+-    if let Some(equivalent) = for_any_number_of_opponents_equivalent(text) {
++    if let Some(equivalent) = for_any_number_of_opponents_equivalent(text)
++        .or_else(|| for_each_opponent_graveyard_target_equivalent(text))
++    {
+         return parse_effect_chain_ir_body(&equivalent, kind, ctx);
+     }
+     // CR 608.2c: the enclosing chain's player declaration, taken on entry so only
+diff --git a/crates/engine/src/parser/swallow_check.rs b/crates/engine/src/parser/swallow_check.rs
+index 9a5ddab..d3eafd2 100644
+--- a/crates/engine/src/parser/swallow_check.rs
++++ b/crates/engine/src/parser/swallow_check.rs
+@@ -3680,6 +3680,18 @@ fn def_tree_co_scoped_parent_target_iteration_count(
+     {
+         return 1 + iteration_count_below(def, pop, def.sub_ability.as_deref());
+     }
++    // CR 115.1 + CR 601.2c: "for each opponent, … up to one target … from that
++    // player's graveyard" parsed as any number of targets from opponents'
++    // graveyards, no two controlled by the same player (Sepulchral Primordial):
++    // one target per opponent is the iteration.
++    if *pop == PlayerFilter::Opponent
++        && def.multi_target.as_ref().is_some_and(|spec| spec.max.is_none())
++        && def.target_constraints.contains(
++            &crate::types::game_state::TargetSelectionConstraint::DifferentObjectControllers,
++        )
++    {
++        return 1 + iteration_count_below(def, pop, def.sub_ability.as_deref());
++    }
+     match co_scoped_parent_target_consumer(def, pop) {
+         // CR 608.2c: one printed iteration = this introducer + its co-scoped consumer.
+         // The consumer is spent on this pair and never heads a second one, so the
+diff --git a/crates/engine/tests/integration/main.rs b/crates/engine/tests/integration/main.rs
+index 5b1e8d2..fb3876d 100644
+--- a/crates/engine/tests/integration/main.rs
++++ b/crates/engine/tests/integration/main.rs
+@@ -2033,3 +2033,4 @@ mod jace_multiverse_architect_attack_restriction;
+ mod zaffai_thunder_conductor_magecraft;
+ mod windgraces_judgment_one_per_opponent;
+ mod furygale_flocking_tokens_per_opponent;
++mod sepulchral_primordial_one_per_graveyard;
+diff --git a/crates/engine/tests/integration/sepulchral_primordial_one_per_graveyard.rs b/crates/engine/tests/integration/sepulchral_primordial_one_per_graveyard.rs
+new file mode 100644
+index 0000000..1e4dd54
+--- /dev/null
++++ b/crates/engine/tests/integration/sepulchral_primordial_one_per_graveyard.rs
+@@ -0,0 +1,47 @@
++//! Sepulchral Primordial — "When this creature enters, for each opponent, you
++//! may put up to one target creature card from that player's graveyard onto
++//! the battlefield under your control."
++//!
++//! CR 115.1 + CR 601.2c + CR 108.4a: up to one target from each opponent's
++//! graveyard is any number of targets from opponents' graveyards, no two
++//! controlled (owned) by the same player. Before the fix the trigger took one
++//! target in all.
++
++use engine::game::scenario::{GameScenario, P0, P1};
++use engine::types::mana::{ManaColor, ManaCost};
++use engine::types::phase::Phase;
++use engine::types::player::PlayerId;
++use engine::types::zones::Zone;
++
++const P2: PlayerId = PlayerId(2);
++
++/// Verbatim Oracle text (MTGJSON), keyword line included.
++const SEPULCHRAL_PRIMORDIAL: &str = "Intimidate (This creature can't be blocked except by artifact creatures and/or creatures that share a color with it.)\nWhen this creature enters, for each opponent, you may put up to one target creature card from that player's graveyard onto the battlefield under your control.";
++
++#[test]
++fn sepulchral_primordial_takes_a_creature_card_from_each_opponents_graveyard() {
++    let mut scenario = GameScenario::new_n_player(3, 7);
++    scenario.at_phase(Phase::PreCombatMain);
++    for _ in 0..7 {
++        scenario.add_basic_land(P0, ManaColor::Black);
++    }
++    let primordial = scenario
++        .add_creature_to_hand_from_oracle(P0, "Sepulchral Primordial", 5, 4, SEPULCHRAL_PRIMORDIAL)
++        .with_mana_cost(ManaCost::generic(7))
++        .id();
++    let giant = scenario.add_creature_to_graveyard(P1, "Hill Giant", 3, 3).id();
++    let wurm = scenario.add_creature_to_graveyard(P2, "Craw Wurm", 6, 4).id();
++    let mut runner = scenario.build();
++
++    let outcome = runner
++        .cast(primordial)
++        .target_objects(&[giant, wurm])
++        .accept_optional()
++        .resolve();
++
++    for id in [giant, wurm] {
++        let card = &outcome.state().objects[&id];
++        assert_eq!(card.zone, Zone::Battlefield, "{} came back", card.name);
++        assert_eq!(card.controller, P0, "under the Primordial's controller");
++    }
++}
+-- 
+2.53.0
+
