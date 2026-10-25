@@ -434,7 +434,7 @@ async fn find_box(tx: &mut Transaction<'_, Sqlite>, owner: &str, deck_id: &str, 
 }
 
 /// The printing a new copy would be: the deck's named printing if Yama has it, else the default.
-async fn printing_for(tx: &mut Transaction<'_, Sqlite>, oracle_id: &str, chosen: Option<&DeckPrint>) -> AppResult<Option<Printing>> {
+pub(crate) async fn printing_for(tx: &mut Transaction<'_, Sqlite>, oracle_id: &str, chosen: Option<&DeckPrint>) -> AppResult<Option<Printing>> {
     type Row = (String, String, String, String, Option<String>);
     if let Some(p) = chosen.filter(|p| !p.set_code.is_empty()) {
         let row: Option<Row> = sqlx::query_as(

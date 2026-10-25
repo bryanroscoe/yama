@@ -1,0 +1,216 @@
+/* The swap sheet (SwapSheet.tsx): on screen in the app's colors, on paper black on white with the
+   app's navigation left out. */
+
+.swap-sheet .print-only {
+  display: none;
+}
+.swap-sheet .ss-lead {
+  color: var(--dim);
+  margin: 0 0 8px;
+}
+.swap-sheet .ss-how {
+  margin: 0 0 20px 1.2rem;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-width: 70ch;
+}
+.swap-sheet table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.swap-sheet th {
+  text-align: left;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line);
+  padding: 4px 6px;
+}
+.swap-sheet td {
+  border-bottom: 1px solid var(--line);
+  padding: 5px 6px;
+  vertical-align: middle;
+}
+.swap-sheet tr {
+  break-inside: avoid;
+}
+.swap-sheet .num {
+  text-align: right;
+  width: 4rem;
+}
+.swap-sheet section {
+  margin-top: 28px;
+}
+.swap-sheet .ss-deck-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.swap-sheet .ss-deck-head h2 {
+  margin: 0;
+}
+.swap-sheet .ss-deck-head h2 .dim {
+  font-size: var(--t-sm);
+  font-weight: 400;
+}
+.ss-box {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  vertical-align: -1px;
+  flex: none;
+}
+.ss-box-on {
+  background: currentColor;
+}
+.ss-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 12px;
+  white-space: nowrap;
+}
+.ss-gc {
+  margin-left: 6px;
+  font-size: var(--t-xs);
+  font-weight: 700;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.ss-note {
+  margin-left: 6px;
+  font-size: var(--t-xs);
+  color: var(--dim);
+}
+.ss-note-line {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  margin: 6px 0 0;
+}
+.ss-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ss-card > span:last-child {
+  display: flex;
+  flex-direction: column;
+}
+.ss-sub {
+  font-size: var(--t-xs);
+  color: var(--dim);
+}
+.ss-thumb {
+  width: 26px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex: none;
+  background: var(--raised);
+}
+.swap-sheet .ss-steps {
+  table-layout: fixed;
+}
+.swap-sheet .ss-steps th:nth-child(1) {
+  width: 24px;
+}
+.swap-sheet .ss-steps th:nth-child(2) {
+  width: 36%;
+}
+.swap-sheet .ss-steps th:nth-child(3) {
+  width: 32%;
+}
+.swap-sheet .ss-then {
+  font-size: var(--t-sm);
+}
+.swap-sheet .ss-done .ss-tick {
+  color: var(--good);
+}
+.swapin-list {
+  margin: 0 0 8px;
+  padding-left: 1.1rem;
+}
+.swapin-notes {
+  color: var(--warn);
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+@media print {
+  @page {
+    size: letter;
+    margin: 0.45in;
+  }
+  /* Only the sheet: the app's navigation and anything else around it stay off the paper. */
+  body * {
+    visibility: hidden;
+  }
+  .swap-sheet,
+  .swap-sheet * {
+    visibility: visible;
+  }
+  .swap-sheet {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    color: #000;
+    background: #fff;
+    font-size: 10.5px;
+  }
+  :root {
+    color-scheme: light !important;
+  }
+  html,
+  body,
+  #root {
+    background: #fff !important;
+  }
+  .swap-sheet .no-print {
+    display: none !important;
+  }
+  .swap-sheet .print-only {
+    display: block;
+    font-size: 17px;
+    margin: 0 0 4px;
+  }
+  .swap-sheet .ss-lead,
+  .swap-sheet .ss-sub,
+  .swap-sheet .ss-note,
+  .swap-sheet .ss-note-line,
+  .swap-sheet th,
+  .swap-sheet .dim {
+    color: #444;
+  }
+  .swap-sheet td,
+  .swap-sheet th {
+    border-color: #bbb;
+    padding: 3px 4px;
+  }
+  .swap-sheet .ss-deck {
+    break-before: page;
+    margin-top: 0;
+  }
+  .swap-sheet .ss-deck-head h2 {
+    font-size: 15px;
+  }
+  .swap-sheet .ss-done .ss-tick {
+    color: #000;
+  }
+  .swap-sheet .ss-then,
+  .swap-sheet .ss-sub {
+    font-size: 9.5px;
+  }
+  .ss-thumb {
+    width: 22px;
+    height: 31px;
+  }
+  thead {
+    display: table-header-group;
+  }
+}

@@ -542,6 +542,26 @@ pub async fn mark_installed(st: &AppState, user: &User, via: &Via, args: &Value)
     .await
 }
 
+pub async fn swap_in_prints(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let (key, name) = plan_deck(&st.pool, &user.id, text_arg(args, "plan")?).await?;
+    let preview = crate::plan::swap_in::run(&st.pool, &user.id, &key, true).await?;
+    if preview.done {
+        return Ok(preview.text());
+    }
+    stage(
+        st,
+        user,
+        via,
+        Staged {
+            kind: "swap_in_prints",
+            summary: format!("Swap the prints into {name}: {} proxies, {} cards moved, {} swaps ticked installed", preview.proxies_added, preview.moved, preview.ticks.len()),
+            detail: preview.text(),
+            payload: json!({"deck_key": key, "deck": name}),
+        },
+    )
+    .await
+}
+
 /// The planner op a plan change becomes. Its op id is the change's, so it applies once.
 fn plan_op(kind: &str, id: &str, p: &Value) -> Value {
     let at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
@@ -1164,6 +1184,20 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
     Ok(json!({"label": label, "link": "/collection"}))
 }
 
+/// Runs the swap-in against the plan, box and deck as they are now; it plans from state, so a
+/// change applied twice (or after the person did it on the web) finds nothing left to do.
+async fn apply_swap_in(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    st.limits.deck_writes.check_user(user)?;
+    let key = p["deck_key"].as_str().unwrap_or_default();
+    let done = crate::plan::swap_in::run(&st.pool, &user.id, key, false).await?;
+    let label = if done.done {
+        format!("{} already held its after-prints list", done.plan_name)
+    } else {
+        format!("Prints swapped into {}: {} proxies added, {} cards moved", done.plan_name, done.proxies_added, done.moved)
+    };
+    Ok(json!({"label": label, "link": format!("/decks/plan/d/{key}")}))
+}
+
 // ── applying and discarding ─────────────────────────────────────────────────
 
 /// One apply at a time on this server, so two taps (or a tap and `apply_change`) can't both run a
@@ -1190,6 +1224,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
         "run_lab_again" => apply_again(st, user, &row.id, &p).await,
         "cancel_lab_run" => apply_cancel(st, user, &p).await,
         "add_to_collection" | "move_cards" | "set_condition" => apply_collection(st, user, &row.kind, &row.id, &p).await,
+        "swap_in_prints" => apply_swap_in(st, user, &p).await,
         other => Err(AppError::Other(anyhow::anyhow!("unknown change kind {other}"))),
     };
     let at = now();

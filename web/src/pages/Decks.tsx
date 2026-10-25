@@ -29,12 +29,22 @@ import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
- *  "Complete". */
-function ownership(owned: number | undefined, total: number): { text: string; short: string; tone: "good" | "warn" } | null {
+ *  "Complete". A proxy covers a card for play, so a deck of real cards and proxies is complete;
+ *  the text says how many are proxies. */
+function ownership(owned: number | undefined, total: number, proxies = 0): { text: string; short: string; tone: "good" | "warn" } | null {
   if (owned === undefined) return null;
-  return owned >= total
-    ? { text: `Own all ${total}`, short: "Complete", tone: "good" }
-    : { text: `Own ${owned} of ${total}`, short: `Need ${total - owned}`, tone: "warn" };
+  const have = owned + proxies;
+  const px = proxies === 1 ? "1 proxy" : `${proxies} proxies`;
+  if (have >= total) {
+    return proxies > 0
+      ? { text: `All ${total} in hand, ${px}`, short: "Complete", tone: "good" }
+      : { text: `Own all ${total}`, short: "Complete", tone: "good" };
+  }
+  return {
+    text: proxies > 0 ? `Have ${have} of ${total}, ${px}` : `Own ${owned} of ${total}`,
+    short: `Need ${total - have}`,
+    tone: "warn",
+  };
 }
 
 /** "6 wins, 3 losses" from finished games with the deck, or "Not played yet". */
@@ -77,7 +87,7 @@ export function DecksPage() {
       )}
       <ul className="deck-tiles">
         {decks.data?.map((d) => {
-          const own = ownership(d.owned, d.card_count);
+          const own = ownership(d.owned, d.card_count, d.proxies ?? 0);
           const played = record(d);
           return (
             <li key={d.id}>
@@ -187,8 +197,8 @@ export function DeckPage() {
   const stats = (
     <>
       <span className="deck-stat">
-        <b className="num">{o.owned}/{o.cards}</b>
-        <span>cards you own</span>
+        <b className="num">{o.owned + (o.proxies ?? 0)}/{o.cards}</b>
+        <span>{o.proxies ? `in hand, ${o.proxies === 1 ? "1 proxy" : `${o.proxies} proxies`}` : "cards you own"}</span>
       </span>
       <span className="deck-stat">
         <b className="num">{o.needed ? usd(o.needed_cost_usd) : "Done"}</b>
@@ -273,8 +283,8 @@ export function DeckPage() {
         {/* Phones: three figure tiles, the plan, then the other actions. */}
         <div className="deck-stats-tiles">
           <span className="deck-stat">
-            <b className="num">{o.owned}</b>
-            <span>of {o.cards} owned</span>
+            <b className="num">{o.owned + (o.proxies ?? 0)}</b>
+            <span>{o.proxies ? `of ${o.cards} in hand, ${o.proxies} proxies` : `of ${o.cards} owned`}</span>
           </span>
           <span className="deck-stat">
             <b className="num">{o.needed ? usd(o.needed_cost_usd) : "Done"}</b>

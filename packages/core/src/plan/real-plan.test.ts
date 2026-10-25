@@ -15,6 +15,7 @@ import {
   orderText,
   printPlan,
   spares,
+  swapSheet,
   type Order,
   type PlanBundle,
   type PlanDeck,
@@ -93,6 +94,31 @@ describe.skipIf(!present)("Bryan's real plan (local only)", () => {
     const withStandin = placed.lines.filter((l) => l.standin);
     expect(withStandin).toHaveLength(21);
     for (const l of withStandin) expect(l.takesOut).toBe(l.standin!.in);
+  });
+
+  it("swapSheet matches the print swap sheet (docs/shopping/mtg-print-swaps.html), row for row", () => {
+    const sheet = swapSheet(b);
+    expect(sheet.prints).toBe(180);
+    expect(sheet.decks.slice(0, 2).map((d) => d.deck.name)).toEqual(["Fantastic Four", "Lorehold Spirit"]);
+    expect(sheet.moves.map((m) => `${m.card}: ${m.from.name} → ${m.to.name}`).sort()).toEqual([
+      "Karmic Guide: Lorehold Spirit → Revival Trance",
+      "Sodden Verdure: Fantastic Four → Tricky Terrain",
+      "The Scarlet Witch: Fantastic Four → Prismari Artistry",
+    ]);
+    // The guide's rows: deck, card in, card out, where it goes.
+    const dec = (t: string) => t.replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
+    const html = read("docs/shopping/mtg-print-swaps.html");
+    const guide: string[] = [];
+    for (const sec of html.split("<section>").slice(1)) {
+      const deck = dec(/<h1>(.*?) <span>/.exec(sec)![1]!);
+      for (const tr of sec.split("<tr>").slice(2)) {
+        const names = [...tr.matchAll(/<b[^>]*>(.*?)<\/b>/g)].map((m) => dec(m[1]!));
+        const to = tr.includes('class="go"') ? "deck" : tr.includes('class="bag"') ? "bag" : tr.includes("back to your basics") ? "basics" : "spares";
+        guide.push(`${deck} | ${names[0]} | ${names[1]} | ${to}`);
+      }
+    }
+    const mine = sheet.decks.flatMap((d) => d.steps.map((s) => `${d.deck.name} | ${s.in} | ${s.out} | ${s.to}`));
+    expect(mine.sort()).toEqual(guide.sort());
   });
 
   it("buyList matches docs/buy-list.md store by store", () => {

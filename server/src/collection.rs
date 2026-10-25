@@ -538,6 +538,8 @@ const ITEM_SELECT: &str = "SELECT i.id, i.scryfall_id, i.qty, i.condition, i.fin
 struct ListParams {
     container: Option<String>,
     q: Option<String>,
+    /// "only": proxies only; "none": real copies only; anything else: both.
+    proxy: Option<String>,
 }
 
 async fn list_items(
@@ -553,6 +555,11 @@ async fn list_items(
     }
     if p.q.as_deref().is_some_and(|q| !q.trim().is_empty()) {
         sql.push_str(" AND p.name LIKE ?");
+    }
+    match p.proxy.as_deref() {
+        Some("only") => sql.push_str(" AND i.proxy = 1"),
+        Some("none") => sql.push_str(" AND i.proxy = 0"),
+        _ => {}
     }
     sql.push_str(" ORDER BY p.name, p.set_code, p.collector_number");
     let mut q = sqlx::query_as::<_, ListedItem>(sqlx::AssertSqlSafe(sql)).bind(&user.id);
@@ -575,6 +582,8 @@ pub async fn items_for_owner(pool: &SqlitePool, owner: &str) -> AppResult<Vec<It
 #[derive(Serialize)]
 struct Summary {
     copies: i64,
+    /// Proxies among `copies`. They have no market value and aren't counted in it.
+    proxies: i64,
     distinct_printings: i64,
     /// Sum over copies that have a price. Copies without one are counted separately, not as $0.
     market_value_usd: f64,
@@ -587,6 +596,7 @@ async fn summary(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> 
     let items = items_for_owner(&st.pool, &user.id).await?;
     let mut s = Summary {
         copies: 0,
+        proxies: 0,
         distinct_printings: 0,
         market_value_usd: 0.0,
         copies_without_price: 0,
@@ -597,6 +607,10 @@ async fn summary(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> 
     for i in &items {
         s.copies += i.qty;
         printings.insert(&i.scryfall_id);
+        if i.proxy {
+            s.proxies += i.qty;
+            continue;
+        }
         match i.unit_price_usd {
             Some(p) => s.market_value_usd += p * i.qty as f64,
             None => s.copies_without_price += i.qty,
@@ -646,14 +660,14 @@ async fn list_containers(State(st): State<AppState>, CurrentUser(user): CurrentU
     let items = items_for_owner(&st.pool, &user.id).await?;
     for ct in &mut containers {
         let inside: Vec<&Item> = items.iter().filter(|i| i.container_id.as_deref() == Some(ct.id.as_str())).collect();
-        for i in &inside {
+        for i in inside.iter().filter(|i| !i.proxy) {
             match i.unit_price_usd {
                 Some(p) => ct.market_value_usd += p * i.qty as f64,
                 None => ct.copies_without_price += i.qty,
             }
         }
         ct.market_value_usd = (ct.market_value_usd * 100.0).round() / 100.0;
-        let top = inside.iter().filter(|i| i.oracle_id.is_some()).max_by(|a, b| {
+        let top = inside.iter().filter(|i| i.oracle_id.is_some() && !i.proxy).max_by(|a, b| {
             a.unit_price_usd.unwrap_or(-1.0).partial_cmp(&b.unit_price_usd.unwrap_or(-1.0)).unwrap_or(std::cmp::Ordering::Equal)
         });
         if let Some(top) = top {
