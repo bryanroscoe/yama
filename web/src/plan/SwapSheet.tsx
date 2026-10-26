@@ -31,11 +31,21 @@ export function SwapSheetPage() {
   const pictures = include("pictures");
   const reasons = params.get("reasons") === "1";
   const hasContent = mode !== "full" || include("instructions") || include("sort") || include("swaps");
-  const deckKey = params.get("deck") || undefined;
+  const availableDecks = view.b.decks.filter((d) => d.status === "active");
+  // Repeated deck keys keep existing single-deck links working. The scope flag distinguishes
+  // explicitly selecting no decks from the default of every deck.
+  const requestedDecks = params.getAll("deck").filter(Boolean);
+  const everyDeck = requestedDecks.length === 0 && params.get("deckScope") !== "selected";
+  const selectedKeys = new Set(everyDeck ? availableDecks.map((d) => d.key) : requestedDecks);
+  const deckKey = selectedKeys.size === 1 ? [...selectedKeys][0] : undefined;
   const selected = deckKey ? view.deck(deckKey) : undefined;
-  const shown = sheet.decks.filter((d) => !deckKey || d.deck.key === deckKey);
-  const moves = sheet.moves.filter((m) => !deckKey || m.from.key === deckKey || m.to.key === deckKey);
-  const takeouts = useMemo(() => takeoutLines(sheet, deckKey), [sheet, deckKey]);
+  const shown = sheet.decks.filter((d) => selectedKeys.has(d.deck.key));
+  // Include boundary moves so a selected deck still says where an outgoing card must go,
+  // even when the receiving deck isn't being printed this time.
+  const moves = sheet.moves.filter((m) => selectedKeys.has(m.from.key) || selectedKeys.has(m.to.key));
+  const sortLines = sheet.sort.map((l) => ({ ...l, decks: l.decks.filter((d) => selectedKeys.has(d.key)) })).filter((l) => l.decks.length);
+  const visibleSheet = { ...sheet, decks: shown, moves, sort: sortLines, prints: sortLines.reduce((n, l) => n + l.decks.length, 0) };
+  const takeouts = takeoutLines(visibleSheet);
   const [scanning, setScanning] = useState(() => params.get("scan") === "1");
   const [name, setName] = useState("");
   const [checked, setChecked] = useState("");
@@ -62,6 +72,21 @@ export function SwapSheetPage() {
     if (value) next.set(key, value); else next.delete(key);
     return next;
   });
+  const selectDecks = (keys: string[] | null) => setParams((old) => {
+    const next = new URLSearchParams(old);
+    next.delete("deck");
+    next.delete("deckScope");
+    if (keys !== null) {
+      next.set("deckScope", "selected");
+      for (const key of keys) next.append("deck", key);
+    }
+    return next;
+  });
+  const toggleDeck = (key: string) => {
+    const next = new Set(selectedKeys);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    selectDecks(availableDecks.filter((d) => next.has(d.key)).map((d) => d.key));
+  };
   const togglePart = (part: string) => {
     const next = new Set(omitted);
     if (next.has(part)) next.delete(part); else next.add(part);
@@ -78,11 +103,18 @@ export function SwapSheetPage() {
         {printError && <p className="error" role="alert">{printError}</p>}
         <div className="ss-controls">
           <label>Sheet<select value={mode} disabled={printing} onChange={(e) => change("sheet", e.target.value)}>{SHEETS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select></label>
-          <label>Deck<select value={deckKey ?? ""} disabled={printing} onChange={(e) => change("deck", e.target.value)}>
-            <option value="">Every deck</option>
-            {view.b.decks.filter((d) => d.status === "active").map((d) => <option key={d.key} value={d.key}>{d.name}</option>)}
-          </select></label>
+
         </div>
+        <fieldset className="ss-print-options ss-deck-options" disabled={printing}>
+          <legend>Decks to print ({availableDecks.filter((d) => selectedKeys.has(d.key)).length} of {availableDecks.length})</legend>
+          <div className="row ss-deck-select-actions">
+            <button type="button" className="quiet small" onClick={() => selectDecks(null)}>Select all</button>
+            <button type="button" className="quiet small" onClick={() => selectDecks([])}>Clear</button>
+          </div>
+          {availableDecks.map((d) => <label key={d.key}>
+            <input type="checkbox" checked={selectedKeys.has(d.key)} onChange={() => toggleDeck(d.key)} /> {d.name}
+          </label>)}
+        </fieldset>
         <fieldset className="ss-print-options" disabled={printing}>
           <legend>Include in print</legend>
           {mode === "full" && <>
@@ -93,18 +125,18 @@ export function SwapSheetPage() {
           <label><input type="checkbox" checked={pictures} onChange={() => togglePart("pictures")} /> Card pictures</label>
           <label><input type="checkbox" checked={reasons} onChange={() => change("reasons", reasons ? "" : "1")} /> Add and cut reasons</label>
         </fieldset>
-        <p className="small dim">The sheet below previews what will print. Choose a sheet and deck above to narrow it down.</p>
+        <p className="small dim">The sheet below previews what will print. Choose a sheet and check the decks you want above.</p>
         {!hasContent && <p role="status">Choose at least one section to print.</p>}
         <form className="ss-lookup" onSubmit={(e) => { e.preventDefault(); setChecked(name.trim()); }}>
           <label>Check either card by name<input list="ss-card-names" value={name} onChange={(e) => setName(e.target.value)} placeholder="Card coming in or going out" /></label>
           <datalist id="ss-card-names">{choices.map((n) => <option key={n} value={n} />)}</datalist>
           <button type="submit" disabled={!name.trim()}>Check card</button>
         </form>
-        {checked && <SwapCardResult name={checked} sheet={sheet} view={view} deckKey={deckKey} />}
+        {checked && <SwapCardResult name={checked} sheet={visibleSheet} view={view} deckKey={deckKey} />}
       </div>
       <h1 className="print-only">{mode === "full" ? "Prints are here: swap them in" : SHEETS.find((s) => s.value === mode)!.label}{selected ? `: ${selected.name}` : ""}</h1>
       {shown.length === 0 ? (
-        <p className="empty">{deckKey && !selected ? "This deck isn't in your plans." : "No now-to-after-prints changes for the selected decks."}</p>
+        <p className="empty">{selectedKeys.size === 0 ? "Choose at least one deck to print." : "No now-to-after-prints changes for the selected decks."}</p>
       ) : mode !== "full" ? (
         <>
           <p className="ss-lead">{takeouts.length} cards to take out{selected ? ` of ${selected.name}` : ` across ${shown.length} decks`}. One row per copy, alphabetized by the card coming out. Installed marks reflect what's recorded in Yama.</p>
@@ -152,7 +184,7 @@ export function SwapSheetPage() {
                 </tr>
               </thead>
               <tbody>
-                {sheet.sort.map((l) => ({ ...l, decks: l.decks.filter((d) => !deckKey || d.key === deckKey) })).filter((l) => l.decks.length).map((l) => (
+                {sortLines.map((l) => (
                   <tr key={l.card}>
                     <td>
                       <b>{l.card}</b>
@@ -181,7 +213,7 @@ export function SwapSheetPage() {
       )}
       {swapping && <SwapInSheet deckKey={swapping.deck.key} deckName={swapping.deck.name} onClose={() => setSwapping(null)} />}
       {scanning && <Suspense fallback={<div className="scan-overlay"><div className="sheet stack"><p>Starting the scanner…</p><button onClick={() => setScanning(false)}>Close</button></div></div>}>
-        <SwapScanner sheet={sheet} view={view} deckKey={deckKey} onClose={() => setScanning(false)} />
+        <SwapScanner sheet={visibleSheet} view={view} deckKey={deckKey} onClose={() => setScanning(false)} />
       </Suspense>}
     </div>
   );
@@ -242,9 +274,9 @@ function TakeoutTable({ rows, view, withDeck = false, pictures, reasons }: { row
       <tbody>{rows.map(({ deck, step: s }, i) => (
         <tr key={`${deck.key}-${i}`} className={s.installed ? "ss-done" : undefined}>
           <td className="ss-tick"><span className={`ss-box${s.installed ? " ss-box-on" : ""}`} aria-label={s.installed ? "Installed" : "Not installed yet"} /></td>
-          <td><span className="ss-card">{pictures && <Thumb name={s.out} view={view} />}<b>{s.out}</b></span>{s.outKind !== "cut" && <span className="ss-sub">{s.outKind === "standin" ? "stand-in" : "basic holding the slot"}</span>}</td>
+          <td><span className="ss-card">{pictures && <Thumb name={s.out} view={view} />}<b>{s.out}</b></span>{s.outKind !== "cut" && <span className="ss-sub">{s.outKind === "standin" ? "stand-in" : "basic holding the slot"}</span>}{reasons && <SwapReasons step={s} side="out" />}</td>
           {withDeck && <td>{deck.name}</td>}
-          <td>{s.in || "—"}{reasons && <SwapReasons step={s} />}</td><td className="ss-then">{destination(s)}</td>
+          <td>{s.in || "—"}{reasons && s.in && <SwapReasons step={s} side="in" />}</td><td className="ss-then">{destination(s)}</td>
         </tr>
       ))}</tbody>
     </table>
@@ -280,10 +312,10 @@ function Step({ s, view, pictures, reasons }: { s: SheetStep; view: PlanView; pi
                 {s.gameChanger && <span className="ss-gc">GC</span>}
               </span>
               <span className="ss-sub">{s.kind === "print" ? "print" : s.kind === "moved" ? `from ${s.fromDeck?.name ?? "another deck"}` : "in hand"}</span>
-              {reasons ? <SwapReasons step={s} /> : <details className="no-print ss-why"><summary>Why this swap?</summary><SwapReasons step={s} /></details>}
             </span>
           </span>
         )}
+        {s.in && (reasons ? <SwapReasons step={s} side="in" /> : <details className="no-print ss-why"><summary>Why this swap?</summary><SwapReasons step={s} /></details>)}
       </td>
       <td>
         {s.out && (
@@ -295,6 +327,7 @@ function Step({ s, view, pictures, reasons }: { s: SheetStep; view: PlanView; pi
             </span>
           </span>
         )}
+        {reasons && s.out && <SwapReasons step={s} side="out" />}
       </td>
       <td className="ss-then">{then}</td>
     </tr>

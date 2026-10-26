@@ -173,10 +173,10 @@
   width: 24px;
 }
 .swap-sheet .ss-steps th:nth-child(2) {
-  width: 36%;
+  width: 42%;
 }
 .swap-sheet .ss-steps th:nth-child(3) {
-  width: 32%;
+  width: 42%;
 }
 .swap-sheet .ss-then {
   font-size: var(--t-sm);
@@ -317,4 +317,13 @@
   .swap-sheet.ss-decks-only .ss-deck:first-of-type {
     break-before: auto;
   }
+}
+
+.swap-sheet .ss-steps td,
+.swap-sheet .ss-takeouts td {
+  vertical-align: top;
+}
+
+.ss-deck-select-actions {
+  flex-basis: 100%;
 }

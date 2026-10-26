@@ -31,7 +31,7 @@ export default function SwapScanner({ sheet, view, deckKey, onClose }: { sheet: 
           catalog={catalog}
           identityOnly
           onClose={onClose}
-          controls={<p className="scan-note">Scan either card to check {deckKey ? view.deckName(deckKey) : "all decks"}. Check the recognized name. Scanning changes nothing.</p>}
+          controls={<p className="scan-note">Scan either card to check {deckKey ? view.deckName(deckKey) : `${sheet.decks.length} selected decks`}. Check the recognized name. Scanning changes nothing.</p>}
           renderResult={(card) => <SwapCardResult name={card.name} sheet={sheet} view={view} deckKey={deckKey} />}
         />
       ) : (

@@ -7,17 +7,21 @@ export function destination(s: SheetStep): string {
   return s.to === "basics" ? "back to your basics" : "spares box";
 }
 
-export function SwapReasons({ step: s }: { step: SheetStep }) {
+export function SwapReasons({ step: s, side = "both" }: { step: SheetStep; side?: "in" | "out" | "both" }) {
   const swap = s.swap;
+  const add = side !== "out";
+  const cut = side !== "in";
   return (
     <div className="ss-reasons">
-      {s.outKind !== "cut" && <p>{s.out} is {s.outKind === "standin" ? "the stand-in" : "a basic holding the slot"}{swap?.out ? ` for ${swap.out}` : ""}.</p>}
-      {swap?.why && <p><b>Why add {s.in}:</b> {swap.why}</p>}
-      {swap?.why_out && <p><b>Why cut {swap.out ?? s.out}:</b> {swap.why_out}</p>}
-      {!swap?.why && !swap?.why_out && <p className="dim">No reason recorded for this swap.</p>}
-      {swap?.when && <p>{swap.when}</p>}
-      {swap?.advice && <p>{swap.advice}</p>}
-      {swap?.note && <p className="dim">{swap.note}</p>}
+      {cut && s.outKind !== "cut" && <p>{s.out} is {s.outKind === "standin" ? "the stand-in" : "a basic holding the slot"}{swap?.out ? ` for ${swap.out}` : ""}.</p>}
+      {add && swap?.why && <p><b>Why add {s.in}:</b> {swap.why}</p>}
+      {cut && swap?.why_out && <p><b>Why cut {swap.out ?? s.out}:</b> {swap.why_out}</p>}
+      {side === "both" && !swap?.why && !swap?.why_out && <p className="dim">No reason recorded for this swap.</p>}
+      {side === "in" && !swap?.why && <p className="dim">No add reason recorded.</p>}
+      {side === "out" && !swap?.why_out && s.outKind === "cut" && <p className="dim">No cut reason recorded.</p>}
+      {add && swap?.when && <p>{swap.when}</p>}
+      {add && swap?.advice && <p>{swap.advice}</p>}
+      {add && swap?.note && <p className="dim">{swap.note}</p>}
     </div>
   );
 }

@@ -26,7 +26,7 @@ describe("swap-sheet pictures", () => {
 });
 
 // Render the selected sheet through its actual route context, without API calls or private data.
-function selectedSheet(query = "") {
+function selectedSheet(query = "", extraDecks = false) {
   const deck: PlanDeck = {
     key: "test", name: "Test deck", status: "active", commander: [], sort: 0,
     source: "import", product: null, color_identity: null, owner_changes: [], bracket: null, groups: [], notes: [], deck_id: null, updated_at: "",
@@ -35,10 +35,11 @@ function selectedSheet(query = "") {
       after: { id: "after", content_hash: "", computed_by: "test", updated_at: "", log: [], unresolved: [], cards: [{ name: "New card", qty: 1, board: "main", kind: "print", replaces: "Old card", swap: "swap" }] },
     },
   };
+  const decks = extraDecks ? [deck, { ...deck, key: "second", name: "Second deck" }, { ...deck, key: "third", name: "Third deck" }] : [deck];
   const view = {
-    b: { decks: [deck], swaps: [{ key: "swap", in: "New card", out: "Old card", why: "Adds card draw.", why_out: "Costs too much mana." }], marks: {}, names: {}, cards: {} },
+    b: { decks, swaps: [{ key: "swap", in: "New card", out: "Old card", why: "Adds card draw.", why_out: "Costs too much mana." }], marks: {}, names: {}, cards: {} },
     markBy: new Map(),
-    deck: (key: string) => key === deck.key ? deck : undefined,
+    deck: (key: string) => decks.find((d) => d.key === key),
     card: () => ({ image_small: "https://cards.scryfall.io/test.webp" }),
   } as unknown as PlanView;
   return renderToStaticMarkup(
@@ -73,6 +74,55 @@ describe("choosing what goes on a swap sheet", () => {
     expect(html).not.toContain('<img');
     expect(html).toContain('Costs too much mana.');
     expect(html).toContain('spares box');
+  });
+
+  it("prints each reason in its own card's column in the full sheet", () => {
+    const html = selectedSheet("?omit=instructions,sort,pictures&reasons=1");
+    const cells = html.split('class="ss-steps"')[1]!.split("<tbody>")[1]!.split("</tbody>")[0]!.match(/<td[\s\S]*?<\/td>/g)!;
+    expect(cells[1]).toContain("Adds card draw.");
+    expect(cells[1]).not.toContain("Costs too much mana.");
+    expect(cells[2]).toContain("Costs too much mana.");
+    expect(cells[2]).not.toContain("Adds card draw.");
+  });
+
+  it("keeps cut and add reasons with their cards in the reversed takeout layout", () => {
+    const html = selectedSheet("?sheet=alphabetical&omit=pictures&reasons=1");
+    const cells = html.split('class="ss-takeouts"')[1]!.split("<tbody>")[1]!.split("</tbody>")[0]!.match(/<td[\s\S]*?<\/td>/g)!;
+    expect(cells[1]).toContain("Costs too much mana.");
+    expect(cells[1]).not.toContain("Adds card draw.");
+    expect(cells[3]).toContain("Adds card draw.");
+    expect(cells[3]).not.toContain("Costs too much mana.");
+  });
+
+  it("prints any deck subset with matching sorting copy counts", () => {
+    const html = selectedSheet("?deck=test&deck=second&deckScope=selected", true);
+    const printed = html.split('<h1 class="print-only">')[1]!;
+    expect(html).toContain("Decks to print (2 of 3)");
+    expect(printed).toContain("Test deck");
+    expect(printed).toContain("Second deck");
+    expect(printed).not.toContain("Third deck");
+    expect(printed).toContain('class="num">2</td>');
+  });
+
+  it("filters alphabetical takeouts by the same subset", () => {
+    const html = selectedSheet("?sheet=alphabetical&deck=test&deck=second", true);
+    const printed = html.split('<h1 class="print-only">')[1]!;
+    expect(printed).toContain("Test deck");
+    expect(printed).toContain("Second deck");
+    expect(printed).not.toContain("Third deck");
+    expect(printed.match(/class="ss-tick"/g)).toHaveLength(2);
+  });
+
+  it("preserves old single-deck links and distinguishes clearing all decks", () => {
+    const one = selectedSheet("?deck=test", true);
+    expect(one).toContain("Decks to print (1 of 3)");
+    expect(one.split('<h1 class="print-only">')[1]).not.toContain("Second deck");
+    const none = selectedSheet("?deckScope=selected", true);
+    expect(none).toContain("Decks to print (0 of 3)");
+    expect(none).toContain("Choose at least one deck to print.");
+    expect(none).toMatch(/<button disabled="" aria-busy="false">Print<\/button>/);
+    expect(none).not.toContain('class="ss-steps"');
+    expect(selectedSheet("", true)).toContain("Decks to print (3 of 3)");
   });
 
   it("disables Print when every full-sheet section is omitted", () => {
