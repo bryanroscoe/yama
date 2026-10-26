@@ -58,7 +58,7 @@ Read (no review needed):
 | `plans`, `plan_deck` | Plan decks; one plan's stock, now and after lists, swaps with reasons, review answers, orders and prints |
 | `review_queue` | Proposals still to answer, by deck |
 | `spares` | Cards you own outside any deck, and what a plan would free |
-| `lab_runs`, `lab_run` | Experiments and rating runs, with the paired difference and its interval (and the lab's caveats), per engine, with unscored games by reason and the settle estimate |
+| `lab_runs`, `lab_run` | Your experiments and rating runs, with live progress, the paired difference and its interval (and the lab's caveats), per engine, with unscored games by reason and the settle estimate. Admins also see the count of earlier Phase games ahead in the shared queue; for both-engine runs, ETA and queue position are Phase-only. No other account's run or deck details are exposed. |
 | `lab_games` | One run's games pod by pod; one game's schedule line, result line and lists, to replay it |
 | `precon` | A precon's list, playgroup.gg data and the global rating |
 | `games` | Real game results for a deck |

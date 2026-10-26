@@ -657,6 +657,12 @@ async fn experiment(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Strin
     if let Some(eta) = p.eta_seconds {
         let _ = write!(out, ", about {} min left", (eta + 59) / 60);
     }
+    if let Some(ahead) = p.games_ahead {
+        let _ = write!(out, "; {ahead} earlier Phase games ahead in the shared queue");
+    }
+    if e.engines.mode == EngineMode::Both {
+        out.push_str("; ETA and queue position are Phase-only; Forge is queued separately");
+    }
     out.push('\n');
     match e.mode {
         Mode::Versus => {
