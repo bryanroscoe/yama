@@ -22,7 +22,9 @@ Earlier source-clean reviews and pre-repair test passes do not close either gate
 The authorized two-dispatch extension is spent; no further fix or review cycle
 is silently opened. Candidate Yama, replay, referee and lint execution now passes as detailed below.
 The combined `2ffbe85` app base passes 1,461 Rust tests with 38 ignored.
-A later fetch found main at `a1c8a22`; that merge and its affected checks are pending.
+Fetched main `a1c8a22` is now merged locally as `41cc320`; the combined result
+passes 1,462 Rust tests (38 ignored), 494 JS tests (two skipped), typecheck and
+the production web build.
 These production results do not close the unit-test or review blockers.
 
 See `engine-candidate-artifacts.jsonl` / `engine-candidate-build.log` and the
@@ -386,3 +388,49 @@ successful fetch found main advanced to `a1c8a22` (bracket and deck-stat work),
 so the tested owned integration is being checkpointed before merging that
 fetched revision and verifying its affected inputs. Unit/review blockers remain explicit.
 No publish or deployment is authorized.
+
+
+## Combined local checkpoint and remaining acceptance gates
+
+The owned recovery work is checkpointed as `f81666897f96cf82f06346b6cde843fa402b82ef`.
+The freshly fetched bracket/stat main release
+`a1c8a22c6b6b20a0cde39463dc2fc02153b0cef3` merges cleanly as
+`41cc3201799dcda439e52a1e05088cbffd0b878f`. No push, PR or deployment was made.
+A future release must fetch GitHub again; this local task freezes the main
+snapshot fetched immediately before integration rather than continuously
+chasing unrelated main changes during validation.
+
+The combined result passes the full stable-release Rust workspace suite:
+**1,462 passed, zero failed, 38 ignored**, 16 result groups, with a 5m 19s rebuild.
+Its JS suite passes **494 with two skipped**; typecheck and the production web
+build pass. The earlier 12 release-guard results carry because this merge changes
+no release-script input. Logs are `yama-merged-main-test.log`,
+`yama-merged-main-test-build.log`, `npm-merged-main-test.log`,
+`typecheck-merged-main.log`, and `web-build-merged-main.log`.
+
+The merge changes no `play/`, Phase patch/pin, or referee source relative to the
+tested recovery checkpoint. The 20 affected integration passes, two full-game
+replay passes, four AI reuse passes, pinned-nightly engine/AI library lint pass,
+coverage/data checks and full referee sweep therefore retain their measured
+Phase candidate `a3bc47c` identity. They are not claimed as new game reruns on the
+later app merge. All 36 Phase patches still reconstruct tree
+`047d29f4b479f059453d14482e8c33f5e8425dd6` from v0.113.0.
+
+Acceptance remains incomplete:
+
+| Requirement | Current evidence |
+|---|---|
+| Production engine/Yama integration | Passed as above; clean committed candidate and merged app inputs |
+| Six new Living Death/sacrifice regressions and full Phase unit suite | Not executed: three E0609 errors in two new test bodies incorrectly read `Player.exile` |
+| Independent final review | The prescribed Opus attempt failed at its API rate limit; earlier Codex source-only reviews do not close this final gate |
+| Additional corrective work | Scoped test-only correction plus fresh Codex substitute review proposed to Bryan; approval pending |
+
+The smallest next step is the pending expansion case: one executor correcting the
+three test API assertions while preserving their outcome/ownership checks,
+one engine-test rebuild and full unit execution, and one fresh Codex review if
+Bryan permits the substitute. Maximum four build jobs, zero remote CI. The
+prediction is zero compiler errors, all six regressions and full units passing,
+and zero review behavior findings. Earlier failed predictions and design limits
+remain in the append-only phase-fit record. No required check is dropped and no
+further cycle is assumed. Until approved and verified, this remains a preserved
+local integration checkpoint rather than an accepted release.
