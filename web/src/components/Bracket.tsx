@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { api, type Combo, type DeckCheck, type Estimated } from "../api";
-import { checkStatus, estimateValue, localDay, pollAfter, SENDS_LIST } from "./deckCheck";
+import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, localDay, pollAfter, SENDS_LIST } from "./deckCheck";
 import { NameList } from "./OnlineSupport";
 import { ErrorText } from "./ui";
 import "./decks.css";
@@ -20,8 +20,8 @@ export const bracketName = (n: number) => BRACKETS.find((b) => b.value === n)?.n
 const SPELLBOOK = "https://commanderspellbook.com/";
 
 /**
- * The declared bracket and the outside estimate as two chips side by side. The estimate's chip
- * is dashed and says "estimate", so it never passes for what the owner declared.
+ * The declared bracket and Yama's starting suggestion as two chips side by side. The suggestion
+ * is dashed and labelled, so it never passes for what the owner declared.
  */
 export function BracketChips({ declared, estimate }: { declared: number | null | undefined; estimate?: Estimated | null }) {
   if (declared == null && !estimate) return null;
@@ -35,9 +35,9 @@ export function BracketChips({ declared, estimate }: { declared: number | null |
       {estimate && (
         <span
           className="bracket-chip estimate"
-          title={`Commander Spellbook's estimate: ${estimate.bracket == null && estimate.tag !== "B" ? `a tag Yama doesn't know yet (${estimate.tag})` : estimate.label}${estimate.checked_at ? `, checked ${localDay(estimate.checked_at)}` : ""}`}
+          title={`${estimateValue(estimate.tag, estimate.bracket).sub(estimate.label)}. ${estimateExplanation(estimate.tag)}${estimate.checked_at ? ` Checked ${localDay(estimate.checked_at)}.` : ""}`}
         >
-          Estimate <b>{estimateValue(estimate.tag, estimate.bracket).value.toLowerCase()}</b>
+          Suggested <b>{estimateValue(estimate.tag, estimate.bracket).value.toLowerCase()}</b>
         </span>
       )}
     </span>
@@ -50,14 +50,6 @@ export function useDeckCheck(deckId: string, versionId: string | null) {
     queryFn: () => api<DeckCheck>(`/api/decks/${deckId}/check`),
     refetchInterval: (q) => pollAfter(q.state.data),
   });
-}
-
-/** How far a Game Changer count alone pushes a deck, by the brackets' limits (none in 1 and 2,
- *  up to three in 3). The offline answer when there's no outside estimate. */
-export function gameChangerFloor(count: number): string {
-  if (count === 0) return "No Game Changers, so they don't rule out any bracket.";
-  if (count <= 3) return `${count} Game ${count === 1 ? "Changer" : "Changers"}, so bracket 3 or higher (brackets 1 and 2 allow none).`;
-  return `${count} Game Changers, so bracket 4 or higher (bracket 3 allows up to three).`;
 }
 
 /**
@@ -123,7 +115,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
           )}
         </div>
         <div className="bracket-side estimate">
-          <span className="label">Estimate, {r ? `checked ${localDay(r.checked_at)}` : "not checked yet"}</span>
+          <span className="label">Starting suggestion, {r ? `checked ${localDay(r.checked_at)}` : "not checked yet"}</span>
           {r && shown ? (
             <>
               <span className="value">{shown.value}</span>
@@ -137,6 +129,12 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
 
       {status && <p className="note" role="status">{status}</p>}
       <ErrorText error={again.error} />
+      {r ? <div className="bracket-reason">
+        <h3>Why this suggestion?</h3>
+        <p className="note">{estimateExplanation(r.bracket_tag)}</p>
+        <button className="name-link small" onClick={onDeclare}>Choose or change your bracket</button>
+      </div> : <p className="note">Yama suggests a starting bracket from the card list. Your declared bracket is what you tell the table, based on the deck's speed, consistency and intended play experience.</p>}
+      <BracketGuide />
 
       {r ? (
         <>
@@ -149,6 +147,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
                 ) : (
                   <>. <NameList names={r.game_changers} onCard={onCard} /></>
                 ))}
+              <p>{gameChangerFloor(r.game_changers.length)}</p>
             </li>
             <li>
               <b>Mass land denial:</b> {r.mld.length ? <NameList names={r.mld} onCard={onCard} /> : "none"}
@@ -180,7 +179,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
             </details>
           )}
           <p className="note">
-            Bracket estimate, flags and combos from <a href={SPELLBOOK} target="_blank" rel="noreferrer">Commander Spellbook</a>, counted its way: your commander is always available, so it isn't counted as a piece. It's an estimate from the card list; the bracket you declare is yours to set.
+            Card-list signals and combos from <a href={SPELLBOOK} target="_blank" rel="noreferrer">Commander Spellbook</a>, counted its way: your commander is always available, so it isn't counted as a piece. A combo being listed doesn't by itself establish how early it wins. Yama uses Core (2) as a provisional starting point when no higher-bracket signals are found.
           </p>
         </>
       ) : (
@@ -191,6 +190,25 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
       )}
       {c?.enabled && <p className="note">{SENDS_LIST}</p>}
     </section>
+  );
+}
+
+export function BracketGuide() {
+  return (
+    <details className="bracket-guide">
+      <summary>How Commander brackets work</summary>
+      <p className="note">Game Changers set deck-building limits; they don't measure the whole deck. Intent, speed, consistency, game-ending combos, extra-turn chains and mass land denial also matter.</p>
+      <p className="note">How Yama suggests a bracket: start provisionally at Core (2) when the check finds no higher-bracket signals. One to three Game Changers suggest at least 3; four or more suggest at least 4. Known combos and other flagged effects can raise the suggestion too. Choose Exhibition (1) yourself for a deliberately theme-first deck, or cEDH (5) for a deck built for that competitive metagame. A suggestion never changes your declared bracket.</p>
+      <dl>
+        <div><dt>1, Exhibition</dt><dd>Theme over power. No Game Changers by default; thematic exceptions belong in the pregame conversation. Expect at least nine turns before a win or loss.</dd></div>
+        <div><dt>2, Core</dt><dd>No Game Changers. Straightforward, unoptimized play with visible, disruptable wins. Expect at least eight turns before a win or loss.</dd></div>
+        <div><dt>3, Upgraded</dt><dd>Up to three Game Changers. Strong synergy and interaction. Expect at least six turns before a win or loss.</dd></div>
+        <div><dt>4, Optimized</dt><dd>Unlimited Game Changers. Fast, consistent, efficient play. Expect at least four turns before a win or loss.</dd></div>
+        <div><dt>5, cEDH</dt><dd>Unlimited Game Changers. Built for the competitive Commander metagame; games can end on any turn.</dd></div>
+      </dl>
+      <p className="note">These are play expectations, not a rule that one unusually fast win changes your bracket. Precons aren't automatically bracket 2: Wizards removed that benchmark in October 2025. Farewell became a Game Changer in February 2026, including in stock precons that contain it.</p>
+      <p className="note">Sources, reviewed October 25, 2026: <a href="https://magic.wizards.com/en/formats/commander" target="_blank" rel="noreferrer">Wizards' bracket overview</a>, <a href="https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-october-21-2025" target="_blank" rel="noreferrer">October 2025 update</a> and <a href="https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-february-9-2026" target="_blank" rel="noreferrer">February 2026 update</a>.</p>
+    </details>
   );
 }
 

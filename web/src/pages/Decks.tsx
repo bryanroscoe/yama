@@ -617,7 +617,7 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         <label>
           Bracket
           <span className="hint">
-            The bracket you'd tell the table before a game. Commander Spellbook's estimate is shown beside it and never changes it.
+            The bracket you'd tell the table before a game. Yama's starting suggestion from the card list is shown beside it and never changes it. Choose 1 for a deliberately theme-first deck; an unflagged card list starts provisionally at 2.
             {checksOn && ` ${SENDS_LIST}`}
           </span>
           <select value={bracket} onChange={(e) => setBracket(e.target.value)}>

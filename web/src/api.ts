@@ -241,10 +241,10 @@ export interface Estimated {
   /** Commander Spellbook's tag: E C O P S R, or B for a banned card. Any other tag is one Yama
    *  doesn't know yet. */
   tag: string;
-  /** "Exhibition", "Core", "Oddball", "Powerful", "Spicy", "Ruthless", "Banned card", or
-   *  "Unknown tag" */
+  /** Yama's label for the signals; E is "Core starting point". */
   label: string;
-  /** The 1-5 bracket Spellbook gives the tag; null for a banned card and an unknown tag. */
+  /** Yama's starting suggestion, 2-4; null for a banned card or unknown tag.
+   * Older cached E answers can contain 1; presentation must normalize these to provisional 2. */
   bracket: number | null;
   checked_at: string | null;
 }

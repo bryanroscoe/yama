@@ -34,8 +34,6 @@ export interface ColorStat {
   /** Lands (and land faces) that can make this color, per copy. null while any land in the deck
    *  has no mana data yet: it could make this color, so a number would be a guess. */
   sources: number | null;
-  /** Fewer than one source for every three pips; null when sources aren't known. */
-  short: boolean | null;
 }
 
 export interface DeckStats {
@@ -93,13 +91,15 @@ const BASIC_TYPES: [string, Color][] = [["Plains", "W"], ["Island", "U"], ["Swam
  * fetch instead (Evolving Wilds, Wooded Foothills) make none themselves; they count for the land
  * types they name, and "a basic land card" counts for the basics this deck runs.
  */
-function landColors(c: StatCard, deckBasics: Set<Color>): Set<Color> | null {
+function landColors(c: StatCard, deckBasics: Set<Color>, fetchTargets: Map<string, Set<Color>>): Set<Color> | null {
   if (c.producedMana == null) return null;
   const made = new Set([...c.producedMana].filter((x): x is Color => (COLORS as string[]).includes(x)));
   if (made.size > 0) return made;
   const text = c.oracleText ?? "";
   if (/search your library for/i.test(text)) {
-    for (const [type, color] of BASIC_TYPES) if (new RegExp(`\\b${type}\\b`).test(text)) made.add(color);
+    for (const [type] of BASIC_TYPES) {
+      if (new RegExp(`\\b${type}\\b`).test(text)) for (const color of fetchTargets.get(type) ?? []) made.add(color);
+    }
     if (/basic land card/i.test(text)) for (const color of deckBasics) made.add(color);
   }
   return made;
@@ -130,15 +130,23 @@ export function deckStats(all: StatCard[]): DeckStats {
   }
 
   const deckBasics = new Set<Color>();
+  const fetchTargets = new Map<string, Set<Color>>();
   for (const c of known) {
-    if (!front(c.typeLine).includes("Basic")) continue;
-    for (const [type, color] of BASIC_TYPES) if (front(c.typeLine).includes(type)) deckBasics.add(color);
+    // A land back face isn't a land in the library and can't be fetched as one.
+    if (!isLand(c)) continue;
+    for (const [type, color] of BASIC_TYPES) {
+      if (!front(c.typeLine).includes(type)) continue;
+      if (front(c.typeLine).includes("Basic")) deckBasics.add(color);
+      const targetColors = fetchTargets.get(type) ?? new Set<Color>();
+      for (const made of c.producedMana ?? "") if ((COLORS as string[]).includes(made)) targetColors.add(made as Color);
+      fetchTargets.set(type, targetColors);
+    }
   }
   const sources: Record<Color, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   const landsWithoutManaData: string[] = [];
   let landsWithManaData = 0;
   for (const c of known.filter(hasLandFace)) {
-    const colors = landColors(c, deckBasics);
+    const colors = landColors(c, deckBasics, fetchTargets);
     if (colors == null) {
       landsWithoutManaData.push(c.name);
       continue;
@@ -153,7 +161,6 @@ export function deckStats(all: StatCard[]): DeckStats {
     color,
     pips: pips[color],
     sources: counted ? sources[color] : null,
-    short: counted ? sources[color] * 3 < pips[color] : null,
   }));
   const total = lands + nonlands;
   const round = (n: number) => Math.round(n * 100) / 100;
