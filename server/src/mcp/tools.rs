@@ -151,9 +151,11 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "lab_run",
         title: "One lab experiment",
-        description: "One simulation experiment: its lists, opponents, engines and limits, and each engine's result: the \
+        description: "One simulation experiment: its lists, opponents, engines and limits, live progress, and each engine's result: the \
                       paired difference with its interval and verdict, the games that weren't scored and why, and how many \
-                      pods would likely settle an unclear answer.",
+                      pods would likely settle an unclear answer. Admins also see the number of earlier Phase games ahead \
+                      in the shared queue. For runs using both engines, the ETA and queue position are Phase-only; Forge \
+                      is queued separately. Other accounts' run and deck details stay private.",
         schema: || obj(&[("id", "string", "The experiment id from `lab_runs`.")], &["id"]),
         does: Does::Read,
     },
