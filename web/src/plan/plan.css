@@ -474,6 +474,24 @@
 
 /* ── swaps on the Changes tab ───────────────────────────────────────────── */
 
+.plan-change-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+.plan-change-controls label {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+.plan-change-controls .plan-change-search {
+  flex: 2 1 16rem;
+}
+.plan-change-controls input,
+.plan-change-controls select {
+  width: 100%;
+}
+
 .plan-group {
   display: flex;
   flex-direction: column;

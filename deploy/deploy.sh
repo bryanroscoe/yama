@@ -1,25 +1,35 @@
 #!/bin/sh
 # Build Yama on saget's Docker daemon (over SSH) and restart the container.
-# Every run changes the server: only run it when Bryan has said to deploy.
+# Without --check this changes the server: only run it when Bryan has said to deploy.
 set -eu
 cd "$(dirname "$0")/.."
+CHECK_ONLY=0
+case "$#:$*" in
+  0:) ;;
+  1:--check) CHECK_ONLY=1 ;;
+  *) echo "Usage: ./deploy/deploy.sh [--check]" >&2; exit 1 ;;
+esac
+# No server calls until main has been refreshed from GitHub and verified. Keep the exact
+# verified commit throughout the build, even if another local thread moves HEAD later.
+RELEASE_REV=$(sh ./deploy/check-release.sh)
 HOST=root@<saget-lan-address>
 DIR=/mnt/user/appdata/yama
-REV=$(git rev-parse --short HEAD)
+REV=$(git rev-parse --short "$RELEASE_REV")
 # Deploys build committed code only (2026-10-24): Yama at HEAD and the engine at the commit pinned
 # in deploy/phase-rev, both exported with git archive. Several agents work in these checkouts at
 # once, so copying working files could ship someone's unfinished edits; this way the same commits
-# always build the same server. Uncommitted changes here are left out, with a note.
+# always build the same server. The release check refuses uncommitted changes.
 DIRTY=0
-if [ -n "$(git status --porcelain -- server play web packages advisor forge-worker deploy Cargo.toml Cargo.lock)" ]; then
-  echo "Note: this checkout has uncommitted changes; they are NOT deployed (building $REV as committed)."
-fi
-PHASE_REV=$(tr -d '[:space:]' < deploy/phase-rev)
+PHASE_REV=$(git show "$RELEASE_REV:deploy/phase-rev" | tr -d '[:space:]')
 git -C ../yama-phase cat-file -e "$PHASE_REV^{commit}" 2>/dev/null || { echo "deploy/phase-rev ($PHASE_REV) isn't a commit in ../yama-phase."; exit 1; }
+if [ "$CHECK_ONLY" = 1 ]; then
+  echo "Ready to deploy main at $REV with phase $PHASE_REV. Check only; saget was not contacted."
+  exit 0
+fi
 SRC=$(mktemp -d "${TMPDIR:-/tmp}/yama-deploy.XXXXXX")
 trap 'rm -rf "$SRC"' EXIT
 mkdir -p "$SRC/yama" "$SRC/yama-phase"
-git archive HEAD | tar -x -C "$SRC/yama"
+git archive "$RELEASE_REV" | tar -x -C "$SRC/yama"
 git -C ../yama-phase archive "$PHASE_REV" Cargo.toml crates | tar -x -C "$SRC/yama-phase"
 
 echo "Copying source to saget (yama $REV, phase $(echo "$PHASE_REV" | cut -c1-7))…"
@@ -48,7 +58,7 @@ echo "Building yama-forge:$REV on saget (log: $DIR/build/forge-build.log; the fi
 # The worker's results carry its source, not Yama's commit: a pod whose two Forge games ran under
 # different labels is left out of a run's difference, so a deploy that doesn't touch the worker
 # mustn't change the label of games already played (2026-10-24, run b8c61ce0).
-FORGE_SRC=$(git rev-parse --short=7 HEAD:forge-worker)
+FORGE_SRC=$(git rev-parse --short=7 "$RELEASE_REV:forge-worker")
 if ! ssh "$HOST" "cd $DIR/build && docker build -f yama/deploy/Dockerfile.forge-worker --build-arg FORGE_WORKER_GIT_SHA=$FORGE_SRC \
     -t yama-forge:latest -t yama-forge:$REV yama/forge-worker > forge-build.log 2>&1"; then
   ssh "$HOST" "tail -30 $DIR/build/forge-build.log"; echo "Forge worker build failed."; exit 1
@@ -76,7 +86,7 @@ ssh "$HOST" "cd $DIR && umask 077 && touch advisor.env && chmod 600 advisor.env 
     printf 'YAMA_ADVISOR_SUBSCRIPTION_EMAILS=%s\\n' \"\$(sed -n 's/^YAMA_ADMIN_EMAILS=\\([^,]*\\).*/\\1/p' yama.env | head -1)\" >> yama.env; }"
 
 echo "Backing up the database, then restarting…"
-scp -q deploy/compose.yaml "$HOST:$DIR/compose.yaml"
+scp -q "$SRC/yama/deploy/compose.yaml" "$HOST:$DIR/compose.yaml"
 STAMP=$(date +%Y%m%d-%H%M%S)
 ssh "$HOST" "cd $DIR && mkdir -p data/backups && chown 99:100 data/backups && \
   (docker exec yama yama-server backup /data/backups/yama-$STAMP.db || echo 'no running yama to back up') && \

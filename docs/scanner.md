@@ -1,6 +1,8 @@
 # Card scanner spike
 
-Status: research spike, 2026-10-18. Prototype in `web/src/scanner/`, not yet routed.
+Status: OCR scanner in `web/src/scanner/`, available from Collection and the planner's swap sheet. Research measurements below are from 2026-10-18; the hybrid embedding stage remains a proposal.
+
+Since 2026-10-25, Plans, Prints, Swap sheet (and each plan deck's Changes tab) can scan either side of a now-to-after-prints swap and immediately show the replacement, add and cut reasons, destination and installed status. This mode reads identity from the saved card names plus plan names, including both faces, without a printing lookup or network price request. It changes no data. The sheet also accepts a photo or an exact typed name. Live phone-camera accuracy still needs a real device check; the measurements below use synthetic captures.
 
 Labels used below:
 

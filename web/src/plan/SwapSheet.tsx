@@ -1,9 +1,19 @@
-import { swapSheet, type SheetDeck, type SheetStep } from "@yama/core/plan";
-import { useMemo, useState } from "react";
+import { swapSheet, takeoutLines, type PlanCard, type SheetDeck, type SheetStep } from "@yama/core/plan";
+import { lazy, Suspense, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { SwapInSheet } from "./SwapIn";
+import { destination, SwapCardResult, SwapReasons } from "./SwapDetails";
+import { prepareSheetForPrint } from "./print";
 import type { PlanView } from "./view";
 import "./swapsheet.css";
+
+const SwapScanner = lazy(() => import("./SwapScanner"));
+const SHEETS = [
+  { value: "full", label: "Full swap sheet" },
+  { value: "takeout", label: "Take out by deck, A to Z" },
+  { value: "alphabetical", label: "All takeouts, A to Z" },
+] as const;
 
 /**
  * `/decks/plan/prints/swap`: the swap sheet for when prints arrive, on screen and on paper. Sort the
@@ -12,38 +22,113 @@ import "./swapsheet.css";
  */
 export function SwapSheetPage() {
   const { view } = usePlanOutlet();
-  const sheet = useMemo(() => swapSheet({ ...view.b, marks: view.marks }), [view]);
+  const sheet = useMemo(() => swapSheet({ ...view.b, marks: Object.fromEntries(view.markBy) }), [view]);
   const [swapping, setSwapping] = useState<SheetDeck | null>(null);
-  const decks = sheet.decks.length;
+  const [params, setParams] = useSearchParams();
+  const mode = SHEETS.find((s) => s.value === params.get("sheet"))?.value ?? "full";
+  const omitted = new Set((params.get("omit") ?? "").split(","));
+  const include = (part: string) => !omitted.has(part);
+  const pictures = include("pictures");
+  const reasons = params.get("reasons") === "1";
+  const hasContent = mode !== "full" || include("instructions") || include("sort") || include("swaps");
+  const deckKey = params.get("deck") || undefined;
+  const selected = deckKey ? view.deck(deckKey) : undefined;
+  const shown = sheet.decks.filter((d) => !deckKey || d.deck.key === deckKey);
+  const moves = sheet.moves.filter((m) => !deckKey || m.from.key === deckKey || m.to.key === deckKey);
+  const takeouts = useMemo(() => takeoutLines(sheet, deckKey), [sheet, deckKey]);
+  const [scanning, setScanning] = useState(() => params.get("scan") === "1");
+  const [name, setName] = useState("");
+  const [checked, setChecked] = useState("");
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const [printing, setPrinting] = useState(false);
+  const [printError, setPrintError] = useState<string | null>(null);
+  const print = async () => {
+    const root = sheetRef.current;
+    if (!root || printing || !hasContent || !shown.length) return;
+    setPrinting(true);
+    setPrintError(null);
+    try {
+      await prepareSheetForPrint(root);
+      if (sheetRef.current === root && root.isConnected) window.print();
+    } catch (error) {
+      setPrintError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPrinting(false);
+    }
+  };
+  const choices = useMemo(() => [...new Set(view.b.decks.flatMap((d) => Object.values(d.states).flatMap((s) => s?.cards.map((c) => c.name) ?? [])))].sort(), [view.b.decks]);
+  const change = (key: string, value: string) => setParams((old) => {
+    const next = new URLSearchParams(old);
+    if (value) next.set(key, value); else next.delete(key);
+    return next;
+  });
+  const togglePart = (part: string) => {
+    const next = new Set(omitted);
+    if (next.has(part)) next.delete(part); else next.add(part);
+    change("omit", [...next].filter(Boolean).join(","));
+  };
   return (
-    <div className="swap-sheet">
+    <div className={`swap-sheet${mode === "full" && !include("sort") && !include("instructions") ? " ss-decks-only" : ""}`} ref={sheetRef}>
       <div className="no-print">
-        <PlansHead
-          title="Swap sheet"
-          action={
-            <button className="primary" onClick={() => window.print()}>
-              Print
-            </button>
-          }
-        />
+        <PlansHead title="Swap sheet" />
+        <div className="row ss-actions">
+          <button className="primary" disabled={printing} onClick={() => setScanning(true)}>Scan a card</button>
+          <button disabled={printing || !hasContent || !shown.length} aria-busy={printing} onClick={() => void print()}>{printing ? (pictures ? "Loading pictures…" : "Preparing print…") : "Print"}</button>
+        </div>
+        {printError && <p className="error" role="alert">{printError}</p>}
+        <div className="ss-controls">
+          <label>Sheet<select value={mode} disabled={printing} onChange={(e) => change("sheet", e.target.value)}>{SHEETS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select></label>
+          <label>Deck<select value={deckKey ?? ""} disabled={printing} onChange={(e) => change("deck", e.target.value)}>
+            <option value="">Every deck</option>
+            {view.b.decks.filter((d) => d.status === "active").map((d) => <option key={d.key} value={d.key}>{d.name}</option>)}
+          </select></label>
+        </div>
+        <fieldset className="ss-print-options" disabled={printing}>
+          <legend>Include in print</legend>
+          {mode === "full" && <>
+            <label><input type="checkbox" checked={include("instructions")} onChange={() => togglePart("instructions")} /> Instructions</label>
+            <label><input type="checkbox" checked={include("sort")} onChange={() => togglePart("sort")} /> Print sorting checklist</label>
+            <label><input type="checkbox" checked={include("swaps")} onChange={() => togglePart("swaps")} /> Deck swap tables</label>
+          </>}
+          <label><input type="checkbox" checked={pictures} onChange={() => togglePart("pictures")} /> Card pictures</label>
+          <label><input type="checkbox" checked={reasons} onChange={() => change("reasons", reasons ? "" : "1")} /> Add and cut reasons</label>
+        </fieldset>
+        <p className="small dim">The sheet below previews what will print. Choose a sheet and deck above to narrow it down.</p>
+        {!hasContent && <p role="status">Choose at least one section to print.</p>}
+        <form className="ss-lookup" onSubmit={(e) => { e.preventDefault(); setChecked(name.trim()); }}>
+          <label>Check either card by name<input list="ss-card-names" value={name} onChange={(e) => setName(e.target.value)} placeholder="Card coming in or going out" /></label>
+          <datalist id="ss-card-names">{choices.map((n) => <option key={n} value={n} />)}</datalist>
+          <button type="submit" disabled={!name.trim()}>Check card</button>
+        </form>
+        {checked && <SwapCardResult name={checked} sheet={sheet} view={view} deckKey={deckKey} />}
       </div>
-      <h1 className="print-only">Prints are here: swap them in</h1>
-      {sheet.prints === 0 ? (
-        <p className="empty">No prints waiting to go into a deck. Every deck already has its after-prints list.</p>
+      <h1 className="print-only">{mode === "full" ? "Prints are here: swap them in" : SHEETS.find((s) => s.value === mode)!.label}{selected ? `: ${selected.name}` : ""}</h1>
+      {shown.length === 0 ? (
+        <p className="empty">{deckKey && !selected ? "This deck isn't in your plans." : "No now-to-after-prints changes for the selected decks."}</p>
+      ) : mode !== "full" ? (
+        <>
+          <p className="ss-lead">{takeouts.length} cards to take out{selected ? ` of ${selected.name}` : ` across ${shown.length} decks`}. One row per copy, alphabetized by the card coming out. Installed marks reflect what's recorded in Yama.</p>
+          {mode === "alphabetical" ? <TakeoutTable rows={takeouts} view={view} pictures={pictures} reasons={reasons} withDeck /> : shown.map((d) => (
+            <section className="ss-deck ss-takeout-deck" key={d.deck.key}>
+              <h2>{d.deck.name}</h2>
+              <TakeoutTable rows={takeouts.filter((l) => l.deck.key === d.deck.key)} view={view} pictures={pictures} reasons={reasons} />
+            </section>
+          ))}
+        </>
       ) : (
         <>
-          <p className="ss-lead">
-            {sheet.prints} printed cards ({sheet.sort.length} different) for {decks} {decks === 1 ? "deck" : "decks"}. Each deck goes from what's in it now to its
+          {hasContent && <p className="ss-lead">
+            {shown.reduce((n, d) => n + d.prints, 0)} printed cards for {shown.length} {shown.length === 1 ? "deck" : "decks"}. Each deck goes from what's in it now to its
             after-prints list.
-          </p>
-          <ol className="ss-how">
+          </p>}
+          {include("instructions") && <ol className="ss-how">
             <li>
-              <b>Check and sort</b> with the first table: tick a box as each copy goes on its deck's pile. Every box ticked means the order came complete.
+              <b>Check and sort</b> the prints into decks: tick a box as each copy goes on its deck's pile. Every box ticked means the order came complete.
             </li>
-            {sheet.moves.length > 0 && (
+            {moves.length > 0 && (
               <li>
-                <b>Do the decks in this order.</b> {sheet.moves.length === 1 ? "One card changes" : `${sheet.moves.length} cards change`} decks:{" "}
-                {sheet.moves.map((m) => `${m.card} from ${m.from.name} to ${m.to.name}`).join("; ")}. When one comes out, put it straight on the other deck's pile.
+                <b>{deckKey ? "Check the cards moving between decks." : "Do the decks in this order."}</b> {moves.length === 1 ? "One card changes" : `${moves.length} cards change`} decks:{" "}
+                {moves.map((m) => `${m.card} from ${m.from.name} to ${m.to.name}`).join("; ")}. When one comes out, put it straight on the other deck's pile.
               </li>
             )}
             <li>
@@ -54,9 +139,9 @@ export function SwapSheetPage() {
               <b>GC</b> marks a Game Changer. Mark those sleeves so you can count them for brackets.
             </li>
             <li className="no-print">When a deck is sleeved, use "Swap in the prints" on its section so Yama matches it: the deck's list, its box and the installed ticks.</li>
-          </ol>
+          </ol>}
 
-          <section className="ss-sort" aria-labelledby="ss-sort-h">
+          {include("sort") && <section className="ss-sort" aria-labelledby="ss-sort-h">
             <h2 id="ss-sort-h">Check and sort the prints, A to Z</h2>
             <table>
               <thead>
@@ -67,7 +152,7 @@ export function SwapSheetPage() {
                 </tr>
               </thead>
               <tbody>
-                {sheet.sort.map((l) => (
+                {sheet.sort.map((l) => ({ ...l, decks: l.decks.filter((d) => !deckKey || d.key === deckKey) })).filter((l) => l.decks.length).map((l) => (
                   <tr key={l.card}>
                     <td>
                       <b>{l.card}</b>
@@ -87,19 +172,22 @@ export function SwapSheetPage() {
                 ))}
               </tbody>
             </table>
-          </section>
+          </section>}
 
-          {sheet.decks.map((d) => (
-            <DeckSection key={d.deck.key} d={d} view={view} onSwap={() => setSwapping(d)} />
+          {include("swaps") && shown.map((d) => (
+            <DeckSection key={d.deck.key} d={d} view={view} pictures={pictures} reasons={reasons} onSwap={() => setSwapping(d)} />
           ))}
         </>
       )}
       {swapping && <SwapInSheet deckKey={swapping.deck.key} deckName={swapping.deck.name} onClose={() => setSwapping(null)} />}
+      {scanning && <Suspense fallback={<div className="scan-overlay"><div className="sheet stack"><p>Starting the scanner…</p><button onClick={() => setScanning(false)}>Close</button></div></div>}>
+        <SwapScanner sheet={sheet} view={view} deckKey={deckKey} onClose={() => setScanning(false)} />
+      </Suspense>}
     </div>
   );
 }
 
-function DeckSection({ d, view, onSwap }: { d: SheetDeck; view: PlanView; onSwap: () => void }) {
+function DeckSection({ d, view, onSwap, pictures, reasons }: { d: SheetDeck; view: PlanView; onSwap: () => void; pictures: boolean; reasons: boolean }) {
   const all = d.installed === d.steps.length;
   return (
     <section className="ss-deck" aria-labelledby={`ss-${d.deck.key}`}>
@@ -127,7 +215,7 @@ function DeckSection({ d, view, onSwap }: { d: SheetDeck; view: PlanView; onSwap
         </thead>
         <tbody>
           {d.steps.map((s, i) => (
-            <Step key={`${s.in}-${s.out}-${i}`} s={s} view={view} />
+            <Step key={`${s.in}-${s.out}-${i}`} s={s} view={view} pictures={pictures} reasons={reasons} />
           ))}
         </tbody>
       </table>
@@ -137,11 +225,33 @@ function DeckSection({ d, view, onSwap }: { d: SheetDeck; view: PlanView; onSwap
 }
 
 function Thumb({ name, view }: { name: string; view: PlanView }) {
-  const src = view.card(name)?.image_small;
-  return src ? <img className="ss-thumb" src={src} alt="" loading="lazy" /> : <span className="ss-thumb" aria-hidden="true" />;
+  return <SheetThumbnail name={name} card={view.card(name)} />;
 }
 
-function Step({ s, view }: { s: SheetStep; view: PlanView }) {
+export function SheetThumbnail({ name, card }: { name: string; card: Pick<PlanCard, "image_small" | "image_normal"> | undefined }) {
+  const src = card?.image_small || card?.image_normal;
+  // Every row can appear in a PDF, including rows that have never been scrolled into view.
+  return src ? <img className="ss-thumb" src={src} alt="" data-print-card={name} loading="eager" decoding="async" /> : <span className="ss-thumb" aria-hidden="true" />;
+}
+
+function TakeoutTable({ rows, view, withDeck = false, pictures, reasons }: { rows: ReturnType<typeof takeoutLines>; view: PlanView; withDeck?: boolean; pictures: boolean; reasons: boolean }) {
+  if (!rows.length) return <p className="dim">No cards to take out.</p>;
+  return (
+    <table className="ss-takeouts">
+      <thead><tr><th aria-label="Done" /><th>Take out</th>{withDeck && <th>Deck</th>}<th>Put in</th><th>Then</th></tr></thead>
+      <tbody>{rows.map(({ deck, step: s }, i) => (
+        <tr key={`${deck.key}-${i}`} className={s.installed ? "ss-done" : undefined}>
+          <td className="ss-tick"><span className={`ss-box${s.installed ? " ss-box-on" : ""}`} aria-label={s.installed ? "Installed" : "Not installed yet"} /></td>
+          <td><span className="ss-card">{pictures && <Thumb name={s.out} view={view} />}<b>{s.out}</b></span>{s.outKind !== "cut" && <span className="ss-sub">{s.outKind === "standin" ? "stand-in" : "basic holding the slot"}</span>}</td>
+          {withDeck && <td>{deck.name}</td>}
+          <td>{s.in || "—"}{reasons && <SwapReasons step={s} />}</td><td className="ss-then">{destination(s)}</td>
+        </tr>
+      ))}</tbody>
+    </table>
+  );
+}
+
+function Step({ s, view, pictures, reasons }: { s: SheetStep; view: PlanView; pictures: boolean; reasons: boolean }) {
   const then =
     s.to === "deck" ? (
       <>
@@ -163,13 +273,14 @@ function Step({ s, view }: { s: SheetStep; view: PlanView }) {
       <td>
         {s.in && (
           <span className="ss-card">
-            <Thumb name={s.in} view={view} />
+            {pictures && <Thumb name={s.in} view={view} />}
             <span>
               <span>
                 <b>{s.in}</b>
                 {s.gameChanger && <span className="ss-gc">GC</span>}
               </span>
               <span className="ss-sub">{s.kind === "print" ? "print" : s.kind === "moved" ? `from ${s.fromDeck?.name ?? "another deck"}` : "in hand"}</span>
+              {reasons ? <SwapReasons step={s} /> : <details className="no-print ss-why"><summary>Why this swap?</summary><SwapReasons step={s} /></details>}
             </span>
           </span>
         )}
@@ -177,7 +288,7 @@ function Step({ s, view }: { s: SheetStep; view: PlanView }) {
       <td>
         {s.out && (
           <span className="ss-card">
-            <Thumb name={s.out} view={view} />
+            {pictures && <Thumb name={s.out} view={view} />}
             <span>
               <b>{s.out}</b>
               {s.outKind !== "cut" && <span className="ss-sub">{s.outKind === "standin" ? "stand-in" : "basic holding the slot"}</span>}

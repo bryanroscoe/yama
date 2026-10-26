@@ -36,6 +36,10 @@ export interface ScannerViewProps {
   controls?: ReactNode;
   /** The accept button's words. */
   acceptLabel?: string;
+  /** Context for the recognized card, shown immediately without accepting or adding it. */
+  renderResult?: (card: ScanCandidate) => ReactNode;
+  /** Hide printing and price details when the caller only needs card identity. */
+  identityOnly?: boolean;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
@@ -58,7 +62,7 @@ function grab(source: CanvasImageSource, sx: number, sy: number, sw: number, sh:
   return { image: ctx.getImageData(0, 0, canvas.width, canvas.height), scale };
 }
 
-export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, intervalMs = 250, onClose, addedCount = 0, recent = [], finish = "nonfoil", controls, acceptLabel = "Add" }: ScannerViewProps) {
+export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, intervalMs = 250, onClose, addedCount = 0, recent = [], finish = "nonfoil", controls, acceptLabel = "Add", renderResult, identityOnly = false }: ScannerViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const guideRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -80,8 +84,11 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
         let ocr = ocrProp;
         // Served by the app (scripts/copy-ocr.mjs), so scanning works offline and loads nothing from a CDN.
         if (!ocr) ocr = owned = await createTesseractOcr({ workerPath: "/ocr/worker.min.js", corePath: "/ocr/core", langPath: "/ocr/lang" });
+        if (cancelled) {
+          void owned?.terminate();
+          return;
+        }
         const names = new NameIndex(catalog.names());
-        if (cancelled) return;
         engine.current = { ocr, catalog, names };
         setReady(true);
       } catch (e) {
@@ -116,6 +123,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
         setPhase((p) => (p === "loading" ? "scanning" : p));
       })
       .catch((e: unknown) => {
+        if (stopped) return;
         setPhase("no-camera");
         setError(e instanceof Error ? `No camera: ${e.message}` : "No camera");
       });
@@ -202,6 +210,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
       const bmp = await createImageBitmap(file);
       canvasRef.current ??= document.createElement("canvas");
       const { image } = grab(bmp, 0, 0, bmp.width, bmp.height, canvasRef.current);
+      bmp.close();
       // A photo cropped to the card (a scan, a screenshot) is the card: try that first, as is.
       // Otherwise assume the card is centred; try a few sizes and let the edge finder correct each.
       let res: ScanResult | null = null;
@@ -237,7 +246,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
   const printing = useQuery({
     queryKey: ["scan-printing", best?.set, best?.number, best?.lang],
     queryFn: () => api<Printing>(`/api/printings/lookup?${new URLSearchParams({ set: best!.set!, number: best!.number!, lang: best!.lang ?? "en" })}`),
-    enabled: phase === "found" && !!best?.set && !!best?.number,
+    enabled: !identityOnly && phase === "found" && !!best?.set && !!best?.number,
     retry: false,
     staleTime: Infinity,
   });
@@ -271,7 +280,11 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
             {controls}
             <label className="scan-photo button">
               Use a photo instead
-              <input type="file" accept="image/*" capture="environment" onChange={(ev) => ev.target.files?.[0] && void fromPhoto(ev.target.files[0])} />
+              <input type="file" accept="image/*" capture="environment" onChange={(ev) => {
+                const file = ev.target.files?.[0];
+                ev.target.value = "";
+                if (file) void fromPhoto(file);
+              }} />
             </label>
             {recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
           </>
@@ -282,20 +295,21 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
               {best.image ? <img className="scan-thumb" src={best.image} alt={best.name} /> : <div className="scan-thumb card-fallback">{best.name}</div>}
               <div className="scan-info">
                 <h3>{best.name}</h3>
-                <span className="dim">
+                {!identityOnly && <span className="dim">
                   {best.set ? `${p?.set_name ?? best.set.toUpperCase()} #${best.number}` : "Printing not read"}
                   {best.lang && best.lang !== "en" ? `, ${best.lang}` : ""}
                   {`, ${finish === "foil" ? "foil" : "regular"}`}
-                </span>
-                {best.set && !printing.isPending && (
+                </span>}
+                {!identityOnly && best.set && !printing.isPending && (
                   <span>
                     {usd(price)}
                     {price != null && <span className="dim"> market, {shortDate(p?.price_date) ?? "date unknown"}</span>}
                   </span>
                 )}
-                <span className="scan-method">{describe(best)}</span>
+                <span className="scan-method">{identityOnly ? "Matched by name. Check the card name." : describe(best)}</span>
               </div>
             </div>
+            {renderResult?.(best)}
             {controls}
             <div className="scan-buttons">
               {onAccept && (
@@ -313,7 +327,10 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
                     {result.candidates.slice(1).map((c, i) => (
                       <span key={`${c.name}${c.set ?? ""}${c.number ?? ""}`}>
                         {i > 0 && " or "}
-                        <button className="scan-alt" onClick={() => { onAccept?.(c); again(); }}>
+                        <button className="scan-alt" onClick={() => {
+                          if (onAccept) { onAccept(c); again(); }
+                          else setResult({ ...result, candidates: [c, ...result.candidates.filter((x) => x !== c)] });
+                        }}>
                           {c.name}
                           {c.set ? ` (${c.set.toUpperCase()} ${c.number})` : ""}
                         </button>

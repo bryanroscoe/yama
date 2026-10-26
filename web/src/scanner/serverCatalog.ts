@@ -14,6 +14,10 @@ export interface ServerCatalogOptions {
    * trying the lookalike spellings in turn).
    */
   setCodes?: Iterable<string>;
+  /** Extra names from a saved plan, available even before the full offline catalog downloads. */
+  extraNames?: Iterable<string>;
+  /** Identity checks need no printing lookup and can run entirely on the device. */
+  identityOnly?: boolean;
 }
 
 export async function createServerCatalog(opts: ServerCatalogOptions = {}): Promise<ScanCatalog> {
@@ -32,6 +36,16 @@ export async function createServerCatalog(opts: ServerCatalogOptions = {}): Prom
       }
     }
   }
+  for (const name of opts.extraNames ?? []) {
+    names.push(name);
+    if (name.includes(" // ")) for (const face of name.split(" // ")) {
+      names.push(face);
+      full.set(face, name);
+    }
+  }
+  // An adventure can share a face title with a standalone card (Brainstorm). Reading that
+  // standalone title must not silently turn it into the other card's full name.
+  for (const name of oracle.keys()) full.delete(name);
   const sets = opts.setCodes ? new Set([...opts.setCodes].map((s) => s.toLowerCase())) : null;
   const cache = new Map<string, Promise<CatalogPrinting | null>>();
   const toPrinting = (p: Printing): CatalogPrinting => ({
@@ -45,8 +59,9 @@ export async function createServerCatalog(opts: ServerCatalogOptions = {}): Prom
   const printingsOf = new Map<string, Promise<CatalogPrinting[]>>();
 
   return {
-    hasSet: (code) => (sets ? sets.has(code) : /^[a-z0-9]{2,5}$/.test(code) && /[a-z]/.test(code)),
+    hasSet: (code) => !opts.identityOnly && (sets ? sets.has(code) : /^[a-z0-9]{2,5}$/.test(code) && /[a-z]/.test(code)),
     lookup(set, number, lang) {
+      if (opts.identityOnly) return Promise.resolve(null);
       const key = `${set}/${number}/${lang}`;
       let hit = cache.get(key);
       if (!hit) {
@@ -63,6 +78,7 @@ export async function createServerCatalog(opts: ServerCatalogOptions = {}): Prom
       return hit;
     },
     async printingsOf(name) {
+      if (opts.identityOnly) return [];
       const id = oracle.get(name);
       if (!id) return [];
       let list = printingsOf.get(id);
@@ -75,7 +91,7 @@ export async function createServerCatalog(opts: ServerCatalogOptions = {}): Prom
       }
       return list;
     },
-    names: () => names,
+    names: () => [...new Set(names)],
     fullName: (n) => full.get(n) ?? n,
   };
 }

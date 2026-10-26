@@ -245,6 +245,7 @@ describe("rules and price flags", () => {
     const recorded = quotes.filter((q) => q.swap === "p-rider");
     const c = priceFlag({ card: "No Yama Price", price: 0.75, date: "2026-10-18", recorded }, bundle, settings);
     expect(c.basis?.kind).toBe("recorded");
+    expect(c.flags.map((f) => f.id)).toContain("over-market");
     expect(c.flags[0]!.text).toContain("47% over the recorded market");
     const old = { ...bundle, market: { "o-rider": { ...bundle.market["o-rider"]!, date: "2026-07-01" } } };
     const s = priceFlag({ card: "Rider", price: 0.75, date: "2026-10-18" }, old, settings);

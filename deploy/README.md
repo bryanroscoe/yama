@@ -9,7 +9,9 @@ Yama runs as one container on saget, Bryan's Unraid server at `<saget-lan-addres
 
 ## Rules (from the sagetserver repo)
 
-Ask Bryan before any action that changes the server. Read-only checks (`docker ps`, `ss`, `df`) are fine. Every script in this folder changes the server.
+Ask Bryan before any action that changes the server. Read-only checks (`docker ps`, `ss`, `df`) are fine. The deployment and setup scripts change the server. `./deploy/deploy.sh --check` and `sh deploy/check-release.sh` only check local/GitHub release state; `pull-db.sh` without `--fresh` only reads from saget.
+
+Follow [Releasing Yama](RELEASING.md) before a first deploy or update: fetch GitHub, integrate the intended changes into main, check the merged result and publish main, then deploy from clean main matching freshly fetched `origin/main`. The deploy script enforces this and stops before any server call if it fails.
 
 ## First deploy
 
@@ -103,7 +105,7 @@ Claude Code and claude.ai's custom connectors reach Yama's tools at `https://yam
 
 ## Updating
 
-`./deploy/deploy.sh`. It backs up the database first (`data/backups/yama-<time>.db`, written with SQLite's `VACUUM INTO`, which is safe while the server runs), rebuilds the images, and recreates only the `yama`, `yama-advisor` and `yama-forge` containers.
+Follow [Releasing Yama](RELEASING.md), then run `./deploy/deploy.sh` from main when deployment is requested. It verifies that the clean checkout matches freshly fetched `origin/main`, builds that exact commit's images, backs up the database before restarting (`data/backups/yama-<time>.db`, written with SQLite's `VACUUM INTO`, which is safe while the server runs), and recreates only the `yama`, `yama-advisor` and `yama-forge` containers. `./deploy/deploy.sh --check` performs the source and engine checks without contacting saget.
 
 ## Phones
 

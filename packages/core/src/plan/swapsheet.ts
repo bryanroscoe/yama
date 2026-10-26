@@ -63,6 +63,47 @@ export interface SwapSheet {
 
 export type SheetData = Pick<PlanBundle, "decks" | "swaps" | "game_changers" | "cards" | "names" | "marks">;
 
+export interface SheetCardMatch {
+  deck: PlanDeck;
+  step: SheetStep;
+  side: "in" | "out";
+}
+
+/** One row per physical copy, sorted by the card to remove, then the deck. */
+export function takeoutLines(sheet: SwapSheet, deckKey?: string): { deck: PlanDeck; step: SheetStep }[] {
+  return sheet.decks
+    .filter((d) => !deckKey || d.deck.key === deckKey)
+    .flatMap((d) => d.steps.filter((s) => s.out).map((step) => ({ deck: d.deck, step })))
+    .sort((a, b) => cmp(a.step.out.toLowerCase(), b.step.out.toLowerCase()) || cmp(a.deck.name.toLowerCase(), b.deck.name.toLowerCase()) || cmp(a.step.in.toLowerCase(), b.step.in.toLowerCase()));
+}
+
+/** Match card identity, including either face and the plan's front-face aliases, never printing. */
+export function sheetCardMatches(sheet: SwapSheet, data: Pick<SheetData, "names" | "cards">, name: string, deckKey?: string): SheetCardMatch[] {
+  const normal = (n: string) => n.trim().normalize("NFKC").replace(/[’‘]/g, "'").toLowerCase();
+  const ids = new Map(Object.entries(data.cards).map(([id, c]) => [normal(c.name), id]));
+  for (const [name, id] of Object.entries(data.names)) ids.set(normal(name), id);
+  // Explicit card names win over face aliases: an adventure's Brainstorm is a different
+  // card from the standalone Brainstorm. Unambiguous back faces still find their full card.
+  for (const [id, c] of Object.entries(data.cards)) for (const face of c.name.split(" // ")) {
+    if (!ids.has(normal(face))) ids.set(normal(face), id);
+  }
+  const identities = (n: string) => {
+    const id = ids.get(normal(n));
+    if (id) return new Set([`id:${id}`]);
+    return new Set([n, ...n.split(" // ")].map(normal).filter((name) => name && !ids.has(name)).map((name) => `name:${name}`));
+  };
+  const scanned = identities(name);
+  if (!scanned.size) return [];
+  const matches: SheetCardMatch[] = [];
+  for (const d of sheet.decks) {
+    if (deckKey && d.deck.key !== deckKey) continue;
+    for (const step of d.steps) for (const side of ["in", "out"] as const) {
+      if (step[side] && [...identities(step[side])].some((n) => scanned.has(n))) matches.push({ deck: d.deck, step, side });
+    }
+  }
+  return matches;
+}
+
 const BASIC = new Set(["Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes", "Snow-Covered Plains", "Snow-Covered Island", "Snow-Covered Swamp", "Snow-Covered Mountain", "Snow-Covered Forest"]);
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 

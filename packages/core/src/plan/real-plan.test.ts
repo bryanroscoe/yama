@@ -139,13 +139,10 @@ describe.skipIf(!present)("Bryan's real plan (local only)", () => {
     expect(md.filter((s) => / cards, \$/.test(s.head))).toHaveLength(list.stores.length);
     // Every real listing with a variant has a price, so nothing waits in "In stock, no listed price".
     expect(list.noPrice).toEqual([]);
-    const elsewhere = md.find((s) => s.head.startsWith("Not in stock at"))!;
+    const elsewhere = md.find((s) => s.head.startsWith("Not in stock at") || s.head.startsWith("Unavailable or outside the shopping rules"))!;
     expect(list.elsewhere.map((r) => [r.swap.in, deckName(r.swap.deck)]).sort()).toEqual(elsewhere.rows.map((r) => [r[0], r[1]]).sort());
-    // Deliberate difference: Yama flags prices by the rules in force on the check date. Ashen Rider at
-    // Mothership ($0.75) is over the 25% limit; with no Yama prices here it is judged against the
-    // recorded cheapest benchmark ($0.51, 47%). Against its own printing's market it's 42%.
-    const ashen = list.stores.flatMap((g) => g.rows).find((r) => r.swap.in === "Ashen Rider");
-    expect(ashen?.check?.flags.map((f) => f.id)).toContain("over-market");
+    // Price-rule flags use fixed synthetic listings in shop.test.ts. This live guide comparison
+    // follows current stock; a card becoming unavailable must not require an old store quote.
   });
 
   it("spares match docs/spares.md (both follow library.build()), apart from the explained extras", () => {

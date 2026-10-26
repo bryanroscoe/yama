@@ -14,6 +14,19 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-25-swap-checks",
+    date: "2026-10-25",
+    title: "Find the cards to swap",
+    items: [
+      "The swap sheet has alphabetical takeout lists for each deck and across all decks. Pick a deck and print the view you need; every row says what replaces the card and where the removed copy goes.",
+      "Choose which sections to print: instructions, sorting checklist, deck swap tables, pictures and add/cut reasons. The page previews your selection.",
+      "Printing waits for every card picture to load, including cards farther down the sheet. If a picture can't load, the page names it so you can retry.",
+      "Scan either the card coming in or the card coming out to see the swap and its recorded reasons. A photo or typed name works too. It recognizes either face and works across printings, including the stand-in actually in the deck.",
+      "Each plan deck links to its takeout sheet and scanner. Scanning leaves your decks, collection and installed ticks as they are.",
+    ],
+    link: { to: "/decks/plan/prints/swap", label: "Open the swap sheet" },
+  },
+  {
     id: "2026-10-23-collect-deck",
     date: "2026-10-23",
     title: "Add a deck's cards to your collection",

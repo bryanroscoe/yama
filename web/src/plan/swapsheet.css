@@ -4,6 +4,58 @@
 .swap-sheet .print-only {
   display: none;
 }
+.ss-controls,
+.ss-lookup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ss-actions {
+  margin-bottom: 16px;
+}
+.ss-controls label,
+.ss-lookup label {
+  flex: 1 1 200px;
+}
+.ss-lookup input,
+.ss-controls select {
+  width: 100%;
+}
+.ss-card-result {
+  margin: 12px 0;
+}
+.ss-match {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.ss-match h3 {
+  margin: 0 0 8px;
+  font-size: var(--t-base);
+}
+.ss-reasons {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: var(--t-sm);
+}
+.ss-reasons p {
+  margin: 0;
+}
+.ss-why {
+  margin-top: 4px;
+  font-size: var(--t-sm);
+}
+.ss-why summary {
+  cursor: pointer;
+}
+.swap-sheet .ss-takeouts th:first-child {
+  width: 24px;
+}
+.swap-sheet .ss-takeouts td {
+  overflow-wrap: anywhere;
+}
 .swap-sheet .ss-lead {
   color: var(--dim);
   margin: 0 0 8px;
@@ -109,7 +161,7 @@
 .ss-thumb {
   width: 26px;
   height: 36px;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 2px;
   flex: none;
   background: var(--raised);
@@ -140,6 +192,22 @@
   color: var(--warn);
   margin: 0;
   padding-left: 1.1rem;
+}
+
+@media (max-width: 600px) {
+  .swap-sheet .ss-takeouts,
+  .swap-sheet .ss-steps {
+    font-size: var(--t-sm);
+  }
+  .swap-sheet .ss-card {
+    flex-wrap: wrap;
+    gap: 4px;
+    overflow-wrap: anywhere;
+  }
+  .swap-sheet .ss-takeouts td,
+  .swap-sheet .ss-takeouts th {
+    padding: 5px 3px;
+  }
 }
 
 @media print {
@@ -196,6 +264,12 @@
     break-before: page;
     margin-top: 0;
   }
+  .swap-sheet .ss-takeout-deck {
+    break-before: auto;
+  }
+  .swap-sheet .ss-takeout-deck ~ .ss-takeout-deck {
+    break-before: page;
+  }
   .swap-sheet .ss-deck-head h2 {
     font-size: 15px;
   }
@@ -212,5 +286,35 @@
   }
   thead {
     display: table-header-group;
+  }
+}
+
+.ss-print-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0 0 12px;
+}
+.ss-print-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ss-print-options input {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+@media print {
+  .swap-sheet .ss-reasons {
+    font-size: inherit;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .swap-sheet.ss-decks-only .ss-deck:first-of-type {
+    break-before: auto;
   }
 }
