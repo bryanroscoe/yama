@@ -7,6 +7,7 @@ import {
   boughtText,
   bracketBuilds,
   deckChanges,
+  selectChangeSwaps,
   deckCounts,
   deckDiff,
   deckLogs,
@@ -82,6 +83,34 @@ const swap = (over: Partial<Swap> & Pick<Swap, "key" | "in">): Swap => ({
 });
 
 const ctx = sourceContext({ orders, stores, decks: [deck(), deck({ key: "beta", name: "Beta Deck" })] });
+
+describe("finding and sorting changes", () => {
+  const a = swap({ key: "a", in: "Éowyn", out: "Old Captain", tier: "T10", sort: 1, why: "Flying defense" });
+  const b = swap({ key: "b", in: "Adeline", out: "Foot Soldier", tier: "T2", sort: 2 });
+  const c = swap({ key: "c", in: "Zebra", sort: 3 });
+  const rows = [c, a, b];
+
+  it("searches names on both sides and notes, ignoring case, accents and extra spaces", () => {
+    expect(selectChangeSwaps(rows, "  EOWYN flying  ", "plan")).toEqual([a]);
+    expect(selectChangeSwaps(rows, "foot soldier", "plan")).toEqual([b]);
+    expect(selectChangeSwaps(rows, "no match", "plan")).toEqual([]);
+  });
+
+  it("finds a parent print through its attached stand-in", () => {
+    const standins = new Map([[a.key, [swap({ key: "st", in: "Temporary Knight" })]]]);
+    expect(selectChangeSwaps(rows, "temporary", "plan", standins)).toEqual([a]);
+  });
+
+  it("sorts naturally, puts missing values last and leaves the source untouched", () => {
+    const keys = (sort: Parameters<typeof selectChangeSwaps>[2]) => selectChangeSwaps(rows, "", sort).map((s) => s.key);
+    expect(keys("plan")).toEqual(["a", "b", "c"]);
+    expect(keys("in")).toEqual(["b", "a", "c"]);
+    expect(keys("in-desc")).toEqual(["c", "a", "b"]);
+    expect(keys("out")).toEqual(["b", "a", "c"]);
+    expect(keys("tier")).toEqual(["b", "a", "c"]);
+    expect(rows).toEqual([c, a, b]);
+  });
+});
 
 describe("copy text", () => {
   it("names only: commander first, basics last and summed, A to Z by lower-cased name", () => {

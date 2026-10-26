@@ -5,6 +5,9 @@ import {
   cardCount,
   cheapestMarket,
   deckChanges,
+  installedState,
+  selectChangeSwaps,
+  type ChangeSort,
   deckDiff,
   deckLogs,
   deckWarnings,
@@ -209,7 +212,7 @@ export function DeckPlan() {
 
         <div className="plan-deck-cols">
           <div className="plan-deck-main">
-            {tab === "changes" && <ChangesTab deck={deck} view={view} />}
+            {tab === "changes" && <ChangesTab key={deck.key} deck={deck} view={view} />}
             {(tab === "stock" || tab === "now" || tab === "after") && <ListTab deck={deck} view={view} state={tab} />}
             {tab === "brackets" && <BracketsTab deck={deck} view={view} />}
             {tab === "lab" && <LabTab deck={deck} sim={sim} loading={runs.isPending} error={runs.error} />}
@@ -379,9 +382,24 @@ function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
   const swaps = view.swapsOf(deck.key);
   const c = useMemo(() => deckChanges(deck.key, deck.groups, swaps), [deck, swaps]);
   const logs = useMemo(() => deckLogs(deck), [deck]);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<ChangeSort>("plan");
+  const [show, setShow] = useState("all");
+  const select = (list: Swap[]) => selectChangeSwaps(list, query, sort, c.standins).filter((s) => {
+    if (show === "all") return true;
+    const st = installedState(s, view.markBy.get(s.key)?.installed);
+    const tick = s.stage === "planned" && (s.role !== "optional" || !!s.out);
+    return tick && (show === "installed" ? st.on : !st.on && !st.skipped);
+  });
+  const visible = {
+    now: select(c.now), prints: select(c.prints), loose: select(c.loose), optional: select(c.optional),
+    proposed: c.proposed.map((g) => ({ ...g, swaps: select(g.swaps) })).filter((g) => g.swaps.length),
+  };
+  const total = c.now.length + c.prints.length + c.loose.length + c.optional.length + c.proposed.reduce((n, g) => n + g.swaps.length, 0);
+  const count = visible.now.length + visible.prints.length + visible.loose.length + visible.optional.length + visible.proposed.reduce((n, g) => n + g.swaps.length, 0);
   const row = (s: Swap) => <SwapRow key={s.key} s={s} view={view} userId={userId} logs={logs} standins={c.standins.get(s.key) ?? []} />;
   const nothing = !c.now.length && !c.prints.length && !c.optional.length && !c.proposed.length && !c.loose.length;
-  const shownArtists = [...c.now, ...c.prints, ...c.loose, ...c.optional, ...c.proposed.flatMap((g) => g.swaps)].flatMap((s) => [s.in, s.out]).map((n) => view.card(n)?.artist);
+  const shownArtists = [...visible.now, ...visible.prints, ...visible.loose, ...visible.optional, ...visible.proposed.flatMap((g) => g.swaps)].flatMap((s) => [s.in, s.out]).map((n) => view.card(n)?.artist);
   const group = (title: string, list: Swap[], about?: string) =>
     list.length > 0 && (
       <section className="plan-group" aria-label={title}>
@@ -394,22 +412,48 @@ function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
     );
   return (
     <div className="plan-changes">
+      {!nothing && <>
+        <div className="plan-change-controls" role="search" aria-label="Find swaps">
+          <label className="plan-change-search">Search swaps
+            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Card in, card out, or notes" />
+          </label>
+          <label>Sort by
+            <select value={sort} onChange={(e) => setSort(e.target.value as ChangeSort)}>
+              <option value="plan">Plan order</option>
+              <option value="in">Card in: A to Z</option>
+              <option value="in-desc">Card in: Z to A</option>
+              <option value="out">Card out: A to Z</option>
+              <option value="tier">Tier</option>
+            </select>
+          </label>
+          <label>Show
+            <select value={show} onChange={(e) => setShow(e.target.value)}>
+              <option value="all">All swaps</option>
+              <option value="pending">Still to put in</option>
+              <option value="installed">In the deck</option>
+            </select>
+          </label>
+          {(query || sort !== "plan" || show !== "all") && <button type="button" className="quiet" onClick={() => { setQuery(""); setSort("plan"); setShow("all"); }}>Reset</button>}
+        </div>
+        <p className="small dim" role="status">Showing {count} of {total} swaps. Sorted within each group.</p>
+        {count === 0 && <p className="empty">No swaps match. Try another search or reset the filters.</p>}
+      </>}
       {nothing && <p className="empty">No swaps or proposals for this deck yet.</p>}
-      {group("Swap in now", c.now)}
-      {group("When your prints arrive", c.prints)}
-      {group("Stand-ins", c.loose)}
-      {group("Optional extras", c.optional, "Cards you have for this deck that the plan doesn't need a slot for.")}
-      {c.proposed.length > 0 && (
+      {group("Swap in now", visible.now)}
+      {group("When your prints arrive", visible.prints)}
+      {group("Stand-ins", visible.loose)}
+      {group("Optional extras", visible.optional, "Cards you have for this deck that the plan doesn't need a slot for.")}
+      {visible.proposed.length > 0 && (
         <section className="plan-group" aria-label="Proposed, not in the plan">
           <h2 className="plan-group-title">
-            Proposed, not in the plan <span className="num">{c.proposed.reduce((n, g) => n + g.swaps.length, 0)}</span>
+            Proposed, not in the plan <span className="num">{visible.proposed.reduce((n, g) => n + g.swaps.length, 0)}</span>
           </h2>
           <p className="small">
             <Link to={`/decks/plan/review?deck=${encodeURIComponent(deck.key)}&show=proposed`}>Answer these in Review</Link>
             {deck.source === "import" && <span className="dim">. Your answers go to your {view.app} inbox; a want joins the plan when the plan is updated there.</span>}
           </p>
           {c.proposed.length > 1 && deck.groups.length > 1 && <p className="dim small">Each group builds on the ones before it.</p>}
-          {c.proposed.map((g) => (
+          {visible.proposed.map((g) => (
             <div key={g.group?.label ?? "none"} className="plan-subgroup">
               {(g.group || c.proposed.length > 1) && (
                 <h3 className="plan-group-head">
@@ -437,7 +481,7 @@ function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView;
   const inCard = view.card(s.in);
   const outCard = view.card(s.out);
   const lead = s.why ?? s.advice ?? s.when;
-  const more = s.why_out || s.note || s.later_out || (s.advice && s.advice !== lead) || (s.when && s.when !== lead);
+  const more = s.note || s.later_out || (s.advice && s.advice !== lead) || (s.when && s.when !== lead);
   return (
     <article className={`swap-card${s.stage === "proposed" ? " is-proposed" : ""}`}>
       <div className="swap-crops">
@@ -457,7 +501,10 @@ function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView;
         <b className="swap-title">
           {s.in} <span>{s.out ? `for ${s.out}` : "(no slot)"}</span>
         </b>
-        {lead && <p className="swap-why">{lead}</p>}
+        {lead && <p className="swap-why"><b>Why add it:</b> {lead}</p>}
+        {(s.out || s.why_out) && (
+          <p className="swap-why"><b>Why cut{s.out ? ` ${s.out}` : " it"}:</b> {s.why_out || "No cut reason recorded in this plan."}</p>
+        )}
         <p className="swap-source">
           {swapSource(s, view.ctx)}
           {priced ? ` ${marketSentence(cheapestMarket(s.in, view.b), !!view.oracleId(s.in))}` : ""}
@@ -467,7 +514,6 @@ function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView;
             <summary>More</summary>
             {s.when && s.when !== lead && <p>{/^when\b/i.test(s.when) ? s.when : `When: ${s.when}`}</p>}
             {s.advice && s.advice !== lead && <p>{s.advice}</p>}
-            {s.why_out && <p className="dim">Why cut{s.out ? ` ${s.out}` : ""}: {s.why_out}</p>}
             {s.later_out && <p>Later cut (suggested, not in the plan): {s.later_out}</p>}
             {s.note && <p className="dim">Note: {s.note}</p>}
           </details>

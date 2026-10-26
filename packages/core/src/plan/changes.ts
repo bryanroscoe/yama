@@ -3,6 +3,28 @@
 
 import type { LogStatus, Order, PlanDeck, PlanGroup, Review, Swap } from "./types";
 
+export type ChangeSort = "plan" | "in" | "in-desc" | "out" | "tier";
+
+/** Filter a displayed group without losing a print's attached stand-ins or changing plan order. */
+export function selectChangeSwaps(swaps: Swap[], query: string, sort: ChangeSort, standins: Map<string, Swap[]> = new Map()): Swap[] {
+  const normalize = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  const terms = normalize(query).trim().split(/\s+/).filter(Boolean);
+  const result = swaps.filter((s) => {
+    const text = normalize([s, ...(standins.get(s.key) ?? [])].flatMap((r) => [r.in, r.out, r.plan_card, r.later_out, r.why, r.why_out, r.note, r.advice, r.when, r.tier, r.group, r.store_label]).filter(Boolean).join(" "));
+    return terms.every((term) => text.includes(term));
+  });
+  const compare = (a: string, b: string) => a.localeCompare(b, "en", { numeric: true, sensitivity: "base" });
+  return result.sort((a, b) => {
+    switch (sort) {
+      case "in": return compare(a.in, b.in) || a.sort - b.sort;
+      case "in-desc": return compare(b.in, a.in) || a.sort - b.sort;
+      case "out": return Number(!a.out) - Number(!b.out) || compare(a.out ?? "", b.out ?? "") || a.sort - b.sort;
+      case "tier": return Number(!a.tier) - Number(!b.tier) || compare(a.tier ?? "", b.tier ?? "") || a.sort - b.sort;
+      default: return a.sort - b.sort;
+    }
+  });
+}
+
 export type Tone = "good" | "warn" | "plain";
 
 export interface Status {
