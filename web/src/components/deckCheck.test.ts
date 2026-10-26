@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { DeckCheck } from "../api";
-import { checkStatus, estimateValue, localDay, pollAfter } from "./deckCheck";
+import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, localDay, pollAfter } from "./deckCheck";
 
 const NOW = new Date("2026-10-19T15:00:00Z");
 
@@ -66,12 +66,34 @@ describe("polling", () => {
 });
 
 describe("estimate value", () => {
+  it("treats Spellbook's E fallback as provisional Core, including old cached E/1 results", () => {
+    for (const bracket of [1, 2, null]) {
+      const shown = estimateValue("E", bracket);
+      expect(shown.value).toBe("2");
+      expect(shown.sub("Exhibition")).toContain("Core starting point");
+    }
+    expect(estimateExplanation("E")).toContain("never assigns it automatically");
+    expect(estimateExplanation("E")).toContain("may still belong above Core");
+  });
+
   it("calls only Spellbook's B tag banned", () => {
     expect(estimateValue("R", 4).value).toBe("4");
     expect(estimateValue("B", null).value).toBe("Banned");
     const unknown = estimateValue("X", null);
     expect(unknown.value).toBe("Unknown");
     expect(unknown.sub("Unknown tag")).toContain('"X"');
+    expect(estimateValue("X", 1).value).toBe("Unknown");
+    expect(estimateValue("R", 5).value).toBe("Unknown");
+    expect(estimateValue("B", 4).value).toBe("Banned");
+  });
+});
+
+describe("Game Changer limits", () => {
+  it("doesn't assign a bracket from a zero count or treat the allowance as a power rating", () => {
+    expect(gameChangerFloor(0)).toContain("doesn't establish a bracket");
+    expect(gameChangerFloor(1)).toContain("1 Game Changer: within bracket 3's limit");
+    expect(gameChangerFloor(3)).toContain("deck may belong higher");
+    expect(gameChangerFloor(4)).toContain("bracket 4 or 5");
   });
 });
 

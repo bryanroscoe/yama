@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-26-deck-stats-brackets",
+    date: "2026-10-26",
+    title: "Clearer deck stats and bracket suggestions",
+    items: [
+      "Deck stats have larger summary numbers, a mana curve and a color-access comparison that fits phones and laptops.",
+      "Mana counts no longer label a color short using total pips. The page explains what potential land access includes and what an on-time casting estimate would need. Fetch lands count only colors available from matching targets in the deck.",
+      "An unflagged list now starts provisionally at Core (2), including old saved estimates that showed 1. The bracket panel explains the suggestion; your declared bracket stays yours to choose.",
+    ],
+    link: { to: "/decks", label: "Your decks" },
+  },
+  {
     id: "2026-10-25-swap-checks",
     date: "2026-10-25",
     title: "Find the cards to swap",

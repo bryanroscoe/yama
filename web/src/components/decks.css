@@ -171,77 +171,116 @@
 
 /* ── stats ──────────────────────────────────────────────────────────────── */
 
-.dstat-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem 2rem;
-}
-.dstat {
-  display: grid;
-  gap: 0.1rem;
-}
-.dstat .label {
-  color: var(--dk-text-dim);
-  font-size: var(--t-sm);
-}
-.dstat .value {
-  font-weight: 700;
-  font-size: var(--t-lg);
-  line-height: 1.1;
-}
-.dstat .value small {
-  font-size: var(--t-sm);
-  font-weight: 400;
-  color: var(--dk-text-dim);
+.deck-stats {
+  container-type: inline-size;
+  gap: 1.25rem;
+  border-radius: var(--r-panel);
+  padding: clamp(1rem, 3vw, 1.5rem);
 }
 
-.curve-wrap {
+.dstat-row {
   display: grid;
-  gap: 0.4rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 1px solid var(--dk-line);
+  padding-block: 1rem;
 }
-/* Drawn at its own size (bars 22px, labels 12px) and only ever scaled down on narrow screens. */
+
+.dstat {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  padding-inline: 1rem;
+}
+
+.dstat:first-child {
+  padding-left: 0;
+}
+
+.dstat + .dstat {
+  border-left: 1px solid var(--dk-line);
+}
+
+.dstat .label {
+  color: var(--dk-text-dim);
+  font-size: var(--t-label);
+}
+
+.dstat .value {
+  font: 800 clamp(2rem, 6cqi, 3rem)/1 var(--display);
+  font-variant-numeric: tabular-nums;
+}
+
+.dstat-charts {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.dstat-charts > * {
+  min-width: 0;
+}
+
+.dstat-charts h3 {
+  font-size: var(--t-base);
+  margin: 0;
+}
+
+.curve-wrap, .mana-balance {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+}
+
 .curve {
   width: 100%;
-  max-width: 360px;
+  max-width: 32rem;
   height: auto;
   display: block;
   overflow: visible;
 }
+
 .curve .creatures {
   fill: var(--dk-accent);
 }
+
 .curve .others {
   fill: color-mix(in srgb, var(--dk-accent) 42%, var(--dk-surface));
 }
+
 .curve .baseline {
   stroke: var(--dk-line);
   stroke-width: 1;
 }
-.curve .tick,
-.curve .cap {
+
+.curve .tick, .curve .cap {
   fill: var(--dk-text-dim);
   font-size: 12px;
   font-family: var(--body);
 }
+
 .curve .cap {
   fill: var(--dk-text);
   font-weight: 700;
 }
+
 .curve .hit {
   fill: transparent;
 }
-.curve .col:hover .hit,
-.curve .col:focus .hit {
+
+.curve .col:hover .hit, .curve .col:focus .hit {
   fill: color-mix(in srgb, var(--dk-text) 8%, transparent);
 }
+
 .curve .col:focus {
-  outline: none;
+  outline: 1px solid var(--dk-text);
+  outline-offset: -1px;
 }
+
 .curve-tip {
-  min-height: 1.4em;
+  min-height: 2.8em;
   font-size: var(--t-sm);
   color: var(--dk-text-dim);
 }
+
 .curve-legend {
   display: flex;
   flex-wrap: wrap;
@@ -252,78 +291,182 @@
   padding: 0;
   list-style: none;
 }
+
 .curve-legend li {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
 }
+
 .curve-swatch {
   width: 0.8rem;
   height: 0.8rem;
   border-radius: 2px;
   display: inline-block;
 }
+
 .curve-swatch.creatures {
   background: var(--dk-accent);
 }
+
 .curve-swatch.others {
   background: color-mix(in srgb, var(--dk-accent) 42%, var(--dk-surface));
 }
 
 table.pip-table {
   width: 100%;
-  max-width: 34rem;
   border-collapse: collapse;
   font-size: var(--t-sm);
+  table-layout: fixed;
 }
-.pip-table th,
-.pip-table td {
-  text-align: right;
-  padding: 0.35rem 0.4rem;
+
+.pip-table th, .pip-table td {
+  text-align: left;
+  padding: 0.65rem 0.5rem;
   border-bottom: 1px solid var(--dk-line);
   font-variant-numeric: tabular-nums;
+  vertical-align: top;
 }
-.pip-table th:first-child,
-.pip-table td:first-child {
-  text-align: left;
+
+.pip-table th:first-child {
+  width: 27%;
+  padding-left: 0;
 }
+
 .pip-table th {
   color: var(--dk-text-dim);
   font-weight: 400;
 }
+
 .pip-table .color {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-}
-.pip-table .status {
-  text-align: left;
-}
-.short-flag {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
   color: var(--dk-text);
 }
-.short-flag svg {
-  color: var(--dk-warn);
-  flex: none;
+
+.mana-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.2rem;
+  font-size: var(--t-base);
+  font-weight: 700;
 }
+
+.mana-track {
+  display: block;
+  height: 4px;
+  background: var(--dk-line);
+  border-radius: var(--r-pill);
+  margin-top: 0.4rem;
+  overflow: hidden;
+}
+
+.mana-track > span {
+  display: block;
+  height: 100%;
+  background: var(--dk-text);
+  border-radius: inherit;
+}
+
+.mana-track.sources > span {
+  background: var(--dk-text-dim);
+}
+
 table.curve-table {
+  width: 100%;
   border-collapse: collapse;
   font-size: var(--t-sm);
 }
-.curve-table th,
-.curve-table td {
-  padding: 0.2rem 0.5rem;
+
+.curve-table th, .curve-table td {
+  padding: 0.25rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
   border-bottom: 1px solid var(--dk-line);
 }
+
 .curve-table th:first-child {
   text-align: left;
   font-weight: 400;
   color: var(--dk-text-dim);
+}
+
+.dstat-notes {
+  border-top: 1px solid var(--dk-line);
+}
+
+.bracket-guide {
+  border-block: 1px solid var(--dk-line);
+}
+.bracket-reason {
+  border-left: 2px solid var(--dk-line);
+  padding-left: 0.85rem;
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+}
+.bracket-reason h3 {
+  font-size: var(--t-base);
+  margin: 0;
+}
+
+.bracket-guide dl {
+  margin: 0.5rem 0;
+}
+
+.bracket-guide dl > div {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: 0.75rem;
+  padding-block: 0.6rem;
+  border-bottom: 1px solid var(--dk-line);
+  font-size: var(--t-sm);
+}
+
+.bracket-guide dt {
+  font-weight: 700;
+}
+
+.bracket-guide dd {
+  margin: 0;
+  color: var(--dk-text-dim);
+}
+
+.bracket-guide p {
+  padding-bottom: 0.65rem;
+}
+
+@container (min-width: 42rem) {
+  .dstat-charts {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 2rem;
+  }
+  .mana-balance {
+    border-left: 1px solid var(--dk-line);
+    padding-left: 1.5rem;
+  }
+}
+
+@container (max-width: 25rem) {
+  .dstat {
+    padding-inline: 0.65rem;
+  }
+  .dstat .label {
+    font-size: var(--t-sm);
+    min-height: 2.6em;
+  }
+  .dstat .note {
+    font-size: var(--t-xs);
+  }
+}
+
+@media (max-width: 480px) {
+  .bracket-guide dl > div {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
 }
 
 /* ── export ─────────────────────────────────────────────────────────────── */

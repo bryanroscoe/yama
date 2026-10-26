@@ -12,8 +12,8 @@
 //!
 //! Spellbook's API guidelines (docs/api.md in SpaceCowMedia/commander-spellbook-backend, read
 //! 2026-10-19): sparse unauthenticated requests, name the service in the User-Agent, handle
-//! 429, credit and link to commanderspellbook.com. The estimate is theirs; Yama shows it as an
-//! estimate with its date and never in place of the bracket the owner declares.
+//! 429, credit and link to commanderspellbook.com. The card-list signals are theirs; Yama
+//! interprets them as a dated starting suggestion, never replacing the owner's declared bracket.
 
 use crate::decks::{Board, DeckCard, load_version_cards};
 use crate::error::{AppError, AppResult};
@@ -204,8 +204,8 @@ pub struct CheckResult {
     /// doesn't know yet reads as unknown rather than as anything else.
     pub bracket_tag: String,
     pub bracket_label: &'static str,
-    /// The 1-5 bracket Spellbook gives the tag (its own `bracket` field); `None` for B and for
-    /// tags Yama doesn't know.
+    /// Yama's starting suggestion: E defaults to Core (2), never automatic Exhibition.
+    /// Other known tags keep Spellbook's number; `None` for B and unknown tags.
     pub bracket: Option<i64>,
     pub game_changers: Vec<String>,
     pub mld: Vec<String>,
@@ -243,11 +243,13 @@ pub struct Combo {
     pub bracket_tag: Option<String>,
 }
 
-/// Spellbook's bracket tags, with the 1-5 number its `bracket` field gives each (Variant model,
-/// read 2026-10-19). Ruthless is "4" there, though it covers bracket 4 and up.
+/// Yama's starting suggestion from Spellbook's card-list signals. E is its fallback when no
+/// higher signal matches, not evidence of theme-over-power intent: suggest Core provisionally.
+/// Keep the raw tag for attribution. This mapping is applied on reads too, so stored answers
+/// are corrected without a new third-party request or a database rewrite.
 pub fn bracket_of_tag(tag: &str) -> (&'static str, Option<i64>) {
     match tag {
-        "E" => ("Exhibition", Some(1)),
+        "E" => ("Core starting point", Some(2)),
         "C" => ("Core", Some(2)),
         "O" => ("Oddball", Some(2)),
         "P" => ("Powerful", Some(3)),
@@ -870,9 +872,12 @@ mod tests {
     }
 
     #[test]
-    fn tags_map_to_spellbooks_bracket_numbers() {
+    fn tags_suggest_core_instead_of_automatically_assigning_exhibition() {
         let n = |t| bracket_of_tag(t).1;
-        assert_eq!([n("E"), n("C"), n("O"), n("P"), n("S"), n("R"), n("B")], [Some(1), Some(2), Some(2), Some(3), Some(3), Some(4), None]);
+        assert_eq!([n("E"), n("C"), n("O"), n("P"), n("S"), n("R"), n("B")], [Some(2), Some(2), Some(2), Some(3), Some(3), Some(4), None]);
+        assert_eq!(bracket_of_tag("E"), ("Core starting point", Some(2)));
+        let r = summarize(serde_json::from_value(serde_json::json!({"bracketTag": "E"})).unwrap(), &rohan_sample(), "2026-10-25T00:00:00.000Z");
+        assert_eq!((r.bracket_tag.as_str(), r.bracket_label, r.bracket), ("E", "Core starting point", Some(2)));
         // A tag Yama doesn't know isn't "banned": it keeps its own label, and the tag as sent.
         assert_eq!(bracket_of_tag("X"), ("Unknown tag", None));
         assert!(is_known_tag("B") && !is_known_tag("X"));
@@ -900,6 +905,24 @@ mod tests {
 
     async fn current_version(pool: &SqlitePool, deck: &str) -> String {
         sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(deck).fetch_one(pool).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn stored_exhibition_tags_read_as_core_without_changing_the_declared_bracket() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        let deck = crate::decks::create_deck_with_cards(&pool, &owner, "Unflagged precon", None, rohan_sample()).await.unwrap();
+        let v = current_version(&pool, &deck).await;
+        // Model an answer stored by the old server; no new Spellbook request is made.
+        sqlx::query("UPDATE deck_version_checks SET bracket_tag = 'E', checked_at = '2026-10-25T00:00:00.000Z' WHERE version_id = ?")
+            .bind(&v).execute(&pool).await.unwrap();
+        sqlx::query("UPDATE decks SET bracket = 1 WHERE id = ?").bind(&deck).execute(&pool).await.unwrap();
+        let result = view(&pool, Some(&v), true).await.unwrap().result.unwrap();
+        assert_eq!((result.bracket_tag.as_str(), result.bracket), ("E", Some(2)));
+        let chips = estimates(&pool, &[v.clone()]).await.unwrap();
+        assert_eq!(chips[&v].bracket, Some(2));
+        let declared: Option<i64> = sqlx::query_scalar("SELECT bracket FROM decks WHERE id = ?").bind(&deck).fetch_one(&pool).await.unwrap();
+        assert_eq!(declared, Some(1));
     }
 
     #[tokio::test]

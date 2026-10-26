@@ -5,7 +5,14 @@
 import type { DeckCheck } from "../api";
 
 /** What Yama sends where, said wherever a check can start. */
-export const SENDS_LIST = "Yama sends this deck's card list (commander and main deck) to Commander Spellbook after each save, for the estimate.";
+export const SENDS_LIST = "Yama sends this deck's card list (commander and main deck) to Commander Spellbook after each save, for the card flags and combos used in the suggestion.";
+
+/** The ordinary deck-building limits, not a complete assessment of a deck's bracket. */
+export function gameChangerFloor(count: number): string {
+  if (count === 0) return "No Game Changers. That alone doesn't establish a bracket: speed, consistency and combos still matter.";
+  if (count <= 3) return `${count} Game ${count === 1 ? "Changer" : "Changers"}: within bracket 3's limit, but the deck may belong higher.`;
+  return `${count} Game Changers: above bracket 3's limit of three, so bracket 4 or 5 under the usual guidelines.`;
+}
 
 /** A moment (RFC 3339, UTC) as the reader's local calendar day: "Oct 18, 2026". Unlike `day()`
  *  for date-only values, a check at 9 pm Central stays on the day it happened. */
@@ -23,12 +30,20 @@ export function localTime(iso: string, now = new Date()): string {
   return d.toLocaleString(undefined, today ? { hour: "numeric", minute: "2-digit" } : { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-/** The estimate's value: its bracket, "banned" only for Spellbook's B tag, and "unknown" for a
- *  tag Yama doesn't know yet (never mistaken for banned). */
+/** E is Spellbook's fallback, not proof of Exhibition intent. Handle it before the numeric
+ * field so old cached E/1 responses also show Yama's provisional Core starting point. */
 export function estimateValue(tag: string, bracket: number | null): { value: string; sub: (label: string) => string } {
-  if (bracket != null) return { value: String(bracket), sub: (label) => `Commander Spellbook's "${label}"` };
+  if (tag === "E") return { value: "2", sub: () => "Core starting point, confirm speed and intent" };
+  if (["C", "O", "P", "S", "R"].includes(tag) && bracket != null && bracket >= 2 && bracket <= 4) return { value: String(bracket), sub: (label) => `From Commander Spellbook's "${label}" signals` };
   if (tag === "B") return { value: "Banned", sub: () => "A card is banned in Commander" };
   return { value: "Unknown", sub: () => `Commander Spellbook answered with a tag Yama doesn't know yet ("${tag}")` };
+}
+
+export function estimateExplanation(tag: string): string {
+  if (tag === "E") return "Start with Core (2): the card-list check found no signals that suggest a higher bracket among the cards it recognized. This doesn't prove the deck's power or speed. Exhibition (1) is for decks deliberately built around theme over power, so Yama never assigns it automatically. A highly tuned deck may still belong above Core without any Game Changers.";
+  if (tag === "B") return "The card-list check found a card banned in Commander. Review it before choosing a bracket; a bracket doesn't override card legality.";
+  if (!["C", "O", "P", "S", "R"].includes(tag)) return "The card-list check returned a result Yama can't interpret yet. No starting bracket is available from this check; use the bracket guide and review the deck before declaring one.";
+  return "This starting suggestion uses the Game Changers, mass land denial, extra turns and known combos found by Commander Spellbook. Confirm how early and consistently the deck can win before choosing your bracket. Yama never assigns Exhibition (1) or cEDH (5) automatically: those depend on how and why the deck was built.";
 }
 
 /** How soon to ask about a check again: every few seconds while a try is due or running, then

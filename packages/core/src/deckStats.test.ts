@@ -59,41 +59,61 @@ describe("deck stats", () => {
   it("compares pips with land sources, fetch lands included", () => {
     const by = Object.fromEntries(s.colors.map((c) => [c.color, c]));
     // W: Éowyn 1 + Swords 1 + Adeline 2 = 4 pips; sources: 10 Plains, Fountain, Wilds (basics here: W, U).
-    expect(by.W).toEqual({ color: "W", pips: 4, sources: 12, short: false });
+    expect(by.W).toEqual({ color: "W", pips: 4, sources: 12 });
     // U: 1 pip; 2 Islands, Fountain, Wilds.
-    expect(by.U).toEqual({ color: "U", pips: 1, sources: 4, short: false });
-    // R: Éowyn's pip; only the Foothills (it names Mountain), so 1 source for 1 pip is fine.
-    expect(by.R).toEqual({ color: "R", pips: 1, sources: 1, short: false });
-    // B: three pips, one source (the land face): under one source per three pips? 1*3 = 3, not short.
-    expect(by.B).toEqual({ color: "B", pips: 3, sources: 1, short: false });
-    // G: a source (Foothills names Forest) but no pips, so not listed.
+    expect(by.U).toEqual({ color: "U", pips: 1, sources: 4 });
+    // R: no Mountain or Forest target exists in this list, so Foothills provides no access.
+    expect(by.R).toEqual({ color: "R", pips: 1, sources: 0 });
+    // B: three pips and one potential land face; these are descriptive counts.
+    expect(by.B).toEqual({ color: "B", pips: 3, sources: 1 });
+    // G: no pips, so not listed.
     expect(by.G).toBeUndefined();
     expect(s.landsWithoutManaData).toEqual([]);
     expect(s.landsWithManaData).toBe(6);
   });
 
   it("doesn't count sources while any land's mana isn't loaded", () => {
-    // A land without data could make any color: no counts and no "short" flags, not zeros.
+    // A land without data could make any color: missing counts, not zeros.
     const partly = deckStats([...deck, card("Unloaded Land", "Land", 0, null, null)]);
     expect(partly.landsWithoutManaData).toEqual(["Unloaded Land"]);
-    expect(partly.colors.find((c) => c.color === "W")).toEqual({ color: "W", pips: 4, sources: null, short: null });
+    expect(partly.colors.find((c) => c.color === "W")).toEqual({ color: "W", pips: 4, sources: null });
     // Before the import that reads produced_mana, no land has data at all.
     const none = deckStats([
       card("Counterspell", "Instant", 2, "{U}{U}"),
       card("Island", "Basic Land — Island", 0, null, null, { qty: 30 }),
     ]);
-    expect(none.colors).toEqual([{ color: "U", pips: 2, sources: null, short: null }]);
+    expect(none.colors).toEqual([{ color: "U", pips: 2, sources: null }]);
     expect(none.landsWithManaData).toBe(0);
     expect(none.lands).toBe(30);
   });
 
-  it("flags a color with fewer than one source per three pips", () => {
+  it("reports counts without inventing a shortage threshold", () => {
     const thin = deckStats([
       card("Cryptic Command", "Instant", 4, "{1}{U}{U}{U}", "", { qty: 1 }),
       card("Counterspell", "Instant", 2, "{U}{U}", "", { qty: 1 }),
       card("Island", "Basic Land — Island", 0, null, "U"),
     ]);
-    expect(thin.colors).toEqual([{ color: "U", pips: 5, sources: 1, short: true }]);
+    expect(thin.colors).toEqual([{ color: "U", pips: 5, sources: 1 }]);
+  });
+
+  it("counts only fetchable front-face targets, including the target's other colors", () => {
+    const cards = [
+      card("White spell", "Instant", 1, "{W}"),
+      card("Blue spell", "Instant", 1, "{U}"),
+      card("Green spell", "Instant", 1, "{G}"),
+      card("Wooded Foothills", "Land", 0, null, "", { oracleText: "Search your library for a Mountain or Forest card." }),
+      card("Breeding Pool", "Land — Forest Island", 0, null, "GU"),
+      card("Spell // Land", "Sorcery // Land — Plains", 1, "{W}", "W"),
+      card("Flooded Strand", "Land", 0, null, "", { oracleText: "Search your library for a Plains or Island card." }),
+    ];
+    const s = deckStats(cards);
+    expect(s.colors).toEqual([
+      { color: "W", pips: 2, sources: 1 }, // only the MDFC, not a fetchable Plains
+      { color: "U", pips: 1, sources: 3 }, // Pool and both fetches
+      { color: "G", pips: 1, sources: 3 },
+    ]);
+    expect(deckStats(cards)).toEqual(s);
+    expect(deckStats([...cards].reverse())).toEqual(s);
   });
 
   it("handles an empty deck", () => {
