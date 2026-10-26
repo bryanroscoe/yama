@@ -20,7 +20,7 @@ Status: proposal written 2026-10-17; building started 2026-10-18. See README.md 
 | **Collection** | Containers (binders, decks, lists, boxes), condition, finish, language, purchase price, bulk edit, CSV import and export | ✓ | Imports Mythic Tools CSV losslessly. Shows owned/needed for each deck, spares and proxies. |
 | **Prices** | Daily market prices from Scryfall (TCGplayer, Cardmarket), with history | ✓ | Dated snapshots kept, never shown as $0 when missing (same rules as `commander-decks`) |
 | **Cards** | Scryfall-style search, Oracle text, rulings, legality | ✓ | Works offline |
-| **Decks** | Deck list, folders, precons, coverage check, playtesting | ✓ | Test a deck against AI with the real rules engine (Play). |
+| **Decks** | Deck list, folders, precons, coverage check, playtesting | ✓ | Test a deck against AI with the real rules engine (Play); open EDHREC's per-precon guide and related articles. |
 
 Getting off Mythic Tools has to be painless. Mythic Tools has no API, but its CSV export (`commander-decks/data/collection/mythic-tools-export-*.csv`) has everything we need: Scryfall ID, set, collector number, quantity, condition, finish, language, altered/signed/misprint/proxy flags, container type and name, and purchase price. Import should map every column and make no guesses.
 
@@ -368,6 +368,8 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 ### Simulation lab (2026-10-19)
 
 Bryan wants to know how the Commander precons do against each other, and to test his own deck changes. The design and analysis live in commander-decks (`docs/deck-lab-plan.md`, `scripts/sim/`); Yama plays the games and shows the results.
+
+Each precon page links to `https://edhrec.com/precons/{slug}`, EDHREC's matching precon page with its recommendations and any published primers, upgrade guides or reviews. Yama stores neither EDHREC article text nor its ratings; the link uses the precon catalog slug and opens EDHREC's current content.
 
 - **Core:** `play/src/lab.rs` plays one all-AI game from a schedule line (`GameSpec`) and returns its result line (`GameResult`). It covers the turn, action and per-turn loop caps, the per-thread CPU-time cap, and panic isolation on a named 32 MiB thread. A watchdog can write off a hung game from what the game last published (`Live`). The JSON-lines schedule and result formats are the contract with the Python analysis. A result line for a given schedule line must not change under a refactor (apart from `ms`, and `runner`, which names the build).
 - **Batch runner:** `play/src/bin/lab.rs` is a thin CLI over the core. It adds threads, resume (`--skip-done`), the hang watchdog with clean restarts, and deck loading. It runs on the Mac and on saget (`deploy/lab.sh`).

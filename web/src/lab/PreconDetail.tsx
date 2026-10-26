@@ -86,6 +86,16 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
         </section>
       )}
 
+      <section>
+        <h2>EDHREC reviews and upgrades</h2>
+        <p className="lab-note">
+          EDHREC's page for this precon has popular additions and cuts, plus any published primers, upgrade guides or reviews.
+        </p>
+        <a className="button" href={`https://edhrec.com/precons/${encodeURIComponent(p.id)}`} target="_blank" rel="noreferrer">
+          Open {p.name} on EDHREC
+        </a>
+      </section>
+
       {d.matchups && d.matchups.rows.length > 0 && d.run && <Matchups rows={d.matchups.rows} run={d.run} unjudged={cantJudge(p.rating?.confidence)} />}
 
       <section>
