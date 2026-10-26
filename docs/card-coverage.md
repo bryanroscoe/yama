@@ -1,9 +1,9 @@
 # Card coverage in the phase engine
 
-Generated 2026-10-25 by `play/src/bin/coverage.rs` from card data `card-data-2905717cc9fe0f53.json` (phase-v0.113.0+0571ee32-yama1/cards-eb309108). The machine-readable copy is [card-coverage.json](card-coverage.json). Regenerate with:
+Generated 2026-10-26 by `play/src/bin/coverage.rs` from card data `card-data-1e5608e61683de41.json` (phase-v0.113.0+a3bc47c9-yama/cards-1e5608e6). The machine-readable copy is [card-coverage.json](card-coverage.json). Regenerate with:
 
 ```sh
-cargo run -p yama-play --bin coverage -- data/engine/card-data-2905717cc9fe0f53.json ../commander-decks \
+cargo run -p yama-play --bin coverage -- data/engine/card-data-1e5608e61683de41.json ../commander-decks \
     --fixture play/tests/fixtures/deck-cards.json --smoke play/src/card_tests/smoke_cards.rs
 ```
 
@@ -27,21 +27,21 @@ The tests are in `play/src/card_tests/` and run with the rest of the play crate 
 
 | | Cards | Full | Uncertain | Partial | Missing | Phase clean |
 |---|---:|---:|---:|---:|---:|---:|
-| Bryan's decks and candidates | 779 | 738 (94.7%) | 13 | 28 | 0 | 737 (94.6%) |
-| Precon catalog (174 precons) | 6429 | 5871 (91.3%) | 149 | 409 | 0 | 5858 (91.1%) |
+| Bryan's decks and candidates | 779 | 741 (95.1%) | 13 | 25 | 0 | 740 (95.0%) |
+| Precon catalog (174 precons) | 6429 | 5910 (91.9%) | 149 | 370 | 0 | 5897 (91.7%) |
 
 By deck and list (distinct cards, basic lands counted once):
 
 | Deck | Commander | List | Cards | Full | Uncertain | Partial | Missing |
 |---|---|---|---:|---:|---:|---:|---:|
-| Fantastic Four | Mister Fantastic | stock | 87 | 86 | 0 | 1 | 0 |
-| Fantastic Four | Mister Fantastic | now | 87 | 86 | 0 | 1 | 0 |
-| Fantastic Four | Mister Fantastic | after-prints | 87 | 86 | 0 | 1 | 0 |
+| Fantastic Four | Mister Fantastic | stock | 87 | 87 | 0 | 0 | 0 |
+| Fantastic Four | Mister Fantastic | now | 87 | 87 | 0 | 0 | 0 |
+| Fantastic Four | Mister Fantastic | after-prints | 87 | 87 | 0 | 0 | 0 |
 | Riders of Rohan | Éowyn, Shieldmaiden | stock | 84 | 78 | 2 | 4 | 0 |
 | Riders of Rohan | Éowyn, Shieldmaiden | now | 83 | 79 | 1 | 3 | 0 |
 | Riders of Rohan | Éowyn, Shieldmaiden | after-prints | 85 | 84 | 1 | 0 | 0 |
 | Riders of Rohan | Éowyn, Shieldmaiden | candidate | 7 | 6 | 0 | 1 | 0 |
-| Lorehold Spirit | Quintorius, History Chaser | stock | 85 | 80 | 0 | 5 | 0 |
+| Lorehold Spirit | Quintorius, History Chaser | stock | 85 | 81 | 0 | 4 | 0 |
 | Lorehold Spirit | Quintorius, History Chaser | now | 85 | 80 | 0 | 5 | 0 |
 | Lorehold Spirit | Quintorius, History Chaser | after-prints | 85 | 82 | 0 | 3 | 0 |
 | Prismari Artistry | Rootha, Mastering the Moment | stock | 87 | 81 | 3 | 3 | 0 |
@@ -53,8 +53,8 @@ By deck and list (distinct cards, basic lands counted once):
 | World Shaper | Hearthhull, the Worldseed | stock | 87 | 85 | 0 | 2 | 0 |
 | World Shaper | Hearthhull, the Worldseed | now | 87 | 86 | 0 | 1 | 0 |
 | World Shaper | Hearthhull, the Worldseed | after-prints | 88 | 87 | 0 | 1 | 0 |
-| Tricky Terrain | Omo, Queen of Vesuva | stock | 95 | 88 | 4 | 3 | 0 |
-| Tricky Terrain | Omo, Queen of Vesuva | now | 95 | 89 | 4 | 2 | 0 |
+| Tricky Terrain | Omo, Queen of Vesuva | stock | 95 | 89 | 4 | 2 | 0 |
+| Tricky Terrain | Omo, Queen of Vesuva | now | 95 | 90 | 4 | 1 | 0 |
 | Tricky Terrain | Omo, Queen of Vesuva | after-prints | 95 | 90 | 4 | 1 | 0 |
 | Multiverse Reforged | Jace, Multiverse Architect | stock | 93 | 86 | 3 | 4 | 0 |
 | Multiverse Reforged | Jace, Multiverse Architect | precon | 93 | 86 | 3 | 4 | 0 |
@@ -112,7 +112,7 @@ Fixed on phase branch `cardfix-1` (based on fa59aea), carried as `patches/phase/
 | Card | Support | Decks | What phase reports |
 |---|---|---|---|
 | Abstract Performance | partial | Prismari Artistry (stock, now) | Effect:unparsed_verb_arguments ("Look at the cards in the other pile") |
-| Ao, the Dawn Sky | partial | Lorehold Spirit (stock, now); Riders of Rohan (candidate) | Effect:modal_mode_unsupported_qualifier ("Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order."); Effect:put_counter_tail ("Put two +1/+1 counters on each permanent you control that's a creature or Vehicle") |
+| Ao, the Dawn Sky | partial | Lorehold Spirit (stock, now); Riders of Rohan (candidate) | Effect:modal_mode_unsupported_qualifier ("Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order.") |
 | Augusta, Order Returned | partial | Lorehold Spirit (stock, now, after-prints) | Effect:zone_change_reflexive_event_source ("When one or more nonland cards are exiled this way, put that many +1/+1 counters on target attacking creature") |
 | Call for Aid | partial | Riders of Rohan (stock, now) | Effect:unrecognized_clause_head ("can't attack that player") |
 | Champions of Minas Tirith | partial | Riders of Rohan (stock, now) | Effect:unrecognized_clause_head ("can't attack you") |
@@ -128,8 +128,6 @@ Fixed on phase branch `cardfix-1` (based on fa59aea), carried as `patches/phase/
 | Ginger, Queen of Sweets | partial | Multiverse Reforged (stock, precon) | Effect:unparsed_verb_arguments ("create a Gingerbrute token") |
 | Jace's Machinations | partial | Multiverse Reforged (proposed-bracket-3, candidate) | Effect:unbound_subject ("Until end of turn, you may activate loyalty abilities of Jace planeswalkers you control on any player's turn any time you could cast an instant. Empower Jace 8.") |
 | Loamcrafter Faun | partial | World Shaper (stock) | Effect:unparsed_verb_arguments ("discard one or more land cards") |
-| Negative Zone Portal | partial | Fantastic Four (stock, now, after-prints) | Effect:unparsed_condition ("if there are four or more creature cards exiled with ~, flip a coin. If you lose the flip, sacrifice ~ and return a card exiled with it at random to its owner's hand") |
-| Nissa, Steward of Elements | partial | Tricky Terrain (stock, now) | Effect:unrecognized_clause_head ("or a creature card with mana value less than or equal to the number of loyalty counters on ~") |
 | Niv-Mizzet, Ghost Counsel | partial | Multiverse Reforged (stock, precon) | Effect:unparsed_verb_arguments ("pay that much life") |
 | Rejoin the Fight | partial | Revival Trance (stock, now) | Effect:unrecognized_clause_head ("starting with the next opponent in turn order") |
 | Serra Paragon | partial | Lorehold Spirit (stock, now, after-prints) | Effect:static_structure ("Once during each of your turns, you may play a land from your graveyard or cast a permanent spell with mana value 3 or less from your graveyard. If you do, it gains "When ~ is put into a graveyard from the battlefield, exile it and you gain 2 life."") |
@@ -137,7 +135,6 @@ Fixed on phase branch `cardfix-1` (based on fa59aea), carried as `patches/phase/
 | Summon: Esper Valigarmanda | partial | Revival Trance (stock, now, after-prints) | Effect:linked_exile_resolution_cast ("an instant or sorcery card exiled with ~"); Effect:standalone_mana_spend_concession ("mana of any type can be spent to cast that spell") |
 | Sunken Palace | partial | Tricky Terrain (stock, now, after-prints) | Effect:orphaned_copy_retarget ("You may choose new targets for the copy"); Effect:unrecognized_clause_head ("When you spend this mana to cast a spell or activate an ability, copy that spell or ability") |
 | The Ur-Sphinx | partial | Multiverse Reforged (stock, precon, after-local-buys) | Effect:unparsed_quantity ("For each player, you may cast a card that player milled this way without paying its mana cost") |
-| Venerable Warsinger | partial | Lorehold Spirit (stock) | Effect:where_x_binding ("where X is the amount of damage ~ dealt to that player") |
 | Wonderscape Sage | partial | Tricky Terrain (stock) | Effect:Unsupported unless clause ("discard a card unless that land had a nonbasic land type (unless: that land had a nonbasic land type)") |
 | Combat Celebrant | uncertain | Riders of Rohan (stock, now, after-prints) | Swallow:Duration_ThisTurn ("[warning:swallowed-clause] Duration_ThisTurn — If this creature hasn't been exerted this turn, you may exert it as it attacks. When you do, untap all other creatures you control and after") |
 | Furygale Flocking | uncertain | Prismari Artistry (stock, now, after-prints) | Swallow:Condition_If ("[warning:swallowed-clause] Condition_If — For each opponent, create two 3/3 blue and red Elemental creature tokens with flying that attack that opponent this turn if able. They gain") |
@@ -232,7 +229,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Mountain | stock, now, after-prints | full | yes | plays as a land, adds mana |  |
 | Namor, Atlantean King | stock, now, after-prints | full | yes | enters, printed 2/2 |  |
 | Nature's Lore | now, after-prints | full | yes | resolves |  |
-| Negative Zone Portal | stock, now, after-prints | partial | no | enters | Effect:unparsed_condition ("if there are four or more creature cards exiled with ~, flip a coin. If you lose the flip, sacrifice ~ and return a card exiled with it at random to its owner's hand") |
+| Negative Zone Portal | stock, now, after-prints | full | yes | enters |  |
 | Nova Flame | stock, now | full | yes | resolves |  |
 | Path of Ancestry | stock, now | full | yes | plays as a land, adds mana |  |
 | Path of Discovery | stock, now | full | yes | enters |  |
@@ -295,7 +292,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Aetherize | candidate | full | yes | resolves | candidate rohan-flyers-aetherize |
 | Akroma's Will | after-prints | full | yes | resolves |  |
 | Anointed Procession | after-prints | full | yes | enters |  |
-| Ao, the Dawn Sky | candidate | partial | no | enters, printed 5/4 | candidate rohan-flyers-ao; Effect:modal_mode_unsupported_qualifier ("Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order."); Effect:put_counter_tail ("Put two +1/+1 counters on each permanent you control that's a creature or Vehicle") |
+| Ao, the Dawn Sky | candidate | partial | no | enters, printed 5/4 | candidate rohan-flyers-ao; Effect:modal_mode_unsupported_qualifier ("Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order.") |
 | Aragorn, King of Gondor | stock, now, after-prints | full | yes | enters, printed 4/4 |  |
 | Arcane Signet | stock, now, after-prints | full | yes | enters, adds mana |  |
 | Archangel of Tithes | candidate | full | yes | enters, printed 3/5 | candidate rohan-flyers-archangel-of-tithes |
@@ -440,7 +437,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Anger | stock, now, after-prints | full | yes | enters, printed 2/2 |  |
 | Anointed Procession | after-prints | full | yes | enters |  |
 | Antiquities on the Loose | now | full | yes | resolves, makes 2 tokens |  |
-| Ao, the Dawn Sky | stock, now | partial | no | enters, printed 5/4 | Effect:modal_mode_unsupported_qualifier ("Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order."); Effect:put_counter_tail ("Put two +1/+1 counters on each permanent you control that's a creature or Vehicle") |
+| Ao, the Dawn Sky | stock, now | partial | no | enters, printed 5/4 | Effect:modal_mode_unsupported_qualifier ("Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order.") |
 | Arcane Signet | stock, now, after-prints | full | yes | enters, adds mana |  |
 | Archaeomancer's Map | stock, now | full | yes | enters |  |
 | Arid Mesa | after-prints | full | yes | plays as a land |  |
@@ -557,7 +554,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Tragic Arrogance | stock, now | full | yes | resolves |  |
 | Turbulent Steppe | stock, now, after-prints | full | yes | plays as a land, adds mana, adds mana |  |
 | Vanguard of the Restless | stock, now, after-prints | full | yes | enters, printed 2/2 |  |
-| Venerable Warsinger | stock | partial | no | enters, printed 3/3 | Effect:where_x_binding ("where X is the amount of damage ~ dealt to that player") |
+| Venerable Warsinger | stock | full | yes | enters, printed 3/3 |  |
 | Wave of Reckoning | stock, now | full | yes | resolves |  |
 | White Orchid Phantom | stock, now, after-prints | full | yes | enters, printed 2/2 |  |
 
@@ -1039,7 +1036,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Mossborn Hydra | after-prints | full | yes | enters, printed 0/0 |  |
 | Natural Order | after-prints | full | yes | resolves |  |
 | Nesting Grounds | now, after-prints | full | yes | plays as a land, adds mana |  |
-| Nissa, Steward of Elements | stock, now | partial | no | enters | Effect:unrecognized_clause_head ("or a creature card with mana value less than or equal to the number of loyalty counters on ~") |
+| Nissa, Steward of Elements | stock, now | full | yes | enters |  |
 | Oblivion Stone | stock, now | full | yes | enters |  |
 | Omo, Queen of Vesuva | stock, now, after-prints | full | yes | enters, printed 1/5 |  |
 | Oracle of Mul Daya | now, after-prints | full | yes | enters, printed 2/2 |  |
@@ -1232,7 +1229,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 
 | Card | Precons | What phase reports |
 |---|---:|---|
-| Forge of Heroes | 7 | Effect:put_counter_tail ("Put a +1/+1 counter on it if it's a creature and a loyalty counter on it") |
 | Duplicant | 6 | Static:Unrecognized(a card exiled with ~ is a creature card) |
 | Kazuul, Tyrant of the Cliffs | 6 | Effect:unparsed_condition ("if you're the defending player, create a 3/3 red Ogre creature token unless that creature's controller pays {3}") |
 | Fractured Powerstone | 5 | Effect:unparsed_verb_arguments ("{T}: Roll the planar die. Activate only as a sorcery.") |
@@ -1241,7 +1237,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Hate Mirage | 4 | Effect:unparsed_quantity ("For each of those creatures, create a token that's a copy of that creature") |
 | Reins of Power | 4 | Effect:unbound_subject ("You and that opponent each gain control of all creatures the other controls until end of turn") |
 | Stalking Leonin | 4 | Effect:effect_structure ("Reveal the player you chose: Exile target creature that's attacking you if it's controlled by the chosen player. Activate only once.") |
-| Voice of Many | 4 | Effect:unparsed_quantity ("draw a card for each opponent who controls fewer creatures than you") |
 | Call the Coppercoats | 3 | Effect:unparsed_quantity ("Create X 1/1 white Human Soldier creature tokens, where X is the number of creatures those opponents control") |
 | Curse of Bounty | 3 | Effect:unrecognized_clause_head ("attacking that player untaps all nonland permanents they control") |
 | Dearly Departed | 3 | Effect:as_long_as_gate ("As long as ~ is in your graveyard, each Human creature you control enters with an additional +1/+1 counter on it.") |
@@ -1250,26 +1245,19 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Jace, Architect of Thought | 3 | Effect:unrecognized_clause_head ("An opponent separates those cards into two piles"); ParseWarning:target-fallback ("[warning:target-fallback] parse_target could not classify 'pile into your hand and the other'"); Swallow:DynamicQty ("[warning:swallowed-clause] DynamicQty — [−8]: For each player, search that player's library for a nonland card and exile it, then that player shuffles. You may cast those cards w") |
 | Misleading Signpost | 3 | Effect:unrecognized_clause_head ("reselect which player or permanent target attacking creature is attacking") |
 | Sage's Reverie | 3 | Effect:unparsed_quantity ("draw a card for each Aura you control that's attached to a creature"); Swallow:DynamicQty ("[warning:swallowed-clause] DynamicQty — Enchanted creature gets +1/+1 for each Aura you control that's attached to a creature.") |
-| Trail of Mystery | 3 | Effect:unparsed_verb_arguments ("if it's a creature, it gets +2/+2 until end of turn") |
-| Ajani Unyielding | 2 | Effect:unrecognized_clause_head ("five loyalty counters on each other planeswalker you control") |
 | Aminatou's Augury | 2 | Effect:unparsed_quantity ("for each nonland card type, you may cast a spell of that type from among the exiled cards without paying its mana cost") |
 | Avacyn's Judgment | 2 | Effect:instead_condition ("If this spell's madness cost was paid, it deals X damage divided as you choose among those permanents and/or players instead") |
 | Chaos Dragon | 2 | Effect:unrecognized_clause_head ("~ can't attack those players or planeswalkers they control") |
-| Commander's Insight | 2 | Effect:unparsed_quantity ("Target player draws X cards plus an additional card for each time they've cast a commander from the command zone this game.") |
 | Creative Technique | 2 | Effect:unparsed_verb_arguments ("reveal cards from the top of it until you reveal a nonland card") |
 | Crimson Honor Guard | 2 | Effect:Unsupported unless clause ("~ deals 4 damage to that player unless they control a commander (unless: they control a commander)") |
 | Dance with Calamity | 2 | Effect:unrecognized_clause_head ("As many times as you choose") |
 | Dredge the Mire | 2 | Effect:unparsed_verb_arguments ("Each opponent chooses a creature card in their graveyard. Put those cards onto the battlefield under your control.") |
-| Druidic Satchel | 2 | Effect:unrecognized_clause_head ("nonland card, you gain 2 life") |
 | Ebony Fly | 2 | Effect:unparsed_verb_arguments ("have ~ become an X/X Insect artifact creature with flying, where X is the result") |
 | Enchanter's Bane | 2 | Effect:Unsupported unless clause ("target enchantment deals damage equal to its mana value to its controller unless that player sacrifices it (unless: that player sacrifices it)") |
 | Ever-Watching Threshold | 2 | Effect:unparsed_condition ("if they attacked you and/or a planeswalker you control, draw a card") |
 | Everlasting Torment | 2 | Effect:effect_structure ("All damage is dealt as though its source had wither.") |
-| Evolutionary Escalation | 2 | Effect:unrecognized_clause_head ("three +1/+1 counters on target creature an opponent controls") |
 | Extract Brain | 2 | Effect:unparsed_verb_arguments ("Target opponent chooses X cards from their hand. Look at those cards. You may cast a spell from among them without paying its mana cost.") |
-| Grimoire of the Dead | 2 | Effect:unrecognized_clause_head ("They're black Zombies in addition to their other colors and types") |
 | Grist, the Hunger Tide | 2 | Effect:unrecognized_clause_head ("repeat this process") |
-| Gyome, Master Chef | 2 | Effect:unparsed_quantity ("create a number of Food tokens equal to the number of nontoken creatures you had enter the battlefield under your control") |
 | Havengul Lich | 2 | Effect:unrecognized_clause_head ("When you cast it this turn, ~ gains all activated abilities of that card") |
 | Intet, the Dreamer | 2 | Effect:unparsed_verb_arguments ("look at that card") |
 | Ixidron | 2 | Effect:unknown ("As ~ enters, turn all other nontoken creatures face down.") |
@@ -1282,7 +1270,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Master Biomancer | 2 | Effect:replacement_structure ("Each other creature you control enters with a number of additional +1/+1 counters on it equal to ~'s power and as a Mutant in addition to its other types.") |
 | Master Warcraft | 2 | Effect:unparsed_verb_arguments ("You choose which creatures attack this turn.") |
 | New Blood | 2 | Effect:unrecognized_clause_head ("Change the text of that creature by replacing all instances of one creature type with Vampire") |
-| Nissa, Steward of Elements | 2 | Effect:unrecognized_clause_head ("or a creature card with mana value less than or equal to the number of loyalty counters on ~") |
 | O-Kagachi, Vengeful Kami | 2 | Effect:unparsed_condition ("if that player attacked you during their last turn, exile target nonland permanent that player controls") |
 | Odric, Master Tactician | 2 | Effect:unparsed_verb_arguments ("choose which creatures block this combat and how those creatures block") |
 | Pendant of Prosperity | 2 | Effect:unbound_subject ("~'s owner draws a card, then that player may put a land card from their hand onto the battlefield") |
@@ -1292,9 +1279,7 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Scythe Specter | 2 | Effect:unparsed_quantity ("who discarded a card with the greatest mana value among cards discarded this way loses life equal to that mana value") |
 | Semester's End | 2 | Effect:unparsed_condition ("Each of them enters with an additional +1/+1 counter on it if it's a creature and an additional loyalty counter on it") |
 | Stick Together | 2 | Effect:unparsed_verb_arguments ("Each player chooses a party from among creatures they control, then sacrifices the rest.") |
-| Temur War Shaman | 2 | Effect:unparsed_verb_arguments ("if it's a creature, you may have it fight target creature you don't control") |
 | Thief of Blood | 2 | Effect:enters_with_clause ("As ~ enters, remove all counters from all permanents. ~ enters with a +1/+1 counter on it for each counter removed this way.") |
-| Titan Hunter | 2 | Effect:unparsed_condition ("if no creatures died this turn, ~ deals 4 damage to that player") |
 | Underdark Rift | 2 | Effect:unparsed_verb_arguments ("Put target artifact, creature, or planeswalker into its owner's library just beneath the top X cards of that library, where X is the result") |
 | Whisperwood Elemental | 2 | Effect:unrecognized_clause_head ("Sacrifice ~: Until end of turn, face-up nontoken creatures you control gain "When ~ dies, manifest the top card of your library."") |
 | Abandoned Sarcophagus | 1 | Effect:unparsed_replacement ("If a card that has a cycling ability would be put into your graveyard from anywhere and it wasn't cycled, exile it instead") |
@@ -1303,14 +1288,13 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Aeon Chronicler | 1 | Effect:unknown ("Suspend X—{X}{3}{U}.") |
 | Aetherflux Conduit | 1 | Effect:cast_target_untyped ("any number of spells from your hand without paying their mana costs") |
 | Aetheric Amplifier | 1 | Effect:unparsed_quantity ("Double the number of each kind of counter you have") |
-| Afterlife from the Loam | 1 | Effect:unparsed_quantity ("For each player, choose up to one target creature card in that player's graveyard. Put those cards onto the battlefield under your control. They're Zombies in addition to their other types."); Effect:unrecognized_clause_head ("They're Zombies in addition to their other types") |
+| Afterlife from the Loam | 1 | Effect:unparsed_quantity ("For each player, choose up to one target creature card in that player's graveyard. Put those cards onto the battlefield under your control. They're Zombies in addition to their other types.") |
 | Ajani Steadfast | 1 | Effect:emblem_creation ("[−7]: You get an emblem with "If a source would deal damage to you or a planeswalker you control, prevent all but 1 of that damage."") |
 | Altar of the Pantheon | 1 | Effect:unknown ("Your devotion to each color and each combination of colors is increased by one."); Effect:unrecognized_clause_head ("a Demigod, or a legendary enchantment") |
 | Ancient Cellarspawn | 1 | Effect:difference_drops_stated_subject ("target opponent loses life equal to the difference") |
 | Animal Friend | 1 | Effect:put_counter_tail ("Put a +1/+1 counter on that token for each Aura and Equipment attached to ~ other than Animal Friend") |
-| Anowon, the Ruin Thief | 1 | Effect:unparsed_quantity ("mill a card for each 1 damage dealt to them") |
 | Anrakyr the Traveller | 1 | Effect:empty |
-| Ao, the Dawn Sky | 1 | Effect:modal_mode_unsupported_qualifier ("Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order."); Effect:put_counter_tail ("Put two +1/+1 counters on each permanent you control that's a creature or Vehicle") |
+| Ao, the Dawn Sky | 1 | Effect:modal_mode_unsupported_qualifier ("Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order.") |
 | Aradesh, the Founder | 1 | Effect:unrecognized_clause_head ("the creature that attacked gains double strike") |
 | Arcade Gannon | 1 | Effect:unknown ("For Auld Lang Syne — Once during each of your turns, you may cast an artifact or Human spell from your graveyard with mana value less than or equal to the number of quest counters on ~.") |
 | Arcane Endeavor | 1 | Effect:unparsed_quantity ("Draw cards equal to that result"); Effect:unparsed_verb_arguments ("Roll two d8 and choose one result. Draw cards equal to that result. Then you may cast an instant or sorcery spell with mana value less than or equal to the other result from your hand without paying its mana cost.") |
@@ -1327,8 +1311,8 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Berserker's Frenzy | 1 | Effect:unparsed_verb_arguments ("Roll two d20 and ignore the lower roll."); Effect:unrecognized_clause_head ("1—14 \| Choose any number of creatures. They block this turn if able.") |
 | Biomantic Mastery | 1 | Effect:unparsed_quantity ("draw a card for each creature another target player controls") |
 | Biophagus | 1 | Effect:unrecognized_clause_head ("that creature enters with an additional +1/+1 counter on it") |
-| Birth of the Imperium | 1 | Effect:unparsed_quantity ("Draw two cards for each opponent who controls fewer creatures than you") |
 | Bitter Feud | 1 | Effect:unknown ("As ~ enters, choose two players.") |
+| Blaster Hulk | 1 | Effect:static_structure ("This spell costs {1} less to cast for each {E}  you've paid or lost this turn.") |
 | Bloodthirsty Adversary | 1 | Effect:unrecognized_clause_head ("When you pay this cost one or more times, put that many +1/+1 counters on ~, then exile up to that many target instant and/or sorcery cards with mana value 3 or less from your graveyard and copy them") |
 | Borderland Explorer | 1 | Effect:unrecognized_clause_head ("who discarded a card this way may search their library for a basic land card") |
 | Bounty of the Luxa | 1 | Effect:otherwise ("Otherwise") |
@@ -1343,17 +1327,14 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Change of Plans | 1 | Effect:unbound_subject ("any number of them phase out") |
 | Chaos Defiler | 1 | Effect:per_opponent_choice_trailing_clause ("Destroy one of them chosen at random") |
 | Clara Oswald | 1 | Effect:unknown ("Impossible Girl — If ~ is your commander, choose a color before the game begins. ~ is the chosen color.") |
-| Colfenor's Urn | 1 | Effect:unparsed_condition ("if three or more cards have been exiled with ~, sacrifice it. If you do, return those cards to the battlefield under their owner's control") |
 | Collision of Realms | 1 | Effect:unrecognized_clause_head ("who shuffled a nontoken creature into their library this way reveals cards from the top of their library until they reveal a creature card") |
 | Commence the Endgame | 1 | Effect:unparsed_verb_arguments ("Draw two cards, then amass Zombies X, where X is the number of cards in your hand.") |
-| Concord with the Kami | 1 | Effect:unparsed_condition ("Draw a card if you control an enchanted creature") |
 | Contaminated Drink | 1 | Effect:unparsed_quantity ("get half X rad counters, rounded up") |
 | Convert to Slime | 1 | Effect:unparsed_quantity ("Delirium — Then if there are four or more card types among cards in your graveyard, create an X/X green Ooze creature token, where X is the total mana value of permanents destroyed this way.") |
 | Coram, the Undertaker | 1 | Effect:static_structure ("During each of your turns, you may play a land and cast a spell from among cards in graveyards that were put there from libraries this turn.") |
 | Corrupted Crossroads | 1 | Effect:unparsed_verb_arguments ("Spend this mana only to cast a spell with devoid") |
 | Creeping Renaissance | 1 | Effect:unparsed_verb_arguments ("Choose a permanent type. Return all cards of the chosen type from your graveyard to your hand.") |
 | Cruel Entertainment | 1 | Effect:unrecognized_clause_head ("The first player controls the second player during the second player's next turn, and the second player controls the first player during the first player's next turn") |
-| Curie, Emergent Intelligence | 1 | Effect:unparsed_quantity ("draw cards equal to its base power"); Swallow:DynamicQty ("[warning:swallowed-clause] DynamicQty — {1}{U}, Exile another nontoken artifact creature you control: Curie becomes a copy of the exiled creature, except it has "Whenever this crea") |
 | Custodi Squire | 1 | Effect:unrecognized_clause_head ("vote for an artifact, creature, or enchantment card in your graveyard") |
 | Círdan the Shipwright | 1 | Effect:unparsed_quantity ("draw a card for each vote they received"); Effect:unrecognized_clause_head ("vote for a player") |
 | Dack Fayden, Helping Hand | 1 | Effect:unparsed_quantity ("For each of those permanents, choose a different opponent"); Effect:unrecognized_clause_head ("They're goaded") |
@@ -1380,14 +1361,13 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Eumidian Wastewaker | 1 | Effect:unbound_subject ("you and defending player each discard a card or sacrifice a permanent") |
 | Eventide's Shadow | 1 | Effect:shared_equal_to_quantity_compound ("You draw cards and lose life equal to the number of counters removed this way"); Effect:unparsed_verb_arguments ("Remove any number of counters from among permanents on the battlefield. You draw cards and lose life equal to the number of counters removed this way.") |
 | Exchange of Words | 1 | Effect:unrecognized_clause_head ("~ the text boxes of those creatures") |
-| Exotic Pets | 1 | Effect:unparsed_verb_arguments ("put a counter of that kind on either of those tokens"); Effect:unrecognized_clause_head ("for each kind of counter among creatures you control") |
+| Exotic Pets | 1 | Effect:unparsed_verb_arguments ("put a counter of that kind on either of those tokens") |
 | Expert-Level Safe | 1 | Effect:otherwise ("Otherwise"); Effect:unrecognized_clause_head ("those choices are revealed") |
 | Exterminate! | 1 | Effect:unrecognized_clause_head ("Replicate—Tap an untapped Dalek you control. Destroy target creature. Its controller loses 3 life.") |
 | Exterminator Magmarch | 1 | Effect:unparsed_condition ("if another opponent controls one or more nonland permanents that spell could target, choose one of those permanents. Copy that spell. The copy targets the chosen permanent") |
 | Eye of Doom | 1 | Effect:unparsed_verb_arguments ("choose a nonland permanent") |
 | Eye of Duskmantle | 1 | Effect:static_structure ("You may play lands and cast spells from among cards in your graveyard you've surveilled this turn. If you cast a spell this way, you pay life equal to its mana value rather than paying its mana cost.") |
 | Falkenrath Gorger | 1 | Effect:static_structure ("Each Vampire creature card you own that isn't on the battlefield has madness. The madness cost is equal to its mana cost.") |
-| Fallaji Wayfarer | 1 | Effect:effect_structure ("~ is all colors. This ability doesn't affect its color identity.") |
 | Fateful Tempest | 1 | Effect:unparsed_quantity ("mill a card for each past vote"); Effect:unrecognized_clause_head ("Council's dilemma — Starting with you, each player votes for past or present. You mill a card for each past vote, then ~ deals damage to each opponent equal to the total mana value of cards milled this way. Exile the top card of your library for each present vote. Until the end of your next turn, you may play the exiled cards.") |
 | Fatespinner | 1 | Effect:unbound_subject ("The player skips each instance of the chosen step or phase this turn") |
 | Fathom Seer | 1 | Effect:unknown ("Morph—Return two Islands you control to their owner's hand.") |
@@ -1399,7 +1379,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Firemind's Foresight | 1 | Effect:unrecognized_clause_head ("repeat this process for instant cards with mana values 2 and 1") |
 | Firkraag, Cunning Instigator | 1 | Effect:unparsed_condition ("if that creature had to attack this combat, you put a +1/+1 counter on ~ and you draw a card") |
 | Flickerform | 1 | Effect:attached_to_qualifier ("all Auras attached to it") |
-| Florian, Voldaren Scion | 1 | Effect:where_x_binding ("where X is the total amount of life your opponents lost this turn") |
 | Forger's Foundry | 1 | Effect:unrecognized_clause_head ("When you spend this mana to cast an instant or sorcery spell with mana value 3 or less, you may exile that spell instead of putting it into its owner's graveyard as it resolves") |
 | Fortunate Few | 1 | Effect:unparsed_verb_arguments ("choose a nonland permanent they don't control that hasn't been chosen this way") |
 | From Under the Floorboards | 1 | Effect:instead_condition ("If this spell's madness cost was paid, instead create X of those tokens") |
@@ -1407,10 +1386,8 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Galadriel, Elven-Queen | 1 | Effect:put_counter_tail ("put a +1/+1 counter on your Ring-bearer") |
 | Gandalf, Westward Voyager | 1 | Effect:otherwise ("Otherwise") |
 | Garruk, Cursed Huntsman | 1 | Effect:put_counter_tail ("put a loyalty counter on each ~ you control") |
-| Gatewatch Beacon | 1 | Effect:unparsed_condition ("if ~ has loyalty counters on it, you may move a loyalty counter from ~ onto that planeswalker") |
 | Geth's Summons | 1 | Effect:unparsed_quantity ("Corrupted — For each opponent who has three or more poison counters as you cast this spell, put up to one target creature card from that player's graveyard onto the battlefield under your control.") |
 | Ghired, Conclave Exile | 1 | Effect:unrecognized_clause_head ("The token enters tapped and attacking") |
-| Ghouls' Night Out | 1 | Effect:unrecognized_clause_head ("They're black Zombies in addition to their other colors and types") |
 | Gift of Doom | 1 | Effect:replacement_structure ("As ~ is turned face up, you may attach it to a creature."); Effect:unknown ("Morph—Sacrifice another creature.") |
 | Ginger, Queen of Sweets | 1 | Effect:unparsed_verb_arguments ("create a Gingerbrute token") |
 | Gix, Yawgmoth Praetor | 1 | Effect:unrecognized_clause_head ("play lands") |
@@ -1420,13 +1397,10 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Goldwardens' Gambit | 1 | Effect:unparsed_quantity ("For each of those tokens, you may attach an Equipment you control to it") |
 | Grave Endeavor | 1 | Effect:unparsed_quantity ("gain X life, where X is the other result"); Effect:unparsed_verb_arguments ("Roll two d10 and choose one result. Return a creature card from your graveyard to the battlefield with a number of +1/+1 counters on it equal to that result. Then each opponent loses X life and you gain X life, where X is the other result."); Effect:where_x_binding ("where X is the other result") |
 | Grave Scrabbler | 1 | Effect:unparsed_condition ("if its madness cost was paid, you may return target creature card from a graveyard to its owner's hand") |
-| Great Unclean One | 1 | Effect:unparsed_quantity ("for each opponent who has less life than you") |
 | Grell Philosopher | 1 | Effect:unrepresentable_mana_spend_concession ("spend blue mana as though it were mana of any color to activate those abilities") |
-| Grothama, All-Devouring | 1 | Effect:unparsed_verb_arguments ("draw cards equal to the amount of damage dealt to ~ this turn by sources they controlled") |
 | Guardian Archon | 1 | Effect:effect_structure ("Reveal the player you chose: You and target permanent you control each gain protection from the chosen player until end of turn. Activate only once.") |
 | Guff Rewrites History | 1 | Effect:unparsed_quantity ("For each player, choose target nonenchantment, nonland permanent that player controls. Those permanents' owners shuffle them into their libraries. Each player who controlled one of those permanents exiles cards from the top of their library until they exile a nonland card, then puts the rest on the bottom of their library in a random order. Each player may cast the nonland card they exiled without paying its mana cost."); Effect:unparsed_verb_arguments ("shuffle them into their libraries"); Effect:unrecognized_clause_head ("who controlled one of those permanents exiles cards from the top of their library until they exile a nonland card") |
 | Haakon, Stromgald Scourge | 1 | Effect:static_structure ("You may cast this card from your graveyard, but not from anywhere else.") |
-| Hadana's Climb | 1 | Hadana's Climb: Effect:target_has_unknown_keyword_condition ("if that creature has three or more +1/+1 counters on it, transform ~") |
 | Haldan, Avid Arcanist | 1 | Effect:static_structure ("You may play lands and cast noncreature spells from among cards you exiled that have fetch counters on them, and you may spend mana as though it were mana of any color to cast those spells.") |
 | Happily Ever After | 1 | Effect:unrecognized_clause_head ("there are six or more card types among permanents you control and/or cards in your graveyard, and your life total is greater than or equal to your starting life total") |
 | Havoc Eater | 1 | Effect:where_x_binding ("where X is the total power of creatures goaded this way") |
@@ -1434,7 +1408,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Highcliff Felidar | 1 | Effect:unparsed_verb_arguments ("choose a creature with the greatest power among creatures that player controls") |
 | Hoarder's Greed | 1 | Effect:unparsed_verb_arguments ("draw two cards, then clash with an opponent") |
 | Hot Pursuit | 1 | Effect:unparsed_condition ("if two or more players have lost the game, gain control of all goaded and/or suspected creatures until end of turn. Untap them. They gain haste until end of turn"); Effect:unrecognized_clause_head ("As long as ~ remains on the battlefield") |
-| Ian the Reckless | 1 | Effect:unparsed_condition ("if it's modified, you may have it deal damage equal to its power to you and any target") |
 | Impact Resonance | 1 | Effect:where_x_binding ("~ deals X damage divided as you choose among any number of target creatures, where X is the greatest amount of damage dealt by a source to a permanent or player this turn.") |
 | Infinite Reflection | 1 | Effect:replacement_structure ("Nontoken creatures you control enter as a copy of enchanted creature.") |
 | Inquisitor Eisenhorn | 1 | Effect:effect_structure ("You may reveal the first card you draw each turn as you draw it. Whenever you reveal an instant or sorcery card this way, create Cherubael, a legendary 4/4 black Demon creature token with flying.") |
@@ -1447,7 +1420,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Jared Carthalion | 1 | Effect:unparsed_quantity ("put a number of +1/+1 counters on it equal to the number of colors it is"); Swallow:Condition_If ("[warning:swallowed-clause] Condition_If — [−6]: Return target multicolored card from your graveyard to your hand. If that card was all colors, draw a card and create two Treasure t") |
 | Jason Bright, Glowing Prophet | 1 | Effect:unparsed_condition ("if its power was different from its base power, draw a card") |
 | Jegantha, the Wellspring | 1 | Effect:unbound_subject ("This mana can't be spent to pay generic mana costs") |
-| Journey to the Lost City | 1 | Effect:put_counter_tail ("put a +1/+1 counter on it for each creature card among those cards") |
 | Kamiz, Obscura Oculus | 1 | Effect:unparsed_verb_arguments ("choose another attacking creature with lesser power") |
 | Kaza, Roil Chaser | 1 | Effect:unparsed_quantity ("{T}: The next instant or sorcery spell you cast this turn costs {X} less to cast, where X is the number of Wizards you control as this ability resolves.") |
 | Kianne, Corrupted Memory | 1 | Static:Unrecognized(~'s power is even); Static:Unrecognized(~'s power is odd) |
@@ -1463,14 +1435,14 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Living Lore | 1 | Effect:unknown ("As ~ enters, exile an instant or sorcery card from your graveyard.") |
 | Luck Bobblehead | 1 | Effect:unparsed_quantity ("Create a tapped Treasure token for each even result"); Effect:unparsed_verb_arguments ("{1}, {T}: Roll X six-sided dice, where X is the number of Bobbleheads you control. Create a tapped Treasure token for each even result. If you rolled 6 exactly seven times, you win the game.") |
 | Ludevic, Necro-Alchemist | 1 | Effect:unparsed_condition ("draw a card if a player other than you lost life") |
+| Lumbering Megasloth | 1 | Effect:static_structure ("This spell costs {1} less to cast for each counter among players and permanents.") |
 | Magus of the Mind | 1 | Effect:unrecognized_clause_head ("play lands"); Effect:where_x_binding ("where X is one plus the number of spells cast this turn") |
 | Mairsil, the Pretender | 1 | Effect:static_structure ("~ has all activated abilities of all cards you own in exile with cage counters on them. You may activate each of those abilities only once each turn.") |
 | Mana-Charged Dragon | 1 | Effect:unrecognized_clause_head ("starting with you may pay any amount of mana") |
 | Manifold Insights | 1 | Effect:unparsed_verb_arguments ("choose a different nonland card from among them"); Effect:unrecognized_clause_head ("Starting with the next opponent in turn order") |
 | Marath, Will of the Wild | 1 | Effect:unrecognized_clause_head ("X can't be 0") |
-| Marcus, Mutant Mayor | 1 | Effect:unparsed_condition ("draw a card if that creature has a +1/+1 counter on it") |
+| Marcus, Mutant Mayor | 1 | Effect:unparsed_verb_arguments ("draw a card if that creature has a +1/+1 counter on it") |
 | Mariposa Military Base | 1 | Effect:static_structure ("You may have ~ enter tapped. If you do, you get two rad counters.") |
-| Mask of the Schemer | 1 | Effect:where_x_binding ("where X is the amount of damage it dealt to that player") |
 | Master of Predicaments | 1 | Effect:unrecognized_clause_head ("That player guesses whether the card's mana value is greater than 4") |
 | Matter Reshaper | 1 | Effect:otherwise ("Otherwise") |
 | Mirkwood Trapper | 1 | Effect:unparsed_verb_arguments ("choose an attacking creature") |
@@ -1483,12 +1455,10 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Motivated Pony | 1 | Effect:unparsed_verb_arguments ("they get an additional +2/+2") |
 | Mr. House, President and CEO | 1 | Effect:instead_condition ("If you rolled 6 or higher, instead create that token and a Treasure token"); Effect:unparsed_quantity ("{4}, {T}: Roll a six-sided die plus an additional six-sided die for each mana from Treasures spent to activate this ability.") |
 | Mysterious Stranger | 1 | Effect:unparsed_quantity ("for each graveyard with an instant or sorcery card in it, exile target instant or sorcery card from that graveyard") |
-| Myth Unbound | 1 | Effect:static_structure ("Your commander costs {1} less to cast for each time it's been cast from the command zone this game."); Trigger:Whenever your commander is put into the command zone from anywhere ("Whenever your commander is put into the command zone from anywhere, draw a card.") |
 | Narset of the Ancient Way | 1 | Effect:zone_change_reflexive_unbound_referent ("When you discard a nonland card this way, ~ deals damage equal to that card's mana value to target creature or planeswalker") |
 | Naya Soulbeast | 1 | Effect:enters_with_clause ("When you cast this spell, each player reveals the top card of their library. ~ enters with X +1/+1 counters on it, where X is the total mana value of all cards revealed this way.") |
 | Nazahn, Revered Bladesmith | 1 | Effect:otherwise ("Otherwise") |
 | Necromancy | 1 | Effect:granter_reference_unreached ("When ~ enters, if it's on the battlefield, it becomes an Aura with "enchant creature put onto the battlefield with ~." Put target creature card from a graveyard onto the battlefield under your control and attach ~ to it. When ~ leaves the battlefield, that creature's controller sacrifices it.") |
-| Negative Zone Portal | 1 | Effect:unparsed_condition ("if there are four or more creature cards exiled with ~, flip a coin. If you lose the flip, sacrifice ~ and return a card exiled with it at random to its owner's hand") |
 | Nelly Borca, Impulsive Accuser | 1 | Effect:unbound_subject ("you and the controller of those creatures each draw a card") |
 | Neverwinter Hydra | 1 | Effect:enters_with_clause ("As ~ enters, roll X d6. It enters with a number of +1/+1 counters on it equal to the total of those results.") |
 | Neyam Shai Murad | 1 | Effect:choose ("choose a permanent card in your graveyard") |
@@ -1497,7 +1467,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Nissa's Pilgrimage | 1 | Effect:instead_override ("Spell mastery — If there are two or more instant and/or sorcery cards in your graveyard, search your library for up to three basic Forest cards instead of two.") |
 | Niv-Mizzet, Ghost Counsel | 1 | Effect:unparsed_verb_arguments ("pay that much life") |
 | Norn's Decree | 1 | Effect:unparsed_condition ("if one or more players being attacked are poisoned, the attacking player draws a card") |
-| Notorious Throng | 1 | Effect:unparsed_quantity ("Create X 1/1 black Faerie Rogue creature tokens with flying, where X is the damage dealt to your opponents this turn. If this spell's prowl cost was paid, take an extra turn after this one.") |
 | Nuclear Fallout | 1 | Effect:unparsed_quantity ("Each creature gets twice -X/-X until end of turn. Each player gets X rad counters.") |
 | Nuka-Nuke Launcher | 1 | Effect:unrecognized_clause_head ("until the end of defending player's next turn, that player gets two rad counters whenever they cast a spell") |
 | Ob Nixilis of the Black Oath | 1 | Effect:emblem_creation ("[−8]: You get an emblem with "{1}{B}, Sacrifice a creature: You gain X life and draw X cards, where X is the sacrificed creature's power."") |
@@ -1507,7 +1476,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Open the Way | 1 | Effect:unrecognized_clause_head ("X can't be greater than the number of players in the game. Reveal cards from the top of your library until you reveal X land cards. Put those land cards onto the battlefield tapped and the rest on the bottom of your library in a random order.") |
 | Orator of Ojutai | 1 | Effect:cast_time_snapshot_in_trigger ("if you revealed a Dragon card or controlled a Dragon as you cast this spell, draw a card") |
 | Order of Succession | 1 | Effect:unparsed_verb_arguments ("choose a creature controlled by the next player in that direction"); Effect:unrecognized_clause_head ("Starting with you and proceeding in the chosen direction") |
-| Otherworldly Escort | 1 | Effect:unrecognized_clause_head ("It's a Spirit Detective") |
 | Overclocked Electromancer | 1 | Effect:unparsed_quantity ("get X {E}, where X is that excess damage") |
 | Phyrexian Ingester | 1 | Effect:static_structure ("~ gets +X/+Y, where X is the exiled creature card's power and Y is its toughness.") |
 | Phyrexian Processor | 1 | Effect:unknown ("As ~ enters, pay any amount of life."); Effect:unparsed_quantity ("{4}, {T}: Create an X/X black Phyrexian Minion creature token, where X is the life paid as ~ entered.") |
@@ -1521,7 +1489,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Prototype Portal | 1 | Effect:unrecognized_clause_head ("X is the mana value of that card") |
 | Psionic Ritual | 1 | Effect:unrecognized_clause_head ("Replicate—Tap an untapped Horror you control. Exile target instant or sorcery card from a graveyard and copy it. You may cast the copy without paying its mana cost.") |
 | Psychic Battle | 1 | Effect:unbound_subject ("The player who reveals the card with the greatest mana value may change the target or targets"); Effect:unrecognized_clause_head ("the target or targets remain unchanged"); Trigger:Whenever a player chooses one or more targets ("Whenever a player chooses one or more targets, each player reveals the top card of their library. The player who reveals the card with the greatest mana value may change the target or targets. If two or more cards are tied for greatest, the target or targets remain unchanged. Changing targets this way doesn't trigger abilities of permanents named Psychic Battle.") |
-| Quartzwood Crasher | 1 | Effect:unparsed_quantity ("create an X/X green Dinosaur Beast creature token with trample, where X is the amount of damage those creatures dealt to that player") |
 | Radiant Performer | 1 | Effect:unbound_subject ("Each copy targets a different one of those permanents and players") |
 | Ranar the Ever-Watchful | 1 | Effect:static_structure ("The first card you foretell each turn costs {0} to foretell."); Trigger:Whenever one or more cards are put into exile from your hand or a spell or ability you control exiles one or more permanents from the battlefield ("Whenever one or more cards are put into exile from your hand or a spell or ability you control exiles one or more permanents from the battlefield, create a 1/1 white Spirit creature token with flying.") |
 | Raul, Trouble Shooter | 1 | Effect:static_structure ("Once during each of your turns, you may cast a spell from among cards in your graveyard that were milled this turn.") |
@@ -1540,11 +1507,11 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Rowan Kenrith | 1 | Effect:unparsed_verb_arguments ("attack if able"); Effect:unrecognized_clause_head ("[+2]: During target player's next turn, each creature that player controls attacks if able.") |
 | Ruthless Radrat | 1 | Effect:unknown ("Squad—Exile four cards from your graveyard.") |
 | Sadistic Shell Game | 1 | Effect:unrecognized_clause_head ("Starting with the next opponent in turn order, each player chooses a creature you don't control. Destroy the chosen creatures.") |
-| Salt Road Ambushers | 1 | Effect:unparsed_verb_arguments ("if it's a creature, put two +1/+1 counters on it") |
 | Salvation Colossus | 1 | Effect:unknown ("Unearth—Pay eight {E}.") |
 | Sanwell, Avenger Ace | 1 | Effect:unrepresentable_cast_cap ("a vehicle or artifact creature spell from among them") |
 | Sarkhan, the Dragonspeaker | 1 | Effect:unparsed_verb_arguments ("draw two additional cards" and "At the beginning of your end step") |
 | Scriv, the Obligator | 1 | Effect:otherwise ("Otherwise") |
+| Seal of the Guildpact | 1 | Effect:static_structure ("Each spell you cast costs {1} less to cast for each of the chosen colors it is.") |
 | Seeker of Slaanesh | 1 | Effect:unknown ("Allure of Slaanesh — Each opponent must attack with at least one creature each combat if able.") |
 | Selective Adaptation | 1 | Effect:unparsed_verb_arguments ("Choose from among them a card with flying, a card with first strike, and so on for double strike, deathtouch, haste, hexproof, indestructible, lifelink, menace, reach, trample, and vigilance") |
 | Selective Obliteration | 1 | Effect:Unsupported unless clause ("exile each permanent unless it's colorless or it's only the color its controller chose (unless: it's colorless or it's only the color its controller chose)") |
@@ -1556,11 +1523,9 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Shaile, Dean of Radiance | 1 | Shaile, Dean of Radiance: Effect:put_counter_tail ("{T}: Put a +1/+1 counter on each creature that entered the battlefield under your control this turn.") |
 | Share the Spoils | 1 | Effect:unknown ("During each player's turn, that player may play a land or cast a spell from among cards exiled with ~, and they may spend mana as though it were mana of any color to cast that spell. When they do, exile the top card of their library.") |
 | Shared Fate | 1 | Effect:static_structure ("Each player may look at cards they exiled with ~, and they may play lands and cast spells from among those cards.") |
-| Showstopping Surprise | 1 | Effect:unparsed_condition ("Turn it face up if it's face down") |
 | Shredder, Shadow Master | 1 | Effect:unparsed_quantity ("for each other opponent, create a token that's a copy of ~ tapped and attacking that player, except it isn't legendary") |
 | Sigarda's Vanguard | 1 | Effect:unparsed_verb_arguments ("choose creatures with different powers") |
 | Sigardian Zealot | 1 | Effect:unparsed_verb_arguments ("choose creatures with different powers") |
-| Sigil Captain | 1 | Effect:unparsed_condition ("if that creature is 1/1, put two +1/+1 counters on it") |
 | Sin, Unending Cataclysm | 1 | Effect:enters_with_clause ("As ~ enters, remove all counters from any number of artifacts, creatures, and enchantments. ~ enters with X +1/+1 counters on it, where X is twice the number of counters removed this way.") |
 | Sinister Gnarlbark | 1 | Effect:unparsed_verb_arguments ("draw a card and blight 1") |
 | Skyway Robber | 1 | Effect:effect_structure ("~ escapes with "Whenever ~ deals combat damage to a player, you may cast an artifact, instant, or sorcery spell from among cards exiled with ~ without paying its mana cost."") |
@@ -1573,12 +1538,10 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Spellpyre Phoenix | 1 | Effect:unparsed_condition ("if you cycled two or more cards this turn, return this card from your graveyard to your hand") |
 | Squee's Revenge | 1 | Effect:unparsed_quantity ("draw two cards for each flip") |
 | Strong, the Brutish Thespian | 1 | Effect:effect_structure ("You gain life rather than lose life from radiation.") |
-| Sudden Salvation | 1 | Effect:unparsed_quantity ("draw a card for each opponent who controls one or more of those permanents") |
 | Sudden Substitution | 1 | Effect:unrecognized_clause_head ("the spell's controller may choose new targets for it") |
 | Summon: Esper Valigarmanda | 1 | Effect:linked_exile_resolution_cast ("an instant or sorcery card exiled with ~"); Effect:standalone_mana_spend_concession ("mana of any type can be spent to cast that spell") |
 | Summon: Kujata | 1 | Effect:zone_change_reflexive_event_source ("When you discard a card this way, ~ deals damage equal to that card's mana value to each opponent") |
 | Sunken Palace | 1 | Effect:orphaned_copy_retarget ("You may choose new targets for the copy"); Effect:unrecognized_clause_head ("When you spend this mana to cast a spell or activate an ability, copy that spell or ability") |
-| Surveyor's Scope | 1 | Effect:where_x_binding ("{T}, Exile ~: Search your library for up to X basic land cards, where X is the number of players who control at least two more lands than you. Put those cards onto the battlefield, then shuffle.") |
 | Survivor's Med Kit | 1 | Effect:unparsed_verb_arguments ("lose all rad counters") |
 | Syrix, Carrier of the Flame | 1 | Effect:unparsed_condition ("if a creature card left your graveyard this turn, target Phoenix you control deals damage equal to its power to any target") |
 | Tahngarth, First Mate | 1 | Effect:unrecognized_clause_head ("~ is attacking that player or planeswalker") |
@@ -1596,7 +1559,6 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | The Motherlode, Excavator | 1 | Effect:unparsed_verb_arguments ("get an amount of {E}  equal to the number of nonbasic lands that player controls") |
 | The Nipton Lottery | 1 | Effect:unparsed_verb_arguments ("Choose a creature at random. You gain control of that creature until end of turn. Untap it. It gains haste until end of turn. Then destroy all other creatures.") |
 | The Ur-Sphinx | 1 | Effect:unparsed_quantity ("For each player, you may cast a card that player milled this way without paying its mana cost") |
-| The War in Heaven | 1 | Effect:unrecognized_clause_head ("They're artifacts in addition to their other types") |
 | The Wedding of River Song | 1 | Effect:target_opponent_does_the_same ("target opponent does the same"); Effect:unrecognized_clause_head ("Cards exiled this way that don't have suspend gain suspend") |
 | Thieving Varmint | 1 | Effect:unparsed_verb_arguments ("Spend this mana only to cast spells you don't own") |
 | Three Dog, Galaxy News DJ | 1 | Effect:zone_change_reflexive_unbound_referent ("When you sacrifice an Aura this way, for each other attacking creature you control, create a token that's a copy of that Aura attached to that creature") |
@@ -1615,14 +1577,12 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Vault 112: Sadistic Simulation | 1 | Effect:bounded_batch_cast ("play one of those cards without paying its mana cost"); Effect:shuffle ("shuffle your library, then exile that many cards from the top") |
 | Vault 11: Voter's Dilemma | 1 | Effect:otherwise ("Otherwise"); Effect:unrecognized_clause_head ("vote for up to one creature") |
 | Vault 12: The Necropolis | 1 | Effect:unparsed_quantity ("Create X 2/2 black Zombie Mutant creature tokens, where X is the total number of rad counters among players") |
-| Venerable Warsinger | 1 | Effect:where_x_binding ("where X is the amount of damage ~ dealt to that player") |
 | Verity Circle | 1 | Effect:unparsed_condition ("if it isn't being declared as an attacker, you may draw a card") |
 | Verrak, Warped Sengir | 1 | Effect:unparsed_verb_arguments ("pay that much life again") |
 | Vesuvan Shapeshifter | 1 | Effect:static_structure ("As ~ enters or is turned face up, you may choose another creature on the battlefield. If you do, until ~ is turned face down, it becomes a copy of that creature, except it has "At the beginning of your upkeep, you may turn ~ face down."") |
 | Vexing Radgull | 1 | Effect:otherwise ("Otherwise"); Effect:unparsed_condition ("get two rad counters if they don't have any rad counters") |
 | Victory Chimes | 1 | Effect:unrecognized_clause_head ("{T}: A player of your choice adds {C}.") |
 | Vivien's Stampede | 1 | Effect:unparsed_quantity ("draw a card for each player who was dealt combat damage") |
-| Wakka, Devoted Guardian | 1 | Effect:unparsed_condition ("if a counter was put on ~ this turn, put a +1/+1 counter on each other creature you control") |
 | Wand of Orcus | 1 | Effect:unbound_subject ("it and Zombies you control gain deathtouch until end of turn") |
 | Warp World | 1 | Effect:unparsed_verb_arguments ("reveal that many cards from the top of their library") |
 | Wayta, Trainer Prodigy | 1 | Effect:unparsed_condition ("This ability costs {2} less to activate if it targets two creatures you control") |
@@ -1631,14 +1591,12 @@ Every card in his lists and candidates, by deck (a card in several decks is list
 | Wild Endeavor | 1 | Effect:unparsed_quantity ("Create a number of 3/3 green Beast creature tokens equal to that result"); Effect:unparsed_verb_arguments ("Roll two d4 and choose one result. Create a number of 3/3 green Beast creature tokens equal to that result. Then search your library for a number of basic land cards equal to the other result, put them onto the battlefield tapped, then shuffle.") |
 | Will Kenrith | 1 | Effect:unrecognized_clause_head ("instant, sorcery, and planeswalker spells that player casts cost {2} less to cast") |
 | Winding Constrictor | 1 | Effect:replacement_structure ("If you would get one or more counters, you get that many plus one of each of those kinds of counters instead.") |
-| Winged Hive Tyrant | 1 | Effect:static_structure ("The Will of the Hive Mind — Other creatures you control with counters on them have flying and haste.") |
 | Within Range | 1 | Effect:unparsed_quantity ("lose life equal to the number of creatures attacking them") |
 | Wonderscape Sage | 1 | Effect:Unsupported unless clause ("discard a card unless that land had a nonbasic land type (unless: that land had a nonbasic land type)") |
-| Wurmquake | 1 | Effect:unparsed_quantity ("for each opponent with three or more poison counters"); Effect:unparsed_verb_arguments ("create another one of those tokens") |
+| Wurmquake | 1 | Effect:unparsed_verb_arguments ("create another one of those tokens") |
 | Yavimaya Bloomsage | 1 | Channel: Effect:unrecognized_clause_head ("Until end of turn, any time you could activate a mana ability, you may pay 1 life. If you do, add {C}.") |
 | Yes Man, Personal Securitron | 1 | Effect:unrecognized_clause_head ("When they do, you draw two cards") |
 | Yidris, Maelstrom Wielder | 1 | Effect:unrecognized_clause_head ("as you cast spells from your hand") |
-| Zenith Flare | 1 | Effect:unparsed_quantity ("gain X life, where X is the number of cards with a cycling ability in your graveyard"); Effect:where_x_binding ("~ deals X damage to any target and you gain X life, where X is the number of cards with a cycling ability in your graveyard.") |
 | Zimone, All-Questioning | 1 | Effect:unparsed_condition ("if a land entered the battlefield under your control this turn and you control a prime number of lands, create Primo, the Indivisible, a legendary 0/0 green and blue Fractal creature token, then put that many +1/+1 counters on it") |
 | Zndrsplt, Eye of Wisdom | 1 | Effect:flip_coin_until_lose_stub ("pending consolidation") |
 
@@ -1646,19 +1604,19 @@ The most common gaps among the catalog's uncertain and partial cards:
 
 | Gap | Cards |
 |---|---:|
-| Effect:unrecognized_clause_head | 102 |
-| Effect:unparsed_verb_arguments | 85 |
-| Effect:unparsed_quantity | 63 |
-| Swallow:DynamicQty | 51 |
-| Swallow:Condition_If | 38 |
-| Effect:unparsed_condition | 36 |
-| Effect:static_structure | 26 |
+| Effect:unrecognized_clause_head | 92 |
+| Effect:unparsed_verb_arguments | 82 |
+| Effect:unparsed_quantity | 51 |
+| Swallow:DynamicQty | 48 |
+| Swallow:Condition_If | 39 |
+| Effect:static_structure | 27 |
+| Effect:unparsed_condition | 26 |
 | Effect:unknown | 25 |
 | Effect:unbound_subject | 15 |
-| Effect:where_x_binding | 13 |
 | Effect:otherwise | 11 |
-| Effect:put_counter_tail | 11 |
-| Effect:effect_structure | 9 |
+| Effect:effect_structure | 8 |
+| Effect:put_counter_tail | 8 |
+| Effect:where_x_binding | 8 |
 | Swallow:Replacement_Instead | 8 |
 | Replacement:as_enters_projection | 7 |
 | Effect:replacement_structure | 6 |

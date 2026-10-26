@@ -1,0 +1,11 @@
+{
+  "name": "solemnity-persist",
+  "about": "Persist under Solemnity: Kitchen Finks dies to Lightning Bolt, returns, and gets no -1/-1 counter (CR 702.79a, CR 122.6); its enters trigger gains 2 life.",
+  "seats": [
+    { "battlefield": ["Mountain"], "hand": ["Lightning Bolt"] },
+    { "battlefield": ["Solemnity", "Kitchen Finks"] }
+  ],
+  "script": [
+    { "seat": 0, "cast": "Lightning Bolt", "targets": [{ "seat": 1, "card": "Kitchen Finks" }] }
+  ]
+}

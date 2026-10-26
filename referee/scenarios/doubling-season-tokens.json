@@ -1,0 +1,11 @@
+{
+  "name": "doubling-season-tokens",
+  "about": "A replacement effect on creating tokens (CR 614.1a): Raise the Alarm under Doubling Season makes four Soldiers.",
+  "seats": [
+    { "battlefield": ["Doubling Season", "Plains", "Plains"], "hand": ["Raise the Alarm"] },
+    {}
+  ],
+  "script": [
+    { "seat": 0, "cast": "Raise the Alarm" }
+  ]
+}

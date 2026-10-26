@@ -1,0 +1,11 @@
+{
+  "name": "platinum-angel-zero-life",
+  "about": "Platinum Angel stops the zero-life state-based action (CR 704.5a): seat 1 goes to 0 life and stays in the game.",
+  "seats": [
+    { "battlefield": ["Mountain"], "hand": ["Lightning Bolt"] },
+    { "life": 3, "battlefield": ["Platinum Angel"] }
+  ],
+  "script": [
+    { "seat": 0, "cast": "Lightning Bolt", "targets": [{ "seat": 1 }] }
+  ]
+}

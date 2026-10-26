@@ -1,0 +1,8 @@
+{
+  "name": "blood-moon-urborg-a",
+  "about": "Dependency in layer 4 (CR 613.8a/b), reversed timestamps: Blood Moon, then Urborg, then Island. Urborg is a Mountain without its ability, so the Island isn't a Swamp.",
+  "seats": [
+    { "battlefield": ["Blood Moon", "Urborg, Tomb of Yawgmoth", "Island"] },
+    {}
+  ]
+}

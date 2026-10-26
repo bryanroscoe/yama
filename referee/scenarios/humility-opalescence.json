@@ -1,0 +1,8 @@
+{
+  "name": "humility-opalescence",
+  "about": "Layers and timestamps (CR 613): Humility then Opalescence, plus a Grizzly Bears. No actions; compares the static board.",
+  "seats": [
+    { "battlefield": ["Humility", "Opalescence", "Grizzly Bears"] },
+    {}
+  ]
+}

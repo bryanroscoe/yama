@@ -1,0 +1,11 @@
+{
+  "name": "blood-moon-urborg-c4",
+  "about": "Static effects aren't locked in (CR 611.3a): the main board, then Blood Moon is destroyed. Urborg has its ability again, so every land is a Swamp. The basic Plains only pays for Disenchant.",
+  "seats": [
+    { "battlefield": ["Urborg, Tomb of Yawgmoth", "Blood Moon", "Island", "Plains"], "hand": ["Disenchant"] },
+    {}
+  ],
+  "script": [
+    { "seat": 0, "cast": "Disenchant", "targets": [{ "seat": 0, "card": "Blood Moon" }] }
+  ]
+}

@@ -58,11 +58,11 @@ Keeping Yama out of the public stores also keeps it private, which matters for t
 
 ## 3. Rules engine (Play)
 
-Unchanged from the first draft. Build on **[phase-rs](https://github.com/phase-rs/phase)** (MIT or Apache-2.0). It's a Rust engine that compiles to WASM, with a React client.
+Build on **[phase-rs](https://github.com/phase-rs/phase)** (MIT or Apache-2.0). It's a Rust engine that compiles to WASM, with a React client. The current local pin and validation are recorded in [the recovery report](docs/engine-recovery-2026-10-25.md).
 
-- It supports 92.5% of Commander cards: 30,494 of 32,950.
+- The initial 17 October coverage snapshot reported support for 30,494 of 32,950 Commander cards (92.5%); current per-deck classifications are in [card coverage](docs/card-coverage.md).
 - It has replays as seed plus action log, reconnect, spectators, and both heuristic and LLM AI seats.
-- Our two full 100-card lists each have one card it can't run yet: **Negative Zone Portal** (Fantastic Four) and **Combat Celebrant** (Riders of Rohan).
+- The 25 October recovery export clears Negative Zone Portal's explicit parser gap in Fantastic Four. Combat Celebrant in Riders of Rohan still has uncertain coverage. Card-level classifications and their limitations remain visible in the coverage report.
 
 The alternatives:
 
@@ -243,7 +243,7 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 
 ### How online play ended up working
 
-- **Engine:** phase v0.113.0 from a local fork (`../yama-phase`: one commit so it builds on stable Rust, then seven AI commits, `patches/phase/0002-0008`, and two stall fixes, `0010-0011`, on top of 0008; 0009 is kept for the layers fix on the referee branch; rules fixes found by the card tests, `0012-0030`, on top of 0011 (branch `cardfix-1`, not pinned yet); deploys build the commit in `deploy/phase-rev`), wrapped by `play/` (`Engine`, `Match`). `soak` plays Bryan's decks AI-vs-AI and checks that the replay log reproduces the game.
+- **Engine:** phase v0.113.0 from the local fork (`../yama-phase`), wrapped by `play/` (`Engine`, `Match`). The reproducible patch series in `patches/phase/` includes the stable build, AI and stall fixes, layer dependency fix 0009, card fixes 0012–0030, and the recovered rules/parser/performance batch. Deploys build the exact commit in `deploy/phase-rev`; production changes move the card export and replay version with that pin. A test-only checkpoint may retain the preceding runtime version when the production inputs are byte-identical, with that equivalence recorded in the recovery report. New simulation results carry `+recovery1` so earlier engines are not pooled with them. `soak` checks replay determinism. Scope, measurements and remaining gaps are in [the recovery report](docs/engine-recovery-2026-10-25.md).
 - **Board:** we didn't fork phase's 1,400-file client. Since 2026-10-19 it follows the Night table artboards (design/screens/PlayBoard and PlayBoardPhone): opponents in turn order on their commander art, a turn strip with the stop ladder, square art tiles (a tapped tile turns its art, never its name), the hand fan and a right rail with the stack and one big button whose label says what it will do. Each decision is the engine's own option list (`AiDecisionContract`), the same list the AI chooses from, shown as plain-language buttons. Tapping a card filters the list to options for that card. The server sends each card's full-size image and rules text with every view, so any card can be read at full size (hover preview on desktop, a card sheet on phones). Every option is legal by construction, every engine decision type works from day one, and the UI can grow special cases (drag to attack, mana payment) later.
 - **Smart stops:** the server passes for a person unless:
   - it's their main phase,
@@ -549,6 +549,21 @@ Bryan (2026-10-22): "we also need to allow more engines for running rules. Maybe
 - **Seeds:** Yama's seeds are 64-bit; the worker hands Forge the low 63 bits (a negative Java long reads as a flag on Forge's command line) and the result keeps Yama's seed.
 - **Limits:** a Forge game counts as 2 against the daily allowance (`FORGE_WEIGHT`); a "both" run counts 1 + 2 per pod game.
 - **Admin, Server** shows the worker: answering or not, engine, slots, games playing and waiting.
+
+### Referee: phase checked against Forge (2026-10-24)
+
+Bryan (2026-10-24) wants Forge as a black-box referee for phase, run like unit tests, with fixes made clean-room so they can go upstream to phase. Details and the scenario format are in `referee/README.md`.
+
+- **Scenarios** (`referee/scenarios/*.json`): a board placed directly (nothing triggers for it), a script of casts and activations played when their seat has priority, and every other decision left to each engine's AI. Each engine prints the final state in one JSON shape; `referee/compare.py` diffs them (exit 1 on any difference or error). `referee/run.sh` runs both.
+- **phase side:** `play/src/bin/referee.rs`, using only phase's public API (no `test-support`).
+- **Forge side:** `~/Developer/forge-referee`, outside this repo and never distributed: a small Java program compiled against the Forge release jar that loads the board with Forge's own `GameState` loader and drives its game loop with scripted AI controllers. Forge's `sim` command can't load a board, which is why this exists.
+- **Clean room:** whoever keeps the Forge runner (and reads Forge's source) doesn't write specs or phase fixes. A spec writer works from the difference, Oracle text and the Comprehensive Rules (`referee/specs/`); an implementer fixes phase from the spec alone, with a phase test that doesn't need Forge. A difference is a question for the rules, not a verdict: Forge can be the one that's wrong.
+- **Hand-written scenarios** (`referee/scenarios/`): replacement effects, layers and timestamps, simultaneous death triggers, persist under Solemnity, Platinum Angel, Doubling Season. The first run found phase making the Island a Swamp under Blood Moon and Urborg; fixed clean-room (layer-4 dependency, CR 613.8; phase patch 0009).
+- **Card sweep** (`referee/sweep.py`): one generated scenario per card in the corpus of real decks (174 precons and Bryan's decks, 6,547 cards, most-played first): a fixed two-player board, the lands for the card's cost, cast it. phase picks every target, mode and named choice by a fixed rule and writes them into the scenario (`resolved`), and Forge replays them, so both engines make the same choices; other decisions (may, scry, which card to discard) are each engine's own AI. X spells are skipped. 2026-10-24: 5,895 of 6,363 cards agree; with the triaged differences that are only AI choices, randomness or Forge bugs, 6,036 (94.9%) behave as the rules say; 137 are phase rules bugs, written up as clean-room specs (`referee/specs/`, ranked in `INDEX.md`). Five triage agents classified the 367 differences (phase-bug 155, choice 146, harness 36, forge-bug 19).
+- **Parser gaps:** 412 corpus cards have text phase can't parse yet; `referee/parser-queue.md` groups them into fix patterns, ranked by the decks they unlock.
+- **Speed:** the time in a game is phase's AI, not the rules: in a profile of an Easy lab game, the AI's decision is ~62% and listing legal actions (mostly "can this spell be paid for") ~54%, trigger collection after each action ~45% (these overlap); layers under 10%. Easy games run ~9–35 ms per action, Medium ~160 ms. Optimisations must reproduce every benchmark game exactly (same seed, same result line).
+- **Forge card scripts as a fallback: tried and dropped (2026-10-24).** phase's optional `forge` feature (now compiling again, branch `forge-bridge-compile-fix` in the fork) took Commander-legal cards with unparsed text from 1,760 to 1,615 and the corpus's from 412 to 387, but broke 70 cards phase parsed itself, and its translations are partial and untested. Not used; the Forge scripts were deleted again. Parser work is the path to coverage.
+- **Not yet:** combat, multiplayer, X spells, and Forge-side errors (76 cards, mostly the runner's divided damage and per-opponent targets).
 
 ## 11. Risks
 

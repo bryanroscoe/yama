@@ -1,0 +1,11 @@
+{
+  "name": "kalitas-exile-zombie",
+  "about": "A replacement effect that also gives a reward: an opponent's creature dying under Kalitas is exiled and Kalitas's controller makes a 2/2 Zombie.",
+  "seats": [
+    { "battlefield": ["Mountain", "Kalitas, Traitor of Ghet"], "hand": ["Lightning Bolt"] },
+    { "battlefield": ["Grizzly Bears"] }
+  ],
+  "script": [
+    { "seat": 0, "cast": "Lightning Bolt", "targets": [{ "seat": 1, "card": "Grizzly Bears" }] }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "blood-artist-wrath",
+  "about": "Simultaneous deaths and leaves-the-battlefield triggers (CR 603.10a): Wrath of God kills four creatures including Blood Artist, which sees them all.",
+  "seats": [
+    { "battlefield": ["Plains", "Plains", "Plains", "Plains", "Blood Artist", "Grizzly Bears"], "hand": ["Wrath of God"] },
+    { "battlefield": ["Grizzly Bears", "Llanowar Elves"] }
+  ],
+  "script": [
+    { "seat": 0, "cast": "Wrath of God" }
+  ]
+}

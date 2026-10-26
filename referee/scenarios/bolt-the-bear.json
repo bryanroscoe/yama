@@ -1,0 +1,13 @@
+{
+  "name": "bolt-the-bear",
+  "about": "Baseline: Lightning Bolt deals 3 damage to a 2/2, which dies as a state-based action (CR 704.5g).",
+  "active": 0,
+  "phase": "main1",
+  "seats": [
+    { "battlefield": ["Mountain"], "hand": ["Lightning Bolt"] },
+    { "battlefield": ["Grizzly Bears"] }
+  ],
+  "script": [
+    { "seat": 0, "cast": "Lightning Bolt", "targets": [{ "seat": 1, "card": "Grizzly Bears" }] }
+  ]
+}

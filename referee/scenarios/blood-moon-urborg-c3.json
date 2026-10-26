@@ -1,0 +1,11 @@
+{
+  "name": "blood-moon-urborg-c3",
+  "about": "Layer 4 (CR 613.7, 613.7e, 613.8): Urborg, Blood Moon, then Evil Presence attached to Urborg. The later Evil Presence wins (Urborg a Swamp); Urborg's own effect depends on both and never applies, so the Island isn't a Swamp. The basic Swamp only pays for Evil Presence.",
+  "seats": [
+    { "battlefield": ["Urborg, Tomb of Yawgmoth", "Blood Moon", "Swamp", "Island"], "hand": ["Evil Presence"] },
+    {}
+  ],
+  "script": [
+    { "seat": 0, "cast": "Evil Presence", "targets": [{ "seat": 0, "card": "Urborg, Tomb of Yawgmoth" }] }
+  ]
+}
