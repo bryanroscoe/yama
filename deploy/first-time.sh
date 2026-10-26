@@ -3,8 +3,8 @@
 set -eu
 HOST=root@<saget-lan-address>
 DIR=/mnt/user/appdata/yama
-CARD_DATA=card-data-2905717cc9fe0f53.json
-SHA=2905717cc9fe0f53549f113f0991e998ccd969c56357f07deba5efcd0f1fc76a
+CARD_DATA=card-data-1e5608e61683de41.json
+SHA=1e5608e61683de41c84f08f70115bef38db13df85bc5e01fd0eb249cf023244d
 cd "$(dirname "$0")"
 
 ssh "$HOST" "mkdir -p $DIR/data/engine && chown -R 99:100 $DIR/data"

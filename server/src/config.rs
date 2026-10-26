@@ -235,7 +235,7 @@ impl Config {
         std::fs::create_dir_all(&data_dir).with_context(|| format!("creating {}", data_dir.display()))?;
         let engine_card_data = std::env::var("YAMA_ENGINE_CARD_DATA")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| data_dir.join("engine/card-data-2905717cc9fe0f53.json"));
+            .unwrap_or_else(|_| data_dir.join("engine/card-data-1e5608e61683de41.json"));
         let bind = std::env::var("YAMA_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
         // Dev login lets anyone in as anyone, so it only works on a server only this machine can reach.
         let loopback = bind.parse::<std::net::SocketAddr>().is_ok_and(|a| a.ip().is_loopback());

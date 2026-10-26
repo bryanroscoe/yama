@@ -1,0 +1,8 @@
+{
+  "name": "blood-moon-urborg",
+  "about": "Dependency in layer 4 (CR 613.8): Blood Moon makes Urborg a Mountain without its ability, so the Island isn't a Swamp.",
+  "seats": [
+    { "battlefield": ["Urborg, Tomb of Yawgmoth", "Blood Moon", "Island"] },
+    {}
+  ]
+}

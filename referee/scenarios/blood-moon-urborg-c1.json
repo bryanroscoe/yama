@@ -1,0 +1,8 @@
+{
+  "name": "blood-moon-urborg-c1",
+  "about": "Control: without Blood Moon, Urborg makes each land a Swamp, itself included (CR 305.7).",
+  "seats": [
+    { "battlefield": ["Urborg, Tomb of Yawgmoth", "Island"] },
+    {}
+  ]
+}

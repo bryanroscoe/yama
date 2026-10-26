@@ -1,0 +1,11 @@
+{
+  "name": "rest-in-peace-bolt",
+  "about": "A replacement effect on going to the graveyard (CR 614): with Rest in Peace out, the dying Grizzly Bears and the resolved Lightning Bolt are exiled instead.",
+  "seats": [
+    { "battlefield": ["Mountain"], "hand": ["Lightning Bolt"] },
+    { "battlefield": ["Rest in Peace", "Grizzly Bears"] }
+  ],
+  "script": [
+    { "seat": 0, "cast": "Lightning Bolt", "targets": [{ "seat": 1, "card": "Grizzly Bears" }] }
+  ]
+}

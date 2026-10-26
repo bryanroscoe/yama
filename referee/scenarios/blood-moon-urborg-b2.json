@@ -1,0 +1,8 @@
+{
+  "name": "blood-moon-urborg-b2",
+  "about": "Timestamp order in layer 4 (CR 613.7, 305.7): Urborg, Blanket of Night, Blood Moon, Island. Blanket applies first, then Blood Moon overwrites Urborg's land types: Urborg is a Mountain, the Island an Island Swamp.",
+  "seats": [
+    { "battlefield": ["Urborg, Tomb of Yawgmoth", "Blanket of Night", "Blood Moon", "Island"] },
+    {}
+  ]
+}

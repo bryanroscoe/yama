@@ -1,0 +1,95 @@
+From 1348e65dc37ae0920d8ec061a3b0f103dcd90c6f Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Sun, 25 Oct 2026 23:34:49 -0500
+Subject: [PATCH] Tests: preserve full source beside refused fragments
+
+Pin the measured shortened diagnostic while separately verifying the full original quantity and unsupported coverage. Remove the temporary focused top-level harness; its regression modules remain registered in integration/main.rs and the existing layout guards pass.
+---
+ .../engine/src/parser/oracle_effect/tests.rs  | 31 +++++++++++++------
+ crates/engine/tests/recovery.rs               | 17 ----------
+ 2 files changed, 21 insertions(+), 27 deletions(-)
+ delete mode 100644 crates/engine/tests/recovery.rs
+
+diff --git a/crates/engine/src/parser/oracle_effect/tests.rs b/crates/engine/src/parser/oracle_effect/tests.rs
+index d1c6b62..6507972 100644
+--- a/crates/engine/src/parser/oracle_effect/tests.rs
++++ b/crates/engine/src/parser/oracle_effect/tests.rs
+@@ -89513,31 +89513,42 @@ fn unsupported_source_recipient_damage_quantity_reaches_where_x_gap() {
+         super::lower::parse_where_x_quantity_expression(expression),
+         None
+     );
+-    let parsed = corpus_card(
+-        "Draw X cards, where X is the greatest amount of damage dealt by a source to a permanent or player this turn.",
+-        "Unsupported damage quantity isolation",
+-        &["Sorcery"],
+-    );
++    let text = "Draw X cards, where X is the greatest amount of damage dealt by a source to a permanent or player this turn.";
++    let parsed = corpus_card(text, "Unsupported damage quantity isolation", &["Sorcery"]);
+     assert_eq!(parsed.abilities.len(), 1, "{parsed:#?}");
+     let def = &parsed.abilities[0];
+     assert_eq!(def.kind, AbilityKind::Spell);
+     let Effect::Unimplemented { name, description } = def.effect.as_ref() else {
+         panic!("expected a quantity gap on the draw instruction, got {def:#?}");
+     };
+-    // The draw count slot rejects the unrepresentable definition before a Draw
+-    // is emitted; the imperative fallback records the rejected clause verbatim.
++    // The draw count slot rejects before a Draw is emitted. Even the shell's
++    // original-text retry reaches the inner imperative duration stripper, so
++    // the recorded gap fragment omits "this turn"; it is not the full source.
+     assert_eq!(name, "unparsed_quantity");
+     assert_eq!(
+         description.as_deref(),
+-        Some("Draw X cards, where X is the greatest amount of damage dealt by a source to a permanent or player this turn")
++        Some("Draw X cards, where X is the greatest amount of damage dealt by a source to a permanent or player")
+     );
++    assert_eq!(def.description.as_deref(), Some(text));
++    // Diagnose the complete source separately to retain the full operand.
+     assert!(
+         matches!(
+-            diagnose_clause_gap(description.as_deref().expect("rejected draw clause")),
++            diagnose_clause_gap(text),
+             ClauseGap::Quantity { ref operand } if operand == expression
+         ),
+-        "the gap must identify the rejected maximum: {def:#?}"
++        "the original source must identify the complete rejected maximum: {def:#?}"
+     );
++    let face = CardFace {
++        name: "Unsupported damage quantity isolation".to_string(),
++        oracle_text: Some(text.to_string()),
++        abilities: vec![def.clone()],
++        triggers: parsed.triggers,
++        static_abilities: parsed.statics,
++        replacements: parsed.replacements,
++        additional_cost: parsed.additional_cost,
++        ..Default::default()
++    };
++    assert!(card_face_has_unimplemented_parts(&face), "{face:#?}");
+ }
+ 
+ /// CR 120.1 + CR 608.2i: the supported opponent-recipient noncombat total
+diff --git a/crates/engine/tests/recovery.rs b/crates/engine/tests/recovery.rs
+deleted file mode 100644
+index 7023ce6..0000000
+--- a/crates/engine/tests/recovery.rs
++++ /dev/null
+@@ -1,17 +0,0 @@
+-//! Focused runtime regressions for the recovered Yama engine batch.
+-//!
+-//! Reuse the same test modules as the full integration target, without linking
+-//! its two thousand unrelated modules for each iteration of this batch.
+-
+-#[path = "integration/addendum_those_creatures_relay.rs"]
+-mod addendum_those_creatures_relay;
+-#[path = "integration/bestow_normal_cast_static_subject.rs"]
+-mod bestow_normal_cast_static_subject;
+-#[path = "integration/chosen_player_anaphor_quantities.rs"]
+-mod chosen_player_anaphor_quantities;
+-#[path = "integration/each_creature_deals_damage_to_itself.rs"]
+-mod each_creature_deals_damage_to_itself;
+-#[path = "integration/independent_game_state_conditional_sentences.rs"]
+-mod independent_game_state_conditional_sentences;
+-#[path = "integration/player_scope_sacrificed_this_way.rs"]
+-mod player_scope_sacrificed_this_way;
+-- 
+2.50.1 (Apple Git-155)
+

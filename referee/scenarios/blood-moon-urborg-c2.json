@@ -1,0 +1,11 @@
+{
+  "name": "blood-moon-urborg-c2",
+  "about": "Dependency in layer 4 (CR 613.8a/b, 305.7): Evil Presence on Urborg sets it to Swamp, so Urborg loses its ability and the Island isn't a Swamp.",
+  "seats": [
+    { "battlefield": ["Urborg, Tomb of Yawgmoth", "Island"], "hand": ["Evil Presence"] },
+    {}
+  ],
+  "script": [
+    { "seat": 0, "cast": "Evil Presence", "targets": [{ "seat": 0, "card": "Urborg, Tomb of Yawgmoth" }] }
+  ]
+}

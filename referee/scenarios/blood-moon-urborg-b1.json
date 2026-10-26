@@ -1,0 +1,8 @@
+{
+  "name": "blood-moon-urborg-b1",
+  "about": "Timestamp order in layer 4 (CR 613.7, 305.7): Urborg, Blood Moon, Island, Blanket of Night. Blanket isn't a land, so it is independent of Blood Moon and applies after it: every land is a Swamp, Urborg a Mountain Swamp.",
+  "seats": [
+    { "battlefield": ["Urborg, Tomb of Yawgmoth", "Blood Moon", "Island", "Blanket of Night"] },
+    {}
+  ]
+}

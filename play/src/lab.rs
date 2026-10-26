@@ -68,8 +68,10 @@ use crate::{DeckLine, Engine, SeatDeck};
 /// decisions that could run without end ("+stallfix"), and 0012-0030, rules fixes for cards in
 /// Bryan's decks found by the card tests ("+cardfix": Jace, Adeline, Resonating Lute, Study Hall,
 /// Spark Double, Zaffai and more; docs/card-coverage.md). Results under an earlier label are
-/// another engine and must not be pooled with these.
-pub const ENGINE: &str = "phase-rs v0.113.0+aifix+tempo+endgame+stallfix+cardfix";
+/// another engine and must not be pooled with these. The 25 Oct recovery batch adds
+/// independently implemented rules/parser fixes and performance work ("+recovery1");
+/// see docs/engine-recovery-2026-10-25.md.
+pub const ENGINE: &str = "phase-rs v0.113.0+aifix+tempo+endgame+stallfix+cardfix+recovery1";
 /// Added to [`ENGINE`] on result lines of games played with the engine's loop detection on
 /// ([`GameOptions::loops`]), so they're never pooled with the usual results.
 pub const LOOPS_SUFFIX: &str = "+loops";
@@ -1421,7 +1423,7 @@ mod tests {
         r.eliminations = vec![Elimination { seat: 1, turn: 3 }];
         let line = r.to_line();
         let expected = format!(
-            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"phase-rs v0.113.0+aifix+tempo+endgame+stallfix+cardfix","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
+            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"phase-rs v0.113.0+aifix+tempo+endgame+stallfix+cardfix+recovery1","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
         );
         assert_eq!(line, expected);
         assert_eq!(serde_json::from_str::<GameResult>(&line).unwrap(), r);

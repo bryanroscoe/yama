@@ -49,9 +49,10 @@ Online play needs the local phase fork and its card data (see docs/engine-integr
 git clone --depth 1 --branch v0.113.0 https://github.com/phase-rs/phase ../yama-phase
 git -C ../yama-phase apply ../yama/patches/phase/*.patch   # 0001 drops 3 nightly-only lines so it builds on stable
                                                            # 0002-0008: AI fixes and free-for-all tempo changes (22 Oct 2026)
-mkdir -p data/engine && scp root@<saget-lan-address>:/mnt/user/appdata/yama/data/engine/card-data-2905717cc9fe0f53.json data/engine/
-  # 101 MB; sha256 2905717cc9fe0f53…; built by Yama's pinned parser (deploy/phase-rev), not on
-  # data.phase-rs.dev. To rebuild it from its inputs bundle, see docs/engine-integration.md.
+mkdir -p data/engine
+  # Build card-data-1e5608e61683de41.json from the archived inputs as described in
+  # docs/engine-integration.md (SHA-256 1e5608e61683de41…). This local recovery export
+  # is not on data.phase-rs.dev or the server yet. It must match deploy/phase-rev.
 ./target/debug/soak                     # all-AI game with Bryan's decks; checks replay determinism
 ```
 
@@ -59,11 +60,11 @@ Checks on games people play (docs/play-performance.md), in release:
 
 ```sh
 cargo build --release -p yama-play --bins
-./target/release/soak data/engine/card-data-2905717cc9fe0f53.json 80 1-20   # 20 full games, loop detection as online
-./target/release/playbench data/engine/card-data-2905717cc9fe0f53.json --games 2   # AI, engine and view times
-YAMA_ENGINE_CARD_DATA=data/engine/card-data-2905717cc9fe0f53.json \
+./target/release/soak data/engine/card-data-1e5608e61683de41.json 80 1-20   # 20 full games, loop detection as online
+./target/release/playbench data/engine/card-data-1e5608e61683de41.json --games 2   # AI, engine and view times
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
   cargo test --release -p yama-play --test determinism -- --ignored          # same games twice, and resumed
-YAMA_ENGINE_CARD_DATA=data/engine/card-data-2905717cc9fe0f53.json \
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
   cargo test --release -p yama-server play::bench -- --ignored --nocapture   # a person's move, act to views sent
 ```
 
@@ -108,7 +109,7 @@ npm run typecheck     # core + web
 
 Releases follow [deploy/RELEASING.md](deploy/RELEASING.md): fetch GitHub before merging, integrate the completed work into main, verify and publish main, then deploy that same commit from a clean main checkout. `./deploy/deploy.sh --check` checks readiness without contacting saget.
 
-`cargo test` includes the per-card tests (play/src/card_tests/): a smoke test for every card in Bryan's decks and specific tests for the commanders, the cards the decks are built around and the cards phase only partly implements or parses with warnings. What phase supports for each card, and the engine bugs the tests found, are in [docs/card-coverage.md](docs/card-coverage.md); regenerate it, and the tests' card fixture, with `cargo run -p yama-play --bin coverage -- data/engine/card-data-2905717cc9fe0f53.json ../commander-decks --fixture play/tests/fixtures/deck-cards.json --smoke play/src/card_tests/smoke_cards.rs`.
+`cargo test` includes the per-card tests (play/src/card_tests/): a smoke test for every card in Bryan's decks and specific tests for the commanders, the cards the decks are built around and the cards phase only partly implements or parses with warnings. What phase supports for each card, and the engine bugs the tests found, are in [docs/card-coverage.md](docs/card-coverage.md); regenerate it, and the tests' card fixture, with `cargo run -p yama-play --bin coverage -- data/engine/card-data-1e5608e61683de41.json ../commander-decks --fixture play/tests/fixtures/deck-cards.json --smoke play/src/card_tests/smoke_cards.rs`.
 
 ## Layout
 

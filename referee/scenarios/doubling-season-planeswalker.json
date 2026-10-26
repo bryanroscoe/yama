@@ -1,0 +1,11 @@
+{
+  "name": "doubling-season-planeswalker",
+  "about": "A planeswalker entering with loyalty counters under Doubling Season enters with twice as many (CR 306.5b, CR 614.1c).",
+  "seats": [
+    { "battlefield": ["Doubling Season", "Mountain", "Mountain", "Mountain", "Mountain"], "hand": ["Chandra, Torch of Defiance"] },
+    {}
+  ],
+  "script": [
+    { "seat": 0, "cast": "Chandra, Torch of Defiance" }
+  ]
+}

@@ -1,7 +1,7 @@
 {
-  "generated": "2026-10-25",
-  "engine": "phase-v0.113.0+0571ee32-yama1/cards-eb309108",
-  "card_data": "card-data-2905717cc9fe0f53.json",
+  "generated": "2026-10-26",
+  "engine": "phase-v0.113.0+a3bc47c9-yama/cards-1e5608e6",
+  "card_data": "card-data-1e5608e61683de41.json",
   "sources": [
     "commander-decks decks/compare/*.txt",
     "commander-decks data/shopping/candidates.json",
@@ -19,11 +19,11 @@
   },
   "bryan": {
     "cards": 779,
-    "full": 738,
+    "full": 741,
     "uncertain": 13,
-    "partial": 28,
+    "partial": 25,
     "missing": 0,
-    "phase_supported": 737
+    "phase_supported": 740
   },
   "bryan_decks": [
     {
@@ -31,33 +31,33 @@
       "commander": "Mister Fantastic",
       "list": "stock",
       "cards": 87,
-      "full": 86,
+      "full": 87,
       "uncertain": 0,
-      "partial": 1,
+      "partial": 0,
       "missing": 0,
-      "phase_supported": 86
+      "phase_supported": 87
     },
     {
       "deck": "Fantastic Four",
       "commander": "Mister Fantastic",
       "list": "now",
       "cards": 87,
-      "full": 86,
+      "full": 87,
       "uncertain": 0,
-      "partial": 1,
+      "partial": 0,
       "missing": 0,
-      "phase_supported": 86
+      "phase_supported": 87
     },
     {
       "deck": "Fantastic Four",
       "commander": "Mister Fantastic",
       "list": "after-prints",
       "cards": 87,
-      "full": 86,
+      "full": 87,
       "uncertain": 0,
-      "partial": 1,
+      "partial": 0,
       "missing": 0,
-      "phase_supported": 86
+      "phase_supported": 87
     },
     {
       "deck": "Riders of Rohan",
@@ -108,11 +108,11 @@
       "commander": "Quintorius, History Chaser",
       "list": "stock",
       "cards": 85,
-      "full": 80,
+      "full": 81,
       "uncertain": 0,
-      "partial": 5,
+      "partial": 4,
       "missing": 0,
-      "phase_supported": 80
+      "phase_supported": 81
     },
     {
       "deck": "Lorehold Spirit",
@@ -240,22 +240,22 @@
       "commander": "Omo, Queen of Vesuva",
       "list": "stock",
       "cards": 95,
-      "full": 88,
+      "full": 89,
       "uncertain": 4,
-      "partial": 3,
+      "partial": 2,
       "missing": 0,
-      "phase_supported": 88
+      "phase_supported": 89
     },
     {
       "deck": "Tricky Terrain",
       "commander": "Omo, Queen of Vesuva",
       "list": "now",
       "cards": 95,
-      "full": 89,
+      "full": 90,
       "uncertain": 4,
-      "partial": 2,
+      "partial": 1,
       "missing": 0,
-      "phase_supported": 89
+      "phase_supported": 90
     },
     {
       "deck": "Tricky Terrain",
@@ -326,11 +326,11 @@
   ],
   "catalog": {
     "cards": 6429,
-    "full": 5871,
+    "full": 5910,
     "uncertain": 149,
-    "partial": 409,
+    "partial": 370,
     "missing": 0,
-    "phase_supported": 5858
+    "phase_supported": 5897
   },
   "catalog_precons": 174,
   "bryan_cards": [
@@ -888,10 +888,6 @@
             {
               "handler": "Effect:modal_mode_unsupported_qualifier",
               "text": "Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order."
-            },
-            {
-              "handler": "Effect:put_counter_tail",
-              "text": "Put two +1/+1 counters on each permanent you control that's a creature or Vehicle"
             }
           ]
         }
@@ -10178,19 +10174,12 @@
     },
     {
       "name": "Negative Zone Portal",
-      "support": "partial",
-      "phase_supported": false,
+      "support": "full",
+      "phase_supported": true,
       "faces": [
         {
           "name": "Negative Zone Portal",
-          "types": "Artifact",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_condition",
-              "text": "if there are four or more creature cards exiled with ~, flip a coin. If you lose the flip, sacrifice ~ and return a card exiled with it at random to its owner's hand"
-            }
-          ]
+          "types": "Artifact"
         }
       ],
       "smoke_checks": [
@@ -10275,19 +10264,12 @@
     },
     {
       "name": "Nissa, Steward of Elements",
-      "support": "partial",
-      "phase_supported": false,
+      "support": "full",
+      "phase_supported": true,
       "faces": [
         {
           "name": "Nissa, Steward of Elements",
-          "types": "Legendary Planeswalker — Nissa",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "or a creature card with mana value less than or equal to the number of loyalty counters on ~"
-            }
-          ]
+          "types": "Legendary Planeswalker — Nissa"
         }
       ],
       "smoke_checks": [
@@ -17068,19 +17050,12 @@
     },
     {
       "name": "Venerable Warsinger",
-      "support": "partial",
-      "phase_supported": false,
+      "support": "full",
+      "phase_supported": true,
       "faces": [
         {
           "name": "Venerable Warsinger",
-          "types": "Creature — Spirit Cleric",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:where_x_binding",
-              "text": "where X is the amount of damage ~ dealt to that player"
-            }
-          ]
+          "types": "Creature — Spirit Cleric"
         }
       ],
       "smoke_checks": [
@@ -18227,10 +18202,6 @@
             {
               "handler": "Effect:unparsed_quantity",
               "text": "For each player, choose up to one target creature card in that player's graveyard. Put those cards onto the battlefield under your control. They're Zombies in addition to their other types."
-            },
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "They're Zombies in addition to their other types"
             }
           ]
         }
@@ -18262,29 +18233,6 @@
         "loyalty 4"
       ],
       "precons": 1
-    },
-    {
-      "name": "Ajani Unyielding",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Ajani Unyielding",
-          "types": "Legendary Planeswalker — Ajani",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "five loyalty counters on each other planeswalker you control"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "loyalty 4"
-      ],
-      "precons": 2
     },
     {
       "name": "Altar of the Pantheon",
@@ -18407,18 +18355,20 @@
     },
     {
       "name": "Anowon, the Ruin Thief",
-      "support": "partial",
+      "support": "uncertain",
       "phase_supported": false,
       "faces": [
         {
           "name": "Anowon, the Ruin Thief",
           "types": "Legendary Creature — Vampire Rogue",
-          "unimplemented": true,
           "gaps": [
             {
-              "handler": "Effect:unparsed_quantity",
-              "text": "mill a card for each 1 damage dealt to them"
+              "handler": "Swallow:Condition_If",
+              "text": "[warning:swallowed-clause] Condition_If — Whenever one or more Rogues you control deal combat damage to a player, that player mills a card for each 1 damage dealt to them. If the pla"
             }
+          ],
+          "warnings": [
+            "[warning:swallowed-clause] Condition_If — Whenever one or more Rogues you control deal combat damage to a player, that player mills a card for each 1 damage dealt to them. If the pla"
           ]
         }
       ],
@@ -18463,10 +18413,6 @@
             {
               "handler": "Effect:modal_mode_unsupported_qualifier",
               "text": "Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order."
-            },
-            {
-              "handler": "Effect:put_counter_tail",
-              "text": "Put two +1/+1 counters on each permanent you control that's a creature or Vehicle"
             }
           ]
         }
@@ -18699,31 +18645,6 @@
       "smoke_checks": [
         "enters",
         "printed 9/9"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Ascendant Acolyte",
-      "support": "uncertain",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Ascendant Acolyte",
-          "types": "Creature — Human Monk",
-          "gaps": [
-            {
-              "handler": "Swallow:DynamicQty",
-              "text": "[warning:swallowed-clause] DynamicQty — This creature enters with a +1/+1 counter on it for each +1/+1 counter among other creatures you control."
-            }
-          ],
-          "warnings": [
-            "[warning:swallowed-clause] DynamicQty — This creature enters with a +1/+1 counter on it for each +1/+1 counter among other creatures you control."
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 1/1"
       ],
       "precons": 1
     },
@@ -19091,28 +19012,6 @@
       "precons": 1
     },
     {
-      "name": "Birth of the Imperium",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Birth of the Imperium",
-          "types": "Enchantment — Saga",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "Draw two cards for each opponent who controls fewer creatures than you"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Bitter Feud",
       "support": "partial",
       "phase_supported": false,
@@ -19131,6 +19030,29 @@
       ],
       "smoke_checks": [
         "enters"
+      ],
+      "precons": 1
+    },
+    {
+      "name": "Blaster Hulk",
+      "support": "partial",
+      "phase_supported": false,
+      "faces": [
+        {
+          "name": "Blaster Hulk",
+          "types": "Artifact Creature — Pirate",
+          "unimplemented": true,
+          "gaps": [
+            {
+              "handler": "Effect:static_structure",
+              "text": "This spell costs {1} less to cast for each {E}  you've paid or lost this turn."
+            }
+          ]
+        }
+      ],
+      "smoke_checks": [
+        "enters",
+        "printed 8/8"
       ],
       "precons": 1
     },
@@ -19693,28 +19615,6 @@
       "precons": 1
     },
     {
-      "name": "Colfenor's Urn",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Colfenor's Urn",
-          "types": "Artifact",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_condition",
-              "text": "if three or more cards have been exiled with ~, sacrifice it. If you do, return those cards to the battlefield under their owner's control"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Collision of Realms",
       "support": "partial",
       "phase_supported": false,
@@ -19762,28 +19662,6 @@
       "precons": 2
     },
     {
-      "name": "Commander's Insight",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Commander's Insight",
-          "types": "Instant",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "Target player draws X cards plus an additional card for each time they've cast a commander from the command zone this game."
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "resolves"
-      ],
-      "precons": 2
-    },
-    {
       "name": "Commence the Endgame",
       "support": "partial",
       "phase_supported": false,
@@ -19802,28 +19680,6 @@
       ],
       "smoke_checks": [
         "resolves"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Concord with the Kami",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Concord with the Kami",
-          "types": "Enchantment",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_condition",
-              "text": "Draw a card if you control an enchanted creature"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
       ],
       "precons": 1
     },
@@ -20028,36 +19884,6 @@
       ],
       "smoke_checks": [
         "resolves"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Curie, Emergent Intelligence",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Curie, Emergent Intelligence",
-          "types": "Legendary Artifact Creature — Robot",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "draw cards equal to its base power"
-            },
-            {
-              "handler": "Swallow:DynamicQty",
-              "text": "[warning:swallowed-clause] DynamicQty — {1}{U}, Exile another nontoken artifact creature you control: Curie becomes a copy of the exiled creature, except it has \"Whenever this crea"
-            }
-          ],
-          "warnings": [
-            "[warning:swallowed-clause] DynamicQty — {1}{U}, Exile another nontoken artifact creature you control: Curie becomes a copy of the exiled creature, except it has \"Whenever this crea"
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 1/3"
       ],
       "precons": 1
     },
@@ -20513,31 +20339,6 @@
       "precons": 1
     },
     {
-      "name": "Dimension X Pizzasaur",
-      "support": "uncertain",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Dimension X Pizzasaur",
-          "types": "Artifact Creature — Food Alien Mutant",
-          "gaps": [
-            {
-              "handler": "Swallow:DynamicQty",
-              "text": "[warning:swallowed-clause] DynamicQty — When this creature enters, put two +1/+1 counters on target creature. When you do, destroy up to one target creature with mana value less th"
-            }
-          ],
-          "warnings": [
-            "[warning:swallowed-clause] DynamicQty — When this creature enters, put two +1/+1 counters on target creature. When you do, destroy up to one target creature with mana value less th"
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 2/1"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Dire Fleet Daredevil",
       "support": "partial",
       "phase_supported": false,
@@ -20723,28 +20524,6 @@
         "resolves"
       ],
       "precons": 1
-    },
-    {
-      "name": "Druidic Satchel",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Druidic Satchel",
-          "types": "Artifact",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "nonland card, you gain 2 life"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
-      ],
-      "precons": 2
     },
     {
       "name": "Dulcet Sirens",
@@ -21165,28 +20944,6 @@
       "precons": 2
     },
     {
-      "name": "Evolutionary Escalation",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Evolutionary Escalation",
-          "types": "Enchantment",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "three +1/+1 counters on target creature an opponent controls"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
-      ],
-      "precons": 2
-    },
-    {
       "name": "Exchange of Words",
       "support": "partial",
       "phase_supported": false,
@@ -21221,10 +20978,6 @@
             {
               "handler": "Effect:unparsed_verb_arguments",
               "text": "put a counter of that kind on either of those tokens"
-            },
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "for each kind of counter among creatures you control"
             }
           ]
         }
@@ -21415,29 +21168,6 @@
       "smoke_checks": [
         "enters",
         "printed 2/1"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Fallaji Wayfarer",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Fallaji Wayfarer",
-          "types": "Creature — Human Scout",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:effect_structure",
-              "text": "~ is all colors. This ability doesn't affect its color identity."
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 2/4"
       ],
       "precons": 1
     },
@@ -21747,52 +21477,6 @@
       "precons": 1
     },
     {
-      "name": "Florian, Voldaren Scion",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Florian, Voldaren Scion",
-          "types": "Legendary Creature — Vampire Noble",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:where_x_binding",
-              "text": "where X is the total amount of life your opponents lost this turn"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 3/3"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Forge of Heroes",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Forge of Heroes",
-          "types": "Land",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:put_counter_tail",
-              "text": "Put a +1/+1 counter on it if it's a creature and a loyalty counter on it"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "plays as a land",
-        "adds mana"
-      ],
-      "precons": 7
-    },
-    {
       "name": "Forger's Foundry",
       "support": "partial",
       "phase_supported": false,
@@ -22052,29 +21736,6 @@
       "precons": 1
     },
     {
-      "name": "Gatewatch Beacon",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Gatewatch Beacon",
-          "types": "Artifact",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_condition",
-              "text": "if ~ has loyalty counters on it, you may move a loyalty counter from ~ onto that planeswalker"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "adds mana"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Gavi, Nest Warden",
       "support": "uncertain",
       "phase_supported": false,
@@ -22144,18 +21805,20 @@
     },
     {
       "name": "Ghouls' Night Out",
-      "support": "partial",
+      "support": "uncertain",
       "phase_supported": false,
       "faces": [
         {
           "name": "Ghouls' Night Out",
           "types": "Sorcery",
-          "unimplemented": true,
           "gaps": [
             {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "They're black Zombies in addition to their other colors and types"
+              "handler": "Swallow:DynamicQty",
+              "text": "[warning:swallowed-clause] DynamicQty — For each player, choose a creature card in that player's graveyard. Put those cards onto the battlefield under your control. They're black Z"
             }
+          ],
+          "warnings": [
+            "[warning:swallowed-clause] DynamicQty — For each player, choose a creature card in that player's graveyard. Put those cards onto the battlefield under your control. They're black Z"
           ]
         }
       ],
@@ -22437,29 +22100,6 @@
       "precons": 1
     },
     {
-      "name": "Great Unclean One",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Great Unclean One",
-          "types": "Creature — Demon",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "for each opponent who has less life than you"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 4/5"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Grell Philosopher",
       "support": "partial",
       "phase_supported": false,
@@ -22483,28 +22123,6 @@
       "precons": 1
     },
     {
-      "name": "Grimoire of the Dead",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Grimoire of the Dead",
-          "types": "Legendary Artifact — Book",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "They're black Zombies in addition to their other colors and types"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
-      ],
-      "precons": 2
-    },
-    {
       "name": "Grist, the Hunger Tide",
       "support": "partial",
       "phase_supported": false,
@@ -22526,29 +22144,6 @@
         "loyalty 3"
       ],
       "precons": 2
-    },
-    {
-      "name": "Grothama, All-Devouring",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Grothama, All-Devouring",
-          "types": "Legendary Creature — Wurm",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_verb_arguments",
-              "text": "draw cards equal to the amount of damage dealt to ~ this turn by sources they controlled"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 10/8"
-      ],
-      "precons": 1
     },
     {
       "name": "Guardian Archon",
@@ -22604,29 +22199,6 @@
       "precons": 1
     },
     {
-      "name": "Gyome, Master Chef",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Gyome, Master Chef",
-          "types": "Legendary Creature — Troll Warlock",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "create a number of Food tokens equal to the number of nontoken creatures you had enter the battlefield under your control"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 5/3"
-      ],
-      "precons": 2
-    },
-    {
       "name": "Haakon, Stromgald Scourge",
       "support": "partial",
       "phase_supported": false,
@@ -22646,32 +22218,6 @@
       "smoke_checks": [
         "enters",
         "printed 3/3"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Hadana's Climb",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Hadana's Climb",
-          "types": "Legendary Enchantment",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:target_has_unknown_keyword_condition",
-              "text": "if that creature has three or more +1/+1 counters on it, transform ~"
-            }
-          ]
-        },
-        {
-          "name": "Winged Temple of Orazca",
-          "types": "Legendary Land"
-        }
-      ],
-      "smoke_checks": [
-        "enters"
       ],
       "precons": 1
     },
@@ -23023,29 +22569,6 @@
       ],
       "smoke_checks": [
         "resolves"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Ian the Reckless",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Ian the Reckless",
-          "types": "Legendary Creature — Human Warrior",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_condition",
-              "text": "if it's modified, you may have it deal damage equal to its power to you and any target"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 2/1"
       ],
       "precons": 1
     },
@@ -23682,28 +23205,6 @@
       "smoke_checks": [
         "enters",
         "printed 2/3"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Journey to the Lost City",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Journey to the Lost City",
-          "types": "Enchantment",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:put_counter_tail",
-              "text": "put a +1/+1 counter on it for each creature card among those cards"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
       ],
       "precons": 1
     },
@@ -24443,6 +23944,29 @@
       "precons": 1
     },
     {
+      "name": "Lumbering Megasloth",
+      "support": "partial",
+      "phase_supported": false,
+      "faces": [
+        {
+          "name": "Lumbering Megasloth",
+          "types": "Creature — Sloth Mutant",
+          "unimplemented": true,
+          "gaps": [
+            {
+              "handler": "Effect:static_structure",
+              "text": "This spell costs {1} less to cast for each counter among players and permanents."
+            }
+          ]
+        }
+      ],
+      "smoke_checks": [
+        "enters",
+        "printed 8/8"
+      ],
+      "precons": 1
+    },
+    {
       "name": "Magister of Worth",
       "support": "uncertain",
       "phase_supported": false,
@@ -24648,7 +24172,7 @@
           "unimplemented": true,
           "gaps": [
             {
-              "handler": "Effect:unparsed_condition",
+              "handler": "Effect:unparsed_verb_arguments",
               "text": "draw a card if that creature has a +1/+1 counter on it"
             }
           ]
@@ -24732,28 +24256,6 @@
         "printed 1/8"
       ],
       "precons": 2
-    },
-    {
-      "name": "Mask of the Schemer",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Mask of the Schemer",
-          "types": "Artifact — Equipment",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:where_x_binding",
-              "text": "where X is the amount of damage it dealt to that player"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
-      ],
-      "precons": 1
     },
     {
       "name": "Master Biomancer",
@@ -25132,32 +24634,6 @@
       "precons": 1
     },
     {
-      "name": "Moira Brown, Guide Author",
-      "support": "uncertain",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Moira Brown, Guide Author",
-          "types": "Legendary Creature — Human Citizen",
-          "gaps": [
-            {
-              "handler": "Swallow:DynamicQty",
-              "text": "[warning:swallowed-clause] DynamicQty — When Moira Brown enters, create a colorless Book Equipment artifact token named Wasteland Survival Guide with \"Equipped creature gets +1/+1 "
-            }
-          ],
-          "warnings": [
-            "[warning:swallowed-clause] DynamicQty — When Moira Brown enters, create a colorless Book Equipment artifact token named Wasteland Survival Guide with \"Equipped creature gets +1/+1 "
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 2/3",
-        "makes 1 token"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Moorland Rescuer",
       "support": "uncertain",
       "phase_supported": false,
@@ -25355,18 +24831,13 @@
     },
     {
       "name": "Myth Unbound",
-      "support": "partial",
+      "support": "uncertain",
       "phase_supported": false,
       "faces": [
         {
           "name": "Myth Unbound",
           "types": "Enchantment",
-          "unimplemented": true,
           "gaps": [
-            {
-              "handler": "Effect:static_structure",
-              "text": "Your commander costs {1} less to cast for each time it's been cast from the command zone this game."
-            },
             {
               "handler": "Trigger:Whenever your commander is put into the command zone from anywhere",
               "text": "Whenever your commander is put into the command zone from anywhere, draw a card."
@@ -25486,28 +24957,6 @@
             {
               "handler": "Effect:granter_reference_unreached",
               "text": "When ~ enters, if it's on the battlefield, it becomes an Aura with \"enchant creature put onto the battlefield with ~.\" Put target creature card from a graveyard onto the battlefield under your control and attach ~ to it. When ~ leaves the battlefield, that creature's controller sacrifices it."
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Negative Zone Portal",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Negative Zone Portal",
-          "types": "Artifact",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_condition",
-              "text": "if there are four or more creature cards exiled with ~, flip a coin. If you lose the flip, sacrifice ~ and return a card exiled with it at random to its owner's hand"
             }
           ]
         }
@@ -25798,28 +25247,6 @@
       "precons": 1
     },
     {
-      "name": "Nissa, Steward of Elements",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Nissa, Steward of Elements",
-          "types": "Legendary Planeswalker — Nissa",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "or a creature card with mana value less than or equal to the number of loyalty counters on ~"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
-      ],
-      "precons": 2
-    },
-    {
       "name": "Niv-Mizzet, Ghost Counsel",
       "support": "partial",
       "phase_supported": false,
@@ -25861,28 +25288,6 @@
       ],
       "smoke_checks": [
         "enters"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Notorious Throng",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Notorious Throng",
-          "types": "Kindred Sorcery — Rogue",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "Create X 1/1 black Faerie Rogue creature tokens with flying, where X is the damage dealt to your opponents this turn. If this spell's prowl cost was paid, take an extra turn after this one."
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "resolves"
       ],
       "precons": 1
     },
@@ -26190,29 +25595,6 @@
       ],
       "smoke_checks": [
         "resolves"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Otherworldly Escort",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Otherworldly Escort",
-          "types": "Creature — Human Detective",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "It's a Spirit Detective"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 4/3"
       ],
       "precons": 1
     },
@@ -26907,29 +26289,6 @@
       ],
       "smoke_checks": [
         "enters"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Quartzwood Crasher",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Quartzwood Crasher",
-          "types": "Creature — Dinosaur Beast",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "create an X/X green Dinosaur Beast creature token with trample, where X is the amount of damage those creatures dealt to that player"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 6/6"
       ],
       "precons": 1
     },
@@ -27685,29 +27044,6 @@
       "precons": 1
     },
     {
-      "name": "Salt Road Ambushers",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Salt Road Ambushers",
-          "types": "Creature — Dog Warrior",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_verb_arguments",
-              "text": "if it's a creature, put two +1/+1 counters on it"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 3/3"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Salvation Colossus",
       "support": "partial",
       "phase_supported": false,
@@ -27869,6 +27205,28 @@
         "printed 4/4"
       ],
       "precons": 2
+    },
+    {
+      "name": "Seal of the Guildpact",
+      "support": "partial",
+      "phase_supported": false,
+      "faces": [
+        {
+          "name": "Seal of the Guildpact",
+          "types": "Artifact",
+          "unimplemented": true,
+          "gaps": [
+            {
+              "handler": "Effect:static_structure",
+              "text": "Each spell you cast costs {1} less to cast for each of the chosen colors it is."
+            }
+          ]
+        }
+      ],
+      "smoke_checks": [
+        "enters"
+      ],
+      "precons": 1
     },
     {
       "name": "Seeker of Slaanesh",
@@ -28188,28 +27546,6 @@
       "precons": 1
     },
     {
-      "name": "Showstopping Surprise",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Showstopping Surprise",
-          "types": "Instant",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_condition",
-              "text": "Turn it face up if it's face down"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "resolves"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Shredder, Shadow Master",
       "support": "partial",
       "phase_supported": false,
@@ -28268,29 +27604,6 @@
             {
               "handler": "Effect:unparsed_verb_arguments",
               "text": "choose creatures with different powers"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 3/3"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Sigil Captain",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Sigil Captain",
-          "types": "Creature — Rhino Soldier",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_condition",
-              "text": "if that creature is 1/1, put two +1/+1 counters on it"
             }
           ]
         }
@@ -28803,28 +28116,6 @@
       "precons": 1
     },
     {
-      "name": "Sudden Salvation",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Sudden Salvation",
-          "types": "Instant",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "draw a card for each opponent who controls one or more of those permanents"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "resolves"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Sudden Substitution",
       "support": "partial",
       "phase_supported": false,
@@ -28920,28 +28211,6 @@
       "smoke_checks": [
         "plays as a land",
         "adds mana"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Surveyor's Scope",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Surveyor's Scope",
-          "types": "Artifact",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:where_x_binding",
-              "text": "{T}, Exile ~: Search your library for up to X basic land cards, where X is the number of players who control at least two more lands than you. Put those cards onto the battlefield, then shuffle."
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
       ],
       "precons": 1
     },
@@ -29151,29 +28420,6 @@
         "resolves"
       ],
       "precons": 1
-    },
-    {
-      "name": "Temur War Shaman",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Temur War Shaman",
-          "types": "Creature — Human Shaman",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_verb_arguments",
-              "text": "if it's a creature, you may have it fight target creature you don't control"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 4/5"
-      ],
-      "precons": 2
     },
     {
       "name": "Tenuous Truce",
@@ -29589,28 +28835,6 @@
       "precons": 1
     },
     {
-      "name": "The War in Heaven",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "The War in Heaven",
-          "types": "Enchantment — Saga",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unrecognized_clause_head",
-              "text": "They're artifacts in addition to their other types"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
-      ],
-      "precons": 1
-    },
-    {
       "name": "The Wedding of River Song",
       "support": "partial",
       "phase_supported": false,
@@ -29777,29 +29001,6 @@
       "precons": 2
     },
     {
-      "name": "Titan Hunter",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Titan Hunter",
-          "types": "Creature — Human Warrior",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_condition",
-              "text": "if no creatures died this turn, ~ deals 4 damage to that player"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 4/5"
-      ],
-      "precons": 2
-    },
-    {
       "name": "Titan's Presence",
       "support": "uncertain",
       "phase_supported": false,
@@ -29879,28 +29080,6 @@
         "resolves"
       ],
       "precons": 1
-    },
-    {
-      "name": "Trail of Mystery",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Trail of Mystery",
-          "types": "Enchantment",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_verb_arguments",
-              "text": "if it's a creature, it gets +2/+2 until end of turn"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters"
-      ],
-      "precons": 3
     },
     {
       "name": "Trap the Trespassers",
@@ -30479,29 +29658,6 @@
       "precons": 1
     },
     {
-      "name": "Venerable Warsinger",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Venerable Warsinger",
-          "types": "Creature — Spirit Cleric",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:where_x_binding",
-              "text": "where X is the amount of damage ~ dealt to that player"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 3/3"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Vengeful Rebirth",
       "support": "uncertain",
       "phase_supported": false,
@@ -30711,29 +29867,6 @@
       "precons": 1
     },
     {
-      "name": "Voice of Many",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Voice of Many",
-          "types": "Creature — Elf Druid",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "draw a card for each opponent who controls fewer creatures than you"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 3/3"
-      ],
-      "precons": 4
-    },
-    {
       "name": "Vraska, Betrayal's Sting",
       "support": "uncertain",
       "phase_supported": false,
@@ -30755,29 +29888,6 @@
       "smoke_checks": [
         "enters",
         "loyalty 6"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Wakka, Devoted Guardian",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Wakka, Devoted Guardian",
-          "types": "Legendary Creature — Human Warrior",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_condition",
-              "text": "if a counter was put on ~ this turn, put a +1/+1 counter on each other creature you control"
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 4/4"
       ],
       "precons": 1
     },
@@ -31062,29 +30172,6 @@
       "precons": 1
     },
     {
-      "name": "Winged Hive Tyrant",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Winged Hive Tyrant",
-          "types": "Creature — Tyranid",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:static_structure",
-              "text": "The Will of the Hive Mind — Other creatures you control with counters on them have flying and haste."
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "enters",
-        "printed 4/4"
-      ],
-      "precons": 1
-    },
-    {
       "name": "Within Range",
       "support": "partial",
       "phase_supported": false,
@@ -31140,10 +30227,6 @@
           "types": "Sorcery",
           "unimplemented": true,
           "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "for each opponent with three or more poison counters"
-            },
             {
               "handler": "Effect:unparsed_verb_arguments",
               "text": "create another one of those tokens"
@@ -31227,32 +30310,6 @@
       "smoke_checks": [
         "enters",
         "printed 5/4"
-      ],
-      "precons": 1
-    },
-    {
-      "name": "Zenith Flare",
-      "support": "partial",
-      "phase_supported": false,
-      "faces": [
-        {
-          "name": "Zenith Flare",
-          "types": "Instant",
-          "unimplemented": true,
-          "gaps": [
-            {
-              "handler": "Effect:unparsed_quantity",
-              "text": "gain X life, where X is the number of cards with a cycling ability in your graveyard"
-            },
-            {
-              "handler": "Effect:where_x_binding",
-              "text": "~ deals X damage to any target and you gain X life, where X is the number of cards with a cycling ability in your graveyard."
-            }
-          ]
-        }
-      ],
-      "smoke_checks": [
-        "resolves"
       ],
       "precons": 1
     },
@@ -31393,6 +30450,7 @@
     "Ainok Bond-Kin",
     "Ainok Strike Leader",
     "Ainok Survivalist",
+    "Ajani Unyielding",
     "Ajani's Chosen",
     "Ajani's Pridemate",
     "Ajani, Caller of the Pride",
@@ -31579,6 +30637,7 @@
     "Arwen, Weaver of Hope",
     "Aryel, Knight of Windgrace",
     "As Foretold",
+    "Ascendant Acolyte",
     "Asceticism",
     "Ash Barrens",
     "Ashad, the Lone Cyberman",
@@ -31776,6 +30835,7 @@
     "Biotransference",
     "Biovisionary",
     "Birds of Paradise",
+    "Birth of the Imperium",
     "Bishop of Wings",
     "Bismuth Mindrender",
     "Bite Down",
@@ -31804,7 +30864,6 @@
     "Blast Zone",
     "Blast-Furnace Hellkite",
     "Blasted Landscape",
-    "Blaster Hulk",
     "Blatant Thievery",
     "Blazing Archon",
     "Blazing Sunsteel",
@@ -32226,6 +31285,7 @@
     "Coin of Mastery",
     "Cold-Eyed Selkie",
     "Coldsteel Heart",
+    "Colfenor's Urn",
     "Collective Blessing",
     "Collective Effort",
     "Collective Resistance",
@@ -32246,6 +31306,7 @@
     "Command Beacon",
     "Command Tower",
     "Commander Sofia Daguerre",
+    "Commander's Insight",
     "Commander's Insignia",
     "Commander's Plate",
     "Commander's Sphere",
@@ -32264,6 +31325,7 @@
     "Conclave Mentor",
     "Conclave Sledge-Captain",
     "Conclave Tribunal",
+    "Concord with the Kami",
     "Condemn",
     "Conduit Pylons",
     "Conduit of Worlds",
@@ -32402,6 +31464,7 @@
     "Curate",
     "Curator Beastie",
     "Curator of Mysteries",
+    "Curie, Emergent Intelligence",
     "Curiosity Crafter",
     "Curious Altisaur",
     "Curious Herd",
@@ -32614,6 +31677,7 @@
     "Digsite Engineer",
     "Dihada, Binder of Wills",
     "Diluvian Primordial",
+    "Dimension X Pizzasaur",
     "Dimir Aqueduct",
     "Dimir Guildgate",
     "Dimir Keyrune",
@@ -32747,6 +31811,7 @@
     "Drownyard Temple",
     "Druid of Purification",
     "Druid's Deliverance",
+    "Druidic Satchel",
     "Drumbellower",
     "Drumhunter",
     "Dryad Arbor",
@@ -32958,6 +32023,7 @@
     "Evincar's Justice",
     "Evolution Charm",
     "Evolution Sage",
+    "Evolutionary Escalation",
     "Evolutionary Leap",
     "Evolving Wilds",
     "Exalted Angel",
@@ -33026,6 +32092,7 @@
     "Falkenrath Noble",
     "Fall from Favor",
     "Fall of the Hammer",
+    "Fallaji Wayfarer",
     "Fallen Angel",
     "Fallen Ideal",
     "Fallen Shinobi",
@@ -33163,6 +32230,7 @@
     "Flood Plain",
     "Flooded Grove",
     "Floral Evoker",
+    "Florian, Voldaren Scion",
     "Floriferous Vinewall",
     "Flourishing Defenses",
     "Fluctuator",
@@ -33185,6 +32253,7 @@
     "Foreboding Ruins",
     "Foreboding Steamboat",
     "Forest",
+    "Forge of Heroes",
     "Forgotten Ancient",
     "Forgotten Cave",
     "Forgotten Creation",
@@ -33269,6 +32338,7 @@
     "Gary Clone",
     "Gate to the Afterlife",
     "Gates of Istfell",
+    "Gatewatch Beacon",
     "Gateway Plaza",
     "Gatta and Luzzu",
     "Gau, Feral Youth",
@@ -33463,6 +32533,7 @@
     "Great Furnace",
     "Great Intelligence's Plan",
     "Great Oak Guardian",
+    "Great Unclean One",
     "Greater Gargadon",
     "Greater Good",
     "Greater Tanuki",
@@ -33482,12 +32553,14 @@
     "Grim Poppet",
     "Grim Reaper's Sprint",
     "Grime Gorger",
+    "Grimoire of the Dead",
     "Grip of Phyresis",
     "Grishnákh, Brash Instigator",
     "Grisly Salvage",
     "Grismold, the Dreadsower",
     "Grixis Charm",
     "Grixis Panorama",
+    "Grothama, All-Devouring",
     "Ground Assault",
     "Ground Seal",
     "Groundskeeper",
@@ -33517,11 +32590,13 @@
     "Gwaihir, Greatest of the Eagles",
     "Gwyllion Hedge-Mage",
     "Gylwain, Casting Director",
+    "Gyome, Master Chef",
     "Gyre Sage",
     "Gyrus, Waker of Corpses",
     "H.E.R.B.I.E., Lovable Robot",
     "HELIOS One",
     "Hada Spy Patrol",
+    "Hadana's Climb",
     "Hagra Mauling",
     "Hakbal of the Surging Soul",
     "Haldir, Lórien Lieutenant",
@@ -33722,6 +32797,7 @@
     "Hydroid Krasis",
     "Hypnotic Sprite",
     "Ian Chesterton",
+    "Ian the Reckless",
     "Icefeather Aven",
     "Ichor Rats",
     "Ichor Wellspring",
@@ -33904,6 +32980,7 @@
     "Josu Vess, Lich Knight",
     "Journey to Eternity",
     "Journey to Nowhere",
+    "Journey to the Lost City",
     "Joyful Stormsculptor",
     "Jubilant Skybonder",
     "Jubilation",
@@ -34239,7 +33316,6 @@
     "Ludevic, Necrogenius",
     "Lulu, Stern Guardian",
     "Lumbering Falls",
-    "Lumbering Megasloth",
     "Luminarch Aspirant",
     "Luminous Broodmoth",
     "Lunar Hatchling",
@@ -34344,6 +33420,7 @@
     "Mask of Griselbrand",
     "Mask of Memory",
     "Mask of Riddles",
+    "Mask of the Schemer",
     "Masked Admirers",
     "Masked Vandal",
     "Maskwood Nexus",
@@ -34505,6 +33582,7 @@
     "Mogg Assassin",
     "Mogg War Marshal",
     "Mogis, God of Slaughter",
+    "Moira Brown, Guide Author",
     "Moira and Teshar",
     "Moira, Urborg Haunt",
     "Mold Shambler",
@@ -34647,6 +33725,7 @@
     "Needle Spires",
     "Needleverge Pathway",
     "Negate",
+    "Negative Zone Portal",
     "Neheb, Dreadhorde Champion",
     "Neheb, the Eternal",
     "Nekrataal",
@@ -34706,6 +33785,7 @@
     "Nissa's Expedition",
     "Nissa's Renewal",
     "Nissa, Leyline Tamer",
+    "Nissa, Steward of Elements",
     "Nissa, Vastwood Seer",
     "Nissa, Worldsoul Speaker",
     "Niv-Mizzet, Dracogenius",
@@ -34722,6 +33802,7 @@
     "Not of This World",
     "Notion Rain",
     "Notion Thief",
+    "Notorious Throng",
     "Nova Flame",
     "Novijen, Heart of Progress",
     "Noxious Assault",
@@ -34854,6 +33935,7 @@
     "Oskar, Rubbish Reclaimer",
     "Otepec Huntmaster",
     "Otharri, Suns' Glory",
+    "Otherworldly Escort",
     "Otherworldly Gaze",
     "Otrimi, the Ever-Playful",
     "Oubliette",
@@ -35143,6 +34225,7 @@
     "Quandrix Command",
     "Quandrix Cultivator",
     "Quantum Misalignment",
+    "Quartzwood Crasher",
     "Queen Marchesa",
     "Queen Mother Ramonda",
     "Quest for the Goblin Lord",
@@ -35475,6 +34558,7 @@
     "Sakura-Tribe Elder",
     "Sally Sparrow",
     "Salt Marsh",
+    "Salt Road Ambushers",
     "Saltcrusted Steppe",
     "Sam, Loyal Attendant",
     "Sanctuary Blade",
@@ -35568,7 +34652,6 @@
     "Seafloor Oracle",
     "Seal of Cleansing",
     "Seal of Doom",
-    "Seal of the Guildpact",
     "Search for Azcanta",
     "Search for Glory",
     "Search for Tomorrow",
@@ -35708,6 +34791,7 @@
     "Shoot the Sheriff",
     "Shorikai, Genesis Engine",
     "Showdown of the Skalds",
+    "Showstopping Surprise",
     "Shriekmaw",
     "Shriekwood Devourer",
     "Shrine of the Forsaken Gods",
@@ -35725,6 +34809,7 @@
     "Sifter of Skulls",
     "Sigarda's Aid",
     "Sigarda, Heron's Grace",
+    "Sigil Captain",
     "Sigil of the Empty Throne",
     "Sigiled Starfish",
     "Sigiled Sword of Valeron",
@@ -36082,6 +35167,7 @@
     "Submerged Boneyard",
     "Subterfuge",
     "Sudden Demise",
+    "Sudden Salvation",
     "Sudden Spoiling",
     "Suffer the Past",
     "Sulfur Falls",
@@ -36135,6 +35221,7 @@
     "Surrak, the Hunt Caller",
     "Surreal Memoir",
     "Surtland Elementalist",
+    "Surveyor's Scope",
     "Survival Cache",
     "Susan Foreman",
     "Suspended Sentence",
@@ -36285,6 +35372,7 @@
     "Temur Battle Rage",
     "Temur Charm",
     "Temur Sabertooth",
+    "Temur War Shaman",
     "Tendershoot Dryad",
     "Tendo Ice Bridge",
     "Tendrils of Corruption",
@@ -36402,6 +35490,7 @@
     "The Wanderer",
     "The War Doctor",
     "The War Games",
+    "The War in Heaven",
     "The Warring Triad",
     "The Wasp, Winsome Avenger",
     "The Wise Mothman",
@@ -36507,6 +35596,7 @@
     "Tireless Tracker",
     "Tishana, Voice of Thunder",
     "Titan Forge",
+    "Titan Hunter",
     "Titan of Eternal Fire",
     "Titan of Industry",
     "Titan of Littjara",
@@ -36555,6 +35645,7 @@
     "Trading Post",
     "Tragic Arrogance",
     "Tragic Slip",
+    "Trail of Mystery",
     "Trailblazer's Boots",
     "Trailtracker Scout",
     "Training Center",
@@ -36782,6 +35873,7 @@
     "Veinwitch Coven",
     "Vela the Night-Clad",
     "Velomachus Lorehold",
+    "Venerable Warsinger",
     "Venerated Loxodon",
     "Vengeful Ancestor",
     "Vengeful Dead",
@@ -36862,6 +35954,7 @@
     "Vizier of the Scorpion",
     "Vizkopa Guildmage",
     "Vodalian Wave-Knight",
+    "Voice of Many",
     "Voice of Resurgence",
     "Voice of the Blessed",
     "Voice of the Woods",
@@ -36907,6 +36000,7 @@
     "Wakening Sun's Avatar",
     "Waker of the Wilds",
     "Wakestone Gargoyle",
+    "Wakka, Devoted Guardian",
     "Walker of the Grove",
     "Walking Ballista",
     "Walking Bulwark",
@@ -37035,6 +36129,7 @@
     "Wing Shards",
     "Winged Boots",
     "Winged Coatl",
+    "Winged Hive Tyrant",
     "Winged Sliver",
     "Winged Words",
     "Wingmantle Chaplain",
@@ -37149,6 +36244,7 @@
     "Zendikar Resurgent",
     "Zendikar's Roil",
     "Zenith Festival",
+    "Zenith Flare",
     "Zephyrim",
     "Zeriam, Golden Wind",
     "Zetalpa, Primal Dawn",

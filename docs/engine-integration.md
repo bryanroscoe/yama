@@ -2,6 +2,47 @@
 
 Status: research spike, 2026-10-18. Pinned target: phase **v0.113.0** (tag commit `0571ee32f08c`, released 2026-10-18). All file references are into that tag of <https://github.com/phase-rs/phase>.
 
+## Local recovery candidate, 25 October 2026
+
+The local recovery candidate pins Phase `a3bc47c922d3b6d1990cc826b887399d749c58e8`.
+Candidate validation is in progress; the prescribed Opus review is blocked by
+the Claude API rate limit. This is not an accepted release.
+Apply all patches in `patches/phase/` in filename order to a clean v0.113.0
+checkout. The complete series reproduces that commit's tree exactly. The
+[recovery report](engine-recovery-2026-10-25.md) records validation, benchmark
+inputs and remaining gaps. This branch has not been published or deployed.
+
+The new local export is `card-data-1e5608e61683de41.json` (101,470,976 bytes),
+SHA-256 `1e5608e61683de41c84f08f70115bef38db13df85bc5e01fd0eb249cf023244d`.
+It passes the pinned engine's schema and export-integrity checks. Two generations
+produce identical card exports and name lists.
+
+The archived MTGJSON inputs are unchanged from the historical export below.
+Extract `data/engine/card-data-2905717cc9fe0f53-inputs.tar.zst` into a temporary
+directory and use its `data` directory as `INPUT_DATA`. From the pinned Phase
+checkout, build the tools and generate without rewriting tracked token/subtype
+sources:
+
+```sh
+CARGO_BUILD_JOBS=4 CARGO_INCREMENTAL=0 cargo +stable build -p phase-engine \
+  --features cli --bin oracle-gen --bin card-data-validate
+RUST_MIN_STACK=33554432 GATED_SETS_AS_OF=2026-10-25 \
+  ./target/debug/oracle-gen "$INPUT_DATA" --stats \
+  --names-out card-names.json --output card-data.json
+./target/debug/card-data-validate card-data.json
+shasum -a 256 card-data.json
+```
+
+Name the output with the first 16 hexadecimal characters of that hash. Preserve
+the earlier export for older games; a matching engine and card-data pair is
+required for replay. A future deployment must copy and verify the new export and
+update any explicit `YAMA_ENGINE_CARD_DATA` override as well as the checked-in
+default. Release authorization and fresh-main checks still apply.
+
+The remaining sections preserve the original research and earlier export's
+provenance; their historical test and deployment observations are not claims
+about the current recovery candidate.
+
 Labels used below:
 
 - **[ran]**: verified by running something on this machine.

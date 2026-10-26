@@ -1,0 +1,11 @@
+{
+  "name": "anthem-giant-growth",
+  "about": "Power and toughness from a static ability and a resolved pump spell together (CR 613.4c): Glorious Anthem and Giant Growth on a Grizzly Bears.",
+  "seats": [
+    { "battlefield": ["Glorious Anthem", "Grizzly Bears", "Forest"], "hand": ["Giant Growth"] },
+    {}
+  ],
+  "script": [
+    { "seat": 0, "cast": "Giant Growth", "targets": [{ "seat": 0, "card": "Grizzly Bears" }] }
+  ]
+}

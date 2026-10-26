@@ -1,0 +1,11 @@
+{
+  "name": "torpor-orb-etb",
+  "about": "A static ability that stops enters-the-battlefield triggers: Elvish Visionary enters under Torpor Orb and draws nothing.",
+  "seats": [
+    { "battlefield": ["Torpor Orb", "Forest", "Forest"], "hand": ["Elvish Visionary"], "library": ["Island", "Swamp"] },
+    {}
+  ],
+  "script": [
+    { "seat": 0, "cast": "Elvish Visionary" }
+  ]
+}

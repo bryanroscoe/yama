@@ -1,0 +1,8 @@
+{
+  "name": "opalescence-humility",
+  "about": "The other timestamp order (CR 613.7): Opalescence then Humility, plus a Grizzly Bears. No actions; compares the static board.",
+  "seats": [
+    { "battlefield": ["Opalescence", "Humility", "Grizzly Bears"] },
+    {}
+  ]
+}
