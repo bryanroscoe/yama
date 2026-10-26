@@ -7,33 +7,52 @@ branches and unfinished edits were preserved before integration.
 
 ## Current acceptance state, 26 October
 
-The local candidate is Phase `a3bc47c922d3b6d1990cc826b887399d749c58e8`;
-Yama's candidate pin and replay version identify it. It is **not accepted**.
-The production library compiles, and 20 existing integration tests in 11 unchanged
-source files pass against its Cargo-reported engine artifact. All 36 patches
-reproduce its tree `047d29f4b479f059453d14482e8c33f5e8425dd6` exactly.
+The final local Phase checkpoint is `9b2073b0986fe580d495fce2fa58b5762e24e3eb`.
+All six new Living Death/scoped-sacrifice regressions pass. The full Phase library
+suite passes **24,452 tests, zero failed, eight ignored** in 148.82 seconds.
+The three invalid `Player.exile` assertions now use shared `GameState.exile` and
+object ownership, preserving their population, identity and outcome checks.
+All 37 exported patches reconstruct tree
+`b75d47f6018e8973e072bd2986fcce9057b83579` exactly from v0.113.0.
 
-Two gates remain observed failures. The unit-test build reports three E0609
-errors in the six new regressions: they read a nonexistent `Player.exile` field
-(at effects/mod.rs lines 48395, 48698 and 48699); exile belongs to GameState.
-The new regressions and full unit suite have not executed. The newly authorized
-prescribed Opus review also failed immediately at the Claude API rate limit.
-Earlier source-clean reviews and pre-repair test passes do not close either gate.
-The authorized two-dispatch extension is spent; no further fix or review cycle
-is silently opened. Candidate Yama, replay, referee and lint execution now passes as detailed below.
-The combined `2ffbe85` app base passes 1,461 Rust tests with 38 ignored.
-Fetched main `a1c8a22` is now merged locally as `41cc320`; the combined result
-passes 1,462 Rust tests (38 ignored), 494 JS tests (two skipped), typecheck and
-the production web build.
-These production results do not close the unit-test or review blockers.
+The fresh Codex final review passes with **zero findings**: Completion Gate PASS
+and Maintainer-Simulation Gate PASS at that exact Phase checkpoint. Bryan
+explicitly approved this substitute for the prescribed Opus attempt that failed
+at the API rate limit. The local integration is accepted within the measured
+scope; this is not a deployment or a claim of full Forge parity.
+The approved limit was two dispatches, one engine-test rebuild configuration,
+at most four build jobs and zero remote CI; work stayed within it. The preparatory rebuild took 7m 41s;
+the committed-candidate Cargo check reused that exact artifact without rebuilding.
+One linker unwind-table size warning occurred; compilation and execution passed.
 
-See `engine-candidate-artifacts.jsonl` / `engine-candidate-build.log` and the
-individual `integration-*.log` files in the ignored recovery directory. Those
-integration files ran directly through standard rustc/libtest against the exact
-candidate rlib, without introducing another source harness or test target.
-The eleven completed 235 MB test executables were deleted to recover 2.7 GB;
-their SHA-256 hashes and sizes remain in `integration-candidate-artifacts.json`,
-and all source/build/result logs remain. No other thread's artifacts were removed.
+The final checkpoint changes only assertions in two `cfg(test)` bodies.
+Production source, parser, AI and card-data inputs are byte-identical to measured
+candidate `a3bc47c`. Its runtime/replay identifier therefore remains
+`phase-v0.113.0+a3bc47c9-yama/cards-1e5608e6`, while `deploy/phase-rev` pins the
+final source checkpoint. `final-production-evidence-carry.json` records the
+source-equivalence proof. This preserves valid production evidence without
+claiming new game reruns for a test-only change:
+
+- 20 affected runtime integration checks in 11 unchanged source files pass.
+- Two full-game replay checks and four AI reuse regressions pass.
+- Pinned-nightly engine/AI library clippy passes with warnings denied.
+- The identical 6,360-case referee sweep has no agreement regressions; the Living
+  Death regression is corrected. The hand set retains one known baseline
+  difference, as recorded below.
+- Fresh main snapshot `a1c8a22` merged as `41cc320`; combined Yama checks pass
+  **1,462 Rust tests** (38 ignored), **494 JS tests** (two skipped), typecheck and
+  the production web build. All 12 release guards pass.
+
+The exact Cargo-reported unit artifact, commands and hashes are in
+`engine-unit-final-artifact.json`; results are in `living-death-six-final.log` and
+`engine-unit-final.log`. The source/census root is the isolated recovery checkout.
+The independent review is `final-codex-review.md` in the same ignored artifact
+directory and verifies the cumulative 74-path engine diff, prior finding closure,
+assertion preservation and source-bound evidence carry.
+The 11 earlier completed integration executables were removed to recover 2.7 GB;
+source, compiler/result logs, executable hashes and sizes remain. Earlier failed
+checkpoints, review attempts and expansion predictions below are historical and
+are not relabelled by these results. Nothing was pushed or deployed.
 
 ## Source and clean-room boundaries
 
@@ -365,8 +384,8 @@ passes, and all 12 release-guard tests pass.
 
 The separate unit-test compilation and prescribed-review failures at the top of
 this report remain open. A narrowly scoped test-only correction
-and fresh Codex substitute review have been proposed to Bryan asynchronously;
-that proposal is pending, not authorization or a pass.
+and fresh Codex substitute review were proposed to Bryan asynchronously. He has
+now approved that bounded continuation; execution and acceptance remain pending.
 
 
 ## Latest main reconciliation
@@ -416,21 +435,27 @@ Phase candidate `a3bc47c` identity. They are not claimed as new game reruns on t
 later app merge. All 36 Phase patches still reconstruct tree
 `047d29f4b479f059453d14482e8c33f5e8425dd6` from v0.113.0.
 
-Acceptance remains incomplete:
+Acceptance audit after the approved test correction:
 
 | Requirement | Current evidence |
 |---|---|
-| Production engine/Yama integration | Passed as above; clean committed candidate and merged app inputs |
-| Six new Living Death/sacrifice regressions and full Phase unit suite | Not executed: three E0609 errors in two new test bodies incorrectly read `Player.exile` |
-| Independent final review | The prescribed Opus attempt failed at its API rate limit; earlier Codex source-only reviews do not close this final gate |
-| Additional corrective work | Scoped test-only correction plus fresh Codex substitute review proposed to Bryan; approval pending |
+| Production engine/Yama integration | Passed as above; unchanged production inputs carry their measured `a3bc47c` identity |
+| Six new Living Death/sacrifice regressions | Six passed, zero failures, no ignored tests |
+| Full Phase library suite | 24,452 passed, zero failures, eight existing ignored tests |
+| Exact patch reconstruction | All 37 patches reproduce final tree `b75d47f6018e8973e072bd2986fcce9057b83579` |
+| Independent final review | Exact head `9b2073b`: zero behavior, text or machinery findings; Completion PASS and Maintainer-Simulation PASS |
 
-The smallest next step is the pending expansion case: one executor correcting the
-three test API assertions while preserving their outcome/ownership checks,
-one engine-test rebuild and full unit execution, and one fresh Codex review if
-Bryan permits the substitute. Maximum four build jobs, zero remote CI. The
-prediction is zero compiler errors, all six regressions and full units passing,
-and zero review behavior findings. Earlier failed predictions and design limits
-remain in the append-only phase-fit record. No required check is dropped and no
-further cycle is assumed. Until approved and verified, this remains a preserved
-local integration checkpoint rather than an accepted release.
+Bryan explicitly approved expansion case 17. Both authorized dispatches have now
+completed, and the single engine-test rebuild configuration was used with four
+build jobs. No remote CI ran. Expansion case 17's prediction is **PASS**: zero
+compiler errors, six regressions passed, full Phase units passed and zero review
+findings. The earlier expansion's **FAIL** and all prior failures remain in the
+append-only phase-fit record. No additional corrective cycle was used.
+
+The final app follow-up changes only the source pin, exported test patch and
+architecture/integration/recovery documentation. It changes no app production or
+test input. The previously completed merged-main Rust, JS, typecheck and web-build
+checks therefore remain valid; all 12 release guards pass again after this
+follow-up. Local source checkpoints remain on `engine-recovery-2026-10-25`.
+Publishing, upstream contribution and deployment were not performed; a future
+release must freshly fetch and reconcile Yama main under `deploy/RELEASING.md`.

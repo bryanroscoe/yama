@@ -4,9 +4,15 @@ Status: research spike, 2026-10-18. Pinned target: phase **v0.113.0** (tag commi
 
 ## Local recovery candidate, 25 October 2026
 
-The local recovery candidate pins Phase `a3bc47c922d3b6d1990cc826b887399d749c58e8`.
-Candidate validation is in progress; the prescribed Opus review is blocked by
-the Claude API rate limit. This is not an accepted release.
+The local recovery candidate pins Phase `9b2073b0986fe580d495fce2fa58b5762e24e3eb`.
+Bryan approved a test-only assertion correction and fresh Codex final review in
+lieu of the rate-limited Opus review. The six regressions and full Phase library
+suite pass (24,452 passed, zero failed, eight ignored). The exact-head review
+reports zero findings, Completion PASS and Maintainer-Simulation PASS. Local
+validation is complete.
+The final checkpoint changes only test assertions, so runtime/replay identity
+remains `phase-v0.113.0+a3bc47c9-yama/cards-1e5608e6`. The production source is
+byte-identical to the measured `a3bc47c` candidate.
 Apply all patches in `patches/phase/` in filename order to a clean v0.113.0
 checkout. The complete series reproduces that commit's tree exactly. The
 [recovery report](engine-recovery-2026-10-25.md) records validation, benchmark
