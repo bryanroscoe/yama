@@ -101,6 +101,13 @@ should be enabled for the repository. An unavailable cloud reviewer is disclosed
 by an independent Codex agent review. Event-driven PR monitoring resumes pending work through
 merge rather than leaving an unmonitored handoff. See `AGENTS.md` and `deploy/RELEASING.md`.
 
+**Test CI (2026-10-27):** `.github/workflows/ci.yml` runs automatically for PRs into main and
+main pushes, with a manual trigger for diagnosis. GitHub-hosted Ubuntu jobs run the locked Rust
+workspace and Python regressions, plus clean-installed web tests/typecheck/build. Rust builds
+the exact private Phase pin through a dedicated read-only deploy key, using the real sibling
+Cargo paths. Both jobs must pass on the PR before merge. This is separate from the opt-in
+lab simulation workflow and production deployment. Setup and evidence boundaries: `docs/ci.md`.
+
 **Release process (Bryan, 2026-10-25):** integrate completed changes only after fetching GitHub's current branches, merge the intended release into main, run the required checks on that merged result and publish main. Production builds come only from clean main at the same commit as freshly fetched `origin/main`, never from a feature branch, detached HEAD or unpublished local commits. `deploy/check-release.sh` enforces this before server access; `deploy/deploy.sh --check` also verifies the pinned engine commit without contacting saget. Source, engine pin, Forge source label and compose configuration all come from the verified commit. The operating guide is `deploy/RELEASING.md`. Pushes, merges and deployment remain separate actions within Bryan's requested scope.
 
 ```

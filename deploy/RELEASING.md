@@ -19,7 +19,8 @@ Do not stop at a local commit or leave a pending PR unmonitored.
    Obtain a subsequent independent agent review for substantive changes. If cloud review is
    unavailable, disclose why and obtain an independent Codex agent review; record the reviewed SHA.
 4. Reconcile current main and verify the combined head. Merge through GitHub after checks and
-   reviews are satisfied; do not bypass branch protections or force-push main. A self-authored
+   reviews are satisfied; both automatic [CI jobs](../docs/ci.md) must pass on the actual PR.
+   Do not bypass branch protections or force-push main. A self-authored
    agent review comment is review evidence, not a second human's GitHub approval.
 5. Use event-driven PR watching while required checks or reviews are pending, with a continuation
    that handles failures/findings and carries the PR through merge. Waiting is a tracked state,
