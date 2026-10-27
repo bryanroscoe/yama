@@ -7,6 +7,7 @@ mod collection;
 mod config;
 mod db;
 mod deck_checks;
+mod deck_prices;
 mod deck_import;
 mod decks;
 mod error;
@@ -55,6 +56,7 @@ USAGE:
                                              Import Scryfall bulk data and rulings
                                              (downloads the latest files unless both
                                              card files are given)
+  yama-server import-deck-prices             Refresh sealed precon market prices once
   yama-server import-calendar                Refresh upcoming sets (Scryfall) and Commander
                                              precon lists (MTGJSON) once
   yama-server import-decks DIR --owner EMAIL [--update]
@@ -148,6 +150,7 @@ async fn main() -> anyhow::Result<()> {
             let rulings = flag_value(&args, "--rulings").map(PathBuf::from);
             cards::import::run(&pool, &cfg, oracle, default, rulings).await
         }
+        Some("import-deck-prices") => deck_prices::refresh(&pool, &routes::http_client()).await,
         Some("import-calendar") => calendar::run_once(&pool).await,
         Some("import-decks") => {
             let dir = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-decks DIR --owner EMAIL [--update]")?;

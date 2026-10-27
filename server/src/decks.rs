@@ -157,6 +157,8 @@ async fn parse_preview(State(st): State<AppState>, CurrentUser(user): CurrentUse
 
 #[derive(Serialize, sqlx::FromRow)]
 struct DeckSummary {
+    #[sqlx(skip)]
+    singles_value: crate::deck_prices::SinglesValue,
     id: String,
     name: String,
     folder: Option<String>,
@@ -213,6 +215,7 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
     }
     let versions: Vec<String> = decks.iter().filter_map(|d| d.current_version_id.clone()).collect();
     let mut estimates = crate::deck_checks::estimates(&st.pool, &versions).await?;
+    let market_prices = crate::deck_prices::prices(&st.pool).await?;
     for d in &mut decks {
         d.estimate = d.current_version_id.as_ref().and_then(|v| estimates.remove(v));
         // Same rule as the deck page's results (stats::results_by_version): only seats where the
@@ -229,6 +232,7 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
         (d.games, d.wins, d.draws) = (games, wins, draws);
         if let Some(v) = &d.current_version_id {
             let cards = load_version_cards(&st.pool, v).await?;
+            d.singles_value = crate::deck_prices::singles(&serde_json::to_value(&cards).map_err(anyhow::Error::from)?, &market_prices);
             d.card_count = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
             for c in cards.iter().filter(|c| c.board != Board::Side) {
                 let real = c.qty.min(owned_by_oracle.get(c.oracle_id.as_str()).copied().unwrap_or(0));
@@ -400,6 +404,7 @@ async fn owned_deck(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<(Stri
 
 #[derive(Serialize)]
 struct DeckView {
+    singles_value: crate::deck_prices::SinglesValue,
     id: String,
     name: String,
     container_id: Option<String>,
@@ -603,6 +608,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             card_info.insert(c.oracle_id.clone(), card);
         }
     }
+    let singles_value = crate::deck_prices::singles(&serde_json::to_value(&cards).map_err(anyhow::Error::from)?, &crate::deck_prices::prices(&st.pool).await?);
     let validation = validate(&cards, &card_info);
     let game_changers = game_changers(&cards, &card_info);
     let game_changers_as_of = crate::cards::import::game_changers_date(&st.pool).await?;
@@ -683,6 +689,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
     }
     totals.needed_cost_usd = (totals.needed_cost_usd * 100.0).round() / 100.0;
     Ok(Json(DeckView {
+        singles_value,
         id,
         name,
         container_id,

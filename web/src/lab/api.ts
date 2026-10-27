@@ -1,3 +1,4 @@
+import type { SinglesValue, SealedPrice } from "../api";
 // Types for the simulation lab's API (server/src/lab.rs and server/src/lab/). Every simulated
 // number travels with a label (engine, card data, AI level, games, dates); real-game numbers from
 // playgroup.gg carry their own source and date and are never mixed in.
@@ -90,6 +91,8 @@ export interface Playgroup {
 }
 
 export interface PreconItem {
+  singles_value?: SinglesValue;
+  sealed_price?: SealedPrice | null;
   id: string;
   lab_id: string;
   name: string;
@@ -111,6 +114,8 @@ export interface PreconList {
 }
 
 export interface PreconCard {
+  unit_price_usd?: number | null;
+  price_date?: string | null;
   name: string;
   oracle_id: string | null;
   qty: number;

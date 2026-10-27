@@ -1,8 +1,9 @@
+import { SinglesPrice } from "../components/DeckPrices";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { identityName, MANA, type ManaKey } from "@yama/core";
 import { Fragment, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { api } from "../api";
+import { api, usd, shortDate } from "../api";
 import { useMe } from "../auth";
 import { WinBar, winCeiling } from "../components/Crop";
 import { Details, ErrorText, Pips } from "../components/ui";
@@ -423,6 +424,7 @@ export function PreconsPage() {
                   <Link to={`/decks/lab/p/${p.id}`} className="lab-card-name">
                     <b>{p.name}</b> <Pips identity={p.color_identity} />
                   </Link>
+                  <span className="dim small"><SinglesPrice value={p.singles_value} />. Sealed: {usd(p.sealed_price?.usd)}{p.sealed_price ? `, ${p.sealed_price.source}, ${shortDate(p.sealed_price.price_date)}` : ""}</span>
                   {r?.p4_field != null && <WinBar value={r.p4_field} lo={r.p4_lo} hi={r.p4_hi} max={max} few={isFew} label={rateAria(p.name, r, level)} />}
                   <span className={`lab-card-games${isFew ? " few" : ""}`}>
                     <ConfidenceMark confidence={r?.confidence} name={p.name} method={run?.confidence?.method} />
@@ -481,6 +483,7 @@ function TableRow({ p, max, level, method }: { p: PreconItem; max: number; level
           {p.commanders.join(" and ")}. {p.set_name ?? p.set_code}
           {p.set_name ? ` (${p.set_code})` : ""}, {year(p.released) ?? "no date"}
         </span>
+        <span className="sub"><SinglesPrice value={p.singles_value} />. Sealed: {usd(p.sealed_price?.usd)}{p.sealed_price ? `, ${p.sealed_price.source}, ${shortDate(p.sealed_price.price_date)}` : ""}</span>
       </td>
       <td className="bar">
         {r?.p4_field != null ? (

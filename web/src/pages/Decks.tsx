@@ -1,3 +1,4 @@
+import { DeckPrices, SinglesPrice } from "../components/DeckPrices";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, listText, newHand, rng, type Goldfish } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
@@ -102,6 +103,7 @@ export function DecksPage() {
                       <BracketChips declared={d.bracket} estimate={d.estimate} />
                     </span>
                   )}
+                  <span className="deck-tile-meta"><SinglesPrice value={d.singles_value} /></span>
                   <span className="deck-tile-foot num">
                     {own ? (
                       <span className={`deck-own ${own.tone}`}>
@@ -280,6 +282,7 @@ export function DeckPage() {
       </ArtPanel>
 
       <div className="page deck-body">
+        <DeckPrices singles={d.singles_value} />
         {/* Phones: three figure tiles, the plan, then the other actions. */}
         <div className="deck-stats-tiles">
           <span className="deck-stat">
