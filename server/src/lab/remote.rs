@@ -349,6 +349,10 @@ async fn claim(
     {
         return Err(AppError::bad("Invalid worker identity or build"));
     }
+    let Some(current) = current else {
+        // After a restart, the available runtime must be known before old workers can lease work.
+        return Ok(None);
+    };
     let clock = chrono::Utc::now().timestamp();
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let held: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lab_worker_jobs WHERE worker_id=? AND expires>? AND result IS NULL)")
@@ -398,9 +402,7 @@ async fn claim(
             after = rowid;
             let mut expected: Build =
                 serde_json::from_str(&expected).map_err(anyhow::Error::from)?;
-            if let Some(current) = current
-                && !compatible(&expected, current)
-            {
+            if !compatible(&expected, current) {
                 if comparison {
                     sqlx::query("UPDATE lab_execution_runs SET cancelled_at=?,cancel_reason='runtime_changed' WHERE id=?")
                     .bind(now()).bind(&run_id).execute(&mut *tx).await?;

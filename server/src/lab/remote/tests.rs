@@ -421,6 +421,23 @@ async fn queued_experiments_use_the_available_runtime_instead_of_creation_metada
 }
 
 #[tokio::test]
+async fn claims_wait_for_the_server_runtime_before_leasing_production_or_comparisons() {
+    for comparison in [false, true] {
+        let (pool, worker, experiment) = fixture().await;
+        let mut body = execution(&experiment);
+        body.comparison = comparison;
+        body.targets = vec!["laptop".into(), "saget".into()];
+        create(&pool, &worker.owner, &body).await.unwrap();
+        assert!(super::claim(&pool, &worker, offer(&new_id()), None).await.unwrap().is_none());
+        let leased: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_worker_jobs WHERE lease_id IS NOT NULL")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(leased, 0);
+        // The same work remains available once the server can attest its current runtime.
+        assert!(claim(&pool, &worker, offer(&new_id())).await.unwrap().is_some());
+    }
+}
+
+#[tokio::test]
 async fn unplayed_production_pods_adopt_a_new_runtime_without_mutating_their_schedule() {
     let (pool, worker, experiment) = fixture().await;
     let old = Build {
