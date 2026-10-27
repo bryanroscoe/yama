@@ -122,6 +122,7 @@ pub struct RealGames {
 
 #[derive(Serialize)]
 pub struct Precon {
+    pub upgradeability: crate::upgradeability::Assessment,
     pub id: String,
     pub name: String,
     pub set_code: String,
@@ -264,6 +265,7 @@ impl Filters {
         });
         rows.sort_by(|a, b| {
             let ordering = match self.s.as_str() {
+                "upgradeability" => b.upgradeability.score.cmp(&a.upgradeability.score),
                 "name" => a.name.cmp(&b.name),
                 "year" => b.released.cmp(&a.released),
                 "real" => b
@@ -466,6 +468,7 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
             p
         });
         rows.push(Precon {
+            upgradeability: crate::upgradeability::assess(&p.id, &stock),
             id: p.id,
             name: p.name,
             set_code: p.set_code,

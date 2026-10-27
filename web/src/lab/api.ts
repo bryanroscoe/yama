@@ -90,7 +90,22 @@ export interface Playgroup {
   method?: string | null;
 }
 
+export interface Upgradeability {
+  score: number | null;
+  label: string;
+  status: "provisional" | "not_assessed" | "stock_list_changed";
+  effort: string | null;
+  path: string | null;
+  limitation: string | null;
+  assessed_on: string | null;
+  source_url: string | null;
+  method: string;
+  basis: string;
+  rubric: string;
+}
+
 export interface PreconItem {
+  upgradeability?: Upgradeability;
   singles_value?: SinglesValue;
   sealed_price?: SealedPrice | null;
   id: string;

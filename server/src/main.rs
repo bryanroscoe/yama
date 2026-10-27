@@ -31,6 +31,7 @@ mod table_rooms;
 #[cfg(test)]
 mod testutil;
 mod util;
+mod upgradeability;
 mod view_as;
 #[cfg(test)]
 mod view_as_tests;

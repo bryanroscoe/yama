@@ -1,3 +1,4 @@
+import { UpgradeabilitySummary } from "./Upgradeability";
 import { SinglesPrice } from "../components/DeckPrices";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { identityName, MANA, type ManaKey } from "@yama/core";
@@ -39,6 +40,7 @@ import { SimLine } from "./parts";
 export const usePrecons = () => useQuery({ queryKey: ["lab", "precons"], queryFn: () => api<PreconList>("/api/precons"), staleTime: 5 * 60_000 });
 
 const SORTS: { key: SortKey; label: string }[] = [
+  { key: "upgradeability", label: "Upgradeability" },
   { key: "rank", label: "Simulated rank" },
   { key: "p4", label: "Model win rate" },
   { key: "strength", label: "Strength" },
@@ -240,6 +242,7 @@ export function PreconsPage() {
       {run && (
         <details className="small">
           <summary>How the ratings work</summary>
+          <p>Upgradeability is a provisional editorial assessment from 1 to 5, keeping the stock commander and identity. It is separate from simulated or real-game strength. Open a precon for its upgrade path, effort, limitations and dated evidence. Missing assessments are not zero scores.</p>
           <p className="lab-note">
             Every precon played whole games against other precons, with {ai} in every seat, in 4-player pods. The <b>model win rate</b> is a model of
             finishing order ({run.model ?? "Plackett-Luce"})'s chance that the deck wins a pod of three random precons; a quarter is an even share. The bar is
@@ -336,13 +339,14 @@ export function PreconsPage() {
               <Th k="p4" label={`Model win rate in 4-player pods, ${level} interval`} sort={sort} desc={desc} onSort={sortBy} />
               <Th k="games" label="Games" sort={sort} desc={desc} onSort={sortBy} num />
               <Th k="strength" label="Strength" sort={sort} desc={desc} onSort={sortBy} num />
+              <Th k="upgradeability" label="Upgradeability" sort={sort} desc={desc} onSort={sortBy} num />
               <Th k="real" label="Real games, playgroup.gg" sort={sort} desc={desc} onSort={sortBy} className="real" num />
             </tr>
           </thead>
           {mineShown.length > 0 && (
             <tbody className="lab-mine">
               <tr className="lab-mine-head">
-                <th colSpan={6} scope="rowgroup">
+                <th colSpan={7} scope="rowgroup">
                   <span className="lab-mine-title">
                     Your lists <span>Rated in your own paired runs: each run has its own field and model fit, so its rank is out of that run's decks.</span>
                   </span>
@@ -367,7 +371,7 @@ export function PreconsPage() {
           {unjudged.length > 0 && (
             <tbody>
               <tr className="lab-unjudged-head">
-                <th colSpan={6} scope="rowgroup">
+                <th colSpan={7} scope="rowgroup">
                   <b>
                     The simulation can't judge {unjudged.length === 1 ? "this deck" : `these ${unjudged.length} decks`}
                   </b>
@@ -424,6 +428,7 @@ export function PreconsPage() {
                   <Link to={`/decks/lab/p/${p.id}`} className="lab-card-name">
                     <b>{p.name}</b> <Pips identity={p.color_identity} />
                   </Link>
+                  <span className="dim small">Upgradeability: <UpgradeabilitySummary value={p.upgradeability} /></span>
                   <span className="dim small"><SinglesPrice value={p.singles_value} />. Sealed: {usd(p.sealed_price?.usd)}{p.sealed_price ? `, ${p.sealed_price.source}, ${shortDate(p.sealed_price.price_date)}` : ""}</span>
                   {r?.p4_field != null && <WinBar value={r.p4_field} lo={r.p4_lo} hi={r.p4_hi} max={max} few={isFew} label={rateAria(p.name, r, level)} />}
                   <span className={`lab-card-games${isFew ? " few" : ""}`}>
@@ -506,6 +511,7 @@ function TableRow({ p, max, level, method }: { p: PreconItem; max: number; level
           <span className="dim small">no data</span>
         )}
       </td>
+      <td className="num"><UpgradeabilitySummary value={p.upgradeability} /></td>
       <td className="real num">
         {pg?.rank != null ? (
           <>
@@ -562,6 +568,7 @@ function MineRow({ m, max, level }: { m: MyList; max: number; level: string }) {
           <span className="dim small">no data</span>
         )}
       </td>
+      <td className="num"><span className="dim small">Not assessed for this list</span></td>
       <td className="real num">
         <span className="dim small">Your list</span>
       </td>
