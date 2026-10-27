@@ -506,6 +506,8 @@ pub fn solo_verdict(stats: &ListStats, pod: usize, is_final: bool) -> Verdict {
 
 // ── head to head (mode "versus") ─────────────────────────────────────────────
 
+pub const TOURNAMENT_METHOD: &str = "A shared tournament field plays balanced randomized four-player pods. Each quartet rotates through every seat with fresh seeds. Every participant is scored, including benchmark precons. Win rates use only the games that deck played and carry Wilson 90% intervals. Head-to-head rates use only shared scored games, excluding tied finishes. Equal appearances reduce opponent-selection imbalance but do not guarantee identical opponents or remove AI/card-support bias. Small samples and overlapping intervals do not establish a power ranking. Timeouts, crashes and errors are unscored; turn/action caps are scored with no winner.";
+
 pub const VERSUS_METHOD: &str = "Each of your decks plays the others directly, every deck rotated through every seat so \
 going first evens out. Win share: the games each deck won, with a Wilson 90% interval; in a pod of four a deck with no \
 edge wins about one in four (one in two in 1v1). Head to head: of the games two decks both played, how often each finished \
@@ -643,18 +645,14 @@ pub fn summarize_versus(rows: &[(String, Option<String>)], entrants: &[(String, 
                 place_sum[i] += p;
             }
         }
-        for m in meetings.iter_mut() {
-            if let (Some(pa), Some(pb)) = (place[m.a], place[m.b]) {
-                m.games += 1;
-                if pa < pb {
-                    m.a_ahead += 1;
-                } else if pb < pa {
-                    m.b_ahead += 1;
-                } else {
-                    m.ties += 1;
-                }
-            }
-        }
+        let present: Vec<usize> = place.iter().enumerate().filter_map(|(i, p)| p.map(|_| i)).collect();
+        for (at, &a) in present.iter().enumerate() { for &b in &present[at + 1..] {
+            let index = a * (2 * n - a - 1) / 2 + b - a - 1;
+            let m = &mut meetings[index];
+            let (pa, pb) = (place[a].unwrap(), place[b].unwrap());
+            m.games += 1;
+            if pa < pb { m.a_ahead += 1; } else if pb < pa { m.b_ahead += 1; } else { m.ties += 1; }
+        }}
     }
     unscored.total = unscored.time_cap + unscored.panic + unscored.error;
     no_winner.total = no_winner.draw + no_winner.turn_cap + no_winner.action_cap;

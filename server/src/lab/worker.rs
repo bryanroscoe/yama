@@ -1042,6 +1042,22 @@ pub async fn store(pool: &SqlitePool, experiment: &str, game: &str, result: &Gam
     if written == 0 {
         return Ok(false);
     }
+    // A large tournament must not parse its whole history after every single result. Progress
+    // remains exact; rank summaries refresh in batches, at either engine's finish, and on cancel.
+    let progress: Option<(i64, i64, String)> = sqlx::query_as(
+        "UPDATE lab_experiments SET games_done=games_done+1, updated_at=?
+         WHERE id=? AND json_extract(spec, '$.mode')='tournament'
+         RETURNING games_done, games_total, status",
+    ).bind(now()).bind(experiment).fetch_optional(&mut *tx).await?;
+    if let Some((done, total, status)) = progress
+        && done < total && done % 25 != 0 && matches!(status.as_str(), "queued" | "running")
+    {
+        let engine_pending: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM lab_experiment_games WHERE experiment_id=? AND result IS NULL
+             AND engine=(SELECT engine FROM lab_experiment_games WHERE experiment_id=? AND game=?))",
+        ).bind(experiment).bind(experiment).bind(game).fetch_one(&mut *tx).await?;
+        if engine_pending { tx.commit().await?; return Ok(true); }
+    }
     // The game being stored is still claimed, so a cancelled experiment's summary stays open
     // here; the worker settles it once the claim is dropped.
     refresh(&mut tx, experiment, false).await?;
@@ -1097,7 +1113,7 @@ pub async fn refresh(conn: &mut SqliteConnection, experiment: &str, settled: boo
             .fetch_one(&mut *conn)
             .await?;
     let pod = usize::try_from(pod.unwrap_or(4)).unwrap_or(4);
-    let entrants: Vec<(String, String)> = if mode.as_deref() == Some("versus") {
+    let entrants: Vec<(String, String)> = if matches!(mode.as_deref(), Some("versus" | "tournament")) {
         sqlx::query_as(
             "SELECT json_extract(value, '$.id'), json_extract(value, '$.label') FROM lab_experiments, json_each(lab_experiments.spec, '$.entrants')
              WHERE lab_experiments.id = ? ORDER BY CAST(key AS INTEGER)",
@@ -1112,9 +1128,11 @@ pub async fn refresh(conn: &mut SqliteConnection, experiment: &str, settled: boo
     let summarize_part = |part: &[&(i64, String, Option<String>, String)]| -> Summary {
         let part_final = part.iter().all(|r| r.2.is_some()) || cancelled_settled;
         match mode.as_deref() {
-            Some("versus") => {
+            Some("versus" | "tournament") => {
                 let games: Vec<(String, Option<String>)> = part.iter().map(|(_, spec, result, _)| (spec.clone(), result.clone())).collect();
-                stats::summarize_versus(&games, &entrants, pod, part_final)
+                let mut summary = stats::summarize_versus(&games, &entrants, pod, part_final);
+                if mode.as_deref() == Some("tournament") { summary.method = stats::TOURNAMENT_METHOD.into(); }
+                summary
             }
             other => {
                 let outcomes: Vec<Outcome> = part.iter().filter_map(|(ord, spec, result, _)| Outcome::from_row(*ord, spec, result.as_deref())).collect();

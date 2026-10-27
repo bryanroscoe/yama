@@ -2170,3 +2170,89 @@ async fn claude_can_start_read_extend_repeat_and_cancel_lab_runs() {
     assert_eq!(detail(&pool, "bryan", &new_id).await.unwrap().item.status, "cancelled");
     assert!(call("cancel_lab_run", json!({"id": new_id})).await.unwrap_err().to_string().contains("nothing to cancel"));
 }
+
+#[tokio::test]
+async fn tournament_is_one_frozen_shared_field_and_scores_every_deck() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let admin = user("admin", true);
+    let r = req(json!({"op_id":"one-tournament", "mode":"tournament", "entrants": [
+        {"kind":"precon","id":"p1"}, {"kind":"precon","id":"p2"},
+        {"kind":"precon","id":"p3"}, {"kind":"precon","id":"p4"},
+        {"kind":"precon","id":"p5"}, {"kind":"precon","id":"p1"}
+    ], "games":100}));
+    let d = create(&pool, &admin, r, sim.as_ref()).await.unwrap();
+    assert_eq!(d.item.mode, Mode::Tournament);
+    assert_eq!(d.games_per_deck, Some(100));
+    assert_eq!(d.lists.entrants.len(), 5, "identical lists are not overweighted");
+    assert!(d.warnings.iter().any(|w| w.contains("identical")));
+    assert_eq!(d.item.progress.total, 128, "100 appearances per deck, rounded to whole seat rotations");
+    let charged: i64 = sqlx::query_scalar("SELECT games FROM lab_usage WHERE experiment_id=?").bind(&d.item.id).fetch_one(&pool).await.unwrap();
+    assert_eq!(charged, 128, "charge the total scheduled games, not the per-deck target");
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    let done = detail(&pool, "admin", &d.item.id).await.unwrap();
+    let summary = done.item.summary.unwrap();
+    assert!(summary.method.contains("tournament"));
+    let v = summary.versus.unwrap();
+    assert_eq!(v.games, 128);
+    assert_eq!(v.entrants.iter().map(|e| e.games).sum::<u32>(), 512);
+    assert!(v.entrants.iter().all(|e| (100..=104).contains(&e.games)));
+    assert_eq!(v.entrants.iter().map(|e| e.wins).sum::<u32>(), 128);
+    assert_eq!(v.meetings.iter().map(|m| m.games).sum::<u32>(), 128*6);
+    assert!(detail(&pool,"other",&d.item.id).await.is_err());
+    let again = again(&pool, &admin, &d.item.id, 200, Some("tournament-again"), sim.as_ref()).await.unwrap();
+    assert_eq!(again.games_per_deck, Some(200));
+    assert_eq!(again.item.progress.total, 252);
+}
+
+#[tokio::test]
+async fn tournament_can_add_the_precon_catalog_and_preserves_idempotency() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let admin = user("admin", true);
+    let request = || req(json!({"op_id":"catalog-tournament", "mode":"tournament", "entrants":[{"kind":"precon","id":"p1"}], "field":{"kind":"precons_all"}, "games":100}));
+    let first = create(&pool,&admin,request(),sim.as_ref()).await.unwrap();
+    let second = create(&pool,&admin,request(),sim.as_ref()).await.unwrap();
+    assert_eq!(first.item.id, second.item.id);
+    assert_eq!(first.lists.entrants.len(), 5, "supported catalog decks become scored entrants; unsupported p6 excluded");
+    assert!(first.opponents.is_empty(), "no unscored filler decks in tournament mode");
+    let too_few = req(json!({"mode":"tournament","entrants":[{"kind":"precon","id":"p1"}],"games":100}));
+    assert!(bad(create(&pool,&admin,too_few,sim.as_ref()).await.unwrap_err()).contains("distinct decks"));
+    let wrong_pod = req(json!({"mode":"tournament","pod":2,"entrants":[{"kind":"precon","id":"p1"}],"games":100}));
+    assert!(bad(create(&pool,&admin,wrong_pod,sim.as_ref()).await.unwrap_err()).contains("four-player"));
+}
+
+#[tokio::test]
+async fn tournament_charges_actual_games_and_rolls_back_when_allowance_is_too_small() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let mut limited = user("bryan", false);
+    limited.limited = true;
+    let quota = crate::config::LabQuota { open_daily_games: 100, ..Default::default() };
+    let request = req(json!({"mode":"tournament","entrants":[{"kind":"precon","id":"p1"}],"field":{"kind":"precons_all"},"games":100}));
+    let err = create_with(&pool,&limited,request,sim.as_ref(),&quota,&ForgeAccess::default()).await.unwrap_err();
+    assert!(bad(err).contains("experiment limit"), "the five-deck tournament needs 128 games, not 100");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id='bryan'").fetch_one(&pool).await.unwrap();
+    assert_eq!(count,0,"no partial experiment or usage charge is committed");
+}
+
+#[tokio::test]
+async fn tournament_progress_is_exact_between_summary_batches_and_cancel_flushes_it() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let admin = user("admin", true);
+    let request = req(json!({"mode":"tournament","entrants":[{"kind":"precon","id":"p1"}],"field":{"kind":"precons_all"},"games":100}));
+    let d = create(&pool,&admin,request,sim.as_ref()).await.unwrap();
+    let (game, text): (String,String) = sqlx::query_as("SELECT game,spec FROM lab_experiment_games WHERE experiment_id=? ORDER BY ord LIMIT 1").bind(&d.item.id).fetch_one(&pool).await.unwrap();
+    let spec: GameSpec = serde_json::from_str(&text).unwrap();
+    let mut result = GameResult::new(&spec,"fake");
+    result.end=End::Win; result.winner=Some(0); result.placements=vec![vec![0],vec![1,2,3]];
+    assert!(store(&pool,&d.item.id,&game,&result).await.unwrap());
+    assert!(!store(&pool,&d.item.id,&game,&result).await.unwrap());
+    let pending=detail(&pool,"admin",&d.item.id).await.unwrap();
+    assert_eq!(pending.item.progress.done,1);
+    let cancelled=cancel(&pool,"admin",&d.item.id,&idle).await.unwrap();
+    assert_eq!(cancelled.item.progress.done,1);
+    assert_eq!(cancelled.item.summary.unwrap().versus.unwrap().games,1,"cancel flushes the last partial summary batch");
+}

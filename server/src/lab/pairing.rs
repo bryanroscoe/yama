@@ -309,6 +309,43 @@ pub fn schedule_versus(
     out
 }
 
+/// A shared field: least-used entrants first, then least-met opponents, with seeded tie breaks.
+/// Each chosen quartet plays four fresh-seed games, once in every seat. Appearances are rounded
+/// up to a multiple of four; a non-multiple-of-four field can overshoot a target by four games.
+pub fn schedule_tournament(run: &str, entrants: &[String], target: usize, seed: u64, difficulty: &str, limits: &Limits) -> Vec<ScheduledGame> {
+    assert!(entrants.len() >= POD && target > 0);
+    let n = entrants.len();
+    let mut rng = Mix::new(seed);
+    let mut used = vec![0usize; n];
+    let mut meetings = vec![vec![0usize; n]; n];
+    let mut games = Vec::new();
+    while used.iter().any(|u| *u < target) {
+        let mut group = Vec::with_capacity(POD);
+        for _ in 0..POD {
+            let best = (0..n).filter(|i| !group.contains(i)).map(|i| {
+                let met: usize = group.iter().map(|j: &usize| meetings[i][*j]).sum();
+                ((used[i], met, rng.next_u64()), i)
+            }).min_by_key(|(cost, _)| *cost).expect("four distinct entrants").1;
+            group.push(best);
+        }
+        for &i in &group { used[i] += POD; }
+        for a in 0..POD { for b in a + 1..POD {
+            meetings[group[a]][group[b]] += POD;
+            meetings[group[b]][group[a]] += POD;
+        }}
+        for rotation in 0..POD {
+            let decks = (0..POD).map(|seat| entrants[group[(seat + rotation) % POD]].clone()).collect();
+            let game = format!("{run}-{}-t", games.len());
+            games.push(ScheduledGame { game: game.clone(), ord: (games.len() * 2) as i64, spec: GameSpec {
+                game, seed: rng.next_u64() & ((1u64 << 53) - 1), decks,
+                difficulty: difficulty.into(), max_turns: limits.max_turns, max_actions: limits.max_actions,
+                max_seconds: limits.max_seconds, pilots: None,
+            }});
+        }
+    }
+    games
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -458,5 +495,33 @@ mod tests {
         assert!(seats.iter().filter(|n| **n > 0).count() >= 3, "it moves around the table: {seats:?}");
         // every = 0 is the plain schedule.
         assert_eq!(templates_with(12, 0, 40, 5), templates(12, 40, 5));
+    }
+}
+
+#[cfg(test)]
+mod tournament_tests {
+    use super::*;
+    #[test]
+    fn tournament_balances_large_and_uneven_fields_and_is_reproducible() {
+        for n in [4, 5, 7, 14, 193] {
+            let ids: Vec<String> = (0..n).map(|i| format!("e{i}")).collect();
+            let a = schedule_tournament("test", &ids, 100, 42, "Easy", &LIMITS);
+            assert_eq!(a, schedule_tournament("test", &ids, 100, 42, "Easy", &LIMITS));
+            assert_ne!(a, schedule_tournament("test", &ids, 100, 43, "Easy", &LIMITS));
+            let mut seats = vec![[0usize; 4]; n];
+            let mut unique = std::collections::HashSet::new();
+            for g in &a {
+                assert!(unique.insert(g.game.clone()));
+                assert_eq!(g.spec.decks.iter().collect::<std::collections::HashSet<_>>().len(), 4);
+                for (seat, id) in g.spec.decks.iter().enumerate() {
+                    seats[id[1..].parse::<usize>().unwrap()][seat] += 1;
+                }
+            }
+            for counts in seats {
+                assert!(counts.iter().all(|x| *x == counts[0]), "each deck has exactly equal seats");
+                assert!((100..=104).contains(&counts.iter().sum::<usize>()));
+            }
+            assert!(a.len() <= (n * 104).div_ceil(4), "no wasteful repeated whole-field tests");
+        }
     }
 }

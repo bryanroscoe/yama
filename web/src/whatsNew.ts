@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-26-tournaments",
+    date: "2026-10-26",
+    title: "Compare your whole collection in one tournament",
+    items: [
+      "Lab, Compare decks has a Tournament option. Choose your current and after-prints deck versions, add stock precon benchmarks, and run one shared experiment.",
+      "Choose games per deck. Four-player pods balance appearances, vary opponents and rotate seats. Identical lists count once, and every participant contributes to the results.",
+      "Results rank the field with win-share intervals and show shared-game matchups, separately for each engine. These are AI simulations, not predictions for your table.",
+    ],
+    link: { to: "/decks/lab/compare?mode=tournament", label: "Set up a tournament" },
+  },
+  {
     id: "2026-10-26-deck-stats-brackets",
     date: "2026-10-26",
     title: "Clearer deck stats and bracket suggestions",
