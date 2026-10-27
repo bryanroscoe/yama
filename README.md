@@ -8,6 +8,8 @@ the exact published commit in `deploy/phase-rev`. See [engine integration](docs/
 
 Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images come from [Scryfall](https://scryfall.com); images load from Scryfall at runtime and are never stored or re-hosted here.
 
+Precon comparisons and detail pages also show [upgradeability](docs/precon-upgradeability.md): a provisional 1–5 editorial assessment, refocusing effort, upgrade path, limits and date. All 174 current stock precons are covered; changed or new lists remain unassessed until reviewed. The public API, Lab and MCP use the same data. Commander ranking remains separate future work.
+
 ## What works today
 
 | Area | Status |
@@ -35,7 +37,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | Deck planner | In progress (docs/planner-design.md). Importing a plan file works, from the browser (Decks, then Plans, then "Import a plan file") or with `import-plan` below. The pages are built: an overview and a page per plan deck with its changes, stock, now and after-prints lists, bracket builds, copy buttons, "Make this a Yama deck" and a link to your Yama deck; a Review page for answering every swap (offline too) and "Suggest a change"; Settings with script keys for commander-decks' `publish.py` and `pull.py`; a Buy page (cards by store with cart links, dated prices and rule flags, "Mark bought", each order A to Z for sorting a delivery), Prints (each print order and the next one, with tiers and double-faced backs, and a printable swap sheet: sort the prints into decks, then each deck's card in, card out and where the cut card goes) and Spares; "I've put this in the deck" ticks; and "Swap in the prints" per deck, which gives the linked Yama deck its after-prints list, puts the prints in its box as proxies, moves cut cards to the deck that takes them next, the deck's swap bag box or Spares, and ticks the swaps installed |
 | Simulation lab | One shared-field tournament with 4–256 distinct deck lists, randomized four-player pods, games-per-deck targets, optional precon benchmarks and per-engine rankings/matchups. Batch runner for all-AI games (`play/src/bin/lab.rs`, core in `play/src/lab.rs`); the Commander precon catalog and analysed rating runs imported from commander-decks, with read APIs; "Try a change" experiments played by the server (`/api/lab/experiments`, YAMA_LAB_THREADS isolated game processes, default 1). Pages under Decks, Lab: the precon table and pages (with links to EDHREC's corresponding precon guide and related articles), "Try a change", and your runs, including your imported batch runs. Needs the engine card data |
 
-The public precon reference (`/precons`) serves stock lists, explicitly published simulation rankings, separately sourced real-game evidence and dated market references without sign-in. The personal Lab still requires sign-in. Results are published with `publish-precons MANIFEST`; imports never publish automatically. See [public precons and publication](docs/public-precons.md). All rights reserved in Yama’s original software, written analysis and presentation; third-party rights remain with their owners (see [COPYRIGHT](COPYRIGHT)).
+The public precon reference (`/precons`) serves stock lists, experimental meta rankings, explicitly published Phase/Forge simulation evidence, attributed real-game results and dated market references without sign-in. The personal Lab still requires sign-in. Results are published with `publish-precons MANIFEST`; imports never publish automatically. See [public precons and publication](docs/public-precons.md). All rights reserved in Yama’s original software, written analysis and presentation; third-party rights remain with their owners (see [COPYRIGHT](COPYRIGHT)).
 
 ## Run it locally
 
@@ -43,6 +45,7 @@ Yama also exposes its own MCP at `/mcp` for Ask Claude and outside clients: priv
 collection and planner tools; staged edits; full online card search, community recommendations,
 combos, public deck imports and current rules; deck/budget analysis and bounded mana checks.
 No other Magic MCP installation is needed for those workflows. See
+the public [MCP feature and setup guide](https://yama.saget.org/docs/mcp/),
 [capabilities and use](docs/mcp-parity.md) and [connection design](docs/mcp-design.md).
 
 Needs Rust (stable) and Node 22+.

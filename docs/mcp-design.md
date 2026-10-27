@@ -1,5 +1,8 @@
 # Yama tools for Claude (MCP): design
 
+User-facing features, setup and examples are published at
+[the public MCP guide](https://yama.saget.org/docs/mcp/) (`web/public/docs/mcp/index.html`).
+
 Bryan, 2026-10-22: "Could we create a full MCP to work with and optimize your decks and stuff with
 this?" His answers: **both** (Ask Claude inside Yama and outside clients such as Claude Code), from
 **one toolset**; Claude may change **everything**, but should **recommend review before editing**.
@@ -51,6 +54,12 @@ Commander research and workflow extensions (2026-10-27) are implemented in
 `server/src/mcp/research/`; see [the capability map, provenance and limits](mcp-parity.md).
 They use this same endpoint and review flow. The protocol also exposes workflow prompts and
 owner-checked resources. `save_deck` stages a complete new/replacement list, never a direct save.
+
+Private research adds `research`, `save_research` and `review_research`; see
+[its format and review semantics](research-format.md). The latter two store advice and stated
+preferences directly, an explicit exception to staged execution writes. They never alter a deck,
+inventory, planner approval, order or game. Compact reads and deck/build/scenario filters avoid
+returning every list to a client that only needs one decision.
 
 Read (no review needed):
 
@@ -170,3 +179,5 @@ Tournament mode in `start_lab_run` (2026-10-26): `mode: "tournament"`, a selecte
 ## Proposal presentation (2026-10-27)
 
 The review UI identifies MCP and external sources without assuming an assistant provider. Deck-edit and plan-idea changes expose a presentation-only `preview` derived from their stored payloads: target, separate additions and removals, counted copies, reasons, and deck checks where recorded. The API loads card metadata in a batch and sends runtime Scryfall image URLs. It never exposes the raw execution payload. Existing pending changes need no migration or restaging. The page shows the cards and formatted reasons directly, with full-card zoom and a responsive single-column layout on phones. Complete-list `save_deck` proposals retain their readable full list and checks instead of being interpreted as swaps. Other kinds retain readable text. Applying remains an explicit, owner-checked action against the staged version; rendering a proposal never applies it.
+
+Precon context includes the shared `upgradeability` assessment: provisional editorial score, effort, upgrade path, limitation, date, stock source and rubric. It is separate from simulated/real results. Changed or unassessed stock lists have no score; private deck variants do not inherit a stock assessment.

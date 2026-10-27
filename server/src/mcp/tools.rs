@@ -207,7 +207,7 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "precon",
         title: "A precon",
-        description: "A Commander precon from Yama's catalog: list, real results from playgroup.gg, the simulated rating and matchups. \
+        description: "A Commander precon from Yama's catalog: list, real results from playgroup.gg, the simulated rating and matchups, and a dated editorial upgradeability score with effort, path, limitations and stock-list evidence. Upgradeability is not a win-rate prediction or commander ranking. \
                       Give its name (or part of it) or id.",
         schema: || obj(&[("precon", "string", "The precon's name, part of it, or its id.")], &["precon"]),
         does: Does::Read,

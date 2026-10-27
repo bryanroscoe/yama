@@ -472,12 +472,14 @@ export function filterPrecons(list: PreconItem[], f: PreconFilter): PreconItem[]
   });
 }
 
-export type SortKey = "rank" | "name" | "set" | "year" | "strength" | "p4" | "games" | "real";
+export type SortKey = "upgradeability" | "rank" | "name" | "set" | "year" | "strength" | "p4" | "games" | "real";
 
 /** Sorted copy. Missing values go last whichever way the sort runs. */
 export function sortPrecons(list: PreconItem[], key: SortKey, desc: boolean): PreconItem[] {
   const value = (p: PreconItem): number | string | null => {
     switch (key) {
+      case "upgradeability":
+        return p.upgradeability?.score ?? null;
       case "rank":
         return p.rating?.rank ?? null;
       case "name":
@@ -509,6 +511,7 @@ export function sortPrecons(list: PreconItem[], key: SortKey, desc: boolean): Pr
 
 /** The sort each column starts with: best first for numbers where higher is better. */
 export const DEFAULT_DESC: Record<SortKey, boolean> = {
+  upgradeability: true,
   rank: false,
   name: false,
   set: false,

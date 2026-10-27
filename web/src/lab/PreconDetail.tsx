@@ -1,3 +1,4 @@
+import { UpgradeabilitySection } from "./Upgradeability";
 import { DeckPrices } from "../components/DeckPrices";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { identityName } from "@yama/core";
@@ -60,6 +61,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
         </span>
       </ArtPanel>
       <Actions precon={p} />
+      <UpgradeabilitySection value={p.upgradeability} />
       <DeckPrices singles={p.singles_value} sealed={p.sealed_price} precon />
 
       <section>

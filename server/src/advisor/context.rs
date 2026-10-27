@@ -571,6 +571,9 @@ async fn precon(pool: &SqlitePool, id: &str) -> AppResult<String> {
         commanders.join(" and "),
         s(p, "color_identity"),
     );
+    if let Some(u) = p.get("upgradeability") {
+        let _ = writeln!(out, "Upgradeability (editorial, separate from simulation): {u}");
+    }
     if let Some(pg) = p.get("playgroup").filter(|x| !x.is_null()) {
         let _ = writeln!(out, "Real games (playgroup.gg): {pg}");
     }

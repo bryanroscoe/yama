@@ -660,6 +660,7 @@ pub struct Art {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PreconItem {
+    pub upgradeability: crate::upgradeability::Assessment,
     pub singles_value: crate::deck_prices::SinglesValue,
     pub sealed_price: Option<crate::deck_prices::SealedPrice>,
     pub id: String,
@@ -693,13 +694,14 @@ struct PreconRow {
     same_list_as: Option<String>,
     card_count: i64,
     playgroup: Option<String>,
+    cards: String,
     art_url: Option<String>,
     art_artist: Option<String>,
     art_card: Option<String>,
 }
 
 const PRECON_COLUMNS: &str = "p.id, p.lab_id, p.name, p.set_code, p.set_name, p.released, p.commanders, p.color_identity, p.same_list_as, \
-    IFNULL((SELECT SUM(json_extract(value, '$.qty')) FROM json_each(p.cards)), 0) AS card_count, p.playgroup, \
+    IFNULL((SELECT SUM(json_extract(value, '$.qty')) FROM json_each(p.cards)), 0) AS card_count, p.playgroup, p.cards, \
     c.image_art_crop AS art_url, c.artist AS art_artist, c.name AS art_card";
 /// Commander lines come first in `cards`, so the first line's card is the art.
 const PRECON_FROM: &str = "precons p LEFT JOIN cards c ON c.oracle_id = json_extract(p.cards, '$[0].oracle_id')";
@@ -708,6 +710,7 @@ impl PreconRow {
     fn item(self, ratings: &HashMap<String, Rating>) -> PreconItem {
         let rating = ratings.get(&self.lab_id).cloned();
         PreconItem {
+            upgradeability: crate::upgradeability::assess(&self.id, &serde_json::from_str::<Vec<PreconCard>>(&self.cards).unwrap_or_default()),
             singles_value: Default::default(),
             sealed_price: None,
             art: match (self.art_url, self.art_card) {

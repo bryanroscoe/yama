@@ -1,6 +1,6 @@
 # Public precon reference
 
-27 October 2026. Implemented in this checkout: anonymous stock-precon pages, dedicated public APIs, explicit ranking publication and a shared rights notice. Production release and actual ranking publication are separate actions. No new scraping pipeline or combined ranking is enabled. ARCHITECTURE.md is the plan of record.
+27 October 2026. Implemented in this checkout: anonymous stock-precon pages, dedicated public APIs, explicit ranking publication and a shared rights notice. Production release and actual ranking publication are separate actions. The design pass adds an experimental, explicitly defined meta rank and atomic multi-engine publication. No new scraping pipeline is enabled. ARCHITECTURE.md is the plan of record.
 
 ## Public pages
 
@@ -12,7 +12,7 @@ Help someone answer: which stock precons interest me, how do they compare, how m
 | `/precons/:slug` | Stock list, commander and credited art, simulation results and limitations, separately sourced real-game results, market references, links to reviews and upgrade guides, copy/download stock list |
 | `/precons/methodology` | What each ranking measures, the opponent field, engine and AI versions, scored and excluded games, uncertainty, source dates, publication date and known limitations |
 
-Keep the entire catalog browsable even when a deck is unrated or an engine cannot judge it. A missing result means "not rated" or "insufficient evidence," never last place. Start with the simulation ranking clearly named; offer real-game evidence separately. Do not label either a definitive power ranking or invent an overall score for launch.
+Keep the entire catalog browsable even when a deck is unrated or an engine cannot judge it. A missing result means "not rated" or "insufficient evidence," never last place. Start with the simulation ranking clearly named; offer real-game evidence separately. The experimental meta rank described below is an ordinal consensus with declared editorial weights, not a definitive power ranking or a calibrated win-rate forecast.
 
 Public navigation offers Precons, Methodology and Open Yama. The current root and signed-in Lab links keep working. A visitor can read, select/copy and download a stock list without an account. "Sign in to save this deck" and "Sign in to try a change" open the corresponding existing authenticated route, retaining the selected precon through sign-in. These actions use the existing owner checks, idempotent writes and allowances.
 
@@ -103,18 +103,26 @@ Source checks on 27 October 2026:
 
 The existing `docs/deck-import.md` records source restrictions and disabled link importers. This proposal does not enable those importers or treat a blocked endpoint as a scraping route.
 
-## Path to a Yama consensus ranking
+## Experimental Yama meta ranking (design pass)
 
 "Meta ranking" here means combining rankings/evidence across sources. A ranking against a particular local metagame would be a separate experiment with that field specified.
 
-First publish distinct simulated and observed rankings with provenance. Then use disagreement to prioritize engine fixes, more balanced games and better source coverage. EDHREC popularity can help find upgrades to test or guides to link; it should not make a stock deck more powerful in the rating. Keep price/value and reviewer opinion as separate views too.
+The public page now offers an experimental meta rank alongside the original source results. The versioned method is `common-cohort-percentiles-v1`:
 
-A later experimental consensus can combine comparable performance evidence, but its method must define:
+1. Take the intersection of current stock lists with at least 20 real-game records and 20 simulated appearances in every explicitly published engine. Require at least four decks. Compute this cohort before search/filter/pagination.
+2. Re-rank real four-player-normalised rates and each engine's fitted strengths within that same cohort. For n decks, percentile = 100 × (number below + (number equal − 1) / 2) / (n − 1). Ties receive the average rank.
+3. Score = 0.5 × real percentile + 0.5 × mean engine percentile. With Phase alone the weights are 50/50; with Phase and Forge, 50/25/25. These are transparent editorial weights, not optimised or validated prediction weights. Additional runs from one engine cannot add votes.
+4. Rank by descending score; ties share a rank. Missing data stays unranked, not zero. Source dates are visible but there is no age weighting. Scores use the current dated real-game cache and can change after refresh while the simulation snapshot stays frozen. Confidence warnings are displayed, not used to filter or weight: some already include real-game residuals and would favour agreement by construction.
 
-- The same stock list/commander configuration, cohort and target four-player setting. Reprints with identical lists should not become independent performance entries; a different commander choice must be labeled.
-- How to normalize different ranking scales and fields, account for sample size, uncertainty, age and engine/AI limitations, and handle decks missing from a source without treating absence as a zero.
-- How to avoid counting the same underlying games twice. A mirror of another site's ranking is not another independent source. Real results already used to calibrate our simulation confidence are not an independent validation set for a combined score.
-- How weights are chosen and tested against held-out real results. Do not launch an arbitrary percentage blend just because the inputs are available. Without adequate validation, call any aggregation an experimental consensus and expose its components and source coverage.
+A score of 70 is not a 70% chance of winning. It has no calibration interval. Different original opponent fields remain a limitation despite re-ranking on the shared subset. The separate model rates retain their run-specific fields and game-bootstrap intervals; human results retain their source/date and normalisation. No blended real-world win-rate estimate ships without an independently held-out validation target and calibration uncertainty. Historical local summaries show weak rank agreement with the real-game ordering (`precons-2` Spearman 0.125, Forge calibration 0.162 across 84 mapped decks), so further games and calibration research are warranted. These are historical descriptive checks, not independent validation of the consensus.
+
+For publication, add `"comparisons": ["forge-publication.json"]` to the primary manifest. The referenced manifest has the same reviewed-source fields and its own original stock index; nested comparisons are rejected. The entire bundle passes the existing public stock/run/build validation and commits atomically. Imported or private results never contribute automatically. Existing single-engine snapshots need no migration. Legacy Forge imports can carry a generic Easy difficulty label without recording the actual Forge profile; the public metadata calls it a recorded label rather than asserting an unverified profile. Add independently reviewed provenance notes or rerun when the profile is missing. Withdraw removes the bundle together.
+
+## Design and Forge review draft
+
+The design pass restores the Night table wordmark, Big Shoulders Display and Atkinson Hyperlegible Next, pill controls, 1120px content, credited commander art and uncertainty graphics. The index shows 24 decks per page with preserved GET filters. Mobile rows keep source labels and a compact evidence grid. Detail and methodology pages use the same type, surfaces and controls. The generated `/precon-fonts/` directory is served by the existing static asset handler; dev/build copies the font files and OFL notices from the installed dependencies.
+
+Bryan chose to stage the Forge pilot before running it. [The review draft](experiments/public-precons-forge-pilot-20261027.json) selects eight stock lists in one shared field, 32 appearances per list per engine, 64 four-player games per engine (128 total), Phase Easy and Forge Default. It spans historical disagreements among precons with human data and no current catalog partial-support flags. It is a diagnostic convenience sample, not a representative benchmark. The file contains the `start_lab_run` arguments and stock text hashes; it has not been submitted, approved, charged or started. At approval, recheck server list identity, engine support, schedule rounding, versions and queue budget. Results require a separate publication review and a supported public analysis format; an owner-scoped tournament is not automatically a publishable global benchmark.
 
 Stock precons are a useful first unit because the list is fixed. Commander rankings would need explicit bracket, budget, archetype and list choices; a precon commander's result cannot be generalized to every deck led by that card.
 
@@ -136,3 +144,9 @@ A disposable local database imported the real 174-precon catalog and `precons-2`
 Default `npm test` encountered an unrelated optional local-only planner comparison: `packages/core/src/plan/real-plan.test.ts` expects a section absent from the current external `commander-decks/docs/buy-list.md` (`elsewhere.rows` is undefined). With optional external fixtures disabled via `YAMA_COMMANDER_DECKS=/tmp/yama-no-local-fixture`, the JavaScript suite passed (489 passed, 6 skipped at that run). The external documents and planner test were left unchanged. This is not a production deployment or a signed-out check of the public hostname.
 
 For release integration, the feature was separated onto freshly fetched main without the original checkout's unrelated work. Default `npm test` passed there (495 passed, 6 optional tests skipped because their external fixture files are absent), along with typecheck and the production web build. The full Rust suite passed on the same source with the production engine pin `9b2073b0986fe580d495fce2fa58b5762e24e3eb` exported from git, including all eight public-reference tests and the existing privacy tests. This is separate evidence from testing against the development engine checkout.
+
+## Design-pass verification (27 October 2026)
+
+The full Rust suite passed against the pinned production engine `9b2073b0986fe580d495fce2fa58b5762e24e3eb` in a disposable source copy, including 369 server tests and 13 public-reference checks. Coverage includes atomic two-engine publication, rollback and withdrawal, private/unpublished-source exclusion, shared-cohort weighting, pagination/filter preservation, unchanged stock validation and missing uncertainty intervals. A missing interval is shown as unavailable, rather than drawn as zero uncertainty.
+
+`npm test` passed (495 tests, 6 optional fixture tests skipped); typecheck and the production web build passed. The build contains all four public font files and both OFL notices. Rendered HTML using the published catalog and historical source results was inspected at desktop and phone widths from 320px to 1280px, including two-engine layout, source cautions, market dates and deck details; the inspected views had no horizontal overflow. The current published data yields 84 meta-ranked decks within a 174-deck catalog. Historical Forge data was used for layout inspection only, not newly published. The Forge pilot remains a review draft; no games were submitted or started in this pass. These checks do not constitute a production deployment.
