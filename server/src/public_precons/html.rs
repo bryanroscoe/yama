@@ -56,7 +56,8 @@ fn page(st: &AppState, path: &str, title: &str, description: &str, body: &str) -
     // Same geometry as components/Wordmark.tsx and design/logo/yama-wordmark.svg.
     let wordmark = r#"<svg viewBox="0 -8 280 110" aria-hidden="true"><g fill="currentColor"><path d="M0 0H20L32 30L44 0H64L42 56V100H22V56Z"/><path d="M60 100L92 -6L124 100H104L92 60L80 100Z"/><path d="M134 100V0H152L170 44L188 0H206V100H186V40L170 79L154 40V100Z"/><path d="M216 100L248 -6L280 100H260L248 60L236 100Z"/></g></svg>"#;
     format!(
-        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title} | Yama"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{canonical}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/precons/style.css"></head><body class="public-precons"><a class="skip" href="#content">Skip to content</a><header class="public-header"><a class="public-wordmark" href="/precons" aria-label="Yama precons">{wordmark}</a><nav aria-label="Public reference"><a href="/precons"{index_current}>Precons</a><a href="/precons/methodology"{method_current}>How we rank</a><a class="button" href="/">Open Yama <span aria-hidden="true">↗</span></a></nav></header><main id="content">{body}</main><footer class="public-footer"><div class="footer-top"><span>Free to explore. Built for Commander.</span><nav aria-label="About Yama"><a href="/about/">About</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a></nav></div>{NOTICE}</footer></body></html>"##,
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title} | Yama"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{canonical}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{stylesheet_path}"></head><body class="public-precons"><a class="skip" href="#content">Skip to content</a><header class="public-header"><a class="public-wordmark" href="/precons" aria-label="Yama precons">{wordmark}</a><nav aria-label="Public reference"><a href="/precons"{index_current}>Precons</a><a href="/precons/methodology"{method_current}>How we rank</a><a class="button" href="/">Open Yama <span aria-hidden="true">↗</span></a></nav></header><main id="content">{body}</main><footer class="public-footer"><div class="footer-top"><span>Free to explore. Built for Commander.</span><nav aria-label="About Yama"><a href="/about/">About</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a></nav></div>{NOTICE}</footer></body></html>"##,
+        stylesheet_path = stylesheet().1,
         title = e(title),
         description = e(description),
         index_current = if path == "/precons" {
@@ -653,22 +654,47 @@ pub(super) async fn methodology(
     ))
 }
 
-pub(super) async fn style(headers: HeaderMap) -> Response {
-    let all = include_str!("../../../web/src/styles.css");
-    let tokens = all
-        .split_once(":root {")
-        .and_then(|(_, rest)| rest.split_once("\n}"))
-        .map(|(tokens, _)| format!(":root {{{tokens}\n}}"))
-        .unwrap_or_default();
-    cached(
-        &headers,
-        format!(
+// HTML and CSS can have different browser/CDN lifetimes. Couple the markup to the
+// complete compiled stylesheet (including shared tokens), rather than a mutable URL.
+fn stylesheet() -> &'static (String, String) {
+    static CSS: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+    CSS.get_or_init(|| {
+        let all = include_str!("../../../web/src/styles.css");
+        let tokens = all
+            .split_once(":root {")
+            .and_then(|(_, rest)| rest.split_once("\n}"))
+            .map(|(tokens, _)| format!(":root {{{tokens}\n}}"))
+            .unwrap_or_default();
+        let body = format!(
             "{tokens}\n{}",
             include_str!("../../../web/public/precons.css")
-        ),
-        "text/css; charset=utf-8",
-    )
+        );
+        let path = format!("/precons/assets/style-{}.css", sha256_hex(&body));
+        (body, path)
+    })
 }
+
+// Keep old links readable, but new documents always use the content-addressed URL.
+pub(super) async fn style(headers: HeaderMap) -> Response {
+    cached(&headers, stylesheet().0.clone(), "text/css; charset=utf-8")
+}
+
+pub(super) async fn versioned_style(
+    Path(filename): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    let css = stylesheet();
+    if css.1.rsplit('/').next() != Some(filename.as_str()) {
+        return Err(AppError::NotFound("stylesheet"));
+    }
+    let mut response = cached(&headers, css.0.clone(), "text/css; charset=utf-8");
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=31536000, immutable"),
+    );
+    Ok(response)
+}
+
 pub(super) async fn sitemap(
     State(st): State<AppState>,
     address: ClientAddress,

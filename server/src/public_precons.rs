@@ -35,6 +35,7 @@ pub fn router() -> Router<AppState> {
         .route("/precons/{slug}", get(html::detail))
         .route("/precons/{slug}/decklist.txt", get(download))
         .route("/precons/style.css", get(html::style))
+        .route("/precons/assets/{filename}", get(html::versioned_style))
         .route("/sitemap.xml", get(html::sitemap))
 }
 
