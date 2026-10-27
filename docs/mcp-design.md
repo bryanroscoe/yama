@@ -97,7 +97,7 @@ change to an imported plan goes in as an idea or a review answer and reaches the
    token, and Ask Claude using tools (the context stays as a starting summary). Claude Code can
    connect with a key.
 2. **Staged writes** (built 2026-10-23; ARCHITECTURE.md has what shipped). `assistant_changes`, the
-   write tools, Apply and Discard in the panel and on Decks, Changes from Claude, `apply_change` and
+   write tools, Apply and Discard in the panel and on Decks, Suggested changes, `apply_change` and
    `discard_change` for keys and OAuth sign-ins. Not built: turning `apply_change` off for keys, the
    daily tool-call cap for open sign-up accounts.
 3. **OAuth** for Claude Code and the claude.ai and phone apps' connectors (built 2026-10-22; below,
@@ -161,3 +161,7 @@ client standing in for Claude Code; the first real connection from claude.ai hap
 
 
 Tournament mode in `start_lab_run` (2026-10-26): `mode: "tournament"`, a selected field in `entrants`, optional `opponents: "all_precons"` (or another existing benchmark selector), and `games` as appearances per unique deck per engine. All benchmark decks are scored; identical lists collapse. Actual scheduled games are charged. This stages one experiment through the normal owner-scoped approval path, and `lab_run` reports the shared rankings and finish-ahead samples.
+
+## Proposal presentation (2026-10-27)
+
+The review UI identifies MCP and external sources without assuming an assistant provider. Deck-edit and plan-idea changes expose a presentation-only `preview` derived from their stored payloads: target, separate additions and removals, counted copies, reasons, and deck checks where recorded. The API loads card metadata in a batch and sends runtime Scryfall image URLs. It never exposes the raw execution payload. Existing pending changes need no migration or restaging. The page shows the cards and formatted reasons directly, with full-card zoom and a responsive single-column layout on phones. Other kinds retain readable text. Applying remains an explicit, owner-checked action against the staged version; rendering a proposal never applies it.

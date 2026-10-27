@@ -207,7 +207,7 @@
   }
 }
 
-/* Changes Claude staged, waiting for Apply or Discard (Changes.tsx). */
+/* Suggested changes, waiting for Apply or Discard (Changes.tsx). */
 .ask-change {
   display: flex;
   flex-direction: column;
@@ -217,6 +217,7 @@
   border-radius: var(--r-list);
   padding: 12px 14px;
   background: var(--ground);
+  min-width: 0;
 }
 .ask-change.is-applied,
 .ask-change.is-discarded {
@@ -226,11 +227,97 @@
   text-decoration: line-through;
   opacity: 0.7;
 }
-.ask-change-detail {
-  white-space: pre-wrap;
-  font: inherit;
-  font-size: var(--t-sm);
+.ask-change-what {
   margin: 0;
+  font-size: var(--t-lg);
+  overflow-wrap: anywhere;
+}
+.proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.proposal p,
+.proposal h4,
+.proposal-text p,
+.proposal-text h4 {
+  margin: 0;
+}
+.proposal-card-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.proposal-card-group h4,
+.proposal-reasons h4 {
+  font-size: var(--t-base);
+  margin-bottom: 10px;
+}
+.proposal-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.proposal-cards li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-width: 0;
+}
+.proposal-cards .card-zoom-open {
+  flex: 0 0 76px;
+  width: 76px;
+  min-width: 0;
+}
+.proposal-card-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 5px;
+}
+.proposal-card-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.proposal-card-name {
+  font-weight: 700;
+}
+.proposal-text {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.proposal-text ol,
+.proposal-text ul {
+  margin: 0;
+  padding-left: 1.5em;
+}
+.proposal-text li + li {
+  margin-top: 8px;
+}
+.proposal-text pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  margin: 0;
+}
+@media (max-width: 650px) {
+  .proposal-card-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .ask-change-actions {
   display: flex;
