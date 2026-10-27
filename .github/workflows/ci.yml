@@ -123,3 +123,7 @@ jobs:
         run: python3 deploy/test_release.py
       - name: Test portable workers and build identity
         run: python3 -m unittest discover -s tools -p 'test_lab*.py'
+      - name: Test commander evidence and list validation
+        run: python3 -m unittest discover -s scripts/research -p 'test_*.py'
+      - name: Test list validation with Python optimization enabled
+        run: python3 -O -m unittest discover -s scripts/research -p 'test_*.py'

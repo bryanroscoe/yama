@@ -468,7 +468,8 @@ export function filterPrecons(list: PreconItem[], f: PreconFilter): PreconItem[]
     if (f.year != null && year(p.released) !== f.year) return false;
     if (!identityMatches(p.color_identity, f.colors, f.mode)) return false;
     if (!q) return true;
-    return [p.name, p.set_name ?? "", p.set_code, ...p.commanders].some((s) => s.toLowerCase().includes(q));
+    const alternatives = p.upgradeability?.alternatives ?? [];
+    return [p.name, p.set_name ?? "", p.set_code, ...p.commanders, ...alternatives.flatMap((a) => a.commanders)].some((s) => s.toLowerCase().includes(q));
   });
 }
 
@@ -479,7 +480,7 @@ export function sortPrecons(list: PreconItem[], key: SortKey, desc: boolean): Pr
   const value = (p: PreconItem): number | string | null => {
     switch (key) {
       case "upgradeability":
-        return p.upgradeability?.method === "source-backed-upgradeability-v2" ? p.upgradeability.score : null;
+        return p.upgradeability?.method === "source-backed-upgradeability-v3" ? p.upgradeability.score : null;
       case "rank":
         return p.rating?.rank ?? null;
       case "name":

@@ -710,16 +710,18 @@ const PRECON_FROM: &str = "precons p LEFT JOIN cards c ON c.oracle_id = json_ext
 
 impl PreconRow {
     fn item(self, ratings: &HashMap<String, Rating>) -> PreconItem {
-        let rating = ratings.get(&self.lab_id).cloned();
+        let cards = serde_json::from_str::<Vec<PreconCard>>(&self.cards);
+        let reference_matches = cards.as_ref().is_ok_and(|cards| crate::upgradeability::allows_reference_results(&self.id, cards));
+        let rating = reference_matches.then(|| ratings.get(&self.lab_id).cloned()).flatten();
         PreconItem {
-            upgradeability: crate::upgradeability::assess(&self.id, &serde_json::from_str::<Vec<PreconCard>>(&self.cards).unwrap_or_default()),
+            upgradeability: crate::upgradeability::assess(&self.id, &cards.unwrap_or_default()),
             singles_value: Default::default(),
             sealed_price: None,
             art: match (self.art_url, self.art_card) {
                 (Some(url), Some(card)) => Some(Art { url, artist: self.art_artist, card }),
                 _ => None,
             },
-            playgroup: self.playgroup.and_then(|p| serde_json::from_str(&p).ok()),
+            playgroup: self.playgroup.filter(|_| reference_matches).and_then(|p| serde_json::from_str(&p).ok()),
             id: self.id,
             lab_id: self.lab_id,
             name: self.name,
@@ -836,11 +838,12 @@ async fn matchups(pool: &SqlitePool, run_id: &str, lab_id: &str) -> AppResult<Op
     let Some(m) = part.matrix else { return Ok(None) };
     let Some(row) = m.ids.iter().position(|i| i == lab_id) else { return Ok(None) };
     let Some(ps) = m.p.get(row) else { return Ok(None) };
-    let catalog: HashMap<String, (String, String)> = sqlx::query_as::<_, (String, String, String)>("SELECT lab_id, id, name FROM precons")
+    let catalog: HashMap<String, (String, String)> = sqlx::query_as::<_, (String, String, String, String)>("SELECT lab_id, id, name, cards FROM precons")
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|(lab, id, name)| (lab, (id, name)))
+        .filter(|(_, id, _, text)| serde_json::from_str::<Vec<PreconCard>>(text).is_ok_and(|cards| crate::upgradeability::allows_reference_results(id, &cards)))
+        .map(|(lab, id, name, _)| (lab, (id, name)))
         .collect();
     let mut rows: Vec<Matchup> = m
         .ids
@@ -876,6 +879,7 @@ pub async fn precon_detail(pool: &SqlitePool, id: &str) -> AppResult<PreconDetai
     precon.sealed_price = crate::deck_prices::sealed(pool).await?.remove(id);
 
     let cards: Vec<PreconCard> = serde_json::from_str(&cards_json).map_err(anyhow::Error::from)?;
+    let reference_matches = crate::upgradeability::allows_reference_results(id, &cards);
     type Info = (String, Option<String>, Option<String>, f64, Option<String>, Option<String>);
     let info: HashMap<String, Info> = sqlx::query_as::<_, Info>(
         "SELECT oracle_id, type_line, mana_cost, cmc, image_small, image_normal FROM cards
@@ -905,8 +909,8 @@ pub async fn precon_detail(pool: &SqlitePool, id: &str) -> AppResult<PreconDetai
         })
         .collect();
     let matchups = match &run {
-        Some(r) => matchups(pool, &r.id, &lab_id).await?,
-        None => None,
+        Some(r) if reference_matches => matchups(pool, &r.id, &lab_id).await?,
+        _ => None,
     };
     Ok(PreconDetail {
         run,
@@ -1308,6 +1312,7 @@ mod tests {
 
     /// Two precons, one of Bryan's lists and a left-out repeat (as commander-decks' index has
     /// them since 2026-10-19), and the cards they use; "Mystery Card" isn't in the card data.
+    /// Synthetic lists use fixture slugs so they cannot claim a frozen stock identity.
     async fn fixture(pool: &SqlitePool) -> tempfile::TempDir {
         user(pool, "bryan", "bryan@example.com").await;
         user(pool, "other", "debug@example.com").await;
@@ -1323,13 +1328,13 @@ mod tests {
         std::fs::create_dir_all(decks.join("precons")).unwrap();
         std::fs::create_dir_all(decks.join("bryan")).unwrap();
         let list = "Commander\n1 Ghave, Guru of Spores\n\nDeck\n1 Sol Ring\n1 Mystery Card\n97 Forest\n";
-        std::fs::write(decks.join("precons/counterpunch.txt"), list).unwrap();
+        std::fs::write(decks.join("precons/fixture-counterpunch.txt"), list).unwrap();
         std::fs::write(decks.join("precons/spore-tide.txt"), "Commander\n1 Ghave, Guru of Spores\nDeck\n1 Sol Ring\n98 Forest\n").unwrap();
         std::fs::write(decks.join("bryan/mine.txt"), list).unwrap();
         let index = json!({
             "generated": "2026-10-18",
             "decks": [
-                {"id": "precons/counterpunch", "name": "Counterpunch", "set": "CMD", "released": "2011-06-17",
+                {"id": "precons/fixture-counterpunch", "name": "Counterpunch", "set": "CMD", "released": "2011-06-17",
                  "commanders": ["Ghave, Guru of Spores"], "color_identity": "WBG", "kind": "precon",
                  "playgroup_id": 7, "playgroup_name": "Counterpunch", "playgroup_tier": "B", "playgroup_win_rate_4p": 24.5,
                  "playgroup_games": 40, "playgroup_url": "https://playgroup.gg/x",
@@ -1339,9 +1344,9 @@ mod tests {
                  "playgroup_id": null, "playgroup_name": null, "notes": ["EXCEPTION renamed"]},
                 {"id": "bryan/mine", "name": "Mine", "set": "CMD", "released": null, "commanders": ["Ghave, Guru of Spores"],
                  "color_identity": "WBG", "kind": "bryan", "playgroup_id": null, "playgroup_name": null,
-                 "same_list_as": "precons/counterpunch"}
+                 "same_list_as": "precons/fixture-counterpunch"}
             ],
-            "left_out": [{"id": "precons/counterpunch-ce", "name": "Counterpunch", "set": "ZZZ", "same_as": "precons/counterpunch"}]
+            "left_out": [{"id": "precons/fixture-counterpunch-ce", "name": "Counterpunch", "set": "ZZZ", "same_as": "precons/fixture-counterpunch"}]
         });
         std::fs::write(decks.join("index.json"), index.to_string()).unwrap();
         std::fs::write(
@@ -1357,7 +1362,7 @@ mod tests {
     fn summary(run: &str, created: &str, strength: f64, mine: bool) -> String {
         // Counterpunch is a deck the simulation can't judge, as analyze.py writes it since 2026-10-19.
         let mut decks = vec![json!(
-            {"id": "precons/counterpunch", "name": "Counterpunch", "games": 3, "strength": strength, "strength_ci": [0.5, 2.0],
+            {"id": "precons/fixture-counterpunch", "name": "Counterpunch", "games": 3, "strength": strength, "strength_ci": [0.5, 2.0],
              "main": {"win_rate": 0.33, "wilson": [0.06, 0.79], "avg_place": 2.1}, "rank": 1, "rank_ci": [1, 2],
              "p4_field": 0.3, "p4_field_ci": [0.2, 0.4], "flags": ["few games: 3 usable"],
              "confidence": {"level": "unreliable",
@@ -1366,7 +1371,7 @@ mod tests {
                             "residual": {"z": 4.9, "source": "this run"}, "partly_unimplemented": 0, "gaps": ["phase-ghave"]}}
         )];
         // An older run still rates the left-out repeat on its own.
-        let mut matrix = json!({"ids": ["precons/counterpunch", "precons/counterpunch-ce", "precons/spore-tide"],
+        let mut matrix = json!({"ids": ["precons/fixture-counterpunch", "precons/fixture-counterpunch-ce", "precons/spore-tide"],
                                 "p": [[0.5, 0.5, 0.7], [0.5, 0.5, 0.7], [0.3, 0.3, 0.5]],
                                 "note": "P(row beats column)"});
         let mut paired = Value::Null;
@@ -1376,11 +1381,11 @@ mod tests {
                  "main": {"win_rate": 0.0, "wilson": [0.0, 0.56], "avg_place": 3.0}, "rank": 2, "rank_ci": [1, 2],
                  "confidence": {"level": "doubtful", "reasons": ["commander partly unimplemented in phase: Ghave, Guru of Spores"]}}
             ));
-            matrix = json!({"ids": ["precons/counterpunch", "bryan/mine", "precons/counterpunch-ce", "precons/spore-tide"],
+            matrix = json!({"ids": ["precons/fixture-counterpunch", "bryan/mine", "precons/fixture-counterpunch-ce", "precons/spore-tide"],
                             "p": [[0.5, 0.6, 0.5, 0.7], [0.4, 0.5, 0.4, 0.5], [0.5, 0.6, 0.5, 0.7], [0.3, 0.5, 0.3, 0.5]],
                             "note": "P(row beats column)"});
-            paired = json!({"variants": [{"id": "precons/counterpunch"}, {"id": "bryan/mine"}],
-                            "comparisons": [{"base": "precons/counterpunch", "variant": "bryan/mine", "delta_win_rate": -0.33}]});
+            paired = json!({"variants": [{"id": "precons/fixture-counterpunch"}, {"id": "bryan/mine"}],
+                            "comparisons": [{"base": "precons/fixture-counterpunch", "variant": "bryan/mine", "delta_win_rate": -0.33}]});
         }
         // A NaN as Python's json writes it, to check it reads as null.
         json!({
@@ -1420,8 +1425,8 @@ mod tests {
         };
         let before = rows().await;
         assert_eq!(before.len(), 2);
-        assert_eq!(before[0].0, "counterpunch");
-        assert_eq!(before[0].1, "precons/counterpunch");
+        assert_eq!(before[0].0, "fixture-counterpunch");
+        assert_eq!(before[0].1, "precons/fixture-counterpunch");
         assert_eq!(before[0].2.as_deref(), Some("Commander 2011"));
         assert_eq!((before[1].0.as_str(), before[1].2.as_deref()), ("spore-tide", None)); // set unknown to Yama
         assert_eq!(before[0].4, None);
@@ -1438,7 +1443,7 @@ mod tests {
         assert_eq!(rows().await, before);
 
         // A changed list updates that precon only.
-        std::fs::write(dir.path().join("decks/precons/counterpunch.txt"), "Commander\n1 Ghave, Guru of Spores\nDeck\n99 Forest\n").unwrap();
+        std::fs::write(dir.path().join("decks/precons/fixture-counterpunch.txt"), "Commander\n1 Ghave, Guru of Spores\nDeck\n99 Forest\n").unwrap();
         let changed = import_precons(&pool, &index, None).await.unwrap();
         assert_eq!((changed.added, changed.updated, changed.unchanged), (0, 1, 1));
         assert!(changed.unresolved.is_empty());
@@ -1496,7 +1501,7 @@ mod tests {
         assert!(detail.run.global);
         assert_eq!(detail.run.warnings, vec!["few games".to_string()]);
         assert_eq!((detail.run.pod, detail.run.level), (Some(4), Some(0.9)));
-        assert_eq!(detail.ratings.iter().map(|r| r.precon_id.as_deref()).collect::<Vec<_>>(), vec![Some("counterpunch")]);
+        assert_eq!(detail.ratings.iter().map(|r| r.precon_id.as_deref()).collect::<Vec<_>>(), vec![Some("fixture-counterpunch")]);
         assert!(detail.summary["paired"].is_null());
         assert!(detail.summary.get("matrix").is_none() && detail.summary.get("decks").is_none());
         assert!(detail.summary["calibration"]["spearman"].is_null());
@@ -1504,7 +1509,7 @@ mod tests {
         // Precon pages use the newest global run, never someone's own.
         let list = precon_list(&pool).await.unwrap();
         assert_eq!(list.run.as_ref().map(|r| (r.id.as_str(), r.ranked)), Some((a.id.as_str(), 1)));
-        let cp = list.precons.iter().find(|p| p.id == "counterpunch").unwrap();
+        let cp = list.precons.iter().find(|p| p.id == "fixture-counterpunch").unwrap();
         let r = cp.rating.as_ref().unwrap();
         assert_eq!((r.strength, r.rank, r.lo, r.wr_hi), (Some(3.0), Some(1), Some(0.5), Some(0.79)));
         assert_eq!(cp.art.as_ref().map(|a| a.card.as_str()), Some("Ghave, Guru of Spores"));
@@ -1522,11 +1527,11 @@ mod tests {
         // Only level and reasons travel; the rest stays in the stored summary entry.
         assert!(json["rating"]["confidence"].get("residual").is_none());
         // A precon the run didn't rate is listed without a rating, after the rated ones.
-        assert_eq!(list.precons.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["counterpunch", "spore-tide"]);
+        assert_eq!(list.precons.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["fixture-counterpunch", "spore-tide"]);
         assert!(list.precons[1].rating.is_none());
 
         // Matchups: catalog precons only, best first; the left-out repeat the catalog lacks drops out.
-        let d = precon_detail(&pool, "counterpunch").await.unwrap();
+        let d = precon_detail(&pool, "fixture-counterpunch").await.unwrap();
         let m = d.matchups.unwrap();
         let rows: Vec<(&str, &str, f64)> = m.rows.iter().map(|r| (r.id.as_str(), r.name.as_str(), r.p)).collect();
         assert_eq!(rows, vec![("spore-tide", "Spore Tide", 0.7)]);
@@ -1538,7 +1543,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        let m = precon_detail(&pool, "counterpunch").await.unwrap().matchups.unwrap();
+        let m = precon_detail(&pool, "fixture-counterpunch").await.unwrap().matchups.unwrap();
         assert_eq!(m.rows.iter().map(|r| r.lab_id.as_str()).collect::<Vec<_>>(), vec!["precons/spore-tide"]);
         assert_eq!(d.cards.len(), 4);
         assert_eq!(d.cards[0].type_line.as_deref(), Some("Legendary Creature — Fungus Shaman"));
@@ -1564,7 +1569,7 @@ mod tests {
             "run": "bryan-ff-1", "generated": "2026-10-19T05:04:42Z",
             "run_meta": {"created": "2026-10-19T04:51:00Z", "difficulty": "Easy", "pod": 4, "mode": "paired"},
             "versions": {"engine": {"phase-rs v0.113.0": 180}},
-            "decks": [entry("bryan/ff-stock", "Fantastic Four (Bryan, stock)"), after, entry("precons/counterpunch", "Counterpunch")],
+            "decks": [entry("bryan/ff-stock", "Fantastic Four (Bryan, stock)"), after, entry("precons/fixture-counterpunch", "Counterpunch")],
             "paired": {"templates": 60,
                 "variants": [{"id": "bryan/ff-stock", "games": 60, "wins": 29, "win_rate": 0.4833, "wilson": [0.38, 0.588], "avg_place": 1.98},
                              {"id": "bryan/ff-after", "games": 57, "wins": 35, "win_rate": 0.614, "wilson": [0.505, 0.713], "avg_place": 1.55,
@@ -1617,7 +1622,7 @@ mod tests {
         let dir = fixture(&pool).await;
         import_precons(&pool, &dir.path().join("decks/index.json"), None).await.unwrap();
 
-        let made = create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-1")).await.unwrap();
+        let made = create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, Some("op-1")).await.unwrap();
         assert_eq!(made.name, "Counterpunch");
         assert_eq!(made.unknown, vec!["Mystery Card".to_string()]);
         // 99 known cards: the validation says so rather than the deck pretending to be complete.
@@ -1631,23 +1636,23 @@ mod tests {
         assert_eq!(cards.iter().map(|c| c.qty).sum::<i64>(), 99);
 
         // A retry with the same op makes no second deck; another user's same op id is theirs.
-        let again = create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-1")).await.unwrap();
+        let again = create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, Some("op-1")).await.unwrap();
         assert_eq!(again.id, made.id);
-        let theirs = create_deck_from_precon(&pool, "other", "counterpunch", Some("My Ghave"), Some("op-1")).await.unwrap();
+        let theirs = create_deck_from_precon(&pool, "other", "fixture-counterpunch", Some("My Ghave"), Some("op-1")).await.unwrap();
         assert_ne!(theirs.id, made.id);
         assert_eq!(theirs.name, "My Ghave");
         let counts: Vec<(String, i64)> = sqlx::query_as("SELECT owner_id, COUNT(*) FROM decks GROUP BY owner_id ORDER BY owner_id").fetch_all(&pool).await.unwrap();
         assert_eq!(counts, vec![("bryan".into(), 1), ("other".into(), 1)]);
 
         // Without an op id each request is a new deck; an unknown precon is not found.
-        create_deck_from_precon(&pool, "bryan", "counterpunch", None, None).await.unwrap();
+        create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, None).await.unwrap();
         assert!(matches!(create_deck_from_precon(&pool, "bryan", "nope", None, Some("op-2")).await, Err(AppError::NotFound(_))));
         // An op id already used for something else is a conflict.
         sqlx::query("INSERT INTO applied_ops (owner_id, op_id, kind, payload, applied_at) VALUES ('bryan','op-3','add','{}','now')")
             .execute(&pool)
             .await
             .unwrap();
-        assert!(matches!(create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-3")).await, Err(AppError::Conflict(_))));
+        assert!(matches!(create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, Some("op-3")).await, Err(AppError::Conflict(_))));
     }
 
     #[tokio::test]
@@ -1665,12 +1670,12 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        assert!(create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-1")).await.is_err());
+        assert!(create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, Some("op-1")).await.is_err());
         assert_eq!(count("SELECT COUNT(*) FROM applied_ops").await, 0);
         assert_eq!(count("SELECT COUNT(*) FROM decks").await, 0);
         sqlx::query("DROP TRIGGER fail_versions").execute(&pool).await.unwrap();
-        let made = create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-1")).await.unwrap();
-        assert_eq!(create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-1")).await.unwrap().id, made.id);
+        let made = create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, Some("op-1")).await.unwrap();
+        assert_eq!(create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, Some("op-1")).await.unwrap().id, made.id);
         assert_eq!(count("SELECT COUNT(*) FROM decks").await, 1);
 
         // A claim with no result (only the earlier build, which claimed and finished in separate
@@ -1679,8 +1684,8 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        let finished = create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-old")).await.unwrap();
-        assert_eq!(create_deck_from_precon(&pool, "bryan", "counterpunch", None, Some("op-old")).await.unwrap().id, finished.id);
+        let finished = create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, Some("op-old")).await.unwrap();
+        assert_eq!(create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, Some("op-old")).await.unwrap().id, finished.id);
         assert_eq!(count("SELECT COUNT(*) FROM decks").await, 2);
     }
 

@@ -98,7 +98,7 @@ export interface UpgradeabilitySource {
 export interface Upgradeability {
   score: number | null;
   label: string;
-  status: "reviewed" | "insufficient_evidence" | "not_assessed" | "stock_list_changed";
+  status: "reviewed" | "insufficient_evidence" | "not_assessed" | "stock_list_changed" | "separate_build" | "list_needs_validation";
   effort: string | null; path: string | null; limitation: string | null;
   assessed_on: string | null; source_url: string | null;
   method: string; basis: string; rubric: string;
@@ -110,6 +110,10 @@ export interface Upgradeability {
   commander_results: {name: string; url: string; api_url: string; games: number; wins: number;
     raw_win_rate_percent: number | null; fetched_at: string; provider_updated_at: string | null; population: string}[];
   commander_caveat: string; attribution: string; gap: string | null;
+  variant_key:string; commanders:string[]; scope:"catalog"|"in_box"|"on_theme_swap"|"separate_build";
+  continuity:{theme:string;retains:string;changes:string}|null;
+  retained_cards:number|null; list_checked_on:string|null;list_url:string|null;list_fingerprint:string|null;
+  simulation_note:string; alternatives:Upgradeability[];
 }
 
 export interface PreconItem {

@@ -242,7 +242,7 @@ export function PreconsPage() {
       {run && (
         <details className="small">
           <summary>How the ratings work</summary>
-          <p>Upgradeability grades use published guides, checked card examples and the catalog commander’s restrictions. Open a deck for the reasoning, source dates, commander results and 1–5 rubric. Unsupported estimates have been withdrawn; missing evidence is ungraded.</p>
+          <p>Upgradeability grades use published guides, checked card examples and the stated commander’s restrictions. Alternate commanders and on-theme swaps have separate assessments and lists. Sorting uses the reference commander’s grade; alternate grades are named in each row. Replacing the strategy is a separate deck build.</p>
           <p className="lab-note">
             Every precon played whole games against other precons, with {ai} in every seat, in 4-player pods. The <b>model win rate</b> is a model of
             finishing order ({run.model ?? "Plackett-Luce"})'s chance that the deck wins a pod of three random precons; a quarter is an even share. The bar is

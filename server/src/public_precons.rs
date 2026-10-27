@@ -34,6 +34,10 @@ pub fn router() -> Router<AppState> {
         .route("/precons/methodology", get(html::methodology))
         .route("/precons/{slug}", get(html::detail))
         .route("/precons/{slug}/decklist.txt", get(download))
+        .route(
+            "/precons/{slug}/commanders/{variant}/decklist.txt",
+            get(download_variant),
+        )
         .route("/precons/style.css", get(html::style))
         .route("/precons/assets/{filename}", get(html::versioned_style))
         .route("/sitemap.xml", get(html::sitemap))
@@ -257,7 +261,17 @@ impl Filters {
                     || format!(
                         "{} {} {} {}",
                         p.name,
-                        p.commanders.join(" "),
+                        p.commanders
+                            .iter()
+                            .chain(
+                                p.upgradeability
+                                    .alternatives
+                                    .iter()
+                                    .flat_map(|a| &a.commanders)
+                            )
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(" "),
                         p.set_code,
                         p.set_name.as_deref().unwrap_or("")
                     )
@@ -380,6 +394,9 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
             continue;
         }
         let cards = &p.cards;
+        let stock: Vec<crate::lab::PreconCard> =
+            serde_json::from_str(cards).map_err(anyhow::Error::from)?;
+        let reference_matches = crate::upgradeability::allows_reference_results(&p.id, &stock);
         let published = snapshot.as_ref().and_then(|s| s.ratings.get(&p.id));
         let unchanged = published.is_some_and(|r| list_hash(cards).is_ok_and(|h| h == r.list_hash));
         let rating = published.filter(|_| unchanged).map(|r| r.rating.clone());
@@ -402,6 +419,7 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
         let playgroup: Option<Value> = p
             .playgroup
             .as_deref()
+            .filter(|_| reference_matches)
             .and_then(|v| serde_json::from_str(v).ok());
         let real_games = playgroup.as_ref().and_then(|v| {
             let rate = v
@@ -428,8 +446,6 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
             .as_deref()
             .and_then(|t| serde_json::from_str(t).ok())
             .unwrap_or(Value::Null);
-        let stock: Vec<crate::lab::PreconCard> =
-            serde_json::from_str(cards).map_err(anyhow::Error::from)?;
         let commanders = stock
             .iter()
             .filter(|c| c.board == crate::decks::Board::Commander)
@@ -662,6 +678,34 @@ async fn download(
         header::CONTENT_DISPOSITION,
         HeaderValue::from_str(&format!("attachment; filename=\"{slug}.txt\""))
             .expect("validated slug"),
+    );
+    Ok(res)
+}
+
+async fn download_variant(
+    State(st): State<AppState>,
+    address: ClientAddress,
+    headers: HeaderMap,
+    Path((slug, variant)): Path<(String, String)>,
+) -> AppResult<Response> {
+    limit(&st, address)?;
+    if !valid_slug(&slug) || !valid_slug(&variant) {
+        return Err(AppError::NotFound("commander comparison list"));
+    }
+    let text: Option<String> = sqlx::query_scalar("SELECT cards FROM precons WHERE id=?")
+        .bind(&slug)
+        .fetch_optional(&st.pool)
+        .await?;
+    let cards: Vec<crate::lab::PreconCard> =
+        serde_json::from_str(&text.ok_or(AppError::NotFound("precon"))?)
+            .map_err(anyhow::Error::from)?;
+    let body = crate::upgradeability::variant_deck(&slug, &variant, &cards)
+        .ok_or(AppError::NotFound("commander comparison list"))?;
+    let mut res = cached(&headers, body, "text/plain; charset=utf-8");
+    res.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{slug}--{variant}.txt\""))
+            .expect("validated slugs"),
     );
     Ok(res)
 }
