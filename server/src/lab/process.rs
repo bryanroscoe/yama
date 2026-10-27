@@ -29,7 +29,12 @@ struct Request {
 
 fn runner() -> String {
     // Bump this suffix whenever child execution or resource policy changes.
-    format!("{RUNNER}/isolated-2g-v1")
+    let policy = if cfg!(target_os = "linux") {
+        "isolated-linux-2g-v1"
+    } else {
+        "isolated-local-v1"
+    };
+    format!("{RUNNER}/{policy}")
 }
 
 pub(super) struct IsolatedSim {
@@ -131,10 +136,14 @@ fn run_child(
         );
         std::thread::sleep(Duration::from_millis(50));
     };
+    let policy = if cfg!(target_os = "linux") {
+        "Linux heap limit 2 GiB"
+    } else {
+        "local process isolation"
+    };
     ensure!(
         status.success(),
-        "worker ended with {status}; memory limit is {} MiB; game is unscored",
-        MEMORY_BYTES >> 20
+        "worker ended with {status} ({policy}); game is unscored"
     );
     let bytes = read_bounded(&mut output, RESULT_BYTES)?;
     let result: GameResult = serde_json::from_slice(&bytes).context("reading child result")?;

@@ -127,7 +127,7 @@ Configuration comes from the environment; see .env.example.";
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // The game child has no database, credentials, HTTP server or background workers.
+    // The game child has no database, credentials, HTTP server or application background jobs.
     if args.first().map(String::as_str) == Some("lab-game") {
         tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter("info").init();
         let path = args.get(1).context("usage: yama-server lab-game CARD_DATA < request.json")?;
