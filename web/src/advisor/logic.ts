@@ -207,9 +207,29 @@ export function toolActivity(name: string): string {
     case "review_queue":
       return "Reading your proposals…";
     case "find_cards":
+    case "search_scryfall":
       return "Searching cards…";
     case "card":
+    case "card_printings":
       return "Looking up cards…";
+    case "commander_recommendations":
+      return "Reading community recommendations…";
+    case "find_combos":
+      return "Looking up combos and prerequisites…";
+    case "public_deck":
+      return "Reading a public deck list…";
+    case "rules_lookup":
+      return "Reading the official rules…";
+    case "deck_analysis":
+    case "compare_decks":
+      return "Checking the list, cards and costs…";
+    case "mana_probability":
+    case "mana_test":
+    case "sample_hands":
+      return "Checking hands and mana…";
+    case "collection_cards":
+    case "deck_history":
+      return "Reading your cards and saved lists…";
     case "check_list":
       return "Checking a list…";
     case "lab_runs":
@@ -221,6 +241,7 @@ export function toolActivity(name: string): string {
     case "changes":
       return "Checking changes waiting for you…";
     case "edit_deck":
+    case "save_deck":
     case "propose_swap":
     case "answer_review":
     case "mark_bought":

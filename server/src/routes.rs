@@ -26,6 +26,8 @@ pub struct AppState {
     pub lab: Arc<crate::lab::worker::LabWorker>,
     /// Rate limits (sign-in, searches, imports, joins...), in memory.
     pub limits: Arc<crate::limits::Limits>,
+    /// Bounded public research cache and provider request pacing for MCP.
+    pub research: Arc<crate::mcp::research::client::Research>,
 }
 
 pub fn app(state: AppState) -> Router {
@@ -130,6 +132,7 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         lab,
         watch: Arc::default(),
         limits: Arc::default(),
+        research: Arc::default(),
     };
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!("listening on http://{bind}");

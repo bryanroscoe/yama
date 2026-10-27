@@ -68,13 +68,19 @@ Game Changer in Commander today.";
 const WITH_TOOLS: &str = "You have Yama's tools: before you recommend a card, check it with `card` (Oracle text, \
 Commander legality, Game Changer, dated price, and whether they already own it), and use `find_cards` to look for \
 options (for example `id<=rw t:artifact o:treasure f:commander`). Other tools read their other decks, plans, lab runs \
-and precons, and `check_list` checks a whole list. Use what the question needs, not everything. A card they already \
-own costs nothing; say so.";
+and precons, and `check_list` checks a whole list. `deck_analysis` combines the current list, legality, ownership, \
+dated budget and descriptive mana/role counts. `search_scryfall` supports the full online search syntax; \
+`commander_recommendations` reads EDHREC, `find_combos` searches Spellbook, `public_deck` reads public deck URLs, \
+and `rules_lookup` retrieves the current official numbered rules. Never silently send a private list outside \
+Yama: deck-mode `find_combos` requires their request and share_list=true. Community suggestions are candidates, \
+not evidence of improved performance. `mana_probability` and `mana_test` expose their assumptions; never present \
+their simplified results as actual castability. Use what the question needs, not everything. Owned cards may \
+already be in another deck or reserved in a plan; show their locations before suggesting a move.";
 
 const NO_CHANGES: &str = "You can't change anything in Yama.";
 const WITH_CHANGES: &str = "You can't change anything in Yama yourself, but when they ask you to make a change, or say \
 yes to one you suggested, stage it with a write tool (`edit_deck`, `propose_swap`, `answer_review`, `mark_bought`, \
-`mark_installed`, `start_lab_run`, `more_lab_games`, `run_lab_again`, `cancel_lab_run`, `add_to_collection`, `move_cards`, `set_condition`). A staged change shows under your answer with \
+`mark_installed`, `start_lab_run`, `more_lab_games`, `run_lab_again`, `cancel_lab_run`, `add_to_collection`, `move_cards`, `set_condition`, `save_deck`). Use `save_deck` for a complete validated constructed, imported or restored list. A staged change shows under your answer with \
 Apply and Discard, and nothing changes until they apply it: say it's waiting for their review, never that it's done. \
 Don't stage changes they didn't ask for, and check `changes` before staging one that may already be waiting.";
 

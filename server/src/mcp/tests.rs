@@ -87,6 +87,8 @@ async fn the_protocol_basics() {
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("ping", json!({})))).await;
     assert_eq!(r["result"], json!({}));
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("resources/list", json!({})))).await;
+    assert!(r["result"]["resources"].as_array().is_some());
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("unknown/method", json!({})))).await;
     assert_eq!(r["error"]["code"], -32601);
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/call", json!({"name": "rm_rf"})))).await;
     assert_eq!(r["error"]["code"], -32602);

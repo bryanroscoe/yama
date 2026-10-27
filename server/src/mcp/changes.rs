@@ -358,6 +358,141 @@ async fn apply_edit_deck(st: &AppState, user: &User, summary: &str, p: &Value) -
     Ok(json!({"label": format!("{deck} has a new version"), "link": format!("/decks/{deck_id}")}))
 }
 
+// ── complete deck lists ─────────────────────────────────────────────────────
+
+/// Complete-list construction/import/restore uses the existing edit_deck change kind. The
+/// payload distinguishes it from add/remove edits, so no migration or second review queue is
+/// needed. The list is pinned at staging, never fetched again during Apply.
+pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    use super::research::{analysis, optional_text, required_text};
+    if args.get("version").is_some() {
+        return Err(AppError::bad(
+            "Inspect the historical version first, then pass its complete list to save_deck.",
+        ));
+    }
+    let text = required_text(args, "list", 30000)?;
+    let first = super::research::boolean(args, "first_is_commander", true)?;
+    let list = analysis::load(st, user, &json!({"list":text,"first_is_commander":first})).await?;
+    if !list.unknown.is_empty() {
+        return Err(AppError::bad(format!(
+            "Unknown names: {}. Nothing was staged.",
+            list.unknown.join(", ")
+        )));
+    }
+    let info = card_info(&st.pool, &list.cards).await?;
+    let validation = crate::decks::validate(&list.cards, &info);
+    if !validation.errors.is_empty() || !validation.warnings.is_empty() {
+        return Err(AppError::bad(format!(
+            "The complete list is not validated: {}. Nothing was staged.",
+            [validation.errors, validation.warnings].concat().join("; ")
+        )));
+    }
+    let (target, base, name) = if let Some(deck) = optional_text(args, "deck", 200)? {
+        let id = deck_id(&st.pool, &user.id, deck).await?;
+        let (name, version): (String, Option<String>) = sqlx::query_as(
+            "SELECT name,current_version_id FROM decks WHERE id = ? AND owner_id = ?",
+        )
+        .bind(&id)
+        .bind(&user.id)
+        .fetch_one(&st.pool)
+        .await?;
+        (Some(id), version, name)
+    } else {
+        (None, None, required_text(args, "name", 200)?.into())
+    };
+    let note = optional_text(args, "note", 1000)?
+        .unwrap_or("Complete list proposed through Yama")
+        .to_string();
+    let source = optional_text(args, "source_url", 1000)?
+        .map(|raw| super::research::deck_url(raw).map(|(_, _, url)| url))
+        .transpose()?;
+    let summary = format!(
+        "{} {name} with a complete validated list",
+        if target.is_some() {
+            "Replace"
+        } else {
+            "Create"
+        }
+    );
+    let detail = format!(
+        "Why: {note}\n{}\n{}\n{}",
+        source
+            .as_deref()
+            .map(|s| format!("Source: {s}"))
+            .unwrap_or_default(),
+        checks(&list.cards, &info),
+        analysis::exported(&list.cards)
+    );
+    stage(st,user,via,Staged {kind:"edit_deck",summary,detail,payload:json!({"complete_list":true,"deck_id":target,"base_version":base,"name":name,"cards":list.cards,"note":note,"source_url":source})}).await
+}
+
+async fn apply_complete_deck(
+    st: &AppState,
+    user: &User,
+    change: &str,
+    p: &Value,
+) -> AppResult<Value> {
+    let cards: Vec<DeckCard> =
+        serde_json::from_value(p["cards"].clone()).map_err(anyhow::Error::from)?;
+    let info = card_info(&st.pool, &cards).await?;
+    let v = crate::decks::validate(&cards, &info);
+    if !v.errors.is_empty() || !v.warnings.is_empty() {
+        return Err(AppError::Conflict(format!(
+            "The list no longer validates: {}",
+            [v.errors, v.warnings].concat().join("; ")
+        )));
+    }
+    st.limits.deck_writes.check_user(user)?;
+    let note = format!(
+        "From Claude: {}{}",
+        p["note"].as_str().unwrap_or("Complete list"),
+        p["source_url"]
+            .as_str()
+            .map(|s| format!("\nSource: {s}"))
+            .unwrap_or_default()
+    );
+    let mut tx = st.pool.begin().await?;
+    let id = if let Some(id) = p["deck_id"].as_str() {
+        let row: Option<(Option<String>, bool)> = sqlx::query_as(
+            "SELECT current_version_id,archived FROM decks WHERE id = ? AND owner_id = ?",
+        )
+        .bind(id)
+        .bind(&user.id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((version, false)) = row else {
+            return Err(AppError::NotFound("deck"));
+        };
+        if version.as_deref() != p["base_version"].as_str() {
+            return Err(AppError::Conflict("The deck changed after this list was staged. Review a new proposal against its current version.".into()));
+        }
+        crate::decks::insert_version_in(&mut tx, id, &cards, Some(&note)).await?;
+        id.to_string()
+    } else {
+        crate::decks::create_deck_in(
+            &mut tx,
+            &user.id,
+            p["name"].as_str().unwrap_or(""),
+            None,
+            &cards,
+            &note,
+        )
+        .await?
+    };
+    let result = json!({"label":format!("{} saved",p["name"].as_str().unwrap_or("Deck")),"link":format!("/decks/{id}"),"deck_id":id});
+    // The deck and the applied marker commit together: a lost reply cannot create it twice.
+    let updated=sqlx::query("UPDATE assistant_changes SET status='applied',result=?,error=NULL,decided_at=? WHERE id=? AND owner_id=? AND status='pending'")
+        .bind(result.to_string()).bind(now()).bind(change).bind(&user.id).execute(&mut *tx).await?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::Conflict(
+            "The proposal is no longer pending; the deck was not saved.".into(),
+        ));
+    }
+    tx.commit().await?;
+    crate::deck_checks::wake();
+    Ok(result)
+}
+
 // ── plan changes ────────────────────────────────────────────────────────────
 
 /// The caller's plan deck by key or name: (key, name).
@@ -1224,6 +1359,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
     }
     let p: Value = serde_json::from_str(&row.payload).map_err(anyhow::Error::from)?;
     let done = match row.kind.as_str() {
+        "edit_deck" if p["complete_list"] == true => apply_complete_deck(st, user, &row.id, &p).await,
         "edit_deck" => apply_edit_deck(st, user, &row.summary, &p).await,
         "propose_swap" | "answer_review" | "mark_bought" | "mark_installed" => apply_plan(st, user, &row.kind, &row.id, &p).await,
         "start_lab_run" => apply_lab_run(st, user, &row.id, &p).await,
@@ -1261,6 +1397,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
 }
 
 pub async fn discard(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<ChangeView> {
+    let _one = apply_lock().lock().await;
     let row = load(pool, owner, id).await?;
     if row.status != "pending" {
         return Err(AppError::Conflict(format!("This change was already {}.", row.status)));
