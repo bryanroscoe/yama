@@ -47,6 +47,11 @@ this?" His answers: **both** (Ask Claude inside Yama and outside clients such as
 
 ## Tools
 
+Commander research and workflow extensions (2026-10-27) are implemented in
+`server/src/mcp/research/`; see [the capability map, provenance and limits](mcp-parity.md).
+They use this same endpoint and review flow. The protocol also exposes workflow prompts and
+owner-checked resources. `save_deck` stages a complete new/replacement list, never a direct save.
+
 Read (no review needed):
 
 | Tool | What it returns |

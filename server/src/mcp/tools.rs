@@ -535,11 +535,12 @@ pub fn list(via: &Via) -> Vec<Value> {
                 "annotations": annotations,
             })
         })
+        .chain(super::research::catalog())
         .collect()
 }
 
 pub fn offered(name: &str, via: &Via) -> bool {
-    for_caller(via).any(|t| t.name == name)
+    for_caller(via).any(|t| t.name == name) || super::research::offered(name)
 }
 
 pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Value) -> AppResult<String> {
@@ -588,6 +589,10 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "lab_run" => context::build(pool, user, "experiment", Some(text_arg(args, "id")?)).await,
         "lab_games" => lab_games(pool, user, args).await,
         "precon" => precon(pool, user, text_arg(args, "precon")?).await,
+        other if super::research::offered(other) => {
+            st.limits.search.check_user(user)?;
+            super::research::call(st, user, via, other, args).await
+        }
         other => Err(AppError::bad(format!("unknown tool \"{other}\""))),
     }
 }

@@ -33,6 +33,12 @@ The public precon reference (`/precons`) serves stock lists, explicitly publishe
 
 ## Run it locally
 
+Yama also exposes its own MCP at `/mcp` for Ask Claude and outside clients: private deck,
+collection and planner tools; staged edits; full online card search, community recommendations,
+combos, public deck imports and current rules; deck/budget analysis and bounded mana checks.
+No other Magic MCP installation is needed for those workflows. See
+[capabilities and use](docs/mcp-parity.md) and [connection design](docs/mcp-design.md).
+
 Needs Rust (stable) and Node 22+.
 
 ```sh

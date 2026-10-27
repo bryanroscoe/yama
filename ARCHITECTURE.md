@@ -502,6 +502,35 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 - **Ask Claude with tools:** the sidecar gives `query()` exactly one MCP server, `{type: "http", url, Authorization: Bearer <question token>}`, allows only `mcp__yama`, keeps `tools: []` (none of Claude Code's own tools) and `strictMcpConfig`, and allows 16 turns instead of 1. It streams a `tool` event (the tool's short name only) that the panel shows as "Looking up cards…". The instructions tell Claude to check a card with `card` before recommending it.
 - **Outside clients:** `claude mcp add --transport http yama https://yama.saget.org/mcp`, then `/mcp` and Authenticate (OAuth, below), or a claude.ai custom connector with the same URL, which also shows up in Claude Code and the phone app. A key still works for clients that can't sign in: `--header "Authorization: Bearer <key>"` (Settings shows that command once, with the key).
 
+#### Commander research and workflow parity (2026-10-27)
+
+Bryan asked to bring the useful capabilities of other Magic MCPs into Yama, using independently
+written implementations rather than copying their code. Scope and provenance are in
+`docs/mcp-parity.md`. Native tools in `server/src/mcp/research/` add full online Scryfall search
+and printings, EDHREC recommendations, Spellbook public/deck combo discovery, public Moxfield and
+Archidekt lists, current official numbered rules, consolidated deck/ownership/budget analysis,
+comparison, history, collection filtering, seeded hands, exact source-draw probabilities and an
+explicitly bounded lands-only mana sequencing model. The existing offline search is unchanged.
+
+One public HTTP client has fixed provider hosts, no redirects or credentials, bounded streamed
+responses and request timeouts, paced requests, Retry-After cooldown and a one-hour in-memory GET
+cache capped at 16 entries / 8 MiB. Private deck POSTs are never cached. Sending a list to Spellbook
+requires the person's requested lookup and `share_list=true`, respects `YAMA_DECK_CHECKS=0`, and
+sends only card names/quantities. Personal filtering of EDHREC candidates stays local. External
+content is data, not instructions. Rules are discovered on Wizards' current rules page and fetched
+at runtime, never bundled. Live market observations and stored snapshot dates remain distinct;
+missing prices stay missing. Descriptive roles/mana counts and simplified seeded rates make no
+claim of actual castability or improved win rate.
+
+`save_deck` stages a complete validated Commander list for creation or replacement, using the
+existing `edit_deck` change kind with a `complete_list` payload. It pins the list and base version;
+Apply rechecks ownership, current version and validation. The deck/version and applied change
+marker commit in one transaction. Ask Claude cannot apply its own proposals. Immutable versions
+provide snapshots and restores without a second deck store. Both Ask Claude and outside clients
+use the same tools. `prompts/list`/`prompts/get` expose review, construction and rules workflows;
+`resources/list`, `resources/templates/list` and `resources/read` expose sources and owner-checked
+deck/card resources under the same MCP authentication. No separate external MCP is installed.
+
 #### Staged changes (slice 2, 2026-10-23)
 
 "Recommend review before editing" is a rule in the tools (`server/src/mcp/changes.rs`, migration 0020, `web/src/advisor/Changes.tsx`):

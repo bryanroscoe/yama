@@ -1,0 +1,521 @@
+//! Local, owner-scoped deck work. Descriptive statistics and simplified models are labeled;
+//! neither an EDHREC ranking nor a pip count is treated as a castability or power verdict.
+
+use super::super::tools::{card_info, deck_id};
+use super::{integer, optional_text};
+use crate::auth::User;
+use crate::cards::Card;
+use crate::decks::{Board, DeckCard};
+use crate::error::{AppError, AppResult};
+use crate::routes::AppState;
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+pub struct List {
+    pub cards: Vec<DeckCard>,
+    pub unknown: Vec<String>,
+    pub deck_id: Option<String>,
+    pub version: Option<String>,
+}
+
+pub async fn load(st: &AppState, user: &User, args: &Value) -> AppResult<List> {
+    match (
+        optional_text(args, "deck", 200)?,
+        optional_text(args, "list", 30000)?,
+    ) {
+        (Some(wanted), None) => {
+            let id = deck_id(&st.pool, &user.id, wanted).await?;
+            let version: Option<String> = sqlx::query_scalar(
+                "SELECT current_version_id FROM decks WHERE id = ? AND owner_id = ?",
+            )
+            .bind(&id)
+            .bind(&user.id)
+            .fetch_one(&st.pool)
+            .await?;
+            if let Some(v) = optional_text(args, "version", 100)? {
+                let found: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM deck_versions WHERE id = ? AND deck_id = ?)",
+                )
+                .bind(v)
+                .bind(&id)
+                .fetch_one(&st.pool)
+                .await?;
+                if !found {
+                    return Err(AppError::NotFound("version"));
+                }
+                return Ok(List {
+                    cards: crate::decks::load_version_cards(&st.pool, v).await?,
+                    unknown: vec![],
+                    deck_id: Some(id),
+                    version: Some(v.into()),
+                });
+            }
+            let cards = if let Some(v) = &version {
+                crate::decks::load_version_cards(&st.pool, v).await?
+            } else {
+                vec![]
+            };
+            Ok(List {
+                cards,
+                unknown: vec![],
+                deck_id: Some(id),
+                version,
+            })
+        }
+        (None, Some(list)) => {
+            if args.get("version").is_some() {
+                return Err(AppError::bad("version needs a saved deck"));
+            }
+            if list.lines().count() > 300 {
+                return Err(AppError::bad("A list may contain at most 300 lines."));
+            }
+            let first = super::boolean(args, "first_is_commander", true)?;
+            let parsed = crate::decks::parse_list(list, first);
+            if parsed.iter().any(|c| c.qty < 1 || c.qty > 250)
+                || parsed.iter().map(|c| c.qty).sum::<i64>() > 250
+            {
+                return Err(AppError::bad(
+                    "A research list may contain at most 250 copies, with positive quantities.",
+                ));
+            }
+            let parsed = crate::decks::resolve(&st.pool, parsed).await?;
+            Ok(List {
+                cards: parsed.cards,
+                unknown: parsed.unknown,
+                deck_id: None,
+                version: None,
+            })
+        }
+        _ => Err(AppError::bad(
+            "Give either deck (your saved deck) or list (a pasted list), exactly one.",
+        )),
+    }
+}
+
+pub fn exported(cards: &[DeckCard]) -> String {
+    let mut lines = Vec::new();
+    for (board, heading) in [
+        (Board::Commander, "Commander"),
+        (Board::Main, "Deck"),
+        (Board::Side, "Sideboard"),
+    ] {
+        let entries: Vec<_> = cards.iter().filter(|c| c.board == board).collect();
+        if entries.is_empty() {
+            continue;
+        }
+        lines.push(heading.into());
+        lines.extend(entries.into_iter().map(|c| format!("{} {}", c.qty, c.name)));
+        lines.push(String::new());
+    }
+    lines.join("\n")
+}
+
+pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
+    let list = load(st, user, args).await?;
+    let info = card_info(&st.pool, &list.cards).await?;
+    let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
+    let mut rows = Vec::new();
+    let mut curve = [0i64; 8];
+    let (mut lands, mut nonlands, mut mv) = (0, 0, 0.0);
+    let mut pips = BTreeMap::<char, i64>::new();
+    let mut sources = BTreeMap::<char, i64>::new();
+    let mut unknown_mana = Vec::new();
+    let mut roles = BTreeMap::<&str, Vec<String>>::new();
+    let (mut priced, mut missing, mut needed_priced, mut needed_missing) = (0, 0, 0, 0);
+    let (mut total, mut needed_total) = (0.0, 0.0);
+    let mut dates = BTreeSet::new();
+    let mut real_remaining = HashMap::<String, i64>::new();
+    let mut proxy_remaining = HashMap::<String, i64>::new();
+    for i in &items {
+        if let Some(id) = &i.oracle_id {
+            let target = if i.proxy {
+                &mut proxy_remaining
+            } else {
+                &mut real_remaining
+            };
+            *target.entry(id.clone()).or_default() += i.qty;
+        }
+    }
+    for c in list.cards.iter().filter(|c| c.board != Board::Side) {
+        let Some(card) = info.get(&c.oracle_id) else {
+            missing += c.qty;
+            needed_missing += c.qty;
+            continue;
+        };
+        let front = card.type_line.split(" // ").next().unwrap_or("");
+        let land = front.contains("Land");
+        if land {
+            lands += c.qty;
+        } else {
+            nonlands += c.qty;
+            mv += card.cmc * c.qty as f64;
+            curve[(card.cmc.max(0.0).floor() as usize).min(7)] += c.qty;
+            for (color, n) in colored_pips(
+                card.mana_cost
+                    .as_deref()
+                    .unwrap_or("")
+                    .split(" // ")
+                    .next()
+                    .unwrap_or(""),
+            ) {
+                *pips.entry(color).or_default() += n * c.qty;
+            }
+        }
+        if card.type_line.split(" // ").any(|f| f.contains("Land")) {
+            let produced: Option<String> =
+                sqlx::query_scalar("SELECT produced_mana FROM cards WHERE oracle_id = ?")
+                    .bind(&c.oracle_id)
+                    .fetch_one(&st.pool)
+                    .await?;
+            match produced {
+                None => unknown_mana.push(c.name.clone()),
+                Some(produced) => {
+                    let mut colors: BTreeSet<char> =
+                        produced.chars().filter(|c| "WUBRG".contains(*c)).collect();
+                    // Fetch access is counted only for actual eligible targets in this list.
+                    let text = card.oracle_text.to_lowercase();
+                    if colors.is_empty() && text.contains("search your library for") {
+                        for target in list.cards.iter().filter_map(|c| info.get(&c.oracle_id)) {
+                            let ty = target.type_line.split(" // ").next().unwrap_or("");
+                            if !ty.contains("Land") {
+                                continue;
+                            }
+                            if text.contains("basic land card") && ty.contains("Basic") {
+                                for (t, color) in BASIC_TYPES {
+                                    if ty.contains(t) {
+                                        colors.insert(color);
+                                    }
+                                }
+                            } else if BASIC_TYPES
+                                .iter()
+                                .any(|(t, _)| text.contains(&t.to_lowercase()) && ty.contains(t))
+                            {
+                                let mana: Option<String> = sqlx::query_scalar(
+                                    "SELECT produced_mana FROM cards WHERE oracle_id = ?",
+                                )
+                                .bind(&target.oracle_id)
+                                .fetch_one(&st.pool)
+                                .await?;
+                                if let Some(mana) = mana {
+                                    colors.extend(mana.chars().filter(|c| "WUBRG".contains(*c)));
+                                } else {
+                                    unknown_mana.push(target.name.clone());
+                                }
+                            }
+                        }
+                    }
+                    for color in colors {
+                        *sources.entry(color).or_default() += c.qty;
+                    }
+                }
+            }
+        }
+        for role in inferred_roles(card) {
+            roles.entry(role).or_default().push(card.name.clone());
+        }
+        let real = real_remaining.entry(c.oracle_id.clone()).or_default();
+        let owned = c.qty.min(*real);
+        *real -= owned;
+        let proxy = proxy_remaining.entry(c.oracle_id.clone()).or_default();
+        let proxies = (c.qty - owned).min(*proxy);
+        *proxy -= proxies;
+        let needed = c.qty - owned - proxies;
+        let (usd, date, printing) = cheapest(st, &c.oracle_id).await?;
+        if let Some(usd) = usd {
+            priced += c.qty;
+            total += usd * c.qty as f64;
+            needed_priced += needed;
+            needed_total += usd * needed as f64;
+            if let Some(date) = &date {
+                dates.insert(date.clone());
+            }
+        } else {
+            missing += c.qty;
+            needed_missing += needed;
+        }
+        rows.push(json!({"name": c.name, "quantity": c.qty, "board": c.board, "owned_real": owned, "covered_by_proxies": proxies,
+            "needed": needed, "cheapest_nonfoil_usd": usd, "price_date": date, "printing": printing}));
+    }
+    let total_cards: i64 = list
+        .cards
+        .iter()
+        .filter(|c| c.board != Board::Side)
+        .map(|c| c.qty)
+        .sum();
+    let budget = args
+        .get("budget_usd")
+        .map(|v| {
+            v.as_f64()
+                .filter(|n| n.is_finite() && *n >= 0.0)
+                .ok_or_else(|| AppError::bad("budget_usd must be a nonnegative number"))
+        })
+        .transpose()?;
+    let mut policy = json!({"declared_bracket": null, "note": "Game Changers and combo flags do not determine a bracket. Intent, speed, consistency and pregame agreement still matter."});
+    if let Some(id) = &list.deck_id {
+        policy["declared_bracket"] = sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT bracket FROM decks WHERE id = ? AND owner_id = ?",
+        )
+        .bind(id)
+        .bind(&user.id)
+        .fetch_one(&st.pool)
+        .await?
+        .into();
+    }
+    Ok(
+        json!({"computed_at": crate::util::now(), "deck_id": list.deck_id, "version": list.version,
+        "validation": crate::decks::validate(&list.cards,&info), "unknown_names": list.unknown,
+        "game_changers": crate::decks::game_changers(&list.cards,&info), "policy": policy,
+        "statistics": {"cards": total_cards,"lands": lands,"nonlands": nonlands,"curve_0_through_7_plus": curve,
+            "average_mana_value": (lands+nonlands > 0).then(|| round(mv/(lands+nonlands) as f64)),
+            "average_nonland_mana_value": (nonlands > 0).then(|| round(mv/nonlands as f64)), "colored_pips": pips,
+            "potential_land_access": if unknown_mana.is_empty() {json!(sources)} else {Value::Null}, "lands_without_mana_data": unknown_mana,
+            "mana_note": "Pips count hybrid colors separately. Land access includes land faces and fetch targets; these are descriptive counts, not a castability verdict."},
+        "inferred_roles": roles, "role_note": "Text-based hints may overlap or miss conditional effects. Review Oracle text; absence here is not proof of a role gap.",
+        "market": {"source": "Scryfall / TCGplayer market", "known_subtotal_usd": (priced>0).then(|| round(total)), "priced_copies":priced,
+            "missing_copies":missing,"cost_to_finish_known_usd": (needed_priced>0).then(|| round(needed_total)),"needed_without_price":needed_missing,
+            "oldest_price_date":dates.first(),"newest_price_date":dates.last(),"budget_usd":budget,
+            "budget_status": budget.map(|b| if total > b {"over_budget"} else if missing > 0 || !list.unknown.is_empty() {"unknown_missing_prices"} else {"within_budget"}),
+            "note":"Nonfoil paper market references, including basics. Ownership across the collection is not proof that copies are free to move. Missing prices stay unknown; no store stock or quote is implied."},
+        "cards": rows, "list": exported(&list.cards)}),
+    )
+}
+
+pub const BASIC_TYPES: [(&str, char); 5] = [
+    ("Plains", 'W'),
+    ("Island", 'U'),
+    ("Swamp", 'B'),
+    ("Mountain", 'R'),
+    ("Forest", 'G'),
+];
+
+pub fn colored_pips(cost: &str) -> BTreeMap<char, i64> {
+    let mut out = BTreeMap::new();
+    for symbol in cost
+        .split('{')
+        .skip(1)
+        .filter_map(|s| s.split_once('}').map(|(sym, _)| sym))
+    {
+        let colors: BTreeSet<char> = symbol
+            .split('/')
+            .filter_map(|s| (s.len() == 1).then(|| s.chars().next().unwrap()))
+            .filter(|c| "WUBRG".contains(*c))
+            .collect();
+        for color in colors {
+            *out.entry(color).or_default() += 1;
+        }
+    }
+    out
+}
+
+fn inferred_roles(card: &Card) -> Vec<&'static str> {
+    let text = card.oracle_text.to_lowercase();
+    let mut out = Vec::new();
+    if text.contains("draw") && (text.contains("card") || text.contains("cards")) {
+        out.push("card_draw");
+    }
+    if !card.type_line.contains("Land")
+        && (text.contains("add {")
+            || (text.contains("search your library")
+                && text.contains("land card")
+                && text.contains("battlefield")))
+    {
+        out.push("ramp");
+    }
+    if text.contains("destroy target")
+        || text.contains("exile target")
+        || text.contains("counter target spell")
+    {
+        out.push("interaction");
+    }
+    if text.contains("destroy all")
+        || text.contains("exile all")
+        || text.contains("each creature") && text.contains("damage")
+    {
+        out.push("sweeper");
+    }
+    if text.contains("your graveyard") && (text.contains("return") || text.contains("cast")) {
+        out.push("recursion");
+    }
+    out
+}
+
+pub async fn cheapest(
+    st: &AppState,
+    id: &str,
+) -> AppResult<(Option<f64>, Option<String>, Option<String>)> {
+    Ok(sqlx::query_as("WITH eligible AS MATERIALIZED (
+        SELECT ps.usd, ps.date, p.scryfall_id FROM printings p JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
+        WHERE p.oracle_id = ? AND p.finishes LIKE '%nonfoil%' AND IFNULL(p.digital,0) = 0
+        AND p.set_code NOT IN ('wc97','wc98','wc99','wc00','wc01','wc02','wc03','wc04','ptc','ced','cei','30a','olgc','ovnt')
+        AND p.set_name NOT LIKE '%Oversized%' AND p.set_name NOT LIKE '%Display Commanders%'
+        AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id))
+        SELECT usd,date,scryfall_id FROM eligible WHERE usd IS NOT NULL
+        AND date >= date((SELECT MAX(date) FROM eligible), '-3 days')
+        ORDER BY usd, date DESC, scryfall_id LIMIT 1").bind(id).fetch_optional(&st.pool).await?.unwrap_or((None,None,None)))
+}
+
+pub async fn history(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
+    let id = deck_id(&st.pool, &user.id, super::required_text(args, "deck", 200)?).await?;
+    let rows: Vec<(String,Option<String>,String)> = sqlx::query_as("SELECT id,note,created_at FROM deck_versions WHERE deck_id = ? ORDER BY rowid DESC LIMIT 100").bind(&id).fetch_all(&st.pool).await?;
+    Ok(
+        json!({"deck_id":id,"versions":rows.into_iter().map(|(id,note,at)|json!({"id":id,"note":note,"created_at":at})).collect::<Vec<_>>(),
+        "note":"Use deck_analysis with deck and version to inspect or export a historical list. save_deck stages restoring that list as a new version."}),
+    )
+}
+
+pub async fn compare(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
+    let left = args
+        .get("left")
+        .ok_or_else(|| AppError::bad("left is missing"))?;
+    let right = args
+        .get("right")
+        .ok_or_else(|| AppError::bad("right is missing"))?;
+    let a = load(st, user, left).await?;
+    let b = load(st, user, right).await?;
+    let mut differences = BTreeMap::<(String, String), i64>::new();
+    for (list, sign) in [(&a.cards, -1), (&b.cards, 1)] {
+        for c in list {
+            *differences
+                .entry((format!("{:?}", c.board), c.name.clone()))
+                .or_default() += sign * c.qty;
+        }
+    }
+    Ok(
+        json!({"left":analyze(st,user,left).await?,"right":analyze(st,user,right).await?,
+        "changes":differences.into_iter().filter(|(_,n)| *n!=0).map(|((board,name),quantity)|json!({"board":board,"name":name,"quantity_change":quantity})).collect::<Vec<_>>(),
+        "note":"A structural comparison. An improvement in win rate needs real games or a paired lab experiment; no power score was invented."}),
+    )
+}
+
+pub struct Random(pub u64);
+impl Random {
+    pub fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e3779b97f4a7c15);
+        let mut x = self.0;
+        x = (x ^ (x >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        x = (x ^ (x >> 27)).wrapping_mul(0x94d049bb133111eb);
+        x ^ (x >> 31)
+    }
+    pub fn shuffle<T>(&mut self, cards: &mut [T]) {
+        for i in (1..cards.len()).rev() {
+            let bound = (i + 1) as u64;
+            let threshold = bound.wrapping_neg() % bound;
+            let j = loop {
+                let n = self.next();
+                if n >= threshold {
+                    break (n % bound) as usize;
+                }
+            };
+            cards.swap(i, j);
+        }
+    }
+}
+
+pub async fn hands(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
+    let list = load(st, user, args).await?;
+    if !list.unknown.is_empty() {
+        return Err(AppError::bad(
+            "Resolve unknown card names before sampling hands.",
+        ));
+    }
+    let copies: i64 = list
+        .cards
+        .iter()
+        .filter(|c| c.board == Board::Main)
+        .map(|c| c.qty)
+        .sum();
+    if !(7..=250).contains(&copies) {
+        return Err(AppError::bad("The library must contain 7 to 250 cards."));
+    }
+    let count = integer(args, "hands", 5, 1, 10)?;
+    let size = integer(args, "draw", 7, 1, 20)? as usize;
+    let mulligans = integer(args, "mulligans", 0, 0, 6)?;
+    let seed = integer(args, "seed", 1, 0, i64::MAX)? as u64;
+    let mut random = Random(seed);
+    let library: Vec<_> = list
+        .cards
+        .iter()
+        .filter(|c| c.board == Board::Main)
+        .flat_map(|c| std::iter::repeat_n(c.name.clone(), c.qty as usize))
+        .collect();
+    if size > library.len() {
+        return Err(AppError::bad("draw exceeds the library size"));
+    }
+    let mut hands = Vec::new();
+    for _ in 0..count {
+        let mut cards = library.clone();
+        random.shuffle(&mut cards);
+        hands.push(json!({"drawn":&cards[..size],"bottom_after_london_mulligan":mulligans}));
+    }
+    Ok(
+        json!({"seed":seed,"library_size":library.len(),"hands":hands,"note":"Seeded draws without replacement, commanders excluded. Choose which cards to bottom yourself; keep/ship and mana quality are not inferred."}),
+    )
+}
+
+/// Exact hypergeometric tail; no Monte Carlo error or independent-source assumption.
+pub fn probability(population: u64, successes: u64, draws: u64, at_least: u64) -> f64 {
+    if at_least == 0 {
+        return 1.0;
+    }
+    if at_least > draws || at_least > successes {
+        return 0.0;
+    }
+    let low = draws.saturating_sub(population - successes);
+    let high = draws.min(successes);
+    let log_choose = |n: u64, k: u64| -> f64 {
+        let k = k.min(n - k);
+        (0..k)
+            .map(|i| ((n - i) as f64).ln() - ((i + 1) as f64).ln())
+            .sum()
+    };
+    (low.max(at_least)..=high)
+        .map(|k| {
+            (log_choose(successes, k) + log_choose(population - successes, draws - k)
+                - log_choose(population, draws))
+            .exp()
+        })
+        .sum::<f64>()
+        .clamp(0.0, 1.0)
+}
+
+pub fn mana_probability(args: &Value) -> AppResult<Value> {
+    let n = integer(args, "library", 99, 1, 250)? as u64;
+    let s = integer(args, "sources", 0, 0, n as i64)? as u64;
+    let draws = integer(args, "seen", 7, 0, n as i64)? as u64;
+    let need = integer(args, "at_least", 1, 0, 250)? as u64;
+    Ok(
+        json!({"library":n,"sources":s,"cards_seen":draws,"at_least":need,"probability":probability(n,s,draws,need),
+        "model":"Exact draws without replacement. Caller supplies qualifying sources. No mulligans, sequencing, tapped lands, activation costs, ramp, or source-color overlap are modeled; this is not the probability of casting a spell."}),
+    )
+}
+
+fn round(n: f64) -> f64 {
+    (n * 100.0).round() / 100.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn probabilities_match_small_enumerations_and_boundaries() {
+        assert!((probability(4, 2, 2, 1) - 5.0 / 6.0).abs() < 1e-12);
+        assert_eq!(probability(99, 0, 7, 1), 0.0);
+        assert_eq!(probability(99, 99, 7, 7), 1.0);
+        assert_eq!(probability(10, 4, 0, 0), 1.0);
+        assert_eq!(probability(10, 4, 2, 3), 0.0);
+    }
+    #[test]
+    fn hybrid_pips_and_seeded_draws_are_explicit() {
+        assert_eq!(
+            colored_pips("{2}{W/U}{W/P}{2/R}"),
+            BTreeMap::from([('W', 2), ('U', 1), ('R', 1)])
+        );
+        let mut a: Vec<_> = (0..99).collect();
+        let mut b = a.clone();
+        Random(91).shuffle(&mut a);
+        Random(91).shuffle(&mut b);
+        assert_eq!(a, b);
+        a.sort();
+        assert_eq!(a, (0..99).collect::<Vec<_>>());
+    }
+}
