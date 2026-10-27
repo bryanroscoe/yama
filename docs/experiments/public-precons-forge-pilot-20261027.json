@@ -1,0 +1,96 @@
+{
+  "status": "draft_for_review_not_started",
+  "name": "Public stock precons: Phase and Forge pilot",
+  "prepared": "2026-10-27",
+  "tool": "start_lab_run",
+  "arguments": {
+    "mode": "tournament",
+    "engine": "both",
+    "games": 32,
+    "ai": "Easy",
+    "forge_ai": "Default",
+    "entrants": [
+      "explorers-of-the-deep",
+      "jeskai-striker",
+      "calling-all-angels",
+      "enduring-enchantments",
+      "the-hosts-of-mordor",
+      "sliver-swarm",
+      "counter-intelligence",
+      "doom-prevails"
+    ]
+  },
+  "expected_budget": {
+    "unique_stock_lists": 8,
+    "appearances_per_list_per_engine": 32,
+    "four_player_games_per_engine": 64,
+    "total_games": 128
+  },
+  "field": [
+    {
+      "id": "explorers-of-the-deep",
+      "name": "Explorers of the Deep",
+      "stock_text_sha256": "1ad869a8a43ffa3a63710ad5edf9a6de9f096676331818fdd5a2f38ba96d61c6",
+      "real_games": 474,
+      "real_fetched": "2026-10-20",
+      "catalog_partial_support": []
+    },
+    {
+      "id": "jeskai-striker",
+      "name": "Jeskai Striker",
+      "stock_text_sha256": "9a3ba988897bf83bc8d58f9d243c2b1e32fe7558916df9f2b5872495b966b224",
+      "real_games": 145,
+      "real_fetched": "2026-10-20",
+      "catalog_partial_support": []
+    },
+    {
+      "id": "calling-all-angels",
+      "name": "Calling All Angels",
+      "stock_text_sha256": "17037dff20d1eaa3d768d4a2101614c518d9e9d7f67f2282553572dd14356972",
+      "real_games": 451,
+      "real_fetched": "2026-10-20",
+      "catalog_partial_support": []
+    },
+    {
+      "id": "enduring-enchantments",
+      "name": "Enduring Enchantments",
+      "stock_text_sha256": "9ca5f6509841bf187da157ebb32634666c5ad5ec184ae6c0f19f83a383153a4c",
+      "real_games": 158,
+      "real_fetched": "2026-10-20",
+      "catalog_partial_support": []
+    },
+    {
+      "id": "the-hosts-of-mordor",
+      "name": "The Hosts of Mordor",
+      "stock_text_sha256": "02e796b4d5786a4ce841f5c6a279c31d6b8851734ef2a3082f3b6ab4e7c142df",
+      "real_games": 348,
+      "real_fetched": "2026-10-20",
+      "catalog_partial_support": []
+    },
+    {
+      "id": "sliver-swarm",
+      "name": "Sliver Swarm",
+      "stock_text_sha256": "d92181fc16f110882a07feabe0fd0d3b2c14591e932675f89a9513fbf67fbd60",
+      "real_games": 87,
+      "real_fetched": "2026-10-20",
+      "catalog_partial_support": []
+    },
+    {
+      "id": "counter-intelligence",
+      "name": "Counter Intelligence",
+      "stock_text_sha256": "4357447d3f229a070af60b439fb71cecbb8b51626d225811372f6a687e14d4b8",
+      "real_games": 220,
+      "real_fetched": "2026-10-20",
+      "catalog_partial_support": []
+    },
+    {
+      "id": "doom-prevails",
+      "name": "Doom Prevails",
+      "stock_text_sha256": "78691137a60e62c4d0e8111f4fe94a59209ceb2aa605d0ca423c0592db00fc55",
+      "real_games": 782,
+      "real_fetched": "2026-10-20",
+      "catalog_partial_support": []
+    }
+  ],
+  "interpretation": "Diagnostic convenience sample from historically mapped precons, spanning source disagreement. Not representative of the full catalog and not sufficient to calibrate a real-world forecast. Existing zero catalog partial-support flags are not proof of correct rules or AI. Freeze server lists, support, engine versions and schedule at approval; reject changed lists. No private decks or extra opponents. Results remain private until separately reviewed for publication."
+}
