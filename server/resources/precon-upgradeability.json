@@ -63196,8 +63196,8 @@
       "limitation": "Shiko and Narset reward the second spell each turn, not every spell.",
       "rationale": {
         "support": "Cost reducers, spell-damage payoffs and copied spells can share the same package.",
-        "payoff": "Targeted second spells can be copied; other second spells draw a card.",
-        "constraints": "The copy needs a target, and the once-per-turn sequence requires careful mana use."
+        "payoff": "The second spell can be copied if it targets a permanent or player; otherwise the commander draws a card.",
+        "constraints": "Targeting only a spell or a graveyard card does not qualify for copying. The trigger occurs only on the second spell each turn."
       },
       "examples": [
         {
@@ -68686,7 +68686,7 @@
       "examples": [
         {
           "name": "Generous Patron",
-          "role": "Draw from giving opponents counters",
+          "role": "Draw from putting counters on creatures you do not control",
           "url": "https://scryfall.com/card/bbd/70/generous-patron",
           "oracle_id": "fb084141-cb80-479e-b5d4-114c1f31eb6c",
           "color_identity": [

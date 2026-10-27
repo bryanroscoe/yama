@@ -24,6 +24,15 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/precons/methodology#upgradeability", label: "Read the rubric and sources" },
   },
   {
+    id: "2026-10-27-landing-discovery",
+    date: "2026-10-27",
+    title: "See what you can explore before signing in",
+    items: [
+      "The signed-out home page puts the public precon reference, ranking methodology and MCP setup guide in view, with a short overview of the private tools available after Google sign-in.",
+      "Phone layouts show the public browsing options before the sign-in form. OAuth connections and private links keep a focused sign-in page.",
+    ],
+  },
+  {
     id: "2026-10-27-deck-research",
     date: "2026-10-27",
     title: "Review whole deck builds in Yama",

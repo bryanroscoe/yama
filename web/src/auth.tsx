@@ -1,18 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, setToken, type User } from "./api";
-import { ArtPanel } from "./components/ArtPanel";
 import { ErrorText } from "./components/ui";
 import { outbox } from "./plan/outbox";
 import { discardQuestion, signOut, within } from "./plan/signout";
 import { clearPlanData } from "./plan/store";
 import "./auth.css";
-import { Wordmark } from "./components/Wordmark";
 import { noteViewing } from "./viewing";
-import { SiteNotice } from "./components/SiteNotice";
-
-/** The sign-in page's art: Éowyn, Shieldmaiden by Craig Elliott, loaded from Scryfall at runtime. */
-const SIGN_IN_ART = "https://cards.scryfall.io/art_crop/front/d/d/dd4a00ff-2206-4e12-a0ab-61ed82c9e6c5.jpg";
+import { Landing } from "./pages/Landing";
 
 const ME_KEY = "yama.me";
 
@@ -172,6 +167,7 @@ export function Login() {
   });
 
   const clientId = config.data?.google_client_id;
+  const SignInTitle = location.pathname === "/" ? "h2" : "h1";
   useEffect(() => {
     if (!clientId || !googleRef.current) return;
     let cancelled = false;
@@ -190,103 +186,84 @@ export function Login() {
   }, [clientId]);
 
   return (
-    <main className="login login-split">
-      <ArtPanel as="section" className="login-hero" art={SIGN_IN_ART} artist="Craig Elliott" wash="bottom" credit={false}>
-        <h1 className="login-wordmark">
-          <Wordmark />
-        </h1>
-        <p className="login-expansion">Yet Another Magic App</p>
-        <p className="login-tag">Life totals, decks and the cards behind them, for our table.</p>
-        <p className="login-credit">Éowyn, Shieldmaiden. Art by Craig Elliott, ™ &amp; © Wizards of the Coast.</p>
-      </ArtPanel>
-      <section className="login-side" aria-label="Sign in">
-      <div className="login-inner">
-        <div>
-          <h2 className="login-title">Sign in</h2>
-          {location.pathname === "/oauth/authorize" && (
-            <p style={{ margin: "0 0 8px" }}>An app wants to connect to your Yama. Sign in first; you'll see what it asks for before anything is shared.</p>
-          )}
-          {config.data?.open_signup ? (
-            <p className="dim" style={{ margin: 0 }}>Anyone with a Google account can join. Yama is free and unofficial. Your personal data stays private to your account.</p>
-          ) : (
-            <p className="dim" style={{ margin: 0 }}>Yama is invite-only. Use the {clientId ? "Google account" : "account"} your host added.</p>
-          )}
+    <Landing focused={location.pathname !== "/"}>
+      <div>
+        <SignInTitle className="login-title">Sign in to Yama</SignInTitle>
+        {location.pathname === "/oauth/authorize" && (
+          <p style={{ margin: "0 0 8px" }}>An app wants to connect to your Yama. Sign in first; you'll see what it asks for before anything is shared.</p>
+        )}
+        {config.data?.open_signup ? (
+          <p className="dim" style={{ margin: 0 }}>Anyone with a verified Google account can join. Yama is free. Your decks, collection and research stay private to your account.</p>
+        ) : (
+          <p className="dim" style={{ margin: 0 }}>Yama is invite-only. Use the {clientId ? "Google account" : "account"} your host added.</p>
+        )}
+      </div>
+      {/* Google's button is a light-scheme iframe. Inside our dark page Chrome paints an opaque
+          white backdrop behind an iframe whose scheme differs, so give its box the light scheme. */}
+      {clientId && <div ref={googleRef} style={{ colorScheme: "light" }} />}
+      {config.data?.cf_access && (
+        <div className="stack">
+          <p className="dim">Yama signs you in with the email your host invited.</p>
+          <button className="primary" onClick={() => location.reload()}>Sign in</button>
         </div>
-        <a className="button" href="/precons">Browse precons without signing in</a>
-        {/* Google's button is a light-scheme iframe. Inside our dark page Chrome paints an opaque
-            white backdrop behind an iframe whose scheme differs, so give its box the light scheme. */}
-        {clientId && <div ref={googleRef} style={{ colorScheme: "light" }} />}
-        {config.data?.cf_access && (
-          <div className="stack">
-            <p className="dim">Yama signs you in with the email your host invited.</p>
-            <button className="primary" onClick={() => location.reload()}>Sign in</button>
-          </div>
-        )}
-        {config.data && !clientId && !config.data.dev_login && !config.data.cf_access && !config.data.password_login && (
-          <p className="dim">
-            Sign-in isn't set up on this server yet. Set YAMA_GOOGLE_CLIENT_IDS, add an account with <code>yama-server user add</code>, or set
-            YAMA_DEV_LOGIN=1 for local use.
-          </p>
-        )}
-        {config.data?.password_login && (
-          // Accounts made with `yama-server user add`. Under Google's button when that's the usual
-          // way in, so its own button is the secondary one.
-          <>
-            {(clientId || config.data.cf_access) && <Or>or with a password</Or>}
-            <form
-              className="login-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                withPassword.mutate();
-              }}
-            >
-              <label>
-                Email
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
-              </label>
-              <label>
-                Password
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
-              </label>
-              <button className={clientId || config.data.cf_access ? "login-secondary" : "primary"} disabled={withPassword.isPending}>
-                {withPassword.isPending ? "Signing in…" : "Sign in"}
-              </button>
-            </form>
-          </>
-        )}
-        {config.data?.dev_login && (
+      )}
+      {config.data && !clientId && !config.data.dev_login && !config.data.cf_access && !config.data.password_login && (
+        <p className="dim">
+          Sign-in isn't set up on this server yet. Set YAMA_GOOGLE_CLIENT_IDS, add an account with <code>yama-server user add</code>, or set
+          YAMA_DEV_LOGIN=1 for local use.
+        </p>
+      )}
+      {config.data?.password_login && (
+        // Accounts made with `yama-server user add`. Under Google's button when that's the usual
+        // way in, so its own button is the secondary one.
+        <>
+          {(clientId || config.data.cf_access) && <Or>or with a password</Or>}
           <form
             className="login-form"
             onSubmit={(e) => {
               e.preventDefault();
-              dev.mutate();
+              withPassword.mutate();
             }}
           >
-            {(clientId || config.data.password_login) && <Or>or for development</Or>}
-            <p className="dim small" style={{ margin: 0 }}>Development sign-in: any email, no password. Only works on a local server.</p>
             <label>
               Email
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
             </label>
             <label>
-              Name
-              <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="nickname" />
+              Password
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
             </label>
-            <button className={clientId || config.data.password_login ? "login-secondary" : "primary"} disabled={dev.isPending}>
-              Sign in (development)
+            <button className={clientId || config.data.cf_access ? "login-secondary" : "primary"} disabled={withPassword.isPending}>
+              {withPassword.isPending ? "Signing in…" : "Sign in"}
             </button>
           </form>
-        )}
-        <ErrorText error={error ?? config.error} />
-        <p className="small dim" style={{ margin: 0 }}>Offline? The life counter still opens on any phone that has signed in before.</p>
-        <SiteNotice />
-        <p className="small dim" style={{ margin: 0, display: "flex", gap: 20 }}>
-          <a href="/about/">About Yama</a>
-          <a href="/privacy/">Privacy policy</a>
-          <a href="/tos/">Terms</a>
-        </p>
-      </div>
-      </section>
-    </main>
+        </>
+      )}
+      {config.data?.dev_login && (
+        <form
+          className="login-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            dev.mutate();
+          }}
+        >
+          {(clientId || config.data.password_login) && <Or>or for development</Or>}
+          <p className="dim small" style={{ margin: 0 }}>Development sign-in: any email, no password. Only works on a local server.</p>
+          <label>
+            Email
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+          </label>
+          <label>
+            Name
+            <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="nickname" />
+          </label>
+          <button className={clientId || config.data.password_login ? "login-secondary" : "primary"} disabled={dev.isPending}>
+            Sign in (development)
+          </button>
+        </form>
+      )}
+      <ErrorText error={error ?? config.error} />
+      <p className="small dim" style={{ margin: 0 }}>Offline? The life counter still opens on any phone that has signed in before.</p>
+    </Landing>
   );
 }
