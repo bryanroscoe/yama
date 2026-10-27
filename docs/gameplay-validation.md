@@ -77,9 +77,10 @@ The frozen runtime failures and expensive candidate-generation path remain unres
 
 ## Fork provenance
 
-The deployed local Phase worktree is `/Users/bryanroscoe/Developer/engine-recovery/yama-phase`,
-branch `engine-recovery-2026-10-25`, commit `9b2073b0986fe580d495fce2fa58b5762e24e3eb`.
-Its `origin` points to `https://github.com/phase-rs/phase`. Yama preserves its fork changes in
-37 files under `patches/phase/`, with the deployment commit in `deploy/phase-rev`.
-The primary checkout at `../yama-phase` is a different worktree (`referee-next`, `6e1c476`),
-seven commits behind the deployed pin. Its branch name is not evidence of what is deployed.
+The investigation's baseline was Phase `9b2073b0986fe580d495fce2fa58b5762e24e3eb`.
+The maintained engine now lives in the private `bryanroscoe/yama-phase` repository, with
+`origin` pointing there and `upstream` pointing to `phase-rs/phase`. The independent local
+checkout is `/Users/bryanroscoe/Developer/engine-recovery/yama-phase`.
+Its initial source preserves all 37 former patches and upstream history. Yama's patch files
+are retired; releases fetch `deploy/phase-repo` and archive `deploy/phase-rev` exactly.
+Other Phase worktrees and branch names are not evidence of what is deployed.

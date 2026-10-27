@@ -1,5 +1,9 @@
 # Yama
 
+The engine is maintained in the private [Yama Phase repository](https://github.com/bryanroscoe/yama-phase).
+Clone it beside this repository as `../yama-phase`; releases fetch `deploy/phase-repo` and export
+the exact published commit in `deploy/phase-rev`. See [engine integration](docs/engine-integration.md).
+
 Yet Another Magic App: a private Magic: The Gathering app for Bryan's playgroup. It has a life counter for game night, card search, a collection (with Mythic Tools import), decks that know what you own, and playgroup stats. Online play against friends and AI is the next big piece; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images come from [Scryfall](https://scryfall.com); images load from Scryfall at runtime and are never stored or re-hosted here.
@@ -46,13 +50,12 @@ npm run dev                                  # web app on http://localhost:5173 
 Online play needs the local phase fork and its card data (see docs/engine-integration.md):
 
 ```sh
-git clone --depth 1 --branch v0.113.0 https://github.com/phase-rs/phase ../yama-phase
-git -C ../yama-phase apply ../yama/patches/phase/*.patch   # 0001 drops 3 nightly-only lines so it builds on stable
-                                                           # 0002-0008: AI fixes and free-for-all tempo changes (22 Oct 2026)
+git clone https://github.com/bryanroscoe/yama-phase.git ../yama-phase
+git -C ../yama-phase checkout "$(cat deploy/phase-rev)"
 mkdir -p data/engine
   # Build card-data-1e5608e61683de41.json from the archived inputs as described in
   # docs/engine-integration.md (SHA-256 1e5608e61683de41…). This local recovery export
-  # is not on data.phase-rs.dev or the server yet. It must match deploy/phase-rev.
+  # is not published on data.phase-rs.dev. It must match deploy/phase-rev.
 ./target/debug/soak                     # all-AI game with Bryan's decks; checks replay determinism
 ```
 

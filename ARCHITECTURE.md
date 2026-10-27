@@ -58,6 +58,16 @@ Keeping Yama out of the public stores also keeps it private, which matters for t
 
 ## 3. Rules engine (Play)
 
+**Engine source (Bryan, 2026-10-27):** maintain the engine in the private
+`bryanroscoe/yama-phase` repository with upstream history and licenses preserved. Its `origin`
+is the private fork and `upstream` is `phase-rs/phase`. Yama's patch-export workflow is retired.
+Development uses adjacent checkouts; releases fetch the repository in `deploy/phase-repo`,
+require the full `deploy/phase-rev` SHA on its published main, and archive that exact commit.
+`YAMA_PHASE_DIR` can select another release checkout without changing its remotes or files.
+Performance work targets 2–3× Forge throughput on matched workloads and resources while
+preserving legal decisions, seeded results and honest failure counts; that target is not yet
+an accepted benchmark result.
+
 Build on **[phase-rs](https://github.com/phase-rs/phase)** (MIT or Apache-2.0). It's a Rust engine that compiles to WASM, with a React client. The current local pin and validation are recorded in [the recovery report](docs/engine-recovery-2026-10-25.md).
 
 - The initial 17 October coverage snapshot reported support for 30,494 of 32,950 Commander cards (92.5%); current per-deck classifications are in [card coverage](docs/card-coverage.md).
@@ -243,7 +253,7 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 
 ### How online play ended up working
 
-- **Engine:** phase v0.113.0 from the local fork (`../yama-phase`), wrapped by `play/` (`Engine`, `Match`). The reproducible patch series in `patches/phase/` includes the stable build, AI and stall fixes, layer dependency fix 0009, card fixes 0012–0030, and the recovered rules/parser/performance batch. Deploys build the exact commit in `deploy/phase-rev`; production changes move the card export and replay version with that pin. A test-only checkpoint may retain the preceding runtime version when the production inputs are byte-identical, with that equivalence recorded in the recovery report. New simulation results carry `+recovery1` so earlier engines are not pooled with them. `soak` checks replay determinism. Scope, measurements and remaining gaps are in [the recovery report](docs/engine-recovery-2026-10-25.md).
+- **Engine:** Phase v0.113.0 plus Yama's work in the private `bryanroscoe/yama-phase` repository (`../yama-phase` locally), wrapped by `play/` (`Engine`, `Match`). The fork preserves the stable build, AI, stall, layer dependency, card and recovery fixes formerly exported as patches. Deploys fetch `deploy/phase-repo` and build the exact published commit in `deploy/phase-rev`; production changes move the card export and replay version with that pin. A preserving optimization or test-only checkpoint may retain the preceding runtime version when the relevant inputs and replay behavior are unchanged. Simulation results carry their engine, card-data and runner identities, so different builds are not silently pooled. `soak` checks replay determinism. Historical measurements and remaining gaps are in [the recovery report](docs/engine-recovery-2026-10-25.md).
 - **Board:** we didn't fork phase's 1,400-file client. Since 2026-10-19 it follows the Night table artboards (design/screens/PlayBoard and PlayBoardPhone): opponents in turn order on their commander art, a turn strip with the stop ladder, square art tiles (a tapped tile turns its art, never its name), the hand fan and a right rail with the stack and one big button whose label says what it will do. Each decision is the engine's own option list (`AiDecisionContract`), the same list the AI chooses from, shown as plain-language buttons. Tapping a card filters the list to options for that card. The server sends each card's full-size image and rules text with every view, so any card can be read at full size (hover preview on desktop, a card sheet on phones). Every option is legal by construction, every engine decision type works from day one, and the UI can grow special cases (drag to attack, mana payment) later.
 - **Smart stops:** the server passes for a person unless:
   - it's their main phase,

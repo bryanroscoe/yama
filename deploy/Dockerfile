@@ -26,7 +26,7 @@ ARG YAMA_GIT_SHA=
 ARG YAMA_GIT_DIRTY=
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/yama/target \
-    CARGO_BUILD_JOBS=12 cargo build --release -p yama-server \
+    CARGO_BUILD_JOBS=4 cargo build --release -p yama-server \
  && cp target/release/yama-server /usr/local/bin/yama-server
 
 FROM debian:bookworm-slim
