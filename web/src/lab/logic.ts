@@ -479,7 +479,7 @@ export function sortPrecons(list: PreconItem[], key: SortKey, desc: boolean): Pr
   const value = (p: PreconItem): number | string | null => {
     switch (key) {
       case "upgradeability":
-        return p.upgradeability?.method === "source-backed-upgradeability-v2" ? p.upgradeability.score : null;
+        return p.upgradeability?.method === "source-backed-upgradeability-v3" ? p.upgradeability.score : null;
       case "rank":
         return p.rating?.rank ?? null;
       case "name":

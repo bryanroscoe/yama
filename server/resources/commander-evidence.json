@@ -1,9 +1,9 @@
 {
   "source": "Playgroup.gg (Arcane Digital B.V.)",
-  "attribution": "Aggregated game statistics, CC BY 4.0; https://playgroup.gg/legal",
-  "checked_at": "2026-10-27",
+  "attribution": "Aggregate statistics, CC BY 4.0; https://playgroup.gg/legal",
+  "checked_at": "2026-10-27T22:47:47.696734+00:00",
   "method": "raw-wins-divided-by-games-v1",
-  "limitations": "Not a four-player-normalized rate. Opponents, pilots, stock status and deck strength are not controlled. Do not subtract this from a stock-precon rate to estimate upgrade gain. Partner commanders are separate observations, not pair statistics. Endpoint counts may differ from the bulk API and website.",
+  "limitations": "Mixed lists, pilots, opponents and pod sizes. Not four-player normalised; not an upgrade-gain estimate. Partners are individual commander observations.",
   "commanders": {
     "Abaddon the Despoiler": {
       "name": "Abaddon the Despoiler",
@@ -304,6 +304,19 @@
       "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
       "sha256": "ad77d7d389bb0f64a0fa84f56f786a942b0c45df5945ef4a853b20f962cabc8b"
     },
+    "Celes, Rune Knight": {
+      "name": "Celes, Rune Knight",
+      "commander_id": 3191,
+      "url": "https://playgroup.gg/commanders/3191",
+      "api_url": "https://playgroup.gg/api/public/v1/commanders/3191.json",
+      "fetched_at": "2026-10-27T22:31:49.384476+00:00",
+      "provider_updated_at": null,
+      "games": 1591,
+      "wins": 581,
+      "raw_win_rate_percent": 36.52,
+      "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
+      "sha256": "ed5cd464272601b880a80ff1abdc4712d5fc4a7ac2f0e47a485bba5d65cd2774"
+    },
     "Chishiro, the Shattered Blade": {
       "name": "Chishiro, the Shattered Blade",
       "commander_id": 1803,
@@ -434,6 +447,19 @@
       "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
       "sha256": "226160fee36d8846f87e2534c1fd4a3ff82e3ad6d146314f063288ff403985f8"
     },
+    "Director Nick Fury": {
+      "name": "Director Nick Fury",
+      "commander_id": 3894,
+      "url": "https://playgroup.gg/commanders/3894",
+      "api_url": "https://playgroup.gg/api/public/v1/commanders/3894.json",
+      "fetched_at": "2026-10-27T22:31:51.001508+00:00",
+      "provider_updated_at": null,
+      "games": 159,
+      "wins": 36,
+      "raw_win_rate_percent": 22.64,
+      "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
+      "sha256": "3dd9419c6c091bb2842417f4e824c97bb115fbdacd847b03bca86eb1cae94ce3"
+    },
     "Disa the Restless": {
       "name": "Disa the Restless",
       "commander_id": 2964,
@@ -551,6 +577,19 @@
       "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
       "sha256": "ff09fa5ed11aed3fd104a3a1889433d265dfce299f635e117c413f1dce46a29f"
     },
+    "Esix, Fractal Bloom": {
+      "name": "Esix, Fractal Bloom",
+      "commander_id": 1433,
+      "url": "https://playgroup.gg/commanders/1433",
+      "api_url": "https://playgroup.gg/api/public/v1/commanders/1433.json",
+      "fetched_at": "2026-10-27T22:31:52.881638+00:00",
+      "provider_updated_at": null,
+      "games": 1237,
+      "wins": 393,
+      "raw_win_rate_percent": 31.77,
+      "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
+      "sha256": "2502578bd2dbbb0d782d89cfd23a5d07810b43f20be4411e1253c0211569f202"
+    },
     "Estrid, the Masked": {
       "name": "Estrid, the Masked",
       "commander_id": 1154,
@@ -641,6 +680,19 @@
       "raw_win_rate_percent": 29.88,
       "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
       "sha256": "da3e905efa404e534dd41998ed3f5fcf97db160981dd363f1ed73dbc32d65119"
+    },
+    "G'raha Tia, Scion Reborn": {
+      "name": "G'raha Tia, Scion Reborn",
+      "commander_id": 3276,
+      "url": "https://playgroup.gg/commanders/3276",
+      "api_url": "https://playgroup.gg/api/public/v1/commanders/3276.json",
+      "fetched_at": "2026-10-27T22:31:54.535960+00:00",
+      "provider_updated_at": null,
+      "games": 466,
+      "wins": 146,
+      "raw_win_rate_percent": 31.33,
+      "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
+      "sha256": "e2bc6133bc43afa60709c7446c4bdf8aa107ec889520b01f5ba67209a82565e6"
     },
     "Galadriel, Elven-Queen": {
       "name": "Galadriel, Elven-Queen",
@@ -1123,6 +1175,19 @@
       "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
       "sha256": "3b96d94347f867bcf4a53cd7973a996c21767e4bdff8d9910ba8b757a6f5c590"
     },
+    "Kilo, Apogee Mind": {
+      "name": "Kilo, Apogee Mind",
+      "commander_id": 3377,
+      "url": "https://playgroup.gg/commanders/3377",
+      "api_url": "https://playgroup.gg/api/public/v1/commanders/3377.json",
+      "fetched_at": "2026-10-27T22:31:57.101239+00:00",
+      "provider_updated_at": null,
+      "games": 5987,
+      "wins": 1555,
+      "raw_win_rate_percent": 25.97,
+      "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
+      "sha256": "dda4d47e5b200c934d54b4ff29a5968ca6cec92429d243270246f1089a3c4a98"
+    },
     "Kitt Kanto, Mayhem Diva": {
       "name": "Kitt Kanto, Mayhem Diva",
       "commander_id": 1667,
@@ -1214,6 +1279,19 @@
       "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
       "sha256": "84cf61271e8ebd36c2c10cc1b30a50d3aa461458973a14e98b426687c85c65fb"
     },
+    "Loki, the Deceiver": {
+      "name": "Loki, the Deceiver",
+      "commander_id": 3899,
+      "url": "https://playgroup.gg/commanders/3899",
+      "api_url": "https://playgroup.gg/api/public/v1/commanders/3899.json",
+      "fetched_at": "2026-10-27T22:31:58.752702+00:00",
+      "provider_updated_at": null,
+      "games": 422,
+      "wins": 121,
+      "raw_win_rate_percent": 28.67,
+      "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
+      "sha256": "01b7abec3fef9a11ad63e615aaef5b56ff50d032169a4453121fb41040b938d0"
+    },
     "Lord Windgrace": {
       "name": "Lord Windgrace",
       "commander_id": 516,
@@ -1291,6 +1369,19 @@
       "raw_win_rate_percent": 27.04,
       "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
       "sha256": "8a427bf4fdfd89fcebe10b6be3e6a220c7943e391b16b3a7497f196d357f2378"
+    },
+    "Mister Fantastic": {
+      "name": "Mister Fantastic",
+      "commander_id": 3691,
+      "url": "https://playgroup.gg/commanders/3691",
+      "api_url": "https://playgroup.gg/api/public/v1/commanders/3691.json",
+      "fetched_at": "2026-10-27T22:32:00.495506+00:00",
+      "provider_updated_at": null,
+      "games": 845,
+      "wins": 281,
+      "raw_win_rate_percent": 33.25,
+      "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
+      "sha256": "a0a0d46168d2d341a04ef8545356abf5880e25551922ba523528edb9bab0178b"
     },
     "Mizzix of the Izmagnus": {
       "name": "Mizzix of the Izmagnus",
@@ -1434,6 +1525,19 @@
       "raw_win_rate_percent": 33.83,
       "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
       "sha256": "9ad7b106521f21a59061ac1d8a67c49daf9c501c432abdb793e350e1d15c02d0"
+    },
+    "Okoye, Mighty and Adored": {
+      "name": "Okoye, Mighty and Adored",
+      "commander_id": 3919,
+      "url": "https://playgroup.gg/commanders/3919",
+      "api_url": "https://playgroup.gg/api/public/v1/commanders/3919.json",
+      "fetched_at": "2026-10-27T22:32:02.099007+00:00",
+      "provider_updated_at": null,
+      "games": 42,
+      "wins": 11,
+      "raw_win_rate_percent": 26.19,
+      "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
+      "sha256": "695bacb8c5f801769e8401d6167e333d6c13539eeac62aee0f1e3dceda601809"
     },
     "Olivia, Opulent Outlaw": {
       "name": "Olivia, Opulent Outlaw",
@@ -2020,6 +2124,19 @@
       "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
       "sha256": "5473c84a553b5a2875ea221a97a36bcf46e19079b81910b65802d74e1859d328"
     },
+    "Tifa, Martial Artist": {
+      "name": "Tifa, Martial Artist",
+      "commander_id": 3348,
+      "url": "https://playgroup.gg/commanders/3348",
+      "api_url": "https://playgroup.gg/api/public/v1/commanders/3348.json",
+      "fetched_at": "2026-10-27T22:32:04.003771+00:00",
+      "provider_updated_at": null,
+      "games": 1486,
+      "wins": 464,
+      "raw_win_rate_percent": 31.22,
+      "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
+      "sha256": "c0532c1ed56a4e8c55c360a9f7e385494287167e38b1321975a2e09f8a20dbc8"
+    },
     "Trostani, Selesnya's Voice": {
       "name": "Trostani, Selesnya's Voice",
       "commander_id": 2116,
@@ -2202,6 +2319,19 @@
       "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
       "sha256": "4a9223cbf4858c459bf248b30d40ffd6f9d75a86401eeb462f02cb88056bc8a7"
     },
+    "Yuna, Grand Summoner": {
+      "name": "Yuna, Grand Summoner",
+      "commander_id": 3368,
+      "url": "https://playgroup.gg/commanders/3368",
+      "api_url": "https://playgroup.gg/api/public/v1/commanders/3368.json",
+      "fetched_at": "2026-10-27T22:32:06.027625+00:00",
+      "provider_updated_at": null,
+      "games": 2396,
+      "wins": 633,
+      "raw_win_rate_percent": 26.42,
+      "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
+      "sha256": "1e93fafd61f3a96968b34d57f7caa4e3096feed5af2794de87d255da90b0ccfd"
+    },
     "Zada, Hedron Grinder": {
       "name": "Zada, Hedron Grinder",
       "commander_id": 1452,
@@ -2331,7 +2461,20 @@
       "raw_win_rate_percent": 32.82,
       "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
       "sha256": "af4ecf2387c221980aae7e7f862034604d3622c50e0f567b05cca485e3d6ca2e"
+    },
+    "Koma, Cosmos Serpent": {
+      "name": "Koma, Cosmos Serpent",
+      "commander_id": 982,
+      "url": "https://playgroup.gg/commanders/982",
+      "api_url": "https://playgroup.gg/api/public/v1/commanders/982.json",
+      "fetched_at": "2026-10-27T22:47:46.695172+00:00",
+      "provider_updated_at": null,
+      "games": 1801,
+      "wins": 623,
+      "raw_win_rate_percent": 34.59,
+      "population": "All recorded lists under this commander; stock and modified lists, pod sizes and power levels are mixed.",
+      "sha256": "b9ba3acd91edbe9deea0b882103acde597f75ee5a696b23f641f7523cce4dab4"
     }
   },
-  "missing": []
+  "refresh_errors": []
 }

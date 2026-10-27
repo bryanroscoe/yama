@@ -34,6 +34,10 @@ pub fn router() -> Router<AppState> {
         .route("/precons/methodology", get(html::methodology))
         .route("/precons/{slug}", get(html::detail))
         .route("/precons/{slug}/decklist.txt", get(download))
+        .route(
+            "/precons/{slug}/commanders/{variant}/decklist.txt",
+            get(download_variant),
+        )
         .route("/precons/style.css", get(html::style))
         .route("/precons/assets/{filename}", get(html::versioned_style))
         .route("/sitemap.xml", get(html::sitemap))
@@ -662,6 +666,34 @@ async fn download(
         header::CONTENT_DISPOSITION,
         HeaderValue::from_str(&format!("attachment; filename=\"{slug}.txt\""))
             .expect("validated slug"),
+    );
+    Ok(res)
+}
+
+async fn download_variant(
+    State(st): State<AppState>,
+    address: ClientAddress,
+    headers: HeaderMap,
+    Path((slug, variant)): Path<(String, String)>,
+) -> AppResult<Response> {
+    limit(&st, address)?;
+    if !valid_slug(&slug) || !valid_slug(&variant) {
+        return Err(AppError::NotFound("commander comparison list"));
+    }
+    let text: Option<String> = sqlx::query_scalar("SELECT cards FROM precons WHERE id=?")
+        .bind(&slug)
+        .fetch_optional(&st.pool)
+        .await?;
+    let cards: Vec<crate::lab::PreconCard> =
+        serde_json::from_str(&text.ok_or(AppError::NotFound("precon"))?)
+            .map_err(anyhow::Error::from)?;
+    let body = crate::upgradeability::variant_deck(&slug, &variant, &cards)
+        .ok_or(AppError::NotFound("commander comparison list"))?;
+    let mut res = cached(&headers, body, "text/plain; charset=utf-8");
+    res.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{slug}--{variant}.txt\""))
+            .expect("validated slugs"),
     );
     Ok(res)
 }

@@ -47,15 +47,20 @@ def fetch(url):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT/'server/resources/commander-evidence.json')
+    parser.add_argument('--missing-only', action='store_true', help='Fetch newly covered commanders; preserve existing observations and dates.')
     args = parser.parse_args()
     assessments = json.loads((ROOT/'server/resources/precon-upgradeability.json').read_text())
-    names = sorted({n for e in assessments['decks'].values() for n in e['commanders']})
+    entries = [row for e in assessments['decks'].values() for row in [e, *e.get('alternatives', [])]]
+    names = sorted({n for e in entries for n in e['commanders']})
     previous = json.loads(args.output.read_text()) if args.output.exists() else {}
     # Do not silently reuse a stale bulk directory when a current lookup fails.
     directory, _, _ = fetch(f'{API}.json')
     by_name = {canonical(r['name']): r for r in directory}
-    out, errors = {}, []
+    out = {n: previous['commanders'][n] for n in names if args.missing_only and n in previous.get('commanders', {})}
+    errors = []
     for i, name in enumerate(names):
+        if name in out:
+            continue
         try:
             id_ = by_name[canonical(name)]['id']
             row, fetched_at, digest = fetch(f'{API}/{id_}.json')

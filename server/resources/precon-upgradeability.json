@@ -1,5 +1,5 @@
 {
-  "method": "source-backed-upgradeability-v2",
+  "method": "source-backed-upgradeability-v3",
   "assessed_on": "2026-10-27",
   "author": "Yama editorial assessment",
   "supersedes": "editorial-upgradeability-v1: unsupported grades withdrawn, not carried forward",
@@ -69,6 +69,9 @@
         ],
         [
           "Mister Fantastic"
+        ],
+        [
+          "Director Nick Fury"
         ]
       ],
       "accessed_on": "2026-10-27"
@@ -792,7 +795,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "e579a72f-4933-40fe-9e57-96f8d65370bc"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "devour-for-power": {
       "commanders": [
@@ -1196,7 +1200,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "55123455-d435-46d4-b0cd-0c1614343be2"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "heavenly-inferno": {
       "commanders": [
@@ -1615,7 +1620,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "cb8d80c9-ed58-4f2d-aa8c-c383370c7f1a"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "mirror-mastery": {
       "commanders": [
@@ -2014,7 +2020,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "f697c78d-7e4f-4320-bfc6-2a25e6d7dc94"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "political-puppets": {
       "commanders": [
@@ -2413,7 +2420,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "514179c0-a50b-4565-8e71-9dad256edd85"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "eternal-bargain": {
       "commanders": [
@@ -2832,7 +2840,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "620ff5f2-7d3f-467f-943d-3b62c2135023"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "evasive-maneuvers": {
       "commanders": [
@@ -3271,7 +3280,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "afa49a09-146f-4439-850e-dd1938c93cef"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "mind-seize": {
       "commanders": [
@@ -3700,7 +3710,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "a014f283-c531-415c-ac00-e6773ea5d64d"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "nature-of-the-beast": {
       "commanders": [
@@ -4154,7 +4165,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "fae87115-8749-4d25-a594-7139dd01a034"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "power-hungry": {
       "commanders": [
@@ -4593,7 +4605,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "868882d2-ed4e-4171-a17c-478a341080fb"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "built-from-scratch": {
       "commanders": [
@@ -4977,7 +4990,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "ea9f4de3-fc35-435a-8dff-a5657d14a9bd"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "forged-in-stone": {
       "commanders": [
@@ -5346,7 +5360,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "a554aa2c-d947-4fc6-929d-d5891f467615"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "guided-by-nature": {
       "commanders": [
@@ -5750,7 +5765,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "659dfdbf-5e9d-4828-a967-348cb3bcf05a"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "peer-through-time": {
       "commanders": [
@@ -6124,7 +6140,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "07d0b06b-80cb-4518-92c9-84ea87a7e08a"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "sworn-to-darkness": {
       "commanders": [
@@ -6493,7 +6510,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "cfc9a2f9-92fa-4608-b98d-f9763c89fc40"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "call-the-spirits": {
       "commanders": [
@@ -6907,7 +6925,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "8a9e8f60-eb13-4ae8-82df-d4c46da74451"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "plunder-the-graves": {
       "commanders": [
@@ -7316,7 +7335,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "0310dfdb-0498-488d-9f1a-279f8239e024"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "seize-control": {
       "commanders": [
@@ -7715,7 +7735,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "f787c6cf-a4ff-487b-a7b0-0f516e68510a"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "swell-the-host": {
       "commanders": [
@@ -8124,7 +8145,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "40eacdae-fae5-46b9-a9e5-9211469f74fc"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "wade-into-battle": {
       "commanders": [
@@ -8533,7 +8555,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "e100f9fc-b6fb-42ab-b9b3-796bede6804d"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "breed-lethality": {
       "commanders": [
@@ -8972,7 +8995,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "7e6b9b59-cd68-4e3c-827b-38833c92d6eb"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "entropic-uprising": {
       "commanders": [
@@ -9416,7 +9440,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9efe8aff-9a7d-4397-b5fd-c1a0fad7c15f"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "invent-superiority": {
       "commanders": [
@@ -9870,7 +9895,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "d460a9e2-5a7d-4562-880e-45174be19a9d"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "open-hostility": {
       "commanders": [
@@ -10334,7 +10360,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "e54d207c-51b8-458e-86a1-2633ac064c8e"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "stalwart-unity": {
       "commanders": [
@@ -10778,7 +10805,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "53ee4254-fef7-49ec-aafc-0320987764e6"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "arcane-wizardry": {
       "commanders": [
@@ -11217,7 +11245,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "21bdba6e-3f9d-4ead-8212-0cbb0ce7f8cc"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "draconic-domination": {
       "commanders": [
@@ -11676,7 +11705,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "87b22b09-4f6d-4bc5-9cfc-663e4c7c6981"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "feline-ferocity": {
       "commanders": [
@@ -12145,7 +12175,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "66944a11-40a1-4f3a-9f83-52324e0edfef"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "vampiric-bloodlust": {
       "commanders": [
@@ -12609,7 +12640,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "41e2790d-49f5-4e98-b8d9-04179f47f13a"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "adaptive-enchantment": {
       "commanders": [
@@ -13033,7 +13065,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "7cf1fa2e-1572-4d9d-8e93-e49016b34458"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "exquisite-invention": {
       "commanders": [
@@ -13432,7 +13465,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "0e084342-31ff-47a5-9fd8-5b385add7a1a"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "natures-vengeance": {
       "commanders": [
@@ -13881,7 +13915,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "38a55562-1e2d-4240-9454-219a4a25d38d"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "subjective-reality": {
       "commanders": [
@@ -14340,7 +14375,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "3a30089d-cd2d-49be-9b06-7a2454117692"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "faceless-menace": {
       "commanders": [
@@ -14804,7 +14840,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "4da13eb8-ca18-43f1-b54b-d3ddceb980d2"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "merciless-rage": {
       "commanders": [
@@ -15238,7 +15275,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "4dab6a96-4376-4aea-983d-406167993214"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "mystic-intellect": {
       "commanders": [
@@ -15672,7 +15710,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "869c9bc4-2b21-40c3-8b1c-c83269c856d0"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "primal-genesis": {
       "commanders": [
@@ -16116,7 +16155,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "ce08fbfb-5d51-4dfc-80ae-87d5d9c7726f"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "arcane-maelstrom": {
       "commanders": [
@@ -16565,7 +16605,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "b8501a37-23e4-4873-80cb-d1c0f6c95155"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "enhanced-evolution": {
       "commanders": [
@@ -17014,7 +17055,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "c5054364-2a19-4b70-869b-94d48b7b12c0"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "ruthless-regiment": {
       "commanders": [
@@ -17473,7 +17515,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "b122bf99-b003-452a-a854-b25597ff7ca2"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "symbiotic-swarm": {
       "commanders": [
@@ -17922,7 +17965,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "730897a9-3ead-4990-9492-1a2040d8ccac"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "timeless-wisdom": {
       "commanders": [
@@ -18386,7 +18430,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "716a3bb8-04bd-41f5-a568-131f175e00a6"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "lands-wrath": {
       "commanders": [
@@ -18820,7 +18865,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "28fcf855-6372-4d6b-b3fd-76f85247f309"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "sneak-attack": {
       "commanders": [
@@ -19204,7 +19250,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "e7e69583-8326-417e-8a9a-6b917c8ba4b6"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "arm-for-battle": {
       "commanders": [
@@ -19623,7 +19670,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "35bef4d3-4473-4265-86b0-f1393c82fd1d"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "reap-the-tides": {
       "commanders": [
@@ -20007,7 +20055,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "6511f317-bd38-46d0-b800-7125a3f420da"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "elven-empire": {
       "commanders": [
@@ -20396,7 +20445,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9b568c34-ba0a-44a7-a0ee-bee3a37b3396"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "phantom-premonition": {
       "commanders": [
@@ -20805,7 +20855,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "c73a9939-0742-4919-94d6-c3b537697f17"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "lorehold-legacies": {
       "commanders": [
@@ -21241,7 +21292,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "add020f8-a6ae-4ce1-8d4e-f48f3fd14767"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "prismari-performance": {
       "commanders": [
@@ -21680,7 +21732,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "02d529df-6299-4e8f-9794-70c8061efdc4"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "quantum-quandrix": {
       "commanders": [
@@ -22151,7 +22204,887 @@
           "checked_on": "2026-10-27",
           "oracle_id": "12a6cad9-eb42-43bd-9e68-aaf862cd83db"
         }
-      ]
+      ],
+      "alternatives": [
+        {
+          "key": "esix-fractal-bloom",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Token creation and creature copying.",
+            "retains": "Keeps token makers and creature-copy targets.",
+            "changes": "Esix changes the first token event on each of your turns into creature copies; Adrix and Nev doubles tokens."
+          },
+          "list_checked_on": "2026-10-27",
+          "commanders": [
+            "Esix, Fractal Bloom"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/QuantumQuandrix_C21.json",
+          "stock": [
+            [
+              "commander",
+              "Esix, Fractal Bloom",
+              1
+            ],
+            [
+              "main",
+              "Adrix and Nev, Twincasters",
+              1
+            ],
+            [
+              "main",
+              "Arashi, the Sky Asunder",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Beast Within",
+              1
+            ],
+            [
+              "main",
+              "Biomass Mutation",
+              1
+            ],
+            [
+              "main",
+              "Biomathematician",
+              1
+            ],
+            [
+              "main",
+              "Blighted Woodland",
+              1
+            ],
+            [
+              "main",
+              "Champion of Wits",
+              1
+            ],
+            [
+              "main",
+              "Coiling Oracle",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Commander's Insight",
+              1
+            ],
+            [
+              "main",
+              "Crafty Cutpurse",
+              1
+            ],
+            [
+              "main",
+              "Curiosity Crafter",
+              1
+            ],
+            [
+              "main",
+              "Curse of the Swine",
+              1
+            ],
+            [
+              "main",
+              "Deekah, Fractal Theorist",
+              1
+            ],
+            [
+              "main",
+              "Desolation Twin",
+              1
+            ],
+            [
+              "main",
+              "Eureka Moment",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Ezuri's Predation",
+              1
+            ],
+            [
+              "main",
+              "Forest",
+              11
+            ],
+            [
+              "main",
+              "Forgotten Ancient",
+              1
+            ],
+            [
+              "main",
+              "Fractal Harness",
+              1
+            ],
+            [
+              "main",
+              "Garruk, Primal Hunter",
+              1
+            ],
+            [
+              "main",
+              "Geometric Nexus",
+              1
+            ],
+            [
+              "main",
+              "Golden Ratio",
+              1
+            ],
+            [
+              "main",
+              "Guardian Augmenter",
+              1
+            ],
+            [
+              "main",
+              "Hornet Nest",
+              1
+            ],
+            [
+              "main",
+              "Hornet Queen",
+              1
+            ],
+            [
+              "main",
+              "Hydra Broodmaster",
+              1
+            ],
+            [
+              "main",
+              "Idol of Oblivion",
+              1
+            ],
+            [
+              "main",
+              "Incubation",
+              1
+            ],
+            [
+              "main",
+              "Incubation Druid",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              10
+            ],
+            [
+              "main",
+              "Kaseto, Orochi Archmage",
+              1
+            ],
+            [
+              "main",
+              "Kazandu Tuskcaller",
+              1
+            ],
+            [
+              "main",
+              "Kodama's Reach",
+              1
+            ],
+            [
+              "main",
+              "Krosan Grip",
+              1
+            ],
+            [
+              "main",
+              "Llanowar Reborn",
+              1
+            ],
+            [
+              "main",
+              "Lonely Sandbar",
+              1
+            ],
+            [
+              "main",
+              "Lumbering Falls",
+              1
+            ],
+            [
+              "main",
+              "Managorger Hydra",
+              1
+            ],
+            [
+              "main",
+              "Master Biomancer",
+              1
+            ],
+            [
+              "main",
+              "Mosswort Bridge",
+              1
+            ],
+            [
+              "main",
+              "Myriad Landscape",
+              1
+            ],
+            [
+              "main",
+              "Nissa's Expedition",
+              1
+            ],
+            [
+              "main",
+              "Novijen, Heart of Progress",
+              1
+            ],
+            [
+              "main",
+              "Opal Palace",
+              1
+            ],
+            [
+              "main",
+              "Oran-Rief, the Vastwood",
+              1
+            ],
+            [
+              "main",
+              "Oversimplify",
+              1
+            ],
+            [
+              "main",
+              "Paradox Zone",
+              1
+            ],
+            [
+              "main",
+              "Perplexing Test",
+              1
+            ],
+            [
+              "main",
+              "Plaxcaster Frogling",
+              1
+            ],
+            [
+              "main",
+              "Primal Empathy",
+              1
+            ],
+            [
+              "main",
+              "Quandrix Campus",
+              1
+            ],
+            [
+              "main",
+              "Quandrix Cultivator",
+              1
+            ],
+            [
+              "main",
+              "Rampaging Baloths",
+              1
+            ],
+            [
+              "main",
+              "Rampant Growth",
+              1
+            ],
+            [
+              "main",
+              "Rapid Hybridization",
+              1
+            ],
+            [
+              "main",
+              "Reef Worm",
+              1
+            ],
+            [
+              "main",
+              "Replication Technique",
+              1
+            ],
+            [
+              "main",
+              "Return of the Wildspeaker",
+              1
+            ],
+            [
+              "main",
+              "Rite of Replication",
+              1
+            ],
+            [
+              "main",
+              "Rogue's Passage",
+              1
+            ],
+            [
+              "main",
+              "Ruxa, Patient Professor",
+              1
+            ],
+            [
+              "main",
+              "Sequence Engine",
+              1
+            ],
+            [
+              "main",
+              "Shamanic Revelation",
+              1
+            ],
+            [
+              "main",
+              "Simic Growth Chamber",
+              1
+            ],
+            [
+              "main",
+              "Simic Signet",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Spawning Kraken",
+              1
+            ],
+            [
+              "main",
+              "Spitting Image",
+              1
+            ],
+            [
+              "main",
+              "Study Hall",
+              1
+            ],
+            [
+              "main",
+              "Temple of Mystery",
+              1
+            ],
+            [
+              "main",
+              "Temple of the False God",
+              1
+            ],
+            [
+              "main",
+              "Terastodon",
+              1
+            ],
+            [
+              "main",
+              "Theoretical Duplication",
+              1
+            ],
+            [
+              "main",
+              "Tranquil Thicket",
+              1
+            ],
+            [
+              "main",
+              "Trygon Predator",
+              1
+            ],
+            [
+              "main",
+              "Yavimaya Coast",
+              1
+            ],
+            [
+              "main",
+              "Zimone, Quandrix Prodigy",
+              1
+            ]
+          ],
+          "score": null,
+          "effort": null,
+          "path": null,
+          "limitation": null,
+          "rationale": null,
+          "examples": [],
+          "sources": [],
+          "gap": "This commander option has a validated stock-card comparison list, but no source-backed upgrade grade is recorded yet.",
+          "commander_cards": [
+            {
+              "name": "Esix, Fractal Bloom",
+              "url": "https://scryfall.com/card/mkc/210/esix-fractal-bloom",
+              "checked_on": "2026-10-27",
+              "oracle_id": "9d22960b-babc-4cf3-b228-d32e13bc6014"
+            }
+          ],
+          "validated_fingerprint": "ffded443a9abc9b3a318db8ad37cf28fae6d132bdda5721bdc9aed7ca1411020"
+        },
+        {
+          "key": "koma-cosmos-serpent",
+          "scope": "on_theme_swap",
+          "continuity": {
+            "theme": "Creature tokens and creature copying.",
+            "retains": "Keeps the token package. Curiosity Crafter can draw from Coil combat damage, and Spawning Kraken rewards Serpent combat damage.",
+            "changes": "Moves Adrix and Nev into the 99, replaces Geometric Nexus with Koma, and uses recurring Serpent tokens for combat and control."
+          },
+          "list_checked_on": "2026-10-27",
+          "commanders": [
+            "Koma, Cosmos Serpent"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/QuantumQuandrix_C21.json",
+          "stock": [
+            [
+              "commander",
+              "Koma, Cosmos Serpent",
+              1
+            ],
+            [
+              "main",
+              "Adrix and Nev, Twincasters",
+              1
+            ],
+            [
+              "main",
+              "Arashi, the Sky Asunder",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Beast Within",
+              1
+            ],
+            [
+              "main",
+              "Biomass Mutation",
+              1
+            ],
+            [
+              "main",
+              "Biomathematician",
+              1
+            ],
+            [
+              "main",
+              "Blighted Woodland",
+              1
+            ],
+            [
+              "main",
+              "Champion of Wits",
+              1
+            ],
+            [
+              "main",
+              "Coiling Oracle",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Commander's Insight",
+              1
+            ],
+            [
+              "main",
+              "Crafty Cutpurse",
+              1
+            ],
+            [
+              "main",
+              "Curiosity Crafter",
+              1
+            ],
+            [
+              "main",
+              "Curse of the Swine",
+              1
+            ],
+            [
+              "main",
+              "Deekah, Fractal Theorist",
+              1
+            ],
+            [
+              "main",
+              "Desolation Twin",
+              1
+            ],
+            [
+              "main",
+              "Esix, Fractal Bloom",
+              1
+            ],
+            [
+              "main",
+              "Eureka Moment",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Ezuri's Predation",
+              1
+            ],
+            [
+              "main",
+              "Forest",
+              11
+            ],
+            [
+              "main",
+              "Forgotten Ancient",
+              1
+            ],
+            [
+              "main",
+              "Fractal Harness",
+              1
+            ],
+            [
+              "main",
+              "Garruk, Primal Hunter",
+              1
+            ],
+            [
+              "main",
+              "Golden Ratio",
+              1
+            ],
+            [
+              "main",
+              "Guardian Augmenter",
+              1
+            ],
+            [
+              "main",
+              "Hornet Nest",
+              1
+            ],
+            [
+              "main",
+              "Hornet Queen",
+              1
+            ],
+            [
+              "main",
+              "Hydra Broodmaster",
+              1
+            ],
+            [
+              "main",
+              "Idol of Oblivion",
+              1
+            ],
+            [
+              "main",
+              "Incubation",
+              1
+            ],
+            [
+              "main",
+              "Incubation Druid",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              10
+            ],
+            [
+              "main",
+              "Kaseto, Orochi Archmage",
+              1
+            ],
+            [
+              "main",
+              "Kazandu Tuskcaller",
+              1
+            ],
+            [
+              "main",
+              "Kodama's Reach",
+              1
+            ],
+            [
+              "main",
+              "Krosan Grip",
+              1
+            ],
+            [
+              "main",
+              "Llanowar Reborn",
+              1
+            ],
+            [
+              "main",
+              "Lonely Sandbar",
+              1
+            ],
+            [
+              "main",
+              "Lumbering Falls",
+              1
+            ],
+            [
+              "main",
+              "Managorger Hydra",
+              1
+            ],
+            [
+              "main",
+              "Master Biomancer",
+              1
+            ],
+            [
+              "main",
+              "Mosswort Bridge",
+              1
+            ],
+            [
+              "main",
+              "Myriad Landscape",
+              1
+            ],
+            [
+              "main",
+              "Nissa's Expedition",
+              1
+            ],
+            [
+              "main",
+              "Novijen, Heart of Progress",
+              1
+            ],
+            [
+              "main",
+              "Opal Palace",
+              1
+            ],
+            [
+              "main",
+              "Oran-Rief, the Vastwood",
+              1
+            ],
+            [
+              "main",
+              "Oversimplify",
+              1
+            ],
+            [
+              "main",
+              "Paradox Zone",
+              1
+            ],
+            [
+              "main",
+              "Perplexing Test",
+              1
+            ],
+            [
+              "main",
+              "Plaxcaster Frogling",
+              1
+            ],
+            [
+              "main",
+              "Primal Empathy",
+              1
+            ],
+            [
+              "main",
+              "Quandrix Campus",
+              1
+            ],
+            [
+              "main",
+              "Quandrix Cultivator",
+              1
+            ],
+            [
+              "main",
+              "Rampaging Baloths",
+              1
+            ],
+            [
+              "main",
+              "Rampant Growth",
+              1
+            ],
+            [
+              "main",
+              "Rapid Hybridization",
+              1
+            ],
+            [
+              "main",
+              "Reef Worm",
+              1
+            ],
+            [
+              "main",
+              "Replication Technique",
+              1
+            ],
+            [
+              "main",
+              "Return of the Wildspeaker",
+              1
+            ],
+            [
+              "main",
+              "Rite of Replication",
+              1
+            ],
+            [
+              "main",
+              "Rogue's Passage",
+              1
+            ],
+            [
+              "main",
+              "Ruxa, Patient Professor",
+              1
+            ],
+            [
+              "main",
+              "Sequence Engine",
+              1
+            ],
+            [
+              "main",
+              "Shamanic Revelation",
+              1
+            ],
+            [
+              "main",
+              "Simic Growth Chamber",
+              1
+            ],
+            [
+              "main",
+              "Simic Signet",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Spawning Kraken",
+              1
+            ],
+            [
+              "main",
+              "Spitting Image",
+              1
+            ],
+            [
+              "main",
+              "Study Hall",
+              1
+            ],
+            [
+              "main",
+              "Temple of Mystery",
+              1
+            ],
+            [
+              "main",
+              "Temple of the False God",
+              1
+            ],
+            [
+              "main",
+              "Terastodon",
+              1
+            ],
+            [
+              "main",
+              "Theoretical Duplication",
+              1
+            ],
+            [
+              "main",
+              "Tranquil Thicket",
+              1
+            ],
+            [
+              "main",
+              "Trygon Predator",
+              1
+            ],
+            [
+              "main",
+              "Yavimaya Coast",
+              1
+            ],
+            [
+              "main",
+              "Zimone, Quandrix Prodigy",
+              1
+            ]
+          ],
+          "score": null,
+          "effort": null,
+          "path": null,
+          "limitation": null,
+          "rationale": null,
+          "examples": [],
+          "sources": [],
+          "gap": "Proposed on-theme comparison with 99 of the original 100 cards. No source-backed upgrade grade is recorded for this Koma configuration.",
+          "commander_cards": [
+            {
+              "name": "Koma, Cosmos Serpent",
+              "url": "https://scryfall.com/card/mkc/213/koma-cosmos-serpent",
+              "oracle_id": "6ba0656f-e0d2-4735-9c66-3a00afa9fc23",
+              "checked_on": "2026-10-27"
+            }
+          ],
+          "validated_fingerprint": "9af39d1d544a0ba81042848f05d805babee474f10f3abfa4df465e7a0faf7429"
+        }
+      ],
+      "catalog_validated_fingerprint": "080126bc9820786f36ca5ad96dc4147dbdab1a91b6f848cdfa1bdc15ae63b57c",
+      "catalog_list_checked_on": "2026-10-27"
     },
     "silverquill-statement": {
       "commanders": [
@@ -22565,7 +23498,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "d11e627b-8a48-411d-a261-2c9a02a758ba"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "witherbloom-witchcraft": {
       "commanders": [
@@ -22989,7 +23923,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "94723d61-3e29-4180-91bc-df37c4086a66"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "aura-of-courage": {
       "commanders": [
@@ -23458,7 +24393,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "30c0df75-9822-4016-a52b-d2e69dd58124"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "draconic-rage": {
       "commanders": [
@@ -23857,7 +24793,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "2160c837-342b-409f-a1db-0ec5ac023ccf"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "dungeons-of-death": {
       "commanders": [
@@ -24301,7 +25238,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9b21e056-57e7-4e39-b2b4-2fdf8719d0d2"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "planar-portal": {
       "commanders": [
@@ -24700,7 +25638,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "1e9b0fd6-5aae-401a-8df5-d94ce6442696"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "coven-counters": {
       "commanders": [
@@ -25114,7 +26053,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "cd47eedd-57cb-460d-b339-4785f63a5475"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "undead-unleashed": {
       "commanders": [
@@ -25513,7 +26453,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "eada96a1-4964-4ad0-b0e3-2df08d6ae188"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "spirit-squadron": {
       "commanders": [
@@ -25932,7 +26873,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "71766a05-62a5-4839-b9bf-f5dcde710251"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "vampiric-bloodline": {
       "commanders": [
@@ -26341,7 +27283,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "3cc745d2-5021-43ff-ace8-35011011e62a"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "buckle-up": {
       "commanders": [
@@ -26725,7 +27668,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "0659a5b0-9807-4e4c-8af3-b6e233051ad6"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "upgrades-unleashed": {
       "commanders": [
@@ -27124,7 +28068,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "c98a4af3-3e58-4927-9a60-d2664cf0b139"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "heads-i-win-tails-you-lose": {
       "commanders": [
@@ -27590,7 +28535,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "7dec219b-96d1-4d4c-b3ac-15eda9d2ccc6"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "bedecked-brokers": {
       "commanders": [
@@ -28059,7 +29005,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "41d408dc-f6fe-45b2-b225-2ac25db9ad0f"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "cabaretti-cacophony": {
       "commanders": [
@@ -28518,7 +29465,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "b6e3af71-0d68-4bf0-b886-c29dae15e9ae"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "maestros-massacre": {
       "commanders": [
@@ -28967,7 +29915,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "d3c3f293-6790-4dce-900a-8af0464c2572"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "obscura-operation": {
       "commanders": [
@@ -29421,7 +30370,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "49da6a78-f3b2-4691-975c-efbb644311f3"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "riveteers-rampage": {
       "commanders": [
@@ -29885,7 +30835,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "5320f5a6-8066-47d4-aa0a-4c879f39d413"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "draconic-dissent": {
       "commanders": [
@@ -30299,7 +31250,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "81dad7c5-5950-4c45-adb0-cf1a15a74250"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "exit-from-exile": {
       "commanders": [
@@ -30718,7 +31670,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "d8e6294d-51cc-44ff-8bc6-b0a168e4f423"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "mind-flayarrrs": {
       "commanders": [
@@ -31152,7 +32105,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "cfb23c6b-6e4a-4fc9-b3bb-a3ddc2ba06b8"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "party-time": {
       "commanders": [
@@ -31586,7 +32540,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "1bf6248c-658c-4540-8bee-81af79d349be"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "legends-legacy": {
       "commanders": [
@@ -32045,7 +33000,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "d326de4d-6157-4586-91b8-5668e1381ac3"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "painbow": {
       "commanders": [
@@ -32539,7 +33495,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "f9485c76-122d-4faf-9194-b84ed9c41378"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "forces-of-the-imperium": {
       "commanders": [
@@ -32978,7 +33935,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9439d6eb-4c10-451d-85c4-3752611c671c"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "necron-dynasties": {
       "commanders": [
@@ -33357,7 +34315,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9a63f950-2e8a-4617-896c-1d0af538dbc7"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "the-ruinous-powers": {
       "commanders": [
@@ -33776,7 +34735,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "8dedb9a7-0afa-4dff-b124-2344c170f11a"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "tyranid-swarm": {
       "commanders": [
@@ -34205,7 +35165,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "ead75ea4-025f-443a-824f-26fef9e424db"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "mishras-burnished-banner": {
       "commanders": [
@@ -34679,7 +35640,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "d3438037-3efd-4ce0-88ec-6d48ab521992"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "urzas-iron-alliance": {
       "commanders": [
@@ -35163,7 +36125,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9deced63-80d0-419e-a5ac-71b06ba1459e"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "chaos-incarnate": {
       "commanders": [
@@ -35552,7 +36515,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "bc14356c-3a1a-47af-9a6e-2b449de0331f"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "draconic-destruction": {
       "commanders": [
@@ -35936,7 +36900,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "c0b3bbce-977c-42a9-afcb-dabdfc717c97"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "first-flight": {
       "commanders": [
@@ -36320,7 +37285,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "c46718dc-24dc-4b77-b455-aa4c89570b8d"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "grave-danger": {
       "commanders": [
@@ -36699,7 +37665,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "20e94d0f-6887-45f8-a137-877011d786c6"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "token-triumph": {
       "commanders": [
@@ -37090,7 +38057,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "c65ba242-3369-48a9-864f-1b1f85238f67"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "corrupting-influence": {
       "commanders": [
@@ -37529,7 +38497,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9fb7982f-fe35-4dea-a515-a0039ddbbaec"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "rebellion-rising": {
       "commanders": [
@@ -37953,7 +38922,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "4012b400-7dcd-43d6-8806-39a3cb743d8f"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "call-for-backup": {
       "commanders": [
@@ -38427,7 +39397,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "f74888ee-5086-49a6-ae74-fd9894f46332"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "cavalry-charge": {
       "commanders": [
@@ -38871,7 +39842,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "b229f314-a5e5-41a3-a8c6-217a3c5a61c3"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "divine-convocation": {
       "commanders": [
@@ -39290,7 +40262,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "b2d4ce3c-00b1-4a72-b652-4c129475080f"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "growing-threat": {
       "commanders": [
@@ -39709,7 +40682,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "a6e7cbfc-6d5a-4a67-9dad-d512d3c97bda"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "tinker-time": {
       "commanders": [
@@ -40135,7 +41109,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "e7441404-71ff-449e-812b-18cd52eabb98"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "from-cute-to-brute": {
       "commanders": [
@@ -40649,7 +41624,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "92023a5d-a143-4950-a71b-d736e6b8e959"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "elven-council": {
       "commanders": [
@@ -41053,7 +42029,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "b97a11c2-7119-4399-9565-bf69520d3988"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "food-and-fellowship": {
       "commanders": [
@@ -41519,7 +42496,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "2837be10-23ad-49d2-943e-b1e00edbbbd9"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "riders-of-rohan": {
       "commanders": [
@@ -41963,7 +42941,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "98a2a642-a30a-43e7-b47f-4776c22d1cb0"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "the-hosts-of-mordor": {
       "commanders": [
@@ -42407,7 +43386,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "69c674c7-48a5-49c8-b0be-3f2b5c6a548c"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "eldrazi-unbound": {
       "commanders": [
@@ -42861,7 +43841,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "ec726c54-987b-48ed-8ffa-ec73a5e35333"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "enduring-enchantments": {
       "commanders": [
@@ -43305,7 +44286,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "991fd651-0cba-41ee-855a-d01a1a7c8f60"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "planeswalker-party": {
       "commanders": [
@@ -43754,7 +44736,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "7e5a7a1d-dcfb-4ab8-b773-f521cb4d3fa6"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "sliver-swarm": {
       "commanders": [
@@ -44248,7 +45231,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "0d59f010-9669-4ad2-9ae9-cd88b85f282c"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "angels-theyre-just-like-us-but-cooler-and-with-wings": {
       "commanders": [
@@ -44627,7 +45611,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "f3e23d5e-bd88-4e7c-a3fb-db2a8cb05b22"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "fae-dominion": {
       "commanders": [
@@ -45036,7 +46021,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "868f0a0a-ca9e-4baf-8295-6b228aa834e5"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "virtue-and-valor": {
       "commanders": [
@@ -45425,7 +46411,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "97f9b82f-b3cf-44ff-9abc-2d92d7cbaa27"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "blast-from-the-past": {
       "commanders": [
@@ -45936,7 +46923,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "da268892-b190-4eee-9a2b-b0b9bb763033"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "masters-of-evil": {
       "commanders": [
@@ -46445,7 +47433,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "25c0bbc8-b0c3-4166-967f-e8b096487a6c"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "paradox-power": {
       "commanders": [
@@ -46936,7 +47925,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "93637599-d9b4-4f7e-a5c0-5a92656e941e"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "timey-wimey": {
       "commanders": [
@@ -47437,7 +48427,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "2f56de72-80d7-48c6-9b57-84fbd252c699"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "ahoy-mateys": {
       "commanders": [
@@ -47903,7 +48894,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "4df179b4-7c6b-4e63-9d7d-62f4df377989"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "blood-rites": {
       "commanders": [
@@ -48332,7 +49324,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "2b62a716-7831-4c76-8f2d-b99b04e33350"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "explorers-of-the-deep": {
       "commanders": [
@@ -48766,7 +49759,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "687e772a-cdfe-41fd-a066-6cb3aee04193"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "veloci-ramp-tor": {
       "commanders": [
@@ -49225,7 +50219,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "b828ba28-e98d-498b-9ab4-d4aa7143e407"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "raining-cats-and-dogs": {
       "commanders": [
@@ -49654,7 +50649,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "28c46eb7-bdfc-44b9-b7e9-b073260851f0"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "blame-game": {
       "commanders": [
@@ -50108,7 +51104,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "7ef5b2b6-86da-4e4a-9456-dcbb878936c4"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "deadly-disguise": {
       "commanders": [
@@ -50592,7 +51589,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "af78c13f-67f8-42bf-b012-482a48af4f31"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "deep-clue-sea": {
       "commanders": [
@@ -51061,7 +52059,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "80ea3e65-946d-42c3-a26f-3d74e81d70b4"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "revenant-recon": {
       "commanders": [
@@ -51505,7 +52504,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "1692f19e-4906-4808-965f-5f0284004f55"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "hail-caesar": {
       "commanders": [
@@ -51974,7 +52974,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "8e62d05a-6efd-4764-bca8-97895e0cb613"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "mutant-menace": {
       "commanders": [
@@ -52438,7 +53439,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "7656f93b-336f-49cb-b8fe-c2b5c014258f"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "science": {
       "commanders": [
@@ -52912,7 +53914,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9c4ff8fe-7d69-42b9-bad1-9e2c8a3e29f1"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "scrappy-survivors": {
       "commanders": [
@@ -53391,7 +54394,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "5232fcc0-5dba-4569-8e99-c0b2c230e9f0"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "desert-bloom": {
       "commanders": [
@@ -53845,7 +54849,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "b8a0b967-3b5b-46f5-830b-5c8f1037784a"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "grand-larceny": {
       "commanders": [
@@ -54309,7 +55314,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "7923ef4a-b1be-4f6a-b17b-4eab101390de"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "most-wanted": {
       "commanders": [
@@ -54808,7 +55814,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "4e5e0b22-ee5a-4c19-be95-2f9bd50641bc"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "quick-draw": {
       "commanders": [
@@ -55207,7 +56214,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "8d0da2f9-0e05-4a94-8d42-fd57d06b09ba"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "creative-energy": {
       "commanders": [
@@ -55648,7 +56656,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "ce8af7dd-49df-4419-9776-4157efc60b0f"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "eldrazi-incursion": {
       "commanders": [
@@ -56172,7 +57181,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9f6828e3-39d9-45d9-9bf1-0e3737a0321e"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "graveyard-overdrive": {
       "commanders": [
@@ -56651,7 +57661,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "283bfc53-afd3-4d21-b7d5-5baba4232422"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "tricky-terrain": {
       "commanders": [
@@ -57150,7 +58161,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "021b91ea-18d8-4b50-97da-dd003380cd68"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "animated-army": {
       "commanders": [
@@ -57594,7 +58606,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "fb773114-6161-46a3-ab30-1853958fbcb0"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "family-matters": {
       "commanders": [
@@ -58070,7 +59083,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "d8c16a3a-dd9d-410c-a5d5-06339a89970f"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "peace-offering": {
       "commanders": [
@@ -58549,7 +59563,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "25636214-c6ea-4655-a5e8-98e735da5b05"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "squirreled-away": {
       "commanders": [
@@ -58998,7 +60013,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "845b40b1-dc09-44fa-9910-22544c1424ba"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "death-toll": {
       "commanders": [
@@ -59464,7 +60480,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "e70a01dd-4dbe-4811-ac93-1c6d0142e06e"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "endless-punishment": {
       "commanders": [
@@ -59918,7 +60935,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "5401439c-4068-4490-8d53-8ffd0026dd7d"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "jump-scare": {
       "commanders": [
@@ -60362,7 +61380,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "75bf0f27-9df1-4ab4-97a8-94bb3223bdf9"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "miracle-worker": {
       "commanders": [
@@ -60833,7 +61852,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "bf45f5ee-4d5f-4920-b612-b5492c2f035d"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "20-ways-to-win": {
       "commanders": [
@@ -61357,7 +62377,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "6dbcd542-ddb0-434e-b8ee-3e31e1a8b051"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "eternal-might": {
       "commanders": [
@@ -61826,7 +62847,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "3dc43ffe-f6b0-4cdc-86b3-01c0f41df0ae"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "living-energy": {
       "commanders": [
@@ -62287,7 +63309,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "20f602b3-814f-406c-b7eb-2d1fc98f8cf1"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "abzan-armor": {
       "commanders": [
@@ -62736,7 +63759,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "2b3f791a-d672-46fb-a03a-96e19f2c3121"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "jeskai-striker": {
       "commanders": [
@@ -63247,7 +64271,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "40ed32a6-ad56-48c7-aecf-b4238c34c212"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "mardu-surge": {
       "commanders": [
@@ -63751,7 +64776,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "0f93d88c-9d2e-416d-a10b-99483360b1fb"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "sultai-arisen": {
       "commanders": [
@@ -64215,7 +65241,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "c8cbf0ec-ec98-4cb3-8068-60e92bbd740d"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "temur-roar": {
       "commanders": [
@@ -64684,7 +65711,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "1b162dd3-3be6-406d-bf86-f7cc9eff098d"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "everyones-invited": {
       "commanders": [
@@ -65173,7 +66201,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "bf418a2f-e639-4e52-9cad-5a0713a1829b"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "counter-blitz-final-fantasy-x": {
       "commanders": [
@@ -65709,7 +66738,514 @@
           "checked_on": "2026-10-27",
           "oracle_id": "e8fbcafd-3617-4cd7-b55d-457fb7b60162"
         }
-      ]
+      ],
+      "alternatives": [
+        {
+          "key": "yuna-grand-summoner",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Creature counters and permanents with counters.",
+            "retains": "Keeps creature growth and counter synergies.",
+            "changes": "Yuna supplies creature mana and recovers counters when other permanents die; Tidus moves counters and rewards combat damage."
+          },
+          "list_checked_on": "2026-10-27",
+          "commanders": [
+            "Yuna, Grand Summoner"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/CounterBlitzFinalFantasyX_FIC.json",
+          "stock": [
+            [
+              "commander",
+              "Yuna, Grand Summoner",
+              1
+            ],
+            [
+              "main",
+              "Altered Ego",
+              1
+            ],
+            [
+              "main",
+              "An Offer You Can't Refuse",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Ash Barrens",
+              1
+            ],
+            [
+              "main",
+              "Auron, Venerated Guardian",
+              1
+            ],
+            [
+              "main",
+              "Bane of Progress",
+              1
+            ],
+            [
+              "main",
+              "Blitzball Stadium",
+              1
+            ],
+            [
+              "main",
+              "Bred for the Hunt",
+              1
+            ],
+            [
+              "main",
+              "Brushland",
+              1
+            ],
+            [
+              "main",
+              "Canopy Vista",
+              1
+            ],
+            [
+              "main",
+              "Chasm Skulker",
+              1
+            ],
+            [
+              "main",
+              "Chocobo Knights",
+              1
+            ],
+            [
+              "main",
+              "Collective Effort",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Damning Verdict",
+              1
+            ],
+            [
+              "main",
+              "Destroy Evil",
+              1
+            ],
+            [
+              "main",
+              "Duskshell Crawler",
+              1
+            ],
+            [
+              "main",
+              "Endless Detour",
+              1
+            ],
+            [
+              "main",
+              "Everflowing Chalice",
+              1
+            ],
+            [
+              "main",
+              "Evolving Wilds",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Farewell",
+              1
+            ],
+            [
+              "main",
+              "Farseek",
+              1
+            ],
+            [
+              "main",
+              "Fathom Mage",
+              1
+            ],
+            [
+              "main",
+              "Fight Rigging",
+              1
+            ],
+            [
+              "main",
+              "Flooded Grove",
+              1
+            ],
+            [
+              "main",
+              "Forest",
+              3
+            ],
+            [
+              "main",
+              "Forge of Heroes",
+              1
+            ],
+            [
+              "main",
+              "Forgotten Ancient",
+              1
+            ],
+            [
+              "main",
+              "Fortified Village",
+              1
+            ],
+            [
+              "main",
+              "Gatta and Luzzu",
+              1
+            ],
+            [
+              "main",
+              "Generous Patron",
+              1
+            ],
+            [
+              "main",
+              "Glacial Fortress",
+              1
+            ],
+            [
+              "main",
+              "Grateful Apparition",
+              1
+            ],
+            [
+              "main",
+              "Gyre Sage",
+              1
+            ],
+            [
+              "main",
+              "Hardened Scales",
+              1
+            ],
+            [
+              "main",
+              "Hinterland Harbor",
+              1
+            ],
+            [
+              "main",
+              "Idyllic Beachfront",
+              1
+            ],
+            [
+              "main",
+              "Incubation Druid",
+              1
+            ],
+            [
+              "main",
+              "Inexorable Tide",
+              1
+            ],
+            [
+              "main",
+              "Inspiring Call",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              3
+            ],
+            [
+              "main",
+              "Kimahri, Valiant Guardian",
+              1
+            ],
+            [
+              "main",
+              "Lord Jyscal Guado",
+              1
+            ],
+            [
+              "main",
+              "Lulu, Stern Guardian",
+              1
+            ],
+            [
+              "main",
+              "Luminous Broodmoth",
+              1
+            ],
+            [
+              "main",
+              "Maester Seymour",
+              1
+            ],
+            [
+              "main",
+              "Nesting Grounds",
+              1
+            ],
+            [
+              "main",
+              "O'aka, Traveling Merchant",
+              1
+            ],
+            [
+              "main",
+              "Overflowing Basin",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Path of Discovery",
+              1
+            ],
+            [
+              "main",
+              "Path to Exile",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              3
+            ],
+            [
+              "main",
+              "Port Town",
+              1
+            ],
+            [
+              "main",
+              "Prairie Stream",
+              1
+            ],
+            [
+              "main",
+              "Promise of Loyalty",
+              1
+            ],
+            [
+              "main",
+              "Protection Magic",
+              1
+            ],
+            [
+              "main",
+              "Pull from Tomorrow",
+              1
+            ],
+            [
+              "main",
+              "Radiant Grove",
+              1
+            ],
+            [
+              "main",
+              "Rampant Rejuvenator",
+              1
+            ],
+            [
+              "main",
+              "Resourceful Defense",
+              1
+            ],
+            [
+              "main",
+              "Rikku, Resourceful Guardian",
+              1
+            ],
+            [
+              "main",
+              "Scholar of New Horizons",
+              1
+            ],
+            [
+              "main",
+              "Seaside Citadel",
+              1
+            ],
+            [
+              "main",
+              "Shelinda, Yevon Acolyte",
+              1
+            ],
+            [
+              "main",
+              "Sin, Unending Cataclysm",
+              1
+            ],
+            [
+              "main",
+              "Skycloud Expanse",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Sphere Grid",
+              1
+            ],
+            [
+              "main",
+              "Summon: Ixion",
+              1
+            ],
+            [
+              "main",
+              "Summon: Magus Sisters",
+              1
+            ],
+            [
+              "main",
+              "Summon: Valefor",
+              1
+            ],
+            [
+              "main",
+              "Summon: Yojimbo",
+              1
+            ],
+            [
+              "main",
+              "Summoner's Sending",
+              1
+            ],
+            [
+              "main",
+              "Sungrass Prairie",
+              1
+            ],
+            [
+              "main",
+              "Sunpetal Grove",
+              1
+            ],
+            [
+              "main",
+              "Sunscorch Regent",
+              1
+            ],
+            [
+              "main",
+              "Tangled Islet",
+              1
+            ],
+            [
+              "main",
+              "Temple of Enlightenment",
+              1
+            ],
+            [
+              "main",
+              "Temple of Mystery",
+              1
+            ],
+            [
+              "main",
+              "Temple of Plenty",
+              1
+            ],
+            [
+              "main",
+              "Temple of the False God",
+              1
+            ],
+            [
+              "main",
+              "Three Visits",
+              1
+            ],
+            [
+              "main",
+              "Tidus, Yuna's Guardian",
+              1
+            ],
+            [
+              "main",
+              "Tireless Tracker",
+              1
+            ],
+            [
+              "main",
+              "Together Forever",
+              1
+            ],
+            [
+              "main",
+              "Tromell, Seymour's Butler",
+              1
+            ],
+            [
+              "main",
+              "Vineglimmer Snarl",
+              1
+            ],
+            [
+              "main",
+              "Wakka, Devoted Guardian",
+              1
+            ],
+            [
+              "main",
+              "Walking Ballista",
+              1
+            ],
+            [
+              "main",
+              "Yuna's Decision",
+              1
+            ],
+            [
+              "main",
+              "Yuna's Whistle",
+              1
+            ]
+          ],
+          "score": null,
+          "effort": null,
+          "path": null,
+          "limitation": null,
+          "rationale": null,
+          "examples": [],
+          "sources": [],
+          "gap": "This commander option has a validated stock-card comparison list, but no source-backed upgrade grade is recorded yet.",
+          "commander_cards": [
+            {
+              "name": "Yuna, Grand Summoner",
+              "url": "https://scryfall.com/card/pw25/16/yuna-grand-summoner",
+              "checked_on": "2026-10-27",
+              "oracle_id": "ba72d4a9-6f36-4796-bd71-2342fa9b4a30"
+            }
+          ],
+          "validated_fingerprint": "49c6136de4fd588cdcb5875e9a2fe86f97e01d8cfe243854d96bba55471aaa5b"
+        }
+      ],
+      "catalog_validated_fingerprint": "a4ad22f2a16003c50ec2311413c2c949c2f45135a0a7e145095f04f4d65219d3",
+      "catalog_list_checked_on": "2026-10-27"
     },
     "limit-break-final-fantasy-vii": {
       "commanders": [
@@ -66243,7 +67779,514 @@
           "checked_on": "2026-10-27",
           "oracle_id": "653f0452-5802-4639-86c2-1500c3964fcb"
         }
-      ]
+      ],
+      "alternatives": [
+        {
+          "key": "tifa-martial-artist",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Equipment and power-seven combat.",
+            "retains": "Keeps Equipment and the power-seven combat package.",
+            "changes": "Tifa offers another combat after a qualifying hit in the first combat; Cloud offers attack-triggered cards and Treasure."
+          },
+          "list_checked_on": "2026-10-27",
+          "commanders": [
+            "Tifa, Martial Artist"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/LimitBreakFinalFantasyVii_FIC.json",
+          "stock": [
+            [
+              "commander",
+              "Tifa, Martial Artist",
+              1
+            ],
+            [
+              "main",
+              "Aerith, Last Ancient",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Armory Automaton",
+              1
+            ],
+            [
+              "main",
+              "Ash Barrens",
+              1
+            ],
+            [
+              "main",
+              "Austere Command",
+              1
+            ],
+            [
+              "main",
+              "Avalanche of Sector 7",
+              1
+            ],
+            [
+              "main",
+              "Barret Wallace",
+              1
+            ],
+            [
+              "main",
+              "Barret, Avalanche Leader",
+              1
+            ],
+            [
+              "main",
+              "Bastion Protector",
+              1
+            ],
+            [
+              "main",
+              "Battlefield Forge",
+              1
+            ],
+            [
+              "main",
+              "Behemoth Sledge",
+              1
+            ],
+            [
+              "main",
+              "Bonders' Enclave",
+              1
+            ],
+            [
+              "main",
+              "Bronze Guardian",
+              1
+            ],
+            [
+              "main",
+              "Brushland",
+              1
+            ],
+            [
+              "main",
+              "Bugenhagen, Wise Elder",
+              1
+            ],
+            [
+              "main",
+              "Cait Sith, Fortune Teller",
+              1
+            ],
+            [
+              "main",
+              "Canopy Vista",
+              1
+            ],
+            [
+              "main",
+              "Champion's Helm",
+              1
+            ],
+            [
+              "main",
+              "Chaos Warp",
+              1
+            ],
+            [
+              "main",
+              "Cid, Freeflier Pilot",
+              1
+            ],
+            [
+              "main",
+              "Cinder Glade",
+              1
+            ],
+            [
+              "main",
+              "Clever Concealment",
+              1
+            ],
+            [
+              "main",
+              "Clifftop Retreat",
+              1
+            ],
+            [
+              "main",
+              "Cloud's Limit Break",
+              1
+            ],
+            [
+              "main",
+              "Cloud, Ex-SOLDIER",
+              1
+            ],
+            [
+              "main",
+              "Colossus Hammer",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Conformer Shuriken",
+              1
+            ],
+            [
+              "main",
+              "Conqueror's Flail",
+              1
+            ],
+            [
+              "main",
+              "Cultivate",
+              1
+            ],
+            [
+              "main",
+              "Darksteel Plate",
+              1
+            ],
+            [
+              "main",
+              "Decimate",
+              1
+            ],
+            [
+              "main",
+              "Dispatch",
+              1
+            ],
+            [
+              "main",
+              "Elena, Turk Recruit",
+              1
+            ],
+            [
+              "main",
+              "Evolving Wilds",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Explorer's Scope",
+              1
+            ],
+            [
+              "main",
+              "Fire-Lit Thicket",
+              1
+            ],
+            [
+              "main",
+              "Forest",
+              3
+            ],
+            [
+              "main",
+              "Fortified Village",
+              1
+            ],
+            [
+              "main",
+              "Furious Rise",
+              1
+            ],
+            [
+              "main",
+              "Furycalm Snarl",
+              1
+            ],
+            [
+              "main",
+              "Game Trail",
+              1
+            ],
+            [
+              "main",
+              "Harmonize",
+              1
+            ],
+            [
+              "main",
+              "Heidegger, Shinra Executive",
+              1
+            ],
+            [
+              "main",
+              "Helitrooper",
+              1
+            ],
+            [
+              "main",
+              "Hellkite Tyrant",
+              1
+            ],
+            [
+              "main",
+              "Hero's Blade",
+              1
+            ],
+            [
+              "main",
+              "Hero's Heirloom",
+              1
+            ],
+            [
+              "main",
+              "Inspiring Statuary",
+              1
+            ],
+            [
+              "main",
+              "Jungle Shrine",
+              1
+            ],
+            [
+              "main",
+              "Lifestream's Blessing",
+              1
+            ],
+            [
+              "main",
+              "Lightning Greaves",
+              1
+            ],
+            [
+              "main",
+              "Mask of Memory",
+              1
+            ],
+            [
+              "main",
+              "Mossfire Valley",
+              1
+            ],
+            [
+              "main",
+              "Mountain",
+              3
+            ],
+            [
+              "main",
+              "Nature's Lore",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              3
+            ],
+            [
+              "main",
+              "Professional Face-Breaker",
+              1
+            ],
+            [
+              "main",
+              "Professor Hojo",
+              1
+            ],
+            [
+              "main",
+              "Puresteel Paladin",
+              1
+            ],
+            [
+              "main",
+              "Radiant Grove",
+              1
+            ],
+            [
+              "main",
+              "Rampant Growth",
+              1
+            ],
+            [
+              "main",
+              "Red XIII, Proud Warrior",
+              1
+            ],
+            [
+              "main",
+              "Rootbound Crag",
+              1
+            ],
+            [
+              "main",
+              "Rugged Prairie",
+              1
+            ],
+            [
+              "main",
+              "Sacred Peaks",
+              1
+            ],
+            [
+              "main",
+              "Scavenger Grounds",
+              1
+            ],
+            [
+              "main",
+              "Secret Rendezvous",
+              1
+            ],
+            [
+              "main",
+              "Sephiroth, Fallen Hero",
+              1
+            ],
+            [
+              "main",
+              "Skullclamp",
+              1
+            ],
+            [
+              "main",
+              "Slayers' Stronghold",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "SOLDIER Military Program",
+              1
+            ],
+            [
+              "main",
+              "Spire of Industry",
+              1
+            ],
+            [
+              "main",
+              "Summon: Kujata",
+              1
+            ],
+            [
+              "main",
+              "Summoning Materia",
+              1
+            ],
+            [
+              "main",
+              "Sungrass Prairie",
+              1
+            ],
+            [
+              "main",
+              "Sunpetal Grove",
+              1
+            ],
+            [
+              "main",
+              "Sunscorched Divide",
+              1
+            ],
+            [
+              "main",
+              "Sword of the Animist",
+              1
+            ],
+            [
+              "main",
+              "Trailblazer's Boots",
+              1
+            ],
+            [
+              "main",
+              "Ultimate Magic: Holy",
+              1
+            ],
+            [
+              "main",
+              "Ultimate Magic: Meteor",
+              1
+            ],
+            [
+              "main",
+              "Unfinished Business",
+              1
+            ],
+            [
+              "main",
+              "Vandalblast",
+              1
+            ],
+            [
+              "main",
+              "Vanquish the Horde",
+              1
+            ],
+            [
+              "main",
+              "Vincent, Vengeful Atoner",
+              1
+            ],
+            [
+              "main",
+              "Wooded Ridgeline",
+              1
+            ],
+            [
+              "main",
+              "Wrecking Ball Arm",
+              1
+            ],
+            [
+              "main",
+              "Yuffie, Materia Hunter",
+              1
+            ],
+            [
+              "main",
+              "Zack Fair",
+              1
+            ]
+          ],
+          "score": null,
+          "effort": null,
+          "path": null,
+          "limitation": null,
+          "rationale": null,
+          "examples": [],
+          "sources": [],
+          "gap": "This commander option has a validated stock-card comparison list, but no source-backed upgrade grade is recorded yet.",
+          "commander_cards": [
+            {
+              "name": "Tifa, Martial Artist",
+              "url": "https://scryfall.com/card/fic/6/tifa-martial-artist",
+              "checked_on": "2026-10-27",
+              "oracle_id": "0836c8d1-c453-4a3a-a52a-eb66839b8542"
+            }
+          ],
+          "validated_fingerprint": "ccf57cdaef8fe6d8e8fa30645b394db12d0b0190cc52c0aeb7b03c9fe3121e9e"
+        }
+      ],
+      "catalog_validated_fingerprint": "14e99cdab105d82ecf2a67713b2f2d30c616205f37593e2173d90c6bd7435a3f",
+      "catalog_list_checked_on": "2026-10-27"
     },
     "revival-trance-final-fantasy-vi": {
       "commanders": [
@@ -66761,7 +68804,509 @@
           "checked_on": "2026-10-27",
           "oracle_id": "25d40d28-1b46-4055-959a-45719040ed30"
         }
-      ]
+      ],
+      "alternatives": [
+        {
+          "key": "celes-rune-knight",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Creatures entering from the graveyard.",
+            "retains": "Keeps discard, graveyard setup and creature recursion.",
+            "changes": "Celes rewards graveyard entries with team counters; Terra reanimates after combat damage."
+          },
+          "list_checked_on": "2026-10-27",
+          "commanders": [
+            "Celes, Rune Knight"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/RevivalTranceFinalFantasyVi_FIC.json",
+          "stock": [
+            [
+              "commander",
+              "Celes, Rune Knight",
+              1
+            ],
+            [
+              "main",
+              "Angel of the Ruins",
+              1
+            ],
+            [
+              "main",
+              "Anger",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Archfiend of Depravity",
+              1
+            ],
+            [
+              "main",
+              "Ash Barrens",
+              1
+            ],
+            [
+              "main",
+              "Banon, the Returners' Leader",
+              1
+            ],
+            [
+              "main",
+              "Battlefield Forge",
+              1
+            ],
+            [
+              "main",
+              "Bedevil",
+              1
+            ],
+            [
+              "main",
+              "Big Score",
+              1
+            ],
+            [
+              "main",
+              "Clifftop Retreat",
+              1
+            ],
+            [
+              "main",
+              "Coin of Fate",
+              1
+            ],
+            [
+              "main",
+              "Combustible Gearhulk",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Commander's Sphere",
+              1
+            ],
+            [
+              "main",
+              "Crackling Doom",
+              1
+            ],
+            [
+              "main",
+              "Cyan, Vengeful Samurai",
+              1
+            ],
+            [
+              "main",
+              "Demolition Field",
+              1
+            ],
+            [
+              "main",
+              "Desolate Mire",
+              1
+            ],
+            [
+              "main",
+              "Dragonskull Summit",
+              1
+            ],
+            [
+              "main",
+              "Edgar, Master Machinist",
+              1
+            ],
+            [
+              "main",
+              "Espers to Magicite",
+              1
+            ],
+            [
+              "main",
+              "Evolving Wilds",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Fetid Heath",
+              1
+            ],
+            [
+              "main",
+              "Flayer of the Hatebound",
+              1
+            ],
+            [
+              "main",
+              "Foreboding Ruins",
+              1
+            ],
+            [
+              "main",
+              "Furycalm Snarl",
+              1
+            ],
+            [
+              "main",
+              "Gau, Feral Youth",
+              1
+            ],
+            [
+              "main",
+              "General Leo Cristophe",
+              1
+            ],
+            [
+              "main",
+              "Geothermal Bog",
+              1
+            ],
+            [
+              "main",
+              "Gogo, Mysterious Mime",
+              1
+            ],
+            [
+              "main",
+              "Graven Cairns",
+              1
+            ],
+            [
+              "main",
+              "High Market",
+              1
+            ],
+            [
+              "main",
+              "Interceptor, Shadow's Hound",
+              1
+            ],
+            [
+              "main",
+              "Isolated Chapel",
+              1
+            ],
+            [
+              "main",
+              "Kefka, Dancing Mad",
+              1
+            ],
+            [
+              "main",
+              "Key to the City",
+              1
+            ],
+            [
+              "main",
+              "Laughing Mad",
+              1
+            ],
+            [
+              "main",
+              "Legions to Ashes",
+              1
+            ],
+            [
+              "main",
+              "Locke, Treasure Hunter",
+              1
+            ],
+            [
+              "main",
+              "Meteor Golem",
+              1
+            ],
+            [
+              "main",
+              "Millikin",
+              1
+            ],
+            [
+              "main",
+              "Mind Stone",
+              1
+            ],
+            [
+              "main",
+              "Mog, Moogle Warrior",
+              1
+            ],
+            [
+              "main",
+              "Morbid Opportunist",
+              1
+            ],
+            [
+              "main",
+              "Mortify",
+              1
+            ],
+            [
+              "main",
+              "Mountain",
+              3
+            ],
+            [
+              "main",
+              "Night's Whisper",
+              1
+            ],
+            [
+              "main",
+              "Nomad Outpost",
+              1
+            ],
+            [
+              "main",
+              "Palace Jailer",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Phoenix Down",
+              1
+            ],
+            [
+              "main",
+              "Pitiless Plunderer",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              4
+            ],
+            [
+              "main",
+              "Priest of Fell Rites",
+              1
+            ],
+            [
+              "main",
+              "Reanimate",
+              1
+            ],
+            [
+              "main",
+              "Rejoin the Fight",
+              1
+            ],
+            [
+              "main",
+              "Rise of the Dark Realms",
+              1
+            ],
+            [
+              "main",
+              "Rogue's Passage",
+              1
+            ],
+            [
+              "main",
+              "Rugged Prairie",
+              1
+            ],
+            [
+              "main",
+              "Ruin Grinder",
+              1
+            ],
+            [
+              "main",
+              "Ruinous Ultimatum",
+              1
+            ],
+            [
+              "main",
+              "Sabin, Master Monk",
+              1
+            ],
+            [
+              "main",
+              "Sacred Peaks",
+              1
+            ],
+            [
+              "main",
+              "Sepulchral Primordial",
+              1
+            ],
+            [
+              "main",
+              "Setzer, Wandering Gambler",
+              1
+            ],
+            [
+              "main",
+              "Shadow, Mysterious Assassin",
+              1
+            ],
+            [
+              "main",
+              "Shadowblood Ridge",
+              1
+            ],
+            [
+              "main",
+              "Shineshadow Snarl",
+              1
+            ],
+            [
+              "main",
+              "Siegfried, Famed Swordsman",
+              1
+            ],
+            [
+              "main",
+              "Smoldering Marsh",
+              1
+            ],
+            [
+              "main",
+              "Snort",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Solemn Simulacrum",
+              1
+            ],
+            [
+              "main",
+              "Stitch Together",
+              1
+            ],
+            [
+              "main",
+              "Stitcher's Supplier",
+              1
+            ],
+            [
+              "main",
+              "Strago and Relm",
+              1
+            ],
+            [
+              "main",
+              "Sulfurous Springs",
+              1
+            ],
+            [
+              "main",
+              "Summon: Esper Valigarmanda",
+              1
+            ],
+            [
+              "main",
+              "Sun Titan",
+              1
+            ],
+            [
+              "main",
+              "Sunlit Marsh",
+              1
+            ],
+            [
+              "main",
+              "Sunscorched Divide",
+              1
+            ],
+            [
+              "main",
+              "Swamp",
+              3
+            ],
+            [
+              "main",
+              "Swiftfoot Boots",
+              1
+            ],
+            [
+              "main",
+              "Talisman of Conviction",
+              1
+            ],
+            [
+              "main",
+              "Talisman of Indulgence",
+              1
+            ],
+            [
+              "main",
+              "Terra, Herald of Hope",
+              1
+            ],
+            [
+              "main",
+              "The Falcon, Airship Restored",
+              1
+            ],
+            [
+              "main",
+              "The Warring Triad",
+              1
+            ],
+            [
+              "main",
+              "Tragic Arrogance",
+              1
+            ],
+            [
+              "main",
+              "Umaro, Raging Yeti",
+              1
+            ],
+            [
+              "main",
+              "Wayfarer's Bauble",
+              1
+            ]
+          ],
+          "score": null,
+          "effort": null,
+          "path": null,
+          "limitation": null,
+          "rationale": null,
+          "examples": [],
+          "sources": [],
+          "gap": "This commander option has a validated stock-card comparison list, but no source-backed upgrade grade is recorded yet.",
+          "commander_cards": [
+            {
+              "name": "Celes, Rune Knight",
+              "url": "https://scryfall.com/card/fic/1/celes-rune-knight",
+              "checked_on": "2026-10-27",
+              "oracle_id": "aea8345a-191d-4c62-8d15-a716a9934b66"
+            }
+          ],
+          "validated_fingerprint": "c3346e33711404f435cb12d2566552770a4eb04e9ba1c201464881352a9a257b"
+        }
+      ],
+      "catalog_validated_fingerprint": "8576e82f036a89c87cbe649dd6bade6e1d965d1f1a5af7f1c66c3c8fa42b0f62",
+      "catalog_list_checked_on": "2026-10-27"
     },
     "scions-spellcraft-final-fantasy-xiv": {
       "commanders": [
@@ -67285,7 +69830,504 @@
           "checked_on": "2026-10-27",
           "oracle_id": "3268251a-8292-44f9-9267-c961b182f739"
         }
-      ]
+      ],
+      "alternatives": [
+        {
+          "key": "g-raha-tia-scion-reborn",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Noncreature spells.",
+            "retains": "Keeps casting noncreature spells as the engine.",
+            "changes": "G’raha can turn one noncreature spell each turn into a Hero token with +1/+1 counters at a life cost; Y’shtola supplies damage and draw."
+          },
+          "list_checked_on": "2026-10-27",
+          "commanders": [
+            "G'raha Tia, Scion Reborn"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/ScionsSpellcraftFinalFantasyXiv_FIC.json",
+          "stock": [
+            [
+              "commander",
+              "G'raha Tia, Scion Reborn",
+              1
+            ],
+            [
+              "main",
+              "Alisaie Leveilleur",
+              1
+            ],
+            [
+              "main",
+              "Alphinaud Leveilleur",
+              1
+            ],
+            [
+              "main",
+              "Arcane Sanctum",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Archaeomancer's Map",
+              1
+            ],
+            [
+              "main",
+              "Archmage Emeritus",
+              1
+            ],
+            [
+              "main",
+              "Ardbert, Warrior of Darkness",
+              1
+            ],
+            [
+              "main",
+              "Ash Barrens",
+              1
+            ],
+            [
+              "main",
+              "Astrologian's Planisphere",
+              1
+            ],
+            [
+              "main",
+              "Authority of the Consuls",
+              1
+            ],
+            [
+              "main",
+              "Baleful Strix",
+              1
+            ],
+            [
+              "main",
+              "Bastion of Remembrance",
+              1
+            ],
+            [
+              "main",
+              "Blue Mage's Cane",
+              1
+            ],
+            [
+              "main",
+              "Champions from Beyond",
+              1
+            ],
+            [
+              "main",
+              "Choked Estuary",
+              1
+            ],
+            [
+              "main",
+              "Circle of Power",
+              1
+            ],
+            [
+              "main",
+              "Cleansing Nova",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Contaminated Aquifer",
+              1
+            ],
+            [
+              "main",
+              "Coveted Jewel",
+              1
+            ],
+            [
+              "main",
+              "Crux of Fate",
+              1
+            ],
+            [
+              "main",
+              "Cut a Deal",
+              1
+            ],
+            [
+              "main",
+              "Dancer's Chakrams",
+              1
+            ],
+            [
+              "main",
+              "Darkwater Catacombs",
+              1
+            ],
+            [
+              "main",
+              "Demolition Field",
+              1
+            ],
+            [
+              "main",
+              "Desolate Mire",
+              1
+            ],
+            [
+              "main",
+              "Dig Through Time",
+              1
+            ],
+            [
+              "main",
+              "Drowned Catacomb",
+              1
+            ],
+            [
+              "main",
+              "Emet-Selch of the Third Seat",
+              1
+            ],
+            [
+              "main",
+              "Estinien Varlineau",
+              1
+            ],
+            [
+              "main",
+              "Evolving Wilds",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Exsanguinate",
+              1
+            ],
+            [
+              "main",
+              "Eye of Nidhogg",
+              1
+            ],
+            [
+              "main",
+              "Fandaniel, Telophoroi Ascian",
+              1
+            ],
+            [
+              "main",
+              "Fetid Heath",
+              1
+            ],
+            [
+              "main",
+              "Final Judgment",
+              1
+            ],
+            [
+              "main",
+              "Glacial Fortress",
+              1
+            ],
+            [
+              "main",
+              "Hermes, Overseer of Elpis",
+              1
+            ],
+            [
+              "main",
+              "Hildibrand Manderville",
+              1
+            ],
+            [
+              "main",
+              "Hraesvelgr of the First Brood",
+              1
+            ],
+            [
+              "main",
+              "Hypnotic Sprite",
+              1
+            ],
+            [
+              "main",
+              "Idyllic Beachfront",
+              1
+            ],
+            [
+              "main",
+              "Into the Story",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              3
+            ],
+            [
+              "main",
+              "Isolated Chapel",
+              1
+            ],
+            [
+              "main",
+              "Krile Baldesion",
+              1
+            ],
+            [
+              "main",
+              "Lethal Scheme",
+              1
+            ],
+            [
+              "main",
+              "Lingering Souls",
+              1
+            ],
+            [
+              "main",
+              "Lyse Hext",
+              1
+            ],
+            [
+              "main",
+              "Murderous Rider",
+              1
+            ],
+            [
+              "main",
+              "Observed Stasis",
+              1
+            ],
+            [
+              "main",
+              "Papalymo Totolymo",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              4
+            ],
+            [
+              "main",
+              "Port Town",
+              1
+            ],
+            [
+              "main",
+              "Prairie Stream",
+              1
+            ],
+            [
+              "main",
+              "Propaganda",
+              1
+            ],
+            [
+              "main",
+              "Reaper's Scythe",
+              1
+            ],
+            [
+              "main",
+              "Relic of Legends",
+              1
+            ],
+            [
+              "main",
+              "Rite of Replication",
+              1
+            ],
+            [
+              "main",
+              "Sage's Nouliths",
+              1
+            ],
+            [
+              "main",
+              "Scavenger Grounds",
+              1
+            ],
+            [
+              "main",
+              "Shineshadow Snarl",
+              1
+            ],
+            [
+              "main",
+              "Skycloud Expanse",
+              1
+            ],
+            [
+              "main",
+              "Snuff Out",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Sublime Epiphany",
+              1
+            ],
+            [
+              "main",
+              "Summon: Good King Mog XII",
+              1
+            ],
+            [
+              "main",
+              "Sunken Hollow",
+              1
+            ],
+            [
+              "main",
+              "Sunken Ruins",
+              1
+            ],
+            [
+              "main",
+              "Sunlit Marsh",
+              1
+            ],
+            [
+              "main",
+              "Swamp",
+              4
+            ],
+            [
+              "main",
+              "Swords to Plowshares",
+              1
+            ],
+            [
+              "main",
+              "Syphon Mind",
+              1
+            ],
+            [
+              "main",
+              "Talisman of Dominance",
+              1
+            ],
+            [
+              "main",
+              "Talisman of Hierarchy",
+              1
+            ],
+            [
+              "main",
+              "Talisman of Progress",
+              1
+            ],
+            [
+              "main",
+              "Tataru Taru",
+              1
+            ],
+            [
+              "main",
+              "Temple of the False God",
+              1
+            ],
+            [
+              "main",
+              "Thancred Waters",
+              1
+            ],
+            [
+              "main",
+              "Thought Vessel",
+              1
+            ],
+            [
+              "main",
+              "Tome of Legends",
+              1
+            ],
+            [
+              "main",
+              "Torrential Gearhulk",
+              1
+            ],
+            [
+              "main",
+              "Transpose",
+              1
+            ],
+            [
+              "main",
+              "Underground River",
+              1
+            ],
+            [
+              "main",
+              "Urianger Augurelt",
+              1
+            ],
+            [
+              "main",
+              "Vindicate",
+              1
+            ],
+            [
+              "main",
+              "Void Rend",
+              1
+            ],
+            [
+              "main",
+              "White Auracite",
+              1
+            ],
+            [
+              "main",
+              "Y'shtola, Night's Blessed",
+              1
+            ]
+          ],
+          "score": null,
+          "effort": null,
+          "path": null,
+          "limitation": null,
+          "rationale": null,
+          "examples": [],
+          "sources": [],
+          "gap": "This commander option has a validated stock-card comparison list, but no source-backed upgrade grade is recorded yet.",
+          "commander_cards": [
+            {
+              "name": "G'raha Tia, Scion Reborn",
+              "url": "https://scryfall.com/card/fic/3/graha-tia-scion-reborn",
+              "checked_on": "2026-10-27",
+              "oracle_id": "f558c758-8f12-45f9-8683-eee33ba1fb0d"
+            }
+          ],
+          "validated_fingerprint": "48e5ced9a09c4bceb386cd04555d10be7f22ca85e99548aac8a188901a59348d"
+        }
+      ],
+      "catalog_validated_fingerprint": "474fe7ad62c36631471995880fae77bad150279b1dc8d98c4be95d8ce3aba91b",
+      "catalog_list_checked_on": "2026-10-27"
     },
     "counter-intelligence": {
       "commanders": [
@@ -67781,7 +70823,550 @@
           "checked_on": "2026-10-27",
           "oracle_id": "554df866-3dbb-4811-8573-6033481591aa"
         }
-      ]
+      ],
+      "alternatives": [
+        {
+          "key": "kilo-apogee-mind",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Artifact charge counters and proliferate.",
+            "retains": "Keeps the artifact and counter package.",
+            "changes": "Kilo proliferates when tapped; Inspirit builds toward protecting the artifact board."
+          },
+          "list_checked_on": "2026-10-27",
+          "commanders": [
+            "Kilo, Apogee Mind"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/CounterIntelligence_EOC.json",
+          "stock": [
+            [
+              "commander",
+              "Kilo, Apogee Mind",
+              1
+            ],
+            [
+              "main",
+              "Adarkar Wastes",
+              1
+            ],
+            [
+              "main",
+              "Alibou, Ancient Witness",
+              1
+            ],
+            [
+              "main",
+              "Ancient Den",
+              1
+            ],
+            [
+              "main",
+              "Angel of the Ruins",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Astral Cornucopia",
+              1
+            ],
+            [
+              "main",
+              "Battlefield Forge",
+              1
+            ],
+            [
+              "main",
+              "Buried Ruin",
+              1
+            ],
+            [
+              "main",
+              "Cascade Bluffs",
+              1
+            ],
+            [
+              "main",
+              "Chain Reaction",
+              1
+            ],
+            [
+              "main",
+              "Chaos Warp",
+              1
+            ],
+            [
+              "main",
+              "Chrome Host Seedshark",
+              1
+            ],
+            [
+              "main",
+              "Clifftop Retreat",
+              1
+            ],
+            [
+              "main",
+              "Cloud Key",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Coretapper",
+              1
+            ],
+            [
+              "main",
+              "Crystalline Crawler",
+              1
+            ],
+            [
+              "main",
+              "Cyberdrive Awakener",
+              1
+            ],
+            [
+              "main",
+              "Darksteel Reactor",
+              1
+            ],
+            [
+              "main",
+              "Deepglow Skate",
+              1
+            ],
+            [
+              "main",
+              "Depthshaker Titan",
+              1
+            ],
+            [
+              "main",
+              "Dispatch",
+              1
+            ],
+            [
+              "main",
+              "Empowered Autogenerator",
+              1
+            ],
+            [
+              "main",
+              "Emry, Lurker of the Loch",
+              1
+            ],
+            [
+              "main",
+              "Enthusiastic Mechanaut",
+              1
+            ],
+            [
+              "main",
+              "Etched Oracle",
+              1
+            ],
+            [
+              "main",
+              "Etherium Sculptor",
+              1
+            ],
+            [
+              "main",
+              "Everflowing Chalice",
+              1
+            ],
+            [
+              "main",
+              "Evolving Wilds",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Experimental Augury",
+              1
+            ],
+            [
+              "main",
+              "Fumigate",
+              1
+            ],
+            [
+              "main",
+              "Gavel of the Righteous",
+              1
+            ],
+            [
+              "main",
+              "Glacial Fortress",
+              1
+            ],
+            [
+              "main",
+              "Glittering Massif",
+              1
+            ],
+            [
+              "main",
+              "Golem Foundry",
+              1
+            ],
+            [
+              "main",
+              "Great Furnace",
+              1
+            ],
+            [
+              "main",
+              "Hangarback Walker",
+              1
+            ],
+            [
+              "main",
+              "Insight Engine",
+              1
+            ],
+            [
+              "main",
+              "Inspirit, Flagship Vessel",
+              1
+            ],
+            [
+              "main",
+              "Irrigated Farmland",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              3
+            ],
+            [
+              "main",
+              "Jhoira, Weatherlight Captain",
+              1
+            ],
+            [
+              "main",
+              "Kappa Cannoneer",
+              1
+            ],
+            [
+              "main",
+              "Karn's Bastion",
+              1
+            ],
+            [
+              "main",
+              "Lonely Sandbar",
+              1
+            ],
+            [
+              "main",
+              "Long-Range Sensor",
+              1
+            ],
+            [
+              "main",
+              "Lux Artillery",
+              1
+            ],
+            [
+              "main",
+              "Lux Cannon",
+              1
+            ],
+            [
+              "main",
+              "Mindless Automaton",
+              1
+            ],
+            [
+              "main",
+              "Mountain",
+              3
+            ],
+            [
+              "main",
+              "Moxite Refinery",
+              1
+            ],
+            [
+              "main",
+              "Mystic Monastery",
+              1
+            ],
+            [
+              "main",
+              "Organic Extinction",
+              1
+            ],
+            [
+              "main",
+              "Patrolling Peacemaker",
+              1
+            ],
+            [
+              "main",
+              "Pentad Prism",
+              1
+            ],
+            [
+              "main",
+              "Phyrexian Metamorph",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              3
+            ],
+            [
+              "main",
+              "Pull from Tomorrow",
+              1
+            ],
+            [
+              "main",
+              "Radiant Summit",
+              1
+            ],
+            [
+              "main",
+              "Razortide Bridge",
+              1
+            ],
+            [
+              "main",
+              "Resourceful Defense",
+              1
+            ],
+            [
+              "main",
+              "Ripples of Potential",
+              1
+            ],
+            [
+              "main",
+              "Rugged Prairie",
+              1
+            ],
+            [
+              "main",
+              "Rustvale Bridge",
+              1
+            ],
+            [
+              "main",
+              "Seat of the Synod",
+              1
+            ],
+            [
+              "main",
+              "Secluded Steppe",
+              1
+            ],
+            [
+              "main",
+              "Shivan Reef",
+              1
+            ],
+            [
+              "main",
+              "Silverbluff Bridge",
+              1
+            ],
+            [
+              "main",
+              "Skycloud Expanse",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Solar Array",
+              1
+            ],
+            [
+              "main",
+              "Soul-Guide Lantern",
+              1
+            ],
+            [
+              "main",
+              "Spire of Industry",
+              1
+            ],
+            [
+              "main",
+              "Steel Overseer",
+              1
+            ],
+            [
+              "main",
+              "Sulfur Falls",
+              1
+            ],
+            [
+              "main",
+              "Surge Conductor",
+              1
+            ],
+            [
+              "main",
+              "Swan Song",
+              1
+            ],
+            [
+              "main",
+              "Swords to Plowshares",
+              1
+            ],
+            [
+              "main",
+              "Tekuthal, Inquiry Dominus",
+              1
+            ],
+            [
+              "main",
+              "Temple of Enlightenment",
+              1
+            ],
+            [
+              "main",
+              "Temple of Epiphany",
+              1
+            ],
+            [
+              "main",
+              "Temple of Triumph",
+              1
+            ],
+            [
+              "main",
+              "Tezzeret's Gambit",
+              1
+            ],
+            [
+              "main",
+              "The Mycosynth Gardens",
+              1
+            ],
+            [
+              "main",
+              "Thirst for Knowledge",
+              1
+            ],
+            [
+              "main",
+              "Thought Monitor",
+              1
+            ],
+            [
+              "main",
+              "Threefold Thunderhulk",
+              1
+            ],
+            [
+              "main",
+              "Thrummingbird",
+              1
+            ],
+            [
+              "main",
+              "Titan Forge",
+              1
+            ],
+            [
+              "main",
+              "Universal Surveillance",
+              1
+            ],
+            [
+              "main",
+              "Uthros Research Craft",
+              1
+            ],
+            [
+              "main",
+              "Wake the Past",
+              1
+            ]
+          ],
+          "score": 4,
+          "effort": "Targeted",
+          "path": "Add artifact untapping and proliferate support around Kilo.",
+          "limitation": "Kilo needs other permanents with useful counters; tapping it alone does not draw cards.",
+          "rationale": {
+            "support": "Artifact untapping and proliferate can advance the existing charge-counter artifacts.",
+            "payoff": "Kilo proliferates whenever it becomes tapped, with no once-per-turn limit.",
+            "constraints": "Its haste enables an immediate tap, but repeated triggers still need tap and untap effects."
+          },
+          "examples": [
+            {
+              "name": "Clock of Omens",
+              "role": "Artifact untapping",
+              "url": "https://scryfall.com/card/m13/202/clock-of-omens",
+              "oracle_id": "5d0f4665-aa10-4251-b590-129b59274fb3",
+              "color_identity": [],
+              "legal_checked_on": "2026-10-27",
+              "basis": "Named in the linked upgrade guide"
+            },
+            {
+              "name": "Flux Channeler",
+              "role": "Proliferate from noncreature spells",
+              "url": "https://scryfall.com/card/cmm/847/flux-channeler",
+              "oracle_id": "83874e60-291b-47a7-ba9f-69437fa7e3c7",
+              "color_identity": [
+                "U"
+              ],
+              "legal_checked_on": "2026-10-27",
+              "basis": "Named in the linked upgrade guide"
+            },
+            {
+              "name": "Mystic Forge",
+              "role": "Access to artifacts from the top of the library",
+              "url": "https://scryfall.com/card/cmm/964/mystic-forge",
+              "oracle_id": "994bc16d-fdc6-475c-96df-beeb4d5aa03e",
+              "color_identity": [],
+              "legal_checked_on": "2026-10-27",
+              "basis": "Named in the linked upgrade guide"
+            }
+          ],
+          "sources": [
+            "review-counter-intelligence"
+          ],
+          "gap": null,
+          "commander_cards": [
+            {
+              "name": "Kilo, Apogee Mind",
+              "url": "https://scryfall.com/card/eoc/3/kilo-apogee-mind",
+              "checked_on": "2026-10-27",
+              "oracle_id": "7a884166-de5a-43ba-8855-4999f39f2059"
+            }
+          ],
+          "validated_fingerprint": "bbfed349ec76c17b2d70f7790969d02f80d616e99226e34624a67fac15ed3c94"
+        }
+      ],
+      "catalog_validated_fingerprint": "d488430ec812b270701274212975a9207025badc3f79dca38ae694f0362f6a97",
+      "catalog_list_checked_on": "2026-10-27"
     },
     "world-shaper": {
       "commanders": [
@@ -68240,7 +71825,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "8d6f82d9-5c5b-4c41-8857-c0936f2d894c"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "blight-curse": {
       "commanders": [
@@ -68730,7 +72316,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "e3cd53c1-86bd-4177-adb0-a1fa693b44c6"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "dance-of-the-elements": {
       "commanders": [
@@ -69238,7 +72825,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "77a9e7cf-76e9-4323-8504-a5b831de00be"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "turtle-power": {
       "commanders": [
@@ -69727,7 +73315,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "46ea8d02-b087-44f7-8403-93ffc1d3a8ad"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "lorehold-spirit": {
       "commanders": [
@@ -70176,7 +73765,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "5c40a8d4-6969-4d71-aba5-5c7e4109b7d5"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "prismari-artistry": {
       "commanders": [
@@ -70635,7 +74225,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "348c67ef-9ccc-4651-9038-efdf1ad1b36a"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "quandrix-unlimited": {
       "commanders": [
@@ -71104,7 +74695,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "977f9390-e01d-4e9d-8e9c-e543b1266972"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "silverquill-influence": {
       "commanders": [
@@ -71558,7 +75150,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9c54bd34-667d-415c-ad26-82e0eb0ff409"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "witherbloom-pestilence": {
       "commanders": [
@@ -72012,7 +75605,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "f61c1dc4-2f09-4b50-957f-ee656c659072"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "goblin-storm": {
       "commanders": [
@@ -72431,7 +76025,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9f7d5e1c-bf5b-4ab9-bd6e-2627b4d22b36"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "avengers-assemble": {
       "commanders": [
@@ -72932,7 +76527,481 @@
           "checked_on": "2026-10-27",
           "oracle_id": "916cf34a-fd2c-47fe-bebb-f7b52b3dabed"
         }
-      ]
+      ],
+      "alternatives": [
+        {
+          "key": "director-nick-fury",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Hero creatures.",
+            "retains": "Keeps the Hero creature package.",
+            "changes": "Nick Fury discounts Heroes and finds them on attacks; Captain America provides haste and counters."
+          },
+          "list_checked_on": "2026-10-27",
+          "commanders": [
+            "Director Nick Fury"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/AvengersAssemble_MSC.json",
+          "stock": [
+            [
+              "commander",
+              "Director Nick Fury",
+              1
+            ],
+            [
+              "main",
+              "Ant-Man, Elusive Avenger",
+              1
+            ],
+            [
+              "main",
+              "Arcane Denial",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Austere Command",
+              1
+            ],
+            [
+              "main",
+              "Avenge",
+              1
+            ],
+            [
+              "main",
+              "Avengers Quinjet",
+              1
+            ],
+            [
+              "main",
+              "Avengers Tower",
+              1
+            ],
+            [
+              "main",
+              "Bastion Protector",
+              1
+            ],
+            [
+              "main",
+              "Black Widow, Agile Avenger",
+              1
+            ],
+            [
+              "main",
+              "Captain America, Living Legend",
+              1
+            ],
+            [
+              "main",
+              "Captain America, Team Leader",
+              1
+            ],
+            [
+              "main",
+              "Captain Mar-Vell, Space-Born",
+              1
+            ],
+            [
+              "main",
+              "Captain Marvel, Apex Avenger",
+              1
+            ],
+            [
+              "main",
+              "Clifftop Retreat",
+              1
+            ],
+            [
+              "main",
+              "Coastal Peak",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Destroy Evil",
+              1
+            ],
+            [
+              "main",
+              "Dismantling Wave",
+              1
+            ],
+            [
+              "main",
+              "Door of Destinies",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Falcon and Redwing",
+              1
+            ],
+            [
+              "main",
+              "Fellwar Stone",
+              1
+            ],
+            [
+              "main",
+              "Firebird, Blazing Ranger",
+              1
+            ],
+            [
+              "main",
+              "Folk Hero",
+              1
+            ],
+            [
+              "main",
+              "Frostboil Snarl",
+              1
+            ],
+            [
+              "main",
+              "Furycalm Snarl",
+              1
+            ],
+            [
+              "main",
+              "Gift of Immortality",
+              1
+            ],
+            [
+              "main",
+              "Glacial Fortress",
+              1
+            ],
+            [
+              "main",
+              "Glittering Massif",
+              1
+            ],
+            [
+              "main",
+              "Hawkeye, Avenging Archer",
+              1
+            ],
+            [
+              "main",
+              "Herald's Horn",
+              1
+            ],
+            [
+              "main",
+              "Hercules, Olympian Hero",
+              1
+            ],
+            [
+              "main",
+              "Hero's Blade",
+              1
+            ],
+            [
+              "main",
+              "Heroic Return",
+              1
+            ],
+            [
+              "main",
+              "Heroic Sacrifice",
+              1
+            ],
+            [
+              "main",
+              "Hulkbuster Armor",
+              1
+            ],
+            [
+              "main",
+              "Iron Man, Armored Avenger",
+              1
+            ],
+            [
+              "main",
+              "Irrigated Farmland",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              5
+            ],
+            [
+              "main",
+              "Jarvis, Earth's Mightiest Butler",
+              1
+            ],
+            [
+              "main",
+              "Jocasta, Automaton Avenger",
+              1
+            ],
+            [
+              "main",
+              "Kindred Discovery",
+              1
+            ],
+            [
+              "main",
+              "Love on the Battlefield",
+              1
+            ],
+            [
+              "main",
+              "Make Your Move",
+              1
+            ],
+            [
+              "main",
+              "Metallic Mimic",
+              1
+            ],
+            [
+              "main",
+              "Methods of the Mighty",
+              1
+            ],
+            [
+              "main",
+              "Mountain",
+              5
+            ],
+            [
+              "main",
+              "Mystic Monastery",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Patriot, Shield Wielder",
+              1
+            ],
+            [
+              "main",
+              "Photon, Mighty Marvel",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              6
+            ],
+            [
+              "main",
+              "Plaza of Heroes",
+              1
+            ],
+            [
+              "main",
+              "Port Town",
+              1
+            ],
+            [
+              "main",
+              "Prairie Stream",
+              1
+            ],
+            [
+              "main",
+              "Professor Hulk",
+              1
+            ],
+            [
+              "main",
+              "Quicksilver, Speedster",
+              1
+            ],
+            [
+              "main",
+              "Radiant Summit",
+              1
+            ],
+            [
+              "main",
+              "Raise the Palisade",
+              1
+            ],
+            [
+              "main",
+              "Reconnaissance Mission",
+              1
+            ],
+            [
+              "main",
+              "Relic of Legends",
+              1
+            ],
+            [
+              "main",
+              "Rescue, Pepper Potts",
+              1
+            ],
+            [
+              "main",
+              "Rip Apart",
+              1
+            ],
+            [
+              "main",
+              "Scarlet Witch, Chaotic Avenger",
+              1
+            ],
+            [
+              "main",
+              "Scavenger Grounds",
+              1
+            ],
+            [
+              "main",
+              "Scorched Geyser",
+              1
+            ],
+            [
+              "main",
+              "Secluded Courtyard",
+              1
+            ],
+            [
+              "main",
+              "Shang-Chi and the Ten Rings",
+              1
+            ],
+            [
+              "main",
+              "She-Hulk, Wallbreaker",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Spectator Seating",
+              1
+            ],
+            [
+              "main",
+              "Speed, Young Avenger",
+              1
+            ],
+            [
+              "main",
+              "Sulfur Falls",
+              1
+            ],
+            [
+              "main",
+              "Swords to Plowshares",
+              1
+            ],
+            [
+              "main",
+              "Talisman of Conviction",
+              1
+            ],
+            [
+              "main",
+              "Talisman of Creativity",
+              1
+            ],
+            [
+              "main",
+              "Talisman of Progress",
+              1
+            ],
+            [
+              "main",
+              "The Wasp, Winsome Avenger",
+              1
+            ],
+            [
+              "main",
+              "Thor, Asgard's Avenger",
+              1
+            ],
+            [
+              "main",
+              "Thought Vessel",
+              1
+            ],
+            [
+              "main",
+              "Tome of Legends",
+              1
+            ],
+            [
+              "main",
+              "Unclaimed Territory",
+              1
+            ],
+            [
+              "main",
+              "Vision, Synthezoid Avenger",
+              1
+            ],
+            [
+              "main",
+              "War Machine, Avenging Arsenal",
+              1
+            ],
+            [
+              "main",
+              "West Coast Expansion",
+              1
+            ],
+            [
+              "main",
+              "Winter Soldier, Reborn Avenger",
+              1
+            ]
+          ],
+          "score": null,
+          "effort": null,
+          "path": null,
+          "limitation": null,
+          "rationale": null,
+          "examples": [],
+          "sources": [
+            "goldfish-marvel"
+          ],
+          "gap": "This commander option has a validated stock-card comparison list, but no source-backed upgrade grade is recorded yet.",
+          "commander_cards": [
+            {
+              "name": "Director Nick Fury",
+              "url": "https://scryfall.com/card/msc/81/director-nick-fury",
+              "checked_on": "2026-10-27",
+              "oracle_id": "04b907bf-c80c-4e92-9fea-26dc3d1aaf2a"
+            }
+          ],
+          "validated_fingerprint": "666ddbf6581272c5858b67de92382aa8651806f88fe6279c4446893c964b1dc2"
+        }
+      ],
+      "catalog_validated_fingerprint": "d2213bfc21a0acfe72bdc96e40c192d02611712ce18c567ae9378ee1cab653d2",
+      "catalog_list_checked_on": "2026-10-27"
     },
     "doom-prevails": {
       "commanders": [
@@ -73438,7 +77507,484 @@
           "checked_on": "2026-10-27",
           "oracle_id": "9c9cd0fd-bfe9-409c-a9a9-146f5f4a2ef4"
         }
-      ]
+      ],
+      "alternatives": [
+        {
+          "key": "loki-the-deceiver",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Villain creatures.",
+            "retains": "Keeps Villains and their creature abilities.",
+            "changes": "Loki creates an attacking copy of another Villain and draws from Villain combat damage; Doom rewards land discard and connive."
+          },
+          "list_checked_on": "2026-10-27",
+          "commanders": [
+            "Loki, the Deceiver"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/DoomPrevails_MSC.json",
+          "stock": [
+            [
+              "commander",
+              "Loki, the Deceiver",
+              1
+            ],
+            [
+              "main",
+              "Abomination, World Ravager",
+              1
+            ],
+            [
+              "main",
+              "Age of Ultron",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Archnemesis",
+              1
+            ],
+            [
+              "main",
+              "Baron Strucker, HYDRA Overlord",
+              1
+            ],
+            [
+              "main",
+              "Batroc the Leaper",
+              1
+            ],
+            [
+              "main",
+              "Bedevil",
+              1
+            ],
+            [
+              "main",
+              "Black Market Connections",
+              1
+            ],
+            [
+              "main",
+              "Blasphemous Act",
+              1
+            ],
+            [
+              "main",
+              "Canyon Slough",
+              1
+            ],
+            [
+              "main",
+              "Chameleon, Master of Disguise",
+              1
+            ],
+            [
+              "main",
+              "Chaos Warp",
+              1
+            ],
+            [
+              "main",
+              "Choked Estuary",
+              1
+            ],
+            [
+              "main",
+              "Coastal Peak",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Containment Construct",
+              1
+            ],
+            [
+              "main",
+              "Crumbling Necropolis",
+              1
+            ],
+            [
+              "main",
+              "Currency Converter",
+              1
+            ],
+            [
+              "main",
+              "Damocles Base, Sword of Kang",
+              1
+            ],
+            [
+              "main",
+              "Doctor Doom, King of Latveria",
+              1
+            ],
+            [
+              "main",
+              "Doom's Time Platform",
+              1
+            ],
+            [
+              "main",
+              "Dragonskull Summit",
+              1
+            ],
+            [
+              "main",
+              "Drowned Catacomb",
+              1
+            ],
+            [
+              "main",
+              "Endless Ranks of HYDRA",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Extract Power",
+              1
+            ],
+            [
+              "main",
+              "Fetid Pools",
+              1
+            ],
+            [
+              "main",
+              "Foreboding Ruins",
+              1
+            ],
+            [
+              "main",
+              "Frostboil Snarl",
+              1
+            ],
+            [
+              "main",
+              "Glorious Purpose",
+              1
+            ],
+            [
+              "main",
+              "Helmut Zemo, Mastermind",
+              1
+            ],
+            [
+              "main",
+              "Iron Monger, Sadistic Tycoon",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              4
+            ],
+            [
+              "main",
+              "Kang Dynasty",
+              1
+            ],
+            [
+              "main",
+              "Kang Prime",
+              1
+            ],
+            [
+              "main",
+              "Kang, Temporal Tyrant",
+              1
+            ],
+            [
+              "main",
+              "Killmonger, Ruthless Usurper",
+              1
+            ],
+            [
+              "main",
+              "Kindred Dominance",
+              1
+            ],
+            [
+              "main",
+              "Klaw, Master of Sound",
+              1
+            ],
+            [
+              "main",
+              "Lady Loki, Agent of Chaos",
+              1
+            ],
+            [
+              "main",
+              "Lethal Scheme",
+              1
+            ],
+            [
+              "main",
+              "Living Laser",
+              1
+            ],
+            [
+              "main",
+              "Loki's Scepter",
+              1
+            ],
+            [
+              "main",
+              "Luxury Suite",
+              1
+            ],
+            [
+              "main",
+              "Madame Hydra",
+              1
+            ],
+            [
+              "main",
+              "Molecule Man",
+              1
+            ],
+            [
+              "main",
+              "Moonstone, Harsh Mistress",
+              1
+            ],
+            [
+              "main",
+              "Mountain",
+              5
+            ],
+            [
+              "main",
+              "Night's Whisper",
+              1
+            ],
+            [
+              "main",
+              "Patchwork Banner",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Progenitor's Icon",
+              1
+            ],
+            [
+              "main",
+              "Propaganda",
+              1
+            ],
+            [
+              "main",
+              "Prowler, Clawed Thief",
+              1
+            ],
+            [
+              "main",
+              "Puppet Master, String Puller",
+              1
+            ],
+            [
+              "main",
+              "Red Ghost, Intangible Genius",
+              1
+            ],
+            [
+              "main",
+              "Scavenger Grounds",
+              1
+            ],
+            [
+              "main",
+              "Scorched Geyser",
+              1
+            ],
+            [
+              "main",
+              "Secluded Courtyard",
+              1
+            ],
+            [
+              "main",
+              "Skullclamp",
+              1
+            ],
+            [
+              "main",
+              "Smoldering Marsh",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Spark Double",
+              1
+            ],
+            [
+              "main",
+              "Stilt-Man, Towering Terror",
+              1
+            ],
+            [
+              "main",
+              "Sulfur Falls",
+              1
+            ],
+            [
+              "main",
+              "Sunken Hollow",
+              1
+            ],
+            [
+              "main",
+              "Superior Foes of Spider-Man",
+              1
+            ],
+            [
+              "main",
+              "Swamp",
+              6
+            ],
+            [
+              "main",
+              "Swiftfoot Boots",
+              1
+            ],
+            [
+              "main",
+              "Syphon Mind",
+              1
+            ],
+            [
+              "main",
+              "Talisman of Dominance",
+              1
+            ],
+            [
+              "main",
+              "Talisman of Indulgence",
+              1
+            ],
+            [
+              "main",
+              "Terminate",
+              1
+            ],
+            [
+              "main",
+              "Terramorphic Expanse",
+              1
+            ],
+            [
+              "main",
+              "The Frightful Four",
+              1
+            ],
+            [
+              "main",
+              "The Squadron Sinister",
+              1
+            ],
+            [
+              "main",
+              "Titan of Littjara",
+              1
+            ],
+            [
+              "main",
+              "Titania, Proud Pummeler",
+              1
+            ],
+            [
+              "main",
+              "Tombstone, Career Criminal",
+              1
+            ],
+            [
+              "main",
+              "Toxic Deluge",
+              1
+            ],
+            [
+              "main",
+              "Tri-Sentinel, Act of Vengeance",
+              1
+            ],
+            [
+              "main",
+              "Typhoid Mary, Fractured",
+              1
+            ],
+            [
+              "main",
+              "Ultron, Unlimited",
+              1
+            ],
+            [
+              "main",
+              "Unclaimed Territory",
+              1
+            ],
+            [
+              "main",
+              "Vandalblast",
+              1
+            ],
+            [
+              "main",
+              "Villainous Hideout",
+              1
+            ],
+            [
+              "main",
+              "Withering Torment",
+              1
+            ]
+          ],
+          "score": null,
+          "effort": null,
+          "path": null,
+          "limitation": null,
+          "rationale": null,
+          "examples": [],
+          "sources": [],
+          "gap": "This commander option has a validated stock-card comparison list, but no source-backed upgrade grade is recorded yet.",
+          "commander_cards": [
+            {
+              "name": "Loki, the Deceiver",
+              "url": "https://scryfall.com/card/msc/86/loki-the-deceiver",
+              "checked_on": "2026-10-27",
+              "oracle_id": "17e45fd8-c924-4b42-87ad-189469a8dd18"
+            }
+          ],
+          "validated_fingerprint": "cc20e6e1b31fe6aadd6335de83696592a8ebd3a23a84d4ab46089ebe28c8029e"
+        }
+      ],
+      "catalog_validated_fingerprint": "eccfd218f5d046526bea6647adb9528157d1ccbcb69599e423ae431895a7e7bb",
+      "catalog_list_checked_on": "2026-10-27"
     },
     "the-fantastic-four": {
       "commanders": [
@@ -73899,7 +78445,519 @@
           "checked_on": "2026-10-27",
           "oracle_id": "085016ee-4429-453f-b7f3-d61065f1214e"
         }
-      ]
+      ],
+      "alternatives": [
+        {
+          "key": "mister-fantastic",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Noncreature spells and triggered abilities.",
+            "retains": "Keeps the noncreature-spell package and its triggered payoffs.",
+            "changes": "Mister Fantastic draws cards and copies triggers; Invisible Woman makes Walls and rewards attacks."
+          },
+          "list_checked_on": "2026-10-27",
+          "commanders": [
+            "Mister Fantastic"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/TheFantasticFour_MSC.json",
+          "stock": [
+            [
+              "commander",
+              "Mister Fantastic",
+              1
+            ],
+            [
+              "main",
+              "Alicia Masters, Skilled Sculptor",
+              1
+            ],
+            [
+              "main",
+              "Annie Joins Up",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Baxter Building",
+              1
+            ],
+            [
+              "main",
+              "Black Bolt, Inhuman King",
+              1
+            ],
+            [
+              "main",
+              "Bovine Intervention",
+              1
+            ],
+            [
+              "main",
+              "Canopy Vista",
+              1
+            ],
+            [
+              "main",
+              "Chromatic Lantern",
+              1
+            ],
+            [
+              "main",
+              "Cinder Glade",
+              1
+            ],
+            [
+              "main",
+              "Cleansing Nova",
+              1
+            ],
+            [
+              "main",
+              "Clever Concealment",
+              1
+            ],
+            [
+              "main",
+              "Clifftop Retreat",
+              1
+            ],
+            [
+              "main",
+              "Collective Effort",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Cosmic Crucible",
+              1
+            ],
+            [
+              "main",
+              "Council of Reeds",
+              1
+            ],
+            [
+              "main",
+              "Crystal, Inhuman Princess",
+              1
+            ],
+            [
+              "main",
+              "Cultivate",
+              1
+            ],
+            [
+              "main",
+              "Cut a Deal",
+              1
+            ],
+            [
+              "main",
+              "Deep Analysis",
+              1
+            ],
+            [
+              "main",
+              "Dragon Man, Reformed Robot",
+              1
+            ],
+            [
+              "main",
+              "Evolving Wilds",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Expressive Iteration",
+              1
+            ],
+            [
+              "main",
+              "Fabled Passage",
+              1
+            ],
+            [
+              "main",
+              "Fantastic Elasticity",
+              1
+            ],
+            [
+              "main",
+              "Farseek",
+              1
+            ],
+            [
+              "main",
+              "First Family",
+              1
+            ],
+            [
+              "main",
+              "Flame On!",
+              1
+            ],
+            [
+              "main",
+              "Forest",
+              5
+            ],
+            [
+              "main",
+              "Franklin Richards, Ascendant",
+              1
+            ],
+            [
+              "main",
+              "Galactus, Devourer of Worlds",
+              1
+            ],
+            [
+              "main",
+              "Galvanic Iteration",
+              1
+            ],
+            [
+              "main",
+              "Genesis Ultimatum",
+              1
+            ],
+            [
+              "main",
+              "Glacial Fortress",
+              1
+            ],
+            [
+              "main",
+              "H.E.R.B.I.E., Lovable Robot",
+              1
+            ],
+            [
+              "main",
+              "Hinterland Harbor",
+              1
+            ],
+            [
+              "main",
+              "Hull Breach",
+              1
+            ],
+            [
+              "main",
+              "Human Torch",
+              1
+            ],
+            [
+              "main",
+              "Into the Time Vortex",
+              1
+            ],
+            [
+              "main",
+              "Invisible Force Field",
+              1
+            ],
+            [
+              "main",
+              "Invisible Woman",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              4
+            ],
+            [
+              "main",
+              "It's Clobberin' Time!",
+              1
+            ],
+            [
+              "main",
+              "Lightning Greaves",
+              1
+            ],
+            [
+              "main",
+              "Lockjaw, Slobbering Teleporter",
+              1
+            ],
+            [
+              "main",
+              "Medusa, Inhuman Queen",
+              1
+            ],
+            [
+              "main",
+              "Mind's Dilation",
+              1
+            ],
+            [
+              "main",
+              "Mirage Mirror",
+              1
+            ],
+            [
+              "main",
+              "Mister Fantastic, Reed Richards",
+              1
+            ],
+            [
+              "main",
+              "Monologue Tax",
+              1
+            ],
+            [
+              "main",
+              "Mountain",
+              3
+            ],
+            [
+              "main",
+              "Namor, Atlantean King",
+              1
+            ],
+            [
+              "main",
+              "Negative Zone Portal",
+              1
+            ],
+            [
+              "main",
+              "Nova Flame",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Path of Discovery",
+              1
+            ],
+            [
+              "main",
+              "Path to Exile",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              5
+            ],
+            [
+              "main",
+              "Power Pack",
+              1
+            ],
+            [
+              "main",
+              "Prairie Stream",
+              1
+            ],
+            [
+              "main",
+              "Promise of Loyalty",
+              1
+            ],
+            [
+              "main",
+              "Quantum Misalignment",
+              1
+            ],
+            [
+              "main",
+              "Radiant Summit",
+              1
+            ],
+            [
+              "main",
+              "Recurring Insight",
+              1
+            ],
+            [
+              "main",
+              "Rejuvenating Springs",
+              1
+            ],
+            [
+              "main",
+              "Rootbound Crag",
+              1
+            ],
+            [
+              "main",
+              "Scorched Geyser",
+              1
+            ],
+            [
+              "main",
+              "Seize the Day",
+              1
+            ],
+            [
+              "main",
+              "Silver Surfer, Galactus's Herald",
+              1
+            ],
+            [
+              "main",
+              "Sodden Verdure",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Sulfur Falls",
+              1
+            ],
+            [
+              "main",
+              "Sunpetal Grove",
+              1
+            ],
+            [
+              "main",
+              "Taunt from the Rampart",
+              1
+            ],
+            [
+              "main",
+              "Terramorph",
+              1
+            ],
+            [
+              "main",
+              "Terramorphic Expanse",
+              1
+            ],
+            [
+              "main",
+              "The Fantasticar",
+              1
+            ],
+            [
+              "main",
+              "The Thing",
+              1
+            ],
+            [
+              "main",
+              "Three Visits",
+              1
+            ],
+            [
+              "main",
+              "Tragic Arrogance",
+              1
+            ],
+            [
+              "main",
+              "Ultimate Nullification",
+              1
+            ],
+            [
+              "main",
+              "Unstable Molecule Suit",
+              1
+            ],
+            [
+              "main",
+              "Valeria Richards, Precocious",
+              1
+            ],
+            [
+              "main",
+              "Whirlwind of Thought",
+              1
+            ],
+            [
+              "main",
+              "Willie Lumpkin, Postman",
+              1
+            ]
+          ],
+          "score": 4,
+          "effort": "Moderate",
+          "path": "Keep the spell-trigger package and improve its ramp, interaction and payoffs.",
+          "limitation": "Copying a trigger requires four colours and tapping Mister Fantastic.",
+          "rationale": {
+            "support": "Noncreature interaction and ramp still enable the precombat draw condition.",
+            "payoff": "The commander draws at combat after a noncreature spell and can copy one of your triggered abilities twice.",
+            "constraints": "The copy ability needs four coloured mana and an untapped commander. It supplies no standalone damage finish."
+          },
+          "examples": [
+            {
+              "name": "Nature's Lore",
+              "role": "Noncreature mana fixing",
+              "url": "https://scryfall.com/card/msc/177/natures-lore",
+              "oracle_id": "78826359-fe63-44ad-adc4-a17ffcd710e4",
+              "color_identity": [
+                "G"
+              ],
+              "legal_checked_on": "2026-10-27",
+              "basis": "Named in the linked upgrade guide"
+            },
+            {
+              "name": "Swords to Plowshares",
+              "role": "Noncreature creature removal",
+              "url": "https://scryfall.com/card/trc/429/swords-to-plowshares",
+              "oracle_id": "b1544f21-7e98-461b-aed5-e748b0168c52",
+              "color_identity": [
+                "W"
+              ],
+              "legal_checked_on": "2026-10-27",
+              "basis": "Named in the linked upgrade guide"
+            },
+            {
+              "name": "Thor, God of Thunder",
+              "role": "Recurring spells and a damage payoff",
+              "url": "https://scryfall.com/card/msh/156/thor-god-of-thunder",
+              "oracle_id": "2842217a-173e-4879-8b25-fefe2fc1123f",
+              "color_identity": [
+                "R"
+              ],
+              "legal_checked_on": "2026-10-27",
+              "basis": "Named in the linked upgrade guide"
+            }
+          ],
+          "sources": [
+            "goldfish-marvel"
+          ],
+          "gap": null,
+          "commander_cards": [
+            {
+              "name": "Mister Fantastic",
+              "url": "https://scryfall.com/card/msc/2/mister-fantastic",
+              "checked_on": "2026-10-27",
+              "oracle_id": "a8011dce-17fb-46e1-8297-81a4acccbd05"
+            }
+          ],
+          "validated_fingerprint": "6dbfa4b9b7ac6269e46d41da26f73e60295b6331fafd46d5709978ecb982aea7"
+        }
+      ],
+      "catalog_validated_fingerprint": "8403940274e49b49b21c9a4e5e3198e615d4087e246f77abe1d2c6aeea0e9e1a",
+      "catalog_list_checked_on": "2026-10-27"
     },
     "wakanda-forever": {
       "commanders": [
@@ -74348,7 +79406,434 @@
           "checked_on": "2026-10-27",
           "oracle_id": "ae10eb15-28e7-46d1-9a2e-85763d93febf"
         }
-      ]
+      ],
+      "alternatives": [
+        {
+          "key": "okoye-mighty-and-adored",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "The precon’s monarch and combat package.",
+            "retains": "Uses the monarch subtheme already present in the box.",
+            "changes": "Okoye supplies the crown and helps attack its holder; T’Challa instead accelerates artifacts."
+          },
+          "list_checked_on": "2026-10-27",
+          "commanders": [
+            "Okoye, Mighty and Adored"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/WakandaForever_MSC.json",
+          "stock": [
+            [
+              "commander",
+              "Okoye, Mighty and Adored",
+              1
+            ],
+            [
+              "main",
+              "Ancestral Communion",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Bast, Panther Goddess",
+              1
+            ],
+            [
+              "main",
+              "Beast Within",
+              1
+            ],
+            [
+              "main",
+              "Birds of Paradise",
+              1
+            ],
+            [
+              "main",
+              "Bountiful Promenade",
+              1
+            ],
+            [
+              "main",
+              "Canopy Vista",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Conduit of Worlds",
+              1
+            ],
+            [
+              "main",
+              "Coveted Jewel",
+              1
+            ],
+            [
+              "main",
+              "Dispatch",
+              1
+            ],
+            [
+              "main",
+              "Divine Visitation",
+              1
+            ],
+            [
+              "main",
+              "Dora Milaje Elite",
+              1
+            ],
+            [
+              "main",
+              "Everett K. Ross, Hapless Attaché",
+              1
+            ],
+            [
+              "main",
+              "Evolving Wilds",
+              1
+            ],
+            [
+              "main",
+              "Fight for the Throne",
+              1
+            ],
+            [
+              "main",
+              "Fleecemane Lion",
+              1
+            ],
+            [
+              "main",
+              "Forest",
+              12
+            ],
+            [
+              "main",
+              "Fortified Village",
+              1
+            ],
+            [
+              "main",
+              "Generous Gift",
+              1
+            ],
+            [
+              "main",
+              "Gilded Lotus",
+              1
+            ],
+            [
+              "main",
+              "Greater Good",
+              1
+            ],
+            [
+              "main",
+              "Hammer of Nazahn",
+              1
+            ],
+            [
+              "main",
+              "Harmonize",
+              1
+            ],
+            [
+              "main",
+              "Hatut Zeraze Strike Force",
+              1
+            ],
+            [
+              "main",
+              "Heart-Shaped Herb",
+              1
+            ],
+            [
+              "main",
+              "Helm of the Host",
+              1
+            ],
+            [
+              "main",
+              "Ingenious Smith",
+              1
+            ],
+            [
+              "main",
+              "Kimoyo Beads",
+              1
+            ],
+            [
+              "main",
+              "King Solomon's Frogs",
+              1
+            ],
+            [
+              "main",
+              "Loyal Guardian",
+              1
+            ],
+            [
+              "main",
+              "Loyal Retainers",
+              1
+            ],
+            [
+              "main",
+              "M'Baku, Jabari Chieftain",
+              1
+            ],
+            [
+              "main",
+              "Martial Coup",
+              1
+            ],
+            [
+              "main",
+              "Metalwork Colossus",
+              1
+            ],
+            [
+              "main",
+              "Meteor Golem",
+              1
+            ],
+            [
+              "main",
+              "Midnight Angel Armor",
+              1
+            ],
+            [
+              "main",
+              "Mind's Eye",
+              1
+            ],
+            [
+              "main",
+              "N'Yami-Class Mother Ship",
+              1
+            ],
+            [
+              "main",
+              "Nakia, Wakandan Operative",
+              1
+            ],
+            [
+              "main",
+              "Nature's Lore",
+              1
+            ],
+            [
+              "main",
+              "Overwhelming Stampede",
+              1
+            ],
+            [
+              "main",
+              "Palace Jailer",
+              1
+            ],
+            [
+              "main",
+              "Panther Habit",
+              1
+            ],
+            [
+              "main",
+              "Panther Robot",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              12
+            ],
+            [
+              "main",
+              "Queen Mother Ramonda",
+              1
+            ],
+            [
+              "main",
+              "Razorverge Thicket",
+              1
+            ],
+            [
+              "main",
+              "Royal Talon Fighter Jet",
+              1
+            ],
+            [
+              "main",
+              "Scattered Groves",
+              1
+            ],
+            [
+              "main",
+              "Scavenger Grounds",
+              1
+            ],
+            [
+              "main",
+              "Scourglass",
+              1
+            ],
+            [
+              "main",
+              "Shuri's Fabricator",
+              1
+            ],
+            [
+              "main",
+              "Shuri, the Black Panther",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Solemn Simulacrum",
+              1
+            ],
+            [
+              "main",
+              "Storm, Queen of Wakanda",
+              1
+            ],
+            [
+              "main",
+              "Sungrass Prairie",
+              1
+            ],
+            [
+              "main",
+              "Sunpetal Grove",
+              1
+            ],
+            [
+              "main",
+              "Sword of the Animist",
+              1
+            ],
+            [
+              "main",
+              "T'Chaka, Venerable King",
+              1
+            ],
+            [
+              "main",
+              "T'Challa, the Black Panther",
+              1
+            ],
+            [
+              "main",
+              "Terramorphic Expanse",
+              1
+            ],
+            [
+              "main",
+              "The Great Mound",
+              1
+            ],
+            [
+              "main",
+              "The Spear of Bashenga",
+              1
+            ],
+            [
+              "main",
+              "Thran Dynamo",
+              1
+            ],
+            [
+              "main",
+              "Throne of the High City",
+              1
+            ],
+            [
+              "main",
+              "Trading Post",
+              1
+            ],
+            [
+              "main",
+              "Valorous Stance",
+              1
+            ],
+            [
+              "main",
+              "Vanquish the Horde",
+              1
+            ],
+            [
+              "main",
+              "Vibranium Mining Mech",
+              1
+            ],
+            [
+              "main",
+              "Vibranium Strike Gauntlets",
+              1
+            ],
+            [
+              "main",
+              "W'Kabi, Shield of the Nation",
+              1
+            ],
+            [
+              "main",
+              "Wakanda Forever!",
+              1
+            ],
+            [
+              "main",
+              "Whispersilk Cloak",
+              1
+            ],
+            [
+              "main",
+              "Zuri, Warrior of Wakanda",
+              1
+            ]
+          ],
+          "score": null,
+          "effort": null,
+          "path": null,
+          "limitation": null,
+          "rationale": null,
+          "examples": [],
+          "sources": [],
+          "gap": "This commander option has a validated stock-card comparison list, but no source-backed upgrade grade is recorded yet.",
+          "commander_cards": [
+            {
+              "name": "Okoye, Mighty and Adored",
+              "url": "https://scryfall.com/card/msc/89/okoye-mighty-and-adored",
+              "checked_on": "2026-10-27",
+              "oracle_id": "8fbfc5b1-2146-4d07-a5fe-5f025da31bd6"
+            }
+          ],
+          "validated_fingerprint": "9947a6acff9254ec7f4e062b05b4d652bfd56ae88e0622f2d1720df558322bc7"
+        }
+      ],
+      "catalog_validated_fingerprint": "296e3760c85c32a3ffc49ce4c6eb9191c3e75096c94af6e37ad66d1fab573d37",
+      "catalog_list_checked_on": "2026-10-27"
     },
     "hatsune-miku": {
       "commanders": [
@@ -74812,7 +80297,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "e94ef397-f5c5-4b8d-ae27-528352fa1d1e"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "odds-and-ends": {
       "commanders": [
@@ -75291,7 +80777,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "4eec6838-3565-407f-8941-ce9421402f0b"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "calling-all-angels": {
       "commanders": [
@@ -75660,7 +81147,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "48e6d3d8-2f27-4017-acdd-40bce8cdbc02"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "keen-engineering": {
       "commanders": [
@@ -76019,7 +81507,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "52241b9c-7a69-4176-9234-8bdab09d8e64"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "reign-of-dragons": {
       "commanders": [
@@ -76388,7 +81877,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "15fef45d-f1a9-49b2-abaa-fe77bb9d1afd"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "tramplesaurus-rex": {
       "commanders": [
@@ -76797,7 +82287,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "b0b6be0c-41cf-4757-9f0e-87227b6ba6b3"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "wretched-ranks": {
       "commanders": [
@@ -77161,7 +82652,8 @@
           "checked_on": "2026-10-27",
           "oracle_id": "0dd894cb-1968-471c-af08-ea7ec5ce8428"
         }
-      ]
+      ],
+      "alternatives": []
     },
     "multiverse-reforged": {
       "commanders": [
@@ -77650,7 +83142,9 @@
           "checked_on": "2026-10-27",
           "oracle_id": "3321c134-bf5b-4f63-8035-fca0bbdfa86b"
         }
-      ]
+      ],
+      "alternatives": []
     }
-  }
+  },
+  "scope": "Commander-specific on-theme upgrades. In-box and outside commander swaps are separate configurations; replacing the main strategy is a separate build."
 }

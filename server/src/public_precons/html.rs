@@ -195,11 +195,10 @@ fn upgradeability_rubric() -> String {
         )
         .unwrap();
     }
-    out.push_str("</tbody></table><p>These are Yama’s ordinal judgments, with no measured win-rate gain attached. Keep the catalog commander and main theme. Missing evidence means ungraded. Targeted changes refine the main package; Moderate replaces several packages; Substantial removes much of the shell. Effort describes work, not a budget or Commander bracket.</p>");
+    out.push_str("</tbody></table><p>These are Yama’s ordinal judgments, with no measured win-rate gain attached. A grade belongs to the stated commander configuration and retained main theme. Assess on-theme commander swaps separately; a replacement strategy is a separate deck build. Missing evidence means ungraded. Targeted changes refine the main package; Moderate replaces several packages; Substantial removes much of the shell. Effort describes work, not a budget or Commander bracket.</p>");
     out
 }
-fn upgradeability(p: &Precon, full: bool) -> String {
-    let u = &p.upgradeability;
+fn assessment_html(u: &crate::upgradeability::Assessment, full: bool, shared: bool) -> String {
     let mut out = match u.score {
         Some(score) => format!(
             "<strong>{score}/5 {}</strong><small>Yama assessment. {} changes.</small>",
@@ -242,9 +241,14 @@ fn upgradeability(p: &Precon, full: bool) -> String {
         )
         .unwrap();
     }
-    write!(out, "<p class=\"dim\">{}", e(u.basis)).unwrap();
+    write!(
+        out,
+        "<p class=\"dim\">{}",
+        if shared { e(u.basis) } else { String::new() }
+    )
+    .unwrap();
     if let Some(date) = &u.assessed_on {
-        let label = if u.status == "stock_list_changed" {
+        let label = if matches!(u.status, "stock_list_changed" | "list_needs_validation") {
             "Prior audit"
         } else {
             "Audited"
@@ -265,12 +269,15 @@ fn upgradeability(p: &Precon, full: bool) -> String {
         }
         out.push_str(".</p>");
     }
-    write!(
-        out,
-        "<details><summary>What 1–5 means</summary>{}</details><h3>Reviews and upgrade guides</h3>",
-        upgradeability_rubric()
-    )
-    .unwrap();
+    if shared {
+        write!(
+            out,
+            "<details><summary>What 1–5 means</summary>{}</details>",
+            upgradeability_rubric()
+        )
+        .unwrap();
+    }
+    out.push_str("<h3>Reviews and upgrade guides</h3>");
     if u.sources.is_empty() {
         out.push_str(
             "<p class=\"dim\">No review or upgrade guide has been assessed for this list.</p>",
@@ -309,12 +316,10 @@ fn upgradeability(p: &Precon, full: bool) -> String {
         }
         out.push_str("</ul>");
     }
-    write!(
-        out,
-        "<h3>Commander results</h3><p>{}</p>",
-        e(u.commander_caveat)
-    )
-    .unwrap();
+    out.push_str("<h3>Commander results</h3>");
+    if shared {
+        write!(out, "<p>{}</p>", e(u.commander_caveat)).unwrap();
+    }
     if u.commander_results.is_empty() {
         out.push_str("<p class=\"dim\">No commander observation is available.</p>");
     } else {
@@ -334,7 +339,93 @@ fn upgradeability(p: &Precon, full: bool) -> String {
         }
         out.push_str("</ul>");
     }
-    out.push_str("<p class=\"dim\"><a href=\"https://playgroup.gg\">Playgroup.gg / Arcane Digital B.V.</a>, aggregate statistics under <a href=\"https://playgroup.gg/legal\">CC BY 4.0</a>. Source refresh dates are not provided by this endpoint.</p>");
+    if shared {
+        out.push_str("<p class=\"dim\"><a href=\"https://playgroup.gg\">Playgroup.gg / Arcane Digital B.V.</a>, aggregate statistics under <a href=\"https://playgroup.gg/legal\">CC BY 4.0</a>. Source refresh dates are not provided by this endpoint.</p>");
+    }
+    out
+}
+
+fn prepared_list(u: &crate::upgradeability::Assessment) -> String {
+    match &u.list_url {
+        Some(url) => format!(
+            "<p><a href=\"{}\">Download {} comparison list</a>. {}/100 card copies retained. Legality and colours checked {}. {}</p>",
+            e(url),
+            e(&u.commanders.join(" + ")),
+            u.retained_cards.unwrap_or(0),
+            e(u.list_checked_on.as_deref().unwrap_or("")),
+            e(u.simulation_note)
+        ),
+        None => String::new(),
+    }
+}
+fn upgradeability(p: &Precon, full: bool) -> String {
+    let u = &p.upgradeability;
+    let mut out = if full {
+        format!(
+            "<h4>{}</h4>{}",
+            e(&u.commanders.join(" + ")),
+            prepared_list(u)
+        )
+    } else {
+        String::new()
+    };
+    out.push_str(&assessment_html(u, full, true));
+    if full && !u.alternatives.is_empty() {
+        out.push_str("<h3>Other commander options</h3><p>Each option has its own assessment and comparison list. Stock results elsewhere on this page are not results for these alternative lists.</p>");
+        for a in &u.alternatives {
+            let grade = a
+                .score
+                .map(|n| format!("{n}/5 {}", a.label))
+                .unwrap_or_else(|| a.label.into());
+            write!(
+                out,
+                "<details id=\"commander-{}\"><summary>{}: {}</summary><p>{}</p>",
+                e(&a.variant_key),
+                e(&a.commanders.join(" + ")),
+                e(&grade),
+                match a.scope {
+                    crate::upgradeability::PathScope::Catalog =>
+                        "Reference commander configuration",
+                    crate::upgradeability::PathScope::InBox => "Alternative commander from the box",
+                    crate::upgradeability::PathScope::OnThemeSwap => "On-theme commander swap",
+                    crate::upgradeability::PathScope::SeparateBuild => "Separate deck build",
+                }
+            )
+            .unwrap();
+            if let Some(c) = &a.continuity {
+                write!(
+                    out,
+                    "<p><strong>Theme:</strong> {}</p><p>{} {}</p>",
+                    e(&c.theme),
+                    e(&c.retains),
+                    e(&c.changes)
+                )
+                .unwrap();
+            }
+            out.push_str(&prepared_list(a));
+            out.push_str(&assessment_html(a, true, false));
+            out.push_str("</details>");
+        }
+    } else if !full {
+        for a in u.alternatives.iter().filter(|a| a.score.is_some()) {
+            write!(
+                out,
+                "<small>{}: {}/5 {}</small>",
+                e(&a.commanders.join(" + ")),
+                a.score.unwrap(),
+                e(a.label)
+            )
+            .unwrap();
+        }
+        let ungraded = u.alternatives.iter().filter(|a| a.score.is_none()).count();
+        if ungraded > 0 {
+            write!(
+                out,
+                "<small>{ungraded} other commander option(s) ungraded</small>"
+            )
+            .unwrap();
+        }
+    }
     out
 }
 
@@ -595,7 +686,7 @@ pub(super) async fn index(
         }
         body.push_str("</div></nav>");
     }
-    body.push_str("<p class=\"dim\">Upgradeability grades use cited guides, checked card examples and the catalog commander’s restrictions. Open a deck for the reasoning, source dates, commander game counts and the 1–5 rubric. Unsupported grades have been withdrawn; ungraded decks remain listed.</p>");
+    body.push_str("<p class=\"dim\">Upgradeability grades use cited guides, checked card examples and the stated commander’s restrictions. Open a deck for the reasoning, source dates, commander game counts and the 1–5 rubric. Unsupported grades have been withdrawn; ungraded configurations remain listed. Sorting uses the reference commander’s grade; alternate grades are named in each row.</p>");
     body.push_str("<aside class=\"reading-note\"><h3>Reading the rankings</h3><p>Meta scores summarise source orderings, not a chance of winning. Engine cautions remain part of the evidence. Decks missing shared data stay unranked. Open a deck for source dates, intervals, limitations and its complete stock list.</p><a href=\"/precons/methodology\">Read the methodology ↗</a></aside>");
     Ok(response(
         &headers,
@@ -754,10 +845,10 @@ pub(super) async fn methodology(
     limit(&st, address)?;
     let snapshot = snapshot(&st.pool).await?;
     let mut body = String::from(
-        "<div class=\"public-intro\"><p class=\"eyebrow\">Sources and methods</p><h1>Precon methodology</h1><p class=\"lede\">How results, upgrade assessments and market references are collected.</p></div><nav class=\"method-nav\" aria-label=\"Methodology sections\"><a class=\"button\" href=\"#upgradeability\">Upgradeability</a><a class=\"button\" href=\"#meta\">Meta rank</a><a class=\"button\" href=\"#simulation\">Simulation</a><a class=\"button\" href=\"#real\">Real games</a><a class=\"button\" href=\"#sources\">Sources</a></nav><div class=\"public-prose\"><section id=\"upgradeability\"><h2>Upgradeability</h2><p>Upgradeability is Yama’s judgment of improvements that retain the catalog commander and main theme. Each grade needs a published guide covering that commander, at least two checked nonstock card examples, and written reasons covering card support, commander payoff and restrictions. The guide supplies evidence; Yama assigns the grade. Reviewer grades remain in their original scales. The old unsupported estimates were withdrawn on 27 October 2026.</p></section><section id=\"meta\"><p class=\"eyebrow\">Experimental / v1</p><h2>What the meta rank means</h2><p>Meta means agreement across evidence sources, rather than a forecast for your local playgroup. We use only stock lists with at least 20 real games and 20 simulated appearances in every published engine. At least four decks must qualify. Unranked decks remain browsable.</p><div class=\"formula\">Meta score = ½ real-game percentile<br>+ ½ mean simulation percentile</div><p>We re-rank each source within that same shared cohort. Higher is better: the lowest value scores 0, the highest 100, with tied values given their average rank. For n decks, percentile = 100 × (number below + (number equal − 1) / 2) / (n − 1). Real games use the reported four-player-normalised win rate; each engine uses its fitted strength. The score’s descending order gives the meta rank; tied scores share a rank. Filtering this page never changes the cohort or rank.</p><p>The two evidence groups have equal editorial weight. Phase and Forge, when both published, share the simulation half; extra runs from one engine cannot add votes. These weights have not been optimised or validated as a win prediction. Prices, popularity and reviewer opinion have no weight. Sources are dated but not age-weighted, so older results need care.</p><p>Engine confidence warnings remain visible and do not change the score or select the cohort: some warnings already use disagreement with real games, so filtering by those warnings would favour agreement by construction. The meta score has no probability interpretation or confidence interval. Large source disagreements and wide simulation intervals remain reasons to inspect a deck.</p><h3>Why there is no blended win-rate forecast yet</h3><p>A simulation’s opponents are a closed precon field; real games have different opponents, pilots and selection effects. Averaging those percentages would hide those differences. We show the separate model and observed win rates. A future forecast needs a declared target field, validation against held-out real results, and an interval that includes calibration error. More simulated games alone cannot establish real-world accuracy.</p></section><section id=\"simulation\"><p class=\"eyebrow\">The lab</p><h2>What simulation measures</h2><p>Four-player stock-precon pods are fitted with a Plackett–Luce finishing-order model, including turn-position effects. The model win rate estimates a deck’s chance against three random opponents from that run’s field. A 25% baseline represents four equally strong decks. Observed wins are the raw fraction of scored appearances won; they can differ because opponents and seats differ.</p><p>Intervals use the published game-cluster bootstrap and their stated coverage level. They describe sampling uncertainty within this simulation, not AI or rules accuracy. Rank ranges can be wide and overlapping. Known engine/AI limitations remain attached to their deck. An unreliable simulation is evidence to investigate, not a reliable power judgment.</p><p>Failures and timeouts are excluded, not counted as losses. Turn/action-cap finishes retained by the analysis have no winner. Legacy imports may carry a generic difficulty label without recording the Forge profile; that profile remains unverified unless the reviewed source notes document it. Each engine keeps its own field, scoring, build and dates; percentiles on a shared subset make orderings comparable, but cannot remove differences in their original opponent fields.</p>",
+        "<div class=\"public-intro\"><p class=\"eyebrow\">Sources and methods</p><h1>Precon methodology</h1><p class=\"lede\">How results, upgrade assessments and market references are collected.</p></div><nav class=\"method-nav\" aria-label=\"Methodology sections\"><a class=\"button\" href=\"#upgradeability\">Upgradeability</a><a class=\"button\" href=\"#meta\">Meta rank</a><a class=\"button\" href=\"#simulation\">Simulation</a><a class=\"button\" href=\"#real\">Real games</a><a class=\"button\" href=\"#sources\">Sources</a></nav><div class=\"public-prose\"><section id=\"upgradeability\"><h2>Upgradeability</h2><p>Upgradeability is Yama’s judgment of improvements that retain the precon’s main theme. Each commander configuration has its own assessment, including in-box alternatives and supported on-theme commander swaps. A replacement strategy is a separate deck build. Each grade needs a published guide covering that commander, at least two checked nonstock card examples, and written reasons covering card support, commander payoff and restrictions. The guide supplies evidence; Yama assigns the grade. Reviewer grades remain in their original scales. The old unsupported estimates were withdrawn on 27 October 2026.</p></section><section id=\"meta\"><p class=\"eyebrow\">Experimental / v1</p><h2>What the meta rank means</h2><p>Meta means agreement across evidence sources, rather than a forecast for your local playgroup. We use only stock lists with at least 20 real games and 20 simulated appearances in every published engine. At least four decks must qualify. Unranked decks remain browsable.</p><div class=\"formula\">Meta score = ½ real-game percentile<br>+ ½ mean simulation percentile</div><p>We re-rank each source within that same shared cohort. Higher is better: the lowest value scores 0, the highest 100, with tied values given their average rank. For n decks, percentile = 100 × (number below + (number equal − 1) / 2) / (n − 1). Real games use the reported four-player-normalised win rate; each engine uses its fitted strength. The score’s descending order gives the meta rank; tied scores share a rank. Filtering this page never changes the cohort or rank.</p><p>The two evidence groups have equal editorial weight. Phase and Forge, when both published, share the simulation half; extra runs from one engine cannot add votes. These weights have not been optimised or validated as a win prediction. Prices, popularity and reviewer opinion have no weight. Sources are dated but not age-weighted, so older results need care.</p><p>Engine confidence warnings remain visible and do not change the score or select the cohort: some warnings already use disagreement with real games, so filtering by those warnings would favour agreement by construction. The meta score has no probability interpretation or confidence interval. Large source disagreements and wide simulation intervals remain reasons to inspect a deck.</p><h3>Why there is no blended win-rate forecast yet</h3><p>A simulation’s opponents are a closed precon field; real games have different opponents, pilots and selection effects. Averaging those percentages would hide those differences. We show the separate model and observed win rates. A future forecast needs a declared target field, validation against held-out real results, and an interval that includes calibration error. More simulated games alone cannot establish real-world accuracy.</p></section><section id=\"simulation\"><p class=\"eyebrow\">The lab</p><h2>What simulation measures</h2><p>Four-player stock-precon pods are fitted with a Plackett–Luce finishing-order model, including turn-position effects. The model win rate estimates a deck’s chance against three random opponents from that run’s field. A 25% baseline represents four equally strong decks. Observed wins are the raw fraction of scored appearances won; they can differ because opponents and seats differ.</p><p>Intervals use the published game-cluster bootstrap and their stated coverage level. They describe sampling uncertainty within this simulation, not AI or rules accuracy. Rank ranges can be wide and overlapping. Known engine/AI limitations remain attached to their deck. An unreliable simulation is evidence to investigate, not a reliable power judgment.</p><p>Failures and timeouts are excluded, not counted as losses. Turn/action-cap finishes retained by the analysis have no winner. Legacy imports may carry a generic difficulty label without recording the Forge profile; that profile remains unverified unless the reviewed source notes document it. Each engine keeps its own field, scoring, build and dates; percentiles on a shared subset make orderings comparable, but cannot remove differences in their original opponent fields.</p>",
     );
     let rubric = upgradeability_rubric();
-    body=body.replacen("</p></section><section id=\"meta\">", &format!("</p>{rubric}<h3>Commander results and other sources</h3><p>{}</p><p>Commander counts come from each Playgroup API endpoint, fetched and attributed separately from stock-precon results. We never mix bulk and individual endpoint counts. Zero games has no rate. Samples below 20 games are marked small. No attempt is made to correct these commander rates for pilot skill or selection effects.</p><p><a href=\"https://edhtop16.com\">EDHTop16</a> reports competitive tournament entries and conversion rates. Conversion measures advancement, not game wins, and does not describe a stock precon. <a href=\"https://edhrec.com/faq\">EDHREC</a> deck inclusion measures card choices, not outcomes. Those measures are not pooled with Playgroup win rates or used as automatic upgrade scores. Dated reviews from named authors provide qualitative evidence. Upgraded-versus-stock trials for these assessments have not been run.</p><p>Coverage: 174 catalog lists audited; 13 source-backed grades, 20 previously collected individual reviews checked, and 179 individual commander observations. The remaining lists are ungraded. A guide that switches commanders does not qualify the original commander for a grade. New or changed catalog lists also remain ungraded. Upgradeability and commander observations have no weight in the stock meta rank.</p></section><section id=\"meta\">", e(crate::upgradeability::COMMANDER_CAVEAT)),1);
+    body=body.replacen("</p></section><section id=\"meta\">", &format!("</p>{rubric}<h3>Commander results and other sources</h3><p>{}</p><p>Commander counts come from each Playgroup API endpoint, fetched and attributed separately from stock-precon results. We never mix bulk and individual endpoint counts. Zero games has no rate. Samples below 20 games are marked small. No attempt is made to correct these commander rates for pilot skill or selection effects.</p><p><a href=\"https://edhtop16.com\">EDHTop16</a> reports competitive tournament entries and conversion rates. Conversion measures advancement, not game wins, and does not describe a stock precon. <a href=\"https://edhrec.com/faq\">EDHREC</a> deck inclusion measures card choices, not outcomes. Those measures are not pooled with Playgroup win rates or used as automatic upgrade scores. Dated reviews from named authors provide qualitative evidence. Upgraded-versus-stock trials for these assessments have not been run.</p><p>Coverage: 174 catalog lists audited; 13 source-backed grades, 20 previously collected individual reviews checked, and 190 distinct commander observations (179 reference commanders and 11 alternative commanders). The remaining reference lists are ungraded. Eleven separately validated commander options are now available, including two additional source-backed grades. A guide using another commander supports that configuration, not the original commander’s grade. New or changed lists need their own matching assessment. Prepared commander lists use separate command zones and identities; they do not inherit the reference list’s simulation results. Upgradeability and commander observations have no weight in the stock meta rank.</p></section><section id=\"meta\">", e(crate::upgradeability::COMMANDER_CAVEAT)),1);
     if let Some(s) = &snapshot {
         for source in std::iter::once(s).chain(s.comparisons.iter()) {
             let p = &source.publication;

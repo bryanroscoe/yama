@@ -3,8 +3,8 @@ use crate::{decks::Board, lab::PreconCard};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::LazyLock};
 
-pub const METHOD: &str = "source-backed-upgradeability-v2";
-pub const BASIS: &str = "Yama's editorial judgment of improvement options while retaining the catalog commander and main theme. Based on the cited guides, checked card examples and commander restrictions. No upgrade win-rate estimate is available.";
+pub const METHOD: &str = "source-backed-upgradeability-v3";
+pub const BASIS: &str = "Yama's editorial judgment of improvement options for the stated commander configuration while retaining the precon’s main theme. Based on the cited guides, checked card examples and commander restrictions. No upgrade win-rate estimate is available.";
 pub const RUBRIC: &str = "1 Minimal: changing individual cards does little for the main plan; its limiting mechanism remains. 2 Narrow: useful replacements exist, but the same commander or theme restriction blocks most further gains. 3 Workable: a documented upgrade package improves the plan, with a persistent setup, combat or card-pool limit. 4 Broad: several compatible packages improve the plan and its finish; important restrictions still apply. 5 Exceptional: the commander supplies repeatable resources and a direct finish; on-theme additions strengthen both. These are ordinal judgments, not measured power steps. Evidence missing means ungraded, not 1.";
 pub const COMMANDER_CAVEAT: &str = "Playgroup commander results include stock and modified lists, mixed pod sizes and opponents. The raw rate is wins divided by games, not four-player normalised. Partner commanders are separate observations, not a pair's rate. Do not subtract a stock-precon rate to estimate upgrade gain.";
 
@@ -94,6 +94,30 @@ pub struct CommanderResult {
     pub population: String,
     pub sha256: String,
 }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PathScope {
+    Catalog,
+    InBox,
+    OnThemeSwap,
+    SeparateBuild,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Continuity {
+    pub theme: String,
+    pub retains: String,
+    pub changes: String,
+}
+#[derive(Clone, Deserialize)]
+struct AlternativeEntry {
+    key: String,
+    scope: PathScope,
+    continuity: Continuity,
+    list_checked_on: String,
+    validated_fingerprint: String,
+    #[serde(flatten)]
+    entry: Entry,
+}
 #[derive(Debug, Clone, Serialize)]
 pub struct Assessment {
     pub score: Option<u8>,
@@ -116,6 +140,16 @@ pub struct Assessment {
     pub commander_caveat: &'static str,
     pub attribution: &'static str,
     pub gap: Option<String>,
+    pub variant_key: String,
+    pub commanders: Vec<String>,
+    pub scope: PathScope,
+    pub continuity: Option<Continuity>,
+    pub retained_cards: Option<u32>,
+    pub list_checked_on: Option<String>,
+    pub list_url: Option<String>,
+    pub list_fingerprint: Option<String>,
+    pub simulation_note: &'static str,
+    pub alternatives: Vec<Assessment>,
 }
 #[derive(Deserialize)]
 struct Document {
@@ -124,7 +158,7 @@ struct Document {
     sources: BTreeMap<String, Source>,
     decks: BTreeMap<String, Entry>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct Entry {
     score: Option<u8>,
     effort: Option<String>,
@@ -138,6 +172,10 @@ struct Entry {
     commanders: Vec<String>,
     source_url: String,
     stock: Vec<(String, String, u32)>,
+    #[serde(default)]
+    alternatives: Vec<AlternativeEntry>,
+    catalog_list_checked_on: Option<String>,
+    catalog_validated_fingerprint: Option<String>,
 }
 #[derive(Deserialize)]
 struct CommanderDocument {
@@ -189,8 +227,8 @@ fn supported_grade(entry: &Entry, sources: &[Source]) -> Option<u8> {
             .is_some_and(|s| !s.trim().is_empty()))
     .then_some(grade)
 }
-pub fn assess(id: &str, cards: &[PreconCard]) -> Assessment {
-    let mut result = Assessment {
+fn empty(cards: &[PreconCard]) -> Assessment {
+    Assessment {
         score: None,
         label: "Ungraded",
         status: "not_assessed",
@@ -211,41 +249,66 @@ pub fn assess(id: &str, cards: &[PreconCard]) -> Assessment {
         commander_caveat: COMMANDER_CAVEAT,
         attribution: "Playgroup.gg / Arcane Digital B.V., aggregate statistics licensed CC BY 4.0 (https://playgroup.gg/legal).",
         gap: Some("No source-backed upgrade assessment is recorded for this list.".into()),
-    };
-    debug_assert_eq!(DATA.method, METHOD);
-    let Some(entry) = DATA.decks.get(id) else {
-        return result;
-    };
-    result.assessed_on = Some(DATA.assessed_on.clone());
-    result.source_url = Some(entry.source_url.clone());
-    if key(cards
+        variant_key: "catalog".into(),
+        commanders: cards
+            .iter()
+            .filter(|c| c.board == Board::Commander)
+            .map(|c| c.name.clone())
+            .collect(),
+        scope: PathScope::Catalog,
+        continuity: None,
+        retained_cards: None,
+        list_checked_on: None,
+        list_url: None,
+        list_fingerprint: None,
+        simulation_note: "No matched simulation results are attached to this commander option.",
+        alternatives: vec![],
+    }
+}
+fn entry_cards(entry: &Entry) -> Vec<PreconCard> {
+    entry
+        .stock
+        .iter()
+        .map(|(b, n, q)| PreconCard {
+            name: n.clone(),
+            qty: *q,
+            oracle_id: None,
+            board: match b.as_str() {
+                "commander" => Board::Commander,
+                "main" => Board::Main,
+                _ => Board::Side,
+            },
+        })
+        .collect()
+}
+fn matches(entry: &Entry, cards: &[PreconCard]) -> bool {
+    key(cards
         .iter()
         .map(|c| (board(&c.board), c.name.as_str(), c.qty)))
-        != key(entry
+        == key(entry
             .stock
             .iter()
             .map(|(b, n, q)| (b.as_str(), n.as_str(), *q)))
-    {
-        result.status = "stock_list_changed";
-        result.label = "Needs reassessment";
-        result.gap = Some("The catalog list or commander changed after this assessment.".into());
-        return result;
-    }
-    result.sources = entry
+}
+fn evaluate(entry: &Entry) -> Assessment {
+    let mut a = empty(&entry_cards(entry));
+    a.assessed_on = Some(DATA.assessed_on.clone());
+    a.source_url = Some(entry.source_url.clone());
+    a.sources = entry
         .sources
         .iter()
         .filter_map(|id| DATA.sources.get(id).cloned())
         .collect();
-    result.commander_cards = entry.commander_cards.clone();
-    result.commander_results = entry
+    a.commander_cards = entry.commander_cards.clone();
+    a.commander_results = entry
         .commanders
         .iter()
         .filter_map(|n| COMMANDERS.commanders.get(n).cloned())
         .collect();
-    result.gap = entry.gap.clone();
-    result.score = supported_grade(entry, &result.sources);
-    if let Some(score) = result.score {
-        result.label = match score {
+    a.gap = entry.gap.clone();
+    a.score = supported_grade(entry, &a.sources);
+    if let Some(score) = a.score {
+        a.label = match score {
             1 => "Minimal",
             2 => "Narrow",
             3 => "Workable",
@@ -253,19 +316,187 @@ pub fn assess(id: &str, cards: &[PreconCard]) -> Assessment {
             5 => "Exceptional",
             _ => "Ungraded",
         };
-        result.status = "reviewed";
-        result.effort = entry.effort.clone();
-        result.path = entry.path.clone();
-        result.limitation = entry.limitation.clone();
-        result.rationale = entry.rationale.clone();
-        result.examples = entry.examples.clone();
+        a.status = "reviewed";
+        a.effort = entry.effort.clone();
+        a.path = entry.path.clone();
+        a.limitation = entry.limitation.clone();
+        a.rationale = entry.rationale.clone();
+        a.examples = entry.examples.clone();
     } else {
-        result.status = "insufficient_evidence";
-        result.gap.get_or_insert_with(|| {
+        a.status = "insufficient_evidence";
+        a.gap.get_or_insert_with(|| {
             "The recorded evidence does not meet the grading requirements.".into()
         });
     }
-    result
+    a
+}
+fn alternate(id: &str, base: &Entry, v: &AlternativeEntry) -> Assessment {
+    let mut a = evaluate(&v.entry);
+    a.variant_key = v.key.clone();
+    a.scope = v.scope.clone();
+    a.continuity = Some(v.continuity.clone());
+    let totals = |entry: &Entry| {
+        let mut m = BTreeMap::new();
+        for (_, n, q) in &entry.stock {
+            *m.entry(n.to_lowercase()).or_insert(0u32) += q;
+        }
+        m
+    };
+    let original = totals(base);
+    let variant = totals(&v.entry);
+    a.retained_cards = Some(
+        variant
+            .iter()
+            .map(|(n, q)| (*q).min(*original.get(n).unwrap_or(&0)))
+            .sum(),
+    );
+    let normalized: Vec<_> = key(v
+        .entry
+        .stock
+        .iter()
+        .map(|(b, n, q)| (b.as_str(), n.as_str(), *q)))
+    .into_iter()
+    .collect();
+    let fingerprint = crate::util::sha256_hex(
+        &serde_json::to_string(&normalized).expect("list identity serializes"),
+    );
+    let stock_commanders: Vec<_> = v
+        .entry
+        .stock
+        .iter()
+        .filter(|(b, _, _)| b == "commander")
+        .map(|(_, n, _)| n.clone())
+        .collect();
+    let valid_list = !v.list_checked_on.trim().is_empty()
+        && fingerprint == v.validated_fingerprint
+        && v.entry.stock.iter().map(|(_, _, q)| q).sum::<u32>() == 100
+        && v.entry.stock.iter().all(|(_, _, q)| *q > 0)
+        && stock_commanders == v.entry.commanders
+        && (v.scope != PathScope::InBox || original == variant);
+    let coherent = [
+        &v.continuity.theme,
+        &v.continuity.retains,
+        &v.continuity.changes,
+    ]
+    .iter()
+    .all(|s| !s.trim().is_empty());
+    if v.scope == PathScope::SeparateBuild || v.scope == PathScope::Catalog || !coherent {
+        a.score = None;
+        a.label = "Separate build";
+        a.status = "separate_build";
+        a.rationale = None;
+        a.effort = None;
+        a.path = None;
+        a.limitation = None;
+        a.examples.clear();
+        a.gap=Some("A replacement strategy is a separate deck build, outside this precon's upgradeability grade.".into());
+    } else if !valid_list {
+        a.score = None;
+        a.label = "Needs list validation";
+        a.status = "list_needs_validation";
+        a.rationale = None;
+        a.effort = None;
+        a.path = None;
+        a.limitation = None;
+        a.examples.clear();
+        a.gap = Some("This commander option's list changed or has not passed validation.".into());
+    } else {
+        a.list_checked_on = Some(v.list_checked_on.clone());
+        a.list_url = Some(format!("/precons/{id}/commanders/{}/decklist.txt", v.key));
+        a.list_fingerprint = Some(fingerprint);
+    }
+    a
+}
+fn reference(id: &str, base: &Entry) -> Assessment {
+    let mut a = evaluate(base);
+    a.simulation_note = "Any stock results elsewhere on this page belong to the reference catalog snapshot, not to alternative commander lists.";
+    let normalized: Vec<_> = key(base
+        .stock
+        .iter()
+        .map(|(b, n, q)| (b.as_str(), n.as_str(), *q)))
+    .into_iter()
+    .collect();
+    let hash = crate::util::sha256_hex(
+        &serde_json::to_string(&normalized).expect("list identity serializes"),
+    );
+    if base.catalog_validated_fingerprint.as_deref() == Some(&hash)
+        && base.catalog_list_checked_on.is_some()
+    {
+        a.list_checked_on = base.catalog_list_checked_on.clone();
+        a.list_fingerprint = Some(hash);
+        a.list_url = Some(format!("/precons/{id}/commanders/catalog/decklist.txt"));
+        a.retained_cards = Some(100);
+    }
+    a
+}
+
+pub fn assess(id: &str, cards: &[PreconCard]) -> Assessment {
+    debug_assert_eq!(DATA.method, METHOD);
+    let Some(base) = DATA.decks.get(id) else {
+        return empty(cards);
+    };
+    let mut options = vec![reference(id, base)];
+    options.extend(base.alternatives.iter().map(|v| alternate(id, base, v)));
+    let selected = if matches(base, cards) {
+        Some(0)
+    } else {
+        base.alternatives
+            .iter()
+            .position(|v| matches(&v.entry, cards))
+            .map(|i| i + 1)
+    };
+    let Some(i) = selected else {
+        let mut a = empty(cards);
+        a.status = "stock_list_changed";
+        a.label = "Needs reassessment";
+        a.assessed_on = Some(DATA.assessed_on.clone());
+        a.source_url = Some(base.source_url.clone());
+        a.gap = Some("The catalog list or commander changed after this assessment.".into());
+        return a;
+    };
+    let mut a = options.remove(i);
+    a.alternatives = options;
+    a
+}
+/// Returns only frozen, explicitly reviewed public stock-family inputs. Never reads private decks.
+pub fn variant_deck(id: &str, variant: &str, current: &[PreconCard]) -> Option<String> {
+    let base = DATA.decks.get(id)?;
+    if !matches(base, current) && !base.alternatives.iter().any(|v| matches(&v.entry, current)) {
+        return None;
+    }
+    let entry = if variant == "catalog" {
+        reference(id, base).list_url.as_ref()?;
+        base
+    } else {
+        let v = base
+            .alternatives
+            .iter()
+            .find(|v| v.key == variant && v.scope != PathScope::SeparateBuild)?;
+        alternate(id, base, v).list_url.as_ref()?;
+        &v.entry
+    };
+    let mut text = String::new();
+    for (b, label) in [
+        ("commander", "Commander"),
+        ("main", "Deck"),
+        ("side", "Sideboard"),
+    ] {
+        let rows: Vec<_> = entry
+            .stock
+            .iter()
+            .filter(|(board, _, _)| board == b)
+            .collect();
+        if rows.is_empty() {
+            continue;
+        }
+        text.push_str(label);
+        text.push('\n');
+        for (_, name, qty) in rows {
+            text.push_str(&format!("{qty} {name}\n"));
+        }
+        text.push('\n');
+    }
+    Some(text)
 }
 
 #[cfg(test)]
@@ -400,6 +631,158 @@ mod tests {
         cards[i].qty -= 1;
         cards.push(split);
         assert_eq!(assess(id, &cards).score, Some(4));
+    }
+    #[test]
+    fn commander_options_have_separate_grades_lists_and_observations() {
+        let id = "counter-intelligence";
+        let base = &DATA.decks[id];
+        let a = assess(id, &stock(id));
+        assert_eq!(a.score, None);
+        assert_eq!(a.commanders, vec!["Inspirit, Flagship Vessel"]);
+        let kilo = &a.alternatives[0];
+        assert_eq!(kilo.score, Some(4));
+        assert_eq!(kilo.commanders, vec!["Kilo, Apogee Mind"]);
+        assert_eq!(kilo.retained_cards, Some(100));
+        assert!(kilo.list_url.is_some());
+        assert_eq!(kilo.commander_results[0].name, "Kilo, Apogee Mind");
+        assert_ne!(a.list_fingerprint, kilo.list_fingerprint);
+        let selected = assess(id, &entry_cards(&base.alternatives[0].entry));
+        assert_eq!(selected.score, Some(4));
+        assert_eq!(selected.variant_key, "kilo-apogee-mind");
+        assert_eq!(selected.alternatives[0].score, None);
+        assert_eq!(
+            selected.alternatives[0].commanders,
+            vec!["Inspirit, Flagship Vessel"]
+        );
+        let lab = |e: &Entry| {
+            crate::lab::experiments::normalize(
+                entry_cards(e)
+                    .into_iter()
+                    .map(|c| crate::lab::experiments::LabCard {
+                        name: c.name,
+                        oracle_id: None,
+                        qty: c.qty,
+                        commander: c.board == Board::Commander,
+                    })
+                    .collect(),
+            )
+        };
+        assert_ne!(
+            crate::lab::experiments::list_text(&lab(base)),
+            crate::lab::experiments::list_text(&lab(&base.alternatives[0].entry)),
+            "same card pool with different command zones must remain distinct simulation inputs"
+        );
+    }
+    #[test]
+    fn replacement_strategies_and_changed_unvalidated_lists_never_inherit_grades() {
+        let id = "counter-intelligence";
+        let base = &DATA.decks[id];
+        let mut v = base.alternatives[0].clone();
+        v.scope = PathScope::SeparateBuild;
+        let a = alternate(id, base, &v);
+        assert_eq!(a.score, None);
+        assert!(a.list_url.is_none());
+        assert_eq!(a.status, "separate_build");
+        v.scope = PathScope::OnThemeSwap;
+        let a = alternate(id, base, &v);
+        assert_eq!(a.score, Some(4));
+        assert!(a.list_url.is_some());
+        v.continuity.retains.clear();
+        assert_eq!(alternate(id, base, &v).score, None);
+        v = base.alternatives[0].clone();
+        v.entry.stock[1].1 = "Unreviewed replacement".into();
+        let a = alternate(id, base, &v);
+        assert_eq!(a.score, None);
+        assert_eq!(a.status, "list_needs_validation");
+        assert!(a.list_url.is_none());
+    }
+    #[test]
+    fn all_prepared_commander_lists_have_frozen_validated_identities() {
+        let mut options = 0;
+        let mut graded = 0;
+        for (id, e) in &DATA.decks {
+            for v in &e.alternatives {
+                options += 1;
+                assert!(v.entry.alternatives.is_empty());
+                assert!(
+                    v.key
+                        .bytes()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+                );
+                let a = alternate(id, e, v);
+                assert!(a.list_url.is_some(), "{id}");
+                assert_eq!(a.list_checked_on.as_deref(), Some("2026-10-27"));
+                assert_eq!(a.commander_results.len(), v.entry.commanders.len(), "{id}");
+                if a.score.is_some() {
+                    graded += 1;
+                }
+                let text = variant_deck(id, &v.key, &stock(id)).unwrap();
+                let parsed = crate::decks::parse_list(&text, false);
+                assert_eq!(parsed.iter().map(|c| c.qty).sum::<i64>(), 100);
+                assert_eq!(
+                    parsed
+                        .iter()
+                        .filter(|c| c.board == Board::Commander)
+                        .map(|c| c.name.clone())
+                        .collect::<Vec<_>>(),
+                    v.entry.commanders
+                );
+            }
+        }
+        assert_eq!((options, graded), (11, 2));
+    }
+    #[tokio::test]
+    async fn public_commander_downloads_keep_their_command_zone_and_refuse_changed_catalogs() {
+        let pool = crate::db::test_pool().await;
+        let id = "counter-intelligence";
+        sqlx::query("INSERT INTO precons(id,lab_id,name,set_code,commanders,color_identity,cards,source,content_sha256,imported_at,notes) VALUES (?,?,'Counter Intelligence','EOC',?,'WUR',?,'MTGJSON','hash','2026-10-27','[]')")
+            .bind(id).bind(format!("precons/{id}")).bind(serde_json::to_string(&DATA.decks[id].commanders).unwrap()).bind(serde_json::to_string(&stock(id)).unwrap()).execute(&pool).await.unwrap();
+        use tower::ServiceExt;
+        let app = crate::routes::app(
+            crate::testutil::state_with(crate::testutil::config(), pool.clone()).await,
+        );
+        let path = format!("/precons/{id}/commanders/kilo-apogee-mind/decklist.txt");
+        let get = |path: String| {
+            axum::http::Request::builder()
+                .uri(path)
+                .body(axum::body::Body::empty())
+                .unwrap()
+        };
+        let response = app.clone().oneshot(get(path.clone())).await.unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(text.starts_with("Commander\n1 Kilo, Apogee Mind\n"));
+        assert!(text.contains("\n1 Inspirit, Flagship Vessel\n"));
+        let reference = app
+            .clone()
+            .oneshot(get(format!(
+                "/precons/{id}/commanders/catalog/decklist.txt"
+            )))
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(reference.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(
+            String::from_utf8(bytes.to_vec())
+                .unwrap()
+                .starts_with("Commander\n1 Inspirit, Flagship Vessel\n")
+        );
+        let mut changed = stock(id);
+        changed[1].name = "Changed card".into();
+        sqlx::query("UPDATE precons SET cards=? WHERE id=?")
+            .bind(serde_json::to_string(&changed).unwrap())
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            app.oneshot(get(path)).await.unwrap().status(),
+            axum::http::StatusCode::NOT_FOUND
+        );
     }
     #[tokio::test]
     async fn an_unknown_catalog_import_does_not_claim_a_completed_audit_or_source() {

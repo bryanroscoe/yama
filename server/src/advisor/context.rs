@@ -572,7 +572,7 @@ async fn precon(pool: &SqlitePool, id: &str) -> AppResult<String> {
         s(p, "color_identity"),
     );
     if let Some(u) = p.get("upgradeability") {
-        let _ = writeln!(out, "Upgradeability evidence (Yama judgment; commander observations are mixed-list raw rates, never an upgrade delta): {u}");
+        let _ = writeln!(out, "Upgradeability evidence (separate commander options and comparison lists; raw commander rates are never an upgrade delta): {u}");
     }
     if let Some(pg) = p.get("playgroup").filter(|x| !x.is_null()) {
         let _ = writeln!(out, "Real games (playgroup.gg): {pg}");
