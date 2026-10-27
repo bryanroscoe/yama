@@ -17,6 +17,7 @@ pub mod pairing;
 pub(crate) mod process;
 pub mod stats;
 pub mod worker;
+pub mod remote;
 #[cfg(test)]
 mod experiment_tests;
 
@@ -45,6 +46,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/lab/runs", get(list_runs))
         .route("/api/lab/runs/{id}", get(get_run))
         .merge(experiments::router())
+        .merge(remote::router())
 }
 
 /// Folder for decks made from a precon's stock list.

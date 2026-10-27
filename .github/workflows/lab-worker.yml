@@ -1,0 +1,39 @@
+name: Lab worker (manual pilot)
+on:
+  workflow_dispatch:
+    inputs:
+      execution_id:
+        description: Optional execution UUID to restrict claims
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: lab-worker-pilot
+  cancel-in-progress: false
+jobs:
+  worker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Run one leased pod
+        env:
+          WORKER_TOKEN: ${{ secrets.YAMA_LAB_WORKER_TOKEN }}
+          YAMA_URL: ${{ vars.YAMA_URL }}
+          EXECUTION_ID: ${{ inputs.execution_id }}
+        run: |
+          umask 077
+          token_file="$RUNNER_TEMP/yama-lab-worker-token"
+          trap 'rm -f "$token_file"' EXIT
+          printf '%s' "$WORKER_TOKEN" > "$token_file"
+          unset WORKER_TOKEN
+          extra=()
+          if [ -n "$EXECUTION_ID" ]; then extra+=(--execution "$EXECUTION_ID"); fi
+          python3 tools/lab_worker.py --server "${YAMA_URL:-https://yama.saget.org}" \
+            --token-file "$token_file" work --work-dir "$RUNNER_TEMP/yama-lab-worker" \
+            --max-jobs 1 --max-load 2 --idle-seconds 30 "${extra[@]}"
+      # Private deck snapshots and pending uploads stay on the ephemeral runner; no public artifacts.
+      # A terminated runner's lease expires and its entire pod can be reassigned.

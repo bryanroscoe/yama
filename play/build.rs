@@ -1,13 +1,14 @@
 //! Stamps the lab runner with the source it was built from (`YAMA_LAB_RUNNER`), so every distinct
 //! binary writes a distinct `runner` value into its results:
 //!
-//!   <sha>                  the commit, when this crate and the workspace manifests are unchanged
+//!   <sha>                  the commit, when play, server and workspace manifests are unchanged
 //!   <sha>-dirty-<hash>     uncommitted changes; <hash> is 8 hex digits of an FNV-1a hash of the
 //!                          sources that make the binary (play/src, play/build.rs, play/Cargo.toml,
-//!                          Cargo.toml, Cargo.lock), so two different dirty builds never share a stamp
+//!                          server sources/resources/migrations/build.rs/Cargo.toml, Cargo.toml,
+//!                          Cargo.lock), so dirty builds reflect changes to execution policy too
 //!   unknown-<hash>         no git and no YAMA_LAB_GIT_SHA
 //!
-//! A Docker build context has no .git: deploy/lab.sh passes YAMA_LAB_GIT_SHA (short SHA) and
+//! A Docker build context has no .git: deployment passes YAMA_LAB_GIT_SHA (full SHA) and
 //! YAMA_LAB_GIT_DIRTY (0 or 1) as build args instead, and the hash is computed here from the same
 //! files, so a saget build and a Mac build of the same source carry the same stamp. Setting
 //! YAMA_LAB_RUNNER in the build environment overrides all of this.
@@ -15,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    for p in ["build.rs", "src", "Cargo.toml", "../Cargo.toml", "../Cargo.lock"] {
+    for p in ["build.rs", "src", "Cargo.toml", "../Cargo.toml", "../Cargo.lock", "../server/src", "../server/resources", "../server/migrations", "../server/build.rs", "../server/Cargo.toml"] {
         println!("cargo:rerun-if-changed={p}");
     }
     for v in ["YAMA_LAB_RUNNER", "YAMA_LAB_GIT_SHA", "YAMA_LAB_GIT_DIRTY"] {
@@ -40,7 +41,7 @@ fn git(args: &[&str]) -> Option<String> {
 fn detect() -> String {
     let hash = source_hash();
     let env = |k: &str| std::env::var(k).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-    let Some(sha) = git(&["rev-parse", "--short", "HEAD"]).filter(|s| !s.is_empty()) else {
+    let Some(sha) = git(&["rev-parse", "HEAD"]).filter(|s| !s.is_empty()) else {
         // No git (a Docker build context): the deploy script's build args stand in for it.
         return match env("YAMA_LAB_GIT_SHA") {
             Some(sha) if env("YAMA_LAB_GIT_DIRTY").as_deref() == Some("0") => sha,
@@ -63,7 +64,7 @@ fn detect() -> String {
             }
         }
     }
-    match git(&["status", "--porcelain", "--", ".", "../Cargo.toml", "../Cargo.lock"]) {
+    match git(&["status", "--porcelain", "--", ".", "../server", "../Cargo.toml", "../Cargo.lock"]) {
         Some(s) if s.is_empty() => sha,
         _ => format!("{sha}-dirty-{hash}"),
     }
@@ -77,11 +78,16 @@ fn source_hash() -> String {
     let dir = manifest_dir();
     let mut files: Vec<(String, PathBuf)> = Vec::new();
     collect(&dir.join("src"), "play/src", &mut files);
+    for name in ["src", "resources", "migrations"] {
+        collect(&dir.join("../server").join(name), &format!("server/{name}"), &mut files);
+    }
     for (rel, path) in [
         ("play/build.rs", dir.join("build.rs")),
         ("play/Cargo.toml", dir.join("Cargo.toml")),
         ("Cargo.toml", dir.join("../Cargo.toml")),
         ("Cargo.lock", dir.join("../Cargo.lock")),
+        ("server/build.rs", dir.join("../server/build.rs")),
+        ("server/Cargo.toml", dir.join("../server/Cargo.toml")),
     ] {
         if path.is_file() {
             files.push((rel.to_string(), path));

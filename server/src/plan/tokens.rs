@@ -4,6 +4,7 @@
 //! `api_tokens`, with a scope, an expiry and a revoked time. A `plan:sync` key is accepted only by
 //! the `SyncUser` extractor, on the routes a script needs (import, head, inbox, ack); an `mcp` key
 //! only by `POST /mcp` (Claude's tools, `mcp/`).
+//! Admin-only `lab:worker:saget|laptop|github` keys are accepted only by the lab worker API.
 //!
 //! `CurrentUser` never accepts a key: it looks bearer tokens (and WebSocket `?token=`) up in
 //! `sessions`, where a key never is, so a key anywhere else is a 401. A key is never admin, and a
@@ -145,7 +146,7 @@ struct NewKey {
     name: String,
     /// Days until it expires; 365 when missing.
     days: Option<i64>,
-    /// `plan:sync` (the default) or `mcp`.
+    /// `plan:sync` (the default), `mcp`, or an admin-only `lab:worker:<target>` scope.
     scope: Option<String>,
 }
 
@@ -183,10 +184,16 @@ async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json
     let token = format!("{PREFIX}{}", random_token());
     let id = new_id();
     let expires_at = time(Utc::now() + Duration::days(days));
+    if body.scope.as_deref().is_some_and(|s| s.starts_with("lab:worker:")) && !user.is_admin {
+        return Err(AppError::Forbidden("Remote execution is an admin pilot".into()));
+    }
     let scope = match body.scope.as_deref() {
         None | Some(SCOPE_SYNC) => SCOPE_SYNC,
         Some(SCOPE_MCP) => SCOPE_MCP,
-        Some(other) => return Err(AppError::bad(format!("scope \"{other}\" isn't one of {SCOPE_SYNC}, {SCOPE_MCP}"))),
+        Some("lab:worker:saget") => "lab:worker:saget",
+        Some("lab:worker:laptop") => "lab:worker:laptop",
+        Some("lab:worker:github") => "lab:worker:github",
+        Some(other) => return Err(AppError::bad(format!("unknown token scope {other:?}"))),
     };
     let scopes = vec![scope.to_string()];
     sqlx::query("INSERT INTO api_tokens (id, owner_id, name, token_hash, scopes, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
