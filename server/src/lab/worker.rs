@@ -589,7 +589,7 @@ impl LabWorker {
             }
             inner.forge_busy += jobs.len();
         }
-        let active = match self.mark_started(&jobs).await {
+        let active = match self.mark_started_for(&jobs, true).await {
             Ok(active) => active,
             Err(e) => {
                 self.release_forge(&jobs).await;
@@ -734,6 +734,10 @@ impl LabWorker {
     /// any game starts. Returns the experiments still queued or running; jobs of any other are
     /// not counted and must not start.
     pub(crate) async fn mark_started(&self, jobs: &[Job]) -> AppResult<HashSet<String>> {
+        self.mark_started_for(jobs, false).await
+    }
+
+    async fn mark_started_for(&self, jobs: &[Job], forge: bool) -> AppResult<HashSet<String>> {
         let stamp = now();
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let mut active = HashSet::new();
@@ -741,11 +745,13 @@ impl LabWorker {
             let n = sqlx::query(
                 "UPDATE lab_experiments SET status = 'running', started_at = IFNULL(started_at, ?),
                     updated_at = CASE WHEN status = 'queued' THEN ? ELSE updated_at END
-                 WHERE id = ? AND status IN ('queued','running')",
+                 WHERE id = ? AND status IN ('queued','running')
+                 AND (? OR NOT EXISTS (SELECT 1 FROM lab_execution_runs r WHERE r.experiment_id = lab_experiments.id AND r.comparison = 0))",
             )
             .bind(&stamp)
             .bind(&stamp)
             .bind(experiment)
+            .bind(forge)
             .execute(&mut *tx)
             .await?
             .rows_affected();
@@ -771,7 +777,7 @@ impl LabWorker {
     /// own build.
     async fn replay_split_pods(&self, build: &Build) -> AppResult<()> {
         let active: HashSet<String> =
-            sqlx::query_scalar("SELECT id FROM lab_experiments WHERE status IN ('queued','running')").fetch_all(&self.pool).await?.into_iter().collect();
+            sqlx::query_scalar("SELECT id FROM lab_experiments WHERE status IN ('queued','running') AND NOT EXISTS (SELECT 1 FROM lab_execution_runs r WHERE r.experiment_id=lab_experiments.id AND r.comparison=0)").fetch_all(&self.pool).await?.into_iter().collect();
         let todo: Vec<String> = {
             let mut inner = lock(&self.inner);
             inner.build_checked.retain(|id| active.contains(id));
@@ -894,7 +900,8 @@ impl LabWorker {
             let busy = in_flight.iter().filter(|(e, _)| *e == id).count();
             // Games put back after the machine cut them short come after the rest.
             let rows: Vec<(String, String, i64, bool)> = sqlx::query_as(
-                "SELECT game, spec, attempts, retried FROM lab_experiment_games WHERE experiment_id = ? AND engine = ? AND result IS NULL ORDER BY retried, ord LIMIT ?",
+                "SELECT game, spec, attempts, retried FROM lab_experiment_games WHERE experiment_id = ? AND engine = ? AND result IS NULL
+                 AND (engine != 'phase' OR NOT EXISTS (SELECT 1 FROM lab_execution_runs r WHERE r.experiment_id=lab_experiment_games.experiment_id AND r.comparison=0)) ORDER BY retried, ord LIMIT ?",
             )
             .bind(&id)
             .bind(engine)
@@ -1087,6 +1094,7 @@ const SPLIT_PODS: &str = "WITH b AS (
     UPDATE lab_experiment_games
     SET result = NULL, end_kind = NULL, finished_at = NULL, attempts = CASE WHEN attempts >= ? THEN attempts ELSE 0 END
     WHERE experiment_id = ? AND engine = 'phase'
+      AND NOT EXISTS (SELECT 1 FROM lab_execution_runs r WHERE r.experiment_id=lab_experiment_games.experiment_id AND r.comparison=0)
       AND EXISTS (SELECT 1 FROM lab_experiments e WHERE e.id = lab_experiment_games.experiment_id AND e.status IN ('queued','running'))
       AND ord IN (
         SELECT x.ord FROM b x JOIN b p ON p.ord / 2 = x.ord / 2 AND p.ord != x.ord

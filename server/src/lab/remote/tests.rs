@@ -1,0 +1,397 @@
+use super::*;
+use crate::testutil;
+use axum::http::{Method, StatusCode};
+
+fn build(policy: &str) -> Build {
+    Build {
+        engine: "phase-test".into(),
+        card_data: "abc123".into(),
+        runner: format!("source-1/{policy}"),
+    }
+}
+
+async fn fixture() -> (SqlitePool, Worker, String) {
+    let pool = crate::db::test_pool().await;
+    let (owner, _) = testutil::user(&pool, "worker-owner@example.com").await;
+    sqlx::query("UPDATE users SET is_admin=1 WHERE id=?")
+        .bind(&owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let token = new_id();
+    sqlx::query("INSERT INTO api_tokens(id,owner_id,name,token_hash,scopes,created_at) VALUES (?,?, 'worker', ?, '[\"lab:worker:laptop\"]',?)")
+        .bind(&token).bind(&owner).bind(sha256_hex("worker-key")).bind(now()).execute(&pool).await.unwrap();
+    let list = |id: &str| json!({"id":id,"label":id,"source":{},"sha256":id,"cards":[{"name":"Forest","qty":100}]});
+    let frozen = json!({"version":1,"mode":"compare","seed":7,"pod":2,"pods":1,"difficulty":"Easy",
+        "limits":{"max_turns":10,"max_actions":100,"max_seconds":5,"turn_action_cap":50},
+        "base":list("base"),"variant":list("variant"),"opponents":[{"id":"field","label":"field","source":{},"sha256":"field","cards":[{"name":"Forest","qty":100}],"pods":1}],"warnings":[],
+        "display":{"base":{"label":"base","commanders":[],"color_identity":"","source":{}},
+        "field":{"kind":"my_decks","ids":[],"label":"field","decks":1}}});
+    let experiment = new_id();
+    sqlx::query("INSERT INTO lab_experiments(id,owner_id,name,status,spec,games_total,engine,card_data,runner,difficulty,created_at,updated_at) VALUES (?,?,'private','queued',?,2,'phase-test','abc123','source-1/isolated-linux-2g-v1','Easy',?,?)")
+        .bind(&experiment).bind(&owner).bind(frozen.to_string()).bind(now()).bind(now()).execute(&pool).await.unwrap();
+    for (ord, id) in ["base", "variant"].iter().enumerate() {
+        let spec = json!({"game":format!("game-{ord}"),"seed":7,"decks":[id,"field"],"difficulty":"Easy","max_turns":10,"max_actions":100,"max_seconds":5});
+        sqlx::query("INSERT INTO lab_experiment_games(experiment_id,game,ord,spec,engine) VALUES (?,?,?,?,'phase')")
+            .bind(&experiment).bind(format!("game-{ord}")).bind(ord as i64).bind(spec.to_string()).execute(&pool).await.unwrap();
+    }
+    (
+        pool,
+        Worker {
+            owner,
+            token,
+            target: "laptop".into(),
+        },
+        experiment,
+    )
+}
+
+fn execution(experiment: &str) -> NewExecution {
+    NewExecution {
+        id: new_id(),
+        experiment_id: experiment.into(),
+        target: "laptop".into(),
+        comparison: false,
+        targets: vec![],
+        sample_units: 1,
+        github_minutes: 0,
+    }
+}
+fn offer(id: &str) -> Claim {
+    Claim {
+        worker_id: id.into(),
+        build: build("isolated-local-v1"),
+        ready: true,
+        execution_id: None,
+    }
+}
+fn submission(lease: &Lease) -> Submission {
+    let requests: Vec<Request> = serde_json::from_value(lease.requests.clone()).unwrap();
+    Submission {
+        results: requests
+            .iter()
+            .map(|q| {
+                let mut r = GameResult::new(&q.spec, &q.card_data);
+                r.engine = lease.build.engine.clone();
+                r.runner = lease.build.runner.clone();
+                r.end = End::Win;
+                r.winner = Some(0);
+                r.first_seat = Some(0);
+                r.placements = vec![vec![0], vec![1]];
+                r.final_life = vec![40, 0];
+                r.turns = 3;
+                r.actions = 12;
+                r
+            })
+            .collect(),
+        wall_seconds: 2.0,
+        peak_rss_bytes: 1000,
+        setup_seconds: 1.0,
+    }
+}
+
+#[tokio::test]
+async fn production_claims_whole_pair_and_uploads_once() {
+    let (pool, worker, experiment) = fixture().await;
+    let body = execution(&experiment);
+    create(&pool, &worker.owner, &body).await.unwrap();
+    assert_eq!(create(&pool, &worker.owner, &body).await.unwrap(), body.id);
+    let id = new_id();
+    let lease = claim(&pool, &worker, offer(&id)).await.unwrap().unwrap();
+    assert_eq!(lease.requests.as_array().unwrap().len(), 2);
+    assert!(claim(&pool, &worker, offer(&id)).await.unwrap().is_none());
+    let body = submission(&lease);
+    submit(&pool, &worker, &lease.id, &body).await.unwrap();
+    submit(&pool, &worker, &lease.id, &body).await.unwrap();
+    let (done, status): (i64, String) =
+        sqlx::query_as("SELECT games_done,status FROM lab_experiments WHERE id=?")
+            .bind(&experiment)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(done, 2);
+    assert_eq!(status, "done");
+}
+
+#[tokio::test]
+async fn expired_lease_is_fenced_after_another_worker_claims() {
+    let (pool, worker, experiment) = fixture().await;
+    create(&pool, &worker.owner, &execution(&experiment))
+        .await
+        .unwrap();
+    let first = claim(&pool, &worker, offer(&new_id()))
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query("UPDATE lab_worker_jobs SET expires=0")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let second = claim(&pool, &worker, offer(&new_id()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(first.id, second.id);
+    assert!(matches!(
+        submit(&pool, &worker, &first.id, &submission(&first)).await,
+        Err(AppError::Conflict(_))
+    ));
+    submit(&pool, &worker, &second.id, &submission(&second))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn schedule_build_and_partial_uploads_are_validated_before_any_write() {
+    let (pool, worker, experiment) = fixture().await;
+    create(&pool, &worker.owner, &execution(&experiment))
+        .await
+        .unwrap();
+    let id = new_id();
+    let mut wrong = offer(&id);
+    wrong.build.runner = "different/isolated-local-v1".into();
+    assert!(claim(&pool, &worker, wrong).await.unwrap().is_none());
+    let lease = claim(&pool, &worker, offer(&id)).await.unwrap().unwrap();
+    let mut body = submission(&lease);
+    body.results[1].seed += 1;
+    assert!(submit(&pool, &worker, &lease.id, &body).await.is_err());
+    let mut body = submission(&lease);
+    body.results.pop();
+    assert!(submit(&pool, &worker, &lease.id, &body).await.is_err());
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiment_games WHERE result IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn comparison_reports_three_targets_without_changing_deck_results() {
+    let (pool, worker, experiment) = fixture().await;
+    let mut body = execution(&experiment);
+    body.comparison = true;
+    body.targets = TARGETS.iter().map(|s| s.to_string()).collect();
+    body.github_minutes = 100;
+    create(&pool, &worker.owner, &body).await.unwrap();
+    for target in TARGETS {
+        let w = Worker {
+            target: target.into(),
+            ..worker.clone()
+        };
+        let lease = claim(&pool, &w, offer(&new_id())).await.unwrap().unwrap();
+        submit(&pool, &w, &lease.id, &submission(&lease))
+            .await
+            .unwrap();
+    }
+    let report = report(&pool, &worker.owner, &body.id).await.unwrap();
+    assert_eq!(report["agreement"]["matched"], 2);
+    assert_eq!(report["agreement"]["mismatched"], 0);
+    assert_eq!(report["targets"]["laptop"]["games"], 2);
+    assert_eq!(report["targets"]["saget"]["unscored_games"], 0);
+    let done: i64 = sqlx::query_scalar("SELECT games_done FROM lab_experiments WHERE id=?")
+        .bind(&experiment)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(done, 0);
+}
+
+#[tokio::test]
+async fn owners_cancellation_and_worker_identity_are_isolated() {
+    let (pool, worker, experiment) = fixture().await;
+    let body = execution(&experiment);
+    create(&pool, &worker.owner, &body).await.unwrap();
+    assert!(matches!(
+        report(&pool, "someone-else", &body.id).await,
+        Err(AppError::NotFound(_))
+    ));
+    let (stranger, _) = testutil::user(&pool, "other@example.com").await;
+    let other = Worker {
+        owner: stranger,
+        target: worker.target.clone(),
+        token: worker.token.clone(),
+    };
+    assert!(
+        claim(&pool, &other, offer(&new_id()))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let lease = claim(&pool, &worker, offer(&new_id()))
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query("UPDATE lab_experiments SET status='cancelled' WHERE id=?")
+        .bind(&experiment)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        submit(&pool, &worker, &lease.id, &submission(&lease)).await,
+        Err(AppError::Conflict(_))
+    ));
+}
+
+#[tokio::test]
+async fn auto_uses_available_compatible_workers_and_github_budget() {
+    let (pool, worker, experiment) = fixture().await;
+    let mut body = execution(&experiment);
+    body.target = "auto".into();
+    create(&pool, &worker.owner, &body).await.unwrap();
+    let github = Worker {
+        target: "github".into(),
+        ..worker.clone()
+    };
+    assert!(
+        claim(&pool, &github, offer(&new_id()))
+            .await
+            .unwrap()
+            .is_none(),
+        "zero GH budget disables claims"
+    );
+    let mut unavailable = offer(&new_id());
+    unavailable.ready = false;
+    assert!(claim(&pool, &worker, unavailable).await.unwrap().is_none());
+    assert!(
+        claim(&pool, &worker, offer(&new_id()))
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn legacy_dispatcher_excludes_routed_phase_even_if_it_selected_before_routing() {
+    use super::super::worker::{LabWorker, SimState};
+    let (pool, worker, experiment) = fixture().await;
+    let legacy = LabWorker::new(pool.clone(), 1, SimState::Missing("test".into()));
+    let selected = legacy.next_jobs(2).await.unwrap();
+    assert_eq!(selected.len(), 2);
+    create(&pool, &worker.owner, &execution(&experiment))
+        .await
+        .unwrap();
+    assert!(legacy.next_jobs(2).await.unwrap().is_empty());
+    assert!(legacy.mark_started(&selected).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn router_requires_worker_scope_and_disabled_keys_stop_working() {
+    let (pool, worker, experiment) = fixture().await;
+    create(&pool, &worker.owner, &execution(&experiment))
+        .await
+        .unwrap();
+    let state = testutil::state_with(testutil::config(), pool.clone()).await;
+    let app = crate::routes::app(state);
+    sqlx::query("INSERT INTO sessions(token_hash,user_id,created_at,expires_at) VALUES (?,?,?,'9999-12-31T00:00:00Z')")
+        .bind(sha256_hex("admin-session")).bind(&worker.owner).bind(now()).execute(&pool).await.unwrap();
+    let body = json!({"worker_id":new_id(),"build":build("isolated-local-v1"),"ready":true});
+    let path = "/api/lab/workers/claim";
+    assert_eq!(
+        testutil::send(&app, Method::POST, path, None, Some(body.clone()))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        testutil::send(
+            &app,
+            Method::POST,
+            path,
+            Some("admin-session"),
+            Some(body.clone())
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        testutil::send(&app, Method::GET, "/api/me", Some("worker-key"), None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        testutil::send(
+            &app,
+            Method::POST,
+            path,
+            Some("worker-key"),
+            Some(body.clone())
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    sqlx::query("UPDATE api_tokens SET revoked_at=? WHERE id=?")
+        .bind(now())
+        .bind(&worker.token)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        testutil::send(&app, Method::POST, path, Some("worker-key"), Some(body))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn a_busy_worker_cannot_change_the_build_of_its_existing_lease() {
+    let (pool, worker, experiment) = fixture().await;
+    create(&pool, &worker.owner, &execution(&experiment))
+        .await
+        .unwrap();
+    let id = new_id();
+    let lease = claim(&pool, &worker, offer(&id)).await.unwrap().unwrap();
+    let mut changed = offer(&id);
+    changed.build.runner = "other-source/isolated-local-v1".into();
+    assert!(claim(&pool, &worker, changed).await.unwrap().is_none());
+    submit(&pool, &worker, &lease.id, &submission(&lease))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn restricted_workers_do_not_block_another_execution_in_auto_mode() {
+    let (pool, worker, experiment) = fixture().await;
+    let restricted_id = new_id();
+    let mut restricted = offer(&restricted_id);
+    restricted.execution_id = Some(new_id());
+    assert!(claim(&pool, &worker, restricted).await.unwrap().is_none());
+    let mut body = execution(&experiment);
+    body.target = "auto".into();
+    create(&pool, &worker.owner, &body).await.unwrap();
+    assert!(
+        claim(&pool, &worker, offer(&new_id()))
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn both_engine_labels_still_allow_phase_and_keep_forge_in_the_original_queue() {
+    use super::super::worker::{LabWorker, SimState};
+    let (pool, worker, experiment) = fixture().await;
+    sqlx::query("UPDATE lab_experiments SET engine='phase-test, forge-test' WHERE id=?")
+        .bind(&experiment)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO lab_experiment_games(experiment_id,game,ord,spec,engine) SELECT experiment_id,'forge-0',10,spec,'forge' FROM lab_experiment_games WHERE experiment_id=? AND ord=0")
+        .bind(&experiment).execute(&pool).await.unwrap();
+    create(&pool, &worker.owner, &execution(&experiment))
+        .await
+        .unwrap();
+    assert!(
+        claim(&pool, &worker, offer(&new_id()))
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let legacy = LabWorker::new(pool.clone(), 1, SimState::Missing("test".into()));
+    assert!(legacy.next_jobs(2).await.unwrap().is_empty());
+    assert_eq!(legacy.next_jobs_for("forge", 2).await.unwrap().len(), 1);
+}

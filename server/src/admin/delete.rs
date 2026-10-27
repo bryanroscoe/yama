@@ -54,9 +54,11 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("games", "created_by"),
     ("invites", "invited_by"),
     ("item_aliases", "owner_id"),
+    ("lab_execution_runs", "owner_id"),
     ("lab_experiments", "owner_id"),
     ("lab_runs", "owner_id"),
     ("lab_usage", "owner_id"),
+    ("lab_worker_instances", "owner_id"),
     ("mythic_imports", "owner_id"),
     ("oauth_codes", "user_id"),
     ("oauth_grants", "user_id"),
@@ -90,6 +92,9 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     // "View as" sessions it started or that viewed it, and so their audit rows.
     ("view_sessions", "admin_id"),
     ("view_sessions", "target_id"),
+    // Worker jobs reference instances; remove runs (and their jobs) before instances and keys.
+    ("lab_execution_runs", "owner_id"),
+    ("lab_worker_instances", "owner_id"),
     ("api_tokens", "owner_id"),
     // OAuth: codes, then grants (their tokens go with them). Registered clients hold no account.
     ("oauth_codes", "user_id"),
