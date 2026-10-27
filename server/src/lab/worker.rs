@@ -1,10 +1,10 @@
 //! The lab worker: plays the games of "Try a change" experiments inside the server.
 //!
-//! - It uses the rules engine the play hub already loaded (one copy of the card data in memory),
-//!   through [`EngineSim`]. Tests use a fake [`Simulator`] so they run in milliseconds.
-//! - YAMA_LAB_THREADS games at a time (default 2), each on its own thread with a 32 MiB stack, with
-//!   the lab core's limits: the turn, action and per-turn loop caps, and the per-game CPU cap. The
-//!   limits are the ones frozen into the experiment when it was created.
+//! - The play hub's loaded engine answers card-support lookups. Production games run through
+//!   `IsolatedSim` in disposable, credential-free child processes. Tests use a fake simulator.
+//! - YAMA_LAB_THREADS games at a time (default 1), each with a 32 MiB game stack. Linux children
+//!   enforce a 2 GiB data/heap limit plus CPU and output limits; their parent enforces a deadline.
+//!   The turn, action, per-turn and game CPU caps remain the experiment's frozen limits.
 //! - First in, first out across users, by experiment: every free thread takes the oldest
 //!   experiment's next game. A user who isn't an admin has one experiment playing at a time; their
 //!   next one waits even when a thread is free, and someone else's runs instead.
@@ -13,21 +13,17 @@
 //!   a restart the worker resumes queued and running experiments where they stopped, replaying only
 //!   the games that were in flight. Storing is conditional (`result IS NULL`), so a game's result
 //!   is never written twice, and a result for a deleted experiment is dropped.
-//! - Every start is counted (`attempts`). A stack overflow or an abort inside a game ends the whole
-//!   server, and nothing in the process can catch it. A game started [`MAX_ATTEMPTS`] times without
-//!   a result is written off as an error instead of being played again, so one such game can't take
-//!   the server down on every restart.
-//! - A game that makes no move for HANG_SECS is stuck inside one engine or AI step. It is written
-//!   off as an error (as the batch runner does). A thread can't be stopped from outside, so it stays
-//!   behind, still busy, and the worker plays one game fewer at a time until that thread ends or the
-//!   server restarts. The log says so.
+//! - Every start is counted (`attempts`). External server stops before a result is stored still
+//!   use MAX_ATTEMPTS. A game's abort, memory failure or stack overflow instead ends only its
+//!   child and is stored as an unscored error, leaving the server and other games available.
+//! - A child that reports a hung step exits with its result. The parent also kills/reaps a child
+//!   at its outer deadline, so stuck work cannot retain an in-process thread indefinitely.
 //! - A phase game cut short by the machine (the CPU-time cap, a hang, the wall-clock safety net;
 //!   [`GameResult::cut_short_by_machine`]) isn't stored the first time: it goes back in the queue,
 //!   once, behind the run's other games. A game replays move for move from its schedule line, so
 //!   on a healthy machine the retry gives the game's real result; a game that really is that long
-//!   ends the same way again and is stored then. A retry of a hung game whose first thread has
-//!   finished meanwhile keeps that thread's result instead of playing it again; one whose first
-//!   thread is still busy isn't played again (it would only hang a second thread).
+//!   ends the same way again and is stored then. Production retries use a fresh child: the
+//!   previous process has already exited or been killed.
 //! - Cancelling stops an experiment's remaining games from starting; games already running finish
 //!   and are kept. Its summary is marked final only once none of its games is playing: by the
 //!   cancel itself when none is, otherwise by the worker when the last one is stored
@@ -74,6 +70,11 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub trait Simulator: Send + Sync + 'static {
     /// The engine card data's hash, for labels.
     fn card_data(&self) -> String;
+    /// Execution policy is part of the build identity used to keep pairs comparable.
+    fn runner(&self) -> String {
+        RUNNER.into()
+    }
+
     /// Names in `cards` the engine doesn't know.
     fn unknown(&self, cards: &[LabCard]) -> Vec<String>;
     /// Play one game to its end. The schedule line carries the turn, action and CPU caps; `limits`
@@ -104,7 +105,7 @@ pub enum EarlierTry {
 /// The build a simulator plays on: the engine and runner this server was built with, and the
 /// simulator's card data (what every result line it writes carries).
 pub fn current_build(sim: &dyn Simulator) -> Build {
-    Build { engine: ENGINE.into(), card_data: sim.card_data(), runner: RUNNER.into() }
+    Build { engine: ENGINE.into(), card_data: sim.card_data(), runner: sim.runner() }
 }
 
 fn deck_lines(cards: &[LabCard]) -> Vec<DeckLine<'_>> {
@@ -375,7 +376,7 @@ impl LabWorker {
             loop {
                 match hub.engine_for_lab() {
                     Ok(engine) => {
-                        *w.sim.write().unwrap_or_else(|e| e.into_inner()) = SimState::Ready(Arc::new(EngineSim::new(engine, hash)));
+                        *w.sim.write().unwrap_or_else(|e| e.into_inner()) = SimState::Ready(Arc::new(super::process::IsolatedSim::new(engine, hash, path)));
                         break;
                     }
                     Err(None) => tokio::time::sleep(Duration::from_secs(2)).await,
@@ -809,19 +810,24 @@ impl LabWorker {
 
     async fn play_one(self: Arc<Self>, sim: Arc<dyn Simulator>, job: Job) {
         let earlier = if job.retried { sim.earlier_try(&job.game) } else { EarlierTry::Unknown };
+        let failed = |end, why| {
+            let mut result = GameReport::failed(&job.spec, &sim.card_data(), end, why).result;
+            result.runner = sim.runner();
+            result
+        };
         let result = match (earlier, job.decks) {
             (EarlierTry::Finished(r), _) => {
                 tracing::info!(experiment = %job.experiment, game = %job.game, end = r.end.as_str(), "lab: a game written off as hung finished after all; its result is kept");
                 r
             }
-            (EarlierTry::Playing, _) => GameReport::failed(&job.spec, &sim.card_data(), End::Error, STILL_HUNG.into()).result,
-            (EarlierTry::Unknown, Err(why)) => GameReport::failed(&job.spec, &sim.card_data(), End::Error, why).result,
+            (EarlierTry::Playing, _) => failed(End::Error, STILL_HUNG.into()),
+            (EarlierTry::Unknown, Err(why)) => failed(End::Error, why),
             (EarlierTry::Unknown, Ok(decks)) => {
                 let (spec, limits) = (job.spec.clone(), job.limits);
                 let s = Arc::clone(&sim);
                 tokio::task::spawn_blocking(move || s.play(&spec, &decks, &limits))
                     .await
-                    .unwrap_or_else(|e| GameReport::failed(&job.spec, &sim.card_data(), End::Panic, format!("the game's runner stopped: {e}")).result)
+                    .unwrap_or_else(|e| failed(End::Panic, format!("the game's runner stopped: {e}")))
             }
         };
         let deferred = !job.retried
@@ -927,8 +933,7 @@ impl LabWorker {
                 } else if attempts >= max_attempts {
                     Err(format!(
                         "written off without playing it again: started {attempts} times and the server stopped each time before its result \
-                         was stored. A crash inside a game (a stack overflow, say) ends the whole server, so a game isn't replayed after \
-                         {MAX_ATTEMPTS} such stops"
+                         was stored. A game isn't replayed after {MAX_ATTEMPTS} such interruptions; isolated game-worker failures are stored separately"
                     ))
                 } else {
                     match frozen {

@@ -14,6 +14,7 @@
 pub mod experiments;
 pub mod forge;
 pub mod pairing;
+pub(crate) mod process;
 pub mod stats;
 pub mod worker;
 #[cfg(test)]
