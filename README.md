@@ -130,6 +130,14 @@ Create an OAuth client ID (type "Web application") in Google Cloud Console, add 
 
 ## Checks
 
+[GitHub CI](docs/ci.md) runs the Rust and Python suites, web tests, typecheck and web build on
+every PR into main and every main push. Both CI jobs must pass before merge.
+
+The opt-in [lab worker pilot](docs/lab-workers.md) lets an admin route Phase pods to saget,
+a laptop or GitHub-hosted Actions, choose among available workers, and compare matching samples.
+It includes owner-scoped worker keys and a manual Actions workflow; activation and deployment
+are separate steps.
+
 ```sh
 cargo test            # server
 npm test              # packages/core

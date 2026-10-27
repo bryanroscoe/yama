@@ -20,14 +20,14 @@ const REQUEST_BYTES: u64 = 8 << 20;
 const RESULT_BYTES: u64 = 1 << 20;
 
 #[derive(Serialize, Deserialize)]
-struct Request {
-    spec: GameSpec,
-    decks: Vec<LabList>,
-    limits: Limits,
-    card_data: String,
+pub(super) struct Request {
+    pub spec: GameSpec,
+    pub decks: Vec<LabList>,
+    pub limits: Limits,
+    pub card_data: String,
 }
 
-fn runner() -> String {
+pub(super) fn runner() -> String {
     // Bump this suffix whenever child execution or resource policy changes.
     let policy = if cfg!(target_os = "linux") {
         "isolated-linux-2g-v1"

@@ -437,7 +437,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "plan_meta", &[("owner_id", t(&b))]).await;
 
     // Keys, watches, the lab and the advisor.
-    fill(&pool, "api_tokens", &[("owner_id", t(&v))]).await;
+    let worker_key = fill(&pool, "api_tokens", &[("owner_id", t(&v))]).await;
     let client = fill(&pool, "oauth_clients", &[]).await;
     let grant = fill(&pool, "oauth_grants", &[("user_id", t(&v)), ("client_id", t(&client))]).await;
     fill(&pool, "oauth_tokens", &[("grant_id", t(&grant))]).await;
@@ -449,6 +449,9 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     let experiment = fill(&pool, "lab_experiments", &[("owner_id", t(&v))]).await;
     fill(&pool, "lab_experiment_games", &[("experiment_id", t(&experiment))]).await;
     fill(&pool, "lab_usage", &[("owner_id", t(&v)), ("experiment_id", t(&experiment))]).await;
+    let execution = fill(&pool, "lab_execution_runs", &[("owner_id", t(&v)), ("experiment_id", t(&experiment)), ("target", t("laptop"))]).await;
+    let worker = fill(&pool, "lab_worker_instances", &[("owner_id", t(&v)), ("token_id", t(&worker_key)), ("target", t("laptop"))]).await;
+    fill(&pool, "lab_worker_jobs", &[("run_id", t(&execution)), ("worker_id", t(&worker)), ("target", t("laptop"))]).await;
     fill(&pool, "advisor_keys", &[("user_id", t(&v))]).await;
     fill(&pool, "advisor_settings", &[("user_id", t(&v))]).await;
     let conversation = fill(&pool, "advisor_conversations", &[("owner_id", t(&v))]).await;
@@ -528,6 +531,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     assert_eq!(count(&pool, "online_games", "game_id", &g6).await, 0);
     assert_eq!(count(&pool, "decks", "id", &b_deck).await, 1);
     assert_eq!(count(&pool, "lab_runs", "id", &global_run).await, 1);
+    assert_eq!(count(&pool, "lab_worker_jobs", "run_id", &execution).await, 0);
     for ((table, column), before) in USER_COLUMNS.iter().zip(bystander_before) {
         let after = count(&pool, table, column, &b).await;
         // The one deliberate loss: the bystander's online game the victim sat in loses its replay
