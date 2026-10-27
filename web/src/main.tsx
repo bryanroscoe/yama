@@ -27,7 +27,7 @@ createRoot(document.getElementById("root")!).render(
 );
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  window.addEventListener("load", () => void navigator.serviceWorker.register("/sw.js"));
+  window.addEventListener("load", () => void navigator.serviceWorker.register(`/sw.js?v=${import.meta.env.VITE_SW_VERSION}`));
 }
 
 // Keep a copy of the card list for offline lookups; quietly, after the app has loaded.
