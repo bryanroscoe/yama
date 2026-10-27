@@ -2,21 +2,24 @@
 
 Status: research spike, 2026-10-18. Pinned target: phase **v0.113.0** (tag commit `0571ee32f08c`, released 2026-10-18). All file references are into that tag of <https://github.com/phase-rs/phase>.
 
-## Local recovery candidate, 25 October 2026
+## Recovery baseline, 25 October 2026
 
-The local recovery candidate pins Phase `9b2073b0986fe580d495fce2fa58b5762e24e3eb`.
+The accepted recovery baseline was Phase `9b2073b0986fe580d495fce2fa58b5762e24e3eb`.
 Bryan approved a test-only assertion correction and fresh Codex final review in
 lieu of the rate-limited Opus review. The six regressions and full Phase library
 suite pass (24,452 passed, zero failed, eight ignored). The exact-head review
 reports zero findings, Completion PASS and Maintainer-Simulation PASS. Local
 validation is complete.
 The final checkpoint changes only test assertions, so runtime/replay identity
-remains `phase-v0.113.0+a3bc47c9-yama/cards-1e5608e6`. The production source is
-byte-identical to the measured `a3bc47c` candidate.
-Apply all patches in `patches/phase/` in filename order to a clean v0.113.0
-checkout. The complete series reproduces that commit's tree exactly. The
-[recovery report](engine-recovery-2026-10-25.md) records validation, benchmark
-inputs and remaining gaps. This branch has not been published or deployed.
+remains `phase-v0.113.0+a3bc47c9-yama/cards-1e5608e6`. That baseline's production source was byte-identical to the measured `a3bc47c` candidate.
+Current releases use the separate full commit pin described below.
+The engine now lives in the private [Yama Phase repository](https://github.com/bryanroscoe/yama-phase).
+Clone that repository beside Yama as `../yama-phase`, then check out the full SHA in
+`deploy/phase-rev`. `deploy/phase-repo` records the source; release checks fetch it and require
+the pin to be published on its `main` before exporting the engine. `YAMA_PHASE_DIR` can select
+another checkout for release exports. The old patch files are retired; the initial fork preserves
+their complete source and upstream history. The [recovery report](engine-recovery-2026-10-25.md)
+remains historical validation evidence, not a claim that every current game succeeds.
 
 The new local export is `card-data-1e5608e61683de41.json` (101,470,976 bytes),
 SHA-256 `1e5608e61683de41c84f08f70115bef38db13df85bc5e01fd0eb249cf023244d`.

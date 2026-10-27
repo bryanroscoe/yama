@@ -52,7 +52,7 @@ use engine::types::player::PlayerId;
 use engine::types::replay::ReplayHeader;
 use phase_ai::auto_play::eligible_ai_decision;
 use phase_ai::config::{ACCEPTED_DIFFICULTY_LABELS, AiConfig, AiDifficulty, Platform, create_config_for_players};
-use phase_ai::search::choose_action_with_session;
+use phase_ai::search::PreparedAiDecision;
 use phase_ai::session::AiSession;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -1006,12 +1006,12 @@ fn play(
         match eligible_ai_decision(&state, &seats) {
             Some((owner, actor)) => {
                 // Same choose/verify/apply boundary as phase's run_ai_action and the play crate.
-                let contract = AiDecisionContract::issue(&state, owner);
+                let decision = PreparedAiDecision::new(&state, owner);
                 let mut asked = None;
                 let ask = !std::mem::take(&mut skip_llm_once);
                 if let (true, Some(setup), Some((seat, idx))) = (ask, llm, llm_seats.get_mut(&actor)) {
                     let stats = &mut p.llm[*idx];
-                    match ask_llm(db, setup, seat, stats, &mut p.llm_wait, &state, &contract, &history, &job.game) {
+                    match ask_llm(db, setup, seat, stats, &mut p.llm_wait, &state, decision.contract(), &history, &job.game) {
                         Asked::Chosen(a) => asked = Some(a),
                         Asked::Fallback => {}
                         Asked::Abort(e) => return Ending::Error(e),
@@ -1025,16 +1025,17 @@ fn play(
                 // through to "a worse decision, never a stopped game"; a few prompts don't yet.
                 // Live Yama games stop here instead. Games that never hit this are unchanged.
                 let from_llm = asked.is_some();
-                let chosen = asked.or_else(|| choose_action_with_session(&state, owner, &configs[&actor], &mut rng, &session)).or_else(|| {
-                    let fallback = phase_ai::search::fallback_action(&state, &configs[&actor], &contract);
+                let chosen = asked.or_else(|| decision.choose_action_with_session(&configs[&actor], &mut rng, &session)).or_else(|| {
+                    let fallback = phase_ai::search::fallback_action(&state, &configs[&actor], decision.contract());
                     if fallback.is_some() {
                         p.fallbacks += 1;
                         if p.fallback_first.is_none() {
-                            p.fallback_first = Some(format!("seat {} at {}: {}", actor.0, where_in(&state), no_action_detail(&state, &contract)));
+                            p.fallback_first = Some(format!("seat {} at {}: {}", actor.0, where_in(&state), no_action_detail(&state, decision.contract())));
                         }
                     }
                     fallback
                 });
+                let contract = decision.into_contract();
                 let Some(action) = chosen else {
                     return Ending::Error(format!(
                         "AI for seat {} found no action ({}; {})",

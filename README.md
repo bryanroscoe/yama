@@ -2,6 +2,10 @@
 
 Yet Another Magic App: a free Magic: The Gathering app with a public precon reference and private accounts for playing and tracking Commander. It has a life counter for game night, card search, a collection (with Mythic Tools import), decks that know what you own, and playgroup stats. Online play against friends and AI is the next big piece; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+The engine is maintained in the private [Yama Phase repository](https://github.com/bryanroscoe/yama-phase).
+Clone it beside this repository as `../yama-phase`; releases fetch `deploy/phase-repo` and export
+the exact published commit in `deploy/phase-rev`. See [engine integration](docs/engine-integration.md).
+
 Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images come from [Scryfall](https://scryfall.com); images load from Scryfall at runtime and are never stored or re-hosted here.
 
 ## What works today
@@ -16,6 +20,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | What's new | A page listing what has shipped, in plain sentences, with a notice on each device until it's opened (Group, Account links to it too) |
 | Collection | Binders, boxes, decks and lists; add from card search (a real copy or a proxy); move, condition, proxy; proxies kept out of market value, and a Real / Proxies filter; idempotent offline ops; Mythic Tools CSV import (with a preview; a newer export adds only what's new, and cards it no longer lists are removed only if you ask) and export; "Add to my collection" on a deck puts its cards in its deck box, in the printings the list names |
 | Decks | Paste any common list format; edit as text with versions; version history with a diff between any two versions; Commander validation; owned/needed with cheapest market price; sample hands with mulligans; Game Changers count; how many cards online play supports; real-game results per version ("This version: 3-2, 5 games") |
+| Suggested changes | Review suggestions from Yama’s assistant and external MCP apps before applying them. Deck proposals show separate cards in/out with quantities, card previews, readable reasons and deck checks; existing proposals use the same view |
 | Brackets | A declared bracket per deck (chips on the deck list, table setup and online lobby), shown beside a starting suggestion from Commander Spellbook's card-list signals: Game Changers, mass land denial, extra turns and combos. Unflagged lists start provisionally at Core (2); Exhibition (1) and cEDH (5) are chosen by the owner. The deck page explains why. Checked in the background after a save; turn off with `YAMA_DECK_CHECKS=0` |
 | Deck stats and export | Mana curve (creatures and other spells), average mana value with and without lands, land count, colored pips and potential land access per color, without unsupported shortage verdicts ([method and research](docs/deck-stats.md)). Export as names only (EDHbots), Moxfield (set and number of your copy) or MTG Arena; copy or download |
 | Life counter | 1–6 players, rotated panels with the commander's art behind each life total (artist and copyright credited on each panel; switch to mana colors per device), commander damage and tax, poison and counters, monarch, initiative, day/night, undo, works offline and syncs later. Roll for first or pick who goes first (passing the turn never guesses it); knocking someone out asks who did it; the finish sheet asks how the game was won and how fun it was (all optional) |
@@ -33,6 +38,12 @@ The public precon reference (`/precons`) serves stock lists, explicitly publishe
 
 ## Run it locally
 
+Yama also exposes its own MCP at `/mcp` for Ask Claude and outside clients: private deck,
+collection and planner tools; staged edits; full online card search, community recommendations,
+combos, public deck imports and current rules; deck/budget analysis and bounded mana checks.
+No other Magic MCP installation is needed for those workflows. See
+[capabilities and use](docs/mcp-parity.md) and [connection design](docs/mcp-design.md).
+
 Needs Rust (stable) and Node 22+.
 
 ```sh
@@ -48,13 +59,12 @@ npm run dev                                  # web app on http://localhost:5173 
 Online play needs the local phase fork and its card data (see docs/engine-integration.md):
 
 ```sh
-git clone --depth 1 --branch v0.113.0 https://github.com/phase-rs/phase ../yama-phase
-git -C ../yama-phase apply ../yama/patches/phase/*.patch   # 0001 drops 3 nightly-only lines so it builds on stable
-                                                           # 0002-0008: AI fixes and free-for-all tempo changes (22 Oct 2026)
+git clone https://github.com/bryanroscoe/yama-phase.git ../yama-phase
+git -C ../yama-phase checkout "$(cat deploy/phase-rev)"
 mkdir -p data/engine
   # Build card-data-1e5608e61683de41.json from the archived inputs as described in
   # docs/engine-integration.md (SHA-256 1e5608e61683de41…). This local recovery export
-  # is not on data.phase-rs.dev or the server yet. It must match deploy/phase-rev.
+  # is not published on data.phase-rs.dev. It must match deploy/phase-rev.
 ./target/debug/soak                     # all-AI game with Bryan's decks; checks replay determinism
 ```
 
@@ -67,8 +77,16 @@ cargo build --release -p yama-play --bins
 YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
   cargo test --release -p yama-play --test determinism -- --ignored          # same games twice, and resumed
 YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
+  cargo test --release -p yama-play --test lab_regressions -- --ignored --test-threads=1 # frozen live failures and a successful control
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
   cargo test --release -p yama-server play::bench -- --ignored --nocapture   # a person's move, act to views sent
 ```
+
+The gameplay checks above are separate from `cargo test`, which skips full-game tests by default.
+The determinism checks fail on an AI stop or missing card data. The live regression suite expects
+games to finish normally; it currently exposes unresolved priority-session, Adventure-offer and
+combat-tax defects. See [gameplay validation](docs/gameplay-validation.md). A healthy isolated
+worker is evidence of server reliability; it does not establish rules or AI correctness.
 
 Optional:
 

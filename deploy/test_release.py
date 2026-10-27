@@ -41,17 +41,24 @@ class ReleaseChecks(unittest.TestCase):
             "GIT_COMMITTER_EMAIL": "release-test@example.invalid",
             "YAMA_RELEASE_TEST_CONTACT_LOG": str(self.contact_log),
         }
+        self.env.pop("YAMA_PHASE_DIR", None)
         phase = self.root / "yama-phase"
         self.git(self.root, "init", "--initial-branch=main", str(phase))
         (phase / "Cargo.toml").write_text("# Test engine commit\n")
         self.commit(phase, "Test engine")
         phase_rev = self.git(phase, "rev-parse", "HEAD")
+        self.phase = phase
+        self.phase_remote = self.root / "phase-origin.git"
+        self.git(self.root, "init", "--bare", "--initial-branch=main", str(self.phase_remote))
+        self.git(phase, "remote", "add", "origin", str(self.phase_remote))
+        self.git(phase, "push", "--set-upstream", "origin", "main")
         self.git(self.root, "init", "--bare", "--initial-branch=main", str(self.remote))
         self.git(self.root, "init", "--initial-branch=main", str(self.repo))
         (self.repo / "deploy").mkdir()
-        for name in ("check-release.sh", "deploy.sh"):
+        for name in ("check-release.sh", "check-phase.sh", "deploy.sh"):
             shutil.copyfile(SCRIPTS / name, self.repo / "deploy" / name)
         (self.repo / "deploy" / "phase-rev").write_text(phase_rev + "\n")
+        (self.repo / "deploy" / "phase-repo").write_text(str(self.phase_remote) + "\n")
         self.commit(self.repo, "Test release")
         self.git(self.repo, "remote", "add", "origin", str(self.remote))
         self.git(self.repo, "push", "--set-upstream", "origin", "main")
@@ -144,6 +151,51 @@ class ReleaseChecks(unittest.TestCase):
         self.commit(self.repo, "Unknown engine")
         self.git(self.repo, "push", "origin", "main")
         self.rejected("isn't a commit", wrapper=True)
+
+
+    def test_unpublished_engine_commit_is_refused(self):
+        (self.phase / "unpublished").write_text("Not pushed to the private engine repository\n")
+        self.commit(self.phase, "Unpublished engine")
+        revision = self.git(self.phase, "rev-parse", "HEAD")
+        (self.repo / "deploy" / "phase-rev").write_text(revision + "\n")
+        self.commit(self.repo, "Pin unpublished engine")
+        self.git(self.repo, "push", "origin", "main")
+        self.rejected("not published", wrapper=True)
+
+    def test_abbreviated_engine_pin_is_refused(self):
+        (self.repo / "deploy" / "phase-rev").write_text("1234567\n")
+        self.commit(self.repo, "Abbreviated engine pin")
+        self.git(self.repo, "push", "origin", "main")
+        self.rejected("full commit SHA", wrapper=True)
+
+    def test_selected_engine_checkout_is_used_without_changing_origin(self):
+        selected = self.root / "selected-phase"
+        self.git(self.root, "clone", str(self.phase_remote), str(selected))
+        self.phase.rename(self.root / "unused-engine")
+        self.env["YAMA_PHASE_DIR"] = str(selected)
+        before = self.git(selected, "remote", "get-url", "origin")
+        result = self.check(wrapper=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git(selected, "remote", "get-url", "origin"), before)
+        self.assertEqual(self.git(selected, "status", "--porcelain"), "")
+
+    def test_fresh_engine_fetch_is_required_even_with_cached_commit(self):
+        self.phase_remote.rename(self.root / "phase-unavailable.git")
+        self.rejected("couldn't refresh the engine repository", wrapper=True)
+
+    def test_published_engine_is_fetched_when_missing_locally(self):
+        writer = self.root / "phase-writer"
+        self.git(self.root, "clone", str(self.phase_remote), str(writer))
+        (writer / "published").write_text("New engine source\n")
+        self.commit(writer, "Published engine")
+        revision = self.git(writer, "rev-parse", "HEAD")
+        self.git(writer, "push", "origin", "main")
+        (self.repo / "deploy" / "phase-rev").write_text(revision + "\n")
+        self.commit(self.repo, "Pin published engine")
+        self.git(self.repo, "push", "origin", "main")
+        result = self.check(wrapper=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.git(self.phase, "cat-file", "-e", revision + "^{commit}")
 
 
 if __name__ == "__main__":

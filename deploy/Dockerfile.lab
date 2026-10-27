@@ -18,7 +18,7 @@ ARG YAMA_LAB_GIT_DIRTY=
 ENV YAMA_LAB_GIT_SHA=$YAMA_LAB_GIT_SHA YAMA_LAB_GIT_DIRTY=$YAMA_LAB_GIT_DIRTY
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/yama/target \
-    CARGO_BUILD_JOBS=12 cargo build --release -p yama-play --bin lab \
+    CARGO_BUILD_JOBS=4 cargo build --release -p yama-play --bin lab \
  && cp target/release/lab /usr/local/bin/lab
 
 FROM debian:bookworm-slim

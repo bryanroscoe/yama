@@ -41,7 +41,7 @@ git diff main..."$release_branch"
 git merge --no-ff "$release_branch"
 ```
 
-Resolve conflicts deliberately and review the result, including migrations, `ARCHITECTURE.md`, generated files, and the phase pin and exported patches when they changed. Never deploy a feature branch to check whether it works in production. A merge conflict or a failing check must be resolved before release.
+Resolve conflicts deliberately and review the result, including migrations, `ARCHITECTURE.md`, generated files, and the Phase repository and commit pin when they changed. Never deploy a feature branch to check whether it works in production. A merge conflict or a failing check must be resolved before release.
 
 ## 4. Verify the merged main
 
@@ -83,7 +83,7 @@ This requires all of the following before any saget call:
 
 - The current branch is `main`, with no tracked edits or untracked files. Detached HEAD and feature branches are refused.
 - A fresh fetch of GitHub main succeeds, and the local commit equals `origin/main` exactly. Ahead, behind and diverged main checkouts are refused.
-- The engine commit in that release's `deploy/phase-rev` exists in `../yama-phase`.
+- A fresh fetch of the repository in `deploy/phase-repo` succeeds, and `deploy/phase-rev` is a full commit SHA reachable from its published `main`. The engine checkout defaults to `../yama-phase`; `YAMA_PHASE_DIR` can select another checkout without changing its remotes or working files.
 
 The check does not merge, push, contact saget, build images or restart anything. Once it passes and deployment is requested:
 

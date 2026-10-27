@@ -27,6 +27,11 @@ cmd=${1:-}
 case "$cmd" in
 build)
   REV=$(git rev-parse --short HEAD)
+  PHASE_REV=$(git show HEAD:deploy/phase-rev | tr -d '[:space:]')
+  PHASE_DIR=$(sh ./deploy/check-phase.sh HEAD)
+  PHASE_SRC=$(mktemp -d "${TMPDIR:-/tmp}/yama-lab-phase.XXXXXX")
+  trap 'rm -rf "$PHASE_SRC"' EXIT
+  git -C "$PHASE_DIR" archive "$PHASE_REV" Cargo.toml crates | tar -x -C "$PHASE_SRC"
   # The source goes over without .git, so the runner stamp (play/build.rs) gets the commit and
   # whether the runner's sources differ from it as build args; build.rs adds the source hash.
   DIRTY=0
@@ -34,7 +39,7 @@ build)
   ssh "$HOST" "mkdir -p $DIR/build/yama $DIR/build/yama-phase $DIR/decks $DIR/runs && chown 99:100 $DIR/runs"
   rsync -a --delete --exclude target --exclude node_modules --exclude data --exclude .git \
     --exclude web --exclude .env ./ "$HOST:$DIR/build/yama/"
-  rsync -a --delete --include Cargo.toml --include 'crates/***' --exclude '*' ../yama-phase/ "$HOST:$DIR/build/yama-phase/"
+  rsync -a --delete "$PHASE_SRC/" "$HOST:$DIR/build/yama-phase/"
   echo "Building yama-lab:$REV on saget (log: $DIR/build/build.log)…"
   ssh "$HOST" "cd $DIR/build && rm -f build.status && \
     nohup sh -c 'docker build -f yama/deploy/Dockerfile.lab --build-context phase=yama-phase \

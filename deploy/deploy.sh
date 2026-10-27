@@ -21,7 +21,7 @@ REV=$(git rev-parse --short "$RELEASE_REV")
 # always build the same server. The release check refuses uncommitted changes.
 DIRTY=0
 PHASE_REV=$(git show "$RELEASE_REV:deploy/phase-rev" | tr -d '[:space:]')
-git -C ../yama-phase cat-file -e "$PHASE_REV^{commit}" 2>/dev/null || { echo "deploy/phase-rev ($PHASE_REV) isn't a commit in ../yama-phase."; exit 1; }
+PHASE_DIR=$(sh ./deploy/check-phase.sh "$RELEASE_REV")
 if [ "$CHECK_ONLY" = 1 ]; then
   echo "Ready to deploy main at $REV with phase $PHASE_REV. Check only; saget was not contacted."
   exit 0
@@ -30,7 +30,7 @@ SRC=$(mktemp -d "${TMPDIR:-/tmp}/yama-deploy.XXXXXX")
 trap 'rm -rf "$SRC"' EXIT
 mkdir -p "$SRC/yama" "$SRC/yama-phase"
 git archive "$RELEASE_REV" | tar -x -C "$SRC/yama"
-git -C ../yama-phase archive "$PHASE_REV" Cargo.toml crates | tar -x -C "$SRC/yama-phase"
+git -C "$PHASE_DIR" archive "$PHASE_REV" Cargo.toml crates | tar -x -C "$SRC/yama-phase"
 
 echo "Copying source to saget (yama $REV, phase $(echo "$PHASE_REV" | cut -c1-7))…"
 ssh "$HOST" "mkdir -p $DIR/build/yama $DIR/build/yama-phase"

@@ -367,7 +367,7 @@ pub(crate) async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[De
 
 /// As `insert_version`, inside the caller's transaction (no wake: the caller wakes the check
 /// worker once it commits).
-async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
+pub(crate) async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
     let vid = new_id();
     let stamp = now();
     sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at) VALUES (?,?,?,?,?)")

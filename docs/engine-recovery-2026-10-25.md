@@ -1,5 +1,10 @@
 # Engine recovery, 25 October 2026
 
+Historical report: on 27 October the maintained source moved to the private
+[Yama Phase repository](https://github.com/bryanroscoe/yama-phase). The 37 patch files described
+below remain in Yama's Git history at `2ecdd08`; current builds use `deploy/phase-repo` and
+`deploy/phase-rev` instead. The dated acceptance results below apply to their stated checkpoints.
+
 This is the local continuation of the interrupted rules, parser and performance
 work. It does not establish feature parity with Forge. The original worker
 branches and unfinished edits were preserved before integration.
