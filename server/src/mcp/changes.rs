@@ -1,9 +1,9 @@
 //! Staged changes (docs/mcp-design.md, slice 2): "recommend review before editing" as a rule.
 //!
-//! A write tool checks what Claude asks for against the caller's own rows, then stores it in
+//! A write tool checks the requested change against the caller's own rows, then stores it in
 //! `assistant_changes` as pending, with a one-line summary and the details a person needs to
 //! decide. Nothing else changes. The person applies or discards it in Yama: under the answer in
-//! the Ask Claude panel, or on Decks, Changes from Claude. An outside client (a script key or an
+//! the Ask Claude panel, or on Decks, Suggested changes. An outside client (a script key or an
 //! OAuth sign-in) may also call `apply_change`, which its description limits to changes the
 //! person said yes to; Ask Claude has no way to apply its own.
 //!
@@ -30,6 +30,9 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::fmt::Write as _;
+
+mod preview;
+use preview::ChangePreview;
 
 /// Changes one account may have waiting at once.
 pub const MAX_PENDING: i64 = 50;
@@ -74,6 +77,8 @@ pub struct ChangeView {
     pub kind: String,
     pub summary: String,
     pub detail: Option<String>,
+    /// A safe presentation of the stored proposal, including proposals staged before this view existed.
+    pub preview: Option<ChangePreview>,
     pub via: String,
     pub conversation_id: Option<String>,
     pub message_id: Option<String>,
@@ -86,11 +91,13 @@ pub struct ChangeView {
 
 impl From<Row> for ChangeView {
     fn from(r: Row) -> Self {
+        let preview = preview::from_payload(&r.kind, &r.payload, r.detail.as_deref());
         ChangeView {
             id: r.id,
             kind: r.kind,
             summary: r.summary,
             detail: r.detail,
+            preview,
             via: r.via,
             conversation_id: r.conversation_id,
             message_id: r.message_id,
@@ -126,7 +133,15 @@ pub async fn list(pool: &SqlitePool, owner: &str, pending_only: bool, conversati
     .bind(conversation)
     .fetch_all(pool)
     .await?;
-    Ok(rows.into_iter().map(ChangeView::from).collect())
+    let mut views: Vec<_> = rows.into_iter().map(ChangeView::from).collect();
+    preview::enrich(pool, &mut views).await?;
+    Ok(views)
+}
+
+async fn load_view(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<ChangeView> {
+    let mut view = ChangeView::from(load(pool, owner, id).await?);
+    preview::enrich(pool, std::slice::from_mut(&mut view)).await?;
+    Ok(view)
 }
 
 /// What a write tool hands to [`stage`].
@@ -173,7 +188,7 @@ async fn stage(st: &AppState, user: &User, via: &Via, s: Staged) -> AppResult<St
         let _ = writeln!(out, "{}", s.detail.trim());
     }
     let _ = writeln!(out, "Change id: {id}");
-    let page = st.cfg.public_url.as_deref().map(|u| format!("{}/decks/changes", u.trim_end_matches('/'))).unwrap_or_else(|| "Decks, Changes from Claude".into());
+    let page = st.cfg.public_url.as_deref().map(|u| format!("{}/decks/changes", u.trim_end_matches('/'))).unwrap_or_else(|| "Decks, Suggested changes".into());
     match via {
         Via::Question(_) => out.push_str(
             "It shows under your answer with Apply and Discard buttons. Say that it's waiting for their review; never say it's done.",
@@ -341,7 +356,7 @@ async fn apply_edit_deck(st: &AppState, user: &User, summary: &str, p: &Value) -
     };
     if current.as_deref() != p["base_version"].as_str() {
         return Err(AppError::Conflict(format!(
-            "{deck} changed after Claude staged this, so it wasn't applied. Discard it and ask again for a change to the current list."
+            "{deck} changed after this was suggested, so it wasn't applied. Discard it and ask again for a change to the current list."
         )));
     }
     let add: Vec<CardRef> = serde_json::from_value(p["add"].clone()).map_err(anyhow::Error::from)?;
@@ -353,7 +368,7 @@ async fn apply_edit_deck(st: &AppState, user: &User, summary: &str, p: &Value) -
         return Err(AppError::Conflict(format!("Not applied: it would break {deck}: {}.", new.join("; "))));
     }
     st.limits.deck_writes.check_user(user)?;
-    let note = format!("From Claude: {}", p["note"].as_str().unwrap_or(summary));
+    let note = format!("Suggested change: {}", p["note"].as_str().unwrap_or(summary));
     crate::decks::insert_version(pool, deck_id, &after, Some(&note)).await?;
     Ok(json!({"label": format!("{deck} has a new version"), "link": format!("/decks/{deck_id}")}))
 }
@@ -444,7 +459,7 @@ async fn apply_complete_deck(
     }
     st.limits.deck_writes.check_user(user)?;
     let note = format!(
-        "From Claude: {}{}",
+        "Suggested change: {}{}",
         p["note"].as_str().unwrap_or("Complete list"),
         p["source_url"]
             .as_str()
@@ -1393,7 +1408,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
             sqlx::query("UPDATE assistant_changes SET error = ? WHERE id = ? AND owner_id = ?").bind(&message).bind(id).bind(&user.id).execute(&st.pool).await?;
         }
     }
-    Ok(load(&st.pool, &user.id, id).await?.into())
+    load_view(&st.pool, &user.id, id).await
 }
 
 pub async fn discard(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<ChangeView> {
@@ -1408,7 +1423,7 @@ pub async fn discard(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Chan
         .bind(owner)
         .execute(pool)
         .await?;
-    Ok(load(pool, owner, id).await?.into())
+    load_view(pool, owner, id).await
 }
 
 // ── routes (the pages, signed in) ───────────────────────────────────────────

@@ -232,6 +232,14 @@ async fn a_deck_edit_waits_for_review_then_applies_once() {
     assert_eq!(list[0]["message_id"], "msg-1");
     assert_eq!(list[0]["via"], "question");
     assert_eq!(list[0]["status"], "pending");
+    assert_eq!(list[0]["preview"]["kind"], "deck_edit");
+    assert_eq!(list[0]["preview"]["target"], "Elf Ball");
+    assert_eq!(list[0]["preview"]["add"][0]["name"], "Arcane Signet");
+    assert_eq!(list[0]["preview"]["add"][0]["qty"], 1);
+    assert_eq!(list[0]["preview"]["add"][0]["type_line"], "Artifact");
+    assert_eq!(list[0]["preview"]["remove"][0]["name"], "Sol Ring");
+    assert_eq!(list[0]["preview"]["explanation"], "Cheaper ramp test");
+    assert!(list[0].get("payload").is_none(), "execution payload stays private");
 
     // Someone else can neither see nor apply it.
     let (_, theirs) = send(&app, Method::GET, "/api/assistant/changes", Some(&b_session), None).await;
@@ -256,7 +264,7 @@ async fn a_deck_edit_waits_for_review_then_applies_once() {
     assert_eq!(applied["result"]["link"], format!("/decks/{deck_id}"));
     let (cards, note) = current_cards(&pool, &deck_id).await;
     assert_eq!(cards, ["Arcane Signet", "Forest", "Test Commander"]);
-    assert_eq!(note.as_deref(), Some("From Claude: Cheaper ramp test"));
+    assert_eq!(note.as_deref(), Some("Suggested change: Cheaper ramp test"));
     let (status, _) = send(&app, Method::POST, &format!("/api/assistant/changes/{first}/apply"), Some(&a_session), None).await;
     assert_eq!(status, StatusCode::CONFLICT);
 
@@ -268,7 +276,7 @@ async fn a_deck_edit_waits_for_review_then_applies_once() {
     let (status, _) = send(&app, Method::PUT, &format!("/api/decks/{deck_id}"), Some(&a_session), Some(json!({"cards": [{"oracle_id": "o-cmd", "name": "Test Commander", "qty": 1, "board": "commander"}]}))).await;
     assert_eq!(status, StatusCode::OK);
     let (err, text) = call(&app, &mcp, "apply_change", json!({"id": stale})).await;
-    assert!(err && text.contains("changed after Claude staged this"), "{text}");
+    assert!(err && text.contains("changed after this was suggested"), "{text}");
     let (_, waiting) = call(&app, &mcp, "changes", json!({})).await;
     assert!(waiting.contains(&stale) && waiting.contains("failed"), "{waiting}");
     let (err, text) = call(&app, &mcp, "discard_change", json!({"id": stale})).await;

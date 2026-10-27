@@ -112,12 +112,33 @@ export async function ask(input: AskInput, onEvent: (e: StreamEvent) => void, si
   }
 }
 
-/** A change Claude staged through Yama's tools, waiting for Apply or Discard (server/src/mcp/changes.rs). */
+export interface ProposalCard {
+  oracle_id: string | null;
+  name: string;
+  qty: number;
+  image: string | null;
+  mana_cost: string | null;
+  type_line: string | null;
+}
+
+export interface ProposalPreview {
+  kind: "deck_edit" | "plan_swap";
+  target: string;
+  target_id: string | null;
+  add: ProposalCard[];
+  remove: ProposalCard[];
+  explanation: string | null;
+  checks: string | null;
+}
+
+/** A suggested change waiting for Apply or Discard (server/src/mcp/changes.rs). */
 export interface StagedChange {
   id: string;
-  kind: "edit_deck" | "propose_swap" | "answer_review" | "mark_bought" | "mark_installed" | "start_lab_run" | "more_lab_games" | "run_lab_again" | "cancel_lab_run" | "add_to_collection" | "move_cards" | "set_condition";
+  kind: "edit_deck" | "propose_swap" | "answer_review" | "mark_bought" | "mark_installed" | "swap_in_prints" | "start_lab_run" | "more_lab_games" | "run_lab_again" | "cancel_lab_run" | "add_to_collection" | "move_cards" | "set_condition";
   summary: string;
   detail: string | null;
+  /** Missing on older servers; unsupported kinds retain their readable text details. */
+  preview?: ProposalPreview | null;
   /** How it was staged: Ask Claude, a key, or an app signed in with OAuth. */
   via: "question" | "key" | "oauth";
   conversation_id: string | null;
