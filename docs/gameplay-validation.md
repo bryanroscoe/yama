@@ -84,3 +84,10 @@ checkout is `/Users/bryanroscoe/Developer/engine-recovery/yama-phase`.
 Its initial source preserves all 37 former patches and upstream history. Yama's patch files
 are retired; releases fetch `deploy/phase-repo` and archive `deploy/phase-rev` exactly.
 Other Phase worktrees and branch names are not evidence of what is deployed.
+
+## Subsequent private-fork performance work
+
+The [27 October performance report](phase-performance-2026-10-27.md) records the shared AI
+decision preparation, isolated before/after replays, full-data checks and remaining failures.
+Its one-case speedup does not close the four frozen gameplay defects or the separate capped
+game. The earlier investigation results above remain historical evidence.

@@ -66,7 +66,9 @@ require the full `deploy/phase-rev` SHA on its published main, and archive that 
 `YAMA_PHASE_DIR` can select another release checkout without changing its remotes or files.
 Performance work targets 2–3× Forge throughput on matched workloads and resources while
 preserving legal decisions, seeded results and honest failure counts; that target is not yet
-an accepted benchmark result.
+an accepted benchmark result. The [27 October measurement](docs/phase-performance-2026-10-27.md)
+records a preserving AI decision-preparation change, its one-case speedup and memory cost,
+and the remaining gameplay failures and capped case.
 
 Build on **[phase-rs](https://github.com/phase-rs/phase)** (MIT or Apache-2.0). It's a Rust engine that compiles to WASM, with a React client. The current local pin and validation are recorded in [the recovery report](docs/engine-recovery-2026-10-25.md).
 
