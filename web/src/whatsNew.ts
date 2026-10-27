@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-27-precon-upgradeability",
+    date: "2026-10-27",
+    title: "Compare precon upgrade potential",
+    items: [
+      "Precons have a provisional upgradeability assessment from 1 to 5, with the work needed, an upgrade direction and a limiting factor. Sort by upgradeability in the public reference or your Lab.",
+      "Each assessment keeps the stock commander and theme. It is editorial judgment, separate from win rates and price; a changed stock list needs reassessment. Commander rankings are still future work.",
+    ],
+    link: { to: "/precons?s=upgradeability", label: "Compare upgradeability" },
+  },
+  {
     id: "2026-10-27-proposal-review",
     date: "2026-10-27",
     title: "Read suggested deck changes before applying them",

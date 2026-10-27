@@ -181,6 +181,23 @@ fn meta(p: &Precon, detailed: bool) -> String {
         m.rank, m.score
     )
 }
+fn upgradeability(p: &Precon, full: bool) -> String {
+    let u = &p.upgradeability;
+    let Some(score) = u.score else {
+        let reason = if u.status == "stock_list_changed" {
+            "The stock list or commander changed since the assessment. A new assessment is needed."
+        } else {
+            "This precon has not been assessed yet. Missing is not a zero score."
+        };
+        return if full { format!("<strong>{}</strong><p>{}</p>", e(u.label), e(reason)) } else { e(u.label) };
+    };
+    let mut out = format!("<strong>{score}/5 {}</strong><small>Provisional editorial assessment. {} work.</small>", e(u.label), e(u.effort.as_deref().unwrap_or("")));
+    if full {
+        write!(out, "<p><strong>Upgrade path:</strong> {}</p><p><strong>Tradeoff:</strong> {}</p><p>{} Assessed {}. <a href=\"{}\">Stock-list evidence</a>.</p><details><summary>How upgradeability is assessed</summary><p>{}</p><p>Method: {}. Upgrade effort is not spending; scores do not set Commander brackets.</p></details>", e(u.path.as_deref().unwrap_or("")), e(u.limitation.as_deref().unwrap_or("")), e(u.basis), e(u.assessed_on.as_deref().unwrap_or("")), e(u.source_url.as_deref().unwrap_or("")), e(u.rubric), e(u.method)).unwrap();
+    }
+    out
+}
+
 fn real(p: &Precon, detailed: bool) -> String {
     p.real_games.as_ref().map(|r|format!("<a class=\"result-value\" href=\"{}\">{:.1}%</a><small>{} stock games</small>{}",e(&r.url),r.win_rate_4p,count(r.games),if detailed{format!("<p class=\"dim\">Playgroup.gg, fetched {}. Normalised to four players; pilots and opponents differ from the simulation. This is observed evidence, not a personal win-rate forecast.</p>",when(r.fetched_at.as_deref().unwrap_or("")))}else{String::new()})).unwrap_or_else(||"<span class=\"dim\">No real-game data</span>".into())
 }
@@ -319,6 +336,7 @@ pub(super) async fn index(
         ("meta", "Meta rank"),
         ("rank", "Primary sim rank"),
         ("real", "Real-game win rate"),
+        ("upgradeability", "Upgradeability"),
         ("name", "Deck name"),
         ("year", "Newest first"),
         ("sealed", "Sealed market price"),
@@ -397,7 +415,7 @@ pub(super) async fn index(
             )
             .unwrap();
         }
-        body.push_str("<th scope=\"col\">Real games</th><th scope=\"col\">Sealed market</th></tr></thead><tbody>");
+        body.push_str("<th scope=\"col\">Real games</th><th scope=\"col\"><a href=\"/precons/methodology#upgradeability\">Upgradeability</a></th><th scope=\"col\">Sealed market</th></tr></thead><tbody>");
         for p in data.precons.iter().skip(start).take(24) {
             let thumb=p.art.as_ref().map(|a|format!("<img class=\"deck-thumb\" src=\"{}\" alt=\"\" loading=\"lazy\" width=\"64\" height=\"76\">",e(&a.url))).unwrap_or_default();
             write!(body,"<tr><th scope=\"row\"><a class=\"deck-link\" href=\"/precons/{}\">{thumb}<span><strong>{}</strong><small>{}</small><span class=\"deck-meta\">{}<span>{} / {}</span></span></span></a><small class=\"thumb-credit\">{}</small></th><td class=\"meta-cell\" data-label=\"Meta rank\">{}</td>",e(&p.id),e(&p.name),e(&p.commanders.join(" and ")),colors(p),e(&p.set_code),e(p.released.as_deref().and_then(|s|s.get(..4)).unwrap_or("—")),credit(p),meta(p,false)).unwrap();
@@ -415,7 +433,7 @@ pub(super) async fn index(
                 )
                 .unwrap();
             }
-            write!(body,"<td data-label=\"Real games\">{}</td><td class=\"price-cell\" data-label=\"Sealed market\">{}</td></tr>",real(p,false),price(p,false)).unwrap();
+            write!(body,"<td data-label=\"Real games\">{}</td><td data-label=\"Upgradeability\">{}</td><td class=\"price-cell\" data-label=\"Sealed market\">{}</td></tr>",real(p,false),upgradeability(p,false),price(p,false)).unwrap();
         }
         body.push_str("</tbody></table></div>");
         write!(body,"<nav class=\"pagination\" aria-label=\"Precon pages\"><span>Page {current} of {pages}</span><div>").unwrap();
@@ -437,6 +455,7 @@ pub(super) async fn index(
         }
         body.push_str("</div></nav>");
     }
+    body.push_str("<p class=\"dim\">Upgradeability is a provisional editorial assessment of improvement potential with the stock commander and identity retained. It is independent of stock win rates and excluded from meta ranks. Open a precon for its effort, path, limits and dated evidence.</p>");
     body.push_str("<aside class=\"reading-note\"><h3>A rank is a starting point.</h3><p>Meta scores summarise source orderings, not a chance of winning. Engine cautions remain part of the evidence. Decks missing shared data stay unranked. Open a deck for source dates, intervals, limitations and its complete stock list.</p><a href=\"/precons/methodology\">Read the methodology ↗</a></aside>");
     Ok(response(
         &headers,
@@ -532,6 +551,9 @@ pub(super) async fn detail(
         body.push_str("</section>");
     }
     body.push_str("</div>");
+    body.push_str("<section class=\"public-panel\"><h3>Upgradeability</h3>");
+    body.push_str(&upgradeability(p, true));
+    body.push_str("</section>");
     body.push_str(&price(p, true));
     if !p.partly_supported.is_empty() {
         write!(body,"<details class=\"support-note\"><summary>Known Phase card support gaps ({})</summary><p>{}. Catalog coverage is separate from published run confidence.</p></details>",p.partly_supported.len(),e(&p.partly_supported.join(", "))).unwrap();
@@ -592,7 +614,7 @@ pub(super) async fn methodology(
     limit(&st, address)?;
     let snapshot = snapshot(&st.pool).await?;
     let mut body = String::from(
-        "<div class=\"public-intro\"><p class=\"eyebrow\">Evidence you can inspect</p><h1>Behind the rankings.</h1><p class=\"lede\">Several views of a deck. One transparent starting point.</p></div><nav class=\"method-nav\" aria-label=\"Methodology sections\"><a class=\"button\" href=\"#meta\">Meta rank</a><a class=\"button\" href=\"#simulation\">Simulation</a><a class=\"button\" href=\"#real\">Real games</a><a class=\"button\" href=\"#sources\">Sources</a></nav><div class=\"public-prose\"><section id=\"meta\"><p class=\"eyebrow\">Experimental / v1</p><h2>What the meta rank means</h2><p>Meta means agreement across evidence sources, rather than a forecast for your local playgroup. We use only stock lists with at least 20 real games and 20 simulated appearances in every published engine. At least four decks must qualify. Unranked decks remain browsable.</p><div class=\"formula\">Meta score = ½ real-game percentile<br>+ ½ mean simulation percentile</div><p>We re-rank each source within that same shared cohort. Higher is better: the lowest value scores 0, the highest 100, with tied values given their average rank. For n decks, percentile = 100 × (number below + (number equal − 1) / 2) / (n − 1). Real games use the reported four-player-normalised win rate; each engine uses its fitted strength. The score’s descending order gives the meta rank; tied scores share a rank. Filtering this page never changes the cohort or rank.</p><p>The two evidence groups have equal editorial weight. Phase and Forge, when both published, share the simulation half; extra runs from one engine cannot add votes. These weights have not been optimised or validated as a win prediction. Prices, popularity and reviewer opinion have no weight. Sources are dated but not age-weighted, so older results need care.</p><p>Engine confidence warnings remain visible and do not change the score or select the cohort: some warnings already use disagreement with real games, so filtering by those warnings would favour agreement by construction. The meta score has no probability interpretation or confidence interval. Large source disagreements and wide simulation intervals remain reasons to inspect a deck.</p><h3>Why there is no blended win-rate forecast yet</h3><p>A simulation’s opponents are a closed precon field; real games have different opponents, pilots and selection effects. Averaging those percentages would hide those differences. We show the separate model and observed win rates. A future forecast needs a declared target field, validation against held-out real results, and an interval that includes calibration error. More simulated games alone cannot establish real-world accuracy.</p></section><section id=\"simulation\"><p class=\"eyebrow\">The lab</p><h2>What simulation measures</h2><p>Four-player stock-precon pods are fitted with a Plackett–Luce finishing-order model, including turn-position effects. The model win rate estimates a deck’s chance against three random opponents from that run’s field. A 25% baseline represents four equally strong decks. Observed wins are the raw fraction of scored appearances won; they can differ because opponents and seats differ.</p><p>Intervals use the published game-cluster bootstrap and their stated coverage level. They describe sampling uncertainty within this simulation, not AI or rules accuracy. Rank ranges can be wide and overlapping. Known engine/AI limitations remain attached to their deck. An unreliable simulation is evidence to investigate, not a reliable power judgment.</p><p>Failures and timeouts are excluded, not counted as losses. Turn/action-cap finishes retained by the analysis have no winner. Legacy imports may carry a generic difficulty label without recording the Forge profile; that profile remains unverified unless the reviewed source notes document it. Each engine keeps its own field, scoring, build and dates; percentiles on a shared subset make orderings comparable, but cannot remove differences in their original opponent fields.</p>",
+        "<div class=\"public-intro\"><p class=\"eyebrow\">Evidence you can inspect</p><h1>Behind the rankings.</h1><p class=\"lede\">Several views of a deck. One transparent starting point.</p></div><nav class=\"method-nav\" aria-label=\"Methodology sections\"><a class=\"button\" href=\"#meta\">Meta rank</a><a class=\"button\" href=\"#simulation\">Simulation</a><a class=\"button\" href=\"#real\">Real games</a><a class=\"button\" href=\"#sources\">Sources</a></nav><div class=\"public-prose\"><section id=\"upgradeability\"><h2>Upgradeability</h2><p>Upgradeability is a dated, provisional editorial assessment, from 1 (limited) to 5 (very high), keeping the stock commander and deck identity. Effort, an upgrade path and a limiting factor travel separately. It is not a win-rate prediction, purchase rating, Commander bracket or commander ranking, and is not an input to the meta score. New or changed lists have no score until assessed.</p></section><section id=\"meta\"><p class=\"eyebrow\">Experimental / v1</p><h2>What the meta rank means</h2><p>Meta means agreement across evidence sources, rather than a forecast for your local playgroup. We use only stock lists with at least 20 real games and 20 simulated appearances in every published engine. At least four decks must qualify. Unranked decks remain browsable.</p><div class=\"formula\">Meta score = ½ real-game percentile<br>+ ½ mean simulation percentile</div><p>We re-rank each source within that same shared cohort. Higher is better: the lowest value scores 0, the highest 100, with tied values given their average rank. For n decks, percentile = 100 × (number below + (number equal − 1) / 2) / (n − 1). Real games use the reported four-player-normalised win rate; each engine uses its fitted strength. The score’s descending order gives the meta rank; tied scores share a rank. Filtering this page never changes the cohort or rank.</p><p>The two evidence groups have equal editorial weight. Phase and Forge, when both published, share the simulation half; extra runs from one engine cannot add votes. These weights have not been optimised or validated as a win prediction. Prices, popularity and reviewer opinion have no weight. Sources are dated but not age-weighted, so older results need care.</p><p>Engine confidence warnings remain visible and do not change the score or select the cohort: some warnings already use disagreement with real games, so filtering by those warnings would favour agreement by construction. The meta score has no probability interpretation or confidence interval. Large source disagreements and wide simulation intervals remain reasons to inspect a deck.</p><h3>Why there is no blended win-rate forecast yet</h3><p>A simulation’s opponents are a closed precon field; real games have different opponents, pilots and selection effects. Averaging those percentages would hide those differences. We show the separate model and observed win rates. A future forecast needs a declared target field, validation against held-out real results, and an interval that includes calibration error. More simulated games alone cannot establish real-world accuracy.</p></section><section id=\"simulation\"><p class=\"eyebrow\">The lab</p><h2>What simulation measures</h2><p>Four-player stock-precon pods are fitted with a Plackett–Luce finishing-order model, including turn-position effects. The model win rate estimates a deck’s chance against three random opponents from that run’s field. A 25% baseline represents four equally strong decks. Observed wins are the raw fraction of scored appearances won; they can differ because opponents and seats differ.</p><p>Intervals use the published game-cluster bootstrap and their stated coverage level. They describe sampling uncertainty within this simulation, not AI or rules accuracy. Rank ranges can be wide and overlapping. Known engine/AI limitations remain attached to their deck. An unreliable simulation is evidence to investigate, not a reliable power judgment.</p><p>Failures and timeouts are excluded, not counted as losses. Turn/action-cap finishes retained by the analysis have no winner. Legacy imports may carry a generic difficulty label without recording the Forge profile; that profile remains unverified unless the reviewed source notes document it. Each engine keeps its own field, scoring, build and dates; percentiles on a shared subset make orderings comparable, but cannot remove differences in their original opponent fields.</p>",
     );
     if let Some(s) = &snapshot {
         for source in std::iter::once(s).chain(s.comparisons.iter()) {
