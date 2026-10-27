@@ -615,6 +615,37 @@ async fn cancelling_comparisons_preserves_the_finished_source_and_completed_diag
 }
 
 #[tokio::test]
+async fn the_existing_stop_action_cancels_routed_reports_and_preserves_finished_diagnostics() {
+    let (pool, worker, experiment) = fixture().await;
+    let production = execution(&experiment);
+    create(&pool, &worker.owner, &production).await.unwrap();
+    let mut comparison = execution(&experiment);
+    comparison.comparison = true;
+    comparison.targets = vec!["saget".into(), "laptop".into()];
+    create(&pool, &worker.owner, &comparison).await.unwrap();
+    let saget = Worker { target: "saget".into(), ..worker.clone() };
+    let done = claim(&pool, &saget, offer(&new_id())).await.unwrap().unwrap();
+    submit(&pool, &saget, &done.id, &submission(&done)).await.unwrap();
+    let pending = claim(&pool, &worker, offer(&new_id())).await.unwrap().unwrap();
+    assert!(matches!(
+        super::super::experiments::cancel(&pool, "stranger", &experiment, &|_: &str| false).await,
+        Err(AppError::NotFound(_))
+    ));
+    assert!(report(&pool, &worker.owner, &production.id).await.unwrap()["cancelled_at"].is_null());
+    for _ in 0..2 {
+        super::super::experiments::cancel(&pool, &worker.owner, &experiment, &|_: &str| false).await.unwrap();
+    }
+    for run in [&production.id, &comparison.id] {
+        let r = report(&pool, &worker.owner, run).await.unwrap();
+        assert!(!r["cancelled_at"].is_null());
+        assert_eq!(r["cancel_reason"], "experiment_cancelled");
+    }
+    assert_eq!(report(&pool, &worker.owner, &comparison.id).await.unwrap()["targets"]["saget"]["games"], 2);
+    assert!(matches!(submit(&pool, &worker, &pending.id, &submission(&pending)).await, Err(AppError::Conflict(_))));
+    assert!(claim(&pool, &worker, offer(&new_id())).await.unwrap().is_none());
+}
+
+#[tokio::test]
 async fn github_admission_requires_the_entire_explicit_workload_budget() {
     let (pool, worker, experiment) = fixture().await;
     let mut body = execution(&experiment);

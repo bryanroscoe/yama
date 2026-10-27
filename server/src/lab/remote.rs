@@ -755,7 +755,9 @@ async fn cancel(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Option<St
 }
 
 async fn report(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Value> {
-    let row:Option<(String,bool,String,i64,i64,Option<String>,Option<String>)>=sqlx::query_as("SELECT experiment_id,comparison,target,github_minutes,github_reserved,cancelled_at,cancel_reason FROM lab_execution_runs WHERE id=? AND owner_id=?")
+    // Every source-experiment cancellation path already fences leases. Reflect that state in
+    // dependent reports too, while retaining an execution's own explicit cancellation reason.
+    let row:Option<(String,bool,String,i64,i64,Option<String>,Option<String>)>=sqlx::query_as("SELECT r.experiment_id,r.comparison,r.target,r.github_minutes,r.github_reserved,COALESCE(r.cancelled_at,CASE WHEN e.status='cancelled' THEN COALESCE(e.finished_at,e.updated_at) END),COALESCE(r.cancel_reason,CASE WHEN e.status='cancelled' THEN 'experiment_cancelled' END) FROM lab_execution_runs r JOIN lab_experiments e ON e.id=r.experiment_id WHERE r.id=? AND r.owner_id=?")
         .bind(id).bind(owner).fetch_optional(pool).await?;
     let Some((experiment, comparison, target, budget, reserved, cancelled_at, cancel_reason)) = row
     else {

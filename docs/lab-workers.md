@@ -64,6 +64,9 @@ Removing the owner's admin role also disables these pilot credentials.
 | `POST /api/lab/workers/leases/{id}/results` | `{results: GameResult[], wall_seconds, peak_rss_bytes, setup_seconds}`. Submit every game in the lease in order. Whole-pod validation/commit; identical retries succeed after a lost acknowledgment. Conflicting retries return 409. |
 | `POST /api/lab/workers/leases/{id}/release` | Return an unfinished live pod. |
 
+Stopping a queued/running source experiment in the existing Lab UI also makes its dependent
+execution reports cancelled (`experiment_cancelled`). Completed results remain available.
+
 A lease belongs to its worker key and worker UUID. Expiry/release fences late uploads even
 if another worker has already started the pod. Cancellation invalidates outstanding remote
 leases; cancelled or deleted experiments accept no new results. Workers stop their child on
@@ -158,10 +161,11 @@ owner isolation, scope/revocation, routing races, budget admission and diagnosti
 Use a small matched sample on the actual machines before claiming performance equivalence.
 
 Validation after PR review and integration with main on 27 October 2026: full `cargo test`
-passed 1,539 tests with 44 ignored; `npm test` passed 509 with 7 skipped; typecheck, web build,
-all 7 Python tests, all 18 release-guard tests and `actionlint` passed. The 20 Rust worker tests
+passed 1,540 tests with 44 ignored; `npm test` passed 509 with 7 skipped; typecheck, web build,
+all 7 Python tests, all 18 release-guard tests and `actionlint` passed. The 21 Rust worker tests
 include regressions for stale runtime adoption, comparison cancellation, failure health,
-lease fencing, startup readiness and queue scans beyond 100 ineligible jobs. The real build script is tested in
+lease fencing, startup readiness, Stop propagation and queue scans beyond 100 ineligible jobs.
+The real build script is tested in
 native-git and git-less export contexts for matching clean and dirty full-revision identities,
 including changes confined to the server. A guarded deployment regression verifies that the
 full release revision reaches the Docker build.
