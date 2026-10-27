@@ -134,7 +134,7 @@ pub async fn guard(State(st): State<AppState>, mut req: Request, next: Next) -> 
     let reading = method == Method::GET || method == Method::HEAD;
     // Pages and files are only read. Anything else on any path is checked: the API, and `/mcp`
     // (whose tools take a bearer token, never this cookie, but a write there is still a write).
-    if reading && !path.starts_with("/api/") && !is_websocket(req.headers()) {
+    if reading && (!path.starts_with("/api/") || crate::public_precons::is_public_api(&path)) && !is_websocket(req.headers()) {
         return next.run(req).await;
     }
     let Some(view_token) = view_cookie(req.headers()) else { return next.run(req).await };

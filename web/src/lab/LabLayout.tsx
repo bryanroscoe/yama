@@ -30,7 +30,7 @@ export function LabHead({
   action?: ReactNode;
 }) {
   const { pathname } = useLocation();
-  return <AreaHead title={title} index={index} slim={slim} back={back} action={action} nav={<SubNav label="Lab pages" pages={LAB_PAGES} also={pathname} />} />;
+  return <AreaHead title={title} index={index} slim={slim} back={back} action={action ?? (index ? <a className="button" href="/precons">Public precons</a> : undefined)} nav={<SubNav label="Lab pages" pages={LAB_PAGES} also={pathname} />} />;
 }
 
 /** The Lab section of the Decks tab. Each page draws its own head (LabHead). */

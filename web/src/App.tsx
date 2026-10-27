@@ -8,6 +8,7 @@ import { UsagePage } from "./admin/Usage";
 import { ChangesPage } from "./advisor/Changes";
 import { Login, useMe } from "./auth";
 import { RailMe } from "./components/RailMe";
+import { SiteNotice } from "./components/SiteNotice";
 import { AdminIcon, CardsIcon, CollectionIcon, DecksIcon, GroupIcon, PlayIcon, TableIcon } from "./components/icons";
 import { ErrorText } from "./components/ui";
 import { Wordmark } from "./components/Wordmark";
@@ -79,6 +80,7 @@ function Shell() {
       </nav>
       <NewsNotice />
       <Outlet />
+      <div className="site-footer"><a href="/precons">Public precon reference</a><SiteNotice /></div>
     </div>
   );
 }

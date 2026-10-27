@@ -477,6 +477,10 @@ label > span.hint {
   grid-column: 1 / -1;
 }
 
+.site-footer { max-width: calc(var(--content-w) + 2 * var(--page-pad)); padding: 20px var(--page-pad) 32px; margin: 0 auto; border-top: 1px solid var(--line); }
+.site-notice { color: var(--dim); font-size: 0.8rem; line-height: 1.5; }
+.site-notice p { margin: 12px 0 0; }
+
 /* ── app shell ──────────────────────────────────────────────────────────── */
 
 .shell {

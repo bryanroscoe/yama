@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-27-public-precons",
+    date: "2026-10-27",
+    title: "A public precon reference",
+    items: [
+      "Anyone can browse stock Commander precon lists, dated market references and separately sourced real-game results without signing in. Reviewed simulation rankings appear when a stock benchmark is published, with game counts, uncertainty and engine limitations.",
+      "Personal decks, collections, plans and simulation runs stay private. Saving a deck or trying a change still needs sign-in. Yama reserves rights in its original software, written analysis and presentation, with third-party material credited separately.",
+    ],
+    link: { to: "/precons", label: "Browse public precons" },
+  },
+  {
     id: "2026-10-27-deck-prices",
     date: "2026-10-27",
     title: "Deck market values",
