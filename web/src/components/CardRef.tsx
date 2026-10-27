@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { api, type Card, type CardDetail, type SearchResult } from "../api";
 import "./card-ref.css";
 
-export type PreviewCard = Pick<Card, "oracle_id" | "name" | "image_normal" | "back_image_normal" | "oracle_text" | "type_line" | "mana_cost">;
+export type PreviewCard = Pick<Card, "oracle_id" | "name" | "image_normal" | "back_image_normal" | "oracle_text" | "type_line" | "mana_cost"> & { remote?: boolean };
 
 /** Card-only lookup. No deck, inventory or research text is sent outside Yama. */
 export async function lookupPreview(name: string, oracleId?: string): Promise<PreviewCard | null> {
@@ -16,7 +16,16 @@ export async function lookupPreview(name: string, oracleId?: string): Promise<Pr
     ?? cards.find((c) => c.name.split(" // ").some((n) => n.toLocaleLowerCase() === key));
   // A newly revealed card may not be in the daily local catalog yet. Yama resolves only this
   // one exact public card name through its bounded provider cache; no deck or inventory leaves.
-  return local ?? await api<PreviewCard | null>(`/api/cards/preview?name=${encodeURIComponent(name)}`);
+  if (local) return local;
+  const remote = await api<PreviewCard | null>(`/api/cards/preview?name=${encodeURIComponent(name)}`);
+  return remote ? { ...remote, remote: true } : null;
+}
+
+
+export function previewDetailsUrl(name: string, card?: PreviewCard | null) {
+  return card?.remote
+    ? `https://scryfall.com/search?q=${encodeURIComponent(`!"${card.name}"`)}`
+    : `/cards?q=${encodeURIComponent(`!"${name}"`)}${card?.oracle_id ? `&card=${encodeURIComponent(card.oracle_id)}` : ""}`;
 }
 
 export function previewPosition(rect: Pick<DOMRect, "left" | "right" | "top" | "bottom">, width: number, height: number) {
@@ -47,7 +56,7 @@ function Preview({ name, oracleId, image, anchor, pinned, onClose, id }: { name:
     {pinned && <button type="button" className="card-ref-close quiet" autoFocus onClick={onClose} aria-label={`Close ${name} preview`}>Close</button>}
     {src && !failedImage ? <img src={src} alt={card.data?.name ?? name} onError={() => setFailedImage(true)} /> : <div className="card-ref-fallback"><b>{name}</b><p>{card.isPending ? "Loading card…" : card.isError ? "Card lookup failed. Try opening the card search." : "No card image is available in Yama yet."}</p>{card.data?.mana_cost && <p>{card.data.mana_cost}</p>}{card.data?.type_line && <p>{card.data.type_line}</p>}{card.data?.oracle_text && <p>{card.data.oracle_text}</p>}</div>}
     {src && card.data?.oracle_text && <p className="visually-hidden">{card.data.oracle_text}</p>}
-    {pinned && <div className="card-ref-footer">{card.data?.back_image_normal && <button type="button" className="outline small" onClick={() => { setBack(!back); setFailedImage(false); }}>{back ? "Front face" : "Other face"}</button>}<a href={`/cards?q=${encodeURIComponent(`!"${name}"`)}${card.data?.oracle_id ? `&card=${encodeURIComponent(card.data.oracle_id)}` : ""}`} target="_blank" rel="noreferrer">Open card details</a></div>}
+    {pinned && <div className="card-ref-footer">{card.data?.back_image_normal && <button type="button" className="outline small" onClick={() => { setBack(!back); setFailedImage(false); }}>{back ? "Front face" : "Other face"}</button>}<a href={previewDetailsUrl(name, card.data)} target="_blank" rel="noreferrer">{card.data?.remote ? "Open on Scryfall" : "Open card details"}</a></div>}
   </div>, document.body);
 }
 

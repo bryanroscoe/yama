@@ -791,6 +791,43 @@ mod tests {
         );
     }
     #[tokio::test]
+    async fn public_search_finds_alternative_commanders_and_preserves_other_filters() {
+        let pool = crate::db::test_pool().await;
+        let id = "counter-intelligence";
+        sqlx::query("INSERT INTO precons(id,lab_id,name,set_code,commanders,color_identity,cards,source,content_sha256,imported_at,notes) VALUES (?,?,'Counter Intelligence','EOC',?,'WU',?,'MTGJSON','hash','2026-10-27','[]')")
+            .bind(id).bind(format!("precons/{id}"))
+            .bind(serde_json::to_string(&DATA.decks[id].commanders).unwrap())
+            .bind(serde_json::to_string(&stock(id)).unwrap()).execute(&pool).await.unwrap();
+        use tower::ServiceExt;
+        let app =
+            crate::routes::app(crate::testutil::state_with(crate::testutil::config(), pool).await);
+        for (query, count) in [
+            ("Kilo%2C%20Apogee%20Mind", 1),
+            ("KILO", 1),
+            ("Inspirit", 1),
+            ("unrelated", 0),
+            ("kilo&c=G", 0),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .uri(format!("/api/public/precons?q={query}"))
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), axum::http::StatusCode::OK);
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(json["precons"].as_array().unwrap().len(), count, "{query}");
+        }
+    }
+
+    #[tokio::test]
     async fn selected_alternatives_never_inherit_reference_results_or_matchups() {
         use serde_json::json;
         let pool = crate::db::test_pool().await;

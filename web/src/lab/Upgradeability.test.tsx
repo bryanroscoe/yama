@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { UpgradeabilitySection, UpgradeabilitySummary } from "./Upgradeability";
-import { sortPrecons } from "./logic";
+import { filterPrecons, sortPrecons } from "./logic";
 import type { PreconItem, Upgradeability } from "./api";
 
 const value: Upgradeability = {
@@ -257,6 +257,54 @@ describe("upgradeability evidence", () => {
         />,
       ),
     ).not.toContain("unsupported grades have been withdrawn");
+  });
+  it("finds precons by separately assessed commander names without bypassing filters", () => {
+    const list = [
+      {
+        id: "counter-intelligence",
+        name: "Counter Intelligence",
+        commanders: ["Inspirit, Flagship Vessel"],
+        color_identity: "WU",
+        set_code: "EOC",
+        released: "2025-01-01",
+        upgradeability: {
+          ...value,
+          alternatives: [{ ...value, commanders: ["Kilo, Apogee Mind"] }],
+        },
+      },
+      {
+        id: "quantum-quandrix",
+        name: "Quantum Quandrix",
+        commanders: ["Adrix and Nev, Twincasters"],
+        color_identity: "GU",
+        set_code: "C21",
+        released: "2021-01-01",
+        upgradeability: {
+          ...value,
+          alternatives: [
+            { ...value, commanders: ["Koma, Cosmos Serpent"], score: null },
+          ],
+        },
+      },
+      {
+        id: "unknown",
+        name: "Unknown",
+        commanders: ["Other commander"],
+        color_identity: "R",
+        set_code: "NEW",
+        released: "2026-01-01",
+      },
+    ] as PreconItem[];
+    const find = (q: string, colors = "", year: number | null = null) =>
+      filterPrecons(list, { q, colors, year, mode: "includes" }).map(
+        (p) => p.id,
+      );
+    expect(find("KILO, APOGEE MIND")).toEqual(["counter-intelligence"]);
+    expect(find("koma")).toEqual(["quantum-quandrix"]);
+    expect(find("Inspirit")).toEqual(["counter-intelligence"]);
+    expect(find("kilo", "G")).toEqual([]);
+    expect(find("kilo", "", 2021)).toEqual([]);
+    expect(find("not present")).toEqual([]);
   });
   it("sorts grades independently of strength and leaves ungraded lists last", () => {
     const rows = [

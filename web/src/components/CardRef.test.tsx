@@ -2,7 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
-import { CardHover, CardRef, CardText, cardTextParts, listenForPreviewControl, lookupPreview, previewPosition } from "./CardRef";
+import { CardHover, CardRef, CardText, cardTextParts, listenForPreviewControl, lookupPreview, previewDetailsUrl, previewPosition } from "./CardRef";
 
 vi.mock("../api", () => ({ api: vi.fn() }));
 
@@ -27,7 +27,10 @@ describe("shared card references", () => {
   it("can preview a new public card missing from the local Oracle snapshot",async()=>{
     const fresh={oracle_id:"borg",name:"The Borg Queen",image_normal:"https://cards.scryfall.io/normal/borg.jpg",back_image_normal:null,oracle_text:"Assimilate.",type_line:"Legendary Artifact Creature",mana_cost:"{W}{U}{B}"};
     vi.mocked(api).mockResolvedValueOnce({cards:[]}).mockResolvedValueOnce(fresh);
-    expect(await lookupPreview("The Borg Queen")).toEqual(fresh);
+    const card=await lookupPreview("The Borg Queen");
+    expect(card).toEqual({...fresh,remote:true});
+    expect(previewDetailsUrl("The Borg Queen",card)).toBe("https://scryfall.com/search?q=!%22The%20Borg%20Queen%22");
+    expect(previewDetailsUrl("Sol Ring",{...fresh,name:"Sol Ring",oracle_id:"ring"})).toBe("/cards?q=!%22Sol%20Ring%22&card=ring");
     expect(vi.mocked(api).mock.calls.map(([url])=>url)).toEqual(['/api/cards/search?q=!%22The%20Borg%20Queen%22','/api/cards/preview?name=The%20Borg%20Queen']);
   });
   it("shares a lazy name lookup through the query cache",async()=>{

@@ -261,7 +261,17 @@ impl Filters {
                     || format!(
                         "{} {} {} {}",
                         p.name,
-                        p.commanders.join(" "),
+                        p.commanders
+                            .iter()
+                            .chain(
+                                p.upgradeability
+                                    .alternatives
+                                    .iter()
+                                    .flat_map(|a| &a.commanders)
+                            )
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(" "),
                         p.set_code,
                         p.set_name.as_deref().unwrap_or("")
                     )
