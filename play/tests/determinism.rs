@@ -6,6 +6,8 @@
 //!   state must be identical.
 //! - A game resumed from its saved replay log part way through (as after a server restart) must
 //!   go on exactly as the uninterrupted game did: the same actions, views and final state.
+//! - An AI error or a nonterminal game where nobody can act fails the test. Two games stopping
+//!   at the same defect do not establish that the game works.
 //!
 //! The decks are copies in tests/fixtures/decks: the soak's two full lists
 //! (commander-decks decks/Fantastic_Four_Upgraded_100.txt and Riders_of_Rohan_Upgraded_100.txt),
@@ -15,7 +17,7 @@
 //!
 //! These play whole games on phase's full card data (YAMA_ENGINE_CARD_DATA, else
 //! data/engine/card-data-1e5608e61683de41.json at the repo root), so they're ignored by default.
-//! Run them in release:
+//! Missing card data fails an explicitly requested run. Run them in release:
 //!   YAMA_ENGINE_CARD_DATA=... cargo test --release -p yama-play --test determinism -- --ignored --nocapture
 
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -27,16 +29,12 @@ use yama_play::{Difficulty, Engine, LogLine, Match, SeatDeck, Setup};
 /// Turns a game may last here before it's cut off (the same in every run, so still compared).
 const MAX_TURNS: u32 = 60;
 
-fn card_data() -> Option<PathBuf> {
+fn card_data() -> PathBuf {
     let path = std::env::var("YAMA_ENGINE_CARD_DATA")
         .map(PathBuf::from)
         .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/engine/card-data-1e5608e61683de41.json"));
-    if path.exists() {
-        Some(path)
-    } else {
-        eprintln!("skipped: no card data at {} (set YAMA_ENGINE_CARD_DATA)", path.display());
-        None
-    }
+    assert!(path.is_file(), "no card data at {} (set YAMA_ENGINE_CARD_DATA)", path.display());
+    path
 }
 
 /// A fixture deck: Commander and Deck sections, or "qty name" lines with the commander first.
@@ -123,13 +121,15 @@ fn play_out(m: &mut Match, rec: &mut Record, save_at: &[usize]) {
         match m.run_ai(1) {
             Ok(1) => {}
             Ok(_) if m.settle_ai_contest() => {}
-            Ok(_) => {
-                rec.end = "nobody can act".into();
+            Ok(_) if m.is_over() => {
+                rec.end = format!("over, winner {:?}", m.winner());
                 break;
             }
+            Ok(_) => {
+                panic!("nonterminal game has no actor at turn {}: {:?}", m.turn(), m.engine_state().waiting_for);
+            }
             Err(e) => {
-                rec.end = format!("AI stopped: {e:#}");
-                break;
+                panic!("AI stopped at turn {}: {e:#}", m.turn());
             }
         }
         let logged = m.actions_logged();
@@ -150,7 +150,7 @@ fn state_json(m: &Match) -> String {
 #[test]
 #[ignore = "plays full games on phase's full card data; run in release with --ignored"]
 fn full_ai_games_play_the_same_twice() {
-    let Some(path) = card_data() else { return };
+    let path = card_data();
     let engine = Engine::load(&path).expect("card data");
     let games = games();
     // Every game twice, all at once on threads of their own (the AI recurses deeply).
@@ -190,7 +190,7 @@ fn full_ai_games_play_the_same_twice() {
 #[test]
 #[ignore = "plays full games on phase's full card data; run in release with --ignored"]
 fn a_resumed_game_goes_on_as_the_uninterrupted_one() {
-    let Some(path) = card_data() else { return };
+    let path = card_data();
     let engine = Engine::load(&path).expect("card data");
     let g = Game { seed: 21, decks: [RIDERS, PRISMARI, LOREHOLD, WORLD], level: Difficulty::Easy };
     let save_at = [150, 600, 1_100];

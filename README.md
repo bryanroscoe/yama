@@ -65,8 +65,16 @@ cargo build --release -p yama-play --bins
 YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
   cargo test --release -p yama-play --test determinism -- --ignored          # same games twice, and resumed
 YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
+  cargo test --release -p yama-play --test lab_regressions -- --ignored --test-threads=1 # frozen live failures and a successful control
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
   cargo test --release -p yama-server play::bench -- --ignored --nocapture   # a person's move, act to views sent
 ```
+
+The gameplay checks above are separate from `cargo test`, which skips full-game tests by default.
+The determinism checks fail on an AI stop or missing card data. The live regression suite expects
+games to finish normally; it currently exposes unresolved priority-session, Adventure-offer and
+combat-tax defects. See [gameplay validation](docs/gameplay-validation.md). A healthy isolated
+worker is evidence of server reliability; it does not establish rules or AI correctness.
 
 Optional:
 
