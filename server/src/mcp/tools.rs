@@ -335,25 +335,25 @@ const TOOLS: &[Tool] = &[
         description: staged!(
             "Simulate in the lab, under their lab allowance; results come in over the next while (see lab_run). Modes: \
              change (the default: a list against the same list with cards added and cut, in paired games), compare (two \
-             lists in the same pods), solo (one list's win rate as it is) and versus (2 to 4 lists head to head). Lists \
+             lists in the same pods), solo (one list's win rate as it is), versus (2 to 4 lists head to head), and tournament (one large field in balanced randomized four-player pods). Lists \
              are their decks or precons by name, or a pasted list. Applying runs every check the lab's pages run."
         ),
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
-                    "mode": {"type": "string", "enum": ["change", "compare", "solo", "versus"]},
+                    "mode": {"type": "string", "enum": ["change", "compare", "solo", "versus", "tournament"]},
                     "deck": {"type": "string", "description": "change, solo: the list to start from; compare: the first list. One of their decks or a precon, by name or id."},
                     "list": {"type": "string", "description": "Or a whole list instead of deck, one card per line, commander first."},
                     "label": {"type": "string", "description": "A name for a pasted list."},
                     "other": {"type": "string", "description": "compare: the second list, one of their decks or a precon."},
                     "other_list": {"type": "string", "description": "compare: or a whole second list."},
                     "other_label": {"type": "string", "description": "A name for the second pasted list."},
-                    "entrants": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4, "description": "versus: 2 to 4 of their decks or precons."},
+                    "entrants": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 256, "description": "versus: 2 to 4 decks; tournament: a large shared field, up to 256 distinct lists including optional benchmark opponents."},
                     "pod": {"type": "integer", "enum": [4, 2], "description": "versus: 4 players (the default; precons fill empty seats) or 2 (1v1, two lists)."},
                     "add": {"type": "array", "items": {"type": "string"}, "description": "change: cards to add."},
                     "cut": {"type": "array", "items": {"type": "string"}, "description": "change: cards to cut."},
-                    "games": {"type": "integer", "description": "Games per engine: 100 (the default), 200 or 400 (admins up to 2,000)."},
+                    "games": {"type": "integer", "description": "Games per engine, or appearances per deck per engine for tournament: 100 (default), 200 or 400 (admins up to 2,000). Tournament total games scale with field size and are charged in full."},
                     "opponents": {
                         "type": "string",
                         "enum": ["strongest", "similar", "all_precons", "my_decks"],

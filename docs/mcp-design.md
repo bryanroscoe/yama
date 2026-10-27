@@ -158,3 +158,6 @@ the consent page names the account being connected and says to allow only a sign
 `token_endpoint_auth_method: "none"`; Yama also handles the RFC default (`client_secret_basic`) and
 `client_secret_post` in case it doesn't. The flow was tested end to end locally with a scripted
 client standing in for Claude Code; the first real connection from claude.ai happens after deploy.
+
+
+Tournament mode in `start_lab_run` (2026-10-26): `mode: "tournament"`, a selected field in `entrants`, optional `opponents: "all_precons"` (or another existing benchmark selector), and `games` as appearances per unique deck per engine. All benchmark decks are scored; identical lists collapse. Actual scheduled games are charged. This stages one experiment through the normal owner-scoped approval path, and `lab_run` reports the shared rankings and finish-ahead samples.

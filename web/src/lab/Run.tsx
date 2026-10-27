@@ -72,6 +72,7 @@ const MODE_LINE: Record<ExperimentMode, string> = {
   compare: "Two decks against the same opponents, on the same pods",
   solo: "One list as it is, against the field",
   versus: "Decks head to head, every deck in every game",
+  tournament: "Tournament, balanced randomized four-player pods across one shared field",
 };
 
 /** "Run again with more games": the same lists, opponents and AI level, a new seed. */
@@ -81,7 +82,7 @@ function Again({ e }: { e: ExperimentDetail }) {
   const pace = usePace();
   const choices = gameChoices(pace.data);
   // A "both" run's label counts both engines' games; "again" asks for games per engine.
-  const perEngine = enginesOf(e).mode === "both" ? e.label.games / 2 : e.label.games;
+  const perEngine = modeOf(e) === "tournament" ? (e.games_per_deck ?? 100) : enginesOf(e).mode === "both" ? e.label.games / 2 : e.label.games;
   const bigger = choices.filter((g) => g > perEngine);
   const [games, setGames] = useState<number | null>(null);
   const pick = games ?? bigger[0] ?? choices[choices.length - 1] ?? perEngine;
@@ -106,7 +107,7 @@ function Again({ e }: { e: ExperimentDetail }) {
         {again.isPending ? "Starting…" : pick > perEngine ? `Run again with ${pick} games` : `Run again (${pick} games)`}
       </button>
       <span className="lab-note">
-        Same lists, opponents, engines and AI, new shuffles. More games give a tighter answer.{enginesOf(e).mode === "both" ? ` ${pick} games on each engine.` : ""}
+        Same lists, opponents, engines and AI, new shuffles. More games give a tighter answer. {modeOf(e) === "tournament" ? "The count is appearances per deck, per engine." : ""}{enginesOf(e).mode === "both" ? ` ${pick} ${modeOf(e) === "tournament" ? "appearances per deck" : "games"} on each engine.` : ""}
       </span>
       <ErrorText error={again.error} />
     </div>
@@ -165,7 +166,7 @@ function MoreGames({ e }: { e: ExperimentDetail }) {
 
 /** What "Edit and run again" brings back to the Compare page. */
 function comparePrefill(e: ExperimentDetail): ComparePrefill {
-  const lists = modeOf(e) === "versus" ? (e.lists.entrants ?? []) : [e.lists.base, ...(e.lists.variant ? [e.lists.variant] : [])];
+  const lists = ["versus", "tournament"].includes(modeOf(e)) ? (e.lists.entrants ?? []) : [e.lists.base, ...(e.lists.variant ? [e.lists.variant] : [])];
   const decks = lists.map((l) => {
     const src = l.source as { kind?: string; id?: string };
     if (src.kind === "precon" && src.id) return { kind: "precon" as const, id: src.id };
@@ -173,11 +174,11 @@ function comparePrefill(e: ExperimentDetail): ComparePrefill {
     return { kind: "list" as const, text: listText(l.cards.map((c) => ({ qty: c.qty, name: c.name, board: c.commander ? "commander" : "main" }))), label: l.label };
   });
   return {
-    mode: modeOf(e) === "versus" ? "versus" : "compare",
+    mode: modeOf(e) === "tournament" ? "tournament" : modeOf(e) === "versus" ? "versus" : "compare",
     decks,
     pod: e.label.pod,
     field: fieldFrom(e),
-    games: enginesOf(e).mode === "both" ? e.label.games / 2 : e.label.games,
+    games: modeOf(e) === "tournament" ? (e.games_per_deck ?? 100) : enginesOf(e).mode === "both" ? e.label.games / 2 : e.label.games,
     difficulty: phaseDifficulty(e),
     engines: enginesOf(e),
   };
@@ -251,7 +252,7 @@ export function RunPage() {
         <h1 style={{ fontSize: "var(--t-xl)" }}>{e.name}</h1>
         <span className="dim small">{MODE_LINE[modeOf(e)]}</span>
         <span className="dim small">{engineLine(e)}</span>
-        {e.base && modeOf(e) !== "versus" && modeOf(e) !== "compare" && (
+        {e.base && !["versus", "tournament"].includes(modeOf(e)) && modeOf(e) !== "compare" && (
           <span className="dim small">
             {e.base.commanders.join(" and ")} <Pips identity={e.base.color_identity} /> {identityName(e.base.color_identity)}
           </span>
@@ -285,7 +286,7 @@ export function RunPage() {
         )
       )}
 
-      {e.status === "done" && modeOf(e) !== "versus" && <MoreGames e={e} />}
+      {e.status === "done" && !["versus", "tournament"].includes(modeOf(e)) && <MoreGames e={e} />}
 
       <section>
         <h2>{modeOf(e) === "change" ? "The change" : modeOf(e) === "solo" ? "The list" : "The decks"}</h2>
@@ -339,7 +340,7 @@ function prefillFrom(e: ExperimentDetail): TryPrefill {
           };
   const copies = (cards: { name: string; qty: number }[]) => cards.flatMap((c) => Array<string>(c.qty).fill(c.name));
   const solo = modeOf(e) === "solo";
-  return { base, add: solo ? [] : copies(e.variant?.added ?? []), cut: solo ? [] : copies(e.variant?.cut ?? []), field: fieldFrom(e), games: enginesOf(e).mode === "both" ? e.label.games / 2 : e.label.games, difficulty: phaseDifficulty(e), engines: enginesOf(e) };
+  return { base, add: solo ? [] : copies(e.variant?.added ?? []), cut: solo ? [] : copies(e.variant?.cut ?? []), field: fieldFrom(e), games: modeOf(e) === "tournament" ? (e.games_per_deck ?? 100) : enginesOf(e).mode === "both" ? e.label.games / 2 : e.label.games, difficulty: phaseDifficulty(e), engines: enginesOf(e) };
 }
 
 /** The phase AI level a run used (a Forge-only run's label shows its Forge profile instead). */
@@ -396,7 +397,7 @@ function ForgeWait({ e }: { e: ExperimentItem }) {
 /** The results view for a run's mode. */
 function ModeResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine?: HalfEngine }) {
   const on = engine ?? (enginesOf(e).mode === "forge" ? "forge" : "phase");
-  return modeOf(e) === "versus" ? <VersusResults e={e} s={s} /> : modeOf(e) === "solo" ? <SoloResults e={e} s={s} engine={on} /> : <Results e={e} s={s} engine={on} />;
+  return ["versus", "tournament"].includes(modeOf(e)) ? <VersusResults e={e} s={s} /> : modeOf(e) === "solo" ? <SoloResults e={e} s={s} engine={on} /> : <Results e={e} s={s} engine={on} />;
 }
 
 /** A "both" run: whether the engines agree, then each engine's results under its own heading. */
@@ -646,14 +647,19 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
   const top = rateCeiling(v.entrants.map((x) => x.wilson?.[1]));
   const ticks = [0, 0.25, 0.5, 0.75, 1].filter((t) => t <= top + 1e-9).map((t) => ({ at: t, label: pct(t) }));
   const names = v.entrants.map((x) => x.label);
+  const ranked = [...v.entrants].sort((a, b) => (b.win_rate ?? -1) - (a.win_rate ?? -1));
+  const [matchupFilter, setMatchupFilter] = useState("");
+  const [matchupPage, setMatchupPage] = useState(0);
+  const meetings = v.meetings.filter((m) => m.games > 0 && (!matchupFilter || (names[m.a] ?? "").toLowerCase().includes(matchupFilter.toLowerCase()) || (names[m.b] ?? "").toLowerCase().includes(matchupFilter.toLowerCase())));
   const rounds = v.avg_turns != null ? v.avg_turns / v.pod : null;
   return (
     <section>
       <h2>{s.verdict.final ? "Result" : "So far"}</h2>
       <p className="lab-verdict">{verdictText(e.status, s)}</p>
+      {modeOf(e) === "tournament" && !s.verdict.final && <p className="small dim">Progress updates each game; the ranking may lag by up to 24 games while a batch finishes.</p>}
       <IntervalChart
         caption={`Win share in ${v.pod === 2 ? "1v1 games" : "4-player pods"}`}
-        rows={v.entrants.map((x) => ({
+        rows={ranked.map((x) => ({
           key: x.id,
           label: (
             <>
@@ -687,6 +693,8 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
       {v.meetings.length > 0 && (
         <>
           <h3>Head to head</h3>
+          <label>Filter matchups by deck<input value={matchupFilter} onChange={(e) => { setMatchupFilter(e.target.value); setMatchupPage(0); }} /></label>
+          <p className="small dim">Only decks that shared scored games are compared. Showing {meetings.length ? matchupPage * 200 + 1 : 0}–{Math.min((matchupPage + 1) * 200, meetings.length)} of {meetings.length} matching pairs. This is finish order in multiplayer pods, not a simulated 1v1 win rate.</p>
           <div className="lab-scroll">
             <table className="plain small lab-h2h">
               <thead>
@@ -697,7 +705,7 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
                 </tr>
               </thead>
               <tbody>
-                {v.meetings.map((m) => (
+                {meetings.slice(matchupPage * 200, (matchupPage + 1) * 200).map((m) => (
                   <tr key={`${m.a}-${m.b}`}>
                     <td>
                       {names[m.a]} and {names[m.b]}
@@ -713,6 +721,10 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
               </tbody>
             </table>
           </div>
+          {meetings.length > 200 && <div className="lab-chips">
+            <button type="button" disabled={matchupPage === 0} onClick={() => setMatchupPage((p) => p - 1)}>Previous matchups</button>
+            <button type="button" disabled={(matchupPage + 1) * 200 >= meetings.length} onClick={() => setMatchupPage((p) => p + 1)}>Next matchups</button>
+          </div>}
         </>
       )}
       <details>
@@ -762,7 +774,7 @@ function Change({ e }: { e: ExperimentDetail }) {
           ))}
         </ul>
         <p className="small">
-          {mode === "versus" ? (e.field?.kind === "none" ? "No other decks at the table." : `Empty seats: ${fieldPhrase(e) ?? "unknown"}.`) : `Opponents: ${fieldPhrase(e) ?? "unknown"}.`}{" "}
+          {mode === "tournament" ? "One shared tournament field; every participant is scored." : ["versus", "tournament"].includes(mode) ? (e.field?.kind === "none" ? "No other decks at the table." : `Empty seats: ${fieldPhrase(e) ?? "unknown"}.`) : `Opponents: ${fieldPhrase(e) ?? "unknown"}.`}{" "}
           {ai} {games.replace(/^./, (c) => c.toUpperCase())}. The lists were frozen when the run was made.
         </p>
         <RunNotes e={e} />
@@ -808,7 +820,7 @@ function RunNotes({ e }: { e: ExperimentDetail }) {
       {e.opponents.length > 0 && (
         <details className="small">
           <summary>
-            {modeOf(e) === "versus" ? "Precons in the empty seats" : "Opponents"} ({e.opponents.length})
+            {["versus", "tournament"].includes(modeOf(e)) ? "Precons in the empty seats" : "Opponents"} ({e.opponents.length})
           </summary>
           <ul className="lab-note">
             {e.opponents.map((o) => (
@@ -858,7 +870,7 @@ function Pods({ id, done, status, mode, engine }: { id: string; done: number; st
         <summary>Every game{engine ? (engine === "forge" ? " on Forge" : " on phase") : ""} ({done} played)</summary>
         <ErrorText error={pods.error} />
         {pods.isPending && open && <p className="dim small">Loading…</p>}
-        {played.length > 0 && mode === "versus" && (
+        {played.length > 0 && ["versus", "tournament"].includes(mode) && (
           <div className="lab-scroll">
             <table className="lab-pods">
               <thead>
@@ -896,7 +908,7 @@ function Pods({ id, done, status, mode, engine }: { id: string; done: number; st
             </table>
           </div>
         )}
-        {played.length > 0 && mode !== "versus" && (
+        {played.length > 0 && !["versus", "tournament"].includes(mode) && (
           <div className="lab-scroll">
             <table className="lab-pods">
               <thead>

@@ -215,6 +215,7 @@ function verdictTag(kind: "better" | "worse" | "unclear", mode: ExperimentMode =
       return kind === "better" ? { text: "Above the field", tone: "good" } : { text: "Below the field", tone: "bad" };
     case "compare":
       return kind === "better" ? { text: "Second deck ahead", tone: "good" } : { text: "First deck ahead", tone: "good" };
+    case "tournament":
     case "versus":
       return { text: "One deck ahead", tone: "good" };
     default:

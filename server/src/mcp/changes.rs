@@ -739,13 +739,15 @@ pub async fn start_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) 
             request["other"] = b;
             format!("Lab run, {a_label} against {b_label}")
         }
-        "versus" => {
+        "versus" | "tournament" => {
             let names: Vec<String> = match args.get("entrants") {
                 Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).map(str::trim).filter(|n| !n.is_empty() && n.len() <= 300).map(String::from).collect(),
                 _ => vec![],
             };
-            if !(2..=crate::lab::experiments::MAX_ENTRANTS).contains(&names.len()) {
-                return Err(AppError::bad(format!("versus needs 2 to {} entrants", crate::lab::experiments::MAX_ENTRANTS)));
+            let max = if mode == "tournament" { crate::lab::experiments::MAX_TOURNAMENT_ENTRANTS } else { crate::lab::experiments::MAX_ENTRANTS };
+            let min = if mode == "tournament" { 1 } else { 2 };
+            if !(min..=max).contains(&names.len()) {
+                return Err(AppError::bad(format!("{mode} needs {min} to {max} entrants")));
             }
             let mut entrants = Vec::new();
             let mut labels = Vec::new();
@@ -757,18 +759,19 @@ pub async fn start_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) 
             let pod = args.get("pod").and_then(Value::as_u64).unwrap_or(4);
             request["entrants"] = json!(entrants);
             request["pod"] = json!(pod);
-            if pod == 2 || entrants.len() >= 4 {
+            if (mode == "tournament" && args.get("opponents").is_none()) || (mode == "versus" && (pod == 2 || entrants.len() >= 4)) {
                 request.as_object_mut().map(|o| o.remove("field"));
             }
-            format!("Lab run, head to head: {}", labels.join(", "))
+            if mode == "tournament" { format!("Tournament, {} selected lists", labels.len()) } else { format!("Lab run, head to head: {}", labels.join(", ")) }
         }
-        other => return Err(AppError::bad(format!("mode: \"{other}\" isn't change, compare, solo or versus"))),
+        other => return Err(AppError::bad(format!("mode: \"{other}\" isn't change, compare, solo, versus or tournament"))),
     };
     let engines = engine_words(&engine, &ai, &forge_ai);
     let detail = match mode.as_str() {
         "change" => format!("{games} games against {against}, the base list against the changed one in the same pods, {engines}."),
         "compare" => format!("{games} games against {against}, the two lists in the same pods, {engines}."),
         "solo" => format!("{games} games against {against}, {engines}."),
+        "tournament" => format!("At least {games} appearances per unique deck per engine in one shared field, randomized four-player pods with balanced seats; total games scale with the final field size. Identical lists are counted once. Optional opponents join the field as scored entrants. {engines}."),
         _ if request.get("field").is_some() => format!("{games} games, with {against} filling empty seats, {engines}."),
         _ => format!("{games} games, {engines}."),
     };
@@ -823,13 +826,13 @@ async fn run_info(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<RunInfo
 
 /// Games one pod takes on one engine.
 fn per_pod(mode: &str) -> usize {
-    if matches!(mode, "solo" | "versus") { 1 } else { 2 }
+    if matches!(mode, "solo" | "versus" | "tournament") { 1 } else { 2 }
 }
 
 pub async fn more_lab_games(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let id = text_arg(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
-    if run.mode == "versus" {
+    if matches!(run.mode.as_str(), "versus" | "tournament") {
         return Err(AppError::bad("A head-to-head run can't take more games; use run_lab_again."));
     }
     if run.status != "done" {
@@ -872,7 +875,11 @@ async fn apply_more_games(st: &AppState, user: &User, p: &Value) -> AppResult<Va
 pub async fn run_lab_again(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let id = text_arg(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
-    let had = run.pods * per_pod(&run.mode);
+    let had = if run.mode == "tournament" {
+        let target: Option<i64> = sqlx::query_scalar("SELECT json_extract(spec, '$.games_per_deck') FROM lab_experiments WHERE id=? AND owner_id=?")
+            .bind(id).bind(&user.id).fetch_one(&st.pool).await?;
+        target.unwrap_or(100).max(2) as usize
+    } else { run.pods * per_pod(&run.mode) };
     let games = games_arg(user, args, Some(games_at_least(user, had)))?;
     let summary = format!("Lab run again, {}: {games} games", run.name);
     let detail = format!(

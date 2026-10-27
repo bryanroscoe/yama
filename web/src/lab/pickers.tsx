@@ -413,12 +413,12 @@ export function usePace() {
   return useQuery({ queryKey: ["lab", "pace"], queryFn: () => api<Pace>("/api/lab/pace"), refetchInterval: 60_000 });
 }
 
-export function GamesPicker({ choices, games, setGames, pace, note, id }: { choices: number[]; games: number; setGames: (g: number) => void; pace: Pace | undefined; note: ReactNode; id: string }) {
-  const eta = expectedSeconds(pace, games);
+export function GamesPicker({ choices, games, setGames, pace, note, id, label = "Games", estimateGames }: { choices: number[]; games: number; setGames: (g: number) => void; pace: Pace | undefined; note: ReactNode; id: string; label?: string; estimateGames?: number }) {
+  const eta = expectedSeconds(pace, estimateGames ?? games);
   return (
     <div className="lab-games">
       <span id={id} className="lab-games-label">
-        Games
+        {label}
       </span>
       <div className="segmented" role="radiogroup" aria-labelledby={id}>
         {choices.map((g) => (

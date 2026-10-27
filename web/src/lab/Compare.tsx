@@ -10,7 +10,7 @@ import { DeckChooser, defaultField, FieldPicker, fromDeckSummary, GamesPicker, R
 import { usePrecons } from "./Precons";
 import { CreateError, PaceNote, RunningNow } from "./Try";
 
-type Mode = "compare" | "versus";
+type Mode = "compare" | "versus" | "tournament";
 
 export function ComparePage() {
   const { search, state } = useLocation();
@@ -23,7 +23,7 @@ function CompareForm() {
   const location = useLocation();
   const prefill = (location.state as { prefill?: ComparePrefill } | null)?.prefill;
   const params = new URLSearchParams(location.search);
-  const [mode, setMode] = useState<Mode>(prefill?.mode ?? (params.get("mode") === "versus" ? "versus" : "compare"));
+  const [mode, setMode] = useState<Mode>(prefill?.mode ?? (params.get("mode") === "tournament" ? "tournament" : params.get("mode") === "versus" ? "versus" : "compare"));
   const [picked, setPicked] = useState<(Chosen | null)[]>([null, null]);
   const [pod, setPod] = useState<number>(prefill?.pod ?? 4);
   const [field, setField] = useState<FieldState>(() => {
@@ -33,13 +33,15 @@ function CompareForm() {
   });
   const [gamesPicked, setGames] = useState<number | null>(prefill?.games ?? null);
   const [engines, setEngines] = useState<EngineState>(() => engineState(prefill));
+  const [includePrecons, setIncludePrecons] = useState(prefill?.mode === "tournament" && prefill.field?.kind === "precons_all");
   const [name, setName] = useState("");
   const opId = useRef(crypto.randomUUID());
   const pace = usePace();
   const choices = gameChoices(pace.data);
   const games = gamesPicked != null && choices.includes(gamesPicked) ? gamesPicked : choices.includes(200) ? 200 : (choices[0] ?? 100);
-  const phaseEta = expectedSeconds(pace.data, games);
-  const forgeEta = forgeSeconds(pace.data, games);
+  const tournament = mode === "tournament";
+  const phaseEta = tournament ? null : expectedSeconds(pace.data, games);
+  const forgeEta = tournament ? null : forgeSeconds(pace.data, games);
   const eta = engines.mode === "phase" ? phaseEta : engines.mode === "forge" ? forgeEta : phaseEta != null && forgeEta != null ? Math.max(phaseEta, forgeEta) : null;
 
   // "Edit and run again" brings decks back: yours by id, precons by slug (lists can't come back).
@@ -73,23 +75,30 @@ function CompareForm() {
   const fieldPick = useField(field, anchor, excludeDecks);
   const versus = mode === "versus";
   const fillers = versus ? Math.max(0, pod - chosen.length) : 0;
-  const needField = !versus || fillers > 0;
+  const needField = !tournament && (!versus || fillers > 0);
+  const fieldSize = chosen.length + (tournament && includePrecons ? (precons.data?.precons.length ?? 0) : 0);
+  const tournamentGames = 4 * Math.ceil(fieldSize * Math.ceil(games / 4) / 4);
 
   const setAt = (i: number, c: Chosen | null) => setPicked((p) => p.map((x, j) => (j === i ? c : x)));
   const switchMode = (m: Mode) => {
     setMode(m);
+    if (m === "tournament") setPod(4);
+    if (m === "versus") setPicked((p) => p.slice(0, 4));
     if (m === "compare") setPicked((p) => [p[0] ?? null, p[1] ?? null]);
   };
 
   const blockers: { text: string; href?: string; link?: string }[] = [];
-  if (chosen.length < 2) blockers.push({ text: versus ? "Pick at least two decks." : "Pick both decks.", href: "#cmp-decks", link: "Step 1" });
+  if (tournament && (chosen.length < 1 || fieldSize < 4)) blockers.push({ text: "Pick at least four decks, or add the stock precon field." });
+  if (!tournament && chosen.length < 2) blockers.push({ text: versus ? "Pick at least two decks." : "Pick both decks.", href: "#cmp-decks", link: "Step 1" });
   if (versus && pod === 2 && chosen.length !== 2) blockers.push({ text: "1v1 needs exactly two decks." });
   if (needField) for (const p of fieldPick.problems) blockers.push({ text: p, href: "#cmp-field", link: "Step 2" });
   if (pace.data && !pace.data.available) blockers.push({ text: pace.data.message ?? "Simulations can't start on this server right now." });
 
   const create = useMutation({
     mutationFn: () => {
-      const body: NewExperiment = versus
+      const body: NewExperiment = tournament
+        ? { op_id: opId.current, mode: "tournament", entrants: chosen.map((c) => c.choice), pod: 4, ...(includePrecons ? { field: { kind: "precons_all" as const } } : {}), games, ...engineFields(engines) }
+        : versus
         ? { op_id: opId.current, mode: "versus", entrants: chosen.map((c) => c.choice), pod, ...(fillers > 0 ? { field: fieldPick.choice } : {}), games, ...engineFields(engines) }
         : { op_id: opId.current, mode: "compare", base: chosen[0]!.choice, other: chosen[1]!.choice, field: fieldPick.choice, games, ...engineFields(engines) };
       if (name.trim()) body.name = name.trim();
@@ -106,15 +115,18 @@ function CompareForm() {
         No changes needed: see which of your decks does better. {caveat()}
       </p>
       <div className="lab-chips lab-modes" role="radiogroup" aria-label="How to compare">
-        <button type="button" role="radio" aria-checked={!versus} onClick={() => switchMode("compare")}>
+        <button type="button" role="radio" aria-checked={mode === "compare"} onClick={() => switchMode("compare")}>
           Against the same opponents
         </button>
         <button type="button" role="radio" aria-checked={versus} onClick={() => switchMode("versus")}>
           Head to head
         </button>
+        <button type="button" role="radio" aria-checked={tournament} onClick={() => switchMode("tournament")}>
+          Tournament
+        </button>
       </div>
       <p className="small dim" style={{ marginTop: 0 }}>
-        {versus
+        {tournament ? "One shared experiment for a large field. Randomized four-player pods balance appearances and opponent meetings, and rotate every deck through all seats. Every deck at the table contributes to the results." : versus
           ? "Your decks sit at the same table and play each other, every deck taking every seat in turn so going first evens out."
           : "Both decks play the same pods: the same opponents, seats and shuffles. Only the deck differs, so the difference is between the decks."}
       </p>
@@ -126,9 +138,15 @@ function CompareForm() {
         <div className="lab-try-main">
           <section className="lab-step" aria-labelledby="cmp-decks-h" id="cmp-decks">
             <h2 id="cmp-decks-h">
-              <span className="n">1.</span> {versus ? "Decks" : "The two decks"}
+              <span className="n">1.</span> {tournament || versus ? "Decks" : "The two decks"}
             </h2>
-            {picked.map((c, i) => (
+            {tournament ? <>
+              <button type="button" className="outline" onClick={() => setPicked((decks.data ?? []).map(fromDeckSummary))}>Select all my saved decks</button>
+              <p className="small dim">Identical lists are counted once, even if a stock precon and one of your decks have different names. Current and after-prints lists stay separate when their cards differ.</p>
+              <ul>{chosen.map((c) => <li key={c.key}>{c.label} <button type="button" className="quiet" aria-label={`Remove ${c.label}`} onClick={() => setPicked((p) => p.filter((x) => x?.key !== c.key))}>Remove</button></li>)}</ul>
+              {chosen.length < 256 && <DeckChooser value={null} onChange={(c) => c && setPicked((p) => [...p.filter(Boolean), c])} exclude={chosen.map((c) => c.key)} />}
+              <label><input type="checkbox" checked={includePrecons} onChange={(e) => setIncludePrecons(e.target.checked)} /> Include all supported stock precons as tournament entrants</label>
+            </> : <>{picked.map((c, i) => (
               <div key={i} className="lab-cmp-slot">
                 <div className="lab-swaps-head">
                   <h3>{versus ? `Deck ${i + 1}` : i === 0 ? "First deck" : "Second deck"}</h3>
@@ -140,7 +158,7 @@ function CompareForm() {
                 </div>
                 <DeckChooser value={c} onChange={(x) => setAt(i, x)} exclude={chosen.filter((x) => x !== c).map((x) => x.key)} />
               </div>
-            ))}
+            ))}</>}
             {versus && picked.length < 4 && pod === 4 && (
               <button type="button" className="outline" onClick={() => setPicked((p) => [...p, null])}>
                 Add another deck
@@ -179,7 +197,7 @@ function CompareForm() {
 
           <section className="lab-step" aria-labelledby="cmp-field-h" id="cmp-field">
             <h2 id="cmp-field-h">
-              <span className="n">2.</span> {versus ? (fillers > 0 ? "Who fills the empty seats" : "Games") : "Against"}
+              <span className="n">2.</span> {tournament ? "Games per deck" : versus ? (fillers > 0 ? "Who fills the empty seats" : "Games") : "Against"}
             </h2>
             {needField && <FieldPicker value={field} onChange={setField} anchor={anchor} excludeDecks={excludeDecks} />}
             <GamesPicker
@@ -188,7 +206,9 @@ function CompareForm() {
               games={games}
               setGames={setGames}
               pace={pace.data}
-              note={versus ? `${games} games, every deck in each one.` : `${games / 2} pods, each played by both decks.`}
+              label={tournament ? "Games per deck, per engine" : "Games"}
+              estimateGames={tournament ? tournamentGames : undefined}
+              note={tournament ? `At least ${games} appearances per unique deck. Up to about ${tournamentGames.toLocaleString()} four-player games per engine before duplicate and unsupported precons are removed. Counts are rounded up for equal seat rotations.` : versus ? `${games} games, every deck in each one.` : `${games / 2} pods, each played by both decks.`}
             />
             <p className="lab-note" style={{ margin: 0 }}>
               <PaceNote pace={pace.data} error={pace.error} />
@@ -203,18 +223,18 @@ function CompareForm() {
           <section className="lab-run" aria-labelledby="cmp-run">
             <h2 id="cmp-run">Run</h2>
             <p className="small" style={{ margin: 0 }}>
-              {chosen.length >= 2 ? (
+              {chosen.length >= (tournament ? 1 : 2) ? (
                 <>
-                  <b>{labels.join(versus ? ", " : " vs ")}</b>
-                  {versus ? (pod === 2 ? ", 1v1" : fillers > 0 ? `, with ${fieldPick.label} filling ${fillers === 1 ? "a seat" : `${fillers} seats`}` : "") : ` against ${fieldPick.label}`}. {games} games, {engineText(engines)}
+                  <b>{tournament ? `Tournament with ${chosen.length} selected lists${includePrecons ? " and the precon field" : ""}` : labels.join(versus ? ", " : " vs ")}</b>
+                  {tournament ? "" : versus ? (pod === 2 ? ", 1v1" : fillers > 0 ? `, with ${fieldPick.label} filling ${fillers === 1 ? "a seat" : `${fillers} seats`}` : "") : ` against ${fieldPick.label}`}. {games} {tournament ? "games per deck per engine" : "games"}, {engineText(engines)}
                   {eta != null ? `, ${durationText(eta)}` : ""}.
                 </>
               ) : (
                 <span className="dim">Pick the decks, then who they play against.</span>
               )}
             </p>
-            <EnginePicker id="cmp-engine" value={engines} onChange={setEngines} pace={pace.data} games={games} />
-            {chosen.length >= 2 && <EngineSupportNote lists={chosen.map((c) => c.choice)} names={[]} mode={engines.mode} />}
+            <EnginePicker id="cmp-engine" value={engines} onChange={setEngines} pace={pace.data} games={tournament ? tournamentGames : games} />
+            {chosen.length >= (tournament ? 1 : 2) && <EngineSupportNote lists={chosen.map((c) => c.choice)} names={[]} mode={engines.mode} />}
             <label>
               <span>
                 Name <span className="dim small" style={{ fontWeight: 400 }}>(optional)</span>
@@ -224,7 +244,7 @@ function CompareForm() {
             <CreateError error={create.error} names={labels} />
             <RunBlockers items={blockers} />
             <button className="primary" onClick={() => create.mutate()} disabled={blockers.length > 0 || create.isPending || !me.data}>
-              {create.isPending ? "Starting…" : versus ? "Play them head to head" : "Compare them"}
+              {create.isPending ? "Starting…" : tournament ? "Start tournament" : versus ? "Play them head to head" : "Compare them"}
             </button>
             <p className="lab-note" style={{ margin: 0 }}>
               AI-piloted simulated games, not your table. To test a change to one deck, use <Link to="/decks/lab/try">Try a change</Link>. <Link to="/decks/lab/runs">My runs</Link>

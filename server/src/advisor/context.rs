@@ -624,6 +624,7 @@ async fn experiment(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Strin
             Mode::Compare => "compare (two lists, each played in the same pods)",
             Mode::Solo => "solo (one list as it is against the field)",
             Mode::Versus => "head to head (the lists play each other)",
+            Mode::Tournament => "tournament (balanced randomized four-player pods across a shared field)",
         }
     );
     let profile = e.engines.profile();
@@ -665,7 +666,7 @@ async fn experiment(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Strin
     }
     out.push('\n');
     match e.mode {
-        Mode::Versus => {
+        Mode::Versus | Mode::Tournament => {
             for (i, list) in d.lists.entrants.iter().enumerate() {
                 let _ = writeln!(out, "Entrant {} \"{}\":\n{}", i + 1, list.label, lab_list(&list.cards));
             }

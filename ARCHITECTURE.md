@@ -608,3 +608,12 @@ Still open:
 - Scryfall, "New WebP images + JPEG Deprecations" (2026-10-14; read 2026-10-18): <https://scryfall.com/blog/new-webp-images-jpeg-deprecations-237>
 - Wizards Fan Content Policy: <https://company.wizards.com/en/legal/fancontentpolicy>
 - Comprehensive Rules: <https://magic.wizards.com/en/rules> (latest edition found: effective 2026-06-19)
+
+
+### Shared-field tournaments (2026-10-26)
+
+Lab Compare includes a tournament mode: one owner-private experiment freezes 4–256 distinct lists (chosen decks/versions and optional precon benchmarks). Stock benchmark lists are scored entrants, not filler seats. Identical lists are removed by their normalized fingerprint, with a warning, so a saved stock deck and its precon cannot overweight the field. Existing change/compare/solo/versus behavior stays separate.
+
+`games` in tournament mode is a target of appearances per unique deck per engine. The seeded scheduler chooses the least-used decks, breaks ties by the fewest prior meetings, and plays each quartet in four seat rotations with fresh shuffle seeds. Appearances round up to four; uneven fields can overshoot by four. Every seat is equally represented for each deck. Both engines receive the exact same schedule, and quotas charge every actual scheduled game on every engine. Non-admin per-experiment ceilings still apply to total games per engine, including rotation rounding; tournament size does not bypass them. Experiments retain snapshots, independent engine summaries, unscored-game reporting and retry/cancel/idempotency controls. Rerunning preserves the frozen field and uses a new seed.
+
+The existing multiplayer summary now supports a varying field: each deck's denominator includes only games it played, pairwise finish-ahead statistics only shared scored games, and all participants contribute. Pair updates visit the six pairs actually at a four-player table instead of every possible field pair for every game. Rankings show win shares and intervals, not official brackets or real-table forecasts; a sparse pair is not an inferred duel result. Large matchup tables are filterable and paginated. Tournament progress updates after every result; full summaries refresh every 25 games, at either engine’s completion, and on cancellation, so large fields do not reparse their entire history after every game.

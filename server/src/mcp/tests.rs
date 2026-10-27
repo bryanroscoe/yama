@@ -74,6 +74,9 @@ async fn the_protocol_basics() {
     for n in ["overview", "deck", "plan_deck", "review_queue", "find_cards", "card", "check_list", "lab_runs", "lab_run", "lab_games", "precon", "start_lab_run", "more_lab_games", "run_lab_again", "cancel_lab_run", "set_condition"] {
         assert!(names.contains(&n), "{n} missing from {names:?}");
     }
+    let start = r["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "start_lab_run").unwrap();
+    assert!(start["inputSchema"]["properties"]["mode"]["enum"].as_array().unwrap().contains(&json!("tournament")));
+    assert_eq!(start["inputSchema"]["properties"]["entrants"]["maxItems"], 256);
     for t in r["result"]["tools"].as_array().unwrap() {
         assert_eq!(t["inputSchema"]["type"], "object", "{}", t["name"]);
     }

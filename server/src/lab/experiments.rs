@@ -61,6 +61,7 @@ pub enum Mode {
     Compare,
     Solo,
     Versus,
+    Tournament,
 }
 
 impl Mode {
@@ -70,6 +71,7 @@ impl Mode {
             "compare" => Ok(Mode::Compare),
             "solo" => Ok(Mode::Solo),
             "versus" => Ok(Mode::Versus),
+            "tournament" => Ok(Mode::Tournament),
             other => Err(AppError::bad(format!("mode {other:?}: use change, compare, solo or versus"))),
         }
     }
@@ -78,6 +80,7 @@ impl Mode {
 /// Lists in a head-to-head experiment.
 pub const MIN_ENTRANTS: usize = 2;
 pub const MAX_ENTRANTS: usize = 4;
+pub const MAX_TOURNAMENT_ENTRANTS: usize = 256;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -473,7 +476,7 @@ pub struct NewExperiment {
     /// compare only: deck B.
     #[serde(default)]
     pub other: Option<BaseChoice>,
-    /// versus only: 2 to 4 lists.
+    /// Versus: 2 to 4 lists. Tournament: selected lists, optionally extended by `field`.
     #[serde(default)]
     pub entrants: Vec<BaseChoice>,
     /// versus only: 4 (the default; precons from `field` fill empty seats) or 2 (1v1, two lists).
@@ -482,6 +485,7 @@ pub struct NewExperiment {
     /// The opponents. Versus needs it only to fill empty seats.
     #[serde(default)]
     pub field: Option<FieldChoice>,
+    /// Games per engine; tournament mode uses appearances per unique deck per engine.
     pub games: u32,
     pub difficulty: Option<String>,
     /// "phase" (the default), "forge" or "both" (every pod on each engine, side by side).
@@ -598,6 +602,9 @@ pub struct ExperimentSpec {
     pub pod: usize,
     /// Pod templates (change, compare, solo) or games (versus).
     pub pods: usize,
+    /// Tournament only: requested appearances per deck, before seat-rotation rounding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub games_per_deck: Option<u32>,
     pub difficulty: String,
     pub limits: Limits,
     pub display: Display,
@@ -1287,7 +1294,7 @@ pub async fn create_with(
         Mode::Change => build_change(pool, user, &req, &chk, &id, seed, &difficulty).await?,
         Mode::Solo => build_solo(pool, user, &req, &chk, &id, seed, &difficulty).await?,
         Mode::Compare => build_compare(pool, user, &req, &chk, &id, seed, &difficulty).await?,
-        Mode::Versus => build_versus(pool, user, &req, &chk, &id, seed, &difficulty).await?,
+        Mode::Versus | Mode::Tournament => build_versus(pool, user, &req, &chk, &id, seed, &difficulty).await?,
     };
     // A pasted list's names weren't asked about yet: ask now, and refuse what Forge can't play.
     if let (Some(cards), Some(client)) = (&forge_cards, &fa.client) {
@@ -1297,6 +1304,7 @@ pub async fn create_with(
     built.spec.engines = engines;
     let name = req.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(clip).unwrap_or(built.name);
     let mode = built.spec.engines.mode;
+    let cost = mode.cost(built.games.len() as u32);
     let games = for_engines(built.games, mode);
     store_new(pool, user, &id, op_id.as_deref(), &name, &built.spec, &games, cost, &chk, quota, fa.engine.as_deref()).await
 }
@@ -1348,7 +1356,7 @@ async fn forge_cards_for(pool: &SqlitePool, owner: &str, fa: &ForgeAccess) -> Ap
 /// The lists a run tests, as the error details name them.
 fn tested_lists(spec: &ExperimentSpec) -> Vec<(Which, &LabList)> {
     match spec.mode {
-        Mode::Versus => spec.entrants.iter().enumerate().map(|(i, l)| (Which::Entrant(i), l)).collect(),
+        Mode::Versus | Mode::Tournament => spec.entrants.iter().enumerate().map(|(i, l)| (Which::Entrant(i), l)).collect(),
         Mode::Compare => std::iter::once((Which::DeckA, &spec.base)).chain(spec.variant.iter().map(|v| (Which::DeckB, v))).collect(),
         _ => std::iter::once((Which::Base, &spec.base)).chain(spec.variant.iter().map(|v| (Which::Variant, v))).collect(),
     }
@@ -1415,6 +1423,7 @@ async fn build_change(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: 
         seed,
         pod: POD,
         pods,
+        games_per_deck: None,
         difficulty: difficulty.to_string(),
         limits: LIMITS,
         display: Display { mode: Mode::Change, base: list_display(&base.list, &cb, &info), variant: Some(variant_display), entrants: vec![], field: field.info },
@@ -1453,6 +1462,7 @@ async fn build_solo(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &C
         seed,
         pod: POD,
         pods,
+        games_per_deck: None,
         difficulty: difficulty.to_string(),
         limits: LIMITS,
         display: Display { mode: Mode::Solo, base: list_display(&base.list, &cb, &info), variant: None, entrants: vec![], field: field.info },
@@ -1498,6 +1508,7 @@ async fn build_compare(pool: &SqlitePool, user: &User, req: &NewExperiment, sim:
         seed,
         pod: POD,
         pods,
+        games_per_deck: None,
         difficulty: difficulty.to_string(),
         limits: LIMITS,
         display: Display {
@@ -1518,11 +1529,15 @@ async fn build_compare(pool: &SqlitePool, user: &User, req: &NewExperiment, sim:
 }
 
 async fn build_versus(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: &Check<'_>, id: &str, seed: u64, difficulty: &str) -> AppResult<Built> {
+    let tournament = Mode::parse(req.mode.as_deref())? == Mode::Tournament;
+    let mode = if tournament { Mode::Tournament } else { Mode::Versus };
     let n = req.entrants.len();
-    if !(MIN_ENTRANTS..=MAX_ENTRANTS).contains(&n) {
-        return Err(AppError::bad(format!("entrants: pick {MIN_ENTRANTS} to {MAX_ENTRANTS} decks to play each other")));
+    let (min, max) = if tournament { (1, MAX_TOURNAMENT_ENTRANTS) } else { (MIN_ENTRANTS, MAX_ENTRANTS) };
+    if !(min..=max).contains(&n) {
+        return Err(AppError::bad(format!("entrants: pick {min} to {max} decks to play each other")));
     }
     let pod = req.pod.unwrap_or(POD);
+    if tournament && pod != POD { return Err(AppError::bad("Tournaments use four-player pods")); }
     if pod != POD && pod != 2 {
         return Err(AppError::bad("pod must be 4, or 2 for 1v1"));
     }
@@ -1533,6 +1548,31 @@ async fn build_versus(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: 
     for (i, c) in req.entrants.iter().enumerate() {
         lists.push(pick_list(pool, &user.id, c, &format!("e{i}"), Which::Entrant(i)).await?);
     }
+    let mut tournament_warnings = Vec::new();
+    let mut tournament_field = None;
+    if tournament {
+        if let Some(choice) = &req.field {
+            let info = card_info(pool, &[&lists[0].list.cards]).await?;
+            let c = check_list(&lists[0].list.cards, &info);
+            let others: Vec<&Base> = lists[1..].iter().collect();
+            let field = build_field(pool, &user.id, choice, &lists[0], &others, &c.commanders, sim).await?;
+            tournament_warnings.extend(field.warnings);
+            tournament_field = Some(field.info);
+            lists.extend(field.opponents.into_iter().map(|o| Base { list: o, precon: None, deck: None, unknown: vec![] }));
+        }
+        // A stock deck also present as a benchmark must not get two votes in the field.
+        let mut seen = HashSet::new();
+        lists.retain(|b| {
+            let keep = seen.insert(b.list.sha256.clone());
+            if !keep { tournament_warnings.push(format!("{} is identical to an earlier entrant and was left out", b.list.label)); }
+            keep
+        });
+        if !(POD..=MAX_TOURNAMENT_ENTRANTS).contains(&lists.len()) {
+            return Err(AppError::bad(format!("A tournament needs 4 to {MAX_TOURNAMENT_ENTRANTS} distinct decks after duplicate lists are removed")));
+        }
+        for (i, b) in lists.iter_mut().enumerate() { b.list.id = format!("e{i}"); }
+    }
+    let n = lists.len();
     let unknown_input: Vec<(Which, &LabList, &[String])> = lists.iter().enumerate().map(|(i, b)| (Which::Entrant(i), &b.list, b.unknown.as_slice())).collect();
     refuse_unknown(&unknown_input, sim)?;
     let all_cards: Vec<&[LabCard]> = lists.iter().map(|b| b.list.cards.as_slice()).collect();
@@ -1547,8 +1587,8 @@ async fn build_versus(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: 
             }
         }
     }
-    let need = pod - n;
-    let mut warnings = Vec::new();
+    let need = pod.saturating_sub(n);
+    let mut warnings = tournament_warnings;
     let (fillers, field_info) = if need > 0 {
         let choice = req.field.as_ref().ok_or_else(|| AppError::bad("field is required: choose the precons that fill the empty seats"))?;
         let others: Vec<&Base> = lists[1..].iter().collect();
@@ -1566,21 +1606,38 @@ async fn build_versus(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: 
     }
     let entrant_ids: Vec<String> = lists.iter().map(|b| b.list.id.clone()).collect();
     let filler_ids: Vec<String> = fillers.iter().map(|o| o.id.clone()).collect();
-    let games = pairing::schedule_versus(&id[..8], &entrant_ids, &filler_ids, pod, req.games as usize, seed, difficulty, &LIMITS);
+    if tournament && !user.is_admin {
+        let limit = game_choices(user).iter().copied().max().unwrap_or(100) as usize;
+        let minimum = (n * req.games as usize).div_ceil(POD);
+        if minimum > limit {
+            return Err(AppError::bad(format!("This tournament needs at least {minimum} games per engine; your experiment limit is {limit}. Choose fewer decks or a smaller per-deck target.")));
+        }
+    }
+    let games = if tournament {
+        pairing::schedule_tournament(&id[..8], &entrant_ids, req.games as usize, seed, difficulty, &LIMITS)
+    } else {
+        pairing::schedule_versus(&id[..8], &entrant_ids, &filler_ids, pod, req.games as usize, seed, difficulty, &LIMITS)
+    };
+    let total_games = games.len();
+    if tournament && !user.is_admin && total_games > game_choices(user).iter().copied().max().unwrap_or(100) as usize {
+        return Err(AppError::bad("Seat rotation rounding exceeds your experiment limit; choose fewer decks"));
+    }
+    let field_info = tournament_field.unwrap_or(field_info);
     let opponents = used_opponents(fillers, &games, false);
     let displays: Vec<ListDisplay> = lists.iter().zip(&checked).map(|(b, c)| list_display(&b.list, c, &info)).collect();
     let labels: Vec<&str> = lists.iter().map(|b| b.list.label.as_str()).collect();
-    let name = clip(&labels.join(" vs "));
+    let name = if tournament { format!("Tournament: {n} decks") } else { clip(&labels.join(" vs ")) };
     let entrants: Vec<LabList> = lists.into_iter().map(|b| b.list).collect();
     let spec = ExperimentSpec {
         version: 1,
-        mode: Mode::Versus,
+        mode,
         seed,
         pod,
-        pods: req.games as usize,
+        pods: total_games,
+        games_per_deck: tournament.then_some(req.games),
         difficulty: difficulty.to_string(),
         limits: LIMITS,
-        display: Display { mode: Mode::Versus, base: displays[0].clone(), variant: None, entrants: displays, field: field_info },
+        display: Display { mode, base: displays[0].clone(), variant: None, entrants: displays, field: field_info },
         base: entrants[0].clone(),
         variant: None,
         entrants,
@@ -1752,7 +1809,7 @@ pub async fn again_with(
     // The engine may have changed since: every list must still be playable.
     let mut tested: Vec<(Which, &LabList, &[String])> = vec![];
     match old.mode {
-        Mode::Versus => tested.extend(old.entrants.iter().enumerate().map(|(i, l)| (Which::Entrant(i), l, &[][..]))),
+        Mode::Versus | Mode::Tournament => tested.extend(old.entrants.iter().enumerate().map(|(i, l)| (Which::Entrant(i), l, &[][..]))),
         _ => {
             tested.push((Which::Base, &old.base, &[]));
             if let Some(v) = &old.variant {
@@ -1785,6 +1842,11 @@ pub async fn again_with(
                 (pods, pairing::schedule(&new_id[..8], &templates, &field_ids, &old.difficulty, &LIMITS))
             }
         }
+        Mode::Tournament => {
+            let ids: Vec<String> = old.entrants.iter().map(|l| l.id.clone()).collect();
+            let scheduled = pairing::schedule_tournament(&new_id[..8], &ids, games as usize, seed, &old.difficulty, &LIMITS);
+            (scheduled.len(), scheduled)
+        }
         Mode::Versus => {
             let entrant_ids: Vec<String> = old.entrants.iter().map(|l| l.id.clone()).collect();
             if field.len() < old.pod.saturating_sub(entrant_ids.len()) {
@@ -1793,8 +1855,13 @@ pub async fn again_with(
             (games as usize, pairing::schedule_versus(&new_id[..8], &entrant_ids, &field_ids, old.pod, games as usize, seed, &old.difficulty, &LIMITS))
         }
     };
+    if old.mode == Mode::Tournament && !user.is_admin && scheduled.len() > game_choices(user).iter().copied().max().unwrap_or(100) as usize {
+        return Err(AppError::bad("This tournament exceeds your experiment game limit; start a smaller field instead"));
+    }
+    let cost = engines.mode.cost(scheduled.len() as u32);
     let per_pod = matches!(old.mode, Mode::Change | Mode::Compare);
     let mut spec = ExperimentSpec { seed, pods, opponents: used_opponents(field, &scheduled, per_pod), limits: LIMITS, ..old };
+    if spec.mode == Mode::Tournament { spec.games_per_deck = Some(games); }
     spec.warnings.extend(forge_warning);
     let suffix = format!(" ({games} games)");
     let stem = without_games_suffix(&old_name);
@@ -1847,7 +1914,7 @@ pub async fn more_with(
             _ => "Only a finished run takes more games. Run this one again instead.".into(),
         }));
     }
-    if old.mode == Mode::Versus {
+    if matches!(old.mode, Mode::Versus | Mode::Tournament) {
         return Err(AppError::bad("A head-to-head run can't take more games yet. Run it again with more games instead."));
     }
     check_games(user, games)?;
@@ -2143,6 +2210,7 @@ pub struct ExperimentDetail {
     pub warnings: Vec<String>,
     pub seed: u64,
     pub limits: Limits,
+    pub games_per_deck: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2279,7 +2347,7 @@ impl ExpRow {
         let engines: Engines = self.engines.as_deref().and_then(|e| serde_json::from_str(e).ok()).unwrap_or_default();
         let mode = display.as_ref().map(|d| d.mode).unwrap_or_default();
         let agreement = match (&summary, &summary_forge) {
-            (Some(p), Some(f)) => Some(super::stats::agreement(mode == Mode::Versus, mode == Mode::Solo, p, f)),
+            (Some(p), Some(f)) => Some(super::stats::agreement(matches!(mode, Mode::Versus | Mode::Tournament), mode == Mode::Solo, p, f)),
             _ => None,
         };
         let mut builds = summary.as_ref().map(|s| s.builds.clone()).unwrap_or_default();
@@ -2360,6 +2428,7 @@ pub async fn detail(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Exper
         warnings: spec.warnings,
         seed: spec.seed,
         limits: spec.limits,
+        games_per_deck: spec.games_per_deck,
     })
 }
 
@@ -2546,7 +2615,7 @@ pub async fn pods_for(pool: &SqlitePool, owner: &str, id: &str, engine: Option<&
     let Some(mode) = mode else {
         return Err(AppError::NotFound("experiment"));
     };
-    let versus = mode.as_deref() == Some("versus");
+    let versus = matches!(mode.as_deref(), Some("versus" | "tournament"));
     let labels: HashMap<String, String> = labels.into_iter().collect();
     let engine: String = match engine {
         Some(e) => e.to_string(),
@@ -2757,7 +2826,7 @@ async fn pods_handler(
 
 /// Most extra names in one card-support check, and most lists.
 const MAX_CHECK_NAMES: usize = 400;
-const MAX_CHECK_LISTS: usize = MAX_ENTRANTS;
+const MAX_CHECK_LISTS: usize = MAX_TOURNAMENT_ENTRANTS;
 
 #[derive(Debug, Deserialize)]
 pub struct EnginesCheck {

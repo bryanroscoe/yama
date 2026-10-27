@@ -303,7 +303,7 @@ export interface Versus {
 }
 
 /** What a run compares: a change, two decks, one deck as it is, or decks head to head. */
-export type ExperimentMode = "change" | "compare" | "solo" | "versus";
+export type ExperimentMode = "change" | "compare" | "solo" | "versus" | "tournament";
 
 export interface ListDisplay {
   label: string;
@@ -394,6 +394,7 @@ export interface LabList {
 }
 
 export interface ExperimentDetail extends ExperimentItem {
+  games_per_deck?: number | null;
   lists: { base: LabList; variant: LabList | null; entrants?: LabList[] };
   opponents: { id: string; label: string; source: Record<string, unknown>; sha256: string; pods: number }[];
   warnings: string[];
@@ -506,12 +507,13 @@ export interface NewExperiment {
   variant?: { add: string[]; cut: string[] };
   /** compare: the second deck. */
   other?: BaseChoice;
-  /** versus: 2 to 4 decks. */
+  /** Versus: 2 to 4 decks. Tournament: a shared field of up to 256 unique lists. */
   entrants?: BaseChoice[];
   /** versus: 4 (precons fill empty seats) or 2 (1v1). */
   pod?: number;
   /** Needed by every mode but a versus with no empty seat. */
   field?: FieldChoice;
+  /** Tournament: appearances per unique deck per engine. Other modes: total games per engine. */
   games: number;
   difficulty: string;
   /** Missing: phase. */
@@ -534,7 +536,7 @@ export interface TryPrefill {
 
 /** What "Edit and run again" carries to the Compare page. */
 export interface ComparePrefill {
-  mode: "compare" | "versus";
+  mode: "compare" | "versus" | "tournament";
   decks: BaseChoice[];
   pod?: number;
   field?: FieldChoice;
