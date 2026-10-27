@@ -90,18 +90,26 @@ export interface Playgroup {
   method?: string | null;
 }
 
+export interface UpgradeabilitySource {
+  title: string; author: string; publisher: string; published_on: string | null;
+  checked_on: string; accessed_on: string; url: string; summary: string; kind: string; rating: string | null;
+  commander_configurations: string[][];
+}
 export interface Upgradeability {
   score: number | null;
   label: string;
-  status: "provisional" | "not_assessed" | "stock_list_changed";
-  effort: string | null;
-  path: string | null;
-  limitation: string | null;
-  assessed_on: string | null;
-  source_url: string | null;
-  method: string;
-  basis: string;
-  rubric: string;
+  status: "reviewed" | "insufficient_evidence" | "not_assessed" | "stock_list_changed";
+  effort: string | null; path: string | null; limitation: string | null;
+  assessed_on: string | null; source_url: string | null;
+  method: string; basis: string; rubric: string;
+  levels: {score: number; label: string; meaning: string}[];
+  rationale: {support: string; payoff: string; constraints: string} | null;
+  examples: {name: string; role: string; url: string; oracle_id: string; legal_checked_on: string; basis: string}[];
+  sources: UpgradeabilitySource[];
+  commander_cards: {name: string; url: string; checked_on: string; oracle_id: string}[];
+  commander_results: {name: string; url: string; api_url: string; games: number; wins: number;
+    raw_win_rate_percent: number | null; fetched_at: string; provider_updated_at: string | null; population: string}[];
+  commander_caveat: string; attribution: string; gap: string | null;
 }
 
 export interface PreconItem {

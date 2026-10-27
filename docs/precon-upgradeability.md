@@ -1,33 +1,60 @@
 # Precon upgradeability
 
-Yama shows one shared upgradeability assessment on public precon pages and comparisons, signed-in Lab pages and comparisons, public/private catalog APIs, and the advisor/MCP `precon` context. The field is distinct from stock simulations, Playgroup results, prices and future commander rankings.
+Public precon pages, private Lab pages, catalog APIs and MCP use the same assessment. This describes improvement options while retaining the **catalog's commander and main theme**. It is an editorial judgment by Yama, with supporting sources. A publisher's review grade is labelled separately and retained in its original scale.
 
-The initial catalog covers all 174 currently imported, distinct stock precons. These are **provisional editorial assessments**, written October 27, 2026 against the saved MTGJSON stock lists. They are not upgraded-list test results or an external consensus. They do not establish that a particular swap improves a deck. No private collection, purchase or proposal data is included.
+On 27 October 2026 we withdrew the first 174 grades. They were generated estimates without adequate source support. Matching their stock-list snapshots established list identity, not the validity of their judgments. Method `source-backed-upgradeability-v2` does not carry those grades forward.
 
-## Rubric
+The audit covers 174 stock lists. Thirteen now have supported assessments; 161 remain **ungraded**. All 179 distinct catalog commanders have dated aggregate observations. Twenty previously collected individual review pages were checked, alongside five additional upgrade guides. An ungraded deck may be excellent; it lacks the evidence needed for this assessment.
 
-This is an ordinal rubric, not a calibrated power scale. A one-point difference is not a measured performance difference. The initial catalog does not force entries into every level.
+## What 1–5 means
 
-| Score | Meaning |
+| Grade | Meaning |
 |---|---|
-| 1 Limited | Few coherent upgrade routes without replacing the identity |
-| 2 Constrained | Worthwhile improvements, with structural commander or theme limits |
-| 3 Good | Clear improvements, with meaningful setup or card-pool constraints |
-| 4 High | A well-supported engine with several useful upgrade packages |
-| 5 Very high | A deep, scalable engine with substantial room for focused optimization |
+| 1 Minimal | Individual replacements do little for the main plan; its limiting mechanism remains. |
+| 2 Narrow | Useful replacements exist, but a commander or theme restriction blocks most further gains. |
+| 3 Workable | A documented package improves the plan, with a persistent setup, combat or card-pool limit. |
+| 4 Broad | Several compatible packages improve the plan and its finish; important restrictions still apply. |
+| 5 Exceptional | The commander supplies repeatable resources and a direct finish; on-theme additions strengthen both. |
 
-Every assessment retains the stock commander and theme. Commander swaps, cEDH conversion and abandoning the theme are not used to inflate the score. Color count, retail value, EDHREC popularity and simulated win rate are not score inputs. The assessment considers coherent upgrade routes, the ability of the engine to scale, and structural limitations. Each entry states an improvement path and a limiting factor so the judgment can be challenged.
+A grade requires a published upgrade discussion covering the same commander configuration, two or more legal nonstock card examples, and original reasons describing **card support, commander payoff and restrictions**. The published author supplies evidence, not Yama's number. These are ordinal categories, without equal power steps or predicted win-rate gains. No distribution across levels is required. Generic ramp/removal upgrades alone do not establish a high grade.
 
-Effort is separate from potential: **Targeted** refines an established engine; **Moderate** refocuses several packages; **Substantial** rebuilds much of the shell. These are qualitative amounts of work, not dollar budgets or exact card counts. Proxy use does not alter potential. No specific Commander bracket is implied.
+Effort is separate: **Targeted** refines the main package; **Moderate** replaces several packages; **Substantial** removes much of the shell. These describe work, not spending, purchase priority or Commander brackets. No cards are installed or ordered by an assessment.
 
-Examples: Scions & Spellcraft has very high potential with substantial refocusing of the stock creature/Equipment packages. Counter Blitz has very high potential with targeted improvements to its existing counters engine. Quantum Quandrix has very high token-engine potential despite weak stock simulation results. The rubric does not claim one of these commanders is competitively strongest.
+For example, Y'shtola's damage can trigger on successive qualifying casts and pairs with damage-to-draw cards. Tidus's combat draw/proliferate happens only once each turn. These restrictions matter more than calling both engines “scalable.” Quantum Quandrix's token doubling still needs token production and a finish. The linked guides and individual rationales explain each grade.
+
+Commander configuration is checked explicitly. The collected Counter Intelligence guide commands Kilo, while Yama's list commands Inspirit. The Marvel upgrade guide switches Fantastic Four to Mister Fantastic, while Yama's stock list uses Invisible Woman. Those guides cannot justify a grade for the catalog configurations; their differences are shown on the pages. These are examples of evidence gaps, not bad-deck grades.
+
+## Win rates, reviews and deck quality
+
+Stock-precon results and reviewed simulation results retain their existing sources and methods. Upgradeability, commander observations and review opinions have **no weight in the stock meta rank**. The new data does not establish a commander ranking.
+
+Commander outcomes come from [Playgroup's documented public API](https://playgroup.gg/.well-known/openapi.yaml), whose [aggregate-data licence](https://playgroup.gg/legal) is CC BY 4.0, with attribution to Playgroup.gg / Arcane Digital B.V. Each observation preserves its individual endpoint, raw wins, games, fetch time and response hash. The displayed percentage is `100 * wins / games`. Zero games has no rate; below 20 games is labelled a small sample. Provider refresh time is unknown, not the fetch time.
+
+These commander aggregates mix stock and modified lists, opponents, pilots, power levels and pod sizes. They are **not four-player normalised** and not a controlled upgrade trial. Partners are separate commander observations, never inferred pair outcomes. The bulk directory and individual endpoints can return different counts; each displayed fraction uses one endpoint's wins and games. Do not subtract a stock-precon percentage to estimate an upgrade's gain. A large sample does not remove selection bias.
+
+Other sources were assessed rather than pooled indiscriminately:
+
+- [EDHTop16](https://edhtop16.com/) measures competitive tournament participation and advancement. Conversion is not game win rate and does not describe a stock list. It remains a separate research link, with no imported competitive score or conversion-to-win transformation.
+- [EDHREC's FAQ](https://edhrec.com/faq) describes deck inclusion data. Inclusion and popularity are not outcomes. This release does not add a bulk EDHREC dataset adapter. It links named articles, attributes short original summaries and retains dated evidence from the existing research snapshot.
+- Published guides from MTGGoldfish and Card Kingdom provide named upgrade examples. Reviews can disagree with simulations or other authors. We retain their dates and scopes instead of averaging letter grades, popularity and win rates into a synthetic quality score.
+
+No upgraded-versus-stock experiment has been run to validate these assessments. A tested upgrade gain would require matched lists, declared opponents/conditions and uncertainty, separate from this ordinal rubric.
 
 ## Data and maintenance
 
-`server/resources/precon-upgradeability.json` contains original Yama assessments, dates, a versioned method, MTGJSON stock-list links, and a name/quantity/board snapshot. It contains no images or copied rules text. `server/src/upgradeability.rs` loads it once and provides the common DTO.
+`server/resources/precon-upgradeability.json` is the hand-reviewed input: original rationales, source metadata, exact commander coverage, checked example cards and MTGJSON name/quantity/board stock snapshots. Examples were checked against Scryfall for current Commander legality, colour identity and absence from the stock list on 27 October 2026. Rules links identify the checked card; no images or rules documents are bundled.
 
-Assessments match the exact stock identity by names, quantities and command zone, ignoring order, printing, name case and double-faced front/back notation. A changed stock list or commander gets `stock_list_changed` and no score. An unknown import gets `not_assessed` and no score. Missing never means zero. New catalog imports therefore remain visible without silently acquiring an invented grade. The same rules apply to public and signed-in reads. Personal upgraded lists do not inherit a stock assessment merely because their commander matches.
+`server/resources/commander-evidence.json` contains only commander aggregate facts. It excludes public deck/player records, graphs, images and API keys. Refresh with:
 
-When assessing a new precon or revising a judgment, inspect the stock list, commander and proposed direction; update the dated evidence and retain the rubric version unless the rubric itself changes. Test stale-list detection, API agreement and sorting. Review claims before publishing. The frozen source lists allow an assessment to be reproduced, but they are not independent validation of the editorial verdict.
+```sh
+python3 scripts/research/fetch_commander_evidence.py
+python3 -m unittest discover -s scripts/research -p 'test_*.py'
+```
 
-Commander rankings are deferred. They need their own method, evidence and interpretation; this field is not a substitute.
+The importer checks identity and wins/game consistency, uses a descriptive User-Agent and one request per second, and preserves old observations with their old dates when a refresh fails. Failures are recorded and cause a nonzero exit; they are not converted into zeros. Inspect the resulting diff before release. Refreshing game data never changes grades automatically.
+
+`server/src/upgradeability.rs` supplies the shared DTO and rubric. Grades fail closed if source commander coverage, examples or written reasons are absent. Exact stock identity ignores order, printing, name case and double-faced back-face notation; changed names, quantities or command zone invalidate the assessment and its attached evidence. Unknown imports and private variants do not inherit a stock grade. Missing grades sort last.
+
+When revising a grade, read the actual guide and commander rules, verify its configuration and current card examples, and record source publication/access dates separately from the assessment date. Do not use a review of another commander as support. Use concrete triggers, costs and restrictions in prose; remove unsupported superlatives and generic lists of “efficient” cards. Run Rust, web and importer checks. Re-evaluate the rubric version if the meanings change.
+
+Commander ranking remains separate future work.
