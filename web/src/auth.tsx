@@ -9,6 +9,7 @@ import { clearPlanData } from "./plan/store";
 import "./auth.css";
 import { Wordmark } from "./components/Wordmark";
 import { noteViewing } from "./viewing";
+import { SiteNotice } from "./components/SiteNotice";
 
 /** The sign-in page's art: Éowyn, Shieldmaiden by Craig Elliott, loaded from Scryfall at runtime. */
 const SIGN_IN_ART = "https://cards.scryfall.io/art_crop/front/d/d/dd4a00ff-2206-4e12-a0ab-61ed82c9e6c5.jpg";
@@ -206,11 +207,12 @@ export function Login() {
             <p style={{ margin: "0 0 8px" }}>An app wants to connect to your Yama. Sign in first; you'll see what it asks for before anything is shared.</p>
           )}
           {config.data?.open_signup ? (
-            <p className="dim" style={{ margin: 0 }}>Anyone with a Google account can join. Yama is free, unofficial and private to its users.</p>
+            <p className="dim" style={{ margin: 0 }}>Anyone with a Google account can join. Yama is free and unofficial. Your personal data stays private to your account.</p>
           ) : (
             <p className="dim" style={{ margin: 0 }}>Yama is invite-only. Use the {clientId ? "Google account" : "account"} your host added.</p>
           )}
         </div>
+        <a className="button" href="/precons">Browse precons without signing in</a>
         {/* Google's button is a light-scheme iframe. Inside our dark page Chrome paints an opaque
             white backdrop behind an iframe whose scheme differs, so give its box the light scheme. */}
         {clientId && <div ref={googleRef} style={{ colorScheme: "light" }} />}
@@ -277,9 +279,7 @@ export function Login() {
         )}
         <ErrorText error={error ?? config.error} />
         <p className="small dim" style={{ margin: 0 }}>Offline? The life counter still opens on any phone that has signed in before.</p>
-        <p className="small dim login-notice">
-          Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images from Scryfall.
-        </p>
+        <SiteNotice />
         <p className="small dim" style={{ margin: 0, display: "flex", gap: 20 }}>
           <a href="/about/">About Yama</a>
           <a href="/privacy/">Privacy policy</a>

@@ -1,0 +1,81 @@
+/* Color and spacing tokens are supplied from web/src/styles.css by the Rust route. */
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body.public-precons { margin: 0; background: var(--ground); color: var(--text); font: 17px/1.55 "Atkinson Hyperlegible Next", system-ui, sans-serif; }
+a { color: inherit; text-underline-offset: .2em; }
+a:hover { text-decoration-thickness: 2px; }
+button, input, select, textarea { font: inherit; }
+button, .button { display: inline-block; background: var(--raised); color: var(--text); border: 1px solid var(--line); padding: 10px 16px; border-radius: 7px; text-decoration: none; min-height: 44px; }
+button, .primary { background: var(--text); color: var(--ground); font-weight: 650; cursor: pointer; }
+input, select, textarea { width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--line); padding: 10px; border-radius: 5px; min-height: 44px; }
+textarea { font-family: monospace; margin-top: 12px; }
+input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--text); outline-offset: 4px; }
+.public-header, main, .public-footer { max-width: 1280px; margin: auto; padding: 24px 32px; }
+.public-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; border-bottom: 1px solid var(--line); }
+.public-wordmark { font-size: 30px; font-weight: 850; text-decoration: none; letter-spacing: -.05em; }
+nav, .public-actions { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
+nav { font-size: 15px; }
+.public-intro { max-width: 780px; padding: 38px 0 18px; }
+h1 { font-size: clamp(32px, 5vw, 64px); line-height: 1.08; letter-spacing: -.035em; margin: 12px 0 20px; }
+h2 { font-size: 24px; line-height: 1.2; margin-top: 0; }
+h3 { font-size: 18px; }
+.eyebrow, .dim, small, .site-notice, .art-credit { color: var(--dim); }
+.eyebrow { font-size: 16px; }
+small { display: block; font-size: 13px; margin-top: 5px; font-weight: 400; }
+.public-run { padding: 22px 24px; margin: 20px 0 28px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.public-run p { margin: 8px 0 0; max-width: 95ch; }
+.public-filters { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 16px 0; }
+.public-filters label { display: flex; flex-direction: column; gap: 5px; font-size: 14px; flex: 1 1 120px; }
+.public-filters .search { flex: 3 1 240px; }
+.public-table-wrap { overflow-x: auto; }
+.public-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 16px; }
+.public-table caption { text-align: left; font-size: 20px; font-weight: 650; margin: 8px 0 16px; }
+.public-table th, .public-table td { text-align: left; padding: 20px 16px; vertical-align: top; border-bottom: 1px solid var(--line); }
+.public-table thead th { font-size: 14px; font-weight: 500; color: var(--dim); }
+.public-table tbody th { min-width: 230px; width: 36%; }
+.public-table tbody th > a { font-size: 19px; }
+.public-table td { min-width: 180px; }
+.public-actions { margin: 24px 0; }
+.public-art { position: relative; isolation: isolate; min-height: 310px; padding: 32px; display: flex; align-items: end; border-radius: 10px; overflow: hidden; }
+.public-art > img, .art-wash { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; }
+.art-wash { background: linear-gradient(0deg, rgb(11 12 14 / .96), rgb(11 12 14 / .35)); z-index: -1; }
+.art-heading { max-width: 850px; padding-bottom: 25px; }
+.art-heading p { margin: 0; }
+.art-credit { position: absolute; bottom: 12px; left: 32px; right: 20px; font-size: 12px; margin: 0; }
+.public-evidence { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 16px; margin: 24px 0; }
+.public-panel { border: 1px solid var(--line); border-radius: 8px; padding: 24px; margin-bottom: 16px; }
+.public-panel p:last-child { margin-bottom: 0; }
+.public-note { padding-left: 14px; border-left: 2px solid var(--dim); }
+dl { display: grid; grid-template-columns: minmax(100px, 1fr) 2fr; gap: 12px 20px; }
+dt { color: var(--dim); }
+dd { margin: 0; overflow-wrap: anywhere; }
+.public-prose { max-width: 78ch; }
+.public-prose h2 { margin-top: 36px; }
+details { padding: 16px 0; border-top: 1px solid var(--line); }
+summary { cursor: pointer; }
+.public-card-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); gap: 8px 20px; list-style: none; padding: 0; }
+.public-card-list a { display: flex; gap: 12px; align-items: center; padding: 8px 0; text-decoration: none; }
+.public-card-list img { object-fit: contain; flex: 0 0 48px; height: auto; }
+.public-footer { border-top: 1px solid var(--line); margin-top: 40px; padding-bottom: 48px; }
+.site-notice { font-size: 13px; line-height: 1.5; }
+.site-notice p { max-width: 100ch; margin: 12px 0 0; }
+.skip { position: absolute; top: -100px; left: 16px; padding: 12px; background: var(--text); color: var(--ground); z-index: 10; }
+.skip:focus { top: 12px; }
+@media (max-width: 620px) {
+  .public-header, main, .public-footer { padding: 20px 16px; }
+  .public-header { align-items: start; gap: 12px; }
+  .public-header nav { gap: 8px 16px; justify-content: end; }
+  .public-intro { padding-top: 16px; }
+  .public-run, .public-panel { padding: 18px; }
+  .public-table thead { display: none; }
+  .public-table, .public-table tbody, .public-table tr, .public-table th, .public-table td { display: block; width: 100%; min-width: 0; }
+  .public-table tr { border-bottom: 1px solid var(--line); padding: 14px 0; }
+  .public-table th, .public-table td { border: 0; padding: 8px 0; }
+  .public-table td:nth-child(2)::before { content: "Simulation"; }
+  .public-table td:nth-child(3)::before { content: "Real games"; }
+  .public-table td:nth-child(4)::before { content: "Market references"; }
+  .public-table td::before { display: block; color: var(--dim); font-size: 13px; margin-bottom: 4px; }
+  .public-art { padding: 22px; min-height: 270px; }
+  .art-credit { left: 22px; }
+  .public-actions { gap: 10px; }
+}

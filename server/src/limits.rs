@@ -97,6 +97,8 @@ fn wait_text(wait: Duration) -> String {
 /// Every rate limit, shared by the whole server (`AppState::limits`). Per-account limits leave
 /// admins out; they are set well above what a person at a screen does, so only scripts meet them.
 pub struct Limits {
+    /// Public precon reference reads, per client address (including signed-in visitors).
+    pub public_precons: RateLimiter,
     /// Google and password sign-in, per client address.
     pub sign_in_address: RateLimiter,
     /// Google and password sign-in, per email (password guessing on one account).
@@ -133,6 +135,7 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
+            public_precons: RateLimiter::new("public precon requests", 120, MINUTE),
             sign_in_address: RateLimiter::new("sign-in attempts from this address", SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW),
             sign_in_email: RateLimiter::new("sign-in attempts for this email", SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW),
             search: RateLimiter::new("card searches", 120, MINUTE),

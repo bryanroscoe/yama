@@ -1,0 +1,11 @@
+{
+  "run_id": "replace-with-imported-global-run-id",
+  "stock_index": "../../commander-decks/data/sim/decks/index.json",
+  "title": "Stock precon benchmark",
+  "engine": "replace-with-exact-imported-engine-label",
+  "card_data": "replace-with-exact-imported-card-data-label",
+  "runner": "replace-with-exact-imported-runner-label",
+  "difficulty": "Easy",
+  "notes": [],
+  "reasons": {}
+}
