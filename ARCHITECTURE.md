@@ -416,6 +416,14 @@ Each precon page links to `https://edhrec.com/precons/{slug}`, EDHREC's matching
 
 ### Public precon reference (2026-10-27)
 
+**Landing discovery (2026-10-27):** the signed-out `/` view presents Precons and the MCP guide
+as primary public destinations, with a methodology link and a separate account-feature overview.
+`web/src/pages/Landing.tsx` wraps the existing sign-in controls; public links use full document
+navigation to their server/static pages. On phones discovery comes before sign-in, with a
+header link to the form. OAuth and private deep links use a focused sign-in view
+with public navigation. Authentication, signup eligibility and private routes keep their existing
+server checks. Runtime Scryfall art retains its artist credit and overlay wash.
+
 Bryan wants some information available without signing in, starting with stock Commander precons and their simulation rankings. An experimental meta ranking combines the existing real-game evidence with explicitly published simulation sources; commander rankings are deferred. This changes the original private-app-only product scope, while the repository and every user's personal data stay private. Public pages remain free and keep the unofficial notice and runtime Scryfall images with art credits.
 
 `server/src/public_precons.rs` and `public_precons/html.rs` implement `/precons`, `/precons/:slug`, `/precons/methodology`, stock-list downloads, `/api/public/precons` and its detail route, and a public-only sitemap. The pages are server-rendered HTML with GET form filters; they do not load the private React app or depend on `/api/me`. Their design uses the Night table typography, wordmark, pill controls, credited runtime commander art, interval graphics and compact mobile comparisons. Stable self-hosted font assets are copied from the same Fontsource dependencies during web dev/build; no card art is bundled. Public HTML references a content-hashed stylesheet URL computed from both shared tokens and public CSS. Only the matching immutable asset is served; the legacy stylesheet URL remains compatible. This prevents long browser/CDN CSS caching from pairing new markup with older layout rules. The HTML catalog is paginated at 24 decks; public JSON remains complete. Public reads use dedicated typed projections and explicit published snapshots (migration 0031), with ETags, bounded caching and per-address limits. `owner_id IS NULL` still means shared inside the app; it is not automatic publication consent. Personal decks, collections, plans, experiments, mixed private/public tournaments, advisor conversations and account data remain authenticated and owner-scoped. Creating a deck or starting a simulation still requires Google sign-in and the existing limits.

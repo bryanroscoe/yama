@@ -12,6 +12,10 @@ Precon comparisons and detail pages also show [upgradeability](docs/precon-upgra
 
 ## What works today
 
+The signed-out home page highlights the public precon reference and MCP guide, explains what
+an account adds, and keeps Google sign-in directly accessible. OAuth and private links use a
+focused sign-in view.
+
 | Area | Status |
 |---|---|
 | Sign-in | Google ID tokens with an invite list, or open to any verified Google account with `YAMA_OPEN_SIGNUP=1` (accounts without an invite get a smaller lab and online play allowance; see deploy/README.md). Password accounts only from the command line. Sign-in, searches, join codes, imports and new games are rate-limited; admins can disable or delete an account in the admin area (`/admin`), or disable one with `user disable`. Email-only dev login for local use |
