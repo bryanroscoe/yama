@@ -10,6 +10,8 @@ Superseded runs for the same PR/ref are cancelled. The jobs use standard GitHub-
 - **Rust and Python tests:** Rust 1.98.1, `cargo test --locked` with four build jobs and low
   debug information, all release-guard tests, and the portable worker/build-identity tests.
   Cargo dependencies and build output are cached by toolchain, lockfile and engine pin.
+  The Rust job adds 4 GiB of temporary swap for cold builds and records resource usage,
+  process timing and the tested Yama/Phase revisions. Swap stays on the ephemeral runner.
 
 Rust CI checks out Yama and the private `bryanroscoe/yama-phase` side by side, at the exact
 40-character revision in `deploy/phase-rev`. It uses the real Cargo manifests and lockfile;
