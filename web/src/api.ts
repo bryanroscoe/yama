@@ -1,3 +1,20 @@
+export interface SinglesValue {
+  usd: number | null;
+  priced_copies: number;
+  unpriced_copies: number;
+  oldest_date: string | null;
+  newest_date: string | null;
+  source: string;
+}
+export interface SealedPrice {
+  product_id: number;
+  product_name: string;
+  usd: number | null;
+  price_date: string;
+  source: string;
+  url: string;
+}
+
 // Thin client for the Rust server. Types mirror the server's JSON.
 
 export class ApiError extends Error {
@@ -209,6 +226,7 @@ export interface DeckCard {
 }
 
 export interface DeckSummary {
+  singles_value?: SinglesValue;
   id: string;
   name: string;
   folder: string | null;
@@ -272,6 +290,7 @@ export interface DeckEntry extends DeckCard {
 }
 
 export interface DeckView {
+  singles_value?: SinglesValue;
   id: string;
   name: string;
   container_id: string | null;

@@ -660,6 +660,8 @@ pub struct Art {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PreconItem {
+    pub singles_value: crate::deck_prices::SinglesValue,
+    pub sealed_price: Option<crate::deck_prices::SealedPrice>,
     pub id: String,
     pub lab_id: String,
     pub name: String,
@@ -706,6 +708,8 @@ impl PreconRow {
     fn item(self, ratings: &HashMap<String, Rating>) -> PreconItem {
         let rating = ratings.get(&self.lab_id).cloned();
         PreconItem {
+            singles_value: Default::default(),
+            sealed_price: None,
             art: match (self.art_url, self.art_card) {
                 (Some(url), Some(card)) => Some(Art { url, artist: self.art_artist, card }),
                 _ => None,
@@ -743,6 +747,13 @@ pub async fn precon_list(pool: &SqlitePool) -> AppResult<PreconList> {
         .fetch_all(pool)
         .await?;
     let mut precons: Vec<PreconItem> = rows.into_iter().map(|r| r.item(&ratings)).collect();
+    let prices = crate::deck_prices::prices(pool).await?;
+    let mut sealed = crate::deck_prices::sealed(pool).await?;
+    let lists: HashMap<String, String> = sqlx::query_as::<_, (String, String)>("SELECT id, cards FROM precons").fetch_all(pool).await?.into_iter().collect();
+    for p in &mut precons {
+        p.singles_value = crate::deck_prices::singles(&serde_json::from_str(&lists[&p.id]).map_err(anyhow::Error::from)?, &prices);
+        p.sealed_price = sealed.remove(&p.id);
+    }
     // Strongest first; unrated precons after, by name.
     precons.sort_by(|a, b| {
         let key = |p: &PreconItem| p.rating.as_ref().and_then(|r| r.rank).unwrap_or(i64::MAX);
@@ -758,6 +769,8 @@ async fn list_precons(State(st): State<AppState>, _u: CurrentUser) -> AppResult<
 /// A card of a precon's list with what the deck list page shows about it.
 #[derive(Debug, Serialize)]
 pub struct PreconCardView {
+    pub unit_price_usd: Option<f64>,
+    pub price_date: Option<String>,
     #[serde(flatten)]
     pub card: PreconCard,
     pub type_line: Option<String>,
@@ -852,7 +865,10 @@ pub async fn precon_detail(pool: &SqlitePool, id: &str) -> AppResult<PreconDetai
         None => HashMap::new(),
     };
     let lab_id = row.lab_id.clone();
-    let precon = row.item(&ratings);
+    let mut precon = row.item(&ratings);
+    let market_prices = crate::deck_prices::prices(pool).await?;
+    precon.singles_value = crate::deck_prices::singles(&serde_json::from_str(&cards_json).map_err(anyhow::Error::from)?, &market_prices);
+    precon.sealed_price = crate::deck_prices::sealed(pool).await?.remove(id);
 
     let cards: Vec<PreconCard> = serde_json::from_str(&cards_json).map_err(anyhow::Error::from)?;
     type Info = (String, Option<String>, Option<String>, f64, Option<String>, Option<String>);
@@ -870,7 +886,10 @@ pub async fn precon_detail(pool: &SqlitePool, id: &str) -> AppResult<PreconDetai
         .into_iter()
         .map(|c| {
             let i = c.oracle_id.as_ref().and_then(|o| info.get(o));
+            let price = c.oracle_id.as_ref().and_then(|id| market_prices.get(id));
             PreconCardView {
+                unit_price_usd: price.map(|p| p.0),
+                price_date: price.map(|p| p.1.clone()),
                 type_line: i.and_then(|i| i.1.clone()),
                 mana_cost: i.and_then(|i| i.2.clone()),
                 cmc: i.map(|i| i.3),
