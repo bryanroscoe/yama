@@ -402,6 +402,41 @@ mod tests {
         assert_eq!(assess(id, &cards).score, Some(4));
     }
     #[tokio::test]
+    async fn an_unknown_catalog_import_does_not_claim_a_completed_audit_or_source() {
+        let pool = crate::db::test_pool().await;
+        let cards = stock("quantum-quandrix");
+        sqlx::query("INSERT INTO precons(id,lab_id,name,set_code,commanders,color_identity,cards,source,content_sha256,imported_at,notes) VALUES ('future-precon','precons/future-precon','Future precon','NEW',?,'GU',?,'MTGJSON','hash','2026-10-28','[]')")
+            .bind(serde_json::to_string(&vec!["Adrix and Nev, Twincasters"]).unwrap())
+            .bind(serde_json::to_string(&cards).unwrap()).execute(&pool).await.unwrap();
+        let assessment = crate::lab::precon_detail(&pool, "future-precon")
+            .await
+            .unwrap()
+            .precon
+            .upgradeability;
+        assert_eq!(assessment.status, "not_assessed");
+        assert!(assessment.assessed_on.is_none());
+        assert!(assessment.source_url.is_none());
+        use tower::ServiceExt;
+        let state = crate::testutil::state_with(crate::testutil::config(), pool).await;
+        let response = crate::routes::app(state)
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/precons/future-precon")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(html.contains("No source-backed upgrade assessment is recorded for this list."));
+        assert!(!html.contains("Audited "));
+        assert!(!html.contains(">Catalog list</a>"));
+    }
+    #[tokio::test]
     async fn public_and_private_views_share_assessments_without_inheriting_to_changed_lists() {
         let pool = crate::db::test_pool().await;
         let id = "scions-spellcraft-final-fantasy-xiv";
@@ -446,6 +481,8 @@ mod tests {
             assert!(html.contains("5/5 Exceptional"));
             assert!(html.contains("Substantial"));
             if path.starts_with("/precons/scions-") {
+                assert!(html.contains("Audited 2026-10-27."));
+                assert!(html.contains(">Catalog list</a>"));
                 assert!(html.contains("Commander results"));
                 assert!(html.contains("raw wins"));
                 assert!(html.contains("Publisher") || html.contains("Tomer Abramovici"));
@@ -474,5 +511,21 @@ mod tests {
                 .status,
             "stock_list_changed"
         );
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri(format!("/precons/{id}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(html.contains("Prior audit 2026-10-27."));
+        assert!(!html.contains("Audited 2026-10-27."));
     }
 }

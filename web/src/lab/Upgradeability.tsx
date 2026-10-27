@@ -23,7 +23,7 @@ export function UpgradeabilitySection({ value }: { value?: Upgradeability }) {
       <ul>{value.examples.map(c => <li key={c.oracle_id}><a href={c.url} target="_blank" rel="noreferrer">{c.name}</a>: {c.role}. {c.basis === "Yama rules analysis" && <span className="dim">Yama example; rules checked {c.legal_checked_on}.</span>}</li>)}</ul>
     </> : <p>{value?.gap ?? "No source-backed upgrade assessment is recorded for this list."}</p>}
     {value && <>
-      <p className="lab-note">{value.basis} {value.assessed_on && `Audited ${value.assessed_on}. `}{value.source_url && <a href={value.source_url} target="_blank" rel="noreferrer">Catalog list</a>}</p>
+      <p className="lab-note">{value.basis} {value.assessed_on && `${value.status === "stock_list_changed" ? "Prior audit" : "Audited"} ${value.assessed_on}. `}{value.source_url && <a href={value.source_url} target="_blank" rel="noreferrer">Catalog list</a>}</p>
       {!!value.commander_cards.length && <p>Commander rules: {value.commander_cards.map((c,i) => <span key={c.oracle_id}>{i>0 && ", "}<a href={c.url} target="_blank" rel="noreferrer">{c.name}</a></span>)}.</p>}
       <details className="small"><summary>What 1–5 means</summary>
         <table><thead><tr><th>Grade</th><th>Meaning</th></tr></thead><tbody>{value.levels.map(l => <tr key={l.score}><th>{l.score}: {l.label}</th><td>{l.meaning}</td></tr>)}</tbody></table>

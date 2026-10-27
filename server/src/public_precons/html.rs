@@ -242,14 +242,19 @@ fn upgradeability(p: &Precon, full: bool) -> String {
         )
         .unwrap();
     }
-    write!(
-        out,
-        "<p class=\"dim\">{} Audited {}. <a href=\"{}\">Catalog list</a>.</p>",
-        e(u.basis),
-        e(u.assessed_on.as_deref().unwrap_or("date unavailable")),
-        e(u.source_url.as_deref().unwrap_or("https://mtgjson.com"))
-    )
-    .unwrap();
+    write!(out, "<p class=\"dim\">{}", e(u.basis)).unwrap();
+    if let Some(date) = &u.assessed_on {
+        let label = if u.status == "stock_list_changed" {
+            "Prior audit"
+        } else {
+            "Audited"
+        };
+        write!(out, " {label} {}.", e(date)).unwrap();
+    }
+    if let Some(url) = &u.source_url {
+        write!(out, " <a href=\"{}\">Catalog list</a>.", e(url)).unwrap();
+    }
+    out.push_str("</p>");
     if !u.commander_cards.is_empty() {
         out.push_str("<p>Commander rules: ");
         for (i, c) in u.commander_cards.iter().enumerate() {

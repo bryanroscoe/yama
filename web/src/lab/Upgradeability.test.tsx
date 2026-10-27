@@ -34,6 +34,12 @@ describe("upgradeability evidence", () => {
     const html=renderToStaticMarkup(<UpgradeabilitySection value={legacy} />);
     expect(html).toContain("unsupported grades have been withdrawn");expect(html).not.toContain("5/5");
   });
+  it("does not invent audit metadata for a new catalog import", () => {
+    const html=renderToStaticMarkup(<UpgradeabilitySection value={{...value,score:null,status:"not_assessed",label:"Ungraded",rationale:null,examples:[],sources:[],commander_results:[],assessed_on:null,source_url:null,gap:"Not assessed yet."}} />);
+    expect(html).toContain("Not assessed yet.");expect(html).not.toContain("Audited ");expect(html).not.toContain("Catalog list");
+    const changed=renderToStaticMarkup(<UpgradeabilitySection value={{...value,score:null,status:"stock_list_changed",rationale:null,examples:[],gap:"The catalog list changed."}} />);
+    expect(changed).toContain("Prior audit 2026-10-27.");expect(changed).not.toContain("Audited 2026-10-27.");
+  });
   it("does not display a zero-game observation as a zero win rate", () => {
     const html=renderToStaticMarkup(<UpgradeabilitySection value={{...value,commander_results:[{...value.commander_results[0]!,games:0,wins:0,raw_win_rate_percent:null}]}} />);
     expect(html).toContain("No recorded games");expect(html).not.toContain("0.0% raw");
