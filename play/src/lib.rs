@@ -155,7 +155,10 @@ pub struct DeckSupport {
 
 impl Engine {
     pub fn load(card_data: &Path) -> anyhow::Result<Self> {
-        let db = CardDatabase::from_export(card_data).map_err(|e| anyhow::anyhow!("loading {}: {e}", card_data.display()))?;
+        // Deserializing a complete string avoids serde_json's per-byte reader overhead.
+        // Keep the full corpus: cards can discover names and types outside the deck lists.
+        let json = std::fs::read_to_string(card_data).map_err(|e| anyhow::anyhow!("loading {}: {e}", card_data.display()))?;
+        let db = CardDatabase::from_json_str(&json).map_err(|e| anyhow::anyhow!("loading {}: {e}", card_data.display()))?;
         Ok(Self { db: Arc::new(db) })
     }
 
