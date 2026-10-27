@@ -13,3 +13,5 @@ web/public/ocr/
 # Local PDF exports and verification files, never shipped with the app.
 /output/pdf/
 /tmp/pdfs/
+
+web/public/precon-fonts/

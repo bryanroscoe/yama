@@ -1,5 +1,6 @@
 //! Anonymous, read-only stock reference. Public DTOs never serialize Lab summaries or owners.
 //! Publication copies reviewed results; importing or deleting a run cannot change that copy.
+mod consensus;
 mod html;
 #[cfg(test)]
 mod tests;
@@ -97,6 +98,15 @@ struct RatedList {
 struct Snapshot {
     publication: Publication,
     ratings: BTreeMap<String, RatedList>,
+    #[serde(default)]
+    comparisons: Vec<Snapshot>,
+}
+
+#[derive(Serialize)]
+pub struct Simulation {
+    pub publication_id: String,
+    pub engine: String,
+    pub rating: Rating,
 }
 
 #[derive(Serialize)]
@@ -125,6 +135,8 @@ pub struct Precon {
     pub sealed_price: Option<crate::deck_prices::SealedPrice>,
     pub real_games: Option<RealGames>,
     pub rating: Option<Rating>,
+    pub simulations: Vec<Simulation>,
+    pub meta: Option<consensus::Meta>,
     pub rating_status: &'static str,
     pub catalog_updated_at: Option<String>,
     pub source_url: Option<String>,
@@ -156,6 +168,8 @@ struct CatalogRow {
 #[derive(Serialize)]
 pub struct Catalog {
     pub publication: Option<Publication>,
+    pub comparisons: Vec<Publication>,
+    pub meta_cohort: usize,
     pub precons: Vec<Precon>,
 }
 
@@ -172,6 +186,8 @@ pub struct Card {
 #[derive(Serialize)]
 pub struct Detail {
     pub publication: Option<Publication>,
+    pub comparisons: Vec<Publication>,
+    pub meta_cohort: usize,
     pub precon: Precon,
     pub cards: Vec<Card>,
 }
@@ -190,6 +206,8 @@ pub struct Filters {
     pub set: String,
     #[serde(default)]
     pub s: String,
+    #[serde(default)]
+    pub page: usize,
 }
 
 impl Filters {
@@ -265,7 +283,7 @@ impl Filters {
                             .and_then(|p| p.usd)
                             .unwrap_or(f64::INFINITY),
                     ),
-                _ => {
+                "rank" => {
                     let rank = |p: &Precon| {
                         p.rating
                             .as_ref()
@@ -274,6 +292,23 @@ impl Filters {
                             .unwrap_or(i64::MAX)
                     };
                     rank(a).cmp(&rank(b))
+                }
+                _ => {
+                    let key = |p: &Precon| {
+                        (
+                            p.meta.as_ref().map(|m| m.rank).unwrap_or(usize::MAX),
+                            if p.meta.is_none() {
+                                p.rating
+                                    .as_ref()
+                                    .filter(|r| r.confidence != "unreliable")
+                                    .and_then(|r| r.rank)
+                                    .unwrap_or(i64::MAX)
+                            } else {
+                                0
+                            },
+                        )
+                    };
+                    key(a).cmp(&key(b))
                 }
             };
             ordering
@@ -345,6 +380,22 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
         let published = snapshot.as_ref().and_then(|s| s.ratings.get(&p.id));
         let unchanged = published.is_some_and(|r| list_hash(cards).is_ok_and(|h| h == r.list_hash));
         let rating = published.filter(|_| unchanged).map(|r| r.rating.clone());
+        let mut simulations = Vec::new();
+        if let Some(s) = &snapshot {
+            for source in std::iter::once(s).chain(s.comparisons.iter()) {
+                if let Some(r) = source
+                    .ratings
+                    .get(&p.id)
+                    .filter(|r| list_hash(cards).is_ok_and(|h| h == r.list_hash))
+                {
+                    simulations.push(Simulation {
+                        publication_id: source.publication.id.clone(),
+                        engine: source.publication.engine.clone(),
+                        rating: r.rating.clone(),
+                    });
+                }
+            }
+        }
         let playgroup: Option<Value> = p
             .playgroup
             .as_deref()
@@ -431,6 +482,8 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
             sealed_price,
             real_games,
             rating,
+            simulations,
+            meta: None,
             rating_status: if published.is_some() && !unchanged {
                 "stock_list_changed"
             } else if published.is_none() {
@@ -447,9 +500,25 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
             stock_cards: p.cards,
         });
     }
+    let comparisons = snapshot
+        .as_ref()
+        .map(|s| {
+            s.comparisons
+                .iter()
+                .map(|s| s.publication.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    let source_count = snapshot
+        .as_ref()
+        .map(|s| 1 + s.comparisons.len())
+        .unwrap_or(0);
+    let meta_cohort = consensus::assign(&mut rows, source_count);
     Filters::default().apply(&mut rows)?;
     Ok(Catalog {
         publication: snapshot.map(|s| s.publication),
+        comparisons,
+        meta_cohort,
         precons: rows,
     })
 }
@@ -482,6 +551,8 @@ async fn detail_data(pool: &SqlitePool, slug: &str) -> AppResult<Detail> {
     }
     Ok(Detail {
         publication: c.publication,
+        comparisons: c.comparisons,
+        meta_cohort: c.meta_cohort,
         precon,
         cards,
     })
@@ -606,6 +677,9 @@ struct Manifest {
     notes: Vec<String>,
     #[serde(default)]
     reasons: BTreeMap<String, Vec<String>>,
+    /// Other reviewed source manifests, validated atomically with the primary source.
+    #[serde(default)]
+    comparisons: Vec<String>,
 }
 
 pub async fn publish_file(pool: &SqlitePool, file: &FilePath) -> anyhow::Result<String> {
@@ -628,7 +702,54 @@ fn interval(v: &Value, probability: bool) -> Option<[f64; 2]> {
     (out[0] <= out[1]).then_some(out)
 }
 
-async fn publish(pool: &SqlitePool, m: Manifest, base: &FilePath) -> anyhow::Result<String> {
+async fn publish(pool: &SqlitePool, mut m: Manifest, base: &FilePath) -> anyhow::Result<String> {
+    ensure!(
+        m.comparisons.len() <= 1,
+        "publish at most one run per engine (Phase and Forge)"
+    );
+    let comparisons = std::mem::take(&mut m.comparisons);
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let mut snapshot = build_snapshot(&mut tx, m, base).await?;
+    ensure!(
+        comparisons.is_empty() || consensus::engine_family(&snapshot.publication.engine) != "Other",
+        "multi-engine publication supports Phase and Forge"
+    );
+    let mut families = BTreeSet::new();
+    families.insert(consensus::engine_family(&snapshot.publication.engine));
+    for path in comparisons {
+        let path = base.join(path);
+        let raw = std::fs::read_to_string(&path).context("reading comparison manifest")?;
+        ensure!(raw.len() <= 256 * 1024, "comparison manifest is too large");
+        let m: Manifest = serde_json::from_str(&raw)?;
+        ensure!(
+            m.comparisons.is_empty(),
+            "nested comparison manifests are not supported"
+        );
+        let other = build_snapshot(&mut tx, m, path.parent().unwrap_or(base)).await?;
+        let family = consensus::engine_family(&other.publication.engine);
+        ensure!(
+            family != "Other" && families.insert(family),
+            "use one reviewed run per independent engine family"
+        );
+        snapshot.comparisons.push(other);
+    }
+    let id = snapshot.publication.id.clone();
+    let document = serde_json::to_string(&snapshot)?;
+    sqlx::query("INSERT INTO precon_publications(id, published_at, content_sha256, document) VALUES (?,?,?,?)")
+        .bind(&id).bind(&snapshot.publication.published_at).bind(sha256_hex(&document)).bind(document).execute(&mut *tx).await?;
+    sqlx::query("UPDATE precon_publication_head SET publication_id = ? WHERE singleton = 1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(id)
+}
+
+async fn build_snapshot(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    m: Manifest,
+    base: &FilePath,
+) -> anyhow::Result<Snapshot> {
     for label in [&m.title, &m.engine, &m.card_data, &m.runner, &m.difficulty] {
         ensure!(
             !label.trim().is_empty() && label.len() <= 300 && !label.chars().any(char::is_control),
@@ -654,10 +775,9 @@ async fn publish(pool: &SqlitePool, m: Manifest, base: &FilePath) -> anyhow::Res
         .as_array()
         .context("stock index needs decks")?;
     let root = index_path.parent().context("stock index has no parent")?;
-    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let (owner, kind, engine, data, runner, difficulty, analysed, raw): (Option<String>, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, String) =
         sqlx::query_as("SELECT owner_id, kind, engine, card_data, runner, difficulty, analysed_at, summary FROM lab_runs WHERE id = ?")
-        .bind(&m.run_id).fetch_one(&mut *tx).await.context("finding imported run")?;
+        .bind(&m.run_id).fetch_one(&mut **tx).await.context("finding imported run")?;
     ensure!(
         owner.is_none() && kind == "precon-ratings",
         "only a global stock-precon rating run can be published; owned and paired runs stay private"
@@ -722,7 +842,7 @@ async fn publish(pool: &SqlitePool, m: Manifest, base: &FilePath) -> anyhow::Res
     }
     let rows: Vec<(String, String, String)> =
         sqlx::query_as("SELECT id, lab_id, cards FROM precons")
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await?;
     let catalog: BTreeMap<_, _> = rows
         .into_iter()
@@ -880,19 +1000,11 @@ async fn publish(pool: &SqlitePool, m: Manifest, base: &FilePath) -> anyhow::Res
             .sum(),
         notes: m.notes,
     };
-    let stamp = publication.published_at.clone();
-    let document = serde_json::to_string(&Snapshot {
+    Ok(Snapshot {
         publication,
         ratings,
-    })?;
-    sqlx::query("INSERT INTO precon_publications(id, published_at, content_sha256, document) VALUES (?,?,?,?)")
-        .bind(&id).bind(stamp).bind(sha256_hex(&document)).bind(document).execute(&mut *tx).await?;
-    sqlx::query("UPDATE precon_publication_head SET publication_id = ? WHERE singleton = 1")
-        .bind(&id)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
-    Ok(id)
+        comparisons: Vec::new(),
+    })
 }
 
 pub async fn withdraw(pool: &SqlitePool) -> anyhow::Result<()> {
