@@ -1,8 +1,9 @@
+import { DeckPrices } from "../components/DeckPrices";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { identityName } from "@yama/core";
 import { useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
-import { api } from "../api";
+import { api, usd, priceSource } from "../api";
 import { CardImage, Details, ErrorText, ManaCost, Pips } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 import type { Matchup, PreconDetail, PreconItem, RunLabel } from "./api";
@@ -59,6 +60,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
         </span>
       </ArtPanel>
       <Actions precon={p} />
+      <DeckPrices singles={p.singles_value} sealed={p.sealed_price} precon />
 
       <section>
         <h2>Simulated rating</h2>
@@ -120,6 +122,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
                     {c.qty > 1 ? `${c.qty} ` : ""}
                     {c.name} {partly.has(c.name) && <span className="tag warn">partly in the engine</span>}
                     {!c.oracle_id && <span className="tag">unknown to Yama</span>}
+                    <span className="dim small" style={{ display: "block" }} title={priceSource(c.price_date)}>{usd(c.unit_price_usd)}{c.qty > 1 && c.unit_price_usd != null ? ` each, ${usd(c.unit_price_usd * c.qty)} total` : ""}{c.price_date ? ` (${c.price_date})` : ""}</span>
                   </span>
                   <ManaCost cost={c.mana_cost} />
                 </button>

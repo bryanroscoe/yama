@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-27-deck-prices",
+    date: "2026-10-27",
+    title: "Deck market values",
+    items: [
+      "Your decks and the precon catalog show the estimated value of their singles, including commanders, quantities and basics. Missing prices are counted separately, with the dates and source beside the estimate.",
+      "Precons also show a separate sealed deck market price when the stock product can be identified. Each stock card has a singles price. Values are market references, not store quotes or what you would receive selling a deck.",
+    ],
+    link: { to: "/decks/lab", label: "Compare precons" },
+  },
+  {
     id: "2026-10-26-tournaments",
     date: "2026-10-26",
     title: "Compare your whole collection in one tournament",
