@@ -31,7 +31,7 @@ pub struct Config {
     /// tag. With both set, people signed in by Access are signed in to Yama.
     pub cf_access_team: Option<String>,
     pub cf_access_aud: Option<String>,
-    /// Game threads for the simulation lab's experiments (YAMA_LAB_THREADS, default 2). 0 turns
+    /// Isolated game processes for lab experiments (YAMA_LAB_THREADS, default 1). 0 turns
     /// the lab off: experiments can be read but no new ones start.
     pub lab_threads: usize,
     /// Anyone with a verified Google account may make an account (YAMA_OPEN_SIGNUP=1; off by
@@ -301,7 +301,7 @@ impl Config {
             cf_access_aud: std::env::var("YAMA_CF_ACCESS_AUD").ok().filter(|s| !s.is_empty()),
             lab_threads: match std::env::var("YAMA_LAB_THREADS") {
                 Ok(v) if !v.trim().is_empty() => v.trim().parse().with_context(|| format!("YAMA_LAB_THREADS {v:?} must be a whole number"))?,
-                _ => 2,
+                _ => 1,
             },
             open_signup: flag("YAMA_OPEN_SIGNUP"),
             password_login: !off("YAMA_PASSWORD_LOGIN"),

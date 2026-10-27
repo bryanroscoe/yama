@@ -38,8 +38,9 @@ base64 = "0.22"
 url = "2.5"
 # The allocator the lab's batch runner uses (already in the tree through phase-ai); see main.rs.
 mimalloc = "0.1"
+libc = "0.2"
+tempfile = "3.27.0"
 
 [dev-dependencies]
-tempfile = "3.27.0"
 # Router tests: `ServiceExt::oneshot` sends one request through the whole app.
 tower = { version = "0.5.3", features = ["util"] }
