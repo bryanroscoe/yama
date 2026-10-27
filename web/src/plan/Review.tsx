@@ -1,3 +1,4 @@
+import { CardHover, CardRef } from "../components/CardRef";
 import {
   answerState,
   buyList,
@@ -317,8 +318,8 @@ function QueueRow({ item, view, current, onPick }: { item: ReviewItem; view: Pla
     <button className="review-qrow" aria-current={current ? "true" : undefined} onClick={onPick}>
       <Crop src={view.card(s.in)?.image_art_crop} size="sm" />
       <span className="review-qrow-text">
-        <span className="review-qrow-in">{s.in}</span>
-        <span className="review-qrow-out">{s.out ? `for ${s.out}` : "no slot"}</span>
+        <span className="review-qrow-in"><CardHover name={s.in} oracleId={view.oracleId(s.in)} image={view.card(s.in)?.image_normal}/></span>
+        <span className="review-qrow-out">{s.out?<>for <CardHover name={s.out} oracleId={view.oracleId(s.out)} image={view.card(s.out)?.image_normal}/></>:"no slot"}</span>
       </span>
       <span className={`review-qrow-state ${d ?? "open"}`}>{d ? DECISION_WORD[d] : "Open"}</span>
     </button>
@@ -372,9 +373,9 @@ const ReviewCard = memo(function ReviewCard({
       </figure>
       <div className="review-body">
         <div className="review-title">
-          <Title className="review-name">{s.in}</Title>
+          <Title className="review-name"><CardRef name={s.in} oracleId={view.oracleId(s.in)} image={inCard?.image_normal}/></Title>
           <span className="dim">
-            {s.out ? `for ${s.out}` : "No slot named"}
+            {s.out?<>for <CardRef name={s.out} oracleId={view.oracleId(s.out)} image={outCard?.image_normal}/></>:"No slot named"}
             {position ? `. ${s.stage === "proposed" ? "Proposal" : "Swap"} ${position}` : ""}
             {wide && left != null ? `, ${left} not decided in ${deck.name}` : ""}.
           </span>

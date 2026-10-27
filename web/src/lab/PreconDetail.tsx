@@ -1,3 +1,4 @@
+import { CardHover } from "../components/CardRef";
 import { UpgradeabilitySection } from "./Upgradeability";
 import { DeckPrices } from "../components/DeckPrices";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -122,7 +123,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
                   <CardImage src={c.image_small} name={c.name} className="thumb" />
                   <span className="name">
                     {c.qty > 1 ? `${c.qty} ` : ""}
-                    {c.name} {partly.has(c.name) && <span className="tag warn">partly in the engine</span>}
+                    <CardHover name={c.name} oracleId={c.oracle_id} image={c.image_normal}/> {partly.has(c.name) && <span className="tag warn">partly in the engine</span>}
                     {!c.oracle_id && <span className="tag">unknown to Yama</span>}
                     <span className="dim small" style={{ display: "block" }} title={priceSource(c.price_date)}>{usd(c.unit_price_usd)}{c.qty > 1 && c.unit_price_usd != null ? ` each, ${usd(c.unit_price_usd * c.qty)} total` : ""}{c.price_date ? ` (${c.price_date})` : ""}</span>
                   </span>

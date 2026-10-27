@@ -1,3 +1,4 @@
+import { CardRef } from "../components/CardRef";
 import { GROUP_ORDER, groupOf, identityName } from "@yama/core";
 import {
   bagSource,
@@ -503,19 +504,19 @@ function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView;
       <div className="swap-crops">
         <span className="swap-crop">
           <CropButton name={s.out} card={outCard} oracleId={view.oracleId(s.out)} />
-          <span className="swap-crop-label">Out: {s.out ?? "no slot"}</span>
+          <span className="swap-crop-label">Out: {s.out?<CardRef name={s.out} oracleId={view.oracleId(s.out)} image={outCard?.image_normal}/>:"no slot"}</span>
         </span>
         <svg className="swap-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M5 12h14M13 6l6 6-6 6" />
         </svg>
         <span className="swap-crop is-in">
           <CropButton name={s.in} card={inCard} oracleId={view.oracleId(s.in)} />
-          <span className="swap-crop-label">In: {s.in}</span>
+          <span className="swap-crop-label">In: <CardRef name={s.in} oracleId={view.oracleId(s.in)} image={inCard?.image_normal}/></span>
         </span>
       </div>
       <div className="swap-text">
         <b className="swap-title">
-          {s.in} <span>{s.out ? `for ${s.out}` : "(no slot)"}</span>
+          <CardRef name={s.in} oracleId={view.oracleId(s.in)} image={inCard?.image_normal}/> <span>{s.out?<>for <CardRef name={s.out} oracleId={view.oracleId(s.out)} image={outCard?.image_normal}/></>:"(no slot)"}</span>
         </b>
         {lead && <p className="swap-why"><b>Why add it:</b> {lead}</p>}
         {(s.out || s.why_out) && (
@@ -711,7 +712,7 @@ function SlotGroups({ cards, view, deck, fresh }: { cards: Slot[]; view: PlanVie
                 <span>
                   <span className="title">
                     {c.qty > 1 ? `${c.qty} ` : ""}
-                    {c.name}
+                    <CardRef name={c.name} oracleId={view.oracleId(c.name)} image={view.card(c.name)?.image_normal}/>
                   </span>
                   {c.set && c.num ? <span className="faint small"> {c.set.toUpperCase()} {c.num}</span> : null}
                   {c.kind !== "stock" && (
@@ -817,7 +818,7 @@ function BracketsTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
                     </div>
                     <div className="swap-body">
                       <p className="swap-title">
-                        <b>{s.in}</b> <span className="dim">back for {s.out}</span>
+                        <b><CardRef name={s.in} oracleId={view.oracleId(s.in)} image={view.card(s.in)?.image_normal}/></b> <span className="dim">back for {s.out&&<CardRef name={s.out} oracleId={view.oracleId(s.out)}/>}</span>
                       </p>
                       <p className="small dim">{bagSource(s, view.ctx, deck)}</p>
                     </div>

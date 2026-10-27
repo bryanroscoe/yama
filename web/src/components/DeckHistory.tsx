@@ -1,3 +1,4 @@
+import { CardText } from "./CardRef";
 import { useQuery } from "@tanstack/react-query";
 import { diffDecks, type DiffLine } from "@yama/core";
 import { useEffect, useState } from "react";
@@ -102,7 +103,7 @@ function Group({ title, sign, lines, render }: { title: string; sign: string; li
         {lines.map((l) => (
           <li key={`${l.board}-${l.name}`}>
             <span className="sign" aria-hidden="true">{sign}</span>
-            {render(l)}
+            <CardText text={render(l)} names={[l.name]}/>
           </li>
         ))}
       </ul>

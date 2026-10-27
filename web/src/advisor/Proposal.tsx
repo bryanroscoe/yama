@@ -1,3 +1,4 @@
+import { CardRef } from "../components/CardRef";
 import { Fragment } from "react";
 import { Details, ManaCost, ZoomableCard } from "../components/ui";
 import type { ProposalCard, ProposalPreview } from "./api";
@@ -28,7 +29,7 @@ function CardList({ cards, label }: { cards: ProposalCard[]; label: string }) {
     {cards.length ? <ul className="proposal-cards">{cards.map((c) => <li key={c.oracle_id ?? c.name}>
       {c.image && <ZoomableCard src={c.image} name={c.name} className="proposal-card-image" />}
       <div className="proposal-card-info">
-        <p className="proposal-card-name">{c.qty > 1 && <span>{c.qty} × </span>}{c.name}</p>
+        <p className="proposal-card-name">{c.qty > 1 && <span>{c.qty} × </span>}<CardRef name={c.name} oracleId={c.oracle_id} image={c.image}/></p>
         <ManaCost cost={c.mana_cost} />
         {c.type_line && <p className="small dim">{c.type_line}</p>}
       </div>

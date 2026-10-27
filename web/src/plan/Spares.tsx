@@ -1,3 +1,4 @@
+import { CardRef } from "../components/CardRef";
 import { laterOutText, spares, type Spare, type SpareUse } from "@yama/core/plan";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -114,7 +115,7 @@ function SpareRow({ s, view }: { s: Spare; view: PlanView }) {
       <span className="spare-text">
         <b>
           {s.qty > 1 ? `${s.qty} ` : ""}
-          {s.card}
+          <CardRef name={s.card} oracleId={view.oracleId(s.card)} image={view.card(s.card)?.image_normal}/>
         </b>
         <span className="dim">
           From <Link to={`/decks/plan/d/${s.from.key}`}>{s.from.name}</Link>. {s.why}

@@ -1,3 +1,4 @@
+import { CardHover, CardRef } from "./CardRef";
 import { useQuery } from "@tanstack/react-query";
 import { Fragment } from "react";
 import { api, type OnlineSupport as Support } from "../api";
@@ -11,9 +12,9 @@ export function NameList({ names, onCard }: { names: string[]; onCard?: (name: s
         <Fragment key={n}>
           {i > 0 && ", "}
           {onCard ? (
-            <button type="button" className="name-link" onClick={() => onCard(n)}>{n}</button>
+            <button type="button" className="name-link" onClick={() => onCard(n)}><CardHover name={n}/></button>
           ) : (
-            n
+            <CardRef name={n}/>
           )}
         </Fragment>
       ))}

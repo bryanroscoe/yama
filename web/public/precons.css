@@ -1299,6 +1299,16 @@ dd {
 .public-header nav > a { min-height:44px; display:flex; align-items:center; }
 summary, .more-filters summary { min-height:44px; align-content:center; }
 .featured-caution { margin-top:8px; font-size:11px; }
+.public-card-ref { display:inline-flex; align-items:center; gap:8px; text-underline-offset:3px; }
+.public-card-ref .public-card-thumb { display:block; width:48px; height:auto; border-radius:3px; }
+.public-card-preview { position:fixed; z-index:2200; overflow:auto; border:1px solid var(--line,#2a2e33); border-radius:14px; background:var(--surface,#15171a); color:var(--text,#f2efe8); box-shadow:0 14px 60px #0009; pointer-events:none; }
+.public-card-preview > img { display:block; width:100%; height:auto; border-radius:13px; }
+.public-card-preview > p { padding:16px; }
+.public-card-preview.is-pinned { pointer-events:auto; }
+.public-card-preview-actions { display:none; padding:10px; align-items:center; justify-content:space-between; gap:8px; font-size:13px; }
+.public-card-preview.is-pinned .public-card-preview-actions { display:flex; }
+.public-card-preview-actions button { min-height:36px; border:1px solid var(--line,#2a2e33); border-radius:5px; padding:6px 12px; color:inherit; background:var(--raised,#1e2125); cursor:pointer; }
+@media(max-width:600px) { .public-card-preview.is-pinned { left:50% !important; top:50% !important; transform:translate(-50%,-50%); width:min(320px,calc(100vw - 24px)) !important; max-height:calc(100dvh - 24px) !important; } }
 @media(max-width:350px) {
   .public-header { padding-inline:16px; gap:12px; }
   .public-wordmark { width:60px; }

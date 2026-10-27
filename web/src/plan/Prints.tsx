@@ -1,3 +1,4 @@
+import { CardRef, CardText } from "../components/CardRef";
 import { fmtDate, orderText, printPlan, usd, type PrintLine, type PrintOrder } from "@yama/core/plan";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
@@ -189,14 +190,12 @@ function PrintLines({ lines, view, byDeck, after }: { lines: PrintLine[]; view: 
               </svg>
               <Crop src={out ? view.card(out)?.image_art_crop : null} empty={!out} />
               <span className="prints-line-text">
-                <b>{l.card}</b>
+                <b><CardRef name={l.card} oracleId={view.oracleId(l.card)} image={view.card(l.card)?.image_normal}/></b>
                 <span>
                   {byDeck ? "" : `${l.deck?.name ?? "No deck"}, `}
-                  {l.standin
+                  <CardText text={l.standin
                     ? `replaces the stand-in ${l.standin.in}, which holds ${l.cut}'s slot.${l.standin.later_out ? ` Its later cut, ${l.standin.later_out}, is a suggestion, not in the plan.` : ""}`
-                    : l.takesOut
-                      ? `replaces ${l.takesOut}.`
-                      : "no slot named."}
+                    : l.takesOut ? `replaces ${l.takesOut}.` : "no slot named."} names={[l.standin?.in,l.cut,l.standin?.later_out,l.takesOut].filter((n):n is string=>!!n)}/>
                 </span>
                 {(l.proposed || l.back) && (
                   <span className="prints-line-pills">

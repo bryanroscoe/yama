@@ -41,6 +41,7 @@ function selectedSheet(query = "", extraDecks = false) {
     markBy: new Map(),
     deck: (key: string) => decks.find((d) => d.key === key),
     card: () => ({ image_small: "https://cards.scryfall.io/test.webp" }),
+    oracleId: () => undefined,
   } as unknown as PlanView;
   return renderToStaticMarkup(
     <MemoryRouter initialEntries={[`/sheet${query}`]}><Routes>

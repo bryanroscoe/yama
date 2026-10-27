@@ -1,3 +1,4 @@
+import { CardRef } from "../components/CardRef";
 import { swapSheet, takeoutLines, type PlanCard, type SheetDeck, type SheetStep } from "@yama/core/plan";
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -187,7 +188,7 @@ export function SwapSheetPage() {
                 {sortLines.map((l) => (
                   <tr key={l.card}>
                     <td>
-                      <b>{l.card}</b>
+                      <b><CardRef name={l.card} oracleId={view.oracleId(l.card)} image={view.card(l.card)?.image_normal}/></b>
                       {l.gameChanger && <span className="ss-gc">GC</span>}
                       {l.back && <span className="ss-note">double-faced, back is {l.back}</span>}
                     </td>
@@ -274,7 +275,7 @@ function TakeoutTable({ rows, view, withDeck = false, pictures, reasons }: { row
       <tbody>{rows.map(({ deck, step: s }, i) => (
         <tr key={`${deck.key}-${i}`} className={s.installed ? "ss-done" : undefined}>
           <td className="ss-tick"><span className={`ss-box${s.installed ? " ss-box-on" : ""}`} aria-label={s.installed ? "Installed" : "Not installed yet"} /></td>
-          <td><span className="ss-card">{pictures && <Thumb name={s.out} view={view} />}<b>{s.out}</b></span>{s.outKind !== "cut" && <span className="ss-sub">{s.outKind === "standin" ? "stand-in" : "basic holding the slot"}</span>}{reasons && <SwapReasons step={s} side="out" />}</td>
+          <td><span className="ss-card">{pictures && <Thumb name={s.out} view={view} />}<b>{s.out&&<CardRef name={s.out} oracleId={view.oracleId(s.out)} image={view.card(s.out)?.image_normal}/>}</b></span>{s.outKind !== "cut" && <span className="ss-sub">{s.outKind === "standin" ? "stand-in" : "basic holding the slot"}</span>}{reasons && <SwapReasons step={s} side="out" />}</td>
           {withDeck && <td>{deck.name}</td>}
           <td>{s.in || "—"}{reasons && s.in && <SwapReasons step={s} side="in" />}</td><td className="ss-then">{destination(s)}</td>
         </tr>
@@ -308,7 +309,7 @@ function Step({ s, view, pictures, reasons }: { s: SheetStep; view: PlanView; pi
             {pictures && <Thumb name={s.in} view={view} />}
             <span>
               <span>
-                <b>{s.in}</b>
+                <b><CardRef name={s.in} oracleId={view.oracleId(s.in)} image={view.card(s.in)?.image_normal}/></b>
                 {s.gameChanger && <span className="ss-gc">GC</span>}
               </span>
               <span className="ss-sub">{s.kind === "print" ? "print" : s.kind === "moved" ? `from ${s.fromDeck?.name ?? "another deck"}` : "in hand"}</span>
@@ -322,7 +323,7 @@ function Step({ s, view, pictures, reasons }: { s: SheetStep; view: PlanView; pi
           <span className="ss-card">
             {pictures && <Thumb name={s.out} view={view} />}
             <span>
-              <b>{s.out}</b>
+              <b>{s.out&&<CardRef name={s.out} oracleId={view.oracleId(s.out)} image={view.card(s.out)?.image_normal}/>}</b>
               {s.outKind !== "cut" && <span className="ss-sub">{s.outKind === "standin" ? "stand-in" : "basic holding the slot"}</span>}
             </span>
           </span>

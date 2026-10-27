@@ -369,7 +369,9 @@ async fn public_html_is_complete_escaped_and_links_only_public_catalog_in_sitema
     assert!(html.contains("Third-party content belongs"));
     assert!(html.contains("/precons/forest-deck/decklist.txt"));
     assert!(html.contains("https://yama.saget.org/precons/forest-deck"));
-    assert!(!html.contains("<script"));
+    assert!(!html.contains("<script>alert"));
+    assert!(html.contains("<script defer src=\"/card-preview-v1.js\"></script>"));
+    assert!(html.contains("data-card-name=\"Commander\""));
     assert!(!html.contains(PRIVATE));
     assert!(headers.contains_key(header::CONTENT_SECURITY_POLICY));
     let (_, _, method) = request(&app, "/precons/methodology", &[]).await;

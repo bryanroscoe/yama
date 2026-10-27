@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-27-card-previews-and-build-profiles",
+    date: "2026-10-27",
+    title: "Inspect cards and complete bracket builds",
+    items: [
+      "Hover or focus card names to inspect the card. Tap names to pin a preview, including in research, decks, collection, plans, suggested changes and public stock lists.",
+      "Research separates the complete 100-card deck, exact swaps and acquisition requirements. Gameplay profiles explain setup, finishers, interaction, recovery and weaknesses; Game Changer choices have reasons. Planned sealed purchases stay separate from owned cards, singles and prints.",
+    ],
+    link: { to: "/decks/research", label: "Review builds" },
+  },
+  {
     id: "2026-10-27-deck-research",
     date: "2026-10-27",
     title: "Review whole deck builds in Yama",

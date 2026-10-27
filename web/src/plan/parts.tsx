@@ -1,3 +1,4 @@
+import { CardHover } from "../components/CardRef";
 // Small pieces the plan pages share.
 import type { PlanCard } from "@yama/core/plan";
 import { useState } from "react";
@@ -7,7 +8,7 @@ import { CardSheet } from "../pages/Cards";
 /** A card thumbnail that opens the card (read-only) when Yama knows it. */
 export function Thumb({ name, card, oracleId, dim = false }: { name: string; card: PlanCard | undefined; oracleId: string | undefined; dim?: boolean }) {
   const [open, setOpen] = useState(false);
-  const img = <CardImage src={card?.image_small} name={name} className={`thumb${dim ? " plan-thumb-out" : ""}`} />;
+  const img = <CardHover name={name} oracleId={oracleId} image={card?.image_normal}><CardImage src={card?.image_small} name={name} className={`thumb${dim ? " plan-thumb-out" : ""}`}/></CardHover>;
   if (!oracleId) return <span className="plan-thumb-wrap" title={`${name} isn't in Yama's card data yet`}>{img}</span>;
   return (
     <>
