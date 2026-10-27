@@ -82,6 +82,7 @@ fn manifest() -> Manifest {
         difficulty: "Easy".into(),
         notes: vec!["Public reviewed note".into()],
         reasons: BTreeMap::new(),
+        comparisons: Vec::new(),
     }
 }
 
@@ -411,7 +412,7 @@ async fn filtering_handles_colors_names_years_and_unknown_prices() {
         StatusCode::BAD_REQUEST
     );
     let (_, _, html) = request(&app, "/precons?q=nothing", &[]).await;
-    assert!(html.contains("No precons match"));
+    assert!(html.contains("No matching precons"));
 }
 
 #[tokio::test]
@@ -430,4 +431,158 @@ async fn public_reads_have_per_address_limits_and_no_account_exemption() {
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
     assert!(headers.contains_key(header::RETRY_AFTER));
     assert!(!headers.contains_key(header::CACHE_CONTROL));
+}
+
+#[tokio::test]
+async fn consensus_uses_one_common_cohort_keeps_warnings_and_does_not_change_with_filters() {
+    let (st, _, _) = fixture().await;
+    let mut rows = Vec::new();
+    for (i, (real, strength)) in [(10., 1.), (20., 2.), (30., 3.), (40., 4.), (50., 5.)]
+        .into_iter()
+        .enumerate()
+    {
+        let mut p = catalog(&st.pool).await.unwrap().precons.remove(0);
+        p.id = format!("deck-{i}");
+        p.real_games.as_mut().unwrap().win_rate_4p = real;
+        let mut r: Rating = serde_json::from_value(json!({"games":40,"rank":1,"rank_interval":null,"strength":strength,"strength_interval":null,"model_win_rate":0.3,"model_interval":null,"observed_win_rate":null,"observed_interval":null,"confidence":"unreliable","reasons":["warning"]})).unwrap();
+        if i == 4 {
+            r.games = 19;
+        } // Missing adequate evidence does not become a bad score.
+        let mut opposite = r.clone();
+        opposite.strength = Some(6.0 - strength);
+        p.simulations = vec![
+            Simulation {
+                publication_id: "phase".into(),
+                engine: "phase-rs v1".into(),
+                rating: r.clone(),
+            },
+            Simulation {
+                publication_id: "forge".into(),
+                engine: "forge 2".into(),
+                rating: opposite,
+            },
+        ];
+        rows.push(p);
+    }
+    assert_eq!(consensus::assign(&mut rows, 2), 4);
+    assert_eq!(rows[0].meta.as_ref().unwrap().score, 25.);
+    assert_eq!(rows[3].meta.as_ref().unwrap().score, 75.);
+    assert_eq!(rows[3].meta.as_ref().unwrap().rank, 1);
+    assert!(rows[3].meta.as_ref().unwrap().flagged);
+    assert_eq!(rows[3].meta.as_ref().unwrap().components.len(), 2);
+    assert!(rows[4].meta.is_none());
+    Filters {
+        q: "Forest".into(),
+        ..Default::default()
+    }
+    .apply(&mut rows)
+    .unwrap();
+    assert_eq!(rows[0].meta.as_ref().unwrap().cohort, 4);
+    assert_eq!(rows[0].meta.as_ref().unwrap().score, 75.);
+}
+
+#[tokio::test]
+async fn multiple_engines_publish_atomically_and_private_or_duplicate_engines_are_rejected() {
+    let (st, dir, _) = fixture().await;
+    let original = publish(&st.pool, manifest(), dir.path()).await.unwrap();
+    let mut forge = summary();
+    forge["versions"] = json!({"engine":{"forge 2.0.15":40},"card_data":{"forge cards":40},"runner":{"forge-runner":40}});
+    sqlx::query("INSERT INTO lab_runs(id,owner_id,name,kind,engine,card_data,runner,difficulty,games,created_at,analysed_at,imported_at,summary,summary_sha256) SELECT 'forge',NULL,'Reviewed Forge fixture',kind,'forge 2.0.15','forge cards','forge-runner',difficulty,games,created_at,analysed_at,imported_at,?,'hash' FROM lab_runs WHERE id='global'")
+        .bind(forge.to_string()).execute(&st.pool).await.unwrap();
+    let other = json!({"run_id":"forge","stock_index":"index.json","title":"Reviewed Forge","engine":"forge 2.0.15","card_data":"forge cards","runner":"forge-runner","difficulty":"Easy"});
+    std::fs::write(dir.path().join("forge.json"), other.to_string()).unwrap();
+    let mut m = manifest();
+    m.comparisons = vec!["forge.json".into()];
+    publish(&st.pool, m, dir.path()).await.unwrap();
+    let data = catalog(&st.pool).await.unwrap();
+    assert_eq!(data.comparisons.len(), 1);
+    assert!(data.precons.iter().all(|p| p.simulations.len() == 2));
+    let published = data.publication.unwrap().id;
+    assert_ne!(original, published);
+    // A later import cannot mutate either frozen source.
+    sqlx::query("DELETE FROM lab_runs WHERE id='forge'")
+        .execute(&st.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        catalog(&st.pool).await.unwrap().precons[0]
+            .simulations
+            .len(),
+        2
+    );
+    let mut invalid = other;
+    invalid["run_id"] = json!("owned");
+    std::fs::write(dir.path().join("forge.json"), invalid.to_string()).unwrap();
+    let mut m = manifest();
+    m.comparisons = vec!["forge.json".into()];
+    assert!(publish(&st.pool, m, dir.path()).await.is_err());
+    assert_eq!(
+        catalog(&st.pool).await.unwrap().publication.unwrap().id,
+        published
+    );
+    let duplicate = json!({"run_id":"global","stock_index":"index.json","title":"Duplicate Phase","engine":"phase-rs v0.113.0","card_data":"abcdef","runner":"runner-1","difficulty":"Easy"});
+    std::fs::write(dir.path().join("forge.json"), duplicate.to_string()).unwrap();
+    let mut m = manifest();
+    m.comparisons = vec!["forge.json".into()];
+    assert!(
+        publish(&st.pool, m, dir.path())
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("one reviewed run")
+    );
+    assert_eq!(
+        catalog(&st.pool).await.unwrap().publication.unwrap().id,
+        published
+    );
+    withdraw(&st.pool).await.unwrap();
+    let data = catalog(&st.pool).await.unwrap();
+    assert!(data.comparisons.is_empty());
+    assert!(
+        data.precons
+            .iter()
+            .all(|p| p.simulations.is_empty() && p.meta.is_none())
+    );
+}
+
+#[tokio::test]
+async fn html_pagination_preserves_encoded_filters_and_clamps_large_pages() {
+    let (st, _, _) = fixture().await;
+    for i in 0..26 {
+        sqlx::query("INSERT INTO precons(id,lab_id,name,set_code,set_name,released,commanders,color_identity,cards,source,content_sha256,imported_at) SELECT ?,?,?,'CMD',set_name,released,commanders,color_identity,cards,source,content_sha256,imported_at FROM precons WHERE id='forest-deck'")
+            .bind(format!("fleet-{i:02}")).bind(format!("precons/fleet-{i:02}")).bind(format!("Fleet & {i:02}")).execute(&st.pool).await.unwrap();
+    }
+    let app = crate::routes::app(st);
+    let (_, _, first) = request(&app, "/precons?q=Fleet%20%26&c=G&m=exact&s=name", &[]).await;
+    assert_eq!(first.matches("class=\"deck-link\"").count(), 24);
+    assert!(first.contains("q=Fleet+%26&amp;c=G&amp;m=exact&amp;s=name&amp;page=2"));
+    assert!(first.contains("Fleet &amp; 00"));
+    assert!(!first.contains("Fleet &amp; 25"));
+    let (_, _, last) = request(
+        &app,
+        "/precons?q=Fleet%20%26&c=G&m=exact&s=name&page=999999",
+        &[],
+    )
+    .await;
+    assert_eq!(last.matches("class=\"deck-link\"").count(), 2);
+    assert!(last.contains("Fleet &amp; 25"));
+    assert!(last.contains("Page 2 of 2"));
+    assert!(!last.contains("Fleet &amp; 00"));
+}
+
+#[tokio::test]
+async fn a_missing_interval_is_not_drawn_as_zero_uncertainty() {
+    let (st, dir, _) = fixture().await;
+    let mut raw = summary();
+    raw["decks"][0]["p4_field_ci"] = Value::Null;
+    sqlx::query("UPDATE lab_runs SET summary=? WHERE id='global'")
+        .bind(raw.to_string())
+        .execute(&st.pool)
+        .await
+        .unwrap();
+    publish(&st.pool, manifest(), dir.path()).await.unwrap();
+    let app = crate::routes::app(st);
+    let (_, _, html) = request(&app, "/precons/forest-deck", &[]).await;
+    assert!(html.contains("Interval unavailable"));
+    assert!(!html.contains("class=\"interval\""));
 }

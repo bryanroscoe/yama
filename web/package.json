@@ -6,8 +6,8 @@
     "dev": "vite",
     "build": "tsc -p . && vite build",
     "preview": "vite preview",
-    "predev": "node scripts/copy-ocr.mjs",
-    "prebuild": "node scripts/copy-ocr.mjs"
+    "predev": "node scripts/copy-ocr.mjs && node scripts/copy-public-fonts.mjs",
+    "prebuild": "node scripts/copy-ocr.mjs && node scripts/copy-public-fonts.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^8.5.3",
