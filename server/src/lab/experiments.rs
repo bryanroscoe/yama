@@ -1897,6 +1897,11 @@ pub async fn more_with(
     quota: &LabQuota,
     fa: &ForgeAccess,
 ) -> AppResult<ExperimentDetail> {
+    let remote: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lab_execution_runs WHERE experiment_id=? AND owner_id=? AND comparison=0)")
+        .bind(id).bind(&user.id).fetch_one(pool).await?;
+    if remote {
+        return Err(AppError::Conflict("Run this experiment again to schedule more remote-worker games".into()));
+    }
     let (status, text): (String, String) = sqlx::query_as("SELECT status, spec FROM lab_experiments WHERE id = ? AND owner_id = ?")
         .bind(id)
         .bind(&user.id)
@@ -2280,7 +2285,9 @@ async fn queue(pool: &SqlitePool, viewer: &str) -> AppResult<Queue> {
     let (rate, _) = recent_rate(pool).await?;
     let pending: Vec<(String, i64)> = sqlx::query_as(
         "SELECT e.id, (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.result IS NULL AND g.engine = 'phase')
-         FROM lab_experiments e WHERE e.status IN ('queued','running') ORDER BY e.created_at, e.rowid",
+         FROM lab_experiments e WHERE e.status IN ('queued','running')
+         AND NOT EXISTS (SELECT 1 FROM lab_execution_runs r WHERE r.experiment_id=e.id AND r.comparison=0)
+         ORDER BY e.created_at, e.rowid",
     )
     .fetch_all(pool)
     .await?;
@@ -2303,6 +2310,7 @@ async fn recent_rate(pool: &SqlitePool) -> AppResult<(Option<f64>, usize)> {
     let times: Vec<String> = sqlx::query_scalar(
         "SELECT g.finished_at FROM lab_experiment_games g
          WHERE g.experiment_id IN (SELECT id FROM lab_experiments WHERE updated_at >= ?) AND g.finished_at >= ? AND g.engine = 'phase'
+           AND NOT EXISTS (SELECT 1 FROM lab_execution_runs r WHERE r.experiment_id=g.experiment_id AND r.comparison=0)
          ORDER BY g.finished_at DESC LIMIT 40",
     )
     .bind(&since)

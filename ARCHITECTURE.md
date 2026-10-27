@@ -93,6 +93,23 @@ Where our own rules work goes:
 
 ## 4. Backend
 
+**Default delivery workflow (Bryan, 2026-10-27):** requested repository changes continue through
+a pushed feature branch, PR, Codex review, fixes, a subsequent independent agent review for
+substantive changes, required verification and merge. Those scoped pushes/review requests/merges
+have standing authorization; deployments and spending remain separate. Automatic Codex reviews
+should be enabled for the repository. An unavailable cloud reviewer is disclosed and replaced
+by an independent Codex agent review. Event-driven PR monitoring resumes pending work through
+merge rather than leaving an unmonitored handoff. See `AGENTS.md` and `deploy/RELEASING.md`.
+
+**Test CI (2026-10-27):** `.github/workflows/ci.yml` runs automatically for PRs into main and
+main pushes, with a manual trigger for diagnosis. GitHub-hosted Ubuntu jobs run the locked Rust
+workspace and Python regressions, plus clean-installed web tests/typecheck/build. Rust builds
+the exact private Phase pin through a dedicated read-only deploy key, using the real sibling
+Cargo paths. The Rust job adds 4 GiB of ephemeral swap and logs build resource usage for
+the large cold engine build. Both jobs must pass on the PR before merge. This is separate from
+the opt-in lab simulation workflow and production deployment. Setup and evidence boundaries:
+`docs/ci.md`.
+
 **Release process (Bryan, 2026-10-25):** integrate completed changes only after fetching GitHub's current branches, merge the intended release into main, run the required checks on that merged result and publish main. Production builds come only from clean main at the same commit as freshly fetched `origin/main`, never from a feature branch, detached HEAD or unpublished local commits. `deploy/check-release.sh` enforces this before server access; `deploy/deploy.sh --check` also verifies the pinned engine commit without contacting saget. Source, engine pin, Forge source label and compose configuration all come from the verified commit. The operating guide is `deploy/RELEASING.md`. Pushes, merges and deployment remain separate actions within Bryan's requested scope.
 
 ```
@@ -413,6 +430,24 @@ Each precon page links to `https://edhrec.com/precons/{slug}`, EDHREC's matching
   - Styles are in `lab.css`, on the Night table tokens in `styles.css` only, so a new token set restyles the lab with no edits there. Charts use one accent (`--text`) for what's measured, `--dim` for its comparison, hairline references, and text colours for every number. The Decks | Plans | Lab control is one component (`web/src/components/DeckTabs.tsx`, the shared `.segmented` pill) used by the Decks list, the plan pages and the lab pages.
 
 - **Modes** (2026-10-22, `lab/experiments.rs` `Mode`, stored in the spec so no migration was needed; old specs read as "change"): **change** (as before), **solo** (the base alone, every pod once: `games` = pods, `pairing::schedule_solo`; the verdict compares its win rate with the no-edge share of 1/pod, `stats::solo_verdict`), **compare** (two whole lists on the same pods, the second as the "variant"; both stay out of the field) and **versus** (2 to 4 lists, ids `e0`..`e3`, at one table in pods of four with precons filling empty seats, or 1v1 for two; `pairing::schedule_versus` keeps a block of `pod` games on one seating and one set of fillers and rotates it a seat at a time, so every list sits in every seat; `stats::summarize_versus` gives win shares, who finished ahead of whom and game length). Solo and versus games use play order 2g, so the split-build replay never pairs them. A pick of fewer than three decks for the field (`my_decks`, `precons_ids`) is topped up: the picked decks sit in every pod (`FieldInfo.every_pod`, `pairing::templates_with`) and precons nearest in strength (else the strongest, else any) fill the other seats. `POST /api/lab/experiments/{id}/again {games, op_id}` replays a finished run's frozen lists and opponents with a new seed and the same checks and limits. Pages: "Try a change" makes Swap the main gesture (a picker under the card with the plan's swaps and free spares first, then the card search with owned counts), keeps unpaired adds and cuts, shows the Changes panel with the count and colour and singleton notes, offers the plan's next list or chosen plan swaps when the base is a plan list or a deck a plan is linked to, and with no swaps offers "Run as it is". Run never sits silently disabled: the reasons show beside it, each with a link to the step that fixes it. "Compare decks" (`/decks/lab/compare`) has the compare and versus modes; the run page and My runs speak each mode's language.
+
+### Lab execution targets (2026-10-27)
+
+Bryan approved three execution targets: saget, his laptop, and GitHub-hosted Actions. Saget owns
+the queue and results; external workers claim frozen work and upload over authenticated outbound
+HTTPS. The opt-in admin Phase pilot (`lab/remote.rs`, migration 0033, `tools/lab_worker.py`) uses
+durable, expiring leases with stale-upload fencing and whole-pod validation/commit. Worker keys
+are target-specific and owner-scoped. Native laptop and Linux isolation policies remain explicit;
+source, engine and card data must match. Existing runs retain the built-in worker and Forge keeps
+its existing separate worker. Explicitly routed Phase runs are excluded from the built-in dispatcher.
+
+Auto selects compatible, online, ready workers using measured pace; it does not provision an
+offline worker. Comparison copies are diagnostic and never affect deck ratings. The manual-only
+Actions workflow reuses a hash-verified Linux executable and engine export from the server, avoiding
+a cold Rust build per batch. GitHub work admission requires a positive minute reservation; actual
+account spending controls and authorized workflow dispatch remain separate. This is local source
+implementation until checked, published, deployed and witnessed. Contract, controls, platform limits
+and operating steps are in [lab workers](docs/lab-workers.md).
 
 ### Public precon reference (2026-10-27)
 

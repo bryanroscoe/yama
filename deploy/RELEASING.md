@@ -2,7 +2,33 @@
 
 Fetch GitHub before merging, integrate the completed work into `main`, verify and publish `main`, then deploy that exact commit. Production deploys require a clean `main` matching freshly fetched `origin/main`.
 
-This guide records Bryan's release process (2026-10-25). It does not by itself authorize a push or a deployment; carry out the actions Bryan requested.
+This guide records Bryan's release process (2026-10-25) and default PR completion workflow
+(2026-10-27). Requested repository changes have standing authorization for scoped feature pushes,
+PRs, reviews, fixes and merge. Deployment, new accounts and spending remain separately authorized.
+Do not stop at a local commit or leave a pending PR unmonitored.
+
+## Default PR completion
+
+1. Fetch current GitHub main, preserve unrelated work, implement the scoped change and run the
+   required checks. Push its feature branch and open a PR with honest validation evidence.
+2. Keep automatic Codex reviews enabled for Yama in
+   [Codex review settings](https://chatgpt.com/codex/settings/code-review), preferably for all PRs
+   and updates. Request `@codex review` explicitly when needed. A repository instruction is not
+   proof that the external setting is enabled: verify the setting and a review of the actual head.
+3. Resolve actionable findings, rerun affected checks and request review of material fixes.
+   Obtain a subsequent independent agent review for substantive changes. If cloud review is
+   unavailable, disclose why and obtain an independent Codex agent review; record the reviewed SHA.
+4. Reconcile current main and verify the combined head. Merge through GitHub after checks and
+   reviews are satisfied; both automatic [CI jobs](../docs/ci.md) must pass on the actual PR.
+   Do not bypass branch protections or force-push main. A self-authored
+   agent review comment is review evidence, not a second human's GitHub approval.
+5. Use event-driven PR watching while required checks or reviews are pending, with a continuation
+   that handles failures/findings and carries the PR through merge. Waiting is a tracked state,
+   not completion. Report the merged SHA and the independent deployment state.
+
+The local main integration/export procedure below still governs deployments. Feature PRs normally
+merge on GitHub; fetch and fast-forward the clean main checkout to that reviewed merge before
+running the deployment readiness check.
 
 ## 1. Identify the changes for this release
 
