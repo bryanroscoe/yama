@@ -384,6 +384,9 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
             continue;
         }
         let cards = &p.cards;
+        let stock: Vec<crate::lab::PreconCard> =
+            serde_json::from_str(cards).map_err(anyhow::Error::from)?;
+        let reference_matches = crate::upgradeability::allows_reference_results(&p.id, &stock);
         let published = snapshot.as_ref().and_then(|s| s.ratings.get(&p.id));
         let unchanged = published.is_some_and(|r| list_hash(cards).is_ok_and(|h| h == r.list_hash));
         let rating = published.filter(|_| unchanged).map(|r| r.rating.clone());
@@ -406,6 +409,7 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
         let playgroup: Option<Value> = p
             .playgroup
             .as_deref()
+            .filter(|_| reference_matches)
             .and_then(|v| serde_json::from_str(v).ok());
         let real_games = playgroup.as_ref().and_then(|v| {
             let rate = v
@@ -432,8 +436,6 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
             .as_deref()
             .and_then(|t| serde_json::from_str(t).ok())
             .unwrap_or(Value::Null);
-        let stock: Vec<crate::lab::PreconCard> =
-            serde_json::from_str(cards).map_err(anyhow::Error::from)?;
         let commanders = stock
             .iter()
             .filter(|c| c.board == crate::decks::Board::Commander)

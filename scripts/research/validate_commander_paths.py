@@ -36,31 +36,66 @@ def eligible(card):
                               and front.get('power') is not None and front.get('toughness') is not None)))
 
 
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
 def validate(entry, facts):
     rows = entry['stock']
-    assert sum(q for _, _, q in rows) == 100, 'expected 100 cards'
-    commanders = [n for b, n, q in rows if b == 'commander' and q == 1]
-    assert commanders == entry['commanders'], 'command zone does not match declared configuration'
+    for board, _, qty in rows:
+        require(board in ('commander', 'main') and type(qty) is int and qty > 0,
+                'invalid board or quantity')
+        require(board != 'commander' or qty == 1, 'command-zone rows must have quantity one')
+    require(sum(q for _, _, q in rows) == 100, 'expected 100 cards')
+    commanders = [n for b, n, _ in rows if b == 'commander']
+    require(commanders == entry['commanders'], 'command zone does not match declared configuration')
     # New pair mechanisms must be checked explicitly rather than accepted by colour alone.
     if len(commanders) != 1:
         raise ValueError('joint commander eligibility needs a separate pairing check')
     leader = facts[canonical(commanders[0])]
-    assert eligible(leader), 'not eligible to be a commander'
+    require(eligible(leader), 'not eligible to be a commander')
     identity = set(leader['color_identity'])
     combined = Counter()
     for board, name, qty in rows:
-        assert board in ('commander', 'main') and type(qty) is int and qty > 0, 'invalid board or quantity'
         c = facts[canonical(name)]
-        assert c['legalities']['commander'] == 'legal', f'{name} is not Commander legal'
-        assert set(c['color_identity']) <= identity, f'{name} is outside colour identity'
+        require(c['legalities']['commander'] == 'legal', f'{name} is not Commander legal')
+        require(set(c['color_identity']) <= identity, f'{name} is outside colour identity')
         combined[canonical(name)] += qty
         if combined[canonical(name)] > 1:
             text=c.get('oracle_text','').lower()
             finite=re.search(r'deck can have up to (\w+) cards named',text)
             words=dict(zip('one two three four five six seven eight nine ten'.split(),range(1,11)))
             limit=(int(finite[1]) if finite[1].isdigit() else words.get(finite[1],1)) if finite else 1
-            assert 'Basic' in c['type_line'] or 'deck can have any number of cards named' in text or combined[canonical(name)]<=limit, f'{name} is duplicated' 
+            require('Basic' in c['type_line'] or 'deck can have any number of cards named' in text
+                    or combined[canonical(name)] <= limit, f'{name} is duplicated')
     return fingerprint(rows)
+
+
+def validate_document(doc, facts, checked):
+    pending = []
+    count = 0
+    for id_, base in doc['decks'].items():
+        if not base.get('alternatives'):
+            continue
+        pending.append((base, 'catalog_validated_fingerprint', 'catalog_list_checked_on', validate(base, facts)))
+        for alt in base['alternatives']:
+            if alt['scope'] == 'separate_build':
+                continue
+            require(all(alt['continuity'].get(k, '').strip() for k in ('theme', 'retains', 'changes')),
+                    f'{id_}: missing theme continuity')
+            if alt['scope'] == 'in_box':
+                def bag(e):
+                    total=Counter()
+                    for _,n,q in e['stock']:total[canonical(n)]+=q
+                    return total
+                require(bag(base) == bag(alt), f'{id_}: in-box alternative changed the card pool')
+            pending.append((alt, 'validated_fingerprint', 'list_checked_on', validate(alt, facts)))
+            count += 1
+    for entry, hash_key, date_key, digest in pending:
+        entry[hash_key] = digest
+        entry[date_key] = checked
+    return count
 
 
 def main():
@@ -70,25 +105,7 @@ def main():
     args = parser.parse_args()
     doc, facts = json.loads(args.document.read_text()), json.loads(args.facts.read_text())
     checked = dt.date.today().isoformat()
-    count = 0
-    for id_, base in doc['decks'].items():
-        if not base.get('alternatives'):
-            continue
-        base['catalog_validated_fingerprint'] = validate(base, facts)
-        base['catalog_list_checked_on'] = checked
-        for alt in base['alternatives']:
-            if alt['scope'] == 'separate_build':
-                continue
-            assert all(alt['continuity'].get(k, '').strip() for k in ('theme', 'retains', 'changes')), f'{id_}: missing theme continuity'
-            if alt['scope'] == 'in_box':
-                def bag(e):
-                    total=Counter()
-                    for _,n,q in e['stock']:total[canonical(n)]+=q
-                    return total
-                assert bag(base) == bag(alt), f'{id_}: in-box alternative changed the card pool'
-            alt['validated_fingerprint'] = validate(alt, facts)
-            alt['list_checked_on'] = checked
-            count += 1
+    count = validate_document(doc, facts, checked)
     args.document.write_text(json.dumps(doc, indent=2, ensure_ascii=False)+'\n')
     print(f'Validated {count} commander options and their reference lists; checked {checked}.')
 

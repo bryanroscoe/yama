@@ -430,6 +430,12 @@ fn reference(id: &str, base: &Entry) -> Assessment {
     a
 }
 
+/// ID-only stock results may be attached only to the frozen reference in known families.
+/// Unknown imports retain their existing source/publication checks; they gain no audit identity.
+pub fn allows_reference_results(id: &str, cards: &[PreconCard]) -> bool {
+    DATA.decks.get(id).is_none_or(|base| matches(base, cards))
+}
+
 pub fn assess(id: &str, cards: &[PreconCard]) -> Assessment {
     debug_assert_eq!(DATA.method, METHOD);
     let Some(base) = DATA.decks.get(id) else {
@@ -784,6 +790,96 @@ mod tests {
             axum::http::StatusCode::NOT_FOUND
         );
     }
+    #[tokio::test]
+    async fn selected_alternatives_never_inherit_reference_results_or_matchups() {
+        use serde_json::json;
+        let pool = crate::db::test_pool().await;
+        let id = "counter-intelligence";
+        let other = "quantum-quandrix";
+        let summary = json!({"matrix": {"ids": [format!("precons/{id}"), format!("precons/{other}")], "p": [[0.5, 0.7], [0.3, 0.5]]}});
+        sqlx::query("INSERT INTO lab_runs(id,name,kind,games,created_at,imported_at,summary,summary_sha256) VALUES ('reference','reference','precon-ratings',20,'2026-10-27','2026-10-27',?,'hash')")
+            .bind(summary.to_string()).execute(&pool).await.unwrap();
+        for slug in [id, other] {
+            sqlx::query("INSERT INTO precons(id,lab_id,name,set_code,commanders,cards,source,content_sha256,imported_at,notes,playgroup) VALUES (?,?,?,'TEST',?,?,'MTGJSON','hash','2026-10-27','[]',?)")
+                .bind(slug).bind(format!("precons/{slug}")).bind(slug)
+                .bind(json!(DATA.decks[slug].commanders).to_string())
+                .bind(json!(stock(slug)).to_string())
+                .bind(json!({"win_rate_4p":25.0,"games":20}).to_string())
+                .execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO lab_ratings(run_id,deck_ref,games,strength) VALUES ('reference',?,20,1.0)")
+                .bind(format!("precons/{slug}")).execute(&pool).await.unwrap();
+        }
+        let before = crate::lab::precon_detail(&pool, id).await.unwrap();
+        assert!(before.precon.rating.is_some());
+        assert!(before.precon.playgroup.is_some());
+        assert_eq!(before.matchups.unwrap().rows.len(), 1);
+        assert!(
+            crate::public_precons::catalog(&pool)
+                .await
+                .unwrap()
+                .precons
+                .iter()
+                .find(|p| p.id == id)
+                .unwrap()
+                .real_games
+                .is_some()
+        );
+
+        let mut kilo = entry_cards(&DATA.decks[id].alternatives[0].entry);
+        for input in [&kilo, &{
+            let mut changed = stock(id);
+            changed[1].name = "Unreviewed change".into();
+            changed
+        }] {
+            sqlx::query("UPDATE precons SET cards=? WHERE id=?")
+                .bind(json!(input).to_string())
+                .bind(id)
+                .execute(&pool)
+                .await
+                .unwrap();
+            let detail = crate::lab::precon_detail(&pool, id).await.unwrap();
+            assert!(detail.precon.rating.is_none());
+            assert!(detail.precon.playgroup.is_none());
+            assert!(detail.matchups.is_none());
+            let list = crate::lab::precon_list(&pool).await.unwrap();
+            let item = list.precons.iter().find(|p| p.id == id).unwrap();
+            assert!(item.rating.is_none());
+            assert!(item.playgroup.is_none());
+            let public = crate::public_precons::catalog(&pool).await.unwrap();
+            assert!(
+                public
+                    .precons
+                    .iter()
+                    .find(|p| p.id == id)
+                    .unwrap()
+                    .real_games
+                    .is_none()
+            );
+            assert!(
+                crate::lab::precon_detail(&pool, other)
+                    .await
+                    .unwrap()
+                    .matchups
+                    .unwrap()
+                    .rows
+                    .is_empty()
+            );
+        }
+        // Restoring the reference identity restores its results, even after harmless reordering.
+        kilo = stock(id);
+        kilo.reverse();
+        sqlx::query("UPDATE precons SET cards=? WHERE id=?")
+            .bind(json!(kilo).to_string())
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let restored = crate::lab::precon_detail(&pool, id).await.unwrap();
+        assert!(restored.precon.rating.is_some());
+        assert!(restored.precon.playgroup.is_some());
+        assert!(restored.matchups.is_some());
+    }
+
     #[tokio::test]
     async fn an_unknown_catalog_import_does_not_claim_a_completed_audit_or_source() {
         let pool = crate::db::test_pool().await;
