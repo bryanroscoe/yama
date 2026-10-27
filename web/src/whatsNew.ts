@@ -81,7 +81,7 @@ export const NEWS: NewsEntry[] = [
     title: "Compare precon upgrade potential",
     items: [
       "The first upgradeability estimates have been superseded by the source-backed assessment audit above. Sort supported grades in the public reference or your Lab.",
-      "Each assessment keeps the stock commander and theme. It is editorial judgment, separate from win rates and price; a changed stock list needs reassessment. Commander rankings are still future work.",
+      "Current assessments name the commander and retained theme, including separately assessed commander swaps. They are editorial judgments, separate from win rates and price; unmatched changed lists need reassessment. Commander rankings are still future work.",
     ],
     link: { to: "/precons?s=upgradeability", label: "Compare upgradeability" },
   },

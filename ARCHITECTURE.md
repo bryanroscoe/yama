@@ -70,6 +70,15 @@ an accepted benchmark result. The [27 October measurement](docs/phase-performanc
 records a preserving AI decision-preparation change, its one-case speedup and memory cost,
 and the remaining gameplay failures and capped case.
 
+The [simulator investigation](docs/simulator-performance-2026-10-27.md) separates database
+loading, game elapsed time and whole-process CPU/wall time. `Engine::load` reads the complete
+export into a temporary string and uses Phase's existing string deserializer; this avoids
+reader overhead without reducing the card corpus or changing AI policy. Budget roughly one
+export's size of additional transient memory (97 MiB for the measured export). Isolated
+per-game children and their resource ceilings remain the execution model. Forge JVM tuning
+is measured offline with `tools/bench_forge.py`; no production JVM defaults or seeded batch
+semantics are changed by this investigation.
+
 Build on **[phase-rs](https://github.com/phase-rs/phase)** (MIT or Apache-2.0). It's a Rust engine that compiles to WASM, with a React client. The current local pin and validation are recorded in [the recovery report](docs/engine-recovery-2026-10-25.md).
 
 - The initial 17 October coverage snapshot reported support for 30,494 of 32,950 Commander cards (92.5%); current per-deck classifications are in [card coverage](docs/card-coverage.md).
