@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b0c0e" />
+  <meta name="description" content="Connect Claude or Codex to Yama. Build and upgrade Commander decks, research cards and rules, use your collection, and review changes before applying them." />
+  <link rel="canonical" href="https://yama.saget.org/docs/mcp/" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="guide.css" />
+  <title>Yama MCP: features and setup</title>
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+  <header class="site-head">
+    <a class="brand" href="/about/">Yama</a>
+    <nav aria-label="Site"><a href="/precons">Precons</a><a href="/docs/mcp/" aria-current="page">MCP guide</a><a href="/">Open Yama</a></nav>
+  </header>
+  <main id="content">
+    <header class="intro">
+      <p class="dim">Your decks, in your assistant</p>
+      <h1>Yama MCP</h1>
+      <p class="lead">Build a Commander deck, improve one you own, or understand a tricky interaction. Connect your assistant to the same decks, collection and research tools Yama uses.</p>
+      <p>Yama hosts the MCP server. You connect to it with your own account; there is no separate Magic MCP package or card database to install. Yama is free. Your assistant's own plan and usage terms still apply.</p>
+      <div class="actions"><a class="button" href="#connect">Connect your assistant</a><a href="#examples">Try an example</a></div>
+    </header>
+
+    <nav class="contents" aria-label="On this page"><a href="#features">Features</a><a href="#connect">Setup</a><a href="#examples">Example requests</a><a href="#review">Review and privacy</a><a href="#catalog">All tools</a><a href="#help">Troubleshooting</a></nav>
+
+    <section id="features">
+      <h2>What you can do</h2>
+      <div class="features">
+        <article><h3>Build and upgrade decks</h3><p>Work from your theme, budget, declared bracket and protected cards. Get exact additions and cuts, compare the lists, check Commander legality, and stage a new deck or a replacement for review. Saved versions keep the previous list.</p></article>
+        <article><h3>Research cards and interactions</h3><p>Search with full Scryfall syntax, inspect printings and rulings, explore EDHREC recommendations and Commander Spellbook combos, and look up current official rules with their source and effective edition.</p></article>
+        <article><h3>Use the cards you own</h3><p>Check quantities, proxies and locations; find cards outside deck boxes; estimate needed copies and dated singles costs. Propose collection additions, moves and condition updates.</p></article>
+        <article><h3>Import, compare and test</h3><p>Read public Moxfield and Archidekt decks, compare saved or proposed lists, sample reproducible opening hands, calculate source-draw probabilities and run bounded land-sequencing checks.</p></article>
+        <article><h3>Keep upgrade plans moving</h3><p>Read stock, current and planned lists, review swaps and propose ideas. Record your review answers, bought cards and installed swaps, including putting planned prints into the linked deck.</p></article>
+        <article><h3>Inspect simulation evidence</h3><p>Read precon benchmarks, dated editorial upgradeability assessments, your lab runs, live progress and individual games. When you request it, stage a Phase or Forge experiment, more games, a repeat or a cancellation. Lab allowances and queue limits apply.</p></article>
+      </div>
+      <p class="note">Recommendations are suggestions grounded in the available data. Community popularity does not prove a win-rate improvement. Mana checks state their assumptions; the land-sequencing model omits ramp, fetches, filters and mulligans. Missing prices stay unknown, and market prices are not store quotes or resale offers.</p>
+    </section>
+
+    <section id="connect">
+      <h2>Connect your assistant</h2>
+      <p>First <a href="/">sign in to Yama with a verified Google account</a>. Use that account when the connection opens Yama's approval page. Reading this guide does not require an account.</p>
+      <p>The hosted server address is:</p>
+      <pre><code>https://yama.saget.org/mcp</code></pre>
+      <p>This is a tool endpoint, not a page to open in a browser.</p>
+
+      <article class="setup" id="claude-code">
+        <h3>Claude Code</h3>
+        <ol>
+          <li>With Claude Code installed, run this in Terminal. User scope makes Yama available across your projects:
+            <pre><code>claude mcp add --transport http --scope user yama https://yama.saget.org/mcp</code></pre>
+          </li>
+          <li>In Claude Code, enter <code>/mcp</code>, select <strong>yama</strong> and choose <strong>Authenticate</strong>.</li>
+          <li>In the browser, sign in to Yama, review the requested access and press <strong>Allow</strong>. Return to Claude Code and check the connection in <code>/mcp</code>.</li>
+        </ol>
+        <p class="dim">Already have a Yama connection? Reuse it. See the <a href="https://code.claude.com/docs/en/mcp">official Claude Code MCP instructions</a> for client installation, scopes and connection management.</p>
+      </article>
+
+      <article class="setup" id="claude-apps">
+        <h3>Claude on the web, desktop or phone</h3>
+        <ol>
+          <li>On Claude's web or desktop app, open <strong>Customize → Connectors</strong> (called <strong>Settings → Connectors</strong> in some versions). Choose <strong>Add</strong>, then <strong>Add custom connector</strong>.</li>
+          <li>Name it <strong>Yama</strong> and use <code>https://yama.saget.org/mcp</code> as the remote server URL.</li>
+          <li>Use sign-in authentication. If an OAuth client choice is shown, choose <strong>Register automatically</strong>. Connect, sign in to Yama and press <strong>Allow</strong>.</li>
+          <li>Enable Yama for the conversation. Once connected, it can also be used from Claude's mobile apps.</li>
+        </ol>
+        <p class="dim">Your Claude plan or organization may control which connectors you can add. Follow the <a href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp">official Claude connector guide</a> if the menus differ.</p>
+      </article>
+
+      <article class="setup" id="codex">
+        <h3>Codex</h3>
+        <ol>
+          <li>With Codex CLI installed, add the hosted server:
+            <pre><code>codex mcp add yama --url https://yama.saget.org/mcp</code></pre>
+          </li>
+          <li>Complete the browser sign-in if it starts automatically. Otherwise run:
+            <pre><code>codex mcp login yama</code></pre>
+          </li>
+          <li>Sign in to Yama and press <strong>Allow</strong>. Run <code>codex mcp list</code> to check the registration, and use <code>/mcp</code> inside Codex to inspect the active connection.</li>
+        </ol>
+        <p class="dim">See the <a href="https://learn.chatgpt.com/docs/extend/mcp">official OpenAI documentation for MCP</a> for Codex settings and other supported surfaces.</p>
+      </article>
+
+      <details class="setup"><summary>Other MCP clients and script keys</summary><p>Use a client that supports Streamable HTTP and OAuth with the same server URL. If it cannot sign in, create an MCP-scoped key under <a href="/decks/plan/settings">Decks → Plans → Settings</a> and follow the connection instructions shown there. Treat the key as a password. A plan-sync key cannot access MCP tools.</p></details>
+      <p><strong>Inside Yama:</strong> Ask Claude already uses these tools when available for your account. No external connection is needed. Availability and allowance are shown in Yama.</p>
+    </section>
+
+    <section id="examples">
+      <h2>Try these requests</h2>
+      <p>Use the name of a deck in your account, or paste a list. Explain your playgroup goals and anything you want to keep.</p>
+      <blockquote>Review my Aragorn deck with a $50 upgrade budget. Prefer cards I own, keep the monarch theme and avoid infinite combos. Show exact additions, cuts, estimated costs and tradeoffs before staging changes.</blockquote>
+      <blockquote>Build a Commander deck around this commander and theme. Ask about my budget and playgroup first, verify the complete 100-card list, and show what I still need.</blockquote>
+      <blockquote>Read this public deck URL and compare it with my saved deck. Explain the differences and validate the list before proposing an import.</blockquote>
+      <blockquote>Explain this card interaction using Oracle text, rulings and numbered current rules. Tell me which board-state details you still need.</blockquote>
+      <blockquote>Show my lab run's progress and each engine's results, including uncertainty and games that were not scored.</blockquote>
+      <p>Clients that support MCP prompts also expose <code>review_deck</code>, <code>build_commander</code> and <code>rules_question</code>. Ordinary requests work too.</p>
+    </section>
+
+    <section id="review">
+      <h2>You review changes</h2>
+      <p>Tools that edit a deck, plan, collection or lab run first create a pending proposal. Review it in <a href="/decks/changes">Decks → Suggested changes</a>, then choose <strong>Apply</strong> or <strong>Discard</strong>. Applying a deck edit saves a new version; stale edits are rejected if the target has changed.</p>
+      <p>Ask Claude inside Yama cannot apply its own proposals. An external MCP client also has apply and discard tools; it is instructed to apply only after you approve that exact change. Your client's permission settings control its tool calls.</p>
+      <h3>Your account and research data</h3>
+      <p>A connection can read your Yama decks, collection and plans; other accounts' private data is not accessible. Information returned to an external assistant is processed by that assistant's provider. Use your own account and review the access page before connecting.</p>
+      <p>Public research uses Scryfall, EDHREC, Commander Spellbook, Wizards and supported public deck hosts. EDHREC receives the public commander or theme; ownership filtering stays in Yama. Matching a private deck against Spellbook combos requires an explicit request to share its card names and quantities. It does not send your deck name, notes or collection.</p>
+      <p>Manage and disconnect OAuth connections in <a href="/decks/plan/settings">Plan settings → Connected apps</a>. Revoke script keys separately on the same page. See Yama's <a href="/privacy/">privacy policy</a>.</p>
+    </section>
+
+    <section id="catalog">
+      <h2>The complete tool catalog</h2>
+      <p>42 tools, checked 27 October 2026. Availability depends on the caller: Ask Claude omits apply and discard. Expand a group for the tool names your client may display.</p>
+      <details><summary>Cards, rules and sources (6)</summary><dl>
+        <dt><code>find_cards</code></dt><dd>Search Yama's local card catalog with its supported Scryfall-style grammar.</dd>
+        <dt><code>card</code></dt><dd>Read Oracle text, legality, rulings, dated prices and your owned copies.</dd>
+        <dt><code>search_scryfall</code></dt><dd>Search online with full Scryfall syntax and paginated results.</dd>
+        <dt><code>card_printings</code></dt><dd>Find paper printings, market observations and original image links.</dd>
+        <dt><code>rules_lookup</code></dt><dd>Look up current numbered rules, subrules, glossary terms or keywords.</dd>
+        <dt><code>research_sources</code></dt><dd>Inspect attribution, local data freshness and research limits.</dd>
+      </dl></details>
+      <details><summary>Decks, construction and history (9)</summary><dl>
+        <dt><code>overview</code></dt><dd>List your saved decks and upgrade plans.</dd>
+        <dt><code>deck</code></dt><dd>Read a saved list, Commander checks, declared bracket and recorded results.</dd>
+        <dt><code>check_list</code></dt><dd>Validate a proposed list without saving it.</dd>
+        <dt><code>deck_analysis</code></dt><dd>Analyze validation, curve, land access, role hints, ownership and dated budget estimates.</dd>
+        <dt><code>compare_decks</code></dt><dd>Compare saved versions or proposals with exact additions, cuts and structural changes.</dd>
+        <dt><code>deck_history</code></dt><dd>List saved versions for inspection, comparison or a proposed restore.</dd>
+        <dt><code>public_deck</code></dt><dd>Read a public Moxfield or Archidekt list without saving it.</dd>
+        <dt><code>edit_deck</code></dt><dd>Stage additions and removals to a saved deck.</dd>
+        <dt><code>save_deck</code></dt><dd>Stage a complete, validated 100-card Commander deck as a new deck or replacement.</dd>
+      </dl></details>
+      <details><summary>Commander recommendations and combos (2)</summary><dl>
+        <dt><code>commander_recommendations</code></dt><dd>Read EDHREC suggestions with sample sizes, theme/budget options and local ownership filtering.</dd>
+        <dt><code>find_combos</code></dt><dd>Search public combos or, with explicit list sharing, inspect included combos and missing pieces with their prerequisites.</dd>
+      </dl></details>
+      <details><summary>Hands and mana checks (3)</summary><dl>
+        <dt><code>sample_hands</code></dt><dd>Draw seeded opening hands; mulligan bottom and keep decisions stay with you.</dd>
+        <dt><code>mana_probability</code></dt><dd>Calculate exact draw probabilities for sources you define.</dd>
+        <dt><code>mana_test</code></dt><dd>Sample early land sequencing and payment under an explicit lands-only model.</dd>
+      </dl></details>
+      <details><summary>Collection (4)</summary><dl>
+        <dt><code>collection_cards</code></dt><dd>Read quantities, proxies and containers, with optional filters.</dd>
+        <dt><code>add_to_collection</code></dt><dd>Stage adding copies to a container.</dd>
+        <dt><code>move_cards</code></dt><dd>Stage moving copies between your containers.</dd>
+        <dt><code>set_condition</code></dt><dd>Stage condition updates.</dd>
+      </dl></details>
+      <details><summary>Upgrade plans (7)</summary><dl>
+        <dt><code>plan_deck</code></dt><dd>Read stock, current and after-prints lists, swaps, review answers, orders and prints.</dd>
+        <dt><code>review_queue</code></dt><dd>Find swaps still waiting for your answer.</dd>
+        <dt><code>propose_swap</code></dt><dd>Stage an upgrade idea with a proposed addition, optional cut and reason.</dd>
+        <dt><code>answer_review</code></dt><dd>Stage your stated review answer and optional alternative cut.</dd>
+        <dt><code>mark_bought</code></dt><dd>Stage marking a plan card as bought.</dd>
+        <dt><code>mark_installed</code></dt><dd>Stage marking a swap installed or clearing that mark.</dd>
+        <dt><code>swap_in_prints</code></dt><dd>Stage the plan's print installation, updating the linked list, proxies, cut-card destinations and installed marks.</dd>
+      </dl></details>
+      <details><summary>Simulation lab and precons (8)</summary><dl>
+        <dt><code>lab_runs</code></dt><dd>List your simulation experiments.</dd>
+        <dt><code>lab_run</code></dt><dd>Inspect progress, engine results, uncertainty and unscored-game reasons.</dd>
+        <dt><code>lab_games</code></dt><dd>Read pod results or the schedule and lists needed to replay a game.</dd>
+        <dt><code>precon</code></dt><dd>Read a stock precon, its dated editorial upgradeability assessment, sourced real-game results and available simulation evidence.</dd>
+        <dt><code>start_lab_run</code></dt><dd>Stage a new simulation experiment.</dd>
+        <dt><code>more_lab_games</code></dt><dd>Stage more games on an eligible finished run.</dd>
+        <dt><code>run_lab_again</code></dt><dd>Stage a fresh run of the same experiment.</dd>
+        <dt><code>cancel_lab_run</code></dt><dd>Stage stopping new games; games already playing can finish.</dd>
+      </dl></details>
+      <details><summary>Pending changes (3)</summary><dl>
+        <dt><code>changes</code></dt><dd>List proposals waiting for review.</dd>
+        <dt><code>apply_change</code></dt><dd>Apply an approved proposal, with ownership and stale-version checks. External clients only.</dd>
+        <dt><code>discard_change</code></dt><dd>Discard a proposal. External clients only.</dd>
+      </dl></details>
+      <details><summary>Workflow prompts and resources</summary><p>Prompts: <code>review_deck</code>, <code>build_commander</code>, <code>rules_question</code>. Resources: <code>yama://research/sources</code>, <code>yama://deck/{deck_id}</code> and <code>yama://card/{oracle_id}</code>. Deck and card resources use the same authentication as the tools.</p></details>
+      <p class="dim">This is a Commander-focused toolset. Limited drafting, constructed sideboards and tournament metagame feeds are outside its current scope. Public providers may block automated access or be temporarily unavailable; failures are reported rather than treated as empty results.</p>
+    </section>
+
+    <section id="help">
+      <h2>If something does not connect</h2>
+      <dl>
+        <dt>The endpoint shows an error in my browser</dt><dd>Use the address in your MCP client. A normal browser visit to <code>/mcp</code> is not the sign-in flow; start authentication from the client.</dd>
+        <dt>I see an old tool list</dt><dd>Reconnect the Yama server or start a new conversation. Some clients keep a catalog for the life of a conversation.</dd>
+        <dt>Sign-in expired or access was revoked</dt><dd>Authenticate again from the client. In Codex, use <code>codex mcp login yama</code>; in Claude Code, use <code>/mcp</code>. Check that you chose the Yama account containing your decks.</dd>
+        <dt>A proposed change will not apply</dt><dd>If the deck or plan changed after the proposal was made, ask the assistant to read the current version and prepare a fresh proposal.</dd>
+      </dl>
+      <p>Need help? <a href="mailto:bryanroscoe@gmail.com">Contact Bryan</a>. Include the client and error message, keeping tokens and private deck details out of public reports.</p>
+    </section>
+  </main>
+  <footer class="site-foot">
+    <nav aria-label="Footer"><a href="/about/">About Yama</a><a href="/precons">Precons</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a><a href="/">Open Yama</a></nav>
+    <p>© 2026 Bryan Roscoe. All rights reserved in Yama's original software, written analysis and presentation. Third-party content belongs to its respective owners. <a href="/tos/#rights">Content rights</a>.</p>
+    <p>Unofficial fan software, not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images from <a href="https://scryfall.com">Scryfall</a>; images load at runtime.</p>
+  </footer>
+</body>
+</html>

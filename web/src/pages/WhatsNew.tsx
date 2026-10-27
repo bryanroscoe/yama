@@ -83,7 +83,7 @@ export function WhatsNewPage() {
             </ul>
             {e.link && (
               <p style={{ margin: 0 }}>
-                {e.link.to.startsWith("/precons") ? <a href={e.link.to}>{e.link.label}</a> : <Link to={e.link.to}>{e.link.label}</Link>}
+                {e.link.to.startsWith("/precons") || e.link.to.startsWith("/docs/") ? <a href={e.link.to}>{e.link.label}</a> : <Link to={e.link.to}>{e.link.label}</Link>}
               </p>
             )}
           </article>

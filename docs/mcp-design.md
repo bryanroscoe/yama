@@ -1,5 +1,8 @@
 # Yama tools for Claude (MCP): design
 
+User-facing features, setup and examples are published at
+[the public MCP guide](https://yama.saget.org/docs/mcp/) (`web/public/docs/mcp/index.html`).
+
 Bryan, 2026-10-22: "Could we create a full MCP to work with and optimize your decks and stuff with
 this?" His answers: **both** (Ask Claude inside Yama and outside clients such as Claude Code), from
 **one toolset**; Claude may change **everything**, but should **recommend review before editing**.
