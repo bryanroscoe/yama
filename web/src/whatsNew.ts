@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-27-precon-evidence-audit",
+    date: "2026-10-27",
+    title: "Precon grades now show their evidence",
+    items: [
+      "The old upgradeability estimates have been withdrawn. Thirteen assessments now include named guides, checked card examples, commander restrictions and an explanation of every level from 1 to 5. Other lists are ungraded until their evidence supports an assessment.",
+      "Deck pages also show dated commander wins and game counts from Playgroup, separately from stock-precon results. Reviews retain their authors’ original grades. The comparison and methodology text has been rewritten in plain language.",
+    ],
+    link: { to: "/precons/methodology#upgradeability", label: "Read the rubric and sources" },
+  },
+  {
     id: "2026-10-27-deck-research",
     date: "2026-10-27",
     title: "Review whole deck builds in Yama",
@@ -38,7 +48,7 @@ export const NEWS: NewsEntry[] = [
     date: "2026-10-27",
     title: "Compare precon upgrade potential",
     items: [
-      "Precons have a provisional upgradeability assessment from 1 to 5, with the work needed, an upgrade direction and a limiting factor. Sort by upgradeability in the public reference or your Lab.",
+      "The first upgradeability estimates have been superseded by the source-backed assessment audit above. Sort supported grades in the public reference or your Lab.",
       "Each assessment keeps the stock commander and theme. It is editorial judgment, separate from win rates and price; a changed stock list needs reassessment. Commander rankings are still future work.",
     ],
     link: { to: "/precons?s=upgradeability", label: "Compare upgradeability" },

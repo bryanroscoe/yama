@@ -8,7 +8,7 @@ the exact published commit in `deploy/phase-rev`. See [engine integration](docs/
 
 Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images come from [Scryfall](https://scryfall.com); images load from Scryfall at runtime and are never stored or re-hosted here.
 
-Precon comparisons and detail pages also show [upgradeability](docs/precon-upgradeability.md): a provisional 1–5 editorial assessment, refocusing effort, upgrade path, limits and date. All 174 current stock precons are covered; changed or new lists remain unassessed until reviewed. The public API, Lab and MCP use the same data. Commander ranking remains separate future work.
+Precon comparisons and detail pages show [source-backed upgradeability](docs/precon-upgradeability.md): a defined 1–5 rubric, concrete card examples, named guides and commander restrictions. The 174-list audit withdrew unsupported estimates; 13 lists have supported grades and the rest remain ungraded. All 179 distinct commanders have separately scoped Playgroup wins/game counts. Public pages, Lab, APIs and MCP share the data. Commander ranking remains separate future work.
 
 ## What works today
 

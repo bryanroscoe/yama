@@ -1,13 +1,99 @@
-//! Versioned editorial assessments, shared by public, signed-in and MCP precon views.
-//! This is deliberately independent of prices, simulation strength and commander popularity.
+//! Source-backed editorial grades and separately scoped commander observations.
 use crate::{decks::Board, lab::PreconCard};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::LazyLock};
 
-pub const METHOD: &str = "editorial-upgradeability-v1";
-pub const BASIS: &str = "Provisional editorial assessment of upgrade potential while keeping the stock commander and deck identity. Not a tested upgrade list, commander ranking, price rating or predicted win rate.";
-pub const RUBRIC: &str = "1 Limited: few coherent routes without changing identity. 2 Constrained: structural commander or theme limits. 3 Good: clear improvements with setup or pool constraints. 4 High: a well-supported engine with several useful packages. 5 Very high: a deep, scalable engine with substantial room for focused optimization. Effort describes refocusing work, not spending: Targeted refines the existing engine; Moderate replaces several packages; Substantial rebuilds much of the shell.";
+pub const METHOD: &str = "source-backed-upgradeability-v2";
+pub const BASIS: &str = "Yama's editorial judgment of improvement options while retaining the catalog commander and main theme. Based on the cited guides, checked card examples and commander restrictions. No upgrade win-rate estimate is available.";
+pub const RUBRIC: &str = "1 Minimal: changing individual cards does little for the main plan; its limiting mechanism remains. 2 Narrow: useful replacements exist, but the same commander or theme restriction blocks most further gains. 3 Workable: a documented upgrade package improves the plan, with a persistent setup, combat or card-pool limit. 4 Broad: several compatible packages improve the plan and its finish; important restrictions still apply. 5 Exceptional: the commander supplies repeatable resources and a direct finish; on-theme additions strengthen both. These are ordinal judgments, not measured power steps. Evidence missing means ungraded, not 1.";
+pub const COMMANDER_CAVEAT: &str = "Playgroup commander results include stock and modified lists, mixed pod sizes and opponents. The raw rate is wins divided by games, not four-player normalised. Partner commanders are separate observations, not a pair's rate. Do not subtract a stock-precon rate to estimate upgrade gain.";
 
+#[derive(Debug, Clone, Serialize)]
+pub struct GradeLevel {
+    pub score: u8,
+    pub label: &'static str,
+    pub meaning: &'static str,
+}
+pub fn levels() -> Vec<GradeLevel> {
+    vec![
+        GradeLevel {
+            score: 1,
+            label: "Minimal",
+            meaning: "Individual replacements do little for the main plan; its limiting mechanism remains.",
+        },
+        GradeLevel {
+            score: 2,
+            label: "Narrow",
+            meaning: "Useful replacements exist, but a commander or theme restriction blocks most further gains.",
+        },
+        GradeLevel {
+            score: 3,
+            label: "Workable",
+            meaning: "A documented package improves the plan, with a persistent setup, combat or card-pool limit.",
+        },
+        GradeLevel {
+            score: 4,
+            label: "Broad",
+            meaning: "Several compatible packages improve the plan and its finish; important restrictions still apply.",
+        },
+        GradeLevel {
+            score: 5,
+            label: "Exceptional",
+            meaning: "The commander supplies repeatable resources and a direct finish; on-theme additions strengthen both.",
+        },
+    ]
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rationale {
+    pub support: String,
+    pub payoff: String,
+    pub constraints: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Source {
+    pub title: String,
+    pub author: String,
+    pub publisher: String,
+    pub published_on: Option<String>,
+    pub checked_on: String,
+    pub accessed_on: String,
+    pub url: String,
+    pub summary: String,
+    pub kind: String,
+    pub rating: Option<String>,
+    pub commander_configurations: Vec<Vec<String>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Example {
+    pub name: String,
+    pub role: String,
+    pub url: String,
+    pub oracle_id: String,
+    pub color_identity: Vec<String>,
+    pub legal_checked_on: String,
+    pub basis: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommanderCard {
+    pub name: String,
+    pub url: String,
+    pub checked_on: String,
+    pub oracle_id: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommanderResult {
+    pub name: String,
+    pub commander_id: u64,
+    pub url: String,
+    pub api_url: String,
+    pub fetched_at: String,
+    pub provider_updated_at: Option<String>,
+    pub games: u64,
+    pub wins: u64,
+    pub raw_win_rate_percent: Option<f64>,
+    pub population: String,
+    pub sha256: String,
+}
 #[derive(Debug, Clone, Serialize)]
 pub struct Assessment {
     pub score: Option<u8>,
@@ -21,32 +107,54 @@ pub struct Assessment {
     pub method: &'static str,
     pub basis: &'static str,
     pub rubric: &'static str,
+    pub levels: Vec<GradeLevel>,
+    pub rationale: Option<Rationale>,
+    pub examples: Vec<Example>,
+    pub sources: Vec<Source>,
+    pub commander_cards: Vec<CommanderCard>,
+    pub commander_results: Vec<CommanderResult>,
+    pub commander_caveat: &'static str,
+    pub attribution: &'static str,
+    pub gap: Option<String>,
 }
-
 #[derive(Deserialize)]
 struct Document {
     method: String,
     assessed_on: String,
+    sources: BTreeMap<String, Source>,
     decks: BTreeMap<String, Entry>,
 }
 #[derive(Deserialize)]
 struct Entry {
-    score: u8,
-    effort: String,
-    path: String,
-    limitation: String,
+    score: Option<u8>,
+    effort: Option<String>,
+    path: Option<String>,
+    limitation: Option<String>,
+    rationale: Option<Rationale>,
+    examples: Vec<Example>,
+    sources: Vec<String>,
+    gap: Option<String>,
+    commander_cards: Vec<CommanderCard>,
+    commanders: Vec<String>,
     source_url: String,
     stock: Vec<(String, String, u32)>,
+}
+#[derive(Deserialize)]
+struct CommanderDocument {
+    commanders: BTreeMap<String, CommanderResult>,
 }
 static DATA: LazyLock<Document> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../resources/precon-upgradeability.json"))
         .expect("validated upgradeability document")
 });
+static COMMANDERS: LazyLock<CommanderDocument> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../resources/commander-evidence.json"))
+        .expect("validated commander observations")
+});
 
 fn key<'a>(rows: impl Iterator<Item = (&'a str, &'a str, u32)>) -> BTreeMap<(String, String), u32> {
     let mut out = BTreeMap::new();
     for (board, name, qty) in rows {
-        // The catalog resolves double-faced names to their front face. Printings do not matter.
         let name = name.split(" // ").next().unwrap_or(name).to_lowercase();
         *out.entry((board.into(), name)).or_default() += qty;
     }
@@ -59,11 +167,32 @@ fn board(b: &Board) -> &'static str {
         Board::Side => "side",
     }
 }
-
+fn supported_grade(entry: &Entry, sources: &[Source]) -> Option<u8> {
+    let grade = entry.score?;
+    let reason = entry.rationale.as_ref()?;
+    // Absence is an evidence gap, never a low grade. A stock snapshot alone cannot justify a grade.
+    ((1..=5).contains(&grade)
+        && sources.iter().any(|s| {
+            (s.kind == "upgrade_guide" || s.kind == "review_and_upgrade_guide")
+                && s.commander_configurations
+                    .iter()
+                    .any(|c| c == &entry.commanders)
+        })
+        && entry.examples.len() >= 2
+        && [&reason.support, &reason.payoff, &reason.constraints]
+            .iter()
+            .all(|s| !s.trim().is_empty())
+        && entry.path.as_ref().is_some_and(|s| !s.trim().is_empty())
+        && entry
+            .limitation
+            .as_ref()
+            .is_some_and(|s| !s.trim().is_empty()))
+    .then_some(grade)
+}
 pub fn assess(id: &str, cards: &[PreconCard]) -> Assessment {
     let mut result = Assessment {
         score: None,
-        label: "Not assessed",
+        label: "Ungraded",
         status: "not_assessed",
         effort: None,
         path: None,
@@ -73,6 +202,15 @@ pub fn assess(id: &str, cards: &[PreconCard]) -> Assessment {
         method: METHOD,
         basis: BASIS,
         rubric: RUBRIC,
+        levels: levels(),
+        rationale: None,
+        examples: vec![],
+        sources: vec![],
+        commander_cards: vec![],
+        commander_results: vec![],
+        commander_caveat: COMMANDER_CAVEAT,
+        attribution: "Playgroup.gg / Arcane Digital B.V., aggregate statistics licensed CC BY 4.0 (https://playgroup.gg/legal).",
+        gap: Some("No source-backed upgrade assessment is recorded for this list.".into()),
     };
     debug_assert_eq!(DATA.method, METHOD);
     let Some(entry) = DATA.decks.get(id) else {
@@ -90,21 +228,43 @@ pub fn assess(id: &str, cards: &[PreconCard]) -> Assessment {
     {
         result.status = "stock_list_changed";
         result.label = "Needs reassessment";
+        result.gap = Some("The catalog list or commander changed after this assessment.".into());
         return result;
     }
-    result.score = Some(entry.score);
-    result.label = match entry.score {
-        1 => "Limited",
-        2 => "Constrained",
-        3 => "Good",
-        4 => "High",
-        5 => "Very high",
-        _ => "Not assessed",
-    };
-    result.status = "provisional";
-    result.effort = Some(entry.effort.clone());
-    result.path = Some(entry.path.clone());
-    result.limitation = Some(entry.limitation.clone());
+    result.sources = entry
+        .sources
+        .iter()
+        .filter_map(|id| DATA.sources.get(id).cloned())
+        .collect();
+    result.commander_cards = entry.commander_cards.clone();
+    result.commander_results = entry
+        .commanders
+        .iter()
+        .filter_map(|n| COMMANDERS.commanders.get(n).cloned())
+        .collect();
+    result.gap = entry.gap.clone();
+    result.score = supported_grade(entry, &result.sources);
+    if let Some(score) = result.score {
+        result.label = match score {
+            1 => "Minimal",
+            2 => "Narrow",
+            3 => "Workable",
+            4 => "Broad",
+            5 => "Exceptional",
+            _ => "Ungraded",
+        };
+        result.status = "reviewed";
+        result.effort = entry.effort.clone();
+        result.path = entry.path.clone();
+        result.limitation = entry.limitation.clone();
+        result.rationale = entry.rationale.clone();
+        result.examples = entry.examples.clone();
+    } else {
+        result.status = "insufficient_evidence";
+        result.gap.get_or_insert_with(|| {
+            "The recorded evidence does not meet the grading requirements.".into()
+        });
+    }
     result
 }
 
@@ -119,33 +279,93 @@ mod tests {
                 name: n.clone(),
                 qty: *q,
                 oracle_id: None,
-                board: match b.as_str() {
-                    "commander" => Board::Commander,
-                    "main" => Board::Main,
-                    _ => panic!("unexpected board"),
+                board: if b == "commander" {
+                    Board::Commander
+                } else {
+                    Board::Main
                 },
             })
             .collect()
     }
     #[test]
-    fn complete_dated_stock_assessments() {
+    fn audited_catalog_requires_evidence_and_does_not_carry_old_grades() {
         assert_eq!(DATA.method, METHOD);
         assert_eq!(DATA.decks.len(), 174);
+        let mut graded = 0;
         for (id, e) in &DATA.decks {
-            assert!((1..=5).contains(&e.score), "{id}");
-            assert!(["Targeted", "Moderate", "Substantial"].contains(&e.effort.as_str()));
-            assert!(!e.path.is_empty() && !e.limitation.is_empty());
-            assert!(
-                e.source_url
-                    .starts_with("https://mtgjson.com/api/v5/decks/")
-            );
             let cards = stock(id);
             assert_eq!(cards.iter().map(|c| c.qty).sum::<u32>(), 100, "{id}");
-            assert_eq!(assess(id, &cards).score, Some(e.score));
+            let a = assess(id, &cards);
+            assert_eq!(a.score, e.score, "{id}");
+            assert_eq!(a.commander_results.len(), e.commanders.len(), "{id}");
+            for s in &e.sources {
+                assert!(DATA.sources.contains_key(s), "{id} {s}");
+            }
+            if e.score.is_some() {
+                graded += 1;
+                assert!(e.gap.is_none());
+                for c in &e.examples {
+                    assert_eq!(c.legal_checked_on, "2026-10-27");
+                    assert!(c.url.starts_with("https://scryfall.com/card/"));
+                    assert!(
+                        !e.stock.iter().any(|(_, n, _)| n
+                            .eq_ignore_ascii_case(c.name.split(" // ").next().unwrap())),
+                        "{id} {} already stock",
+                        c.name
+                    );
+                }
+                assert_eq!(
+                    supported_grade(e, &[]),
+                    None,
+                    "a stock list cannot justify a grade"
+                );
+            } else {
+                assert!(e.gap.is_some());
+                assert_eq!(a.status, "insufficient_evidence");
+            }
+        }
+        assert_eq!(graded, 13);
+        assert_eq!(
+            assess("counter-intelligence", &stock("counter-intelligence")).score,
+            None,
+            "Kilo's guide cannot grade Inspirit"
+        );
+        assert_eq!(
+            assess("the-fantastic-four", &stock("the-fantastic-four")).score,
+            None,
+            "Mister Fantastic's guide cannot grade Invisible Woman"
+        );
+    }
+    #[test]
+    fn guide_for_another_commander_cannot_support_a_grade() {
+        let e = &DATA.decks["quantum-quandrix"];
+        let mut sources: Vec<_> = e
+            .sources
+            .iter()
+            .map(|id| DATA.sources[id].clone())
+            .collect();
+        for s in &mut sources {
+            s.commander_configurations = vec![vec!["Esix, Fractal Bloom".into()]];
+        }
+        assert_eq!(supported_grade(e, &sources), None);
+    }
+    #[test]
+    fn observations_are_raw_same_endpoint_counts_not_an_upgrade_delta() {
+        for c in COMMANDERS.commanders.values() {
+            assert!(c.wins <= c.games);
+            assert!(c.provider_updated_at.is_none());
+            if c.games == 0 {
+                assert!(c.raw_win_rate_percent.is_none());
+            } else {
+                assert!(
+                    (c.raw_win_rate_percent.unwrap() - 100. * c.wins as f64 / c.games as f64).abs()
+                        < 0.006
+                );
+            }
         }
     }
     #[test]
-    fn changed_list_or_commander_never_inherits_a_grade() {
+    fn changed_lists_and_unknown_imports_never_inherit_evidence() {
         let id = "quantum-quandrix";
         let mut cards = stock(id);
         cards
@@ -156,29 +376,30 @@ mod tests {
         let a = assess(id, &cards);
         assert_eq!(a.score, None);
         assert_eq!(a.status, "stock_list_changed");
+        assert!(a.commander_results.is_empty());
         assert_eq!(assess("future-precon", &cards).score, None);
         cards = stock(id);
         cards[0].qty += 1;
         assert_eq!(assess(id, &cards).score, None);
     }
     #[test]
-    fn ordering_printings_and_front_face_spelling_do_not_change_assessment() {
+    fn printing_order_and_split_quantity_do_not_change_the_stock_identity() {
         let id = "quantum-quandrix";
         let mut cards = stock(id);
         cards.reverse();
         for c in &mut cards {
-            c.oracle_id = Some("different-printing".into());
+            c.oracle_id = Some("new-printing".into());
             if c.name == "Incubation" {
                 c.name = "Incubation // Incongruity".into();
             }
         }
-        assert_eq!(assess(id, &cards).score, Some(5));
+        assert_eq!(assess(id, &cards).score, Some(4));
         let i = cards.iter().position(|c| c.qty > 1).unwrap();
         let mut split = cards[i].clone();
         split.qty = 1;
         cards[i].qty -= 1;
         cards.push(split);
-        assert_eq!(assess(id, &cards).score, Some(5));
+        assert_eq!(assess(id, &cards).score, Some(4));
     }
     #[tokio::test]
     async fn public_and_private_views_share_assessments_without_inheriting_to_changed_lists() {
@@ -211,7 +432,7 @@ mod tests {
                 .clone()
                 .oneshot(
                     axum::http::Request::builder()
-                        .uri(path)
+                        .uri(&path)
                         .body(axum::body::Body::empty())
                         .unwrap(),
                 )
@@ -222,9 +443,13 @@ mod tests {
                 .await
                 .unwrap();
             let html = String::from_utf8(body.to_vec()).unwrap();
-            assert!(html.contains("5/5 Very high"));
+            assert!(html.contains("5/5 Exceptional"));
             assert!(html.contains("Substantial"));
-            assert!(html.contains("Provisional editorial"));
+            if path.starts_with("/precons/scions-") {
+                assert!(html.contains("Commander results"));
+                assert!(html.contains("raw wins"));
+                assert!(html.contains("Publisher") || html.contains("Tomer Abramovici"));
+            }
         }
         let mut changed = cards;
         changed[0].name = "Different card".into();
