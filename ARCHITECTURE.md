@@ -514,6 +514,9 @@ complete tool catalog, Commander workflows, Claude/Codex setup, sources, privacy
 approval. About, the shared site footer, connection settings, What's new and the sitemap link
 to it. The service worker excludes public documentation from the private app-shell cache.
 Update the guide when capabilities or connection instructions change.
+The production app registers `/sw.js` with a content-derived version query, computed by Vite,
+so CDN retention of an older worker cannot delay new public-page cache exclusions. Its root
+scope and existing offline caches are preserved.
 
 Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outside clients, from one toolset; Claude may change everything, but should recommend review before editing. Design and slices: `docs/mcp-design.md`. Slice 1 (read tools), slice 2 (staged changes, below) and slice 3 (OAuth sign-in, below) are built:
 
