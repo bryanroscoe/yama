@@ -8,6 +8,7 @@ mod config;
 mod db;
 mod deck_checks;
 mod deck_prices;
+mod deck_research;
 mod deck_import;
 mod decks;
 mod error;
@@ -95,6 +96,9 @@ USAGE:
                                              Import a yama-plan/1 file (docs/plan-format.md)
                                              as EMAIL's plan, the same way the web upload
                                              does; prints the import report
+  yama-server import-research FILE --owner EMAIL [--dry-run]
+                                             Store private yama-research/1 notes for review;
+                                             never changes decks, plans or collection cards
   yama-server import-precons INDEX [--playgroup FILE]
                                              Import the Commander precon catalog from
                                              commander-decks data/sim/decks/index.json and
@@ -200,6 +204,21 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 print!("{}", collection::mythic::text(&report));
+            }
+            Ok(())
+        }
+        Some("import-research") => {
+            let file = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-research FILE --owner EMAIL [--dry-run]")?;
+            let email = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
+            let owner = decks::cli::owner_id(&pool, &email).await?;
+            let bytes = std::fs::read(file).with_context(|| format!("reading {file}"))?;
+            anyhow::ensure!(bytes.len()<=deck_research::MAX_BYTES,"research file exceeds 4 MiB");
+            let doc:serde_json::Value=serde_json::from_slice(&bytes)?;
+            let targets=deck_research::validate(&doc).map_err(|e|anyhow::anyhow!("{e}"))?;
+            if args.iter().any(|a| a=="--dry-run") {
+                println!("{}",serde_json::json!({"valid":true,"id":doc["id"],"decks":doc["decks"].as_array().unwrap().len(),"review_targets":targets,"dry_run":true}));
+            } else {
+                println!("{}",deck_research::save(&pool,&owner,&doc).await.map_err(|e|anyhow::anyhow!("{e}"))?);
             }
             Ok(())
         }

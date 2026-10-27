@@ -10,6 +10,7 @@ import "./deck-area.css";
 export const DECK_SECTIONS: { to: string; label: string; end?: boolean }[] = [
   { to: "/decks", label: "Decks", end: true },
   { to: "/decks/plan", label: "Plans" },
+  { to: "/decks/research", label: "Research" },
   { to: "/decks/lab", label: "Lab" },
 ];
 

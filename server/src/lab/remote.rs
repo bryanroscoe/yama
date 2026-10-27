@@ -706,13 +706,14 @@ async fn increase_budget(
     if !owned {
         return Err(AppError::NotFound("execution"));
     }
-    let prior: Option<(String, String, String)> =
-        sqlx::query_as("SELECT owner_id,kind,payload FROM applied_ops WHERE op_id=?")
+    let prior: Option<(String, String)> =
+        sqlx::query_as("SELECT kind,payload FROM applied_ops WHERE owner_id=? AND op_id=?")
+            .bind(owner)
             .bind(&body.id)
             .fetch_optional(&mut *tx)
             .await?;
-    if let Some((who, kind, original)) = prior {
-        return if who == owner && kind == "lab_budget" && original == payload {
+    if let Some((kind, original)) = prior {
+        return if kind == "lab_budget" && original == payload {
             Ok(())
         } else {
             Err(AppError::Conflict(

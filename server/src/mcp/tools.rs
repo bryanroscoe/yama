@@ -25,6 +25,8 @@ const MAX_LIST_LINES: usize = 300;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Does {
     Read,
+    /// Saves research notes only, never decks, inventory, orders, plans or game state.
+    Research,
     /// Stores a pending change and changes nothing else.
     Stage,
     /// Applies or discards a staged change: outside clients only, never Ask Claude.
@@ -51,6 +53,27 @@ macro_rules! staged {
 }
 
 const TOOLS: &[Tool] = &[
+    Tool {
+        name: "research",
+        title: "Your saved deck research and review choices",
+        description: "Read private research and review choices. No id lists reports; id alone gives a compact overview with build power and scenario totals. deck retrieves one full deck audit, optionally narrowed by build; scenario retrieves one exact global shopping/print allocation. full=true returns the complete potentially large document. Research is advice, not installed decks or approved purchases.",
+        schema: || obj(&[("id", "string", "Report id; omit to list reports."), ("deck", "string", "Optional deck key within the report."), ("build", "string", "Optional build id, with deck."), ("scenario", "string", "One global acquisition scenario, instead of deck."), ("full", "boolean", "Return the complete document instead of a compact overview; can be large.")], &[]),
+        does: Does::Read,
+    },
+    Tool {
+        name: "save_research",
+        title: "Save private research for review in Yama",
+        description: "Store or refresh a yama-research/1 document in the caller's private Research section. This saves research notes directly and idempotently; review choices survive refreshes and changed targets are flagged. It never installs or saves a playable deck, alters a plan or inventory, approves a purchase, orders prints or starts games. Use when asked to store research in Yama. Owner comes from sign-in, never the document.",
+        schema: || json!({"type":"object","properties":{"document":{"type":"object","description":"A yama-research/1 report (up to 4 MiB), with id, title, generated_at, decks and exact proposed builds."}},"required":["document"],"additionalProperties":false}),
+        does: Does::Research,
+    },
+    Tool {
+        name: "review_research",
+        title: "Record their research choice or note",
+        description: "Save a research preference only when the person states that choice or asks to save the note. Read research first for the exact target, target_hash and review version. This records a preferred build or want/unsure/no, not an installed deck, purchase approval or planner promotion. Use a fresh UUID op_id for each new answer; reuse it unchanged to retry a failed request.",
+        schema: || json!({"type":"object","properties":{"id":{"type":"string"},"op_id":{"type":"string"},"target":{"type":"string"},"decision":{"type":["string","null"]},"note":{"type":["string","null"]},"expected_version":{"type":"integer","minimum":0},"target_hash":{"type":"string"}},"required":["id","op_id","target","decision","note","expected_version","target_hash"],"additionalProperties":false}),
+        does: Does::Research,
+    },
     Tool {
         name: "overview",
         title: "Your decks and plans",
@@ -523,6 +546,7 @@ pub fn list(via: &Via) -> Vec<Value> {
         .map(|t| {
             let annotations = match t.does {
                 Does::Read => json!({"readOnlyHint": true, "openWorldHint": false}),
+                Does::Research => json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}),
                 // Staging adds a pending row and nothing else: harmless to repeat, never destructive.
                 Does::Stage => json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}),
                 Does::Decide => json!({"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false}),
@@ -546,6 +570,58 @@ pub fn offered(name: &str, via: &Via) -> bool {
 pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
     match name {
+        "save_research" => {
+            let document = args.get("document").ok_or_else(|| AppError::bad("Missing document."))?;
+            Ok(crate::deck_research::save(pool, &user.id, document).await?.to_string())
+        }
+        "review_research" => {
+            let id=text_arg(args,"id")?;
+            let op:crate::deck_research::ReviewOp=serde_json::from_value(args.clone()).map_err(|e|AppError::bad(format!("Invalid research review: {e}")))?;
+            Ok(serde_json::to_string(&crate::deck_research::review(pool,&user.id,id,&op).await?).map_err(anyhow::Error::from)?)
+        }
+        "research" => {
+            let Some(id) = args.get("id").and_then(Value::as_str) else { return Ok(crate::deck_research::list(pool, &user.id).await?.to_string()); };
+            if args.get("build").is_some() && args.get("deck").is_none() { return Err(AppError::bad("build requires deck.")); }
+            if args.get("scenario").is_some() && args.get("deck").is_some() { return Err(AppError::bad("Choose a deck or a global scenario.")); }
+            let mut report = crate::deck_research::load(pool, &user.id, id).await?;
+            if let Some(key) = args.get("deck").and_then(Value::as_str) {
+                let decks = report["document"]["decks"].as_array_mut().unwrap();
+                decks.retain(|d| d["key"] == key);
+                if decks.is_empty() { return Err(AppError::NotFound("research deck")); }
+                if let Some(build) = args.get("build").and_then(Value::as_str) {
+                    let builds = decks[0]["builds"].as_array_mut().unwrap();
+                    builds.retain(|b| b["id"] == build);
+                    if builds.is_empty() { return Err(AppError::NotFound("research build")); }
+                }
+                // A focused read should not carry every other deck's print orders and store
+                // searches. The exact chosen acquisition rows remain on the selected builds.
+                let names: std::collections::HashSet<String> = report["document"]["decks"][0]["builds"].as_array().unwrap().iter()
+                    .flat_map(|b| b["list"].as_str().unwrap_or_default().lines())
+                    .filter_map(|line| line.split_once(' ').map(|(_, name)| name.to_string())).collect();
+                report["document"]["scenarios"] = json!([]);
+                if let Some(checks) = report["document"]["local_checks"].as_object_mut() { checks.retain(|name,_| names.contains(name)); }
+                let prefix = format!("swap:{key}:");
+                let preferred = format!("deck:{key}");
+                if let Some(reviews) = report["reviews"].as_array_mut() { reviews.retain(|r| r["target"].as_str().is_some_and(|t| t==preferred || t.starts_with(&prefix))); }
+                if let Some(hashes) = report["target_hashes"].as_object_mut() { hashes.retain(|t,_| t==&preferred || t.starts_with(&prefix)); }
+            } else if let Some(scenario) = args.get("scenario").and_then(Value::as_str) {
+                let scenarios=report["document"]["scenarios"].as_array_mut().ok_or_else(||AppError::bad("No acquisition scenarios in this report."))?;
+                scenarios.retain(|s|s["id"]==scenario);
+                if scenarios.is_empty(){return Err(AppError::NotFound("research scenario"));}
+                report["document"]["decks"]=json!([]);
+                report["document"]["local_checks"]=json!({});
+                report["target_hashes"]=json!({});report["reviews"]=json!([]);
+            } else if args.get("full").and_then(Value::as_bool)!=Some(true) {
+                for deck in report["document"]["decks"].as_array_mut().unwrap() {
+                    if let Some(o)=deck.as_object_mut(){o.retain(|k,_|["key","name","commander","ownership","installed_state","recommended_build","summary","builds"].contains(&k.as_str()));}
+                    for build in deck["builds"].as_array_mut().unwrap(){if let Some(o)=build.as_object_mut(){o.retain(|k,_|["id","label","bracket","power","why","game_changers","prospective"].contains(&k.as_str()));}}
+                }
+                if let Some(scenarios)=report["document"]["scenarios"].as_array_mut(){for scenario in scenarios{if let Some(o)=scenario.as_object_mut(){o.remove("prints");o.remove("buys");}}}
+                report["document"]["local_checks"]=json!({});
+                report["view"]=json!("Overview only. Read deck/build or scenario for exact cards; full=true for the complete document.");
+            }
+            Ok(report.to_string())
+        }
         "changes" => changes_text(pool, user).await,
         "edit_deck" => changes::edit_deck(st, user, via, args).await,
         "propose_swap" => changes::propose_swap(st, user, via, args).await,
@@ -572,7 +648,15 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             let c = changes::discard(pool, &user.id, text_arg(args, "id")?).await?;
             Ok(format!("Discarded: {}", c.summary))
         }
-        "overview" => context::build(pool, user, "general", None).await,
+        "overview" => {
+            let mut text=context::build(pool,user,"general",None).await?;
+            let reports=crate::deck_research::list(pool,&user.id).await?;
+            if let Some(rows)=reports.as_array().filter(|r|!r.is_empty()) {
+                text.push_str("\nSaved private research (use research for power, bracket builds, combos, acquisition evidence and review choices):\n");
+                for row in rows {let _=writeln!(text,"- {} (id {}, revision {}): /decks/research/{}",row["title"].as_str().unwrap_or_default(),row["id"].as_str().unwrap_or_default(),row["revision"],row["id"].as_str().unwrap_or_default());}
+            }
+            Ok(text)
+        },
         "deck" => deck(pool, user, text_arg(args, "deck")?).await,
         "plan_deck" => context::build(pool, user, "plan_deck", Some(text_arg(args, "key")?)).await,
         "review_queue" => context::build(pool, user, "review", None).await,

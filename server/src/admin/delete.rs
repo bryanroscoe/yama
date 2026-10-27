@@ -80,6 +80,9 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("play_prefs", "user_id"),
     ("playgroup_members", "user_id"),
     ("playgroups", "owner_id"),
+    ("research_reports", "owner_id"),
+    ("research_review_ops", "owner_id"),
+    ("research_reviews", "owner_id"),
     ("sessions", "user_id"),
     ("view_sessions", "admin_id"),
     ("view_sessions", "target_id"),
@@ -88,6 +91,9 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
 /// Tables the account's own rows are simply deleted from, children before parents. Tables that
 /// need more than a delete (games, playgroups, online games, invites) are handled before these.
 const OWNED_DELETES: &[(&str, &str)] = &[
+    ("research_reviews", "owner_id"),
+    ("research_review_ops", "owner_id"),
+    ("research_reports", "owner_id"),
     ("sessions", "user_id"),
     // "View as" sessions it started or that viewed it, and so their audit rows.
     ("view_sessions", "admin_id"),

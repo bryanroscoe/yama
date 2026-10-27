@@ -158,7 +158,7 @@ owner isolation, scope/revocation, routing races, budget admission and diagnosti
 Use a small matched sample on the actual machines before claiming performance equivalence.
 
 Validation after PR review and integration with main on 27 October 2026: full `cargo test`
-passed 1,532 tests with 44 ignored; `npm test` passed 503 with 7 skipped; typecheck, web build,
+passed 1,538 tests with 44 ignored; `npm test` passed 509 with 7 skipped; typecheck, web build,
 all 7 Python tests, all 18 release-guard tests and `actionlint` passed. The 19 Rust worker tests
 include regressions for stale runtime adoption, comparison cancellation, failure health,
 lease fencing and queue scans beyond 100 ineligible jobs. The real build script is tested in

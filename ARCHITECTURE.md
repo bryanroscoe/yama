@@ -426,7 +426,7 @@ Each precon page links to `https://edhrec.com/precons/{slug}`, EDHREC's matching
 
 Bryan approved three execution targets: saget, his laptop, and GitHub-hosted Actions. Saget owns
 the queue and results; external workers claim frozen work and upload over authenticated outbound
-HTTPS. The opt-in admin Phase pilot (`lab/remote.rs`, migration 0032, `tools/lab_worker.py`) uses
+HTTPS. The opt-in admin Phase pilot (`lab/remote.rs`, migration 0033, `tools/lab_worker.py`) uses
 durable, expiring leases with stale-upload fencing and whole-pod validation/commit. Worker keys
 are target-specific and owner-scoped. Native laptop and Linux isolation policies remain explicit;
 source, engine and card data must match. Existing runs retain the built-in worker and Forge keeps
@@ -534,6 +534,16 @@ Bryan (2026-10-22): "allow admins to impersonate other people to see their colle
 
 ### Yama's tools for Claude (MCP, 2026-10-22)
 
+**Public guide (2026-10-27):** `/docs/mcp/` is a static, signed-out guide in
+`web/public/docs/mcp/`, served independently of the authenticated React app. It documents the
+complete tool catalog, Commander workflows, Claude/Codex setup, sources, privacy and proposal
+approval. About, the shared site footer, connection settings, What's new and the sitemap link
+to it. The service worker excludes public documentation from the private app-shell cache.
+Update the guide when capabilities or connection instructions change.
+The production app registers `/sw.js` with a content-derived version query, computed by Vite,
+so CDN retention of an older worker cannot delay new public-page cache exclusions. Its root
+scope and existing offline caches are preserved.
+
 Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outside clients, from one toolset; Claude may change everything, but should recommend review before editing. Design and slices: `docs/mcp-design.md`. Slice 1 (read tools), slice 2 (staged changes, below) and slice 3 (OAuth sign-in, below) are built:
 
 - **One endpoint** (`server/src/mcp/`): `POST /mcp`, MCP's Streamable HTTP transport, stateless, plain JSON replies (no server-sent events, no session id); `initialize`, `ping`, `tools/list`, `tools/call`, notifications get 202, `GET` is 405. A browser `Origin` other than the server's own is refused. Logs carry the tool name and outcome, never arguments or results.
@@ -541,6 +551,18 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 - **Tools** (`mcp/tools.rs`), read-only, owner-checked like the pages: `overview`, `deck` (by name or id, with Commander checks and Game Changers), `plan_deck`, `review_queue`, `find_cards` (the search grammar, through `cards::search`, shared with the search page), `card` (Oracle text, legality, Game Changer, dated prices of the default and cheapest playable printing, the copies they own and where, rulings on request), `check_list` (validate a list without saving), `lab_runs`, `lab_run` (each engine's result in words: the paired difference and interval, the verdict, the unscored games by reason, the settle estimate with what adds the pods, and live progress; admins also see the count of earlier Phase games in the shared queue, without other accounts' run or deck details; for both-engine runs the ETA and queue position are Phase-only), `lab_games` (one engine's games pod by pod, or `only: unscored`; with `game`, its schedule line, result line and every seat's list in the lab runner's deck format, so a game can be replayed locally), `precon`. The longer ones reuse `advisor::context::build`. `find_cards` and `card` count against the search rate limit.
 - **Ask Claude with tools:** the sidecar gives `query()` exactly one MCP server, `{type: "http", url, Authorization: Bearer <question token>}`, allows only `mcp__yama`, keeps `tools: []` (none of Claude Code's own tools) and `strictMcpConfig`, and allows 16 turns instead of 1. It streams a `tool` event (the tool's short name only) that the panel shows as "Looking up cards…". The instructions tell Claude to check a card with `card` before recommending it.
 - **Outside clients:** `claude mcp add --transport http yama https://yama.saget.org/mcp`, then `/mcp` and Authenticate (OAuth, below), or a claude.ai custom connector with the same URL, which also shows up in Claude Code and the phone app. A key still works for clients that can't sign in: `--header "Authorization: Bearer <key>"` (Settings shows that command once, with the key).
+
+#### Persistent deck research and review (2026-10-27)
+
+Research is an owner-scoped document and separate review operations (`0032_research.sql`),
+served under `/decks/research`. It stores complete alternatives, attributed rough power,
+combos, sources and dated acquisition allocations. It does not replace installed decks or
+approve planner changes. `save_research` and `review_research` are explicit exceptions to staged MCP writes:
+they directly store research notes and stated preferences only; `research` reads them and their answers. Session import and
+the CLI share validation/storage. Upsert is idempotent by content hash; owner-bound reviews
+have client op ids, expected versions and target fingerprints, with old/retired answers kept.
+See [the bounded format and APIs](docs/research-format.md). No research URLs are fetched by
+import, raw HTML is never rendered, and all user queries bind the authenticated owner.
 
 #### Commander research and workflow parity (2026-10-27)
 

@@ -645,6 +645,9 @@ async fn exhausted_retry_budgets_can_be_increased_idempotently_by_the_owner() {
         increase_budget(&pool, "stranger", &body.id, &change).await,
         Err(AppError::NotFound(_))
     ));
+    let (other_owner, _) = testutil::user(&pool, "other-budget-owner@example.com").await;
+    sqlx::query("INSERT INTO applied_ops(op_id,owner_id,kind,payload,applied_at) VALUES (?,?,'unrelated','{}',?)")
+        .bind(&change.id).bind(&other_owner).bind(now()).execute(&pool).await.unwrap();
     increase_budget(&pool, &gh.owner, &body.id, &change)
         .await
         .unwrap();

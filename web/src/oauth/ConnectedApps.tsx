@@ -18,8 +18,9 @@ export function ConnectedApps() {
   const command = claudeCodeCommand(url);
   return (
     <section className="stack">
-      <h3>Connect Claude</h3>
-      <p className="dim small">Claude can read your decks, plans, Review, collection and lab runs with Yama's tools. Connect it by signing in; there's no key to copy.</p>
+      <h3>Connect your assistant</h3>
+      <p className="dim small">Your assistant can research cards, review your decks, collection and lab runs, and stage changes for approval. Connect it by signing in; there's no key to copy.</p>
+      <p className="small"><a href="/docs/mcp/">Read the MCP guide: all features, Claude and Codex setup, and example requests.</a></p>
       <div className="stack">
         <p className="small">
           <b>Claude Code.</b> Run this in Terminal, then type <code>/mcp</code> in Claude Code, pick yama and choose Authenticate. Your browser opens Yama; press Allow.
@@ -29,8 +30,8 @@ export function ConnectedApps() {
           <CopyButton text={command} label="Copy the command" />
         </div>
         <p className="small">
-          <b>Claude on the web, desktop or phone.</b> In Claude's Settings, Connectors, choose Add custom connector. Name it Yama, give it <code>{url}</code>, then Connect and press Allow here.
-          A connector added there also shows up in Claude Code and the phone app.
+          <b>Claude on the web, desktop or phone.</b> In Claude's Customize, Connectors (Settings, Connectors in some versions), choose Add custom connector. Name it Yama, give it <code>{url}</code>, then Connect and press Allow here. If asked how to identify the OAuth client, choose Register automatically.
+          Enable Yama for the conversation; the connection can also be used on the phone app.
         </p>
       </div>
       <h3>Connected apps</h3>

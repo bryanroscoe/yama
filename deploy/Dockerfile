@@ -21,6 +21,8 @@ COPY --from=phase crates /src/yama-phase/crates
 COPY Cargo.toml Cargo.lock ./
 COPY server server
 COPY play play
+# The MCP format resource is embedded by the server at compile time.
+COPY docs/research-format.md docs/research-format.md
 # The public Rust renderer embeds these shared web inputs at compile time.
 COPY web/src/styles.css web/src/styles.css
 COPY web/public/precons.css web/public/site-notice.html web/public/

@@ -1,5 +1,8 @@
 # Yama tools for Claude (MCP): design
 
+User-facing features, setup and examples are published at
+[the public MCP guide](https://yama.saget.org/docs/mcp/) (`web/public/docs/mcp/index.html`).
+
 Bryan, 2026-10-22: "Could we create a full MCP to work with and optimize your decks and stuff with
 this?" His answers: **both** (Ask Claude inside Yama and outside clients such as Claude Code), from
 **one toolset**; Claude may change **everything**, but should **recommend review before editing**.
@@ -51,6 +54,12 @@ Commander research and workflow extensions (2026-10-27) are implemented in
 `server/src/mcp/research/`; see [the capability map, provenance and limits](mcp-parity.md).
 They use this same endpoint and review flow. The protocol also exposes workflow prompts and
 owner-checked resources. `save_deck` stages a complete new/replacement list, never a direct save.
+
+Private research adds `research`, `save_research` and `review_research`; see
+[its format and review semantics](research-format.md). The latter two store advice and stated
+preferences directly, an explicit exception to staged execution writes. They never alter a deck,
+inventory, planner approval, order or game. Compact reads and deck/build/scenario filters avoid
+returning every list to a client that only needs one decision.
 
 Read (no review needed):
 
