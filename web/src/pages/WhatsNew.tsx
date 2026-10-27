@@ -83,14 +83,14 @@ export function WhatsNewPage() {
             </ul>
             {e.link && (
               <p style={{ margin: 0 }}>
-                <Link to={e.link.to}>{e.link.label}</Link>
+                {e.link.to.startsWith("/precons") ? <a href={e.link.to}>{e.link.label}</a> : <Link to={e.link.to}>{e.link.label}</Link>}
               </p>
             )}
           </article>
         ))}
         <footer>
           <p>
-            Yama is unofficial fan software, free and private to our playgroup. It isn't affiliated with, endorsed by, or sponsored by Wizards of the
+            Yama is free, unofficial fan software. Personal data stays private to each account. It isn't affiliated with, endorsed by, or sponsored by Wizards of the
             Coast.
           </p>
           <p>

@@ -20,6 +20,7 @@ mod oauth;
 mod play;
 mod plan;
 mod playgroups;
+mod public_precons;
 #[cfg(test)]
 mod privacy_tests;
 mod routes;
@@ -103,6 +104,9 @@ USAGE:
                                              unless --owner is given. A global run may rate
                                              precons only; one with a user's lists needs
                                              --owner
+  yama-server publish-precons MANIFEST        Publish a reviewed stock-precon ranking snapshot
+                                             (docs/public-precons.md); never automatic on import
+  yama-server withdraw-precons               Withdraw the public ranking, keeping the catalog
   yama-server invite EMAIL                   Allow EMAIL to sign in (with open sign-up,
                                              give it the full allowance)
   yama-server user add EMAIL [--name NAME] [--admin] [--password-stdin]
@@ -228,6 +232,17 @@ async fn main() -> anyhow::Result<()> {
             let r = lab::import_run(&pool, std::path::Path::new(summary), owner.as_deref(), name.as_deref()).await?;
             let scope = owner.map_or("global".to_string(), |o| format!("owned by {o}"));
             println!("run {} ({}, {scope}): {}, {} decks rated; id {}", r.name, r.kind, r.outcome, r.ratings, r.id);
+            Ok(())
+        }
+        Some("publish-precons") => {
+            let file = args.get(1).context("usage: yama-server publish-precons MANIFEST")?;
+            let id = public_precons::publish_file(&pool, std::path::Path::new(file)).await?;
+            println!("published precon ranking {id}");
+            Ok(())
+        }
+        Some("withdraw-precons") => {
+            public_precons::withdraw(&pool).await?;
+            println!("public ranking withdrawn; the stock catalog remains available");
             Ok(())
         }
         Some("backup") => {
