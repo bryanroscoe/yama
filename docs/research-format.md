@@ -3,7 +3,7 @@
 Research lives under **Decks, Research**. It is separate from installed decks, collection cards,
 the legacy upgrade planner and pending executable changes. Saving a document or preferring a
 build approves none of those actions. Bracket alternatives are complete, mutually exclusive
-lists. Power ranges are attributed editorial estimates, never inferred win rates.
+lists. Gameplay profiles explain setup, pressure, finishers, interaction, consistency, recovery and weaknesses. They are editorial judgments, never inferred win rates. Official Commander brackets run from 1 to 5; 5 is cEDH.
 
 MCP `save_research({document})` and session `POST /api/research` store a private
 `yama-research/1` report. `research()` lists reports; `research({id,deck?,build?})` reads a report
@@ -20,9 +20,18 @@ Required document fields: `schema`, stable slug `id`, `title`, `generated_at` an
 Each deck needs `key`, `name`, `commander`, `builds`. Each build needs `id`, `label` and a
 plain-text full `list` with Commander and Deck sections. Optional fields supported by the page:
 
-- Deck: `ownership`, `installed_state`, `summary`, `recommended_build`, `pilot`, `sources`.
-- Build: nullable `bracket`, `prospective`, `power` (range, label, confidence, rationale, speed,
-  vulnerabilities), `why`, `risks`, `game_changers`, `stats`, `swaps`, `acquisition`, `combos`.
+- Deck: `ownership`, `installed_state`, `summary`, `recommended_build`, `pilot`, `sources`,
+  `combo_playbook` (full entries stored once) and `competitive_path` (status, summary,
+  commander_change, sources).
+- Build: nullable `bracket`, `prospective`, `why`, `risks`, `game_changers`, `gc_choices`
+  (card, reason, cut), `stats`, `swaps`, `acquisition`, `combos` and `gameplay_profile`
+  (plan, setup array, pressure, finishers array, interaction, consistency, recovery, weaknesses
+  array, pace, ceiling, confidence). Legacy `power` data is accepted but numeric ratings are
+  not displayed. Build combos may be lightweight references to the deck playbook.
+- Optional `accounting`: total, commander, main, basics, nonbasic, unchanged, added, removed,
+  owned, projected_stock, local_buys and prints. Counts must match the exact 100-card list;
+  owned + projected_stock + local_buys + prints + basics = 100. Swaps are differences,
+  never additional cards. Projected stock is conditional on buying/receiving the sealed deck.
 - Swap: stable `id`, `card_in`, `card_out`, `why`, `why_out`, `acquisition`, `pairing_note`.
 - Acquisition: `scenario`, `note`, arrays `owned`, `buys`, `prints`, `basics`. Items carry card,
   qty, kind, source detail, reason; quotes carry store, price, matched market, printing,
@@ -32,8 +41,10 @@ plain-text full `list` with Commander and Deck sections. Optional fields support
 - Combo: id, name, kind, cards, setup and steps arrays, outcome, stop_points array,
   bracket_fit, sources, present, missing_cards and is_caution. A caution can explain a
   nonworking claim; the presence of its cards is not proof that the claim works.
-- Root: summary, method, power_scale, local_checks and alternative shopping `scenarios`.
-  Scenarios carry id, label, note, deck_count, buys, prints, buy_total and print_count.
+- Root: summary, method, local_checks, default_scenario_id and alternative shopping `scenarios`.
+  Scenarios carry id, label, note, deck_count, buys, prints, buy_total, print_count and optional
+  sealed_purchases. Sealed product prerequisites have separate prices and market references;
+  they are excluded from the singles buy_total and the $2 singles ceiling.
 - Source: title, safe http(s) URL and optional accessed date.
 
 Additional JSON fields are preserved. Displayed fields are type-checked; text is escaped and

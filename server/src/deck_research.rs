@@ -52,6 +52,8 @@ struct Document {
     power_scale: Vec<PowerScale>,
     #[serde(default)]
     local_checks: BTreeMap<String, LocalCheck>,
+    #[serde(default)]
+    default_scenario_id: Option<String>,
 }
 #[allow(dead_code)]
 #[derive(Deserialize)]
@@ -127,6 +129,61 @@ struct Deck {
     combo_limits: Vec<String>,
     #[serde(default)]
     existing_swap_audit: Vec<SwapAudit>,
+    #[serde(default)]
+    combo_playbook: Vec<Combo>,
+    #[serde(default)]
+    competitive_path: Option<CompetitivePath>,
+}
+#[allow(dead_code)]
+#[derive(Deserialize)]
+struct CompetitivePath {
+    status: String,
+    summary: String,
+    #[serde(default)]
+    commander_change: String,
+    #[serde(default)]
+    sources: Vec<Source>,
+}
+#[allow(dead_code)]
+#[derive(Deserialize)]
+struct GameplayProfile {
+    plan: String,
+    #[serde(default)]
+    setup: Vec<String>,
+    pressure: String,
+    #[serde(default)]
+    finishers: Vec<String>,
+    interaction: String,
+    consistency: String,
+    recovery: String,
+    #[serde(default)]
+    weaknesses: Vec<String>,
+    pace: String,
+    ceiling: String,
+    confidence: String,
+}
+#[allow(dead_code)]
+#[derive(Deserialize)]
+struct GcChoice {
+    card: String,
+    reason: String,
+    cut: String,
+}
+#[derive(Deserialize)]
+struct Accounting {
+    total: u32,
+    commander: u32,
+    main: u32,
+    basics: u32,
+    nonbasic: u32,
+    unchanged: u32,
+    added: u32,
+    removed: u32,
+    owned: u32,
+    local_buys: u32,
+    prints: u32,
+    #[serde(default)]
+    projected_stock: u32,
 }
 #[allow(dead_code)]
 #[derive(Deserialize)]
@@ -168,6 +225,12 @@ struct Build {
     combos: Vec<Combo>,
     #[serde(default)]
     option_swap: Option<OptionSwap>,
+    #[serde(default)]
+    gameplay_profile: Option<GameplayProfile>,
+    #[serde(default)]
+    gc_choices: Vec<GcChoice>,
+    #[serde(default)]
+    accounting: Option<Accounting>,
 }
 #[allow(dead_code)]
 #[derive(Deserialize)]
@@ -225,6 +288,8 @@ struct Acquisition {
     #[serde(default)]
     prints: Vec<Item>,
     #[serde(default)]
+    sealed_purchases: Vec<Item>,
+    #[serde(default)]
     basics: Vec<Item>,
     #[serde(default)]
     note: Option<String>,
@@ -260,6 +325,10 @@ struct Item {
     url: String,
     #[serde(default)]
     local_check: Option<String>,
+    #[serde(default)]
+    source_deck: Option<String>,
+    #[serde(default)]
+    provenance: Option<String>,
     #[serde(default)]
     quote: Option<Box<Item>>,
 }
@@ -316,6 +385,8 @@ struct Scenario {
     buy_total: Option<f64>,
     #[serde(default)]
     print_count: usize,
+    #[serde(default)]
+    sealed_purchases: Vec<Item>,
 }
 
 fn key_ok(s: &str) -> bool {
@@ -333,12 +404,71 @@ fn bounded(v: &Value, depth: usize) -> bool {
         Value::String(s) => s.len() <= 200_000,
         Value::Array(a) => a.len() <= 10_000 && a.iter().all(|x| bounded(x, depth + 1)),
         Value::Object(o) => {
-            o.len() <= 200
+            o.len() <= 10_000
                 && o.iter()
                     .all(|(k, x)| k.len() <= 200 && bounded(x, depth + 1))
         }
         _ => true,
     }
+}
+
+fn check_accounting(build: &Build) -> AppResult<()> {
+    let Some(a) = &build.accounting else {
+        return Ok(());
+    };
+    let cards = crate::decks::parse_list(&build.list, true);
+    let basic = |name: &str| {
+        matches!(
+            name,
+            "Plains"
+                | "Island"
+                | "Swamp"
+                | "Mountain"
+                | "Forest"
+                | "Wastes"
+                | "Snow-Covered Plains"
+                | "Snow-Covered Island"
+                | "Snow-Covered Swamp"
+                | "Snow-Covered Mountain"
+                | "Snow-Covered Forest"
+        )
+    };
+    let count = |board| {
+        cards
+            .iter()
+            .filter(|c| c.board == board)
+            .map(|c| c.qty as u64)
+            .sum::<u64>()
+    };
+    let total = count(crate::decks::Board::Commander) + count(crate::decks::Board::Main);
+    let basics = cards
+        .iter()
+        .filter(|c| basic(&c.name) && c.board != crate::decks::Board::Side)
+        .map(|c| c.qty as u64)
+        .sum::<u64>();
+    let supply = u64::from(a.owned)
+        + u64::from(a.projected_stock)
+        + u64::from(a.local_buys)
+        + u64::from(a.prints)
+        + u64::from(a.basics);
+    if total != 100
+        || a.total != 100
+        || a.commander != 1
+        || a.main != 99
+        || count(crate::decks::Board::Commander) != 1
+        || count(crate::decks::Board::Main) != 99
+        || count(crate::decks::Board::Side) != 0
+        || basics != u64::from(a.basics)
+        || u64::from(a.nonbasic) + basics != total
+        || supply != total
+        || u64::from(a.unchanged) + u64::from(a.added) != total
+        || a.added != a.removed
+    {
+        return Err(AppError::bad(
+            "Build accounting must match its full 100-card list, supply and swap counts.",
+        ));
+    }
+    Ok(())
 }
 
 /// Validate, then return a fingerprint for every decision target. A changed target remains
@@ -371,6 +501,12 @@ fn targets(doc: &Value) -> AppResult<BTreeMap<String, String>> {
             return Err(AppError::bad("Invalid buy total."));
         }
     }
+    if d.default_scenario_id
+        .as_ref()
+        .is_some_and(|id| !scenarios.contains(id))
+    {
+        return Err(AppError::bad("Default shopping scenario does not exist."));
+    }
     for (i, deck) in d.decks.iter().enumerate() {
         if !key_ok(&deck.key)
             || !keys.insert(&deck.key)
@@ -385,6 +521,7 @@ fn targets(doc: &Value) -> AppResult<BTreeMap<String, String>> {
         }
         let mut builds = HashSet::new();
         for (j, build) in deck.builds.iter().enumerate() {
+            check_accounting(build)?;
             if !key_ok(&build.id)
                 || !builds.insert(&build.id)
                 || build.list.trim().is_empty()

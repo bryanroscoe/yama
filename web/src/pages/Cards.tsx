@@ -1,3 +1,4 @@
+import { CardHover } from "../components/CardRef";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -163,7 +164,7 @@ export function CardsPage() {
                 return (
                   <li key={c.oracle_id}>
                     <button className="cards-card" data-id={c.oracle_id} onClick={() => openCard(c.oracle_id)} aria-label={c.name}>
-                      <CardImage src={c.image_normal} name={c.name} />
+                      <CardHover name={c.name} oracleId={c.oracle_id} image={c.image_normal}><CardImage src={c.image_normal} name={c.name}/></CardHover>
                     </button>
                     {!results.data!.offline && (
                       <span className="cards-meta">

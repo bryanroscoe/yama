@@ -1,3 +1,4 @@
+import { CardRef } from "../components/CardRef";
 import {
   basisText,
   buyList,
@@ -157,7 +158,7 @@ export function Buy() {
               <Crop src={view.card(r.swap.in)?.image_art_crop} />
               <span className="buy-row-text">
                 <span className="buy-row-top">
-                  <b>{r.swap.in}</b>
+                  <b><CardRef name={r.swap.in} oracleId={view.oracleId(r.swap.in)} image={view.card(r.swap.in)?.image_normal}/></b>
                 </span>
                 <span className="buy-row-meta">{r.deck?.name}</span>
                 <BoughtLine swap={r.swap} view={view} />
@@ -173,7 +174,7 @@ export function Buy() {
               <Crop src={view.card(s.in)?.image_art_crop} />
               <span className="buy-row-text">
                 <span className="buy-row-top">
-                  <b>{s.in}</b>
+                  <b><CardRef name={s.in} oracleId={view.oracleId(s.in)} image={view.card(s.in)?.image_normal}/></b>
                 </span>
                 <span className="buy-row-meta">{view.deckName(s.deck)}</span>
                 <BoughtLine swap={s} view={view} />
@@ -191,7 +192,7 @@ export function Buy() {
           <ul className="small">
             {list.declined.map((r) => (
               <li key={r.swap.key}>
-                {r.swap.in} <span className="dim">({r.deck?.name})</span>
+                <CardRef name={r.swap.in} oracleId={view.oracleId(r.swap.in)} image={view.card(r.swap.in)?.image_normal}/> <span className="dim">({r.deck?.name})</span>
               </li>
             ))}
           </ul>
@@ -228,12 +229,12 @@ function BuyItem({ r, view, onMark }: { r: BuyRow; view: PlanView; onMark: () =>
       <Crop src={view.card(s.in)?.image_art_crop} />
       <span className="buy-row-text">
         <span className="buy-row-top">
-          <b>{s.in}</b>
+          <b><CardRef name={s.in} oracleId={view.oracleId(s.in)} image={view.card(s.in)?.image_normal}/></b>
           <b className="num">{q ? usd(r.price) : ""}</b>
         </span>
         <span className="buy-row-meta">
           {r.deck?.name}
-          {r.replaces ? `, replaces ${r.replaces}${r.yourCut ? " (your cut)" : ""}` : ", no slot named"}
+          {r.replaces?<>, replaces <CardRef name={r.replaces} oracleId={view.oracleId(r.replaces)}/>{r.yourCut?" (your cut)":""}</>:", no slot named"}
         </span>
         {q && (
           <span className="buy-row-meta">
@@ -310,10 +311,10 @@ function ElsewhereRow({ r, view, onMark }: { r: BuyRow; view: PlanView; onMark: 
     <div className="buy-mini">
       <Crop src={view.card(s.in)?.image_art_crop} size="sm" />
       <span className="buy-mini-text">
-        <b>{s.in}</b>
+        <b><CardRef name={s.in} oracleId={view.oracleId(s.in)} image={view.card(s.in)?.image_normal}/></b>
         <span>
           {r.deck?.name}
-          {r.replaces ? `, replaces ${r.replaces}` : ""}.{" "}
+          {r.replaces?<>, replaces <CardRef name={r.replaces} oracleId={view.oracleId(r.replaces)}/></>:""}.{" "}
           {other ? (
             <>
               {otherStore}: {other.url ? <a href={other.url} target="_blank" rel="noreferrer">{other.result ?? (other.in_stock === false ? "not in stock" : "checked")}</a> : other.result ?? (other.in_stock === false ? "not in stock" : "checked")}
@@ -361,12 +362,12 @@ function Delivery({ order, view }: { order: Order; view: PlanView }) {
             <span>
               <span className="title">
                 {l.qty > 1 ? `${l.qty} ` : ""}
-                {l.card}
+                <CardRef name={l.card} oracleId={view.oracleId(l.card)} image={view.card(l.card)?.image_normal}/>
               </span>
               <br />
               <span className="small dim">
                 {l.deck ? view.deckName(l.deck) : "No deck"}
-                {l.replaces ? `, for ${l.replaces}` : ""}
+                {l.replaces?<>, for <CardRef name={l.replaces} oracleId={view.oracleId(l.replaces)}/></>:""}
                 {l.role && l.role !== "plan card" ? `. ${l.role.charAt(0).toUpperCase()}${l.role.slice(1)}` : ""}.
               </span>
               {l.flags.length > 0 && (

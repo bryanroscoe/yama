@@ -1,3 +1,4 @@
+import { CardHover, CardRef } from "../components/CardRef";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GROUP_ORDER, groupOf } from "@yama/core";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
@@ -392,7 +393,7 @@ function DraftView({ draft, setDraft, formatLabel, deckNames, naming }: { draft:
               {cmdrs.map((k) => (
                 <figure key={k.oracle_id} className="import-cmdr">
                   <CardImage src={k.print_image ?? k.image_normal} name={k.name} />
-                  <figcaption>{k.name}</figcaption>
+                  <figcaption><CardRef name={k.name}/></figcaption>
                 </figure>
               ))}
             </div>
@@ -478,7 +479,7 @@ function CardRow({ card, off }: { card: ImportCard; off: boolean }) {
       </span>
       <span className="import-qty num">{card.qty}</span>
       <span className="import-name">
-        {card.name}
+        <CardRef name={card.name} oracleId={card.oracle_id} image={card.print_image??card.image_small}/>
         {card.written_as && card.written_as !== card.name && <span className="small dim"> (written {card.written_as})</span>}
         {(print || off) && (
           <span className="import-meta small dim">
@@ -505,7 +506,7 @@ function CommanderPicker({ choices, current, onPick }: { choices: ImportCard[]; 
         {choices.map((k) => (
           <button key={k.oracle_id} type="button" className={`import-pick${picked.includes(k.oracle_id) ? " active" : ""}`} aria-pressed={picked.includes(k.oracle_id)} onClick={() => toggle(k.oracle_id)}>
             <CardImage src={k.print_image ?? k.image_small} name={k.name} />
-            <span>{k.name}</span>
+            <span><CardHover name={k.name}/></span>
           </button>
         ))}
       </div>
@@ -663,7 +664,7 @@ function DiffList({ title, sign, tone, lines }: { title: string; sign: string; t
         {shown.map((l) => (
           <li key={`${l.board}-${l.name}`} className={tone}>
             {sign}
-            {l.qty} {l.name}
+            {l.qty} <CardRef name={l.name}/>
             {l.board === "commander" ? " (commander)" : l.board === "side" ? " (sideboard)" : ""}
           </li>
         ))}

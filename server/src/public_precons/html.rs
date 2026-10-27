@@ -56,7 +56,7 @@ fn page(st: &AppState, path: &str, title: &str, description: &str, body: &str) -
     // Same geometry as components/Wordmark.tsx and design/logo/yama-wordmark.svg.
     let wordmark = r#"<svg viewBox="0 -8 280 110" aria-hidden="true"><g fill="currentColor"><path d="M0 0H20L32 30L44 0H64L42 56V100H22V56Z"/><path d="M60 100L92 -6L124 100H104L92 60L80 100Z"/><path d="M134 100V0H152L170 44L188 0H206V100H186V40L170 79L154 40V100Z"/><path d="M216 100L248 -6L280 100H260L248 60L236 100Z"/></g></svg>"#;
     format!(
-        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title} | Yama"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{canonical}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{stylesheet_path}"></head><body class="public-precons"><a class="skip" href="#content">Skip to content</a><header class="public-header"><a class="public-wordmark" href="/precons" aria-label="Yama precons">{wordmark}</a><nav aria-label="Public reference"><a href="/precons"{index_current}>Precons</a><a href="/precons/methodology"{method_current}>How we rank</a><a class="button" href="/">Open Yama <span aria-hidden="true">↗</span></a></nav></header><main id="content">{body}</main><footer class="public-footer"><div class="footer-top"><span>Free to explore. Built for Commander.</span><nav aria-label="About Yama"><a href="/about/">About</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a></nav></div>{NOTICE}</footer></body></html>"##,
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title} | Yama"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{canonical}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{stylesheet_path}"><script defer src="/card-preview-v1.js"></script></head><body class="public-precons"><a class="skip" href="#content">Skip to content</a><header class="public-header"><a class="public-wordmark" href="/precons" aria-label="Yama precons">{wordmark}</a><nav aria-label="Public reference"><a href="/precons"{index_current}>Precons</a><a href="/precons/methodology"{method_current}>How we rank</a><a class="button" href="/">Open Yama <span aria-hidden="true">↗</span></a></nav></header><main id="content">{body}</main><footer class="public-footer"><div class="footer-top"><span>Free to explore. Built for Commander.</span><nav aria-label="About Yama"><a href="/about/">About</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a></nav></div>{NOTICE}</footer></body></html>"##,
         stylesheet_path = stylesheet().1,
         title = e(title),
         description = e(description),
@@ -74,7 +74,7 @@ fn page(st: &AppState, path: &str, title: &str, description: &str, body: &str) -
 }
 fn response(headers: &HeaderMap, body: String) -> Response {
     let mut res = cached(headers, body, "text/html; charset=utf-8");
-    res.headers_mut().insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'none'; style-src 'self'; img-src 'self' https://cards.scryfall.io; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"));
+    res.headers_mut().insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://cards.scryfall.io; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"));
     res.headers_mut().insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("strict-origin-when-cross-origin"),
@@ -817,7 +817,7 @@ pub(super) async fn detail(
                     )
                 })
                 .unwrap_or_default();
-            write!(body,"<li><a href=\"{}\">{image}<span><span class=\"card-qty\">{}</span> {}<small>{}</small></span></a></li>",e(&c.scryfall_url),c.qty,e(&c.name),e(c.type_line.as_deref().unwrap_or("Card details on Scryfall"))).unwrap();
+            write!(body,"<li><a class=\"public-card-ref\" data-card-name=\"{}\" data-card-image=\"{}\" href=\"{}\">{image}<span><span class=\"card-qty\">{}</span> {}<small>{}</small></span></a></li>",e(&c.name),e(c.image.as_deref().unwrap_or("")),e(&c.scryfall_url),c.qty,e(&c.name),e(c.type_line.as_deref().unwrap_or("Card details on Scryfall"))).unwrap();
         }
         body.push_str("</ul>");
     }

@@ -572,7 +572,7 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 #### Persistent deck research and review (2026-10-27)
 
 Research is an owner-scoped document and separate review operations (`0032_research.sql`),
-served under `/decks/research`. It stores complete alternatives, attributed rough power,
+served under `/decks/research`. It stores complete alternatives, concrete gameplay profiles,
 combos, sources and dated acquisition allocations. It does not replace installed decks or
 approve planner changes. `save_research` and `review_research` are explicit exceptions to staged MCP writes:
 they directly store research notes and stated preferences only; `research` reads them and their answers. Session import and
@@ -580,6 +580,17 @@ the CLI share validation/storage. Upsert is idempotent by content hash; owner-bo
 have client op ids, expected versions and target fingerprints, with old/retired answers kept.
 See [the bounded format and APIs](docs/research-format.md). No research URLs are fetched by
 import, raw HTML is never rendered, and all user queries bind the authenticated owner.
+
+Card references share a lazy hover/focus and pinned tap preview across deck, collection, plan,
+research and change-review surfaces. They resolve exact names in the local catalog first;
+`GET /api/cards/preview?name=...` falls back for newly revealed names through the existing
+bounded and paced public Scryfall cache. It forwards one card name, no private list or user
+credentials, and writes no cards or collection records. Public stock lists enhance their
+sanitized image links with `/card-preview-v1.js`; their CSP permits self-hosted scripts only.
+Research accounting distinguishes all 100 cards (commander, main and repeated basics), exact
+swap differences, and acquisition supply including projected sealed stock. Gameplay profiles
+and GC slot reasons replace unexplained numeric power ranges. Sealed purchase prerequisites
+stay separate from singles quotes and print requirements.
 
 #### Commander research and workflow parity (2026-10-27)
 
@@ -687,6 +698,7 @@ Bryan (2026-10-24) wants Forge as a black-box referee for phase, run like unit t
 - **Speed:** the time in a game is phase's AI, not the rules: in a profile of an Easy lab game, the AI's decision is ~62% and listing legal actions (mostly "can this spell be paid for") ~54%, trigger collection after each action ~45% (these overlap); layers under 10%. Easy games run ~9–35 ms per action, Medium ~160 ms. Optimisations must reproduce every benchmark game exactly (same seed, same result line).
 - **Forge card scripts as a fallback: tried and dropped (2026-10-24).** phase's optional `forge` feature (now compiling again, branch `forge-bridge-compile-fix` in the fork) took Commander-legal cards with unparsed text from 1,760 to 1,615 and the corpus's from 412 to 387, but broke 70 cards phase parsed itself, and its translations are partial and untested. Not used; the Forge scripts were deleted again. Parser work is the path to coverage.
 - **Not yet:** combat, multiplayer, X spells, and Forge-side errors (76 cards, mostly the runner's divided damage and per-opponent targets).
+
 
 ## 11. Risks
 

@@ -27,6 +27,16 @@ export const NEWS: NewsEntry[] = [
     },
   },
   {
+    id: "2026-10-27-card-previews-and-build-profiles",
+    date: "2026-10-27",
+    title: "Inspect cards and complete bracket builds",
+    items: [
+      "Hover or focus card names to inspect the card. Tap names to pin a preview, including in research, decks, collection, plans, suggested changes and public stock lists.",
+      "Research separates the complete 100-card deck, exact swaps and acquisition requirements. Gameplay profiles explain setup, finishers, interaction, recovery and weaknesses; Game Changer choices have reasons. Planned sealed purchases stay separate from owned cards, singles and prints.",
+    ],
+    link: { to: "/decks/research", label: "Review builds" },
+  },
+  {
     id: "2026-10-27-precon-evidence-audit",
     date: "2026-10-27",
     title: "Precon grades now show their evidence",
@@ -34,10 +44,7 @@ export const NEWS: NewsEntry[] = [
       "The old upgradeability estimates have been withdrawn. Thirteen assessments now include named guides, checked card examples, commander restrictions and an explanation of every level from 1 to 5. Other lists are ungraded until their evidence supports an assessment.",
       "Deck pages also show dated commander wins and game counts from Playgroup, separately from stock-precon results. Reviews retain their authors’ original grades. The comparison and methodology text has been rewritten in plain language.",
     ],
-    link: {
-      to: "/precons/methodology#upgradeability",
-      label: "Read the rubric and sources",
-    },
+    link: { to: "/precons/methodology#upgradeability", label: "Read the rubric and sources" },
   },
   {
     id: "2026-10-27-landing-discovery",
@@ -117,10 +124,7 @@ export const NEWS: NewsEntry[] = [
       "Choose games per deck. Four-player pods balance appearances, vary opponents and rotate seats. Identical lists count once, and every participant contributes to the results.",
       "Results rank the field with win-share intervals and show shared-game matchups, separately for each engine. These are AI simulations, not predictions for your table.",
     ],
-    link: {
-      to: "/decks/lab/compare?mode=tournament",
-      label: "Set up a tournament",
-    },
+    link: { to: "/decks/lab/compare?mode=tournament", label: "Set up a tournament" },
   },
   {
     id: "2026-10-26-deck-stats-brackets",
@@ -330,10 +334,7 @@ export const SEEN_KEY = "yama.whatsNew.seen";
 
 /** Entries newer than the one this device last saw: all of them if it saw none, or saw one
  *  that's no longer listed. */
-export function unseen(
-  entries: NewsEntry[],
-  seenId: string | null,
-): NewsEntry[] {
+export function unseen(entries: NewsEntry[], seenId: string | null): NewsEntry[] {
   if (!seenId) return entries;
   const i = entries.findIndex((e) => e.id === seenId);
   return i < 0 ? entries : entries.slice(0, i);
@@ -341,14 +342,9 @@ export function unseen(
 
 /** The notice's line, or null when there's nothing to say. A device that has never opened the
  *  page gets an invitation, not a count of updates "since you last looked". */
-export function noticeLine(
-  entries: NewsEntry[],
-  seenId: string | null,
-): string | null {
+export function noticeLine(entries: NewsEntry[], seenId: string | null): string | null {
   const fresh = unseen(entries, seenId);
   if (!fresh.length) return null;
   if (!seenId) return "Yama keeps a list of what's new.";
-  return fresh.length === 1
-    ? `New in Yama: ${fresh[0]!.title}.`
-    : `Yama has ${fresh.length} updates since you last looked.`;
+  return fresh.length === 1 ? `New in Yama: ${fresh[0]!.title}.` : `Yama has ${fresh.length} updates since you last looked.`;
 }

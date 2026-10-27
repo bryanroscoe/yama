@@ -1,3 +1,4 @@
+import { CardRef } from "../components/CardRef";
 // "Add to my collection" for a deck: preview what goes into the deck's box, choose what to do
 // with copies of the same printing elsewhere, then add (server/src/collection/deck_box.rs).
 
@@ -118,7 +119,7 @@ function CardList({ title, lines }: { title: string; lines: { key: string; qty: 
           <li key={l.key}>
             <span>
               {l.qty > 1 ? `${l.qty} ` : ""}
-              {l.name}
+              <CardRef name={l.name}/>
             </span>
             <span className="small dim">{l.note}</span>
           </li>

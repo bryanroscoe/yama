@@ -1,3 +1,4 @@
+import { CardHover, CardRef } from "../components/CardRef";
 import { DeckPrices, SinglesPrice } from "../components/DeckPrices";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, listText, newHand, rng, type Goldfish } from "@yama/core";
@@ -363,7 +364,7 @@ export function DeckPage() {
                           onFocus={() => setPreview(e)}
                           aria-label={`${e.qty > 1 ? `${e.qty} ` : ""}${e.name}${e.needed > 0 ? `, need ${e.needed}` : ""}`}
                         >
-                          <CardImage src={e.card?.image_normal} name={e.name} />
+                          <CardHover name={e.name} oracleId={e.oracle_id} image={e.card?.image_normal}><CardImage src={e.card?.image_normal} name={e.name}/></CardHover>
                           {/* Still needed: an amber dot just off the card's left edge, so the mana cost stays clear. */}
                           {e.needed > 0 && <span className="need-dot" aria-hidden="true" title={`Need ${e.needed}`} />}
                           {e.qty > 1 && <span className="qty-badge num">×{e.qty}</span>}
@@ -391,7 +392,7 @@ export function DeckPage() {
               <aside className="deck-preview" aria-label="Card preview">
                 <CardImage src={shown.card?.image_normal} name={shown.name} />
                 <div className="deck-preview-facts">
-                  <b>{shown.name}</b>
+                  <b><CardRef name={shown.name} oracleId={shown.oracle_id} image={shown.card?.image_normal}/></b>
                   <CardStatus e={shown} />
                   {shown.board !== "side" && (
                     <span>
@@ -418,7 +419,7 @@ export function DeckPage() {
                       <span className="deck-row-text">
                         <span className="deck-row-name">
                           {e.qty > 1 ? `${e.qty} ` : ""}
-                          {e.name}
+                          <CardHover name={e.name} oracleId={e.oracle_id} image={e.card?.image_normal}/>
                         </span>
                         <CardStatus e={e} small plan={plan} />
                       </span>

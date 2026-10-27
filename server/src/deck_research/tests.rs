@@ -242,3 +242,54 @@ async fn mcp_can_save_and_read_private_research_without_apply() {
     let save = tools.iter().find(|t| t["name"] == "save_research").unwrap();
     assert_eq!(save["annotations"]["idempotentHint"], true);
 }
+
+#[test]
+fn complete_accounting_and_new_rendered_fields_are_checked() {
+    let mut d = doc();
+    let a = json!({"total":100,"commander":1,"main":99,"basics":99,"nonbasic":1,"unchanged":100,"added":0,"removed":0,"owned":1,"local_buys":0,"prints":0});
+    d["decks"][0]["builds"][0]["accounting"] = a;
+    assert!(targets(&d).is_ok());
+    d["decks"][0]["builds"][0]["accounting"]["owned"] = json!(0);
+    assert!(targets(&d).is_err(), "missing supply cannot look complete");
+    d["decks"][0]["builds"][0]["accounting"]["projected_stock"] = json!(1);
+    assert!(
+        targets(&d).is_ok(),
+        "projected stock stays separate from owned"
+    );
+    d["decks"][0]["builds"][0]["list"] = json!("Commander\n1 Saheeli\nDeck\n98 Island");
+    assert!(
+        targets(&d).is_err(),
+        "a reported total cannot hide a short list"
+    );
+    for (path, value) in [
+        (
+            "/decks/0/competitive_path",
+            json!({"status":[],"summary":"x"}),
+        ),
+        (
+            "/decks/0/combo_playbook",
+            json!([{"id":"x","name":"x","cards":false}]),
+        ),
+        ("/decks/0/builds/0/gameplay_profile", json!({"plan":42})),
+        (
+            "/decks/0/builds/0/gc_choices",
+            json!([{"card":"x","reason":[]}]),
+        ),
+    ] {
+        let mut malformed = doc();
+        let (prefix, field) = path.rsplit_once('/').unwrap();
+        malformed
+            .pointer_mut(prefix)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert(field.into(), value);
+        assert!(targets(&malformed).is_err(), "{path}");
+    }
+    let mut d = doc();
+    d["default_scenario_id"] = json!("missing");
+    assert!(targets(&d).is_err());
+    let mut d = doc();
+    d["scenarios"] = json!([{"id":"buy","label":"Buy","sealed_purchases":[{"price":"free"}]}]);
+    assert!(targets(&d).is_err());
+}

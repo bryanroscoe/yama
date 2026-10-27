@@ -614,10 +614,15 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             } else if args.get("full").and_then(Value::as_bool)!=Some(true) {
                 for deck in report["document"]["decks"].as_array_mut().unwrap() {
                     if let Some(o)=deck.as_object_mut(){o.retain(|k,_|["key","name","commander","ownership","installed_state","recommended_build","summary","builds"].contains(&k.as_str()));}
-                    for build in deck["builds"].as_array_mut().unwrap(){if let Some(o)=build.as_object_mut(){o.retain(|k,_|["id","label","bracket","power","why","game_changers","prospective"].contains(&k.as_str()));}}
+                    for build in deck["builds"].as_array_mut().unwrap(){if let Some(o)=build.as_object_mut(){o.retain(|k,_|["id","label","bracket","gameplay_profile","accounting","why","game_changers","prospective"].contains(&k.as_str()));}}
                 }
+                for deck in report["document"]["decks"].as_array_mut().unwrap(){for build in deck["builds"].as_array_mut().unwrap(){if let Some(profile)=build["gameplay_profile"].as_object_mut(){profile.retain(|key,_|["plan","pace"].contains(&key.as_str()));}}}
                 if let Some(scenarios)=report["document"]["scenarios"].as_array_mut(){for scenario in scenarios{if let Some(o)=scenario.as_object_mut(){o.remove("prints");o.remove("buys");}}}
                 report["document"]["local_checks"]=json!({});
+                // Overview reads need deck preference hashes and any reviewed swaps, not
+                // thousands of unrelated swap fingerprints. Focused reads retain exact hashes.
+                let reviewed:std::collections::HashSet<String>=report["reviews"].as_array().unwrap().iter().filter_map(|r|r["target"].as_str().map(String::from)).collect();
+                if let Some(hashes)=report["target_hashes"].as_object_mut(){hashes.retain(|key,_|key.starts_with("deck:")||reviewed.contains(key));}
                 report["view"]=json!("Overview only. Read deck/build or scenario for exact cards; full=true for the complete document.");
             }
             Ok(report.to_string())

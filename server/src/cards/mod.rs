@@ -1,5 +1,6 @@
 pub mod import;
 pub mod search;
+mod preview;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -15,6 +16,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/cards/search", get(search_cards))
         .route("/api/cards/autocomplete", get(autocomplete))
+        .route("/api/cards/preview", get(preview::get))
         .route("/api/cards/{oracle_id}", get(card_detail))
         .route("/api/printings/lookup", get(lookup_printing))
         .route("/api/meta/data", get(data_status))

@@ -1,3 +1,4 @@
+import { CardHover, CardRef } from "../components/CardRef";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
 import { api, API_BASE, priceSource, shortDate, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
@@ -219,7 +220,7 @@ export function CollectionPage() {
                   {i.image_art_crop ? <img className="coll-art" src={i.image_art_crop} alt="" loading="lazy" /> : <CardImage src={i.image_small} name={i.name ?? "?"} className="coll-art coll-thumb" />}
                   <span className="coll-row-text">
                     <span className="coll-row-name">
-                      {i.name ?? i.scryfall_id}
+                      <CardHover name={i.name??i.scryfall_id} oracleId={i.oracle_id} image={i.image_small}/>
                       {i.finish !== "nonfoil" && <span className="tag">{i.finish[0]!.toUpperCase() + i.finish.slice(1)}</span>}
                       {i.proxy && <span className="tag">Proxy</span>}
                     </span>
@@ -255,7 +256,7 @@ export function CollectionPage() {
         <Sheet label={open.name ?? "Card"} onClose={() => setOpen(null)}>
           <div className="stack">
             <div className="sheet-head">
-              <h2>{open.name}</h2>
+              <h2>{open.name&&<CardRef name={open.name} oracleId={open.oracle_id} image={open.image_small}/>}</h2>
               <button className="quiet" onClick={() => setOpen(null)}>Close</button>
             </div>
             <div style={{ maxWidth: 260 }}>

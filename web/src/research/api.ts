@@ -2,13 +2,23 @@ import { api } from "../api";
 
 export interface Source { title: string; url: string; accessed?: string }
 export interface Power { range?: string; label?: string; confidence?: string; rationale?: string; speed?: string; vulnerabilities?: string[] }
+export interface GameplayProfile {
+  plan?: string; setup?: string[]; pressure?: string; finishers?: string[]; interaction?: string;
+  consistency?: string; recovery?: string; weaknesses?: string[]; pace?: string; ceiling?: string; confidence?: string;
+}
+export interface Accounting {
+  total: number; commander: number; main: number; basics: number; nonbasic: number;
+  unchanged: number; added: number; removed: number; owned: number; local_buys: number; prints: number;
+  projected_stock?: number;
+}
 export interface Item {
   card?: string; deck?: string; qty?: number; kind?: string; detail?: string; reason?: string;
   store?: string; price?: number | null; market?: number | null; printing?: string; condition?: string;
   checked?: string; url?: string; transfer?: boolean; quote?: Item;
   local_check?: string;
+  source_deck?: string;
 }
-export interface Swap { id: string; card_in: string; card_out?: string; why?: string; why_out?: string; acquisition?: Item; pairing_note?: string }
+export interface Swap { id: string; card_in: string; card_out?: string; qty?: number; why?: string; why_out?: string; acquisition?: Item; pairing_note?: string }
 export interface Combo {
   id: string; name: string; kind?: string; cards?: string[]; setup?: string[]; steps?: string[];
   outcome?: string; stop_points?: string[]; bracket_fit?: string; sources?: Source[];
@@ -20,6 +30,8 @@ export interface Build {
   risks?: string[]; game_changers?: string[]; stats?: Record<string, unknown>; list: string;
   swaps?: Swap[]; acquisition?: { scenario?: string; note?: string; owned?: Item[]; buys?: Item[]; prints?: Item[]; basics?: Item[] };
   combos?: Combo[];
+  gameplay_profile?: GameplayProfile; accounting?: Accounting;
+  gc_choices?: { card: string; reason: string; cut?: string }[];
   base_build?: string; option_swap?: { card_in?: string; card_out?: string; inn?: string; out?: string };
 }
 export interface ResearchDeck {
@@ -27,14 +39,18 @@ export interface ResearchDeck {
   recommended_build?: string; pilot?: string; sources?: Source[]; builds: Build[];
   guide_comparison?: string; mechanics?: string[]; warnings?: string[]; combo_limits?: string[];
   existing_swap_audit?: { inn?: string; out?: string; verdict?: string; reason?: string }[];
+  combo_playbook?: Combo[];
+  competitive_path?: { status?: string; summary?: string; commander_change?: string; sources?: Source[] };
 }
 export interface Scenario {
   id: string; label: string; deck_count?: number; note?: string; buys?: Item[]; prints?: Item[];
   buy_total?: number | null; print_count?: number;
+  sealed_purchases?: Item[];
 }
 export interface ResearchDocument {
   schema: "yama-research/1"; id: string; title: string; generated_at: string; summary?: string;
   method?: string[]; scenarios?: Scenario[]; decks: ResearchDeck[];
+  default_scenario_id?: string; planned_purchases?: Item[];
   power_scale?: { range: string; meaning: string }[];
   power_method?: string[];
   local_checks?: Record<string, { reason?: string; coverage?: string; checked?: string; local_checks?: { store: string; checked?: string; errors?: string[]; search_may_be_truncated?: boolean }[]; rejected_offers?: Item[]; market_reference?: { market?: number | null; set?: string; num?: string; url?: string } }>;
