@@ -596,3 +596,73 @@ async fn cancelling_comparisons_preserves_the_finished_source_and_completed_diag
     assert_eq!(r["targets"]["saget"]["games"], 2);
     assert_eq!(r["cancel_reason"], "owner_cancelled");
 }
+
+#[tokio::test]
+async fn github_admission_requires_the_entire_explicit_workload_budget() {
+    let (pool, worker, experiment) = fixture().await;
+    let mut body = execution(&experiment);
+    body.target = "github".into();
+    body.github_minutes = 1;
+    let error = create(&pool, &worker.owner, &body).await.unwrap_err();
+    assert!(matches!(error,AppError::Invalid{details,..} if details["required_github_minutes"]==4));
+    for ord in 2..4 {
+        let name = format!("more-{ord}");
+        sqlx::query("INSERT INTO lab_experiment_games(experiment_id,game,ord,spec,engine) SELECT experiment_id,?,?,json_set(spec,'$.game',?),'phase' FROM lab_experiment_games WHERE experiment_id=? AND ord=?")
+            .bind(&name).bind(ord).bind(&name).bind(&experiment).bind(ord-2).execute(&pool).await.unwrap();
+    }
+    body.comparison = true;
+    body.targets = vec!["github".into(), "laptop".into()];
+    body.sample_units = 2;
+    body.github_minutes = 4;
+    let error = create(&pool, &worker.owner, &body).await.unwrap_err();
+    assert!(matches!(error,AppError::Invalid{details,..} if details["required_github_minutes"]==8));
+    body.github_minutes = 8;
+    create(&pool, &worker.owner, &body).await.unwrap();
+}
+
+#[tokio::test]
+async fn exhausted_retry_budgets_can_be_increased_idempotently_by_the_owner() {
+    let (pool, worker, experiment) = fixture().await;
+    let mut body = execution(&experiment);
+    body.target = "github".into();
+    body.github_minutes = 4;
+    create(&pool, &worker.owner, &body).await.unwrap();
+    let gh = Worker {
+        target: "github".into(),
+        ..worker
+    };
+    claim(&pool, &gh, offer(&new_id())).await.unwrap().unwrap();
+    sqlx::query("UPDATE lab_worker_jobs SET expires=0")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(claim(&pool, &gh, offer(&new_id())).await.unwrap().is_none());
+    let change = BudgetChange {
+        id: new_id(),
+        github_minutes: 8,
+    };
+    assert!(matches!(
+        increase_budget(&pool, "stranger", &body.id, &change).await,
+        Err(AppError::NotFound(_))
+    ));
+    increase_budget(&pool, &gh.owner, &body.id, &change)
+        .await
+        .unwrap();
+    increase_budget(&pool, &gh.owner, &body.id, &change)
+        .await
+        .unwrap();
+    let mut conflict = change;
+    conflict.github_minutes = 12;
+    assert!(matches!(
+        increase_budget(&pool, &gh.owner, &body.id, &conflict).await,
+        Err(AppError::Conflict(_))
+    ));
+    assert!(claim(&pool, &gh, offer(&new_id())).await.unwrap().is_some());
+    let (budget, reserved): (i64, i64) =
+        sqlx::query_as("SELECT github_minutes,github_reserved FROM lab_execution_runs WHERE id=?")
+            .bind(&body.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!((budget, reserved), (8, 8));
+}

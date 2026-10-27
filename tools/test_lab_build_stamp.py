@@ -19,6 +19,8 @@ class BuildStampTests(unittest.TestCase):
             native = root / "native"
             (native / "play/src").mkdir(parents=True)
             (native / "play/src/lib.rs").write_text("// fixture\n")
+            (native / "server/src/lab").mkdir(parents=True)
+            (native / "server/src/lab/process.rs").write_text("// original execution policy\n")
             (native / "play/build.rs").write_bytes(source.read_bytes())
             for name in ("Cargo.toml", "Cargo.lock", "play/Cargo.toml"):
                 (native / name).write_text("fixture\n")
@@ -44,6 +46,14 @@ class BuildStampTests(unittest.TestCase):
             native_dirty = stamp(native, {})
             self.assertTrue(native_dirty.startswith(revision + "-dirty-"))
             self.assertEqual(native_dirty, stamp(exported,
+                {"YAMA_LAB_GIT_SHA": revision, "YAMA_LAB_GIT_DIRTY": "1"}))
+            for tree in (native, exported):
+                (tree / "play/src/lib.rs").write_text("// fixture\n")
+                (tree / "server/src/lab/process.rs").write_text("// different execution policy\n")
+            server_dirty = stamp(native, {})
+            self.assertTrue(server_dirty.startswith(revision + "-dirty-"))
+            self.assertNotEqual(server_dirty, native_dirty)
+            self.assertEqual(server_dirty, stamp(exported,
                 {"YAMA_LAB_GIT_SHA": revision, "YAMA_LAB_GIT_DIRTY": "1"}))
 
 

@@ -42,7 +42,18 @@ class API:
         data = None if body is None else json.dumps(body, allow_nan=False).encode()
         request = urllib.request.Request(self.server + path, data=data, method=method,
             headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json"})
-        with self.opener.open(request, timeout=30) as response:
+        try:
+            response = self.opener.open(request, timeout=30)
+        except urllib.error.HTTPError as error:
+            if error.code == 400:
+                try:
+                    required = json.loads(error.read(65536)).get("required_github_minutes")
+                    if isinstance(required, int) and required > 0:
+                        raise ValueError(f"This execution needs at least {required} GitHub work minutes") from error
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+            raise
+        with response:
             content = response.read(4 * 1024 * 1024 + 1)
             if len(content) > 4 * 1024 * 1024:
                 raise ValueError("Oversized API response")
@@ -311,6 +322,10 @@ def main():
     report.add_argument("--json", action="store_true", help="Include individual game results and timings")
     cancel = commands.add_parser("cancel", help="Cancel an execution, preserving completed results")
     cancel.add_argument("id")
+    budget = commands.add_parser("budget", help="Increase an execution's total GitHub work allowance")
+    budget.add_argument("id")
+    budget.add_argument("--minutes", type=int, required=True)
+    budget.add_argument("--op-id", default=None)
     key = commands.add_parser("key", help="Create an owner-scoped worker key using a session token")
     key.add_argument("--target", choices=["saget", "laptop", "github"], required=True)
     key.add_argument("--output", required=True)
@@ -338,6 +353,13 @@ def main():
         with os.fdopen(os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as destination:
             destination.write(created["token"])
         print("Worker key saved to", output)
+    elif args.command == "budget":
+        uuid.UUID(args.id)
+        operation = args.op_id or str(uuid.uuid4())
+        uuid.UUID(operation)
+        print("Operation id:", operation, file=sys.stderr)
+        print(json.dumps(api.request("/api/lab/executions/" + args.id + "/budget",
+            {"id": operation, "github_minutes": args.minutes}), indent=2))
     elif args.command == "cancel":
         uuid.UUID(args.id)
         print(json.dumps(api.request("/api/lab/executions/" + args.id + "/cancel", {}), indent=2))

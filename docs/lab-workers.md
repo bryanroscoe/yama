@@ -55,6 +55,7 @@ Removing the owner's admin role also disables these pilot credentials.
 | `POST /api/lab/executions` | Admin session; `{id: UUID, experiment_id, target, comparison, targets, sample_units, github_minutes}`. UUID retries are idempotent; reusing an ID with different inputs conflicts. Default target `auto`, comparison false, sample 3, GitHub budget 0. |
 | `GET /api/lab/executions/{id}` | Owner session only; job progress, measurements and agreement report. |
 | `POST /api/lab/executions/{id}/cancel` | Owner session; idempotently cancel pending work and fence leases, retaining completed results. Cancelling a comparison preserves its source experiment; cancelling production also cancels that experiment. |
+| `POST /api/lab/executions/{id}/budget` | Admin owner session; `{id: operation UUID, github_minutes: new total}` increases the work allowance. Retried operation IDs are idempotent; conflicting reuse is refused. |
 | `GET /api/lab/workers/runtime` | Worker key; protocol, OS/architecture, build and full SHA-256/size of the binary and card export. |
 | `GET /api/lab/workers/runtime/binary` | Worker key; running server executable, no configuration/database. Bootstrap only on matching OS/architecture. |
 | `GET /api/lab/workers/runtime/card-data` | Worker key; engine export. Verify full SHA-256, not just its filename. |
@@ -137,9 +138,13 @@ This avoids rebuilding the large engine on every Actions runner. The script and 
 be from a trusted branch. A runner teardown loses its local spool; missing acknowledgments are
 still deduplicated server-side, and unfinished pods return after lease expiry.
 
-GitHub is ineligible unless an execution has a positive `github_minutes` allowance. Each leased
+An explicit GitHub execution/comparison is rejected unless its allowance covers every selected
+GitHub job; the 400 response names `required_github_minutes`. Auto can use a partial GitHub
+allowance and other available targets. Each leased
 pod permanently reserves its full outer game deadlines plus two minutes for setup; expiry and
-retries reserve again, conservatively. **This is a work admission budget, not an account spending
+retries reserve again, conservatively. Increase an exhausted allowance with
+`budget EXECUTION_UUID --minutes NEW_TOTAL --op-id OPERATION_UUID` on the same CLI, preserving
+the run and its results. **This is a work admission budget, not an account spending
 cap:** runner startup, waiting, downloads and storage can still be billed even if no work is
 claimed. Configure GitHub's account spending controls independently and measure an explicitly
 approved pilot before automating dispatch. The workflow uploads no private deck artifacts.
@@ -153,11 +158,13 @@ owner isolation, scope/revocation, routing races, budget admission and diagnosti
 Use a small matched sample on the actual machines before claiming performance equivalence.
 
 Validation after PR review and integration with main on 27 October 2026: full `cargo test`
-passed 1,521 tests with 44 ignored; `npm test` passed 500 with 7 skipped; typecheck, web build,
-all 6 Python tests, all 17 release-guard tests and `actionlint` passed. The 17 Rust worker tests
+passed 1,532 tests with 44 ignored; `npm test` passed 503 with 7 skipped; typecheck, web build,
+all 7 Python tests, all 18 release-guard tests and `actionlint` passed. The 19 Rust worker tests
 include regressions for stale runtime adoption, comparison cancellation, failure health,
 lease fencing and queue scans beyond 100 ineligible jobs. The real build script is tested in
-native-git and git-less export contexts for matching clean and dirty full-revision identities.
+native-git and git-less export contexts for matching clean and dirty full-revision identities,
+including changes confined to the server. A guarded deployment regression verifies that the
+full release revision reaches the Docker build.
 
 Rust validation used the current private Phase pin `8aff83e`. To reuse the existing engine
 cache, validation temporarily redirected engine dependency paths to an archive whose engine

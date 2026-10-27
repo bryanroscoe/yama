@@ -26,6 +26,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/lab/executions", post(create_handler))
         .route("/api/lab/executions/{id}", get(report_handler))
         .route("/api/lab/executions/{id}/cancel", post(cancel_handler))
+        .route("/api/lab/executions/{id}/budget", post(budget_handler))
         .route("/api/lab/workers/claim", post(claim_handler))
         .route("/api/lab/workers/runtime", get(runtime_handler))
         .route("/api/lab/workers/runtime/{kind}", get(download_handler))
@@ -157,11 +158,6 @@ async fn create(
             "A comparison needs two or three distinct execution targets",
         ));
     }
-    if targets.iter().any(|t| t == "github") && body.github_minutes == 0 {
-        return Err(AppError::bad(
-            "GitHub needs an explicit positive work-minute reservation",
-        ));
-    }
     let hash = sha256_hex(&serde_json::to_string(body).map_err(anyhow::Error::from)?);
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let existing: Option<(String, String)> =
@@ -244,6 +240,24 @@ async fn create(
             card_data: execution_build.card_data.clone(),
         });
     }
+    if targets.iter().any(|t| t == "github") {
+        let required = units
+            .values()
+            .take(if body.comparison {
+                body.sample_units
+            } else {
+                usize::MAX
+            })
+            .fold(0i64, |sum, requests| {
+                sum.saturating_add(work_minutes(requests))
+            });
+        if body.github_minutes < required {
+            return Err(AppError::Invalid {
+                message: format!("This execution requires at least {required} GitHub work minutes"),
+                details: json!({"required_github_minutes":required}),
+            });
+        }
+    }
     let expected = serde_json::to_string(&Build {
         engine: execution_build.engine.clone(),
         card_data: execution_build.card_data.clone(),
@@ -270,6 +284,15 @@ async fn create(
 
 fn source(runner: &str) -> &str {
     runner.split('/').next().unwrap_or(runner)
+}
+
+fn work_minutes(requests: &[Request]) -> i64 {
+    requests.iter().fold(2i64, |sum, r| {
+        sum.saturating_add(
+            i64::try_from(r.spec.max_seconds.saturating_mul(4).saturating_add(89) / 60)
+                .unwrap_or(i64::MAX),
+        )
+    })
 }
 fn compatible(expected: &Build, offered: &Build) -> bool {
     expected.engine == offered.engine
@@ -410,10 +433,7 @@ async fn claim(
                 serde_json::from_str(&requests).map_err(anyhow::Error::from)?;
             // Reserve the full outer deadlines plus two minutes of setup. This bounds leased work,
             // not billed workflow startup/storage. Account spending controls remain separate.
-            let minutes = 2 + parsed
-                .iter()
-                .map(|r| (r.spec.max_seconds.saturating_mul(4) + 89) / 60)
-                .sum::<u64>() as i64;
+            let minutes = work_minutes(&parsed);
             if worker.target == "github" && reserved + minutes > budget {
                 continue;
             }
@@ -640,6 +660,72 @@ async fn cancel_handler(
         st.lab.settle(&experiment).await?;
     }
     Ok(Json(report(&st.pool, &user.id, &id).await?))
+}
+
+#[derive(Deserialize)]
+struct BudgetChange {
+    id: String,
+    github_minutes: i64,
+}
+
+async fn budget_handler(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    Json(body): Json<BudgetChange>,
+) -> AppResult<Json<Value>> {
+    if !user.is_admin {
+        return Err(AppError::Forbidden(
+            "Remote execution is an admin pilot".into(),
+        ));
+    }
+    increase_budget(&st.pool, &user.id, &id, &body).await?;
+    Ok(Json(report(&st.pool, &user.id, &id).await?))
+}
+
+async fn increase_budget(
+    pool: &SqlitePool,
+    owner: &str,
+    id: &str,
+    body: &BudgetChange,
+) -> AppResult<()> {
+    if uuid::Uuid::parse_str(&body.id).is_err() || !(1..=10_000).contains(&body.github_minutes) {
+        return Err(AppError::bad(
+            "Use an operation UUID and 1–10000 total GitHub work minutes",
+        ));
+    }
+    let payload = json!({"execution":id,"github_minutes":body.github_minutes}).to_string();
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let owned: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM lab_execution_runs WHERE id=? AND owner_id=?)",
+    )
+    .bind(id)
+    .bind(owner)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !owned {
+        return Err(AppError::NotFound("execution"));
+    }
+    let prior: Option<(String, String, String)> =
+        sqlx::query_as("SELECT owner_id,kind,payload FROM applied_ops WHERE op_id=?")
+            .bind(&body.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if let Some((who, kind, original)) = prior {
+        return if who == owner && kind == "lab_budget" && original == payload {
+            Ok(())
+        } else {
+            Err(AppError::Conflict(
+                "Operation id already used for another change".into(),
+            ))
+        };
+    }
+    sqlx::query("UPDATE lab_execution_runs SET github_minutes=MAX(github_minutes,?) WHERE id=? AND owner_id=?")
+        .bind(body.github_minutes).bind(id).bind(owner).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO applied_ops(op_id,owner_id,kind,payload,applied_at) VALUES (?,?,'lab_budget',?,?)")
+        .bind(&body.id).bind(owner).bind(payload).bind(now()).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 async fn cancel(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Option<String>> {

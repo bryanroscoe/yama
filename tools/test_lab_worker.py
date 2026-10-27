@@ -1,4 +1,5 @@
 import json
+import io
 import os
 from pathlib import Path
 import tempfile
@@ -10,6 +11,18 @@ import lab_worker as worker
 
 
 class WorkerTests(unittest.TestCase):
+    def test_budget_error_reports_only_the_required_allowance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            token = Path(directory) / "token"
+            token.write_text("test-key")
+            api = worker.API("https://example.invalid", token)
+            error = urllib.error.HTTPError("https://example.invalid", 400, "Bad Request", {},
+                io.BytesIO(json.dumps({"required_github_minutes": 252, "error": "private details"}).encode()))
+            with patch.object(api.opener, "open", side_effect=error):
+                with self.assertRaisesRegex(ValueError, "at least 252 GitHub work minutes") as caught:
+                    api.request("/api/lab/executions", {})
+            self.assertNotIn("private details", str(caught.exception))
+
     def test_spool_survives_lost_ack_and_retries_identical_payload(self):
         class API:
             def __init__(self):
