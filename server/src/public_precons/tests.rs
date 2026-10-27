@@ -587,3 +587,67 @@ async fn a_missing_interval_is_not_drawn_as_zero_uncertainty() {
     assert!(html.contains("Interval unavailable"));
     assert!(!html.contains("class=\"interval\""));
 }
+
+#[tokio::test]
+async fn changed_layout_bypasses_a_still_fresh_legacy_stylesheet_cache() {
+    let (st, _, _) = fixture().await;
+    let app = crate::routes::app(st);
+    // Reproduce a returning visitor whose browser still considers the old URL fresh.
+    // Cloudflare's browser TTL is longer than the HTML TTL, so no HTTP request for
+    // that URL would be made. New markup must select a different cache key.
+    let old = "/* previous release */ .public-run { padding: 24px; }";
+    let mut browser_cache = BTreeMap::from([("/precons/style.css".to_string(), old.to_string())]);
+    let mut selected = String::new();
+    for page in ["/precons", "/precons/forest-deck", "/precons/methodology"] {
+        let (status, _, html) = request(&app, page, &[]).await;
+        assert_eq!(status, StatusCode::OK);
+        let path = html
+            .split_once("<link rel=\"stylesheet\" href=\"")
+            .unwrap()
+            .1
+            .split_once('"')
+            .unwrap()
+            .0;
+        assert_ne!(path, "/precons/style.css");
+        if selected.is_empty() {
+            selected = path.to_string();
+        }
+        assert_eq!(
+            selected, path,
+            "all public pages use the same stylesheet version"
+        );
+    }
+    assert!(!browser_cache.contains_key(&selected));
+    let (status, headers, css) = request(&app, &selected, &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    let digest = sha256_hex(&css);
+    assert_eq!(
+        selected,
+        format!("/precons/assets/style-{digest}.css"),
+        "hash includes both shared tokens and public layout rules"
+    );
+    assert_eq!(headers[header::CONTENT_TYPE], "text/css; charset=utf-8");
+    assert_eq!(
+        headers[header::CACHE_CONTROL],
+        "public, max-age=31536000, immutable"
+    );
+    assert!(css.contains(".public-hero") && css.contains("@font-face"));
+    assert!(css.contains("--display:"));
+    browser_cache.insert(selected.clone(), css.clone());
+    assert_eq!(
+        browser_cache["/precons/style.css"], old,
+        "no cache clearing is required"
+    );
+    let (_, _, legacy) = request(&app, "/precons/style.css", &[]).await;
+    assert_eq!(legacy, css, "existing stylesheet links remain readable");
+    let etag = headers[header::ETAG].to_str().unwrap();
+    let (status, headers, body) = request(&app, &selected, &[("if-none-match", etag)]).await;
+    assert_eq!(status, StatusCode::NOT_MODIFIED);
+    assert!(body.is_empty());
+    assert_eq!(
+        headers[header::CACHE_CONTROL],
+        "public, max-age=31536000, immutable"
+    );
+    let bad = format!("/precons/assets/style-{}.css", "0".repeat(64));
+    assert_eq!(request(&app, &bad, &[]).await.0, StatusCode::NOT_FOUND);
+}
