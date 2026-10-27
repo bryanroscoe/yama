@@ -27,6 +27,7 @@ cmd=${1:-}
 case "$cmd" in
 build)
   REV=$(git rev-parse --short HEAD)
+  FULL_REV=$(git rev-parse HEAD)
   PHASE_REV=$(git show HEAD:deploy/phase-rev | tr -d '[:space:]')
   PHASE_DIR=$(sh ./deploy/check-phase.sh HEAD)
   PHASE_SRC=$(mktemp -d "${TMPDIR:-/tmp}/yama-lab-phase.XXXXXX")
@@ -43,7 +44,7 @@ build)
   echo "Building yama-lab:$REV on saget (log: $DIR/build/build.log)…"
   ssh "$HOST" "cd $DIR/build && rm -f build.status && \
     nohup sh -c 'docker build -f yama/deploy/Dockerfile.lab --build-context phase=yama-phase \
-      --build-arg YAMA_LAB_GIT_SHA=$REV --build-arg YAMA_LAB_GIT_DIRTY=$DIRTY -t yama-lab:latest -t yama-lab:$REV yama \
+      --build-arg YAMA_LAB_GIT_SHA=$FULL_REV --build-arg YAMA_LAB_GIT_DIRTY=$DIRTY -t yama-lab:latest -t yama-lab:$REV yama \
       > build.log 2>&1; echo \$? > build.status' > /dev/null 2>&1 &"
   while ! ssh "$HOST" "test -f $DIR/build/build.status"; do sleep 20; done
   if [ "$(ssh "$HOST" "cat $DIR/build/build.status")" != "0" ]; then

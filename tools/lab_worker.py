@@ -309,6 +309,8 @@ def main():
     report = commands.add_parser("report")
     report.add_argument("id")
     report.add_argument("--json", action="store_true", help="Include individual game results and timings")
+    cancel = commands.add_parser("cancel", help="Cancel an execution, preserving completed results")
+    cancel.add_argument("id")
     key = commands.add_parser("key", help="Create an owner-scoped worker key using a session token")
     key.add_argument("--target", choices=["saget", "laptop", "github"], required=True)
     key.add_argument("--output", required=True)
@@ -336,12 +338,17 @@ def main():
         with os.fdopen(os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as destination:
             destination.write(created["token"])
         print("Worker key saved to", output)
+    elif args.command == "cancel":
+        uuid.UUID(args.id)
+        print(json.dumps(api.request("/api/lab/executions/" + args.id + "/cancel", {}), indent=2))
     else:
         uuid.UUID(args.id)
         report = api.request("/api/lab/executions/" + args.id)
         if args.json:
             print(json.dumps(report, indent=2))
         else:
+            if report["cancelled_at"]:
+                print("Cancelled:", report["cancel_reason"], "at", report["cancelled_at"])
             print("Target      Games   Games/min   Game seconds   Setup seconds   Peak MiB   Unscored")
             for target, measured in sorted(report["targets"].items()):
                 pace = measured["games_per_minute"]

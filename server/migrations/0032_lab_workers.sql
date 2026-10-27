@@ -9,7 +9,8 @@ CREATE TABLE lab_execution_runs (
     github_minutes INTEGER NOT NULL DEFAULT 0,
     github_reserved INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
-    cancelled_at TEXT
+    cancelled_at TEXT,
+    cancel_reason TEXT
 );
 CREATE UNIQUE INDEX lab_execution_production ON lab_execution_runs(experiment_id) WHERE comparison = 0;
 CREATE TABLE lab_worker_instances (
@@ -21,7 +22,8 @@ CREATE TABLE lab_worker_instances (
     execution_id TEXT,
     ready INTEGER NOT NULL,
     seen INTEGER NOT NULL,
-    seconds_per_game REAL NOT NULL DEFAULT 120
+    seconds_per_game REAL NOT NULL DEFAULT 120,
+    failed_until INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE lab_worker_jobs (
     id TEXT PRIMARY KEY,

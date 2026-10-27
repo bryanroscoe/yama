@@ -25,6 +25,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/lab/executions", post(create_handler))
         .route("/api/lab/executions/{id}", get(report_handler))
+        .route("/api/lab/executions/{id}/cancel", post(cancel_handler))
         .route("/api/lab/workers/claim", post(claim_handler))
         .route("/api/lab/workers/runtime", get(runtime_handler))
         .route("/api/lab/workers/runtime/{kind}", get(download_handler))
@@ -113,11 +114,21 @@ async fn create_handler(
             "Remote execution is an admin pilot".into(),
         ));
     }
-    let id = create(&st.pool, &user.id, &body).await?;
+    let sim = st
+        .lab
+        .ready()
+        .ok_or_else(|| AppError::Unavailable("The Phase runtime is not ready".into()))?;
+    let build = super::worker::current_build(sim.as_ref());
+    let id = create(&st.pool, &user.id, &body, &build).await?;
     Ok(Json(report(&st.pool, &user.id, &id).await?))
 }
 
-async fn create(pool: &SqlitePool, owner: &str, body: &NewExecution) -> AppResult<String> {
+async fn create(
+    pool: &SqlitePool,
+    owner: &str,
+    body: &NewExecution,
+    execution_build: &Build,
+) -> AppResult<String> {
     if uuid::Uuid::parse_str(&body.id).is_err()
         || !["auto", "saget", "laptop", "github"].contains(&body.target.as_str())
         || !(1..=10).contains(&body.sample_units)
@@ -169,14 +180,13 @@ async fn create(pool: &SqlitePool, owner: &str, body: &NewExecution) -> AppResul
         }
         return Ok(body.id.clone());
     }
-    let row: Option<(String, String, String, String, String)> = sqlx::query_as(
-        "SELECT spec,status,engine,card_data,runner FROM lab_experiments WHERE id=? AND owner_id=?",
-    )
-    .bind(&body.experiment_id)
-    .bind(owner)
-    .fetch_optional(&mut *tx)
-    .await?;
-    let Some((text, status, engine, card_data, runner)) = row else {
+    let row: Option<(String, String)> =
+        sqlx::query_as("SELECT spec,status FROM lab_experiments WHERE id=? AND owner_id=?")
+            .bind(&body.experiment_id)
+            .bind(owner)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some((text, status)) = row else {
         return Err(AppError::NotFound("experiment"));
     };
     if status == "cancelled" {
@@ -231,14 +241,13 @@ async fn create(pool: &SqlitePool, owner: &str, body: &NewExecution) -> AppResul
             spec,
             decks,
             limits: frozen.limits,
-            card_data: card_data.clone(),
+            card_data: execution_build.card_data.clone(),
         });
     }
     let expected = serde_json::to_string(&Build {
-        // A both-engine experiment's initial label is "Phase, Forge"; these jobs are Phase.
-        engine: engine.split(", ").next().unwrap_or(&engine).to_string(),
-        card_data,
-        runner: source(&runner).into(),
+        engine: execution_build.engine.clone(),
+        card_data: execution_build.card_data.clone(),
+        runner: source(&execution_build.runner).into(),
     })
     .map_err(anyhow::Error::from)?;
     sqlx::query("INSERT INTO lab_execution_runs (id,experiment_id,owner_id,request_hash,comparison,target,github_minutes,created_at) VALUES (?,?,?,?,?,?,?,?)")
@@ -293,10 +302,19 @@ async fn claim_handler(
     worker: Worker,
     Json(body): Json<Claim>,
 ) -> AppResult<Json<Option<Lease>>> {
-    Ok(Json(claim(&st.pool, &worker, body).await?))
+    let build = st
+        .lab
+        .ready()
+        .map(|sim| super::worker::current_build(sim.as_ref()));
+    Ok(Json(claim(&st.pool, &worker, body, build.as_ref()).await?))
 }
 
-async fn claim(pool: &SqlitePool, worker: &Worker, body: Claim) -> AppResult<Option<Lease>> {
+async fn claim(
+    pool: &SqlitePool,
+    worker: &Worker,
+    body: Claim,
+    current: Option<&Build>,
+) -> AppResult<Option<Lease>> {
     if uuid::Uuid::parse_str(&body.worker_id).is_err()
         || body
             .execution_id
@@ -316,7 +334,8 @@ async fn claim(pool: &SqlitePool, worker: &Worker, body: Claim) -> AppResult<Opt
     let historical: Option<f64> = sqlx::query_scalar(
         "SELECT AVG(json_extract(j.result,'$.wall_seconds') / json_array_length(j.result,'$.results'))
          FROM lab_worker_jobs j JOIN lab_execution_runs r ON r.id=j.run_id JOIN lab_worker_instances w ON w.id=j.worker_id
-         WHERE r.owner_id=? AND w.target=? AND j.build=? AND j.result IS NOT NULL")
+         WHERE r.owner_id=? AND w.target=? AND j.build=? AND j.result IS NOT NULL
+           AND NOT EXISTS(SELECT 1 FROM json_each(j.result,'$.results') x WHERE json_extract(x.value,'$.end') NOT IN ('win','draw','turn_cap','action_cap'))")
         .bind(&worker.owner).bind(&worker.target).bind(&build).fetch_one(&mut *tx).await?;
     // A worker UUID belongs permanently to one key; a different owner cannot take it over.
     let changed = sqlx::query("INSERT INTO lab_worker_instances (id,token_id,owner_id,target,build,ready,seen,seconds_per_game,execution_id) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET build=excluded.build,ready=excluded.ready,seen=excluded.seen,seconds_per_game=excluded.seconds_per_game,execution_id=excluded.execution_id WHERE token_id=excluded.token_id")
@@ -333,70 +352,116 @@ async fn claim(pool: &SqlitePool, worker: &Worker, body: Claim) -> AppResult<Opt
         tx.commit().await?;
         return Ok(None);
     }
-    let jobs: Vec<(String,String,String,String,i64,i64,bool,String)> = sqlx::query_as(
-        "SELECT j.id,j.requests,j.expected_build,j.target,r.github_minutes,r.github_reserved,r.comparison,r.id
+    let failed_until: i64 =
+        sqlx::query_scalar("SELECT failed_until FROM lab_worker_instances WHERE id=?")
+            .bind(&body.worker_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    let mut after = 0i64;
+    loop {
+        let jobs: Vec<(String,String,String,String,i64,i64,bool,String,i64)> = sqlx::query_as(
+        "SELECT j.id,j.requests,j.expected_build,j.target,r.github_minutes,r.github_reserved,r.comparison,r.id,j.rowid
          FROM lab_worker_jobs j JOIN lab_execution_runs r ON r.id=j.run_id JOIN lab_experiments e ON e.id=r.experiment_id
          WHERE r.owner_id=? AND r.cancelled_at IS NULL AND j.result IS NULL AND (j.expires IS NULL OR j.expires<=?)
            AND e.status!='cancelled' AND (r.comparison=1 OR e.status IN ('queued','running'))
-           AND (j.target=? OR j.target='auto') AND (? IS NULL OR r.id=?) ORDER BY r.created_at,j.unit,j.rowid LIMIT 100")
-        .bind(&worker.owner).bind(clock).bind(&worker.target).bind(&body.execution_id).bind(&body.execution_id).fetch_all(&mut *tx).await?;
-    for (job_id, requests, expected, target, budget, reserved, _comparison, run_id) in jobs {
-        let expected: Build = serde_json::from_str(&expected).map_err(anyhow::Error::from)?;
-        if !compatible(&expected, &body.build) {
-            continue;
+           AND (j.target=? OR j.target='auto') AND (? IS NULL OR r.id=?) AND j.rowid>? ORDER BY j.rowid LIMIT 100")
+        .bind(&worker.owner).bind(clock).bind(&worker.target).bind(&body.execution_id).bind(&body.execution_id).bind(after).fetch_all(&mut *tx).await?;
+        if jobs.is_empty() {
+            break;
         }
-        let parsed: Vec<Request> = serde_json::from_str(&requests).map_err(anyhow::Error::from)?;
-        // Reserve the full outer deadlines plus two minutes of setup. This bounds leased work,
-        // not billed workflow startup/storage. Account spending controls remain separate.
-        let minutes = 2 + parsed
-            .iter()
-            .map(|r| (r.spec.max_seconds.saturating_mul(4) + 89) / 60)
-            .sum::<u64>() as i64;
-        if worker.target == "github" && reserved + minutes > budget {
-            continue;
-        }
-        if target == "auto" {
-            let candidates: Vec<(String,String,String,f64)> = sqlx::query_as(
+        for (job_id, mut requests, expected, target, budget, reserved, comparison, run_id, rowid) in
+            jobs
+        {
+            after = rowid;
+            let mut expected: Build =
+                serde_json::from_str(&expected).map_err(anyhow::Error::from)?;
+            if let Some(current) = current
+                && !compatible(&expected, current)
+            {
+                if comparison {
+                    sqlx::query("UPDATE lab_execution_runs SET cancelled_at=?,cancel_reason='runtime_changed' WHERE id=?")
+                    .bind(now()).bind(&run_id).execute(&mut *tx).await?;
+                    continue;
+                }
+                // Pending production pods adopt the current runtime as a whole. Completed pods retain
+                // their recorded build; a stale in-flight attempt is still fenced by its lease ID.
+                expected = current.clone();
+                expected.runner = source(&expected.runner).to_string();
+                let mut updated: Vec<Request> =
+                    serde_json::from_str(&requests).map_err(anyhow::Error::from)?;
+                for request in &mut updated {
+                    request.card_data = expected.card_data.clone();
+                }
+                requests = serde_json::to_string(&updated).map_err(anyhow::Error::from)?;
+                sqlx::query("UPDATE lab_worker_jobs SET expected_build=?,requests=? WHERE id=?")
+                    .bind(serde_json::to_string(&expected).map_err(anyhow::Error::from)?)
+                    .bind(&requests)
+                    .bind(&job_id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            if !comparison && failed_until > clock {
+                continue;
+            }
+            if !compatible(&expected, &body.build) {
+                continue;
+            }
+            let parsed: Vec<Request> =
+                serde_json::from_str(&requests).map_err(anyhow::Error::from)?;
+            // Reserve the full outer deadlines plus two minutes of setup. This bounds leased work,
+            // not billed workflow startup/storage. Account spending controls remain separate.
+            let minutes = 2 + parsed
+                .iter()
+                .map(|r| (r.spec.max_seconds.saturating_mul(4) + 89) / 60)
+                .sum::<u64>() as i64;
+            if worker.target == "github" && reserved + minutes > budget {
+                continue;
+            }
+            if target == "auto" {
+                let candidates: Vec<(String,String,String,f64)> = sqlx::query_as(
                 "SELECT w.id,w.target,w.build,w.seconds_per_game FROM lab_worker_instances w JOIN api_tokens t ON t.id=w.token_id
                  WHERE w.owner_id=? AND w.ready=1 AND w.seen>? AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at>?)
                  AND (w.execution_id IS NULL OR w.execution_id=?)
+                 AND w.failed_until<=?
                  AND NOT EXISTS(SELECT 1 FROM lab_worker_jobs j WHERE j.worker_id=w.id AND j.result IS NULL AND j.expires>?) ORDER BY w.id")
-                .bind(&worker.owner).bind(clock-ONLINE_SECONDS).bind(now()).bind(&run_id).bind(clock).fetch_all(&mut *tx).await?;
-            let chosen = candidates
-                .into_iter()
-                .filter_map(|(id, t, b, pace)| {
-                    let b: Build = serde_json::from_str(&b).ok()?;
-                    (compatible(&expected, &b) && (t != "github" || reserved + minutes <= budget))
-                        .then_some((id, pace))
-                })
-                .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
-            if chosen.is_some_and(|(id, _)| id != body.worker_id) {
-                continue;
+                .bind(&worker.owner).bind(clock-ONLINE_SECONDS).bind(now()).bind(&run_id).bind(clock).bind(clock).fetch_all(&mut *tx).await?;
+                let chosen = candidates
+                    .into_iter()
+                    .filter_map(|(id, t, b, pace)| {
+                        let b: Build = serde_json::from_str(&b).ok()?;
+                        (compatible(&expected, &b)
+                            && (t != "github" || reserved + minutes <= budget))
+                            .then_some((id, pace))
+                    })
+                    .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+                if chosen.is_some_and(|(id, _)| id != body.worker_id) {
+                    continue;
+                }
             }
-        }
-        let lease_id = new_id();
-        let expires = clock + LEASE_SECONDS;
-        sqlx::query("UPDATE lab_worker_jobs SET lease_id=?,worker_id=?,expires=?,leased_at=?,build=? WHERE id=?")
+            let lease_id = new_id();
+            let expires = clock + LEASE_SECONDS;
+            sqlx::query("UPDATE lab_worker_jobs SET lease_id=?,worker_id=?,expires=?,leased_at=?,build=? WHERE id=?")
             .bind(&lease_id).bind(&body.worker_id).bind(expires).bind(now()).bind(&build).bind(&job_id).execute(&mut *tx).await?;
-        sqlx::query("UPDATE lab_worker_instances SET ready=0 WHERE id=?")
-            .bind(&body.worker_id)
-            .execute(&mut *tx)
-            .await?;
-        if worker.target == "github" {
-            sqlx::query("UPDATE lab_execution_runs SET github_reserved=github_reserved+? WHERE id=(SELECT run_id FROM lab_worker_jobs WHERE id=?)")
+            sqlx::query("UPDATE lab_worker_instances SET ready=0 WHERE id=?")
+                .bind(&body.worker_id)
+                .execute(&mut *tx)
+                .await?;
+            if worker.target == "github" {
+                sqlx::query("UPDATE lab_execution_runs SET github_reserved=github_reserved+? WHERE id=(SELECT run_id FROM lab_worker_jobs WHERE id=?)")
                 .bind(minutes).bind(&job_id).execute(&mut *tx).await?;
-        }
-        sqlx::query("UPDATE lab_experiments SET status='running',started_at=COALESCE(started_at,?),updated_at=? WHERE id=(SELECT r.experiment_id FROM lab_execution_runs r JOIN lab_worker_jobs j ON j.run_id=r.id WHERE j.id=? AND r.comparison=0)")
+            }
+            sqlx::query("UPDATE lab_experiments SET status='running',started_at=COALESCE(started_at,?),updated_at=? WHERE id=(SELECT r.experiment_id FROM lab_execution_runs r JOIN lab_worker_jobs j ON j.run_id=r.id WHERE j.id=? AND r.comparison=0)")
             .bind(now()).bind(now()).bind(&job_id).execute(&mut *tx).await?;
-        tx.commit().await?;
-        return Ok(Some(Lease {
-            id: lease_id,
-            job_id,
-            expires,
-            heartbeat_seconds: 30,
-            requests: serde_json::from_str(&requests).map_err(anyhow::Error::from)?,
-            build: body.build,
-        }));
+            tx.commit().await?;
+            return Ok(Some(Lease {
+                id: lease_id,
+                job_id,
+                expires,
+                heartbeat_seconds: 30,
+                requests: serde_json::from_str(&requests).map_err(anyhow::Error::from)?,
+                build: body.build,
+            }));
+        }
     }
     tx.commit().await?;
     Ok(None)
@@ -546,8 +611,13 @@ async fn submit(pool: &SqlitePool, worker: &Worker, id: &str, body: &Submission)
     sqlx::query("UPDATE lab_worker_jobs SET result=?,submitted_lease=?,finished_at=?,expires=NULL WHERE id=?")
         .bind(text).bind(id).bind(now()).bind(&job).execute(&mut *tx).await?;
     let pace = (body.wall_seconds / (body.results.len().max(1) as f64)).clamp(0.1, 86400.0);
-    sqlx::query("UPDATE lab_worker_instances SET seconds_per_game=?,seen=? WHERE id=(SELECT worker_id FROM lab_worker_jobs WHERE id=?)")
-        .bind(pace).bind(chrono::Utc::now().timestamp()).bind(&job).execute(&mut *tx).await?;
+    let healthy = body
+        .results
+        .iter()
+        .all(|r| matches!(r.end, End::Win | End::Draw | End::TurnCap | End::ActionCap));
+    let clock = chrono::Utc::now().timestamp();
+    sqlx::query("UPDATE lab_worker_instances SET seconds_per_game=CASE WHEN ? THEN ? ELSE seconds_per_game END,seen=?,failed_until=?,ready=0 WHERE id=(SELECT worker_id FROM lab_worker_jobs WHERE id=?)")
+        .bind(healthy).bind(pace).bind(clock).bind(if healthy {0} else {clock+300}).bind(&job).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -560,10 +630,46 @@ async fn report_handler(
     Ok(Json(report(&st.pool, &user.id, &id).await?))
 }
 
+async fn cancel_handler(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    let experiment = cancel(&st.pool, &user.id, &id).await?;
+    if let Some(experiment) = experiment {
+        st.lab.settle(&experiment).await?;
+    }
+    Ok(Json(report(&st.pool, &user.id, &id).await?))
+}
+
+async fn cancel(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Option<String>> {
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let row: Option<(String, bool)> = sqlx::query_as(
+        "SELECT experiment_id,comparison FROM lab_execution_runs WHERE id=? AND owner_id=?",
+    )
+    .bind(id)
+    .bind(owner)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((experiment, comparison)) = row else {
+        return Err(AppError::NotFound("execution"));
+    };
+    sqlx::query("UPDATE lab_execution_runs SET cancelled_at=COALESCE(cancelled_at,?),cancel_reason=COALESCE(cancel_reason,'owner_cancelled') WHERE id=?")
+        .bind(now()).bind(id).execute(&mut *tx).await?;
+    if !comparison {
+        sqlx::query("UPDATE lab_experiments SET status='cancelled',finished_at=COALESCE(finished_at,?),updated_at=? WHERE id=? AND status IN ('queued','running')")
+            .bind(now()).bind(now()).bind(&experiment).execute(&mut *tx).await?;
+        super::worker::refresh(&mut tx, &experiment, false).await?;
+    }
+    tx.commit().await?;
+    Ok((!comparison).then_some(experiment))
+}
+
 async fn report(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Value> {
-    let row:Option<(String,bool,String,i64,i64)>=sqlx::query_as("SELECT experiment_id,comparison,target,github_minutes,github_reserved FROM lab_execution_runs WHERE id=? AND owner_id=?")
+    let row:Option<(String,bool,String,i64,i64,Option<String>,Option<String>)>=sqlx::query_as("SELECT experiment_id,comparison,target,github_minutes,github_reserved,cancelled_at,cancel_reason FROM lab_execution_runs WHERE id=? AND owner_id=?")
         .bind(id).bind(owner).fetch_optional(pool).await?;
-    let Some((experiment, comparison, target, budget, reserved)) = row else {
+    let Some((experiment, comparison, target, budget, reserved, cancelled_at, cancel_reason)) = row
+    else {
         return Err(AppError::NotFound("execution"));
     };
     let rows:Vec<(i64,String,Option<String>,Option<String>,Option<String>,Option<String>)>=sqlx::query_as(
@@ -624,7 +730,7 @@ async fn report(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Value> {
             (item.wall_seconds > 0.0).then_some(item.games as f64 * 60.0 / item.wall_seconds);
     }
     Ok(
-        json!({"id":id,"experiment_id":experiment,"comparison":comparison,"target":target,"github_work_minutes":budget,"github_reserved_minutes":reserved,
+        json!({"id":id,"experiment_id":experiment,"comparison":comparison,"target":target,"github_work_minutes":budget,"github_reserved_minutes":reserved,"cancelled_at":cancelled_at,"cancel_reason":cancel_reason,
         "agreement":{"matched":matched,"mismatched":mismatched},"targets":measurements,"jobs":jobs}),
     )
 }

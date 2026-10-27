@@ -93,6 +93,14 @@ Where our own rules work goes:
 
 ## 4. Backend
 
+**Default delivery workflow (Bryan, 2026-10-27):** requested repository changes continue through
+a pushed feature branch, PR, Codex review, fixes, a subsequent independent agent review for
+substantive changes, required verification and merge. Those scoped pushes/review requests/merges
+have standing authorization; deployments and spending remain separate. Automatic Codex reviews
+should be enabled for the repository. An unavailable cloud reviewer is disclosed and replaced
+by an independent Codex agent review. Event-driven PR monitoring resumes pending work through
+merge rather than leaving an unmonitored handoff. See `AGENTS.md` and `deploy/RELEASING.md`.
+
 **Release process (Bryan, 2026-10-25):** integrate completed changes only after fetching GitHub's current branches, merge the intended release into main, run the required checks on that merged result and publish main. Production builds come only from clean main at the same commit as freshly fetched `origin/main`, never from a feature branch, detached HEAD or unpublished local commits. `deploy/check-release.sh` enforces this before server access; `deploy/deploy.sh --check` also verifies the pinned engine commit without contacting saget. Source, engine pin, Forge source label and compose configuration all come from the verified commit. The operating guide is `deploy/RELEASING.md`. Pushes, merges and deployment remain separate actions within Bryan's requested scope.
 
 ```

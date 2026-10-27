@@ -7,7 +7,7 @@
 //!                          Cargo.toml, Cargo.lock), so two different dirty builds never share a stamp
 //!   unknown-<hash>         no git and no YAMA_LAB_GIT_SHA
 //!
-//! A Docker build context has no .git: deploy/lab.sh passes YAMA_LAB_GIT_SHA (short SHA) and
+//! A Docker build context has no .git: deployment passes YAMA_LAB_GIT_SHA (full SHA) and
 //! YAMA_LAB_GIT_DIRTY (0 or 1) as build args instead, and the hash is computed here from the same
 //! files, so a saget build and a Mac build of the same source carry the same stamp. Setting
 //! YAMA_LAB_RUNNER in the build environment overrides all of this.
@@ -40,7 +40,7 @@ fn git(args: &[&str]) -> Option<String> {
 fn detect() -> String {
     let hash = source_hash();
     let env = |k: &str| std::env::var(k).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-    let Some(sha) = git(&["rev-parse", "--short", "HEAD"]).filter(|s| !s.is_empty()) else {
+    let Some(sha) = git(&["rev-parse", "HEAD"]).filter(|s| !s.is_empty()) else {
         // No git (a Docker build context): the deploy script's build args stand in for it.
         return match env("YAMA_LAB_GIT_SHA") {
             Some(sha) if env("YAMA_LAB_GIT_DIRTY").as_deref() == Some("0") => sha,

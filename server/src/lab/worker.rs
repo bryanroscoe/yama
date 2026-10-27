@@ -421,7 +421,8 @@ impl LabWorker {
         }
     }
 
-    fn ready(&self) -> Option<Arc<dyn Simulator>> {
+    /// Runtime metadata/lookups remain available when built-in execution is paused.
+    pub(super) fn ready(&self) -> Option<Arc<dyn Simulator>> {
         match &*self.sim.read().unwrap_or_else(|e| e.into_inner()) {
             SimState::Ready(sim) => Some(Arc::clone(sim)),
             _ => None,

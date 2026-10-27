@@ -10,6 +10,14 @@ fn build(policy: &str) -> Build {
     }
 }
 
+async fn create(pool: &SqlitePool, owner: &str, body: &NewExecution) -> AppResult<String> {
+    super::create(pool, owner, body, &build("isolated-local-v1")).await
+}
+
+async fn claim(pool: &SqlitePool, worker: &Worker, body: Claim) -> AppResult<Option<Lease>> {
+    super::claim(pool, worker, body, Some(&build("isolated-local-v1"))).await
+}
+
 async fn fixture() -> (SqlitePool, Worker, String) {
     let pool = crate::db::test_pool().await;
     let (owner, _) = testutil::user(&pool, "worker-owner@example.com").await;
@@ -394,4 +402,197 @@ async fn both_engine_labels_still_allow_phase_and_keep_forge_in_the_original_que
     let legacy = LabWorker::new(pool.clone(), 1, SimState::Missing("test".into()));
     assert!(legacy.next_jobs(2).await.unwrap().is_empty());
     assert_eq!(legacy.next_jobs_for("forge", 2).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn queued_experiments_use_the_available_runtime_instead_of_creation_metadata() {
+    let (pool, worker, experiment) = fixture().await;
+    sqlx::query("UPDATE lab_experiments SET engine='old-engine',card_data='old-data',runner='old-source' WHERE id=?")
+        .bind(&experiment).execute(&pool).await.unwrap();
+    create(&pool, &worker.owner, &execution(&experiment))
+        .await
+        .unwrap();
+    let lease = claim(&pool, &worker, offer(&new_id()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(lease.build.engine, "phase-test");
+    assert_eq!(lease.requests[0]["card_data"], "abc123");
+}
+
+#[tokio::test]
+async fn unplayed_production_pods_adopt_a_new_runtime_without_mutating_their_schedule() {
+    let (pool, worker, experiment) = fixture().await;
+    let old = Build {
+        engine: "old-engine".into(),
+        card_data: "old-data".into(),
+        runner: "old-source/isolated-local-v1".into(),
+    };
+    super::create(&pool, &worker.owner, &execution(&experiment), &old)
+        .await
+        .unwrap();
+    let lease = claim(&pool, &worker, offer(&new_id()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(lease.requests[0]["card_data"], "abc123");
+    assert_eq!(lease.requests[0]["spec"]["game"], "game-0");
+    assert_eq!(lease.requests[0]["spec"]["seed"], 7);
+    assert_eq!(lease.requests[0]["decks"][0]["id"], "base");
+}
+
+#[tokio::test]
+async fn a_runtime_change_cancels_a_comparison_instead_of_mixing_builds_or_hanging() {
+    let (pool, worker, experiment) = fixture().await;
+    let mut body = execution(&experiment);
+    body.comparison = true;
+    body.targets = vec!["saget".into(), "laptop".into()];
+    create(&pool, &worker.owner, &body).await.unwrap();
+    let mut current = build("isolated-local-v1");
+    current.runner = "new-source/isolated-local-v1".into();
+    let offered = Claim {
+        build: current.clone(),
+        ..offer(&new_id())
+    };
+    assert!(
+        super::claim(&pool, &worker, offered, Some(&current))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let r = report(&pool, &worker.owner, &body.id).await.unwrap();
+    assert_eq!(r["cancel_reason"], "runtime_changed");
+}
+
+#[tokio::test]
+async fn fast_failures_do_not_improve_auto_pace_and_quarantine_the_worker() {
+    let (pool, worker, experiment) = fixture().await;
+    for ord in 2..4 {
+        let name = format!("later-{ord}");
+        sqlx::query("INSERT INTO lab_experiment_games(experiment_id,game,ord,spec,engine) SELECT experiment_id,?,?,json_set(spec,'$.game',?),'phase' FROM lab_experiment_games WHERE experiment_id=? AND ord=?")
+            .bind(&name).bind(ord).bind(&name).bind(&experiment).bind(ord-2).execute(&pool).await.unwrap();
+    }
+    sqlx::query("UPDATE lab_experiments SET games_total=4 WHERE id=?")
+        .bind(&experiment)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut body = execution(&experiment);
+    body.target = "auto".into();
+    create(&pool, &worker.owner, &body).await.unwrap();
+    let bad_id = new_id();
+    let lease = claim(&pool, &worker, offer(&bad_id))
+        .await
+        .unwrap()
+        .unwrap();
+    let mut failed = submission(&lease);
+    failed.wall_seconds = 0.001;
+    for r in &mut failed.results {
+        r.end = End::Error;
+        r.winner = None;
+        r.error = Some("failed immediately".into());
+    }
+    submit(&pool, &worker, &lease.id, &failed).await.unwrap();
+    let (pace, blocked): (f64, i64) =
+        sqlx::query_as("SELECT seconds_per_game,failed_until FROM lab_worker_instances WHERE id=?")
+            .bind(&bad_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(pace, 120.0);
+    assert!(blocked > chrono::Utc::now().timestamp());
+    assert!(
+        claim(&pool, &worker, offer(&bad_id))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        claim(&pool, &worker, offer(&new_id()))
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn a_hundred_ineligible_jobs_cannot_hide_later_runnable_work() {
+    let (pool, worker, experiment) = fixture().await;
+    let mut blocked = execution(&experiment);
+    blocked.target = "auto".into();
+    create(&pool, &worker.owner, &blocked).await.unwrap();
+    for unit in 1..102 {
+        sqlx::query("INSERT INTO lab_worker_jobs(id,run_id,unit,target,requests,expected_build) SELECT ?,run_id,?,target,requests,expected_build FROM lab_worker_jobs WHERE run_id=? AND unit=0")
+            .bind(new_id()).bind(unit).bind(&blocked.id).execute(&pool).await.unwrap();
+    }
+    let mut runnable = execution(&experiment);
+    runnable.comparison = true;
+    runnable.targets = vec!["github".into(), "laptop".into()];
+    runnable.github_minutes = 100;
+    create(&pool, &worker.owner, &runnable).await.unwrap();
+    let gh = Worker {
+        target: "github".into(),
+        ..worker
+    };
+    let lease = claim(&pool, &gh, offer(&new_id())).await.unwrap().unwrap();
+    let run: String = sqlx::query_scalar("SELECT run_id FROM lab_worker_jobs WHERE id=?")
+        .bind(&lease.job_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(run, runnable.id);
+}
+
+#[tokio::test]
+async fn cancelling_comparisons_preserves_the_finished_source_and_completed_diagnostics() {
+    let (pool, worker, experiment) = fixture().await;
+    sqlx::query("UPDATE lab_experiments SET status='done' WHERE id=?")
+        .bind(&experiment)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut body = execution(&experiment);
+    body.comparison = true;
+    body.targets = vec!["saget".into(), "laptop".into()];
+    create(&pool, &worker.owner, &body).await.unwrap();
+    let saget = Worker {
+        target: "saget".into(),
+        ..worker.clone()
+    };
+    let done = claim(&pool, &saget, offer(&new_id()))
+        .await
+        .unwrap()
+        .unwrap();
+    submit(&pool, &saget, &done.id, &submission(&done))
+        .await
+        .unwrap();
+    let pending = claim(&pool, &worker, offer(&new_id()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        cancel(&pool, "stranger", &body.id).await,
+        Err(AppError::NotFound(_))
+    ));
+    cancel(&pool, &worker.owner, &body.id).await.unwrap();
+    cancel(&pool, &worker.owner, &body.id).await.unwrap();
+    assert!(matches!(
+        submit(&pool, &worker, &pending.id, &submission(&pending)).await,
+        Err(AppError::Conflict(_))
+    ));
+    assert!(
+        claim(&pool, &worker, offer(&new_id()))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let state: String = sqlx::query_scalar("SELECT status FROM lab_experiments WHERE id=?")
+        .bind(&experiment)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(state, "done");
+    let r = report(&pool, &worker.owner, &body.id).await.unwrap();
+    assert_eq!(r["targets"]["saget"]["games"], 2);
+    assert_eq!(r["cancel_reason"], "owner_cancelled");
 }
