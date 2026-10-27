@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+
+  rust:
+    name: Rust and Python tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: yama
+    env:
+      CARGO_BUILD_JOBS: '4'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
+      RUST_BACKTRACE: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: yama
+          persist-credentials: false
+      - name: Read the published Phase pin
+        id: phase
+        env:
+          PHASE_KEY: ${{ secrets.YAMA_PHASE_DEPLOY_KEY }}
+        run: |
+          if [ -z "$PHASE_KEY" ]; then
+            echo '::error::Configure YAMA_PHASE_DEPLOY_KEY with read-only access to bryanroscoe/yama-phase; see docs/ci.md.'
+            exit 1
+          fi
+          test "$(cat deploy/phase-repo)" = 'https://github.com/bryanroscoe/yama-phase.git'
+          revision="$(cat deploy/phase-rev)"
+          if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error::deploy/phase-rev must contain one full commit SHA.'
+            exit 1
+          fi
+          echo "sha=$revision" >> "$GITHUB_OUTPUT"
+      - name: Check out the private pinned engine
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: bryanroscoe/yama-phase
+          ref: ${{ steps.phase.outputs.sha }}
+          path: yama-phase
+          ssh-key: ${{ secrets.YAMA_PHASE_DEPLOY_KEY }}
+          persist-credentials: false
+      - name: Set up Rust
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          rustc --version
+      - name: Cache Rust dependencies and build output
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            yama/target
+          key: rust-ubuntu24-1.98.1-${{ hashFiles('yama/Cargo.lock', 'yama/deploy/phase-rev') }}-v1
+          restore-keys: |
+            rust-ubuntu24-1.98.1-
+      - name: Add temporary build swap
+        run: |
+          free -h
+          df -h . "$RUNNER_TEMP"
+          swap_file="$RUNNER_TEMP/yama-ci.swap"
+          sudo fallocate -l 4G "$swap_file"
+          sudo chmod 600 "$swap_file"
+          sudo mkswap "$swap_file"
+          sudo swapon "$swap_file"
+          swapon --show
+      - name: Test the Rust workspace
+        run: |
+          git log -1 --format='Tested Yama revision: %H'
+          git -C ../yama-phase log -1 --format='Tested Phase revision: %H'
+          vmstat -w 30 &
+          ci_monitor_pid=$!
+          trap 'kill "$ci_monitor_pid" 2>/dev/null || true' EXIT
+          /usr/bin/time -v cargo test --locked
+      - name: Report runner resources
+        if: always()
+        run: |
+          free -h
+          df -h .
+          swapon --show
+          for counter in /sys/fs/cgroup/memory.events /sys/fs/cgroup/memory.peak; do
+            if [ -r "$counter" ]; then
+              echo "$counter"
+              cat "$counter"
+            fi
+          done
+      - name: Test release guards
+        run: python3 deploy/test_release.py
+      - name: Test portable workers and build identity
+        run: python3 -m unittest discover -s tools -p 'test_lab*.py'
