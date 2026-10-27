@@ -514,6 +514,18 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 - **Ask Claude with tools:** the sidecar gives `query()` exactly one MCP server, `{type: "http", url, Authorization: Bearer <question token>}`, allows only `mcp__yama`, keeps `tools: []` (none of Claude Code's own tools) and `strictMcpConfig`, and allows 16 turns instead of 1. It streams a `tool` event (the tool's short name only) that the panel shows as "Looking up cards…". The instructions tell Claude to check a card with `card` before recommending it.
 - **Outside clients:** `claude mcp add --transport http yama https://yama.saget.org/mcp`, then `/mcp` and Authenticate (OAuth, below), or a claude.ai custom connector with the same URL, which also shows up in Claude Code and the phone app. A key still works for clients that can't sign in: `--header "Authorization: Bearer <key>"` (Settings shows that command once, with the key).
 
+#### Persistent deck research and review (2026-10-27)
+
+Research is an owner-scoped document and separate review operations (`0032_research.sql`),
+served under `/decks/research`. It stores complete alternatives, attributed rough power,
+combos, sources and dated acquisition allocations. It does not replace installed decks or
+approve planner changes. `save_research` and `review_research` are explicit exceptions to staged MCP writes:
+they directly store research notes and stated preferences only; `research` reads them and their answers. Session import and
+the CLI share validation/storage. Upsert is idempotent by content hash; owner-bound reviews
+have client op ids, expected versions and target fingerprints, with old/retired answers kept.
+See [the bounded format and APIs](docs/research-format.md). No research URLs are fetched by
+import, raw HTML is never rendered, and all user queries bind the authenticated owner.
+
 #### Commander research and workflow parity (2026-10-27)
 
 Bryan asked to bring the useful capabilities of other Magic MCPs into Yama, using independently

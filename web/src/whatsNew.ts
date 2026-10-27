@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-27-deck-research",
+    date: "2026-10-27",
+    title: "Review whole deck builds in Yama",
+    items: [
+      "Decks, Research keeps current lists, bracket alternatives, rough power explanations, combos, local buying evidence and print requirements together.",
+      "Choose a preferred build, answer individual swaps and save notes. Your answers survive research updates; changed evidence is flagged. These preferences do not install cards or approve orders.",
+    ],
+    link: { to: "/decks/research", label: "Open deck research" },
+  },
+  {
     id: "2026-10-27-proposal-review",
     date: "2026-10-27",
     title: "Read suggested deck changes before applying them",

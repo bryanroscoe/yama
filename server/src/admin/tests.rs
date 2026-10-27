@@ -455,6 +455,13 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "advisor_messages", &[("owner_id", t(&v)), ("conversation_id", t(&conversation))]).await;
     fill(&pool, "advisor_usage", &[("owner_id", t(&v))]).await;
     fill(&pool, "assistant_changes", &[("owner_id", t(&v)), ("conversation_id", t(&conversation))]).await;
+    // Research documents, answers and idempotency receipts are private account data too.
+    for owner in [&v,&b] {
+        let report=crate::util::new_id();
+        fill(&pool,"research_reports",&[("owner_id",t(owner)),("id",t(&report)),("document",t("{}"))]).await;
+        fill(&pool,"research_reviews",&[("owner_id",t(owner)),("report_id",t(&report)),("version",V::I(1))]).await;
+        fill(&pool,"research_review_ops",&[("owner_id",t(owner)),("receipt",t("{}"))]).await;
+    }
     // The victim's own shared-key grant (goes), and one it made for the bystander (stays, unsigned).
     fill(&pool, "advisor_shared_access", &[("user_id", t(&v)), ("granted_by", V::Null)]).await;
     fill(&pool, "advisor_shared_access", &[("user_id", t(&b)), ("granted_by", t(&v))]).await;

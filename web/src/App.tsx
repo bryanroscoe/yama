@@ -6,6 +6,7 @@ import { PeoplePage } from "./admin/People";
 import { ServerPage } from "./admin/Server";
 import { UsagePage } from "./admin/Usage";
 import { ChangesPage } from "./advisor/Changes";
+import { ResearchPage } from "./research/Research";
 import { Login, useMe } from "./auth";
 import { RailMe } from "./components/RailMe";
 import { SiteNotice } from "./components/SiteNotice";
@@ -128,6 +129,9 @@ export function App() {
         <Route path="cards" element={<CardsPage />} />
         <Route path="collection" element={<CollectionPage />} />
         <Route path="decks" element={<DecksPage />} />
+        <Route path="decks/research" element={<ResearchPage />} />
+        <Route path="decks/research/:reportId" element={<ResearchPage />} />
+        <Route path="decks/research/:reportId/:deckKey" element={<ResearchPage />} />
         {/* Static "plan" outranks ":id", so plan pages never reach DeckPage. */}
         <Route path="decks/plan" element={<PlanLayout />}>
           <Route index element={<Overview />} />
