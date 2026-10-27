@@ -508,6 +508,13 @@ Bryan (2026-10-22): "allow admins to impersonate other people to see their colle
 
 ### Yama's tools for Claude (MCP, 2026-10-22)
 
+**Public guide (2026-10-27):** `/docs/mcp/` is a static, signed-out guide in
+`web/public/docs/mcp/`, served independently of the authenticated React app. It documents the
+complete tool catalog, Commander workflows, Claude/Codex setup, sources, privacy and proposal
+approval. About, the shared site footer, connection settings, What's new and the sitemap link
+to it. The service worker excludes public documentation from the private app-shell cache.
+Update the guide when capabilities or connection instructions change.
+
 Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outside clients, from one toolset; Claude may change everything, but should recommend review before editing. Design and slices: `docs/mcp-design.md`. Slice 1 (read tools), slice 2 (staged changes, below) and slice 3 (OAuth sign-in, below) are built:
 
 - **One endpoint** (`server/src/mcp/`): `POST /mcp`, MCP's Streamable HTTP transport, stateless, plain JSON replies (no server-sent events, no session id); `initialize`, `ping`, `tools/list`, `tools/call`, notifications get 202, `GET` is 405. A browser `Origin` other than the server's own is refused. Logs carry the tool name and outcome, never arguments or results.

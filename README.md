@@ -42,6 +42,7 @@ Yama also exposes its own MCP at `/mcp` for Ask Claude and outside clients: priv
 collection and planner tools; staged edits; full online card search, community recommendations,
 combos, public deck imports and current rules; deck/budget analysis and bounded mana checks.
 No other Magic MCP installation is needed for those workflows. See
+the public [MCP feature and setup guide](https://yama.saget.org/docs/mcp/),
 [capabilities and use](docs/mcp-parity.md) and [connection design](docs/mcp-design.md).
 
 Needs Rust (stable) and Node 22+.

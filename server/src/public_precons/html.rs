@@ -663,7 +663,7 @@ pub(super) async fn sitemap(
         .fetch_all(&st.pool)
         .await?;
     let mut body="<?xml version=\"1.0\" encoding=\"UTF-8\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">".to_string();
-    for path in ["/precons".to_string(), "/precons/methodology".to_string()]
+    for path in ["/precons".to_string(), "/precons/methodology".to_string(), "/docs/mcp/".to_string()]
         .into_iter()
         .chain(
             ids.into_iter()

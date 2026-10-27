@@ -381,6 +381,7 @@ async fn public_html_is_complete_escaped_and_links_only_public_catalog_in_sitema
     assert!(text.contains("99 Forest"));
     let (_, _, xml) = request(&app, "/sitemap.xml", &[]).await;
     assert!(xml.contains("/precons/forest-deck"));
+    assert!(xml.contains("/docs/mcp/"));
     assert!(!xml.contains("/decks/"));
     assert!(!xml.contains(PRIVATE));
     for path in ["/precons/no-such-deck", "/api/public/precons/no-such-deck"] {

@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-27-mcp-guide",
+    date: "2026-10-27",
+    title: "A public guide to Yama's MCP",
+    items: [
+      "Read the complete feature catalog, setup instructions for Claude and Codex, and example requests for building and upgrading Commander decks. The guide is public and linked from About, the site footer and connection settings.",
+      "The guide explains research sources, ownership and budget checks, simulation tools, and how to review proposed changes before applying them.",
+    ],
+    link: { to: "/docs/mcp/", label: "Read the MCP guide" },
+  },
+  {
     id: "2026-10-27-proposal-review",
     date: "2026-10-27",
     title: "Read suggested deck changes before applying them",
@@ -108,7 +118,7 @@ export const NEWS: NewsEntry[] = [
     items: [
       "Claude Code and Claude's apps can read your decks, plans, Review, collection and lab runs with Yama's tools. Connect by signing in to Yama and pressing Allow; there's no key to copy.",
       "In Claude Code, add Yama with the command in Decks, Plans, Settings, then type /mcp. In Claude on the web, add a custom connector with the address shown there.",
-      "It only reads: it can't change anything. Settings lists each connected app, with Disconnect.",
+      "Connections can now read and research cards and stage changes for review. Ask Claude leaves Apply to you; external clients can apply after you approve an exact change. Settings lists each connected app, with Disconnect.",
     ],
     link: { to: "/decks/plan/settings", label: "Connect Claude" },
   },
