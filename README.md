@@ -20,6 +20,7 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 | What's new | A page listing what has shipped, in plain sentences, with a notice on each device until it's opened (Group, Account links to it too) |
 | Collection | Binders, boxes, decks and lists; add from card search (a real copy or a proxy); move, condition, proxy; proxies kept out of market value, and a Real / Proxies filter; idempotent offline ops; Mythic Tools CSV import (with a preview; a newer export adds only what's new, and cards it no longer lists are removed only if you ask) and export; "Add to my collection" on a deck puts its cards in its deck box, in the printings the list names |
 | Decks | Paste any common list format; edit as text with versions; version history with a diff between any two versions; Commander validation; owned/needed with cheapest market price; sample hands with mulligans; Game Changers count; how many cards online play supports; real-game results per version ("This version: 3-2, 5 games") |
+| Suggested changes | Review suggestions from Yama’s assistant and external MCP apps before applying them. Deck proposals show separate cards in/out with quantities, card previews, readable reasons and deck checks; existing proposals use the same view |
 | Brackets | A declared bracket per deck (chips on the deck list, table setup and online lobby), shown beside a starting suggestion from Commander Spellbook's card-list signals: Game Changers, mass land denial, extra turns and combos. Unflagged lists start provisionally at Core (2); Exhibition (1) and cEDH (5) are chosen by the owner. The deck page explains why. Checked in the background after a save; turn off with `YAMA_DECK_CHECKS=0` |
 | Deck stats and export | Mana curve (creatures and other spells), average mana value with and without lands, land count, colored pips and potential land access per color, without unsupported shortage verdicts ([method and research](docs/deck-stats.md)). Export as names only (EDHbots), Moxfield (set and number of your copy) or MTG Arena; copy or download |
 | Life counter | 1–6 players, rotated panels with the commander's art behind each life total (artist and copyright credited on each panel; switch to mana colors per device), commander damage and tax, poison and counters, monarch, initiative, day/night, undo, works offline and syncs later. Roll for first or pick who goes first (passing the turn never guesses it); knocking someone out asks who did it; the finish sheet asks how the game was won and how fun it was (all optional) |
@@ -36,6 +37,12 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 The public precon reference (`/precons`) serves stock lists, explicitly published simulation rankings, separately sourced real-game evidence and dated market references without sign-in. The personal Lab still requires sign-in. Results are published with `publish-precons MANIFEST`; imports never publish automatically. See [public precons and publication](docs/public-precons.md). All rights reserved in Yama’s original software, written analysis and presentation; third-party rights remain with their owners (see [COPYRIGHT](COPYRIGHT)).
 
 ## Run it locally
+
+Yama also exposes its own MCP at `/mcp` for Ask Claude and outside clients: private deck,
+collection and planner tools; staged edits; full online card search, community recommendations,
+combos, public deck imports and current rules; deck/budget analysis and bounded mana checks.
+No other Magic MCP installation is needed for those workflows. See
+[capabilities and use](docs/mcp-parity.md) and [connection design](docs/mcp-design.md).
 
 Needs Rust (stable) and Node 22+.
 

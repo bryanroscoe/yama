@@ -1,9 +1,9 @@
 //! Staged changes (docs/mcp-design.md, slice 2): "recommend review before editing" as a rule.
 //!
-//! A write tool checks what Claude asks for against the caller's own rows, then stores it in
+//! A write tool checks the requested change against the caller's own rows, then stores it in
 //! `assistant_changes` as pending, with a one-line summary and the details a person needs to
 //! decide. Nothing else changes. The person applies or discards it in Yama: under the answer in
-//! the Ask Claude panel, or on Decks, Changes from Claude. An outside client (a script key or an
+//! the Ask Claude panel, or on Decks, Suggested changes. An outside client (a script key or an
 //! OAuth sign-in) may also call `apply_change`, which its description limits to changes the
 //! person said yes to; Ask Claude has no way to apply its own.
 //!
@@ -30,6 +30,9 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::fmt::Write as _;
+
+mod preview;
+use preview::ChangePreview;
 
 /// Changes one account may have waiting at once.
 pub const MAX_PENDING: i64 = 50;
@@ -74,6 +77,8 @@ pub struct ChangeView {
     pub kind: String,
     pub summary: String,
     pub detail: Option<String>,
+    /// A safe presentation of the stored proposal, including proposals staged before this view existed.
+    pub preview: Option<ChangePreview>,
     pub via: String,
     pub conversation_id: Option<String>,
     pub message_id: Option<String>,
@@ -86,11 +91,13 @@ pub struct ChangeView {
 
 impl From<Row> for ChangeView {
     fn from(r: Row) -> Self {
+        let preview = preview::from_payload(&r.kind, &r.payload, r.detail.as_deref());
         ChangeView {
             id: r.id,
             kind: r.kind,
             summary: r.summary,
             detail: r.detail,
+            preview,
             via: r.via,
             conversation_id: r.conversation_id,
             message_id: r.message_id,
@@ -126,7 +133,15 @@ pub async fn list(pool: &SqlitePool, owner: &str, pending_only: bool, conversati
     .bind(conversation)
     .fetch_all(pool)
     .await?;
-    Ok(rows.into_iter().map(ChangeView::from).collect())
+    let mut views: Vec<_> = rows.into_iter().map(ChangeView::from).collect();
+    preview::enrich(pool, &mut views).await?;
+    Ok(views)
+}
+
+async fn load_view(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<ChangeView> {
+    let mut view = ChangeView::from(load(pool, owner, id).await?);
+    preview::enrich(pool, std::slice::from_mut(&mut view)).await?;
+    Ok(view)
 }
 
 /// What a write tool hands to [`stage`].
@@ -173,7 +188,7 @@ async fn stage(st: &AppState, user: &User, via: &Via, s: Staged) -> AppResult<St
         let _ = writeln!(out, "{}", s.detail.trim());
     }
     let _ = writeln!(out, "Change id: {id}");
-    let page = st.cfg.public_url.as_deref().map(|u| format!("{}/decks/changes", u.trim_end_matches('/'))).unwrap_or_else(|| "Decks, Changes from Claude".into());
+    let page = st.cfg.public_url.as_deref().map(|u| format!("{}/decks/changes", u.trim_end_matches('/'))).unwrap_or_else(|| "Decks, Suggested changes".into());
     match via {
         Via::Question(_) => out.push_str(
             "It shows under your answer with Apply and Discard buttons. Say that it's waiting for their review; never say it's done.",
@@ -341,7 +356,7 @@ async fn apply_edit_deck(st: &AppState, user: &User, summary: &str, p: &Value) -
     };
     if current.as_deref() != p["base_version"].as_str() {
         return Err(AppError::Conflict(format!(
-            "{deck} changed after Claude staged this, so it wasn't applied. Discard it and ask again for a change to the current list."
+            "{deck} changed after this was suggested, so it wasn't applied. Discard it and ask again for a change to the current list."
         )));
     }
     let add: Vec<CardRef> = serde_json::from_value(p["add"].clone()).map_err(anyhow::Error::from)?;
@@ -353,9 +368,144 @@ async fn apply_edit_deck(st: &AppState, user: &User, summary: &str, p: &Value) -
         return Err(AppError::Conflict(format!("Not applied: it would break {deck}: {}.", new.join("; "))));
     }
     st.limits.deck_writes.check_user(user)?;
-    let note = format!("From Claude: {}", p["note"].as_str().unwrap_or(summary));
+    let note = format!("Suggested change: {}", p["note"].as_str().unwrap_or(summary));
     crate::decks::insert_version(pool, deck_id, &after, Some(&note)).await?;
     Ok(json!({"label": format!("{deck} has a new version"), "link": format!("/decks/{deck_id}")}))
+}
+
+// ── complete deck lists ─────────────────────────────────────────────────────
+
+/// Complete-list construction/import/restore uses the existing edit_deck change kind. The
+/// payload distinguishes it from add/remove edits, so no migration or second review queue is
+/// needed. The list is pinned at staging, never fetched again during Apply.
+pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    use super::research::{analysis, optional_text, required_text};
+    if args.get("version").is_some() {
+        return Err(AppError::bad(
+            "Inspect the historical version first, then pass its complete list to save_deck.",
+        ));
+    }
+    let text = required_text(args, "list", 30000)?;
+    let first = super::research::boolean(args, "first_is_commander", true)?;
+    let list = analysis::load(st, user, &json!({"list":text,"first_is_commander":first})).await?;
+    if !list.unknown.is_empty() {
+        return Err(AppError::bad(format!(
+            "Unknown names: {}. Nothing was staged.",
+            list.unknown.join(", ")
+        )));
+    }
+    let info = card_info(&st.pool, &list.cards).await?;
+    let validation = crate::decks::validate(&list.cards, &info);
+    if !validation.errors.is_empty() || !validation.warnings.is_empty() {
+        return Err(AppError::bad(format!(
+            "The complete list is not validated: {}. Nothing was staged.",
+            [validation.errors, validation.warnings].concat().join("; ")
+        )));
+    }
+    let (target, base, name) = if let Some(deck) = optional_text(args, "deck", 200)? {
+        let id = deck_id(&st.pool, &user.id, deck).await?;
+        let (name, version): (String, Option<String>) = sqlx::query_as(
+            "SELECT name,current_version_id FROM decks WHERE id = ? AND owner_id = ?",
+        )
+        .bind(&id)
+        .bind(&user.id)
+        .fetch_one(&st.pool)
+        .await?;
+        (Some(id), version, name)
+    } else {
+        (None, None, required_text(args, "name", 200)?.into())
+    };
+    let note = optional_text(args, "note", 1000)?
+        .unwrap_or("Complete list proposed through Yama")
+        .to_string();
+    let source = optional_text(args, "source_url", 1000)?
+        .map(|raw| super::research::deck_url(raw).map(|(_, _, url)| url))
+        .transpose()?;
+    let summary = format!(
+        "{} {name} with a complete validated list",
+        if target.is_some() {
+            "Replace"
+        } else {
+            "Create"
+        }
+    );
+    let detail = format!(
+        "Why: {note}\n{}\n{}\n{}",
+        source
+            .as_deref()
+            .map(|s| format!("Source: {s}"))
+            .unwrap_or_default(),
+        checks(&list.cards, &info),
+        analysis::exported(&list.cards)
+    );
+    stage(st,user,via,Staged {kind:"edit_deck",summary,detail,payload:json!({"complete_list":true,"deck_id":target,"base_version":base,"name":name,"cards":list.cards,"note":note,"source_url":source})}).await
+}
+
+async fn apply_complete_deck(
+    st: &AppState,
+    user: &User,
+    change: &str,
+    p: &Value,
+) -> AppResult<Value> {
+    let cards: Vec<DeckCard> =
+        serde_json::from_value(p["cards"].clone()).map_err(anyhow::Error::from)?;
+    let info = card_info(&st.pool, &cards).await?;
+    let v = crate::decks::validate(&cards, &info);
+    if !v.errors.is_empty() || !v.warnings.is_empty() {
+        return Err(AppError::Conflict(format!(
+            "The list no longer validates: {}",
+            [v.errors, v.warnings].concat().join("; ")
+        )));
+    }
+    st.limits.deck_writes.check_user(user)?;
+    let note = format!(
+        "Suggested change: {}{}",
+        p["note"].as_str().unwrap_or("Complete list"),
+        p["source_url"]
+            .as_str()
+            .map(|s| format!("\nSource: {s}"))
+            .unwrap_or_default()
+    );
+    let mut tx = st.pool.begin().await?;
+    let id = if let Some(id) = p["deck_id"].as_str() {
+        let row: Option<(Option<String>, bool)> = sqlx::query_as(
+            "SELECT current_version_id,archived FROM decks WHERE id = ? AND owner_id = ?",
+        )
+        .bind(id)
+        .bind(&user.id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((version, false)) = row else {
+            return Err(AppError::NotFound("deck"));
+        };
+        if version.as_deref() != p["base_version"].as_str() {
+            return Err(AppError::Conflict("The deck changed after this list was staged. Review a new proposal against its current version.".into()));
+        }
+        crate::decks::insert_version_in(&mut tx, id, &cards, Some(&note)).await?;
+        id.to_string()
+    } else {
+        crate::decks::create_deck_in(
+            &mut tx,
+            &user.id,
+            p["name"].as_str().unwrap_or(""),
+            None,
+            &cards,
+            &note,
+        )
+        .await?
+    };
+    let result = json!({"label":format!("{} saved",p["name"].as_str().unwrap_or("Deck")),"link":format!("/decks/{id}"),"deck_id":id});
+    // The deck and the applied marker commit together: a lost reply cannot create it twice.
+    let updated=sqlx::query("UPDATE assistant_changes SET status='applied',result=?,error=NULL,decided_at=? WHERE id=? AND owner_id=? AND status='pending'")
+        .bind(result.to_string()).bind(now()).bind(change).bind(&user.id).execute(&mut *tx).await?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::Conflict(
+            "The proposal is no longer pending; the deck was not saved.".into(),
+        ));
+    }
+    tx.commit().await?;
+    crate::deck_checks::wake();
+    Ok(result)
 }
 
 // ── plan changes ────────────────────────────────────────────────────────────
@@ -1224,6 +1374,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
     }
     let p: Value = serde_json::from_str(&row.payload).map_err(anyhow::Error::from)?;
     let done = match row.kind.as_str() {
+        "edit_deck" if p["complete_list"] == true => apply_complete_deck(st, user, &row.id, &p).await,
         "edit_deck" => apply_edit_deck(st, user, &row.summary, &p).await,
         "propose_swap" | "answer_review" | "mark_bought" | "mark_installed" => apply_plan(st, user, &row.kind, &row.id, &p).await,
         "start_lab_run" => apply_lab_run(st, user, &row.id, &p).await,
@@ -1257,10 +1408,11 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
             sqlx::query("UPDATE assistant_changes SET error = ? WHERE id = ? AND owner_id = ?").bind(&message).bind(id).bind(&user.id).execute(&st.pool).await?;
         }
     }
-    Ok(load(&st.pool, &user.id, id).await?.into())
+    load_view(&st.pool, &user.id, id).await
 }
 
 pub async fn discard(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<ChangeView> {
+    let _one = apply_lock().lock().await;
     let row = load(pool, owner, id).await?;
     if row.status != "pending" {
         return Err(AppError::Conflict(format!("This change was already {}.", row.status)));
@@ -1271,7 +1423,7 @@ pub async fn discard(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Chan
         .bind(owner)
         .execute(pool)
         .await?;
-    Ok(load(pool, owner, id).await?.into())
+    load_view(pool, owner, id).await
 }
 
 // ── routes (the pages, signed in) ───────────────────────────────────────────

@@ -1,5 +1,4 @@
-// Changes Claude staged through Yama's tools (docs/mcp-design.md, slice 2). Nothing changes until
-// the person presses Apply here: under the answer that staged it, or on Decks, Changes from Claude.
+// Suggested changes from Yama's assistant or external MCP clients. Only Apply changes the data.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -7,12 +6,13 @@ import { Link } from "react-router";
 import { AreaHead } from "../components/DeckTabs";
 import { Details, ErrorText } from "../components/ui";
 import { applyChange, changesKey, discardChange, stagedChanges, type StagedChange } from "./api";
+import { Proposal, ProposalText } from "./Proposal";
 import "./advisor.css";
 
 const VIA: Record<StagedChange["via"], string> = {
-  question: "From Ask Claude",
-  key: "From Claude with a key",
-  oauth: "From a Claude app",
+  question: "From Yama’s assistant",
+  key: "From MCP with a script key",
+  oauth: "From an external app through MCP",
 };
 
 /** One staged change, with Apply and Discard while it waits. */
@@ -32,13 +32,9 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
   return (
     <div className={`ask-change is-${shown.status}`}>
       <p className="ask-change-what">
-        <b>{shown.summary}</b>
+        <b>{shown.preview?.target ?? shown.summary}</b>
       </p>
-      {shown.detail && (
-        <Details label="Details">
-          <pre className="ask-change-detail">{shown.detail}</pre>
-        </Details>
-      )}
+      {shown.preview ? <Proposal preview={shown.preview} /> : shown.detail && <ProposalText text={shown.detail} />}
       {shown.status === "pending" ? (
         <>
           {shown.error && (
@@ -75,19 +71,19 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
   );
 }
 
-/** "Claude has 2 changes for you to review": shown on Decks while any wait. */
+/** Shown on Decks while suggested changes wait for review. */
 export function ChangesBanner() {
   const waiting = useQuery({ queryKey: [...changesKey, "pending"], queryFn: () => stagedChanges(), staleTime: 30_000 });
   const n = waiting.data?.length ?? 0;
   if (!n) return null;
   return (
     <p className="ask-changes-banner">
-      Claude has {n === 1 ? "a change" : `${n} changes`} for you to review. <Link to="/decks/changes">Review {n === 1 ? "it" : "them"}</Link>
+      {n === 1 ? "A suggested change is" : `${n} suggested changes are`} waiting for your review. <Link to="/decks/changes">Review {n === 1 ? "it" : "them"}</Link>
     </p>
   );
 }
 
-/** Decks, Changes from Claude: everything waiting, then what was decided lately. */
+/** Suggested changes: everything waiting, then what was decided lately. */
 export function ChangesPage() {
   const all = useQuery({ queryKey: [...changesKey, "all"], queryFn: () => stagedChanges({ all: true }) });
   // A change decided on this visit stays in place, showing what became of it, until the page is left.
@@ -98,9 +94,9 @@ export function ChangesPage() {
   const groups = [...new Set(waiting.map((c) => c.via))];
   return (
     <main className="page">
-      <AreaHead title="Changes from Claude" back={{ to: "/decks", label: "Decks" }} />
+      <AreaHead title="Suggested changes" back={{ to: "/decks", label: "Decks" }} />
       <p className="dim">
-        Claude stages changes here instead of making them: to a deck, a plan, the lab or your collection. Nothing changes until you press Apply.
+        Review suggestions from Yama’s assistant, MCP clients and other connected apps. Nothing changes until you press Apply.
       </p>
       <ErrorText error={all.error} />
       {all.isPending && <p className="dim">Loading…</p>}
