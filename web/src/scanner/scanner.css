@@ -73,6 +73,13 @@
 .scan-step p {
   font-size: var(--t-label);
 }
+/* The next step is a tap, not the camera: outlined in the panel, and a white chip over the camera. */
+.scan-step.is-tap {
+  padding: 12px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-tile);
+  scroll-margin: 12px;
+}
 /* The card the recognizer sees, outlined over the video (same box and cover fit as the video). */
 .scan-outline {
   position: absolute;
@@ -128,6 +135,10 @@
 }
 .scan-chip.found {
   color: var(--good);
+}
+.scan-chip.is-tap {
+  background: #fff;
+  color: #000;
 }
 .scan-panel {
   position: relative;
@@ -329,4 +340,78 @@
     width: min(560px, 100%);
     margin: -20px auto 0;
   }
+}
+/* "Added 3: review" opens the session list. */
+button.scan-count {
+  min-height: 0;
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.scan-keep {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: row;
+  align-items: start;
+  gap: 8px;
+  color: var(--text);
+}
+.scan-keep input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin-top: 2px;
+  padding: 0;
+}
+.scan-keep span {
+  font-size: var(--t-sm);
+  font-weight: 400;
+}
+/* The cards added while scanning, each fixable in place. */
+.scan-added {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.scan-added-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.scan-added-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.scan-added-card {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 12px;
+}
+.scan-added-thumb {
+  width: 56px;
+  aspect-ratio: 488 / 680;
+  border-radius: 3px;
+  background: var(--raised);
+  object-fit: cover;
+  font-size: var(--t-sm);
+}
+.scan-added-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.scan-added-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 12px;
 }
