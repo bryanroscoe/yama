@@ -353,8 +353,14 @@ export interface DeckView {
     /** Copies covered by proxies beyond the real ones; a proxied card isn't needed. */
     proxies?: number;
     needed: number;
+    /** Cheapest prices of the cards still needed, basics excluded. */
     needed_cost_usd: number;
     needed_without_price: number;
+    /** The same prices for your real copies, and for the copies proxies stand in for. */
+    owned_value_usd?: number;
+    owned_without_price?: number;
+    proxy_value_usd?: number;
+    proxies_without_price?: number;
     /** The Scryfall price snapshot behind those prices (YYYY-MM-DD). */
     price_date?: string | null;
   };

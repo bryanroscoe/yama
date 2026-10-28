@@ -37,20 +37,35 @@ pub type Prices = HashMap<String, (f64, String)>;
 // Match the planner's paper-printing eligibility and freshness rule. The date belongs to the
 // selected price, never MAX(date) from an unrelated (possibly unpriced) printing.
 pub async fn prices(pool: &SqlitePool) -> AppResult<Prices> {
-    let rows: Vec<(String, f64, String)> = sqlx::query_as(
+    query_prices(pool, None).await
+}
+
+/// The same prices for just these cards, for one deck's page without pricing the whole catalog.
+pub async fn prices_for(pool: &SqlitePool, oracle_ids: &[&str]) -> AppResult<Prices> {
+    query_prices(pool, Some(serde_json::to_string(oracle_ids).map_err(anyhow::Error::from)?)).await
+}
+
+async fn query_prices(pool: &SqlitePool, only: Option<String>) -> AppResult<Prices> {
+    let filter = if only.is_some() { "AND p.oracle_id IN (SELECT value FROM json_each(?))" } else { "" };
+    let sql = format!(
         "WITH cur AS MATERIALIZED (
            SELECT p.oracle_id, ps.usd, ps.date, p.scryfall_id FROM printings p
            JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
             AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id)
            WHERE p.set_code NOT IN ('wc97','wc98','wc99','wc00','wc01','wc02','wc03','wc04','ptc','ced','cei','30a','olgc','ovnt')
-            AND p.set_name NOT LIKE '%Oversized%' AND p.set_name NOT LIKE '%Display Commanders%'
+            AND p.set_name NOT LIKE '%Oversized%' AND p.set_name NOT LIKE '%Display Commanders%' {filter}
          ), fresh AS (SELECT oracle_id, MAX(date) AS newest FROM cur GROUP BY oracle_id),
          ranked AS (
            SELECT cur.*, ROW_NUMBER() OVER (PARTITION BY cur.oracle_id ORDER BY usd, date DESC, scryfall_id) AS rn
            FROM cur JOIN fresh USING (oracle_id)
            WHERE usd IS NOT NULL AND usd >= 0 AND date >= date(fresh.newest, '-3 days')
          ) SELECT oracle_id, usd, date FROM ranked WHERE rn = 1"
-    ).fetch_all(pool).await?;
+    );
+    let mut q = sqlx::query_as::<_, (String, f64, String)>(sqlx::AssertSqlSafe(sql));
+    if let Some(ids) = only {
+        q = q.bind(ids);
+    }
+    let rows = q.fetch_all(pool).await?;
     Ok(rows
         .into_iter()
         .map(|(id, usd, date)| (id, (usd, date)))

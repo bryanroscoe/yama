@@ -3,43 +3,8 @@ use super::*;
 use axum::response::Html;
 use std::fmt::Write;
 
-pub(crate) fn e(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
-}
-fn pct(n: Option<f64>) -> String {
-    n.map(|n| format!("{:.1}%", n * 100.))
-        .unwrap_or_else(|| "—".into())
-}
-fn usd(n: Option<f64>) -> String {
-    n.map(|n| format!("${n:.2}"))
-        .unwrap_or_else(|| "No price".into())
-}
-pub(crate) fn when(s: &str) -> String {
-    s.get(..10)
-        .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
-        .map(|d| d.format("%-d %b %Y").to_string())
-        .unwrap_or_else(|| "Date unavailable".into())
-}
-fn count(n: i64) -> String {
-    let s = n.to_string();
-    s.chars()
-        .enumerate()
-        .map(|(i, c)| {
-            if i > 0 && (s.len() - i).is_multiple_of(3) {
-                format!(",{c}")
-            } else {
-                c.to_string()
-            }
-        })
-        .collect()
-}
-/// Same geometry as components/Wordmark.tsx and design/logo/yama-wordmark.svg.
-pub(crate) const WORDMARK: &str = r#"<svg viewBox="0 -8 280 110" aria-hidden="true"><g fill="currentColor"><path d="M0 0H20L32 30L44 0H64L42 56V100H22V56Z"/><path d="M60 100L92 -6L124 100H104L92 60L80 100Z"/><path d="M134 100V0H152L170 44L188 0H206V100H186V40L170 79L154 40V100Z"/><path d="M216 100L248 -6L280 100H260L248 60L236 100Z"/></g></svg>"#;
+pub(crate) use crate::public_page::{WORDMARK, e, when};
+use crate::public_page::{card_item, count, identity, pct, secure, usd};
 
 fn page(st: &AppState, path: &str, title: &str, description: &str, body: &str) -> String {
     let canonical = st
@@ -76,43 +41,11 @@ fn page(st: &AppState, path: &str, title: &str, description: &str, body: &str) -
 }
 fn response(headers: &HeaderMap, body: String) -> Response {
     let mut res = cached(headers, body, "text/html; charset=utf-8");
-    res.headers_mut().insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://cards.scryfall.io; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"));
-    res.headers_mut().insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("strict-origin-when-cross-origin"),
-    );
+    secure(&mut res);
     res
 }
 fn colors(p: &Precon) -> String {
-    let mut s = "<span class=\"identity\" aria-label=\"Color identity: ".to_string();
-    let letters = if p.color_identity.is_empty() {
-        "C"
-    } else {
-        &p.color_identity
-    };
-    let names: Vec<_> = letters
-        .chars()
-        .filter_map(|c| match c {
-            'W' => Some("white"),
-            'U' => Some("blue"),
-            'B' => Some("black"),
-            'R' => Some("red"),
-            'G' => Some("green"),
-            'C' => Some("colorless"),
-            _ => None,
-        })
-        .collect();
-    s.push_str(&names.join(", "));
-    s.push_str("\">");
-    for c in letters.chars().filter(|c| "WUBRGC".contains(*c)) {
-        write!(
-            s,
-            "<span class=\"color color-{c}\" aria-hidden=\"true\">{c}</span>"
-        )
-        .unwrap();
-    }
-    s.push_str("</span>");
-    s
+    identity(&p.color_identity)
 }
 fn credit(p: &Precon) -> String {
     p.art
@@ -865,18 +798,7 @@ pub(super) async fn detail(
         )
         .unwrap();
         for c in cards {
-            let image = c
-                .image
-                .as_ref()
-                .map(|u| {
-                    format!(
-                        "<img src=\"{}\" alt=\"{}\" loading=\"lazy\" width=\"48\" height=\"67\">",
-                        e(u),
-                        e(&c.name)
-                    )
-                })
-                .unwrap_or_default();
-            write!(body,"<li><a class=\"public-card-ref\" data-card-name=\"{}\" data-card-image=\"{}\" href=\"{}\">{image}<span><span class=\"card-qty\">{}</span> {}<small>{}</small></span></a></li>",e(&c.name),e(c.image.as_deref().unwrap_or("")),e(&c.scryfall_url),c.qty,e(&c.name),e(c.type_line.as_deref().unwrap_or("Card details on Scryfall"))).unwrap();
+            body.push_str(&card_item(&c.name, c.image.as_deref(), &c.scryfall_url, c.qty, &e(c.type_line.as_deref().unwrap_or("Card details on Scryfall"))));
         }
         body.push_str("</ul>");
     }

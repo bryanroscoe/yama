@@ -34,18 +34,18 @@ import { groupConfigurations } from "../decks/configurations";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
  *  "Complete". A proxy covers a card for play, so a deck of real cards and proxies is complete;
- *  the text says how many are proxies. */
+ *  the text then says how many are real and how many proxies: "90 real, 10 proxies". */
 function ownership(owned: number | undefined, total: number, proxies = 0): { text: string; short: string; tone: "good" | "warn" } | null {
   if (owned === undefined) return null;
   const have = owned + proxies;
   const px = proxies === 1 ? "1 proxy" : `${proxies} proxies`;
   if (have >= total) {
     return proxies > 0
-      ? { text: `All ${total} in hand, ${px}`, short: "Complete", tone: "good" }
+      ? { text: `${owned} real, ${px}`, short: "Complete", tone: "good" }
       : { text: `Own all ${total}`, short: "Complete", tone: "good" };
   }
   return {
-    text: proxies > 0 ? `Have ${have} of ${total}, ${px}` : `Own ${owned} of ${total}`,
+    text: proxies > 0 ? `${owned} real, ${px}, need ${total - have}` : `Own ${owned} of ${total}`,
     short: `Need ${total - have}`,
     tone: "warn",
   };
@@ -139,48 +139,33 @@ function DeckTile({ d }: { d: DeckSummary }) {
   );
 }
 
-/** A main deck's other configurations, collapsed under its tile. */
+/** A main deck's configurations as a row of links under its tile, always in view: the main
+ *  list first, then the others, each with how close it is to complete. */
 function ConfigurationList({ main, configurations }: { main: DeckSummary; configurations: DeckSummary[] }) {
-  const key = `yama.decks.configs.${main.id}`;
-  const [open, setOpenState] = useState(() => localStorage.getItem(key) === "1");
-  const setOpen = (o: boolean) => {
-    localStorage.setItem(key, o ? "1" : "0");
-    setOpenState(o);
-  };
-  const listId = `configs-${main.id}`;
+  const qc = useQueryClient();
+  const prefetch = (id: string) => void qc.prefetchQuery({ queryKey: ["deck", id], queryFn: () => api<DeckView>(`/api/decks/${id}`), staleTime: 30_000 });
   return (
-    <div className="deck-configs">
-      <button type="button" className="quiet deck-configs-toggle" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(!open)}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d={open ? "m6 9 6 6 6-6" : "m9 18 6-6-6-6"} />
-        </svg>
-        {configurations.length + 1} configurations
-      </button>
-      {open && (
-        <ul id={listId} className="deck-configs-list">
-          <li>
-            <Link to={`/decks/${main.id}`}>
-              <b>{main.configuration ?? "Main"}</b>
-              <span className="dim small">{main.card_count} cards</span>
-            </Link>
-          </li>
-          {configurations.map((c) => {
-            const own = ownership(c.owned, c.card_count, c.proxies ?? 0);
-            return (
-              <li key={c.id}>
-                <Link to={`/decks/${c.id}`}>
-                  <b>{c.configuration ?? c.name}</b>
-                  <span className="dim small">
-                    {own ? own.short : `${c.card_count} cards`}
-                    {SHARED_LABEL[c.visibility] ? `. ${SHARED_LABEL[c.visibility]}` : ""}
-                  </span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
+    <nav className="deck-configs" aria-label={`Configurations of ${main.name}`}>
+      <ul className="deck-configs-list">
+        {[main, ...configurations].map((c, i) => {
+          const own = ownership(c.owned, c.card_count, c.proxies ?? 0);
+          const shared = SHARED_LABEL[c.visibility];
+          return (
+            <li key={c.id}>
+              <Link
+                to={`/decks/${c.id}`}
+                onMouseEnter={() => prefetch(c.id)}
+                onFocus={() => prefetch(c.id)}
+                title={[own?.text, shared].filter(Boolean).join(". ") || undefined}
+              >
+                <b>{c.configuration ?? (i === 0 ? "Main" : c.name)}</b>
+                <span className="dim small">{own ? own.short : `${c.card_count} cards`}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
   );
 }
 
@@ -190,7 +175,15 @@ const STACK_PEEK = 6;
 export function DeckPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const deck = useQuery({ queryKey: ["deck", id], queryFn: () => api<DeckView>(`/api/decks/${id}`) });
+  const qc = useQueryClient();
+  // Switching to another configuration of the same deck keeps this one on screen until the
+  // other arrives, instead of an empty page.
+  const deck = useQuery({
+    queryKey: ["deck", id],
+    queryFn: () => api<DeckView>(`/api/decks/${id}`),
+    placeholderData: (prev) => (prev?.configurations.some((c) => c.id === id) ? prev : undefined),
+  });
+  const prefetch = (other: string) => void qc.prefetchQuery({ queryKey: ["deck", other], queryFn: () => api<DeckView>(`/api/decks/${other}`), staleTime: 30_000 });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const [view, setView] = useState<"all" | "needed">("all");
   const [layout, setLayoutState] = useState<"stacks" | "list">(() => {
@@ -254,16 +247,23 @@ export function DeckPage() {
   const losses = summary?.games ? summary.games - (summary.wins ?? 0) - (summary.draws ?? 0) : 0;
   const listArtists = layout === "list" ? groups.flatMap(([, es]) => es.map((e) => (e.card?.image_art_crop ? e.card.artist : null))) : [];
 
+  const proxies = o.proxies ?? 0;
   const stats = (
     <>
       <span className="deck-stat">
-        <b className="num">{o.owned + (o.proxies ?? 0)}/{o.cards}</b>
-        <span>{o.proxies ? `in hand, ${o.proxies === 1 ? "1 proxy" : `${o.proxies} proxies`}` : "cards you own"}</span>
+        <b className="num">{o.owned}/{o.cards}</b>
+        <span>{o.owned === o.cards ? "real cards, all of them" : "real cards"}</span>
       </span>
+      {proxies > 0 && (
+        <span className="deck-stat">
+          <b className="num">{proxies}</b>
+          <span>{proxies === 1 ? "proxy" : "proxies"} standing in</span>
+        </span>
+      )}
       <span className="deck-stat">
         <b className="num">{o.needed ? usd(o.needed_cost_usd) : "Done"}</b>
         <span>
-          {o.needed ? "to finish, basics excluded" : "nothing left to buy"}
+          {o.needed ? `to get the last ${o.needed}, basics excluded` : "nothing left to get"}
           {o.needed_without_price > 0 ? `; ${o.needed_without_price} with no price` : ""}. {priced}
         </span>
       </span>
@@ -335,12 +335,25 @@ export function DeckPage() {
           </span>
           <h1 className="hero-title">{d.name}</h1>
           {d.configurations.length > 1 && (
-            <nav className="hero-configs" aria-label="Configurations of this deck">
-              {d.configurations.map((c, i) => (
-                <Link key={c.id} to={`/decks/${c.id}`} className="on-art" aria-current={c.id === d.id ? "page" : undefined}>
-                  {c.configuration ?? (i === 0 ? "Main" : c.name)}
-                </Link>
-              ))}
+            <nav className="hero-configs" aria-label="Configurations of this deck" aria-busy={deck.isPlaceholderData}>
+              <span className="hero-configs-label">Configurations</span>
+              {d.configurations.map((c, i) => {
+                const label = c.configuration ?? (i === 0 ? "Main" : c.name);
+                const loading = deck.isPlaceholderData && c.id === id;
+                return (
+                  <Link
+                    key={c.id}
+                    to={`/decks/${c.id}`}
+                    className="on-art"
+                    aria-current={c.id === (deck.isPlaceholderData ? id : d.id) ? "page" : undefined}
+                    onMouseEnter={() => prefetch(c.id)}
+                    onFocus={() => prefetch(c.id)}
+                  >
+                    {label}
+                    {loading && <span className="hero-configs-loading">, opening…</span>}
+                  </Link>
+                );
+              })}
             </nav>
           )}
           <div className="hero-row">
@@ -351,16 +364,16 @@ export function DeckPage() {
       </ArtPanel>
 
       <div className="page deck-body">
-        <DeckPrices singles={d.singles_value} />
+        <DeckPrices singles={d.singles_value} ownership={o} />
         {/* Phones: three figure tiles, the plan, then the other actions. */}
         <div className="deck-stats-tiles">
           <span className="deck-stat">
-            <b className="num">{o.owned + (o.proxies ?? 0)}</b>
-            <span>{o.proxies ? `of ${o.cards} in hand, ${o.proxies} proxies` : `of ${o.cards} owned`}</span>
+            <b className="num">{o.owned}</b>
+            <span>{proxies ? `of ${o.cards} real, ${proxies} ${proxies === 1 ? "proxy" : "proxies"}` : `of ${o.cards} owned`}</span>
           </span>
           <span className="deck-stat">
             <b className="num">{o.needed ? usd(o.needed_cost_usd) : "Done"}</b>
-            <span>{o.needed ? `to finish${priceDay ? `, ${priceDay}` : ""}` : "nothing to buy"}</span>
+            <span>{o.needed ? `for the last ${o.needed}${priceDay ? `, ${priceDay}` : ""}` : "nothing to buy"}</span>
           </span>
           <span className="deck-stat">
             <b className="num">{summary?.games ? `${summary.wins ?? 0}–${losses}` : "0"}</b>

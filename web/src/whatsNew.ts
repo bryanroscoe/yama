@@ -14,6 +14,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-28-shared-deck-pages",
+    date: "2026-10-28",
+    title: "Shared decks show what your deck page shows",
+    items: [
+      "A shared deck now has the deck page's legality check, your declared bracket beside Yama's suggestion and why, the Game Changers and combos behind it, deck stats, market value, and stacks of card images.",
+      "If your upgrade plan has simulated games, a shared deck shows its own simulated win rate and those of its public configurations.",
+      "Configurations sit in a row under each deck, and switching between them keeps the page on screen instead of going blank.",
+      "Your deck page splits its value: the real cards you own, what the proxies would cost as real cards, and what's left to get.",
+    ],
+    link: { to: "/decks", label: "Open your decks" },
+  },
+  {
     id: "2026-10-28-scanner-art",
     date: "2026-10-28",
     title: "A faster scanner that gets the printing right",

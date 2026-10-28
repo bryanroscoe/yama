@@ -743,22 +743,7 @@ pub(super) async fn deck_id(pool: &SqlitePool, owner: &str, wanted: &str) -> App
     }
 }
 
-pub(super) async fn card_info(pool: &SqlitePool, cards: &[DeckCard]) -> AppResult<HashMap<String, Card>> {
-    let mut info = HashMap::new();
-    for c in cards {
-        if info.contains_key(&c.oracle_id) {
-            continue;
-        }
-        if let Some(card) = sqlx::query_as::<_, Card>(AssertSqlSafe(format!("SELECT {CARD_COLUMNS} FROM cards WHERE oracle_id = ?")))
-            .bind(&c.oracle_id)
-            .fetch_optional(pool)
-            .await?
-        {
-            info.insert(c.oracle_id.clone(), card);
-        }
-    }
-    Ok(info)
-}
+pub(super) use crate::decks::card_info;
 
 /// Legality and Game Changers for a list, as lines.
 pub(super) fn checks(cards: &[DeckCard], info: &HashMap<String, Card>) -> String {
