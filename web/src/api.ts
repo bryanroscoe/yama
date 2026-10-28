@@ -287,6 +287,8 @@ export interface Sharing {
   handle: string | null;
   new_deck_visibility: Visibility;
   collection_public: boolean;
+  /** Shared decks show their plan's simulated win rates. */
+  share_lab_results: boolean;
   /** Live decks by visibility. */
   decks: Record<Visibility, number>;
 }
@@ -363,8 +365,15 @@ export interface DeckView {
     /** Copies covered by proxies beyond the real ones; a proxied card isn't needed. */
     proxies?: number;
     needed: number;
+    /** Cheapest prices of the cards still needed, basics excluded. */
     needed_cost_usd: number;
     needed_without_price: number;
+    /** The same prices for your real copies, and for the copies proxies stand in for. */
+    /** null while none of those copies has a price. */
+    owned_value_usd?: number | null;
+    owned_without_price?: number;
+    proxy_value_usd?: number | null;
+    proxies_without_price?: number;
     /** The Scryfall price snapshot behind those prices (YYYY-MM-DD). */
     price_date?: string | null;
   };

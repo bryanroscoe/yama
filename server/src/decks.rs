@@ -632,9 +632,16 @@ struct OwnershipTotals {
     /// Copies covered by proxies beyond the real ones. A proxied card isn't needed.
     proxies: i64,
     needed: i64,
-    /// Sum of cheapest prices for needed cards that have a price.
+    /// Sum of cheapest prices for needed cards that have a price, basics excluded.
     needed_cost_usd: f64,
     needed_without_price: i64,
+    /// The same cheapest prices for the real copies you own, and for the copies proxies cover
+    /// (what replacing them with real cards would cost). Basics count here. None while no copy
+    /// in that group has a price: a missing price is unknown, not zero.
+    owned_value_usd: Option<f64>,
+    owned_without_price: i64,
+    proxy_value_usd: Option<f64>,
+    proxies_without_price: i64,
     /// The Scryfall price snapshot those prices come from (YYYY-MM-DD).
     price_date: Option<String>,
 }
@@ -645,17 +652,11 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         Some(v) => load_version_cards(&st.pool, v).await?,
         None => vec![],
     };
-    let mut card_info: HashMap<String, Card> = HashMap::new();
-    for c in &cards {
-        if let Some(card) = sqlx::query_as::<_, Card>(AssertSqlSafe(format!("SELECT {CARD_COLUMNS} FROM cards WHERE oracle_id = ?")))
-            .bind(&c.oracle_id)
-            .fetch_optional(&st.pool)
-            .await?
-        {
-            card_info.insert(c.oracle_id.clone(), card);
-        }
-    }
-    let singles_value = crate::deck_prices::singles(&serde_json::to_value(&cards).map_err(anyhow::Error::from)?, &crate::deck_prices::prices(&st.pool).await?);
+    let card_info = self::card_info(&st.pool, &cards).await?;
+    // One price per card for the whole page: the deck value, what you own, proxies and what's left.
+    let market_prices =
+        crate::deck_prices::prices_for(&st.pool, &cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
+    let singles_value = crate::deck_prices::singles(&serde_json::to_value(&cards).map_err(anyhow::Error::from)?, &market_prices);
     let validation = validate(&cards, &card_info);
     let game_changers = game_changers(&cards, &card_info);
     let game_changers_as_of = crate::cards::import::game_changers_date(&st.pool).await?;
@@ -692,27 +693,34 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         }
         // A proxy covers a card for play: needed is what neither real copies nor proxies cover.
         let needed = (c.qty - owned - proxies).max(0);
-        let (cheapest_usd, price_date): (Option<f64>, Option<String>) = if c.board == Board::Side {
-            (None, None)
-        } else {
-            sqlx::query_as(
-                "SELECT MIN(COALESCE(ps.usd, ps.usd_foil, ps.usd_etched)), MAX(ps.date) FROM printings p
-                 JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
-                   AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id)
-                 WHERE p.oracle_id = ?",
-            )
-            .bind(&c.oracle_id)
-            .fetch_one(&st.pool)
-            .await?
+        let (cheapest_usd, price_date) = match market_prices.get(&c.oracle_id) {
+            Some((usd, date)) if c.board != Board::Side => (Some(*usd), Some(date.clone())),
+            _ => (None, None),
         };
         if price_date > totals.price_date {
             totals.price_date = price_date;
         }
         if c.board != Board::Side {
+            let real = c.qty.min(owned);
+            let proxied = (c.qty - real).min(proxies);
             totals.cards += c.qty;
-            totals.owned += c.qty.min(owned);
-            totals.proxies += (c.qty - c.qty.min(owned)).min(proxies);
+            totals.owned += real;
+            totals.proxies += proxied;
             totals.needed += needed;
+            match cheapest_usd {
+                Some(p) => {
+                    if real > 0 {
+                        *totals.owned_value_usd.get_or_insert(0.0) += p * real as f64;
+                    }
+                    if proxied > 0 {
+                        *totals.proxy_value_usd.get_or_insert(0.0) += p * proxied as f64;
+                    }
+                }
+                None => {
+                    totals.owned_without_price += real;
+                    totals.proxies_without_price += proxied;
+                }
+            }
             if needed > 0 && !is_basic(&c.name) {
                 match cheapest_usd {
                     Some(p) => totals.needed_cost_usd += p * needed as f64,
@@ -740,6 +748,9 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd, printing, produced_mana });
     }
     totals.needed_cost_usd = (totals.needed_cost_usd * 100.0).round() / 100.0;
+    for v in [&mut totals.owned_value_usd, &mut totals.proxy_value_usd].into_iter().flatten() {
+        *v = (*v * 100.0).round() / 100.0;
+    }
     Ok(Json(DeckView {
         singles_value,
         id,
@@ -1170,6 +1181,24 @@ pub fn game_changers(cards: &[DeckCard], info: &HashMap<String, Card>) -> Option
     names.sort();
     names.dedup();
     Some(names)
+}
+
+/// Card data for a list, by oracle ID; cards not in the data are left out.
+pub(crate) async fn card_info(pool: &SqlitePool, cards: &[DeckCard]) -> AppResult<HashMap<String, Card>> {
+    let mut info = HashMap::new();
+    for c in cards {
+        if info.contains_key(&c.oracle_id) {
+            continue;
+        }
+        if let Some(card) = sqlx::query_as::<_, Card>(AssertSqlSafe(format!("SELECT {CARD_COLUMNS} FROM cards WHERE oracle_id = ?")))
+            .bind(&c.oracle_id)
+            .fetch_optional(pool)
+            .await?
+        {
+            info.insert(c.oracle_id.clone(), card);
+        }
+    }
+    Ok(info)
 }
 
 // ── validation ─────────────────────────────────────────────────────────────

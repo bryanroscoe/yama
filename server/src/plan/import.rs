@@ -1123,7 +1123,10 @@ impl Writer<'_> {
                     .bind(&id)
                     .execute(&mut *conn)
                     .await?;
-                sqlx::query("UPDATE plan_states SET current = 1 WHERE id = ? AND owner_id = ? AND current = 0")
+                // A list made current again is current from now (shared pages compare it with when
+                // a lab run was made), even though its row is older.
+                sqlx::query("UPDATE plan_states SET current = 1, updated_at = ? WHERE id = ? AND owner_id = ? AND current = 0")
+                    .bind(self.stamp)
                     .bind(&id)
                     .bind(self.owner)
                     .execute(&mut *conn)
