@@ -42,6 +42,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
+    if any((args.output/name).exists() for name in ('stage-receipt.json','run-receipt.json')):
+        raise SystemExit('This campaign has been staged or started; use a new output directory to preserve frozen inputs.')
     document = json.loads((ROOT/'server/resources/precon-upgradeability.json').read_text())
     roster = json.loads((ROOT/'server/resources/precon-commander-roster.json').read_text())
     request, manifest = prepare(document, roster)
