@@ -102,6 +102,15 @@ Where our own rules work goes:
 
 ## 4. Backend
 
+**Canonical domain (Bryan, 2026-10-28):** move web and MCP access to `https://yama.ing`,
+using the existing Cloudflare tunnel, Yama service and database. `YAMA_PUBLIC_URL` supplies
+public canonical links, OAuth issuer/endpoints and the `/mcp` resource. Keep the legacy
+`yama.saget.org` ingress and Google origin available during the transition so old clients
+can sync; do not redirect private writes or transfer browser credentials between origins.
+Google sign-in uses the existing OAuth client with the new authorized origin. People sign
+in again and migrate installed PWAs; OAuth connectors reconnect using `https://yama.ing/mcp`.
+See [the migration runbook](deploy/README.md#domain-migration-2026-10-28).
+
 **Default delivery workflow (Bryan, 2026-10-27):** requested repository changes continue through
 a pushed feature branch, PR, Codex review, fixes, a subsequent independent agent review for
 substantive changes, required verification and merge. Those scoped pushes/review requests/merges
@@ -588,7 +597,7 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 - **Two credentials, no sessions:** a script key with the new `mcp` scope (Decks, Plans, Settings, "For Claude"; `plan:sync` keys can't use the tools and `mcp` keys can't sync), or a one-question token (`yama_ask_`, in memory, hashed) that `ask_route` mints for each question when `YAMA_ADVISOR_TOOLS_URL` is set and drops when the answer ends (15 minutes at most). Both resolve to the account through `auth::user_by_id`, which applies the disabled and open sign-up rules.
 - **Tools** (`mcp/tools.rs`), read-only, owner-checked like the pages: `overview`, `deck` (by name or id, with Commander checks and Game Changers), `plan_deck`, `review_queue`, `find_cards` (the search grammar, through `cards::search`, shared with the search page), `card` (Oracle text, legality, Game Changer, dated prices of the default and cheapest playable printing, the copies they own and where, rulings on request), `check_list` (validate a list without saving), `lab_runs`, `lab_run` (each engine's result in words: the paired difference and interval, the verdict, the unscored games by reason, the settle estimate with what adds the pods, and live progress; admins also see the count of earlier Phase games in the shared queue, without other accounts' run or deck details; for both-engine runs the ETA and queue position are Phase-only), `lab_games` (one engine's games pod by pod, or `only: unscored`; with `game`, its schedule line, result line and every seat's list in the lab runner's deck format, so a game can be replayed locally), `precon`. The longer ones reuse `advisor::context::build`. `find_cards` and `card` count against the search rate limit.
 - **Ask Claude with tools:** the sidecar gives `query()` exactly one MCP server, `{type: "http", url, Authorization: Bearer <question token>}`, allows only `mcp__yama`, keeps `tools: []` (none of Claude Code's own tools) and `strictMcpConfig`, and allows 16 turns instead of 1. It streams a `tool` event (the tool's short name only) that the panel shows as "Looking up cards…". The instructions tell Claude to check a card with `card` before recommending it.
-- **Outside clients:** `claude mcp add --transport http yama https://yama.saget.org/mcp`, then `/mcp` and Authenticate (OAuth, below), or a claude.ai custom connector with the same URL, which also shows up in Claude Code and the phone app. A key still works for clients that can't sign in: `--header "Authorization: Bearer <key>"` (Settings shows that command once, with the key).
+- **Outside clients:** `claude mcp add --transport http yama https://yama.ing/mcp`, then `/mcp` and Authenticate (OAuth, below), or a claude.ai custom connector with the same URL, which also shows up in Claude Code and the phone app. A key still works for clients that can't sign in: `--header "Authorization: Bearer <key>"` (Settings shows that command once, with the key).
 
 #### Persistent deck research and review (2026-10-27)
 

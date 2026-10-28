@@ -32,7 +32,7 @@ jobs:
           unset WORKER_TOKEN
           extra=()
           if [ -n "$EXECUTION_ID" ]; then extra+=(--execution "$EXECUTION_ID"); fi
-          python3 tools/lab_worker.py --server "${YAMA_URL:-https://yama.saget.org}" \
+          python3 tools/lab_worker.py --server "${YAMA_URL:-https://yama.ing}" \
             --token-file "$token_file" work --work-dir "$RUNNER_TEMP/yama-lab-worker" \
             --max-jobs 1 --max-load 2 --idle-seconds 30 "${extra[@]}"
       # Private deck snapshots and pending uploads stay on the ephemeral runner; no public artifacts.
