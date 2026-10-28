@@ -3,7 +3,7 @@ use super::*;
 use axum::response::Html;
 use std::fmt::Write;
 
-fn e(value: &str) -> String {
+pub(crate) fn e(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -19,7 +19,7 @@ fn usd(n: Option<f64>) -> String {
     n.map(|n| format!("${n:.2}"))
         .unwrap_or_else(|| "No price".into())
 }
-fn when(s: &str) -> String {
+pub(crate) fn when(s: &str) -> String {
     s.get(..10)
         .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
         .map(|d| d.format("%-d %b %Y").to_string())
@@ -38,6 +38,9 @@ fn count(n: i64) -> String {
         })
         .collect()
 }
+/// Same geometry as components/Wordmark.tsx and design/logo/yama-wordmark.svg.
+pub(crate) const WORDMARK: &str = r#"<svg viewBox="0 -8 280 110" aria-hidden="true"><g fill="currentColor"><path d="M0 0H20L32 30L44 0H64L42 56V100H22V56Z"/><path d="M60 100L92 -6L124 100H104L92 60L80 100Z"/><path d="M134 100V0H152L170 44L188 0H206V100H186V40L170 79L154 40V100Z"/><path d="M216 100L248 -6L280 100H260L248 60L236 100Z"/></g></svg>"#;
+
 fn page(st: &AppState, path: &str, title: &str, description: &str, body: &str) -> String {
     let canonical = st
         .cfg
@@ -53,8 +56,7 @@ fn page(st: &AppState, path: &str, title: &str, description: &str, body: &str) -
             )
         })
         .unwrap_or_default();
-    // Same geometry as components/Wordmark.tsx and design/logo/yama-wordmark.svg.
-    let wordmark = r#"<svg viewBox="0 -8 280 110" aria-hidden="true"><g fill="currentColor"><path d="M0 0H20L32 30L44 0H64L42 56V100H22V56Z"/><path d="M60 100L92 -6L124 100H104L92 60L80 100Z"/><path d="M134 100V0H152L170 44L188 0H206V100H186V40L170 79L154 40V100Z"/><path d="M216 100L248 -6L280 100H260L248 60L236 100Z"/></g></svg>"#;
+    let wordmark = WORDMARK;
     format!(
         r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title} | Yama"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{canonical}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{stylesheet_path}"><script defer src="/card-preview-v1.js"></script></head><body class="public-precons"><a class="skip" href="#content">Skip to content</a><header class="public-header"><a class="public-wordmark" href="/precons" aria-label="Yama precons">{wordmark}</a><nav aria-label="Public reference"><a href="/precons"{index_current}>Precons</a><a href="/precons/methodology"{method_current}>How we rank</a><a class="button" href="/">Open Yama <span aria-hidden="true">↗</span></a></nav></header><main id="content">{body}</main><footer class="public-footer"><div class="footer-top"><span>Free to explore. Built for Commander.</span><nav aria-label="About Yama"><a href="/about/">About</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a></nav></div>{NOTICE}</footer></body></html>"##,
         stylesheet_path = stylesheet().1,
@@ -945,7 +947,7 @@ pub(super) async fn methodology(
 
 // HTML and CSS can have different browser/CDN lifetimes. Couple the markup to the
 // complete compiled stylesheet (including shared tokens), rather than a mutable URL.
-fn stylesheet() -> &'static (String, String) {
+pub(crate) fn stylesheet() -> &'static (String, String) {
     static CSS: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
     CSS.get_or_init(|| {
         let all = include_str!("../../../web/src/styles.css");

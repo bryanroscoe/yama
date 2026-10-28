@@ -208,10 +208,12 @@ fn parse(text: &str) -> Value {
 
 async fn general(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let mut out = String::new();
-    let decks: Vec<(String, String, Option<String>)> = sqlx::query_as(
+    #[allow(clippy::type_complexity)]
+    let decks: Vec<(String, String, Option<String>, Option<String>, Option<String>, String)> = sqlx::query_as(
         "SELECT d.id, d.name,
            (SELECT json_group_array(json_extract(c.value, '$.name')) FROM deck_versions v, json_each(v.cards) c
-            WHERE v.id = d.current_version_id AND json_extract(c.value, '$.board') = 'commander')
+            WHERE v.id = d.current_version_id AND json_extract(c.value, '$.board') = 'commander'),
+           d.configuration, (SELECT p.name FROM decks p WHERE p.id = d.parent_id AND p.archived = 0), d.visibility
          FROM decks d WHERE d.owner_id = ? AND d.archived = 0 ORDER BY d.name",
     )
     .bind(owner)
@@ -221,9 +223,23 @@ async fn general(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     if decks.is_empty() {
         out.push_str("- none yet\n");
     }
-    for (_, name, commanders) in &decks {
+    for (_, name, commanders, configuration, parent, visibility) in &decks {
         let cmd: Vec<String> = commanders.as_deref().map(parse).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
-        let _ = writeln!(out, "- {name}{}", if cmd.is_empty() { String::new() } else { format!(" (commander: {})", cmd.join(" and ")) });
+        let mut notes = Vec::new();
+        if !cmd.is_empty() {
+            notes.push(format!("commander: {}", cmd.join(" and ")));
+        }
+        // Other builds of one deck (decks.parent_id), so "Riders of Rohan (stock)" reads as a
+        // configuration rather than a separate deck.
+        if let Some(parent) = parent {
+            notes.push(format!("configuration {:?} of {parent}", configuration.as_deref().unwrap_or(name)));
+        }
+        match visibility.as_str() {
+            "public" => notes.push("public on their profile".into()),
+            "link" => notes.push("shared by link".into()),
+            _ => {}
+        }
+        let _ = writeln!(out, "- {name}{}", if notes.is_empty() { String::new() } else { format!(" ({})", notes.join("; ")) });
     }
     let plans: Vec<(String, String, String)> =
         sqlx::query_as("SELECT key, name, status FROM plan_decks WHERE owner_id = ? ORDER BY status = 'archived', sort, key").bind(owner).fetch_all(pool).await?;

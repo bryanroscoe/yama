@@ -18,7 +18,9 @@ Public navigation offers Precons, Methodology and Open Yama. The current root an
 
 Use Night table tokens, readable mobile rows, ordinary sentence-case labels and source links beside their figures. Card images load from Scryfall at runtime without filters; art crops carry the artist and copyright. Keep the free, unofficial, not-endorsed-by-Wizards notice.
 
-Commander rankings, user submissions, public personal decks, upgrades ranked as stock lists, public experiments and anonymous simulation jobs are outside this first release.
+Commander rankings, user submissions, upgrades ranked as stock lists, public experiments and anonymous simulation jobs are outside this first release.
+
+Personal decks and collections are shared separately, only by their owners: see ARCHITECTURE.md, Sharing and deck configurations (2026-10-28).
 
 ## Existing foundation and exposure boundary
 

@@ -11,6 +11,7 @@ import { useCardArt } from "../components/useCardArt";
 import "./group.css";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
+import { SharingSettings } from "../decks/SharingSettings";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
@@ -413,6 +414,7 @@ function Account() {
           </span>
         </div>
         <OfflineCardsSetting />
+        {!me.data?.viewing && <SharingSettings />}
         {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
         {!me.data?.viewing && <AdvisorSettings />}
         {me.data?.is_admin && (
