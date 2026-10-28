@@ -300,6 +300,8 @@ pub(crate) struct SharedDetails {
     /// The states whose deck (this one or a listed configuration) has the plan's current list
     /// for it: the only results shown, in `states` order.
     pub(crate) sim_states: Vec<String>,
+    /// The state this deck stands for in that plan.
+    pub(crate) sim_current: Option<String>,
 }
 
 /// Commander and main deck as (name, is commander, copies), sorted, for comparing a deck with a
@@ -337,11 +339,25 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
     let prices = crate::deck_prices::prices_for(pool, &d.list.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
     // Only when the owner chose to show them (Group, You, Sharing).
     let shares_lab: bool = sqlx::query_scalar("SELECT share_lab_results FROM users WHERE id = ?").bind(&d.sharer.id).fetch_one(pool).await?;
-    let key: Option<String> = if !shares_lab { None } else { sqlx::query_scalar("SELECT key FROM plan_decks WHERE owner_id = ? AND deck_id = ? AND status <> 'archived' ORDER BY sort LIMIT 1")
-        .bind(&d.sharer.id)
-        .bind(&d.main_id)
-        .fetch_optional(pool)
-        .await? };
+    // A deck's own plan comes first: a configuration linked to its own plan is that plan's "now"
+    // list, and its siblings (lists of the main deck's plan) have no part in it. Otherwise the
+    // main deck's plan, with this deck and its listed configurations as its states.
+    let this_id = d.states.first().map(|s| s.1.clone()).unwrap_or_else(|| d.main_id.clone());
+    let plan_of = |deck: String| async move {
+        if !shares_lab {
+            return Ok::<Option<String>, sqlx::Error>(None);
+        }
+        sqlx::query_scalar("SELECT key FROM plan_decks WHERE owner_id = ? AND deck_id = ? AND status <> 'archived' ORDER BY sort LIMIT 1")
+            .bind(&d.sharer.id)
+            .bind(deck)
+            .fetch_optional(pool)
+            .await
+    };
+    let own = if this_id != d.main_id { plan_of(this_id.clone()).await? } else { None };
+    let (key, states): (Option<String>, Vec<(String, String)>) = match own {
+        Some(k) => (Some(k), vec![("now".into(), this_id.clone())]),
+        None => (plan_of(d.main_id.clone()).await?, d.states.clone()),
+    };
     // Each listed deck's result shows only when its cards are the plan's current list for the
     // state it stands for.
     let mut sim_states = Vec::new();
@@ -351,7 +367,7 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
             Board::Main => "main",
             Board::Side => "side",
         };
-        for (state, deck_id) in &d.states {
+        for (state, deck_id) in &states {
             let plan_list: Option<String> = sqlx::query_scalar(
                 "SELECT s.cards FROM plan_states s JOIN plan_decks p ON p.id = s.plan_deck_id
                  WHERE p.owner_id = ? AND p.key = ? AND s.state = ? AND s.current = 1",
@@ -366,7 +382,7 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
                 (c["name"].as_str().unwrap_or(""), c["qty"].as_i64().unwrap_or(1), c["board"].as_str().unwrap_or("main"))
             }));
             // This deck's cards are loaded already; a listed configuration's are its current list.
-            let list = if *deck_id == d.states[0].1 {
+            let list = if *deck_id == this_id {
                 d.list.clone()
             } else {
                 let version: Option<String> = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(deck_id).fetch_optional(pool).await?.flatten();
@@ -380,7 +396,7 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
             }
         }
     }
-    let sim_matches = d.states.first().is_some_and(|(s, _)| sim_states.contains(s));
+    let sim_matches = states.first().is_some_and(|(s, _)| sim_states.contains(s));
     let sim = match key {
         Some(key) => crate::lab::paired_for_plan(pool, &d.sharer.id, &key).await?.filter(|run| {
             run.paired.as_ref().is_some_and(|p| p.variants.iter().any(|v| crate::lab::variant_state(&v.id, &key).is_some_and(|s| sim_states.contains(&s))))
@@ -395,6 +411,7 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
         singles: crate::deck_prices::singles(&serde_json::to_value(&d.list).map_err(anyhow::Error::from)?, &prices),
         sim,
         sim_matches,
+        sim_current: states.first().map(|s| s.0.clone()),
         sim_states,
     })
 }

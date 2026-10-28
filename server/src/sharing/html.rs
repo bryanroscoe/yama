@@ -149,7 +149,7 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
     }
     if let Some((run, key)) = &x.sim
         && x.sim_matches
-        && let Some(v) = run.paired.as_ref().and_then(|p| p.variants.iter().find(|v| crate::lab::variant_state(&v.id, key).as_ref() == d.states.first().map(|s| &s.0)))
+        && let Some(v) = run.paired.as_ref().and_then(|p| p.variants.iter().find(|v| crate::lab::variant_state(&v.id, key) == x.sim_current))
     {
         write!(body, "<a class=\"pill\" href=\"#sim-head\">Simulated win rate {}</a>", crate::public_page::pct(v.win_rate)).unwrap();
     }
