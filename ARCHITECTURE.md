@@ -1,6 +1,6 @@
 # Yama (Yet Another Magic App): architecture proposal
 
-A free Magic app, on phone (iOS and Android) and in the browser. Personal data stays private to each account unless its owner shares it (Sharing, 2026-10-28); the public precon reference is described below (2026-10-27). It does two jobs on one account:
+A free Magic app, on Android phones and in the browser (iOS shelved: no Apple account, section 12). Personal data stays private to each account unless its owner shares it (Sharing, 2026-10-28); the public precon reference is described below (2026-10-27). It does two jobs on one account:
 
 - **Play:** Commander online against friends or AI, with every game stored and replayable.
 - **Companion:** what Mythic Tools does today (life counter, playgroups and stats, card scanner, collection, prices, card lookup and decks), plus links to Play that Mythic Tools can't offer.
@@ -26,7 +26,7 @@ Getting off Mythic Tools has to be painless. Mythic Tools has no API, but its CS
 
 ## 2. Apps and code layout
 
-**One React and TypeScript codebase for web and mobile, with Capacitor wrapping it as the iOS and Android apps.**
+**One React and TypeScript codebase for web and mobile, with Capacitor available to wrap it as an Android app.** (iOS was in the first plan; it is shelved with no Apple account, section 12.)
 
 Why not the alternatives:
 
@@ -48,10 +48,10 @@ yama/
   scanner/             Model, catalog build pipeline, eval set of our own card photos
 ```
 
-**Distribution to friends without a public store listing:**
+**Distribution:**
 
-- **iOS:** TestFlight. This needs the Apple Developer Program ($99/yr). External testers need a one-time beta review.
-- **Android:** a direct APK, or Play internal testing.
+- **Android:** the installable web app today. A native app, if one is built, goes out as a direct APK or on Google Play, which Bryan can publish to (2026-10-28; requirements in docs/mobile.md).
+- **iOS:** shelved. TestFlight would need the Apple Developer Program, and there is no Apple account.
 - **Web:** everything works in the browser too.
 
 Keeping Yama out of the public stores also keeps it private, which matters for the legal side (section 11).
@@ -159,9 +159,9 @@ The proven approach is: find the card's four corners, straighten the image, turn
 - **[CollectorVision](https://github.com/HanClinto/CollectorVision)** does exactly this. ONNX models (portable neural-net files) for corner detection and 128-number embeddings, a catalog of about 108,000 printings keyed by Scryfall ID (53 MB), under 100 ms per scan on a laptop CPU, and an experimental in-browser scanner. Its catalog updates regularly ([CollectorVisionCatalog](https://github.com/HanClinto/CollectorVisionCatalog), MIT).
 - **Catch:** the CollectorVision code is **AGPL-3.0**, with a commercial license available. If Yama is open source under a compatible license, we can use it directly. If Yama stays private, we either write our own pipeline (the approach isn't hard; the trained models are the valuable part) or contact the author. Decide before we use any of it.
 - **Plan:**
-  1. Spike in the web view with `onnxruntime-web` (WebGPU or WASM) on Bryan's iPhone. Target: under 250 ms per frame, with a live box around the card and a beep or haptic when it locks on.
-  2. If that's too slow, move inference to a native Capacitor plugin: Core ML on iOS, ONNX Runtime Mobile on Android.
-- **Picking the right printing:** the embedding narrows it to a few printings. Then the collector-number and set-code OCR (iOS Vision or ML Kit), the user's recent set, and a one-tap correction pick the right one. Finish (foil or etched) and condition are user toggles; foil detection from a camera is unreliable.
+  1. Spike in the web view with `onnxruntime-web` (WebGPU or WASM) on Bryan's phone. Target: under 250 ms per frame, with a live box around the card and a beep or haptic when it locks on.
+  2. If that's too slow, move inference to a native Capacitor plugin: ONNX Runtime Mobile on Android.
+- **Picking the right printing:** the embedding narrows it to a few printings. Then the collector-number and set-code OCR (Tesseract in the browser; ML Kit in a native Android app), the user's recent set, and a one-tap correction pick the right one. Finish (foil or etched) and condition are user toggles; foil detection from a camera is unreliable.
 - **Eval set:** photograph our real cards (the October purchases are a ready-made labeled set: `data/purchases.json` lists set and collector number) and track accuracy on every model or catalog update.
 - **Built (2026-10-28, docs/scanner.md):** the hybrid, without CollectorVision. ManaVault's MPL-2.0 detector, embedding and search graphs (one pinned bundle, downloaded and checked by the server, served from `/scan-bundle/`) run in a web worker on `onnxruntime-web` WASM with our own glue. The card can be anywhere in view; the art names it (96% right on simulated free-hand captures, no confident wrong answers, about 160 ms per frame on a laptop). The printing comes from the printings sharing that illustration (`printings.illustration_id`, `GET /api/scan/printings`): the only one, or the collector line read by Tesseract, or the person picks from thumbnails. A scan never files a guessed printing. OCR alone remains the fallback for cards newer than the bundle, battles, and when the bundle isn't available.
 
@@ -259,7 +259,7 @@ Linking a deck to a container is what powers owned/needed: each deck list is che
 
 0. **Now, no code:** keep using Mythic Tools and play on phase-rs.dev or XMage. Note what annoys us.
 1. **Foundation:** monorepo; Rust server; Google login with allowlist; Scryfall card import; card search and lookup on web.
-2. **Companion v1 (quick wins on mobile):** the Capacitor app, the offline life counter (single device), playgroups, guest players, game logging and stats. TestFlight build to friends.
+2. **Companion v1 (quick wins on mobile):** the installable web app (Capacitor optional), the offline life counter (single device), playgroups, guest players, game logging and stats.
 3. **Collection:** Mythic Tools CSV import and export, containers, bulk edit, daily prices with history, decks with owned/needed. Import `commander-decks` deck lists.
 4. **Play v1:** solo game vs AI in the browser, then 4-player online with friends: lobby, invites, reconnect, timers.
 5. **Scanner:** web-view spike, then native fallback if needed; eval set from our purchases.
@@ -273,7 +273,7 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 | Milestone | State |
 |---|---|
 | 1 Foundation | Done |
-| 2 Companion v1 | Done on the web and as an installable web app. Native apps wait on Xcode and the Apple account |
+| 2 Companion v1 | Done on the web and as an installable web app. A native Android app (APK or Google Play) is optional; iOS is shelved |
 | 3 Collection | Done, except bulk edit and a price-history view (the history is stored) |
 | 4 Play v1 | Working: lobby, friends by code, AI seats, reconnect, restart recovery. No turn timers yet |
 | 5 Scanner | Art recognition plus collector-line OCR built 2026-10-28; live phone check pending (docs/scanner.md) |
@@ -729,7 +729,7 @@ Bryan (2026-10-24) wants Forge as a black-box referee for phase, run like unit t
 
 - **Legal and IP:**
   - Stay inside Wizards' Fan Content Policy: free, non-commercial, an "unofficial, not endorsed by Wizards" notice, no Wizards logos, and no card images or rules documents shipped. Images come from Scryfall at runtime, under its rules (read 2026-10-19 at scryfall.com/docs/api): don't cover, crop or clip the copyright or artist name on card images; don't distort, skew or stretch them; don't blur, sharpen, desaturate or color-shift them; with an art crop, show the artist name and copyright in the same interface; no paywall. The life panels scale the art crop to cover the panel without distorting it (an art crop has no artist name or copyright to cut off) and lay a separate translucent scrim over it for legibility; the image itself gets no filter.
-  - Companion apps like Mythic Tools are common in the app stores. A full game client in a public store listing is a bigger target. Distributing through TestFlight and an APK keeps us private.
+  - Companion apps like Mythic Tools are common in the app stores. A full game client in a public store listing is a bigger target. The game client stays on the web and in an APK; a Google Play listing, if made, should be the collection and scanner companion.
 - **Engine maturity:** phase is seven months old, mostly from one maintainer, with about 1,559 open issues. Pin it, run AI soak tests before each upgrade, and keep the trait boundary.
 - **Replay drift:** a replay only reproduces on the engine version that recorded it. Store `engine_version` and keep old WASM builds or snapshots.
 - **Scanner:**
