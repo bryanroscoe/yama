@@ -368,3 +368,25 @@ async fn plan_and_collection_changes_apply_through_their_own_ops() {
     let (err, text) = call(&app, &mcp, "set_condition", json!({"container": "Trade Binder", "card": "Sol Ring", "condition": "LP"})).await;
     assert!(err && text.contains("already lightly played"), "{text}");
 }
+
+#[tokio::test]
+async fn tournament_pasted_lists_are_frozen_without_creating_decks_or_starting_games() {
+    let (app, pool) = app().await;
+    let (owner, session) = user(&pool, "commander-test@example.com").await;
+    let token = key(&app, &session, Some("mcp")).await;
+    let a = "Commander\n1 Commander A\nDeck\n99 Island\n";
+    let b = "Commander\n1 Commander B\nDeck\n99 Island\n";
+    let (error, text) = call(&app, &token, "start_lab_run", json!({"mode":"tournament","games":100,"entrant_lists":[{"label":"A","list":a},{"label":"B","list":b}]})).await;
+    assert!(!error, "{text}");
+    let payload: String = sqlx::query_scalar("SELECT payload FROM assistant_changes WHERE owner_id=? AND kind='start_lab_run'").bind(&owner).fetch_one(&pool).await.unwrap();
+    let p: Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!(p["entrants"][0]["text"], a.trim());
+    assert_eq!(p["entrants"][1]["text"], b.trim());
+    assert!(p.get("field").is_none());
+    let runs: i64 = sqlx::query_scalar("SELECT count(*) FROM lab_experiments").fetch_one(&pool).await.unwrap();
+    let decks: i64 = sqlx::query_scalar("SELECT count(*) FROM decks WHERE owner_id=?").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert_eq!((runs, decks), (0, 0));
+    for bad in [json!([{"label":"A"}]),json!([{"label":"","list":a}]),json!([{"label":"A","list":""}])] {
+        assert!(call(&app, &token, "start_lab_run", json!({"mode":"tournament","entrant_lists":bad})).await.0);
+    }
+}

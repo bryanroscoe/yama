@@ -891,12 +891,18 @@ pub async fn start_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) 
         }
         "versus" | "tournament" => {
             let names: Vec<String> = match args.get("entrants") {
-                Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).map(str::trim).filter(|n| !n.is_empty() && n.len() <= 300).map(String::from).collect(),
-                _ => vec![],
+                Some(Value::Array(a)) => a.iter().map(|v| v.as_str().filter(|n| !n.trim().is_empty() && n.len() <= 300).map(str::trim).map(String::from).ok_or_else(|| AppError::bad("Each named entrant must be a nonempty deck or precon name"))).collect::<AppResult<_>>()?,
+                None => vec![],
+                _ => return Err(AppError::bad("entrants must be an array of names")),
+            };
+            let pasted = match args.get("entrant_lists") {
+                Some(Value::Array(a)) => a.as_slice(),
+                None => &[],
+                _ => return Err(AppError::bad("entrant_lists must be an array of labelled lists")),
             };
             let max = if mode == "tournament" { crate::lab::experiments::MAX_TOURNAMENT_ENTRANTS } else { crate::lab::experiments::MAX_ENTRANTS };
             let min = if mode == "tournament" { 1 } else { 2 };
-            if !(min..=max).contains(&names.len()) {
+            if !(min..=max).contains(&(names.len() + pasted.len())) {
                 return Err(AppError::bad(format!("{mode} needs {min} to {max} entrants")));
             }
             let mut entrants = Vec::new();
@@ -904,6 +910,12 @@ pub async fn start_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) 
             for n in &names {
                 let (choice, label) = list_choice(pool, &user.id, n).await?;
                 entrants.push(choice);
+                labels.push(label);
+            }
+            for input in pasted {
+                let text = opt_text(input, "list", crate::lab::experiments::MAX_TEXT_BYTES)?.ok_or_else(|| AppError::bad("Each pasted entrant needs list text"))?;
+                let label = opt_text(input, "label", 120)?.filter(|s| !s.trim().is_empty()).ok_or_else(|| AppError::bad("Each pasted entrant needs a label"))?;
+                entrants.push(json!({"kind": "list", "text": text, "label": label}));
                 labels.push(label);
             }
             let pod = args.get("pod").and_then(Value::as_u64).unwrap_or(4);

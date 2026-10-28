@@ -373,6 +373,7 @@ const TOOLS: &[Tool] = &[
                     "other_list": {"type": "string", "description": "compare: or a whole second list."},
                     "other_label": {"type": "string", "description": "A name for the second pasted list."},
                     "entrants": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 256, "description": "versus: 2 to 4 decks; tournament: a large shared field, up to 256 distinct lists including optional benchmark opponents."},
+                    "entrant_lists": {"type": "array", "maxItems": 256, "items": {"type": "object", "required": ["label", "list"], "properties": {"label": {"type": "string", "minLength": 1, "maxLength": 120}, "list": {"type": "string", "minLength": 1, "maxLength": 65536}}, "additionalProperties": false}, "description": "versus/tournament: labelled pasted lists, including distinct commander configurations. Combined with named entrants; never creates saved decks."},
                     "pod": {"type": "integer", "enum": [4, 2], "description": "versus: 4 players (the default; precons fill empty seats) or 2 (1v1, two lists)."},
                     "add": {"type": "array", "items": {"type": "string"}, "description": "change: cards to add."},
                     "cut": {"type": "array", "items": {"type": "string"}, "description": "change: cards to cut."},

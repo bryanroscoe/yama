@@ -51,6 +51,8 @@ def main():
     args = parser.parse_args()
     assessments = json.loads((ROOT/'server/resources/precon-upgradeability.json').read_text())
     entries = [row for e in assessments['decks'].values() for row in [e, *e.get('alternatives', [])]]
+    roster = json.loads((ROOT/'server/resources/precon-commander-roster.json').read_text())
+    entries += [o for deck in roster['decks'].values() for o in deck['options']]
     names = sorted({n for e in entries for n in e['commanders']})
     previous = json.loads(args.output.read_text()) if args.output.exists() else {}
     # Do not silently reuse a stale bulk directory when a current lookup fails.
