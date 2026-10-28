@@ -66,7 +66,8 @@ describe("private evidence browser", () => {
   it("renders entity controls, revision export and a bounded next page", () => {
     const html = page("/decks/datasets/playgroup-history?revision=3&entity=playgroup%3Acommander%3A2978&label=Test+Commander", { dataset: head, records: [observation({ kind: "unknown" })], next_offset: 25, monthly_summaries: [] });
     expect(html).toContain("Recency half-life (days)"); expect(html).toContain('value="180"');
-    expect(html).toContain("/api/datasets/playgroup-history/export?revision=3");
+    expect(html).toContain("Download original dataset</button>");
+    expect(html).not.toContain("/export?");
     expect(html).toContain("No compatible monthly observations");
     expect(html).toContain('<button disabled="">Previous</button>'); expect(html).toContain("<button>Next</button>");
   });

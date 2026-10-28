@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { API_BASE, api } from "../api";
+import { api, apiBlob } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { Details, ErrorText } from "../components/ui";
@@ -124,6 +124,18 @@ function DatasetDetail({ id }: { id: string }) {
   const head = data?.dataset;
   const sources = params.get("section") === "sources";
   const offset = Number(params.get("offset") || 0);
+  const download = useMutation({ mutationFn: async (revision: number) => {
+    const blob = await apiBlob(`/api/datasets/${encodeURIComponent(id)}/export?revision=${revision}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${id}-r${revision}.json.gz`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    // Let the browser/webview start saving before releasing the object URL.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } });
   function update(values: Record<string, string>, paging = false) {
     const next = new URLSearchParams(params);
     if (!paging) next.delete("offset");
@@ -147,8 +159,9 @@ function DatasetDetail({ id }: { id: string }) {
       <div className="dataset-actions">
         <button className={sources ? "outline" : "primary"} onClick={() => update({ section: "" })}>Browse records</button>
         <button className={sources ? "primary" : "outline"} onClick={() => update({ section: "sources" })}>Source documents ({count(head.source_documents)})</button>
-        <a className="button outline" href={`${API_BASE}/api/datasets/${encodeURIComponent(id)}/export?revision=${head.revision}`}>Download original dataset</a>
+        <button className="outline" disabled={download.isPending} onClick={() => download.mutate(head.revision)}>{download.isPending ? "Downloading…" : "Download original dataset"}</button>
       </div>
+      <ErrorText error={download.error} />
       <Details label="Attribution and recovery coverage">
         <p><SourceLink url={head.source.url}>{head.source.name}</SourceLink>. {head.source.attribution}</p><p>{head.source.license}</p>
         <JsonDetails value={head.coverage} label="Coverage at recovery" />
