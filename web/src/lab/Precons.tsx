@@ -217,7 +217,8 @@ export function PreconsPage() {
             <b>{rated} precons rated</b> from {run.games.toLocaleString("en-GB")} simulated {run.pod ?? 4}-player games.
             {" "}{run.engine ?? "Unrecorded engine"}, {(run.difficulty ?? "unrecorded").toLowerCase()} AI, {fmtDate(run.analysed_at ?? run.created_at)}.
           </p>
-          <Details label="Rating method and limitations">
+          <Details label={run.warnings.length ? `Rating details (${run.warnings.length} analysis ${run.warnings.length === 1 ? "note" : "notes"})` : "Rating method and limitations"}>
+            <p>Run: {run.name}.</p>
             <p>{caveat(run.engine)}</p>
             {few > 0 && <p>{few} precons have fewer than {FEW} games; their intervals are wide and the order may change.</p>}
             {unjudgedAll > 0 && (
