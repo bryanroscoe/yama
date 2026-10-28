@@ -6,12 +6,12 @@ import { usePlan } from "../plan/store";
 import { planView } from "../plan/view";
 import "./deck-area.css";
 
-/** The Decks tab's sections, in order. Adding a section is one line here. */
+/** The Decks tab's sections, in order. Adding a section is one line here. The Lab has its own
+ *  tab since 2026-10-28; Research is labelled as what it is, notes agents keep for themselves. */
 export const DECK_SECTIONS: { to: string; label: string; end?: boolean }[] = [
   { to: "/decks", label: "Decks", end: true },
   { to: "/decks/plan", label: "Plans" },
-  { to: "/decks/research", label: "Research" },
-  { to: "/decks/lab", label: "Lab" },
+  { to: "/decks/research", label: "Agent notes" },
   { to: "/decks/datasets", label: "Datasets" },
 ];
 
@@ -29,8 +29,8 @@ function useToReview(): number {
   }, [plan.bundle, box, userId]);
 }
 
-/** The segmented control at the top of the Decks tab: the Decks list, the plan pages and the lab
- *  pages all show it. Drawn as the shared .segmented pill (styles.css). Plans carries a count of
+/** The segmented control at the top of the Decks tab: the Decks list, the plan pages and the
+ *  agent notes all show it. Drawn as the shared .segmented pill (styles.css). Plans carries a count of
  *  proposals still waiting for an answer. */
 export function DeckTabs() {
   const toReview = useToReview();
@@ -71,7 +71,7 @@ export function BackButton({ to, label, text, className = "" }: { to: string; la
   );
 }
 
-/** An underlined row of section pages (Overview, Review... or Precons, Try a change...). */
+/** An underlined row of section pages (Overview, Review... or the Lab's Precons, Try a change...). */
 export function SubNav({ label, pages, also }: { label: string; pages: { to: string; label: string; end?: boolean; also?: string }[]; also?: string }) {
   return (
     <nav className="area-subnav" aria-label={label}>
@@ -92,7 +92,7 @@ export function SubNav({ label, pages, also }: { label: string; pages: { to: str
 /**
  * The head of a Decks-tab page (design: DeckList, Lab, PlanOverview, Buy...).
  *
- * - Laptop: the page title on the left; Decks | Plans | Lab and the page's action on the right;
+ * - Laptop: the page title on the left; Decks | Plans | Agent notes and the page's action on the right;
  *   the section's sub-nav underneath.
  * - Phone, a section's front page (`index`): "Decks" and the action, the control full width, the
  *   sub-nav. Phone, any other page: a back button and the page title (and `status`), nothing else.
@@ -107,6 +107,8 @@ export function AreaHead({
   action,
   nav,
   status,
+  area = "Decks",
+  sections = <DeckTabs />,
 }: {
   title?: ReactNode;
   index?: boolean;
@@ -115,6 +117,10 @@ export function AreaHead({
   action?: ReactNode;
   nav?: ReactNode;
   status?: ReactNode;
+  /** The tab this page belongs to, the phone title of its front page. */
+  area?: string;
+  /** The tab's own sections control (Decks | Plans | Agent notes); null for a tab without one. */
+  sections?: ReactNode;
 }) {
   return (
     <header className={`area-head ${index ? "is-index" : "is-sub"}${slim ? " is-slim" : ""}`}>
@@ -125,7 +131,7 @@ export function AreaHead({
             {index ? (
               <>
                 <span className="area-wide">{title}</span>
-                <span className="area-phone">Decks</span>
+                <span className="area-phone">{area}</span>
               </>
             ) : (
               title
@@ -133,7 +139,7 @@ export function AreaHead({
           </h1>
         )}
         {status && <div className="area-status">{status}</div>}
-        <DeckTabs />
+        {sections}
         {action && <div className="area-action">{action}</div>}
       </div>
       {nav}

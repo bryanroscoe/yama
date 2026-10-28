@@ -1,0 +1,101 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router";
+import { api, type ConfigurationRef, type DeckView } from "../api";
+import { ErrorText } from "../components/ui";
+
+/** A configuration's name as the deck page shows it: its label, else Main for the main deck. */
+export function listLabel(c: ConfigurationRef, main: boolean): string {
+  return c.configuration ?? (main ? "Main" : c.name);
+}
+
+/**
+ * Which list is in the real deck, and the other lists that can go in (Bryan, 2026-10-28: "There
+ * should be the one that's currently implemented, and then there should be an easy way to swap
+ * back to other versions of the deck"). The main deck's current list is the one in the box, and
+ * plans read their installed swaps from it. Null for a deck with no configurations.
+ */
+export function deckLists(deck: Pick<DeckView, "id" | "parent_id" | "configurations">): { main: ConfigurationRef; here: "main" | "other"; others: ConfigurationRef[] } | null {
+  if (deck.configurations.length < 2) return null;
+  const main = deck.configurations.find((c) => c.id === (deck.parent_id ?? deck.id)) ?? deck.configurations[0]!;
+  return { main, here: deck.id === main.id ? "main" : "other", others: deck.configurations.filter((c) => c.id !== main.id) };
+}
+
+/** The panel on a deck page whose deck has configurations. */
+export function DeckLists({ deck }: { deck: DeckView }) {
+  const lists = deckLists(deck);
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [asking, setAsking] = useState<ConfigurationRef | null>(null);
+  const [opId, setOpId] = useState(() => crypto.randomUUID());
+  const use = useMutation({
+    mutationFn: (from: ConfigurationRef) => api<{ version_id: string | null; changed: boolean }>(`/api/decks/${lists!.main.id}/use`, { method: "POST", json: { from: from.id, op_id: opId } }),
+    onSuccess: () => {
+      setOpId(crypto.randomUUID());
+      setAsking(null);
+      void qc.invalidateQueries({ queryKey: ["deck"] });
+      void qc.invalidateQueries({ queryKey: ["decks"] });
+      void qc.invalidateQueries({ queryKey: ["deck-versions"] });
+      // Installed swaps are read from the main deck's list.
+      void qc.invalidateQueries({ queryKey: ["plan"] });
+      if (deck.id !== lists!.main.id) navigate(`/decks/${lists!.main.id}`);
+    },
+  });
+  if (!lists) return null;
+  const { main, here, others } = lists;
+  const mainName = main.name;
+  const ask = (c: ConfigurationRef) => {
+    setAsking(c);
+    use.reset();
+  };
+  const confirm = asking && (
+    <div className="deck-lists-confirm" role="group" aria-label="Confirm">
+      <p className="small">
+        Put the {listLabel(asking, false)} list in {mainName}? Its current list stays in History, so you can switch back.
+      </p>
+      <div className="row">
+        <button className="primary" disabled={use.isPending} onClick={() => use.mutate(asking)}>
+          {use.isPending ? "Putting it in…" : "Put it in"}
+        </button>
+        <button className="quiet" onClick={() => setAsking(null)}>Cancel</button>
+      </div>
+      <ErrorText error={use.error} />
+    </div>
+  );
+  return (
+    <section className="deck-lists" aria-label="Lists for this deck">
+      {here === "main" ? (
+        <>
+          <p>
+            <b>This is the list in your deck.</b> <span className="dim">Plans read their installed swaps from it.</span>
+          </p>
+          <ul className="deck-lists-others">
+            {others.map((c) => (
+              <li key={c.id}>
+                <Link to={`/decks/${c.id}`}>{listLabel(c, false)}</Link>
+                <button className="outline small" onClick={() => ask(c)}>
+                  Put this list in the deck
+                </button>
+              </li>
+            ))}
+          </ul>
+          {use.data && !use.data.changed && <p className="small dim">That list is already the one in the deck.</p>}
+          <p className="small dim">To go back to an earlier list, open History and restore it.</p>
+        </>
+      ) : (
+        <>
+          <p>
+            <b>This is a saved list, not the one in your deck.</b>{" "}
+            <span className="dim">
+              <Link to={`/decks/${main.id}`}>{mainName}</Link> holds the list in your deck.
+            </span>
+          </p>
+          <button className="outline" onClick={() => ask(deck.configurations.find((c) => c.id === deck.id)!)}>
+            Put this list in {mainName}
+          </button>
+        </>
+      )}
+      {confirm}
+    </section>
+  );
+}

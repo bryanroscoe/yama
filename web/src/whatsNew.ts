@@ -14,6 +14,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-28-review-installs-lab",
+    date: "2026-10-28",
+    title: "A clearer Review, installs read from your decks, and a Lab tab",
+    items: [
+      "Review is one to-do list: proposals still waiting for your answer come first. Answered proposals and swaps already in the plan sit underneath, closed, so nothing looks done when it isn't.",
+      "A plan's installed swaps now come from the deck itself: a swap is in when its card is in the deck's current list and the card it replaces is gone. The deck page says which list is in the deck and puts a configuration's list (stock, after prints) in with one tap; History restores any earlier list.",
+      "The Lab has its own tab. Old links under Decks still open it.",
+      "Research is now called Agent notes: what Claude and other agents save for each other. Nothing there needs you; anything you should decide shows up in Review.",
+    ],
+    link: { to: "/decks/plan/review", label: "Open Review" },
+  },
+  {
     id: "2026-10-28-shared-deck-pages",
     date: "2026-10-28",
     title: "Shared decks show what your deck page shows",
@@ -76,7 +88,7 @@ export const NEWS: NewsEntry[] = [
       "Research can keep a permanent wishlist of genuine cards even when their printed copies are already here. It stays separate from local purchase quotes, quantities to buy and order totals.",
       "Card names on the wishlist have the same hover and tap previews as the deck guides.",
     ],
-    link: { to: "/decks/research", label: "Review deck research" },
+    link: { to: "/decks/research", label: "Open agent notes" },
   },
   {
     id: "2026-10-27-commander-options",
@@ -99,7 +111,7 @@ export const NEWS: NewsEntry[] = [
       "Hover or focus card names to inspect the card. Tap names to pin a preview, including in research, decks, collection, plans, suggested changes and public stock lists.",
       "Research separates the complete 100-card deck, exact swaps and acquisition requirements. Gameplay profiles explain setup, finishers, interaction, recovery and weaknesses; Game Changer choices have reasons. Planned sealed purchases stay separate from owned cards, singles and prints.",
     ],
-    link: { to: "/decks/research", label: "Review builds" },
+    link: { to: "/decks/research", label: "Open agent notes" },
   },
   {
     id: "2026-10-27-precon-evidence-audit",
@@ -128,7 +140,7 @@ export const NEWS: NewsEntry[] = [
       "Decks, Research keeps current lists, bracket alternatives, rough power explanations, combos, local buying evidence and print requirements together.",
       "Choose a preferred build, answer individual swaps and save notes. Your answers survive research updates; changed evidence is flagged. These preferences do not install cards or approve orders.",
     ],
-    link: { to: "/decks/research", label: "Open deck research" },
+    link: { to: "/decks/research", label: "Open agent notes" },
   },
   {
     id: "2026-10-27-mcp-guide",
@@ -178,7 +190,7 @@ export const NEWS: NewsEntry[] = [
       "Your decks and the precon catalog show the estimated value of their singles, including commanders, quantities and basics. Missing prices are counted separately, with the dates and source beside the estimate.",
       "Precons also show a separate sealed deck market price when the stock product can be identified. Each stock card has a singles price. Values are market references, not store quotes or what you would receive selling a deck.",
     ],
-    link: { to: "/decks/lab", label: "Compare precons" },
+    link: { to: "/lab", label: "Compare precons" },
   },
   {
     id: "2026-10-26-tournaments",
@@ -189,7 +201,7 @@ export const NEWS: NewsEntry[] = [
       "Choose games per deck. Four-player pods balance appearances, vary opponents and rotate seats. Identical lists count once, and every participant contributes to the results.",
       "Results rank the field with win-share intervals and show shared-game matchups, separately for each engine. These are AI simulations, not predictions for your table.",
     ],
-    link: { to: "/decks/lab/compare?mode=tournament", label: "Set up a tournament" },
+    link: { to: "/lab/compare?mode=tournament", label: "Set up a tournament" },
   },
   {
     id: "2026-10-26-deck-stats-brackets",
@@ -259,7 +271,7 @@ export const NEWS: NewsEntry[] = [
       "Compare decks: two decks against the same opponents, or two to four of your decks head to head at one table, each taking every seat in turn.",
       "Against a pick of one or two of your decks, they now sit in every pod and precons of similar power fill the other seats. Finished runs can be run again with more games.",
     ],
-    link: { to: "/decks/lab/compare", label: "Compare decks" },
+    link: { to: "/lab/compare", label: "Compare decks" },
   },
   {
     id: "2026-10-22-deck-import",
@@ -308,7 +320,7 @@ export const NEWS: NewsEntry[] = [
       "A precon's page, your batch runs and a plan's three versions say plainly when the numbers say little about real games.",
       "Try a change warns before you run a deck like Tricky Terrain, and again beside the verdict.",
     ],
-    link: { to: "/decks/lab", label: "Open the lab" },
+    link: { to: "/lab", label: "Open the lab" },
   },
   {
     id: "2026-10-19-online-board",

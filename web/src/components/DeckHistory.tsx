@@ -1,5 +1,5 @@
 import { CardText } from "./CardRef";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { diffDecks, type DiffLine } from "@yama/core";
 import { useEffect, useState } from "react";
 import { api, type DeckVersion, type DeckVersionRow } from "../api";
@@ -14,6 +14,19 @@ const BOARD: Record<string, string> = { commander: " (commander)", side: " (side
 /** Every saved version of a deck, and what changed between any two of them. */
 export function DeckHistory({ deckId, currentVersionId, onClose }: { deckId: string; currentVersionId: string | null; onClose: () => void }) {
   const versions = useQuery({ queryKey: ["deck-versions", deckId, currentVersionId], queryFn: () => api<DeckVersionRow[]>(`/api/decks/${deckId}/versions`) });
+  // Restoring saves the old list as a new version, so the one it replaces stays here too.
+  const qc = useQueryClient();
+  const [opId, setOpId] = useState(() => crypto.randomUUID());
+  const restore = useMutation({
+    mutationFn: (version: string) => api<{ changed: boolean }>(`/api/decks/${deckId}/use`, { method: "POST", json: { version, op_id: opId } }),
+    onSuccess: () => {
+      setOpId(crypto.randomUUID());
+      void qc.invalidateQueries({ queryKey: ["deck"] });
+      void qc.invalidateQueries({ queryKey: ["decks"] });
+      void qc.invalidateQueries({ queryKey: ["deck-versions", deckId] });
+      void qc.invalidateQueries({ queryKey: ["plan"] });
+    },
+  });
   const list = versions.data ?? [];
   // Newest first. By default compare the current version with the one before it.
   const [fromPick, setFromPick] = useState<string | null>(null);
@@ -46,6 +59,7 @@ export function DeckHistory({ deckId, currentVersionId, onClose }: { deckId: str
                 <span>From</span>
                 <span>To</span>
                 <span />
+                <span />
               </div>
               <div className="versions">
                 {list.map((v, i) => (
@@ -58,10 +72,16 @@ export function DeckHistory({ deckId, currentVersionId, onClose }: { deckId: str
                       <br />
                       <span className="when">{when(v.created_at)}</span>
                     </span>
+                    {v.id !== currentVersionId && (
+                      <button className="quiet small" disabled={restore.isPending} onClick={() => restore.mutate(v.id)}>
+                        Restore this list
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
+            <ErrorText error={restore.error} />
             {from && to && from !== to ? <Diff deckId={deckId} from={from} to={to} /> : <p className="small dim">Pick two different versions.</p>}
           </>
         )}

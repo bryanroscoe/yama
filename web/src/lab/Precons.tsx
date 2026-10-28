@@ -418,7 +418,7 @@ export function PreconsPage() {
               <li className={`lab-card${isFew ? " few" : ""}${last ? " unjudged" : ""}`}>
                 <span className="rank num">{r?.rank ?? ""}</span>
                 <span className="lab-card-main">
-                  <Link to={`/decks/lab/p/${p.id}`} className="lab-card-name">
+                  <Link to={`/lab/p/${p.id}`} className="lab-card-name">
                     <b>{p.name}</b> <Pips identity={p.color_identity} />
                   </Link>
                   <span className="dim small">Upgradeability: <UpgradeabilitySummary value={p.upgradeability} /></span>
@@ -474,7 +474,7 @@ function TableRow({ p, max, level, method }: { p: PreconItem; max: number; level
       </td>
       <td className="deck">
         <span className={`lab-deck-name${confidenceMark(r?.confidence) ? " has-mark" : ""}`}>
-          <Link to={`/decks/lab/p/${p.id}`}>{p.name}</Link> <Pips identity={p.color_identity} />
+          <Link to={`/lab/p/${p.id}`}>{p.name}</Link> <Pips identity={p.color_identity} />
           <ConfidenceMark confidence={r?.confidence} name={p.name} method={method} />
         </span>
         <span className="sub">

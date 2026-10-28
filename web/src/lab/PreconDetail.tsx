@@ -38,7 +38,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
   if (detail.error) {
     return (
       <>
-        <LabHead slim back={{ to: "/decks/lab", label: "Back to the precons" }} />
+        <LabHead slim back={{ to: "/lab", label: "Back to the precons" }} />
         <ErrorText error={detail.error} />
       </>
     );
@@ -51,7 +51,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
 
   return (
     <>
-      <LabHead slim back={{ to: "/decks/lab", label: "Back to the precons" }} />
+      <LabHead slim back={{ to: "/lab", label: "Back to the precons" }} />
       <ArtPanel art={p.art}>
         <h1>{p.name}</h1>
         <span>
@@ -167,7 +167,7 @@ function Actions({ precon }: { precon: PreconItem }) {
             {make.isPending ? "Making the deck…" : "Make this a Yama deck"}
           </button>
         )}
-        <Link className="button" to={`/decks/lab/try?precon=${encodeURIComponent(precon.id)}`}>Try a change</Link>
+        <Link className="button" to={`/lab/try?precon=${encodeURIComponent(precon.id)}`}>Try a change</Link>
         <AskClaude context={{ kind: "precon", ref: precon.id }} about={precon.name} />
       </div>
       {make.data && (
@@ -259,7 +259,7 @@ function Matchups({ rows, run, unjudged }: { rows: Matchup[]; run: RunLabel; unj
   const shown = rows.filter((m) => m.name.toLowerCase().includes(q.trim().toLowerCase()));
   const row = (m: Matchup) => (
     <div key={m.id} className="lab-match">
-      <Link to={`/decks/lab/p/${m.id}`}>{m.name}</Link>
+      <Link to={`/lab/p/${m.id}`}>{m.name}</Link>
       <IntervalBar value={m.p} scale={scale} reference={0.5} label={`${pct(m.p)} to beat ${m.name} one on one; the line is even odds`} />
       <span className="num">{pct(m.p)}</span>
     </div>

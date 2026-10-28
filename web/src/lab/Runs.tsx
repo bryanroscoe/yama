@@ -70,10 +70,10 @@ export function RunsPage() {
         title="My runs"
         action={
           <span className="row" style={{ gap: 8 }}>
-            <Link className="button" to="/decks/lab/compare">
+            <Link className="button" to="/lab/compare">
               Compare decks
             </Link>
-            <Link className="button primary" to="/decks/lab/try">
+            <Link className="button primary" to="/lab/try">
               Try a change
             </Link>
           </span>
@@ -82,8 +82,8 @@ export function RunsPage() {
       <ErrorText error={exps.error ?? stop.error ?? remove.error} />
       {exps.data?.length === 0 && batch.length === 0 && (
         <p className="empty">
-          No runs yet. <Link to="/decks/lab/try">Try a change</Link> to play a list against a changed copy of it (or as it is), <Link to="/decks/lab/compare">compare decks</Link> against each other, or start from a precon in{" "}
-          <Link to="/decks/lab">Precons</Link>.
+          No runs yet. <Link to="/lab/try">Try a change</Link> to play a list against a changed copy of it (or as it is), <Link to="/lab/compare">compare decks</Link> against each other, or start from a precon in{" "}
+          <Link to="/lab">Precons</Link>.
         </p>
       )}
       {exps.data && exps.data.length > 0 && (
@@ -103,7 +103,7 @@ export function RunsPage() {
                 <div className="lab-runcard-head">
                   {e.base?.art ? <img className="crop crop-sm" src={e.base.art.url} alt="" loading="lazy" /> : <span className="crop crop-sm" aria-hidden="true" />}
                   <span className="lab-runcard-title">
-                    <Link to={`/decks/lab/runs/${e.id}`}>{e.name}</Link>
+                    <Link to={`/lab/runs/${e.id}`}>{e.name}</Link>
                     <span>
                       {e.field?.label ?? "An unrecorded field"}, {e.label.games} games, started {fmtDate(e.label.started_at ?? e.label.created_at)}
                     </span>
@@ -119,7 +119,7 @@ export function RunsPage() {
                 {s && <ExperimentConfidence e={e} precons={precons.data?.precons ?? []} />}
                 <span className="lab-note">{experimentLabel(e)}.</span>
                 <span className="lab-runcard-actions">
-                  <Link className="button" to={`/decks/lab/runs/${e.id}`}>
+                  <Link className="button" to={`/lab/runs/${e.id}`}>
                     Open
                   </Link>
                   {live ? (
@@ -152,7 +152,7 @@ export function RunsPage() {
                 <article key={`${r.id}-${c.base}-${c.variant}`} className="lab-runcard">
                   <div className="lab-runcard-head">
                     <span className="lab-runcard-title">
-                      <Link to={`/decks/lab/runs/batch/${r.id}`}>
+                      <Link to={`/lab/runs/batch/${r.id}`}>
                         {deckOf(c.base_name)} {stateLabel(shortName(c.base_name))[0].toLowerCase()} vs {stateLabel(shortName(c.variant_name))[0].toLowerCase()}
                       </Link>
                       <span>
@@ -172,7 +172,7 @@ export function RunsPage() {
                     {simLabel({ engine: r.engine, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at, run: r.name })}.
                   </span>
                   <span className="lab-runcard-actions">
-                    <Link className="button" to={`/decks/lab/runs/batch/${r.id}`}>
+                    <Link className="button" to={`/lab/runs/batch/${r.id}`}>
                       Open
                     </Link>
                   </span>
@@ -240,7 +240,7 @@ export function BatchPage() {
   if (run.error) {
     return (
       <>
-        <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
+        <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
         <ErrorText error={run.error} />
       </>
     );
@@ -257,7 +257,7 @@ export function BatchPage() {
   const confOf = (id: string) => p?.variants.find((v) => v.id === id)?.confidence ?? null;
   return (
     <>
-      <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
+      <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
       <div className="page-head">
         <div>
           <h1>{r.name}</h1>

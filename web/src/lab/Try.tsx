@@ -222,14 +222,14 @@ function TryForm() {
       };
       return api<ExperimentDetail>("/api/lab/experiments", { method: "POST", json: body });
     },
-    onSuccess: (d) => navigate(`/decks/lab/runs/${d.id}`),
+    onSuccess: (d) => navigate(`/lab/runs/${d.id}`),
   });
 
   return (
     <>
       <LabHead title="Try a change" />
       <Details label="How the test works" className="lab-try-intro">
-        <p>Swap cards in a list, then play both versions against the same opponents, seats and shuffles. You can also run an unchanged list or <Link to="/decks/lab/compare">compare decks</Link>.</p>
+        <p>Swap cards in a list, then play both versions against the same opponents, seats and shuffles. You can also run an unchanged list or <Link to="/lab/compare">compare decks</Link>.</p>
         <p>{caveat()}</p>
       </Details>
 
@@ -304,7 +304,7 @@ function TryForm() {
                   <b>No swaps yet.</b> You can run <b>{base.label}</b> as it is against {fieldPick.label} and see its win rate ({games} games, {engineText(engines)}{eta != null ? `, ${durationText(eta)}` : ""}).
                 </p>
                 <p className="small dim" style={{ margin: 0 }}>
-                  To compare a change, <a href="#try-2">swap a card in step 2</a>. To compare two decks, or play your decks against each other, use <Link to="/decks/lab/compare">Compare decks</Link>.
+                  To compare a change, <a href="#try-2">swap a card in step 2</a>. To compare two decks, or play your decks against each other, use <Link to="/lab/compare">Compare decks</Link>.
                 </p>
               </div>
             )}
@@ -334,7 +334,7 @@ function TryForm() {
               {create.isPending ? "Starting…" : solo ? `Run ${base!.label} as it is` : changed ? "Run the change" : "Run"}
             </button>
             <p className="lab-note" style={{ margin: 0 }}>
-              {solo ? "Every pod is played once." : "Same shuffles and seats for both lists."}{engines.mode === "both" ? " Each engine plays the same pods." : ""} Simulated games, not your table. <Link to="/decks/lab/runs">My runs</Link>
+              {solo ? "Every pod is played once." : "Same shuffles and seats for both lists."}{engines.mode === "both" ? " Each engine plays the same pods." : ""} Simulated games, not your table. <Link to="/lab/runs">My runs</Link>
             </p>
           </section>
         </aside>
@@ -826,7 +826,7 @@ function RunningBox({ e }: { e: ExperimentItem }) {
         </div>
       )}
       <span className="lab-note">{experimentLabel(e)}.</span>
-      <Link className="button outline" to={`/decks/lab/runs/${e.id}`}>
+      <Link className="button outline" to={`/lab/runs/${e.id}`}>
         Open the run
       </Link>
     </section>

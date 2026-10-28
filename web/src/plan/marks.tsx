@@ -17,6 +17,7 @@ import {
   type Swap,
 } from "@yama/core/plan";
 import { useState } from "react";
+import { Link } from "react-router";
 import { Sheet } from "../components/ui";
 import { deviceId, outbox } from "./outbox";
 import type { PlanView } from "./view";
@@ -27,13 +28,31 @@ function stateOf(view: PlanView, s: Swap, m: Mark | undefined) {
 }
 
 /**
- * "I've put this in the deck": a tick for a planned swap, starting from the planner's install record
- * (a newer tick here wins), with where the tick is on its way and when the state is the planner's.
+ * Whether a planned swap is in the deck. With a Yama deck, its current list says (read only; edit
+ * the deck to change it). Without one, "I've put this in the deck": a tick, starting from the
+ * planner's install record (a newer tick here wins), with where the tick is on its way and when
+ * the state is the planner's.
  */
 export function InstalledTick({ swap, view, userId, compact = false, short = false }: { swap: Swap; view: PlanView; userId: string; compact?: boolean; short?: boolean }) {
   const m = view.markBy.get(swap.key)?.installed;
   const st = installedState(swap, m);
   const on = st.on;
+  // The deck decides: no tick to set, just what its current list says and where to change it.
+  const yd = view.deck(swap.deck)?.yama_deck;
+  if (st.from === "deck" && yd) {
+    const card = swap.role === "standin" ? swap.in : "This swap";
+    return (
+      <div className={`plan-tick plan-tick-deck${compact ? " small" : ""}${short ? " plan-tick-short" : ""}`}>
+        <span className={`tag ${on ? "good" : "plain"}`}>{on ? "In the deck" : st.skipped ? "Skipped" : "Not in the deck yet"}</span>
+        {!short && (
+          <span className="faint small">
+            {on ? `${card} is in ${yd.name}'s current list.` : `${card} isn't in ${yd.name}'s current list.`}{" "}
+            <Link to={`/decks/${yd.id}`}>{on ? "Open the deck" : "Change the deck"}</Link>
+          </span>
+        )}
+      </div>
+    );
+  }
   const state = m && st.from === "yama" ? stateOf(view, swap, m) : null;
   const agrees = st.on === (st.planStatus === "installed");
   const plan = !st.planStatus

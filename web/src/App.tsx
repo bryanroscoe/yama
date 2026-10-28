@@ -11,7 +11,7 @@ import { DatasetsPage } from "./datasets/Datasets";
 import { Login, useMe } from "./auth";
 import { RailMe } from "./components/RailMe";
 import { SiteNotice } from "./components/SiteNotice";
-import { AdminIcon, CardsIcon, CollectionIcon, DecksIcon, GroupIcon, PlayIcon, TableIcon } from "./components/icons";
+import { AdminIcon, CardsIcon, CollectionIcon, DecksIcon, GroupIcon, LabIcon, PlayIcon, TableIcon } from "./components/icons";
 import { ErrorText } from "./components/ui";
 import { Wordmark } from "./components/Wordmark";
 import { ViewBanner } from "./components/ViewBanner";
@@ -22,6 +22,7 @@ import { DeckPage, DecksPage } from "./pages/Decks";
 import { ImportPage } from "./decks/ImportPage";
 import { GroupPage } from "./pages/Group";
 import { LabLayout } from "./lab/LabLayout";
+import { OldLabRedirect } from "./lab/OldLabRedirect";
 import { PreconDetailPage } from "./lab/PreconDetail";
 import { PreconsPage } from "./lab/Precons";
 import { RunPage } from "./lab/Run";
@@ -55,6 +56,7 @@ function Shell() {
     { to: "/cards", label: "Cards", icon: <CardsIcon /> },
     { to: "/collection", label: "Collection", icon: <CollectionIcon /> },
     { to: "/decks", label: "Decks", icon: <DecksIcon /> },
+    { to: "/lab", label: "Lab", icon: <LabIcon /> },
     { to: "/group", label: "Group", icon: <GroupIcon /> },
   ];
   return (
@@ -146,8 +148,9 @@ export function App() {
           <Route path="settings" element={<PlanSettings />} />
           <Route path="d/:key" element={<DeckPlan />} />
         </Route>
-        {/* Static "lab" outranks ":id", so lab pages never reach DeckPage. */}
-        <Route path="decks/lab" element={<LabLayout />}>
+        {/* Old links: the Lab was a section of Decks until 2026-10-28. Static "lab" outranks ":id". */}
+        <Route path="decks/lab/*" element={<OldLabRedirect />} />
+        <Route path="lab" element={<LabLayout />}>
           <Route index element={<PreconsPage />} />
           <Route path="p/:id" element={<PreconDetailPage />} />
           <Route path="try" element={<TryPage />} />

@@ -25,6 +25,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/decks/{id}/results", get(results))
         .route("/api/decks/{id}/share-link", post(reset_share_link))
         .route("/api/decks/{id}/configurations", post(new_configuration))
+        .route("/api/decks/{id}/use", post(use_list))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -993,6 +994,119 @@ async fn new_configuration(
     tx.commit().await?;
     crate::deck_checks::wake();
     Ok(Json(Created { id: new, unknown: vec![] }))
+}
+
+#[derive(Deserialize)]
+struct UseList {
+    /// Another deck in this deck's configuration group: its current list becomes this deck's.
+    from: Option<String>,
+    /// Or one of this deck's own versions, restored.
+    version: Option<String>,
+    /// Client-generated, so a retried request saves one version (`applied_ops`).
+    op_id: String,
+}
+
+/// Put another list in this deck (Bryan, 2026-10-28: "There should be the one that's currently
+/// implemented, and then there should be an easy way to swap back to other versions of the
+/// deck"). `from` copies a configuration's current list into its main deck (or any deck of the
+/// group into another); `version` restores one of the deck's own versions. Either saves a new
+/// version, so the list it replaces stays in the history and can be restored the same way. The
+/// source's chosen printings fill in any card this deck has no printing for; this deck's own
+/// choices (proxies included) stay. A list equal to the current one saves nothing.
+async fn use_list(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    Json(body): Json<UseList>,
+) -> AppResult<Json<serde_json::Value>> {
+    st.limits.deck_writes.check_user(&user)?;
+    if body.op_id.trim().is_empty() || body.op_id.len() > 100 {
+        return Err(AppError::bad("op_id is required"));
+    }
+    let (_, current, _) = owned_deck(&st.pool, &user.id, &id).await?;
+    let group = configuration_group(&st.pool, &user.id, &id).await?;
+    let mut tx = st.pool.begin().await?;
+    let done: Option<(String, String)> = sqlx::query_as("SELECT kind, payload FROM applied_ops WHERE op_id = ? AND owner_id = ?")
+        .bind(&body.op_id)
+        .bind(&user.id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if let Some((kind, payload)) = done {
+        if kind != "deck.use" {
+            return Err(AppError::Conflict("that op_id was used for something else".into()));
+        }
+        return Ok(Json(serde_json::from_str(&payload).map_err(anyhow::Error::from)?));
+    }
+    let (cards_json, note, prints_from): (String, String, Option<String>) = match (&body.from, &body.version) {
+        (Some(from), None) => {
+            if *from == id {
+                return Err(AppError::bad("that's this deck's own list"));
+            }
+            let source = group.iter().find(|c| c.id == *from).ok_or(AppError::NotFound("configuration"))?;
+            let label = source.configuration.clone().unwrap_or_else(|| source.name.clone());
+            let cards: Option<String> = sqlx::query_scalar(
+                "SELECT v.cards FROM decks d JOIN deck_versions v ON v.id = d.current_version_id WHERE d.id = ? AND d.owner_id = ?",
+            )
+            .bind(from)
+            .bind(&user.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            (cards.ok_or_else(|| AppError::bad("that configuration has no list yet"))?, format!("Switched to {label}"), Some(from.clone()))
+        }
+        (None, Some(version)) => {
+            let row: Option<(String, String)> = sqlx::query_as("SELECT cards, created_at FROM deck_versions WHERE id = ? AND deck_id = ?")
+                .bind(version)
+                .bind(&id)
+                .fetch_optional(&mut *tx)
+                .await?;
+            let (cards, at) = row.ok_or(AppError::NotFound("version"))?;
+            (cards, format!("Restored the list from {}", &at[..at.len().min(10)]), None)
+        }
+        _ => return Err(AppError::bad("give either from (a configuration) or version")),
+    };
+    let cards: Vec<DeckCard> = serde_json::from_str(&cards_json).map_err(anyhow::Error::from)?;
+    let same = match &current {
+        Some(v) => {
+            let now_cards: String = sqlx::query_scalar("SELECT cards FROM deck_versions WHERE id = ?").bind(v).fetch_one(&mut *tx).await?;
+            let now_cards: Vec<DeckCard> = serde_json::from_str(&now_cards).map_err(anyhow::Error::from)?;
+            let key = |cs: &[DeckCard]| {
+                let mut k: Vec<(String, String, i64)> = cs.iter().map(|c| (format!("{:?}", c.board), c.oracle_id.clone(), c.qty)).collect();
+                k.sort();
+                k
+            };
+            key(&now_cards) == key(&cards)
+        }
+        None => false,
+    };
+    let result = if same {
+        serde_json::json!({ "version_id": current, "changed": false })
+    } else {
+        let vid = insert_version_in(&mut tx, &id, &cards, Some(note.as_str())).await?;
+        if let Some(from) = &prints_from {
+            sqlx::query(
+                "INSERT OR IGNORE INTO deck_prints (deck_id, oracle_id, set_code, collector_number, finish, proxy)
+                 SELECT ?, oracle_id, set_code, collector_number, finish, proxy FROM deck_prints WHERE deck_id = ?",
+            )
+            .bind(&id)
+            .bind(from)
+            .execute(&mut *tx)
+            .await?;
+        }
+        serde_json::json!({ "version_id": vid, "changed": true })
+    };
+    sqlx::query("INSERT INTO applied_ops (op_id, owner_id, kind, payload, applied_at) VALUES (?,?,?,?,?)")
+        .bind(&body.op_id)
+        .bind(&user.id)
+        .bind("deck.use")
+        .bind(result.to_string())
+        .bind(now())
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    if !same {
+        crate::deck_checks::wake();
+    }
+    Ok(Json(result))
 }
 
 async fn archive_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {

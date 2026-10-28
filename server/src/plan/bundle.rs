@@ -24,15 +24,30 @@ pub const PRINTING_SOURCE: &str = "TCGplayer market via Scryfall";
 /// would share a key, and a phone that kept the last person's bundle after a sign-out could be
 /// told it was still current. `SHAPE` goes up when the bundle gains fields, so saved copies
 /// without them are fetched again.
-const SHAPE: u32 = 2;
+/// 3: installed states read from the owner's decks (`installed.rs`, 2026-10-28).
+const SHAPE: u32 = 3;
 
 pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let revision: Option<i64> = sqlx::query_scalar("SELECT revision FROM plan_meta WHERE owner_id = ?").bind(owner).fetch_optional(pool).await?;
     let cards_at: Option<String> =
         sqlx::query_scalar("SELECT MAX(finished_at) FROM import_runs WHERE error IS NULL AND finished_at IS NOT NULL").fetch_one(pool).await?;
+    // Every live deck's current version and every plan deck's link: a saved list, a switched
+    // configuration or a new link changes installed states, so it changes the key.
+    let lists: Vec<String> = sqlx::query_scalar(
+        "SELECT id || '=' || COALESCE(current_version_id, '') || '/' || COALESCE(parent_id, '') || '/' || name AS line
+         FROM decks WHERE owner_id = ? AND archived = 0
+         UNION ALL SELECT 'plan:' || key || '=' || COALESCE(deck_id, '') || '/' || name FROM plan_decks WHERE owner_id = ?
+         ORDER BY 1",
+    )
+    .bind(owner)
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    let lists = lists.join(";");
+    let decks_tag = &crate::util::sha256_hex(&lists)[..8];
     let digits: String = cards_at.unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
     let tag = &crate::util::sha256_hex(owner)[..8];
-    Ok(format!("{}-{}-{tag}-s{SHAPE}", revision.unwrap_or(0), if digits.is_empty() { "0" } else { digits.as_str() }))
+    Ok(format!("{}-{}-{decks_tag}-{tag}-s{SHAPE}", revision.unwrap_or(0), if digits.is_empty() { "0" } else { digits.as_str() }))
 }
 
 fn parse(s: Option<&str>) -> Value {
@@ -403,6 +418,8 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     .bind(owner)
     .fetch_all(pool)
     .await?;
+    // Installed, from each plan deck's Yama deck (null where there's no deck to read).
+    let installs = super::installed::load(pool, owner).await?;
     let swaps: Vec<Value> = swap_rows
         .into_iter()
         .map(|s| {
@@ -420,7 +437,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
                 "band": s.band, "group": s.group_label, "sort": s.sort, "game_changer": s.game_changer,
                 "got": parse(s.got.as_deref()), "order_item": order_item, "print_order": s.print_order,
                 "listing": s.listing, "when": s.when_text, "advice": s.advice, "why": s.why, "why_out": s.why_out,
-                "note": s.note, "upgrade": parse(s.upgrade.as_deref()),
+                "note": s.note, "upgrade": parse(s.upgrade.as_deref()), "deck_installed": installs.swaps.get(&s.key),
                 "retired": s.retired_at.is_some(), "retired_at": s.retired_at, "updated_at": s.updated_at,
             })
         })
@@ -695,6 +712,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
                 "commander": parse_or(&d.commander, json!([])), "color_identity": d.color_identity,
                 "owner_changes": parse_or(&d.owner_changes, json!([])), "bracket": parse(d.bracket.as_deref()),
                 "groups": parse_or(&d.groups, json!([])), "notes": parse_or(&d.notes, json!([])), "deck_id": d.deck_id,
+                "yama_deck": installs.decks.get(&d.id),
                 "sort": d.sort, "updated_at": d.updated_at, "states": states,
             })
         })

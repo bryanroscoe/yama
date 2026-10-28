@@ -95,6 +95,19 @@ export interface OwnerChange {
   note?: string | null;
 }
 
+/** A plan deck's Yama deck (`PlanDeck.yama_deck`). */
+export interface YamaDeckRef {
+  id: string;
+  name: string;
+  /** The main deck's own label; null reads as Main. */
+  configuration: string | null;
+  version_id: string | null;
+  /** When its current list was saved. */
+  list_at: string | null;
+  /** Linked to the plan deck, rather than found by name. */
+  linked: boolean;
+}
+
 export interface PlanDeck {
   key: string;
   name: string;
@@ -109,6 +122,11 @@ export interface PlanDeck {
   notes: PlanNote[];
   /** The owner's Yama deck for this physical deck, when linked. */
   deck_id: string | null;
+  /**
+   * The Yama deck installs are read from: the main deck of the linked deck's group, else the one
+   * live main deck with this name. Null when there's none (bundles before 2026-10-28 lack it).
+   */
+  yama_deck?: YamaDeckRef | null;
   sort: number;
   updated_at: string;
   states: Partial<Record<StateName, PlanState>>;
@@ -145,6 +163,12 @@ export interface Swap {
   why_out: string | null;
   note: string | null;
   upgrade: { id: string; status: string } | null;
+  /**
+   * Installed, read from the plan deck's Yama deck (its current list has the card in and the card
+   * out gone; server `plan/installed.rs`). Null or absent when there's no Yama deck to read, or for
+   * proposals: then the tick and the plan's record decide.
+   */
+  deck_installed?: boolean | null;
   retired: boolean;
   retired_at: string | null;
   updated_at: string;

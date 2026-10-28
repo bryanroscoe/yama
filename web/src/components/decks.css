@@ -515,7 +515,7 @@ table.curve-table {
 }
 .deck-history .version {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto auto 1fr auto;
   gap: 0.25rem 0.6rem;
   align-items: center;
   padding: 0.5rem 0.25rem;
@@ -532,7 +532,7 @@ table.curve-table {
 }
 .deck-history .pick-head {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto auto 1fr auto;
   gap: 0.6rem;
   font-size: var(--t-sm);
   color: var(--dk-text-dim);
@@ -578,4 +578,34 @@ table.curve-table {
 }
 .deck-value-split dd {
   margin: 0;
+}
+/* The deck page's lists panel: which list is in the deck, and putting another in. */
+.deck-lists {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.deck-lists p {
+  margin: 0;
+}
+.deck-lists-others {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.deck-lists-others li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.deck-lists-confirm {
+  display: grid;
+  gap: 8px;
 }

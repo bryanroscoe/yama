@@ -31,6 +31,7 @@ import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
 import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
 import { groupConfigurations } from "../decks/configurations";
+import { DeckLists } from "../decks/DeckLists";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
  *  "Complete". A proxy covers a card for play, so a deck of real cards and proxies is complete;
@@ -159,7 +160,10 @@ function ConfigurationList({ main, configurations }: { main: DeckSummary; config
                 title={[own?.text, shared].filter(Boolean).join(". ") || undefined}
               >
                 <b>{c.configuration ?? (i === 0 ? "Main" : c.name)}</b>
-                <span className="dim small">{own ? own.short : `${c.card_count} cards`}</span>
+                <span className="dim small">
+                  {i === 0 ? "In the deck. " : ""}
+                  {own ? own.short : `${c.card_count} cards`}
+                </span>
               </Link>
             </li>
           );
@@ -365,6 +369,7 @@ export function DeckPage() {
                     onFocus={() => prefetch(c.id)}
                   >
                     {label}
+                    {i === 0 ? ", in the deck" : ""}
                     {loading && <span className="hero-configs-loading">, opening…</span>}
                   </Link>
                 );
@@ -424,6 +429,7 @@ export function DeckPage() {
           {plan?.sim && <span className="deck-sim">{plan.sim}</span>}
         </div>
         {!v.ok && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
+        <DeckLists deck={d} />
 
         {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
