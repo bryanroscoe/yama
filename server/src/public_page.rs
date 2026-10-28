@@ -274,8 +274,8 @@ pub(crate) fn state_label(state: &str) -> String {
 }
 
 /// The plan's newest paired lab run: each list's raw simulated win rate with its interval, and
-/// the paired differences. Only the lists in `shown` (plan states) appear; the first is the one
-/// this page shows, called "this list" only when `matches` (its cards are the plan's list now).
+/// the paired differences. Only the lists in `shown` (plan states whose deck's cards are the
+/// plan's list now) appear; with `matches`, the first is this page's list, "this list".
 pub(crate) fn sim_panel(run: &RunListItem, key: &str, shown: &[String], matches: bool) -> String {
     let current = shown.first().map(String::as_str).filter(|_| matches);
     let Some(paired) = &run.paired else { return String::new() };
@@ -335,7 +335,7 @@ pub(crate) fn sim_panel(run: &RunListItem, key: &str, shown: &[String], matches:
         write!(s, "<h3>Paired differences</h3><ul class=\"public-flags\">{}</ul>", lines.concat()).unwrap();
     }
     if !matches {
-        s.push_str("<p class=\"dim\">This deck's cards have changed since, or differ from its plan list, so these results describe the plan's lists as simulated, not necessarily this list.</p>");
+        s.push_str("<p class=\"dim\">This deck's own cards differ from its plan list, so it has no result here; the lists shown are configurations whose cards match theirs.</p>");
     }
     write!(
         s,
