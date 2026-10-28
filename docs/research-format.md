@@ -45,6 +45,13 @@ plain-text full `list` with Commander and Deck sections. Optional fields support
   Scenarios carry id, label, note, deck_count, buys, prints, buy_total, print_count and optional
   sealed_purchases. Sealed product prerequisites have separate prices and market references;
   they are excluded from the singles buy_total and the $2 singles ceiling.
+- A scenario with `purpose: "permanent_real_wishlist"` is a standing watchlist, shown outside
+  acquisition choices and order totals. Its `buys` entries use existing typed card/reason/detail/URL
+  fields; quantities, local offers and purchase approvals are not inferred. Printed-copy history
+  belongs in the detail text, not a quantity to buy. It remains private research, separate from
+  inventory. Print artwork preferences can be retained in the report's method notes.
+  Purpose may be omitted (ordinary acquisition), `acquisition`, or `permanent_real_wishlist`;
+  invalid strings and non-string values are rejected at import.
 - Source: title, safe http(s) URL and optional accessed date.
 
 Additional JSON fields are preserved. Displayed fields are type-checked; text is escaped and

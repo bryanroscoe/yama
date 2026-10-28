@@ -358,11 +358,68 @@ fn prepared_list(u: &crate::upgradeability::Assessment) -> String {
         None => String::new(),
     }
 }
+fn package_summary(u: &crate::upgradeability::Assessment, full: bool) -> String {
+    let Some(p) = &u.package else {
+        return String::new();
+    };
+    let mut out = match p.best_supported_score {
+        Some(n) => format!(
+            "<strong>Highest supported in-box upgrade grade: {n}/5 {}</strong>",
+            e(p.best_supported_label)
+        ),
+        None => "<strong>Package ungraded</strong>".into(),
+    };
+    for names in &p.best_supported_commanders {
+        write!(out, "<small>{}</small>", e(&names.join(" + "))).unwrap();
+    }
+    write!(
+        out,
+        "<small>{}/{} commander configurations graded. Unassessed options may be stronger.</small>",
+        p.graded_configurations, p.configurations
+    )
+    .unwrap();
+    if full {
+        write!(
+            out,
+            "<p>{} colour-compatible in-box commander configurations inventoried {}. {} have validated simulation lists. {}</p>",
+            p.configurations,
+            e(&p.checked_on),
+            p.validated_configurations,
+            if p.roster_complete {
+                "Inventory complete for the checked stock list."
+            } else {
+                "Inventory incomplete."
+            }
+        )
+        .unwrap();
+        if !p.featured_commanders.is_empty() {
+            write!(
+                out,
+                "<p>Featured commanders: {}.</p>",
+                e(&p.featured_commanders
+                    .iter()
+                    .map(|c| c.join(" + "))
+                    .collect::<Vec<_>>()
+                    .join(", "))
+            )
+            .unwrap();
+        }
+        write!(out, "<p>{}</p>", e(p.note)).unwrap();
+        if !p.other_legends.is_empty() {
+            write!(out,"<details><summary>Other included legends</summary><p>These cannot lead the complete unchanged stock pool with a checked configuration: {}.</p></details>",e(&p.other_legends.join(", "))).unwrap();
+        }
+    }
+    out
+}
 fn upgradeability(p: &Precon, full: bool) -> String {
     let u = &p.upgradeability;
+    if !full && u.package.is_some() {
+        return package_summary(u, false);
+    }
     let mut out = if full {
         format!(
-            "<h4>{}</h4>{}",
+            "{}<h4>{}</h4>{}",
+            package_summary(u, true),
             e(&u.commanders.join(" + ")),
             prepared_list(u)
         )
@@ -686,7 +743,7 @@ pub(super) async fn index(
         }
         body.push_str("</div></nav>");
     }
-    body.push_str("<p class=\"dim\">Upgradeability grades use cited guides, checked card examples and the stated commander’s restrictions. Open a deck for the reasoning, source dates, commander game counts and the 1–5 rubric. Unsupported grades have been withdrawn; ungraded configurations remain listed. Sorting uses the reference commander’s grade; alternate grades are named in each row.</p>");
+    body.push_str("<p class=\"dim\">Upgradeability grades use cited guides, checked card examples and the stated commander’s restrictions. Open a deck for the reasoning, source dates, commander game counts and the 1–5 rubric. Unsupported grades have been withdrawn; ungraded configurations remain listed. Sorting uses the highest supported in-box upgrade grade; each named configuration retains its own assessment. Unassessed commanders may be stronger.</p>");
     body.push_str("<aside class=\"reading-note\"><h3>Reading the rankings</h3><p>Meta scores summarise source orderings, not a chance of winning. Engine cautions remain part of the evidence. Decks missing shared data stay unranked. Open a deck for source dates, intervals, limitations and its complete stock list.</p><a href=\"/precons/methodology\">Read the methodology ↗</a></aside>");
     Ok(response(
         &headers,
@@ -848,7 +905,7 @@ pub(super) async fn methodology(
         "<div class=\"public-intro\"><p class=\"eyebrow\">Sources and methods</p><h1>Precon methodology</h1><p class=\"lede\">How results, upgrade assessments and market references are collected.</p></div><nav class=\"method-nav\" aria-label=\"Methodology sections\"><a class=\"button\" href=\"#upgradeability\">Upgradeability</a><a class=\"button\" href=\"#meta\">Meta rank</a><a class=\"button\" href=\"#simulation\">Simulation</a><a class=\"button\" href=\"#real\">Real games</a><a class=\"button\" href=\"#sources\">Sources</a></nav><div class=\"public-prose\"><section id=\"upgradeability\"><h2>Upgradeability</h2><p>Upgradeability is Yama’s judgment of improvements that retain the precon’s main theme. Each commander configuration has its own assessment, including in-box alternatives and supported on-theme commander swaps. A replacement strategy is a separate deck build. Each grade needs a published guide covering that commander, at least two checked nonstock card examples, and written reasons covering card support, commander payoff and restrictions. The guide supplies evidence; Yama assigns the grade. Reviewer grades remain in their original scales. The old unsupported estimates were withdrawn on 27 October 2026.</p></section><section id=\"meta\"><p class=\"eyebrow\">Experimental / v1</p><h2>What the meta rank means</h2><p>Meta means agreement across evidence sources, rather than a forecast for your local playgroup. We use only stock lists with at least 20 real games and 20 simulated appearances in every published engine. At least four decks must qualify. Unranked decks remain browsable.</p><div class=\"formula\">Meta score = ½ real-game percentile<br>+ ½ mean simulation percentile</div><p>We re-rank each source within that same shared cohort. Higher is better: the lowest value scores 0, the highest 100, with tied values given their average rank. For n decks, percentile = 100 × (number below + (number equal − 1) / 2) / (n − 1). Real games use the reported four-player-normalised win rate; each engine uses its fitted strength. The score’s descending order gives the meta rank; tied scores share a rank. Filtering this page never changes the cohort or rank.</p><p>The two evidence groups have equal editorial weight. Phase and Forge, when both published, share the simulation half; extra runs from one engine cannot add votes. These weights have not been optimised or validated as a win prediction. Prices, popularity and reviewer opinion have no weight. Sources are dated but not age-weighted, so older results need care.</p><p>Engine confidence warnings remain visible and do not change the score or select the cohort: some warnings already use disagreement with real games, so filtering by those warnings would favour agreement by construction. The meta score has no probability interpretation or confidence interval. Large source disagreements and wide simulation intervals remain reasons to inspect a deck.</p><h3>Why there is no blended win-rate forecast yet</h3><p>A simulation’s opponents are a closed precon field; real games have different opponents, pilots and selection effects. Averaging those percentages would hide those differences. We show the separate model and observed win rates. A future forecast needs a declared target field, validation against held-out real results, and an interval that includes calibration error. More simulated games alone cannot establish real-world accuracy.</p></section><section id=\"simulation\"><p class=\"eyebrow\">The lab</p><h2>What simulation measures</h2><p>Four-player stock-precon pods are fitted with a Plackett–Luce finishing-order model, including turn-position effects. The model win rate estimates a deck’s chance against three random opponents from that run’s field. A 25% baseline represents four equally strong decks. Observed wins are the raw fraction of scored appearances won; they can differ because opponents and seats differ.</p><p>Intervals use the published game-cluster bootstrap and their stated coverage level. They describe sampling uncertainty within this simulation, not AI or rules accuracy. Rank ranges can be wide and overlapping. Known engine/AI limitations remain attached to their deck. An unreliable simulation is evidence to investigate, not a reliable power judgment.</p><p>Failures and timeouts are excluded, not counted as losses. Turn/action-cap finishes retained by the analysis have no winner. Legacy imports may carry a generic difficulty label without recording the Forge profile; that profile remains unverified unless the reviewed source notes document it. Each engine keeps its own field, scoring, build and dates; percentiles on a shared subset make orderings comparable, but cannot remove differences in their original opponent fields.</p>",
     );
     let rubric = upgradeability_rubric();
-    body=body.replacen("</p></section><section id=\"meta\">", &format!("</p>{rubric}<h3>Commander results and other sources</h3><p>{}</p><p>Commander counts come from each Playgroup API endpoint, fetched and attributed separately from stock-precon results. We never mix bulk and individual endpoint counts. Zero games has no rate. Samples below 20 games are marked small. No attempt is made to correct these commander rates for pilot skill or selection effects.</p><p><a href=\"https://edhtop16.com\">EDHTop16</a> reports competitive tournament entries and conversion rates. Conversion measures advancement, not game wins, and does not describe a stock precon. <a href=\"https://edhrec.com/faq\">EDHREC</a> deck inclusion measures card choices, not outcomes. Those measures are not pooled with Playgroup win rates or used as automatic upgrade scores. Dated reviews from named authors provide qualitative evidence. Upgraded-versus-stock trials for these assessments have not been run.</p><p>Coverage: 174 catalog lists audited; 13 source-backed grades, 20 previously collected individual reviews checked, and 190 distinct commander observations (179 reference commanders and 11 alternative commanders). The remaining reference lists are ungraded. Eleven separately validated commander options are now available, including two additional source-backed grades. A guide using another commander supports that configuration, not the original commander’s grade. New or changed lists need their own matching assessment. Prepared commander lists use separate command zones and identities; they do not inherit the reference list’s simulation results. Upgradeability and commander observations have no weight in the stock meta rank.</p></section><section id=\"meta\">", e(crate::upgradeability::COMMANDER_CAVEAT)),1);
+    body=body.replacen("</p></section><section id=\"meta\">", &format!("</p>{rubric}<h3>Commander results and other sources</h3><p>{}</p><p>Commander counts come from each Playgroup API endpoint, fetched and attributed separately from stock-precon results. We never mix bulk and individual endpoint counts. Zero games has no rate. Samples below 20 games are marked small. No attempt is made to correct these commander rates for pilot skill or selection effects.</p><p><a href=\"https://edhtop16.com\">EDHTop16</a> reports competitive tournament entries and conversion rates. Conversion measures advancement, not game wins, and does not describe a stock precon. <a href=\"https://edhrec.com/faq\">EDHREC</a> deck inclusion measures card choices, not outcomes. Those measures are not pooled with Playgroup win rates or used as automatic upgrade scores. Dated reviews from named authors provide qualitative evidence. Upgraded-versus-stock trials for these assessments have not been run.</p><p>Coverage: 174 packages with 619 stock-compatible commander configurations inventoried. Eighteen configurations have supported upgrade grades; unassessed options may be stronger. Six configurations need banned stock cards replaced, and three require pregame colour-choice input not yet supported by the simulation list format. There are 611 prepared lists including Koma’s outside-commander option, and 575 separately scoped commander observations. The package summary names the highest supported in-box upgrade grade and shows assessed/total coverage; outside commanders cannot supply that grade. A guide using another commander supports that configuration, not the original commander’s grade. New or changed lists need their own matching assessment. Prepared commander lists use separate command zones and identities; they do not inherit the reference list’s simulation results. Upgradeability and commander observations have no weight in the stock meta rank.</p></section><section id=\"meta\">", e(crate::upgradeability::COMMANDER_CAVEAT)),1);
     if let Some(s) = &snapshot {
         for source in std::iter::once(s).chain(s.comparisons.iter()) {
             let p = &source.publication;

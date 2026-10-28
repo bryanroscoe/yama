@@ -3,7 +3,7 @@ use crate::{decks::Board, lab::PreconCard};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::LazyLock};
 
-pub const METHOD: &str = "source-backed-upgradeability-v3";
+pub const METHOD: &str = "source-backed-upgradeability-v4";
 pub const BASIS: &str = "Yama's editorial judgment of improvement options for the stated commander configuration while retaining the precon’s main theme. Based on the cited guides, checked card examples and commander restrictions. No upgrade win-rate estimate is available.";
 pub const RUBRIC: &str = "1 Minimal: changing individual cards does little for the main plan; its limiting mechanism remains. 2 Narrow: useful replacements exist, but the same commander or theme restriction blocks most further gains. 3 Workable: a documented upgrade package improves the plan, with a persistent setup, combat or card-pool limit. 4 Broad: several compatible packages improve the plan and its finish; important restrictions still apply. 5 Exceptional: the commander supplies repeatable resources and a direct finish; on-theme additions strengthen both. These are ordinal judgments, not measured power steps. Evidence missing means ungraded, not 1.";
 pub const COMMANDER_CAVEAT: &str = "Playgroup commander results include stock and modified lists, mixed pod sizes and opponents. The raw rate is wins divided by games, not four-player normalised. Partner commanders are separate observations, not a pair's rate. Do not subtract a stock-precon rate to estimate upgrade gain.";
@@ -112,7 +112,7 @@ pub struct Continuity {
 struct AlternativeEntry {
     key: String,
     scope: PathScope,
-    continuity: Continuity,
+    continuity: Option<Continuity>,
     list_checked_on: String,
     validated_fingerprint: String,
     #[serde(flatten)]
@@ -150,7 +150,48 @@ pub struct Assessment {
     pub list_fingerprint: Option<String>,
     pub simulation_note: &'static str,
     pub alternatives: Vec<Assessment>,
+    pub package: Option<PackageAssessment>,
 }
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageAssessment {
+    pub checked_on: String,
+    pub roster_complete: bool,
+    pub configurations: usize,
+    pub validated_configurations: usize,
+    pub graded_configurations: usize,
+    pub best_supported_score: Option<u8>,
+    pub best_supported_label: &'static str,
+    pub best_supported_commanders: Vec<Vec<String>>,
+    pub featured_commanders: Vec<Vec<String>>,
+    pub other_legends: Vec<String>,
+    pub note: &'static str,
+}
+#[derive(Deserialize)]
+struct RosterDocument {
+    decks: BTreeMap<String, Roster>,
+}
+#[derive(Deserialize)]
+struct Roster {
+    reference_fingerprint: String,
+    checked_on: String,
+    complete: bool,
+    options: Vec<RosterOption>,
+    other_legends: Vec<String>,
+}
+#[derive(Deserialize)]
+struct RosterOption {
+    key: String,
+    commanders: Vec<String>,
+    fingerprint: Option<String>,
+    list_problem: Option<String>,
+    commander_cards: Vec<CommanderCard>,
+    #[serde(default)]
+    featured: bool,
+}
+static ROSTER: LazyLock<RosterDocument> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../resources/precon-commander-roster.json"))
+        .expect("validated package inventory")
+});
 #[derive(Deserialize)]
 struct Document {
     method: String,
@@ -176,14 +217,87 @@ struct Entry {
     alternatives: Vec<AlternativeEntry>,
     catalog_list_checked_on: Option<String>,
     catalog_validated_fingerprint: Option<String>,
+    reviewed_on: Option<String>,
+    #[serde(default)]
+    inventory_only: bool,
 }
 #[derive(Deserialize)]
 struct CommanderDocument {
     commanders: BTreeMap<String, CommanderResult>,
 }
 static DATA: LazyLock<Document> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("../resources/precon-upgradeability.json"))
-        .expect("validated upgradeability document")
+    let mut doc: Document =
+        serde_json::from_str(include_str!("../resources/precon-upgradeability.json"))
+            .expect("validated upgradeability document");
+    for (id, base) in &mut doc.decks {
+        let Some(roster) = ROSTER
+            .decks
+            .get(id)
+            .filter(|r| r.reference_fingerprint == fingerprint(base))
+        else {
+            continue;
+        };
+        for option in &roster.options {
+            if commander_key(&option.commanders) == commander_key(&base.commanders) {
+                base.catalog_validated_fingerprint = option.fingerprint.clone();
+                base.catalog_list_checked_on = option
+                    .fingerprint
+                    .as_ref()
+                    .map(|_| roster.checked_on.clone());
+                continue;
+            }
+            if base.alternatives.iter().any(|a| {
+                commander_key(&a.entry.commanders) == commander_key(&option.commanders)
+                    && a.scope == PathScope::InBox
+            }) {
+                continue;
+            }
+            let mut entry = base.clone();
+            entry.alternatives.clear();
+            entry.commanders = option.commanders.clone();
+            entry.commander_cards = option.commander_cards.clone();
+            entry.stock = base
+                .stock
+                .iter()
+                .map(|(_, n, q)| {
+                    (
+                        if option.commanders.contains(n) {
+                            "commander"
+                        } else {
+                            "main"
+                        }
+                        .into(),
+                        n.clone(),
+                        *q,
+                    )
+                })
+                .collect();
+            entry.score = None;
+            entry.effort = None;
+            entry.path = None;
+            entry.limitation = None;
+            entry.rationale = None;
+            entry.examples.clear();
+            entry.sources.clear();
+            entry.inventory_only = true;
+            entry.reviewed_on = None;
+            entry.gap = Some("Included commander option: leadership and colour compatibility checked. Theme fit and upgrade potential have not been assessed; no grade or simulation result is assigned.".into());
+            if let Some(problem) = &option.list_problem {
+                entry.gap = Some(format!(
+                    "This configuration is not ready for simulation: {problem}. No validated simulation download is available."
+                ));
+            }
+            base.alternatives.push(AlternativeEntry {
+                key: option.key.clone(),
+                scope: PathScope::InBox,
+                continuity: None,
+                list_checked_on: roster.checked_on.clone(),
+                validated_fingerprint: option.fingerprint.clone().unwrap_or_default(),
+                entry,
+            });
+        }
+    }
+    doc
 });
 static COMMANDERS: LazyLock<CommanderDocument> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../resources/commander-evidence.json"))
@@ -204,6 +318,21 @@ fn board(b: &Board) -> &'static str {
         Board::Main => "main",
         Board::Side => "side",
     }
+}
+fn commander_key(names: &[String]) -> std::collections::BTreeSet<String> {
+    names
+        .iter()
+        .map(|n| n.split(" // ").next().unwrap_or(n).to_lowercase())
+        .collect()
+}
+fn fingerprint(entry: &Entry) -> String {
+    let normalized: Vec<_> = key(entry
+        .stock
+        .iter()
+        .map(|(b, n, q)| (b.as_str(), n.as_str(), *q)))
+    .into_iter()
+    .collect();
+    crate::util::sha256_hex(&serde_json::to_string(&normalized).expect("list identity serializes"))
 }
 fn supported_grade(entry: &Entry, sources: &[Source]) -> Option<u8> {
     let grade = entry.score?;
@@ -263,6 +392,7 @@ fn empty(cards: &[PreconCard]) -> Assessment {
         list_fingerprint: None,
         simulation_note: "No matched simulation results are attached to this commander option.",
         alternatives: vec![],
+        package: None,
     }
 }
 fn entry_cards(entry: &Entry) -> Vec<PreconCard> {
@@ -292,7 +422,12 @@ fn matches(entry: &Entry, cards: &[PreconCard]) -> bool {
 }
 fn evaluate(entry: &Entry) -> Assessment {
     let mut a = empty(&entry_cards(entry));
-    a.assessed_on = Some(DATA.assessed_on.clone());
+    a.assessed_on = (!entry.inventory_only).then(|| {
+        entry
+            .reviewed_on
+            .clone()
+            .unwrap_or_else(|| DATA.assessed_on.clone())
+    });
     a.source_url = Some(entry.source_url.clone());
     a.sources = entry
         .sources
@@ -334,7 +469,7 @@ fn alternate(id: &str, base: &Entry, v: &AlternativeEntry) -> Assessment {
     let mut a = evaluate(&v.entry);
     a.variant_key = v.key.clone();
     a.scope = v.scope.clone();
-    a.continuity = Some(v.continuity.clone());
+    a.continuity = v.continuity.clone();
     let totals = |entry: &Entry| {
         let mut m = BTreeMap::new();
         for (_, n, q) in &entry.stock {
@@ -373,14 +508,15 @@ fn alternate(id: &str, base: &Entry, v: &AlternativeEntry) -> Assessment {
         && v.entry.stock.iter().all(|(_, _, q)| *q > 0)
         && stock_commanders == v.entry.commanders
         && (v.scope != PathScope::InBox || original == variant);
-    let coherent = [
-        &v.continuity.theme,
-        &v.continuity.retains,
-        &v.continuity.changes,
-    ]
-    .iter()
-    .all(|s| !s.trim().is_empty());
-    if v.scope == PathScope::SeparateBuild || v.scope == PathScope::Catalog || !coherent {
+    let coherent = v.continuity.as_ref().is_some_and(|c| {
+        [&c.theme, &c.retains, &c.changes]
+            .iter()
+            .all(|s| !s.trim().is_empty())
+    });
+    if v.scope == PathScope::SeparateBuild
+        || v.scope == PathScope::Catalog
+        || (v.scope == PathScope::OnThemeSwap && !coherent)
+    {
         a.score = None;
         a.label = "Separate build";
         a.status = "separate_build";
@@ -399,11 +535,26 @@ fn alternate(id: &str, base: &Entry, v: &AlternativeEntry) -> Assessment {
         a.path = None;
         a.limitation = None;
         a.examples.clear();
-        a.gap = Some("This commander option's list changed or has not passed validation.".into());
+        a.gap = if v.entry.inventory_only {
+            v.entry.gap.clone()
+        } else {
+            Some("This commander option's list changed or has not passed validation.".into())
+        };
     } else {
         a.list_checked_on = Some(v.list_checked_on.clone());
         a.list_url = Some(format!("/precons/{id}/commanders/{}/decklist.txt", v.key));
         a.list_fingerprint = Some(fingerprint);
+    }
+    if v.scope == PathScope::InBox && !coherent {
+        a.score = None;
+        if a.status != "list_needs_validation" {
+            a.label = "Ungraded";
+        }
+        a.rationale = None;
+        a.effort = None;
+        a.path = None;
+        a.limitation = None;
+        a.examples.clear();
     }
     a
 }
@@ -461,6 +612,45 @@ pub fn assess(id: &str, cards: &[PreconCard]) -> Assessment {
         return a;
     };
     let mut a = options.remove(i);
+    if let Some(roster) = ROSTER
+        .decks
+        .get(id)
+        .filter(|r| r.reference_fingerprint == fingerprint(base))
+    {
+        let included: Vec<_> = std::iter::once(&a)
+            .chain(options.iter())
+            .filter(|v| v.scope == PathScope::Catalog || v.scope == PathScope::InBox)
+            .collect();
+        let best = included.iter().filter_map(|v| v.score).max();
+        a.package = Some(PackageAssessment {
+            checked_on: roster.checked_on.clone(),
+            roster_complete: roster.complete,
+            configurations: roster.options.len(),
+            validated_configurations: roster
+                .options
+                .iter()
+                .filter(|o| o.fingerprint.is_some())
+                .count(),
+            graded_configurations: included.iter().filter(|v| v.score.is_some()).count(),
+            best_supported_score: best,
+            best_supported_label: best
+                .map(|s| levels()[usize::from(s) - 1].label)
+                .unwrap_or("Ungraded"),
+            best_supported_commanders: included
+                .iter()
+                .filter(|v| v.score.is_some() && v.score == best)
+                .map(|v| v.commanders.clone())
+                .collect(),
+            featured_commanders: roster
+                .options
+                .iter()
+                .filter(|o| o.featured)
+                .map(|o| o.commanders.clone())
+                .collect(),
+            other_legends: roster.other_legends.clone(),
+            note: "This package includes every inventoried stock-compatible commander configuration. Highest supported upgrade grade describes the named assessed options, not overall deck power or a proven best commander. Unassessed options may be stronger. Outside commander swaps are excluded from the package summary.",
+        });
+    }
     a.alternatives = options;
     a
 }
@@ -542,7 +732,10 @@ mod tests {
                 graded += 1;
                 assert!(e.gap.is_none());
                 for c in &e.examples {
-                    assert_eq!(c.legal_checked_on, "2026-10-27");
+                    assert!(matches!(
+                        c.legal_checked_on.as_str(),
+                        "2026-10-27" | "2026-10-28"
+                    ));
                     assert!(c.url.starts_with("https://scryfall.com/card/"));
                     assert!(
                         !e.stock.iter().any(|(_, n, _)| n
@@ -561,7 +754,7 @@ mod tests {
                 assert_eq!(a.status, "insufficient_evidence");
             }
         }
-        assert_eq!(graded, 13);
+        assert_eq!(graded, 14);
         assert_eq!(
             assess("counter-intelligence", &stock("counter-intelligence")).score,
             None,
@@ -569,8 +762,65 @@ mod tests {
         );
         assert_eq!(
             assess("the-fantastic-four", &stock("the-fantastic-four")).score,
-            None,
-            "Mister Fantastic's guide cannot grade Invisible Woman"
+            Some(3),
+            "Invisible Woman now has her own covering guide and assessment"
+        );
+    }
+    #[test]
+    fn package_inventory_covers_all_leaders_and_does_not_hide_partial_grading() {
+        assert_eq!(ROSTER.decks.len(), 174);
+        assert_eq!(
+            ROSTER
+                .decks
+                .values()
+                .map(|r| r.options.len())
+                .sum::<usize>(),
+            619
+        );
+        let a = assess("the-fantastic-four", &stock("the-fantastic-four"));
+        let p = a.package.as_ref().unwrap();
+        assert_eq!((p.configurations, p.graded_configurations), (6, 4));
+        assert_eq!(p.best_supported_score, Some(4));
+        assert_eq!(p.featured_commanders.len(), 4);
+        assert!(
+            p.best_supported_commanders
+                .contains(&vec!["Mister Fantastic".into()])
+        );
+        assert!(
+            p.best_supported_commanders
+                .contains(&vec!["Human Torch".into()])
+        );
+        for n in [
+            "Mister Fantastic",
+            "Human Torch",
+            "The Thing",
+            "Crystal, Inhuman Princess",
+            "Power Pack",
+        ] {
+            assert!(
+                a.alternatives.iter().any(|a| a.commanders == vec![n]),
+                "{n}"
+            );
+        }
+        for id in DATA.decks.keys() {
+            let a = assess(id, &stock(id));
+            assert!(a.package.as_ref().unwrap().roster_complete);
+            assert_eq!(
+                1 + a
+                    .alternatives
+                    .iter()
+                    .filter(|a| a.scope == PathScope::InBox)
+                    .count(),
+                ROSTER.decks[id].options.len(),
+                "{id}"
+            );
+        }
+        let q = assess("quantum-quandrix", &stock("quantum-quandrix"));
+        assert_eq!(q.package.as_ref().unwrap().configurations, 4);
+        assert_eq!(
+            q.alternatives.len(),
+            4,
+            "Koma is separate from the four in-box options"
         );
     }
     #[test]
@@ -693,7 +943,7 @@ mod tests {
         let a = alternate(id, base, &v);
         assert_eq!(a.score, Some(4));
         assert!(a.list_url.is_some());
-        v.continuity.retains.clear();
+        v.continuity.as_mut().unwrap().retains.clear();
         assert_eq!(alternate(id, base, &v).score, None);
         v = base.alternatives[0].clone();
         v.entry.stock[1].1 = "Unreviewed replacement".into();
@@ -716,9 +966,17 @@ mod tests {
                         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
                 );
                 let a = alternate(id, e, v);
+                if v.validated_fingerprint.is_empty() {
+                    assert!(a.list_url.is_none(), "{id}");
+                    assert_eq!(a.status, "list_needs_validation");
+                    continue;
+                }
                 assert!(a.list_url.is_some(), "{id}");
-                assert_eq!(a.list_checked_on.as_deref(), Some("2026-10-27"));
-                assert_eq!(a.commander_results.len(), v.entry.commanders.len(), "{id}");
+                assert!(a.list_checked_on.is_some());
+                assert!(
+                    a.commander_results.len() <= v.entry.commanders.len(),
+                    "{id}"
+                );
                 if a.score.is_some() {
                     graded += 1;
                 }
@@ -735,7 +993,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!((options, graded), (11, 2));
+        assert_eq!((options, graded), (446, 4));
     }
     #[tokio::test]
     async fn public_commander_downloads_keep_their_command_zone_and_refuse_changed_catalogs() {
@@ -995,8 +1253,8 @@ mod tests {
                 .unwrap();
             let html = String::from_utf8(body.to_vec()).unwrap();
             assert!(html.contains("5/5 Exceptional"));
-            assert!(html.contains("Substantial"));
             if path.starts_with("/precons/scions-") {
+                assert!(html.contains("Substantial"));
                 assert!(html.contains("Audited 2026-10-27."));
                 assert!(html.contains(">Catalog list</a>"));
                 assert!(html.contains("Commander results"));

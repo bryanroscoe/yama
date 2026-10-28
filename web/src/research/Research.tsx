@@ -135,7 +135,22 @@ function BuildView({ bundle, deck, build }: { bundle: ResearchBundle; deck: Rese
   </article>;
 }
 
-export function Shopping({ scenarios = [], defaultId }: { scenarios?: Scenario[]; defaultId?: string }) {
+export function PrintedWishlist({ scenarios = [] }: { scenarios?: Scenario[] }) {
+  return <>{scenarios.filter((s)=>s.purpose==="permanent_real_wishlist").map((wishlist)=><section key={wishlist.id} className="research-shopping" id="printed-real-wishlist">
+    <h2>{wishlist.label}</h2><p>{wishlist.note}</p>
+    <details><summary>{wishlist.buys?.length??0} card names to keep watching for real copies</summary>
+      {wishlist.buys?.map((item,i)=><div className="research-item" key={`${item.card}-${i}`}>
+        <p><b>{item.card&&<CardName name={item.card}/>}</b></p>
+        {item.reason&&<p className="small">{item.reason}</p>}{item.detail&&<p className="small dim">{item.detail}</p>}
+        <p className="small dim">Local price and stock: Unknown. Quantity to buy: undecided.</p>
+        {safeUrl(item.url)&&<a className="small" href={safeUrl(item.url)} target="_blank" rel="noreferrer">Card reference</a>}
+      </div>)}
+    </details>
+  </section>)}</>;
+}
+
+export function Shopping({ scenarios: allScenarios = [], defaultId }: { scenarios?: Scenario[]; defaultId?: string }) {
+  const scenarios=allScenarios.filter((s)=>s.purpose!=="permanent_real_wishlist");
   const [selected,setSelected]=useState(defaultId??scenarios.find((s)=>s.id==="default")?.id??scenarios[0]?.id);
   const scenario=scenarios.find((s)=>s.id===selected)??scenarios[0];
   if(!scenario)return null;
@@ -168,6 +183,7 @@ function DeckOverview({ bundle }: { bundle: ResearchBundle }) {
         <Link to={`/decks/research/${doc.id}/${deck.key}`}>Review exact builds, guide and cards →</Link>
       </article>;
     })}</div>
+    <PrintedWishlist scenarios={doc.scenarios}/>
     <Shopping scenarios={doc.scenarios} defaultId={doc.default_scenario_id}/>
   </>;
 }

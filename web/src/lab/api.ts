@@ -114,6 +114,7 @@ export interface Upgradeability {
   continuity:{theme:string;retains:string;changes:string}|null;
   retained_cards:number|null; list_checked_on:string|null;list_url:string|null;list_fingerprint:string|null;
   simulation_note:string; alternatives:Upgradeability[];
+  package?: { checked_on: string; roster_complete: boolean; configurations: number; validated_configurations: number; graded_configurations: number; best_supported_score: number | null; best_supported_label: string; best_supported_commanders: string[][]; featured_commanders: string[][]; other_legends: string[]; note: string } | null;
 }
 
 export interface PreconItem {
