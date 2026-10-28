@@ -1408,3 +1408,4 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 .pip-table meter { width:60%; height:8px; vertical-align:middle; }
 .share-deck-configs { padding:10px 18px 14px; }
 .share-deck-configs ul { margin:0; }
+.sim-row .caution { display:block; margin-top:6px; }

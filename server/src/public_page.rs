@@ -288,18 +288,31 @@ pub(crate) fn sim_panel(run: &RunListItem, key: &str, shown: &[String], matches:
         when(r.analysed_at.as_deref().unwrap_or(&r.created_at)),
         r.pod.unwrap_or(4),
     );
+    // The simulator's own warnings about a list (web/src/lab: ConfidenceNote), and the worse of
+    // two lists' on a comparison: a known misjudgement never reads as a precise estimate.
+    let caution = |id: &str| -> Option<(u8, String)> {
+        let c = paired.variants.iter().find(|v| v.id == id)?.confidence.as_ref()?;
+        let (rank, label) = match c.level {
+            crate::lab::ConfidenceLevel::Ok => return None,
+            crate::lab::ConfidenceLevel::Doubtful => (1, "Check limitations"),
+            crate::lab::ConfidenceLevel::Unreliable => (2, "Engine caution"),
+        };
+        let why = if c.reasons.is_empty() { String::new() } else { format!(": {}", c.reasons.join("; ")) };
+        Some((rank, format!("<span class=\"caution\">{label}{}</span>", e(&why))))
+    };
     for v in &paired.variants {
         let Some(state) = crate::lab::variant_state(&v.id, key).filter(|s| shown.contains(s)) else { continue };
         let range = v.wilson.map(|[lo, hi]| format!("{:.0} to {:.0}%", lo * 100., hi * 100.)).unwrap_or_else(|| "no interval".into());
         let this = if current == Some(state.as_str()) { " aria-current=\"true\"" } else { "" };
         write!(
             s,
-            "<div class=\"sim-row\"{this}><span class=\"label\">{}{}</span><span class=\"result-value\">{}</span><small>{} of {} games won, interval {range}</small></div>",
+            "<div class=\"sim-row\"{this}><span class=\"label\">{}{}</span><span class=\"result-value\">{}</span><small>{} of {} games won, interval {range}</small>{}</div>",
             e(&state_label(&state)),
             if this.is_empty() { "" } else { ", this list" },
             pct(v.win_rate),
             v.wins,
             v.games,
+            caution(&v.id).map(|c| c.1).unwrap_or_default(),
         )
         .unwrap();
     }
@@ -314,7 +327,8 @@ pub(crate) fn sim_panel(run: &RunListItem, key: &str, shown: &[String], matches:
             }
             let delta = c.delta_win_rate.map(|d| format!("{:+.0} points", d * 100.)).unwrap_or_else(|| "no difference measured".into());
             let ci = c.delta_ci.map(|[lo, hi]| format!(" ({:+.0} to {:+.0})", lo * 100., hi * 100.)).unwrap_or_default();
-            Some(format!("<li>{} to {}: {delta}{ci} over {}. {}</li>", e(&state_label(&b)), e(&state_label(&v)), plural(c.pods, "pod", "pods"), e(&c.verdict.text)))
+            let worst = [caution(&c.base), caution(&c.variant)].into_iter().flatten().max_by_key(|x| x.0).map(|x| format!(" {}", x.1)).unwrap_or_default();
+            Some(format!("<li>{} to {}: {delta}{ci} over {}. {}{worst}</li>", e(&state_label(&b)), e(&state_label(&v)), plural(c.pods, "pod", "pods"), e(&c.verdict.text)))
         })
         .collect();
     if !lines.is_empty() {
@@ -323,6 +337,16 @@ pub(crate) fn sim_panel(run: &RunListItem, key: &str, shown: &[String], matches:
     if !matches {
         s.push_str("<p class=\"dim\">This deck's cards have changed since, or differ from its plan list, so these results describe the plan's lists as simulated, not necessarily this list.</p>");
     }
+    write!(
+        s,
+        "<details><summary>Run details</summary><p class=\"dim\">Engine {}. Runner {}. Card data {}. {} games, analysed {}.</p></details>",
+        e(r.engine.as_deref().unwrap_or("not recorded")),
+        e(r.runner.as_deref().unwrap_or("not recorded")),
+        e(r.card_data.as_deref().unwrap_or("not recorded")),
+        count(r.games),
+        when(r.analysed_at.as_deref().unwrap_or(&r.created_at)),
+    )
+    .unwrap();
     s.push_str("<p class=\"dim\">Lists from the owner's upgrade plan, as simulated on that date. A simulated rate is evidence about these AI pods, not a forecast for a real table; read differences with their intervals.</p></section>");
     s
 }
