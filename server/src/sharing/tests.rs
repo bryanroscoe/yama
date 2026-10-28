@@ -250,13 +250,38 @@ async fn configurations_group_one_level_deep() {
     // Shared pages list only the shared configurations.
     sqlx::query("UPDATE decks SET visibility = 'public' WHERE id IN (?, ?)").bind(&main).bind(&stock).execute(&pool).await.unwrap();
     sqlx::query("UPDATE users SET handle = 'saget' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
-    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/configurations"), Some(&bt), Some(json!({ "configuration": "secret tech", "op_id": "cfg-2" }))).await;
+    let (s, tech) = send(&app, Method::POST, &format!("/api/decks/{main}/configurations"), Some(&bt), Some(json!({ "configuration": "secret tech", "op_id": "cfg-2" }))).await;
     assert_eq!(s, StatusCode::OK);
+    // A configuration copies its source's visibility (public here); shared by link only, it's
+    // never listed from another deck's page or the profile.
+    let tech = tech["id"].as_str().unwrap().to_string();
+    let vis: String = sqlx::query_scalar("SELECT visibility FROM decks WHERE id = ?").bind(&tech).fetch_one(&pool).await.unwrap();
+    assert_eq!(vis, "public");
+    send(&app, Method::PATCH, &format!("/api/decks/{tech}"), Some(&bt), Some(json!({ "visibility": "link" }))).await;
+    // Its own page still works, and lists itself.
+    let (status, _, own) = page(&app, &format!("/d/{}", token_of(&pool, &tech).await)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(own.contains("secret tech"));
     let (_, _, shared) = page(&app, &format!("/d/{}", token_of(&pool, &main).await)).await;
     assert!(shared.contains("Configurations") && shared.contains(">Main<") && shared.contains(">stock<"));
     assert!(!shared.contains("secret tech"));
     let (_, _, profile) = page(&app, "/u/saget").await;
     assert!(profile.contains("1 more configuration") && !profile.contains("secret tech"));
+
+    // A configuration of a private deck stays private, even when new decks start public.
+    send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "new_deck_visibility": "public" }))).await;
+    let (s, budget) = send(&app, Method::POST, &format!("/api/decks/{other}/configurations"), Some(&bt), Some(json!({ "configuration": "budget", "op_id": "cfg-3" }))).await;
+    assert_eq!(s, StatusCode::OK);
+    let vis: String = sqlx::query_scalar("SELECT visibility FROM decks WHERE id = ?").bind(budget["id"].as_str().unwrap()).fetch_one(&pool).await.unwrap();
+    assert_eq!(vis, "private");
+    // An op_id used for another kind of write isn't replayed as this one.
+    sqlx::query("INSERT INTO applied_ops (op_id, owner_id, kind, payload, applied_at) VALUES ('used', ?, 'collection.add', '{}', 'now')")
+        .bind(&bryan)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{other}/configurations"), Some(&bt), Some(json!({ "configuration": "x", "op_id": "used" }))).await;
+    assert_eq!(s, StatusCode::CONFLICT);
 
     // Archiving the main deck leaves its configurations as main decks.
     send(&app, Method::DELETE, &format!("/api/decks/{main}"), Some(&bt), None).await;

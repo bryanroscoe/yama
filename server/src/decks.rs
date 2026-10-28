@@ -829,13 +829,15 @@ async fn update_deck(
     if let Some(v) = &body.visibility {
         crate::sharing::visibility(v)?;
     }
+    // Immediate, so two moves at once can't both pass the check and nest or loop.
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
     if let Some(Some(parent)) = &body.parent_id {
-        check_parent(&st.pool, &user.id, &id, parent).await?;
+        check_parent(&mut tx, &user.id, &id, parent).await?;
     }
     let (folder, bracket, visibility, parent_id, configuration): (Option<String>, Option<i64>, String, Option<String>, Option<String>) =
         sqlx::query_as("SELECT folder, bracket, visibility, parent_id, configuration FROM decks WHERE id = ?")
             .bind(&id)
-            .fetch_one(&st.pool)
+            .fetch_one(&mut *tx)
             .await?;
     let configuration = match body.configuration {
         Some(label) => configuration_label(label.as_deref())?,
@@ -855,8 +857,9 @@ async fn update_deck(
     .bind(crate::sharing::new_token())
     .bind(now())
     .bind(&id)
-    .execute(&st.pool)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -871,7 +874,7 @@ fn configuration_label(label: Option<&str>) -> AppResult<Option<String>> {
 
 /// `deck` may become a configuration of `parent`: both live and the owner's, `parent` a main deck
 /// (configurations go one level deep) and `deck` without configurations of its own.
-async fn check_parent(pool: &SqlitePool, owner: &str, deck: &str, parent: &str) -> AppResult<()> {
+async fn check_parent(conn: &mut SqliteConnection, owner: &str, deck: &str, parent: &str) -> AppResult<()> {
     if deck == parent {
         return Err(AppError::bad("a deck can't be a configuration of itself"));
     }
@@ -879,7 +882,7 @@ async fn check_parent(pool: &SqlitePool, owner: &str, deck: &str, parent: &str) 
         sqlx::query_scalar("SELECT parent_id FROM decks WHERE id = ? AND owner_id = ? AND archived = 0")
             .bind(parent)
             .bind(owner)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *conn)
             .await?;
     match parent_of_parent {
         None => return Err(AppError::NotFound("deck")),
@@ -888,7 +891,7 @@ async fn check_parent(pool: &SqlitePool, owner: &str, deck: &str, parent: &str) 
     }
     let children: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decks WHERE parent_id = ? AND archived = 0")
         .bind(deck)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await?;
     if children > 0 {
         return Err(AppError::bad("this deck has configurations of its own; move them first"));
@@ -926,12 +929,15 @@ async fn new_configuration(
     }
     let (_, version_id, _) = owned_deck(&st.pool, &user.id, &id).await?;
     let mut tx = st.pool.begin().await?;
-    let done: Option<String> = sqlx::query_scalar("SELECT payload FROM applied_ops WHERE op_id = ? AND owner_id = ?")
+    let done: Option<(String, String)> = sqlx::query_as("SELECT kind, payload FROM applied_ops WHERE op_id = ? AND owner_id = ?")
         .bind(&body.op_id)
         .bind(&user.id)
         .fetch_optional(&mut *tx)
         .await?;
-    if let Some(payload) = done {
+    if let Some((kind, payload)) = done {
+        if kind != "deck.configuration" {
+            return Err(AppError::Conflict("that op_id was used for something else".into()));
+        }
         let id: String = serde_json::from_str::<serde_json::Value>(&payload).ok().and_then(|v| v["id"].as_str().map(String::from)).unwrap_or_default();
         return Ok(Json(Created { id, unknown: vec![] }));
     }
@@ -948,7 +954,15 @@ async fn new_configuration(
         None => vec![],
     };
     let new = create_deck_in(&mut tx, &user.id, &format!("{root_name} ({label})"), folder.as_deref(), &cards, "new configuration").await?;
-    sqlx::query("UPDATE decks SET parent_id = ?, configuration = ? WHERE id = ?").bind(&root).bind(&label).bind(&new).execute(&mut *tx).await?;
+    // It shares no more than the list it copies: the source deck's visibility, not the default
+    // for new decks.
+    sqlx::query("UPDATE decks SET parent_id = ?, configuration = ?, visibility = (SELECT visibility FROM decks WHERE id = ?) WHERE id = ?")
+        .bind(&root)
+        .bind(&label)
+        .bind(&id)
+        .bind(&new)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query(
         "INSERT INTO deck_prints (deck_id, oracle_id, set_code, collector_number, finish, proxy)
          SELECT ?, oracle_id, set_code, collector_number, finish, proxy FROM deck_prints WHERE deck_id = ?",

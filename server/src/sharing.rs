@@ -41,7 +41,8 @@ pub fn is_public_api(path: &str) -> bool {
     path.strip_prefix("/api/public/decks/").is_some_and(valid_token)
 }
 
-/// A deck's share token: 24 hex digits (96 random bits).
+/// A deck's share token: 24 hex digits of a random UUID (about 92 random bits; the migration's
+/// tokens for existing decks are 20 random hex digits, 80 bits).
 pub fn new_token() -> String {
     crate::util::random_token()[..24].to_string()
 }
@@ -261,7 +262,7 @@ pub(crate) struct SharedDeck {
     pub(crate) color_identity: String,
     pub(crate) art: Option<(String, Option<String>, String)>,
     pub(crate) cards: Vec<SharedCard>,
-    /// Every shared deck in its configuration group, this one included, main deck first.
+    /// This deck and the public decks in its configuration group, main deck first.
     pub(crate) configurations: Vec<SharedLink>,
 }
 
@@ -283,7 +284,9 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         return Err(AppError::NotFound("deck"));
     }
     let row: DeckRow = sqlx::query_as(
-        "SELECT d.id, d.owner_id, d.name, d.bracket, d.updated_at, d.current_version_id, d.container_id
+        "SELECT d.id, d.owner_id, d.name, d.bracket,
+                COALESCE((SELECT v.created_at FROM deck_versions v WHERE v.id = d.current_version_id), d.created_at) AS updated_at,
+                d.current_version_id, d.container_id
          FROM decks d JOIN users u ON u.id = d.owner_id
          WHERE d.share_token = ? AND d.visibility IN ('link', 'public') AND d.archived = 0 AND u.disabled_at IS NULL",
     )
@@ -343,7 +346,8 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     let group = crate::decks::configuration_group(pool, &row.owner_id, &row.id).await?;
     let configurations = group
         .iter()
-        .filter(|g| g.visibility != "private")
+        // A link-only configuration is never listed elsewhere, only this deck and public ones.
+        .filter(|g| g.id == row.id || g.visibility == "public")
         .filter_map(|g| {
             Some(SharedLink {
                 token: g.share_token.clone()?,

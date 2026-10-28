@@ -15,4 +15,8 @@ describe("groupConfigurations", () => {
   it("shows a configuration whose main deck isn't listed as a main deck", () => {
     expect(groupConfigurations([d("stock", "archived", "stock")]).map((g) => g.main.id)).toEqual(["stock"]);
   });
+
+  it("never drops decks that point at each other", () => {
+    expect(groupConfigurations([d("a", "b"), d("b", "a")]).map((g) => g.main.id)).toEqual(["a", "b"]);
+  });
 });
