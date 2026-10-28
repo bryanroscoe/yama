@@ -677,9 +677,10 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
   // A printing tapped in the picker, among several, wasn't read from the card: the pictures of
   // reprints often look alike (or are the same art). Adding it asks for a check first.
   const unread = !identityOnly && found?.how === "picked" && !!found.options && found.options.length > 1;
+  // Any change to the card, its printing or the step (including reopening the picker) asks again.
   useEffect(() => {
     setConfirming(false);
-  }, [chosen, phase, closeup]);
+  }, [chosen, phase, closeup, found?.picking]);
   // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into view.
   const tapNeeded: string | null =
     phase !== "found" || !found || closeup
