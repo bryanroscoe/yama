@@ -78,6 +78,18 @@ The idea: a near-black, neutral table, so the commander art and the mana colors 
 
 - **Spacing:** gaps of 8 / 12 / 16 / 24 / 32 px. Page padding is 16 px on phones and clamp(20px, 4vw, 56px) on laptops. Content max-width is 1120 px.
 - **Touch targets:** at least 44 px. Primary buttons are 48–56 px.
+- **Chevrons:** single-select controls reserve 44 px at the end, with a 16 px arrow inset
+  14 px from the edge. Disclosures leave 12 px between their chevron and label. Keep their
+  full target in the layout; negative margins must not overlap adjacent controls.
+
+## Copy and help
+
+Use labels and actions that explain themselves. Remove redundant introductions and repeated
+instructions. Put optional methods, definitions, shortcuts and extended explanations in a
+native, collapsed disclosure with a specific label. Disclosures must work on touch and keyboard;
+do not rely on a hover-only tooltip. Group related guidance instead of adding a help row for
+every field. Keep errors, active warnings, missing data, source dates, price sources and art
+credits visible beside the relevant content.
 
 ## Buttons and controls
 

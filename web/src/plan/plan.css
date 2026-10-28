@@ -355,7 +355,7 @@
 }
 .plan .plan-tabs button {
   flex: none;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 16px;
   border: none;
   border-radius: var(--r-pill);
@@ -415,7 +415,7 @@
 }
 .plan .plan-panel-link {
   align-self: start;
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 12px;
 }
 .plan-panel .button {
@@ -602,7 +602,7 @@
 .swap-more summary {
   cursor: pointer;
   color: var(--dim);
-  min-height: 32px;
+  min-height: 44px;
   display: flex;
   align-items: center;
 }
@@ -847,7 +847,7 @@
 }
 .plan .review-filters button {
   flex: none;
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 11px;
   border: 1px solid var(--line);
   background: transparent;
@@ -1375,7 +1375,7 @@
   margin-left: 0;
 }
 .plan .buy-mark {
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 12px;
   border: 1px solid var(--line);
   background: transparent;
@@ -1418,7 +1418,7 @@
   color: var(--dim);
 }
 .plan .buy-mini-side button {
-  min-height: 32px;
+  min-height: 44px;
   padding: 0 8px;
 }
 
@@ -1680,7 +1680,7 @@
   gap: 0;
 }
 .plan .plan-tick-short label {
-  min-height: 40px;
+  min-height: 44px;
   font-size: var(--t-sm);
   color: var(--dim);
   white-space: nowrap;

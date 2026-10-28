@@ -67,26 +67,12 @@
   min-height: 44px;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 12px;
   font-weight: 700;
   list-style: none;
 }
 .lab details > summary::-webkit-details-marker {
   display: none;
-}
-/* A chevron: points right when folded, down when open. */
-.lab details > summary::before {
-  content: "";
-  flex: none;
-  width: 0.45em;
-  height: 0.45em;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(-45deg);
-  transition: transform 120ms ease-out;
-}
-.lab details[open] > summary::before {
-  transform: rotate(45deg);
 }
 .lab .tag.warn {
   color: var(--warn);
@@ -291,9 +277,9 @@
   gap: 6px;
 }
 .lab .lab-colors button {
-  width: 40px;
+  width: 44px;
   height: 40px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 50%;
@@ -369,7 +355,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  min-height: 32px;
+  min-height: 44px;
 }
 .lab .lab-table thead th button:focus-visible {
   outline: 3px solid var(--text);
@@ -755,7 +741,7 @@
 }
 .lab .lab-base-change {
   flex: none;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 14px;
   background: var(--raised);
   font-size: var(--t-label);
@@ -831,7 +817,7 @@
 .lab .lab-diff-undo {
   width: 40px;
   height: 40px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0;
   border-radius: 50%;
   background: transparent;
@@ -1024,7 +1010,7 @@
   gap: 8px;
 }
 .lab .lab-runcard-actions > :is(a, button) {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 14px;
   font-size: var(--t-label);
 }
@@ -1125,7 +1111,7 @@
 .lab .lab-mine-head th button {
   font-family: var(--body);
   font-size: var(--t-sm);
-  min-height: 36px;
+  min-height: 44px;
 }
 
 /* ── simulation confidence (lab/confidence.tsx) ─────────────────────────── */

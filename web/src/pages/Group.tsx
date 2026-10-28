@@ -354,10 +354,8 @@ function ExportGames({ group }: { group?: Playgroup }) {
   return (
     <section className="stack" style={{ marginBottom: "2.5rem", gap: "0.6rem" }}>
       <h2 style={{ margin: 0 }}>Export games</h2>
-      <p className="dim small" style={{ margin: 0 }}>
-        Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings.
-      </p>
-      <Details>
+      <Details label="Export contents and formats">
+        <p>Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings.</p>
         <p>The JSON fits commander-decks' data/games.json; the CSV has one row per seat.</p>
       </Details>
       {group && (

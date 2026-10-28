@@ -1,4 +1,5 @@
 import { shortDate, usd, type SinglesValue, type SealedPrice } from "../api";
+import { Details } from "./ui";
 
 export function SinglesPrice({ value }: { value: SinglesValue | undefined }) {
   if (!value) return null;
@@ -14,8 +15,11 @@ export function SinglesPrice({ value }: { value: SinglesValue | undefined }) {
 export function DeckPrices({ singles, sealed, precon = false }: { singles: SinglesValue | undefined; sealed?: SealedPrice | null; precon?: boolean }) {
   return <section aria-label="Deck market value">
     <h2>Market value</h2>
-    {precon && <p>Sealed deck: {sealed ? <><a href={sealed.url} target="_blank" rel="noreferrer">{usd(sealed.usd)}</a>. {sealed.source}, {shortDate(sealed.price_date)} ({sealed.product_name})</> : "No price: no unambiguous product match with a market snapshot yet."}</p>}
+    {precon && <p>Sealed deck: {sealed ? <><a href={sealed.url} target="_blank" rel="noreferrer">{usd(sealed.usd)}</a>. {sealed.source}, {shortDate(sealed.price_date)} ({sealed.product_name})</> : "No price"}</p>}
     <p><SinglesPrice value={singles} /></p>
-    <p className="dim small">Singles estimate uses each card's cheapest eligible nonfoil paper printing, including commanders and basics, excluding sideboards. Quantities count; this is the list's replacement value, including cards played as proxies. Actual printings, finishes and condition can change the value. Market references are not store quotes or sale proceeds.</p>
+    <Details label="How market value is estimated">
+      {precon && !sealed && <p>There is no unambiguous product match with a market snapshot yet.</p>}
+      <p>Singles estimate uses each card's cheapest eligible nonfoil paper printing, including commanders and basics, excluding sideboards. Quantities count; this is the list's replacement value, including cards played as proxies. Actual printings, finishes and condition can change the value. Market references are not store quotes or sale proceeds.</p>
+    </Details>
   </section>;
 }

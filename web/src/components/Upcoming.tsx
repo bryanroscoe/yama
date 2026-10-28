@@ -8,7 +8,7 @@ import { api, type CalendarRun, type CalendarSet, type CalendarView, type DeckSu
 import { useMe } from "../auth";
 import { isNetworkError } from "../cardDetail";
 import { day } from "./Rulings";
-import { ErrorText } from "./ui";
+import { Details, ErrorText } from "./ui";
 import {
   daysBetween,
   headlined,
@@ -235,12 +235,14 @@ function UpcomingSets({ view }: { view: CalendarView }) {
         </button>
       )}
       <p className="cal-note">
-        Watch a set to see its Commander precons here once their lists are published.
         {preconsChecked
-          ? ` Precon lists come from MTGJSON, checked ${preconsChecked}.`
-          : " Precon lists come from MTGJSON, which Yama hasn't read yet."}
+          ? `MTGJSON precon lists, checked ${preconsChecked}.`
+          : "MTGJSON precon lists not checked yet."}
         {view.precons.error && " Its last check failed."}
       </p>
+      <Details label="About release tracking">
+        <p>Watch a set to see its Commander precons here once MTGJSON publishes their lists.</p>
+      </Details>
     </section>
   );
 }

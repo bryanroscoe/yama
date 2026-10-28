@@ -67,7 +67,6 @@ export function PlayHome() {
     <main className="page play-home">
       <div className="ph-head">
         <h1>Play online</h1>
-        <p className="dim">Commander on the rules engine. Friends join with a code, and the computer plays any seat you give it.</p>
       </div>
       {status.data && !status.data.enabled && <p className="dim">Online play isn't running on this server: {status.data.reason}</p>}
       {current && <ContinueHero game={current} />}
@@ -78,7 +77,7 @@ export function PlayHome() {
           {status.data?.enabled && (
             <section className="ph-watch" aria-labelledby="ph-watch-h">
               <h2 id="ph-watch-h">Watch AIs play</h2>
-              <p className="dim">Seat 2 to 4 decks, yours or precons, give each a computer player, and watch them play it out at your speed.</p>
+              <p className="dim">Watch your decks or precons play at your pace.</p>
               <Link to="/play/watch" className="button outline">Set up a game</Link>
             </section>
           )}
