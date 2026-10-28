@@ -115,11 +115,7 @@ pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
     let info = card_info(&st.pool, &list.cards).await?;
     let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
     let mut rows = Vec::new();
-    let mut curve = [0i64; 8];
-    let (mut lands, mut nonlands, mut mv) = (0, 0, 0.0);
-    let mut pips = BTreeMap::<char, i64>::new();
-    let mut sources = BTreeMap::<char, i64>::new();
-    let mut unknown_mana = Vec::new();
+    let stats = crate::deck_stats::stats(&st.pool, &list.cards, &info).await?;
     let mut roles = BTreeMap::<&str, Vec<String>>::new();
     let (mut priced, mut missing, mut needed_priced, mut needed_missing) = (0, 0, 0, 0);
     let (mut total, mut needed_total) = (0.0, 0.0);
@@ -142,74 +138,6 @@ pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
             needed_missing += c.qty;
             continue;
         };
-        let front = card.type_line.split(" // ").next().unwrap_or("");
-        let land = front.contains("Land");
-        if land {
-            lands += c.qty;
-        } else {
-            nonlands += c.qty;
-            mv += card.cmc * c.qty as f64;
-            curve[(card.cmc.max(0.0).floor() as usize).min(7)] += c.qty;
-            for (color, n) in colored_pips(
-                card.mana_cost
-                    .as_deref()
-                    .unwrap_or("")
-                    .split(" // ")
-                    .next()
-                    .unwrap_or(""),
-            ) {
-                *pips.entry(color).or_default() += n * c.qty;
-            }
-        }
-        if card.type_line.split(" // ").any(|f| f.contains("Land")) {
-            let produced: Option<String> =
-                sqlx::query_scalar("SELECT produced_mana FROM cards WHERE oracle_id = ?")
-                    .bind(&c.oracle_id)
-                    .fetch_one(&st.pool)
-                    .await?;
-            match produced {
-                None => unknown_mana.push(c.name.clone()),
-                Some(produced) => {
-                    let mut colors: BTreeSet<char> =
-                        produced.chars().filter(|c| "WUBRG".contains(*c)).collect();
-                    // Fetch access is counted only for actual eligible targets in this list.
-                    let text = card.oracle_text.to_lowercase();
-                    if colors.is_empty() && text.contains("search your library for") {
-                        for target in list.cards.iter().filter_map(|c| info.get(&c.oracle_id)) {
-                            let ty = target.type_line.split(" // ").next().unwrap_or("");
-                            if !ty.contains("Land") {
-                                continue;
-                            }
-                            if text.contains("basic land card") && ty.contains("Basic") {
-                                for (t, color) in BASIC_TYPES {
-                                    if ty.contains(t) {
-                                        colors.insert(color);
-                                    }
-                                }
-                            } else if BASIC_TYPES
-                                .iter()
-                                .any(|(t, _)| text.contains(&t.to_lowercase()) && ty.contains(t))
-                            {
-                                let mana: Option<String> = sqlx::query_scalar(
-                                    "SELECT produced_mana FROM cards WHERE oracle_id = ?",
-                                )
-                                .bind(&target.oracle_id)
-                                .fetch_one(&st.pool)
-                                .await?;
-                                if let Some(mana) = mana {
-                                    colors.extend(mana.chars().filter(|c| "WUBRG".contains(*c)));
-                                } else {
-                                    unknown_mana.push(target.name.clone());
-                                }
-                            }
-                        }
-                    }
-                    for color in colors {
-                        *sources.entry(color).or_default() += c.qty;
-                    }
-                }
-            }
-        }
         for role in inferred_roles(card) {
             roles.entry(role).or_default().push(card.name.clone());
         }
@@ -265,10 +193,10 @@ pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
         json!({"computed_at": crate::util::now(), "deck_id": list.deck_id, "version": list.version,
         "validation": crate::decks::validate(&list.cards,&info), "unknown_names": list.unknown,
         "game_changers": crate::decks::game_changers(&list.cards,&info), "policy": policy,
-        "statistics": {"cards": total_cards,"lands": lands,"nonlands": nonlands,"curve_0_through_7_plus": curve,
-            "average_mana_value": (lands+nonlands > 0).then(|| round(mv/(lands+nonlands) as f64)),
-            "average_nonland_mana_value": (nonlands > 0).then(|| round(mv/nonlands as f64)), "colored_pips": pips,
-            "potential_land_access": if unknown_mana.is_empty() {json!(sources)} else {Value::Null}, "lands_without_mana_data": unknown_mana,
+        "statistics": {"cards": total_cards,"lands": stats.lands,"nonlands": stats.nonlands,"curve_0_through_7_plus": stats.curve.map(|(c, o)| c + o),
+            "average_mana_value": stats.average_mana_value().map(round),
+            "average_nonland_mana_value": stats.average_nonland_mana_value().map(round), "colored_pips": stats.pips,
+            "potential_land_access": stats.sources.as_ref().map_or(Value::Null, |s| json!(s)), "lands_without_mana_data": stats.lands_without_mana_data,
             "mana_note": "Pips count hybrid colors separately. Land access includes land faces and fetch targets; these are descriptive counts, not a castability verdict."},
         "inferred_roles": roles, "role_note": "Text-based hints may overlap or miss conditional effects. Review Oracle text; absence here is not proof of a role gap.",
         "market": {"source": "Scryfall / TCGplayer market", "known_subtotal_usd": (priced>0).then(|| round(total)), "priced_copies":priced,
@@ -278,33 +206,6 @@ pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
             "note":"Nonfoil paper market references, including basics. Ownership across the collection is not proof that copies are free to move. Missing prices stay unknown; no store stock or quote is implied."},
         "cards": rows, "list": exported(&list.cards)}),
     )
-}
-
-pub const BASIC_TYPES: [(&str, char); 5] = [
-    ("Plains", 'W'),
-    ("Island", 'U'),
-    ("Swamp", 'B'),
-    ("Mountain", 'R'),
-    ("Forest", 'G'),
-];
-
-pub fn colored_pips(cost: &str) -> BTreeMap<char, i64> {
-    let mut out = BTreeMap::new();
-    for symbol in cost
-        .split('{')
-        .skip(1)
-        .filter_map(|s| s.split_once('}').map(|(sym, _)| sym))
-    {
-        let colors: BTreeSet<char> = symbol
-            .split('/')
-            .filter_map(|s| (s.len() == 1).then(|| s.chars().next().unwrap()))
-            .filter(|c| "WUBRG".contains(*c))
-            .collect();
-        for color in colors {
-            *out.entry(color).or_default() += 1;
-        }
-    }
-    out
 }
 
 fn inferred_roles(card: &Card) -> Vec<&'static str> {
@@ -496,6 +397,7 @@ fn round(n: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::deck_stats::colored_pips;
     #[test]
     fn probabilities_match_small_enumerations_and_boundaries() {
         assert!((probability(4, 2, 2, 1) - 5.0 / 6.0).abs() < 1e-12);

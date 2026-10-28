@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { DeckPrices } from "./DeckPrices";
+import { DeckPrices, OwnershipValue } from "./DeckPrices";
 import type { SinglesValue } from "../api";
 
 const value: SinglesValue = { usd: 4.25, priced_copies: 31, unpriced_copies: 2, oldest_date: "2026-10-25", newest_date: "2026-10-26", source: "TCGplayer market via Scryfall" };
@@ -24,4 +24,21 @@ describe("deck market prices", () => {
     expect(html).not.toContain("Sealed deck:");
     expect(renderToStaticMarkup(<DeckPrices singles={value} precon />)).toContain("no unambiguous product match");
   });
+
+  it("splits the value into real cards, proxies and what's left, keeping missing prices unknown", () => {
+    const html = renderToStaticMarkup(<OwnershipValue o={{ cards: 100, owned: 79, proxies: 10, needed: 11, needed_cost_usd: 286.4, needed_without_price: 1, owned_value_usd: 71.07, owned_without_price: 0, proxy_value_usd: 2004.5, proxies_without_price: 0 }} />);
+    expect(html).toContain("Real cards you own");
+    expect(html).toContain("$71.07");
+    expect(html).toContain("$2004.50");
+    expect(html).toContain("to replace 10 copies with real cards");
+    expect(html).toContain("$286.40");
+    expect(html).toContain("11 copies, basics excluded, 1 without a price");
+    const done = renderToStaticMarkup(<OwnershipValue o={{ cards: 100, owned: 100, needed: 0, needed_cost_usd: 0, needed_without_price: 0 }} />);
+    expect(done).not.toContain("Proxies");
+    expect(done).toContain("No price");
+    expect(renderToStaticMarkup(<OwnershipValue o={{ cards: 2, owned: 0, needed: 2, needed_cost_usd: 0, needed_without_price: 2 }} />)).not.toContain("$0.00");
+    expect(renderToStaticMarkup(<OwnershipValue o={{ cards: 2, owned: 0, needed: 2, needed_cost_usd: 1, needed_without_price: 0, owned_value_usd: null }} />)).toContain("None yet");
+    expect(done).toContain("Nothing");
+  });
 });
+

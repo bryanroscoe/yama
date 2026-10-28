@@ -108,6 +108,13 @@ export function SharingSettings() {
           {!s.handle && " Needs a handle."}
         </span>
       </label>
+      <label className="share-collection-toggle">
+        <input type="checkbox" checked={s.share_lab_results} disabled={save.isPending} onChange={(e) => save.mutate({ share_lab_results: e.target.checked })} />
+        Show simulated win rates on shared decks
+        <span className="hint">
+          From your upgrade plan's newest lab run: the win rates of a shared deck's list and its public configurations, with their intervals. Not your plan's changes or other lists.
+        </span>
+      </label>
       <ErrorText error={save.error ?? all.error} />
     </div>
   );

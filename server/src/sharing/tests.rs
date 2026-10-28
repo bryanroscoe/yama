@@ -129,6 +129,9 @@ async fn shared_pages_carry_no_private_details() {
     assert_eq!(page(&app, "/u/saget/collection.csv").await.0, StatusCode::NOT_FOUND);
     let (_, sharing) = send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "collection_public": true }))).await;
     assert_eq!(sharing["collection_public"], true);
+    assert_eq!(sharing["share_lab_results"], false, "simulated results stay off shared pages until turned on");
+    let (_, sharing) = send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "share_lab_results": true }))).await;
+    assert_eq!(sharing["share_lab_results"], true);
     let (status, _, collection) = page(&app, "/u/saget/collection").await;
     assert_eq!(status, StatusCode::OK);
     assert!(collection.contains("Sol Ring") && !collection.contains("Lightning Bolt"), "proxies aren't listed");
@@ -266,7 +269,7 @@ async fn configurations_group_one_level_deep() {
     assert!(shared.contains("Configurations") && shared.contains(">Main<") && shared.contains(">stock<"));
     assert!(!shared.contains("secret tech"));
     let (_, _, profile) = page(&app, "/u/saget").await;
-    assert!(profile.contains("1 more configuration") && !profile.contains("secret tech"));
+    assert!(profile.contains(">Main<") && profile.contains(">stock<") && !profile.contains("secret tech"));
 
     // A configuration of a private deck stays private, even when new decks start public.
     send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "new_deck_visibility": "public" }))).await;
@@ -341,4 +344,65 @@ async fn sharing_settings_need_the_owner() {
     assert_eq!(s, StatusCode::UNAUTHORIZED);
     let (s, _) = send(&app, Method::POST, "/api/me/sharing/decks", None, Some(json!({ "visibility": "public" }))).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn a_shared_deck_page_says_what_the_deck_page_says() {
+    let (app, pool) = app().await;
+    let (_, bt) = user(&pool, "bryan@example.com").await;
+    card(&pool, "o-sol", "Sol Ring", "Artifact", "p-sol", "cmm", "410").await;
+    card(&pool, "o-bolt", "Lightning Bolt", "Instant", "p-bolt", "lea", "161").await;
+    sqlx::query("UPDATE cards SET cmc = 1, mana_cost = '{1}' WHERE oracle_id = 'o-sol'").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE cards SET cmc = 1, mana_cost = '{R}' WHERE oracle_id = 'o-bolt'").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO price_snapshots (scryfall_id, date, usd) VALUES ('p-sol', '2026-10-26', 1.5), ('p-bolt', '2026-10-26', 2.25)").execute(&pool).await.unwrap();
+    let text = "Commander\n1 Sol Ring\nDeck\n1 Lightning Bolt";
+    let (_, made) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Shared", "text": text }))).await;
+    let id = made["id"].as_str().unwrap().to_string();
+    send(&app, Method::PATCH, &format!("/api/decks/{id}"), Some(&bt), Some(json!({ "visibility": "link", "bracket": 3 }))).await;
+    let token = token_of(&pool, &id).await;
+
+    // Before any check: legality, the declared bracket, stats and the list's market value.
+    let (status, _, body) = page(&app, &format!("/d/{token}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Not legal yet"), "a two-card deck isn't legal");
+    assert!(body.contains("Bracket 3 declared") && body.contains("Upgraded"));
+    assert!(body.contains("Not checked yet"));
+    assert!(body.contains("Deck stats") && body.contains("Mana curve"));
+    assert!(body.contains("$3.75") && body.contains("in singles"), "{body}");
+    assert!(body.contains("id=\"layout-stacks\"") && body.contains("public-stack-card"));
+    assert!(!body.contains("Simulated games"), "no plan, no lab results");
+
+    // A stored check shows Yama's suggestion with its reasons; viewing never starts one.
+    let version: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    sqlx::query(
+        "UPDATE deck_version_checks SET checked_at = '2026-10-27T00:00:00Z', bracket_tag = 'P', game_changers = '[\"Sol Ring\"]', mld = '[]', extra_turns = '[]', combos = '[]', unrecognized = '[]' WHERE version_id = ?",
+    )
+    .bind(&version)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (_, _, body) = page(&app, &format!("/d/{token}")).await;
+    assert!(body.contains("Suggested 3") && body.contains("Why this suggestion?"), "{body}");
+    assert!(body.contains("Game Changers: 1") && body.contains("within bracket 3"));
+}
+
+#[test]
+fn configurations_stand_for_plan_states() {
+    assert_eq!(super::plan_state(None), "now");
+    assert_eq!(super::plan_state(Some("stock")), "stock");
+    assert_eq!(super::plan_state(Some("After prints")), "after");
+    assert_eq!(super::plan_state(Some("proposed bracket 3")), "proposed-bracket-3");
+    assert_ne!(super::plan_state(Some("Now")), "now", "only the main deck is the plan's now list");
+    assert_eq!(crate::lab::variant_state("bryan/riders-of-rohan-after", "riders-of-rohan").as_deref(), Some("after"));
+    assert_eq!(crate::lab::variant_state("bryan/riders-of-rohan2-after", "riders-of-rohan"), None);
+}
+
+#[test]
+fn a_deck_matches_a_plan_list_by_cards_not_label() {
+    let deck = [("Éowyn", 1, "commander"), ("Sol Ring", 1, "main"), ("Island", 2, "main"), ("Spare", 1, "side")];
+    let plan = [("island", 1, "main"), ("sol ring", 1, ""), ("Island", 1, "main"), ("éowyn", 1, "commander")];
+    assert_eq!(super::list_key(deck.iter().copied()), super::list_key(plan.iter().copied()), "names, copies, roles; sideboard and order aside");
+    assert_ne!(super::list_key(deck.iter().copied()), super::list_key([("Éowyn", 1, "commander"), ("Sol Ring", 1, "main")].iter().copied()));
+    let swapped = [("Éowyn", 1, "main"), ("Sol Ring", 1, "commander"), ("Island", 2, "main")];
+    assert_ne!(super::list_key(deck.iter().copied()), super::list_key(swapped.iter().copied()), "a different commander is a different list");
 }
