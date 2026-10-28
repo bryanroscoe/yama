@@ -265,6 +265,42 @@ async fn monthly_weighting_excludes_snapshots_deduplicates_months_and_rejects_co
 }
 
 #[tokio::test]
+async fn recency_average_keeps_its_scale_for_old_data_and_short_half_lives() {
+    let pool = crate::db::test_pool().await;
+    let (owner, _) = user(&pool, "a@example.com").await;
+    store(&pool, &owner, &document()).await;
+    for half in [1, 180] {
+        let query = |year| ReadQuery {
+            entity: Some("playgroup:commander:1".into()),
+            as_of: Some(NaiveDate::from_ymd_opt(year, 7, 31).unwrap()),
+            half_life_days: Some(half),
+            ..Default::default()
+        };
+        let current = read(&pool, &owner, "playgroup-history", query(2026))
+            .await
+            .unwrap();
+        let historical = read(&pool, &owner, "playgroup-history", query(2036))
+            .await
+            .unwrap();
+        let a = current["monthly_summaries"][0]["weighted_source_rate_percent"]
+            .as_f64()
+            .unwrap();
+        let b = historical["monthly_summaries"][0]["weighted_source_rate_percent"]
+            .as_f64()
+            .unwrap();
+        assert!(
+            (a - b).abs() < 1e-10,
+            "common decay must cancel even for a one-day half-life"
+        );
+        assert_eq!(historical["monthly_summaries"][0]["months"], 2);
+        assert_eq!(
+            historical["monthly_summaries"][0]["source_reported_games"],
+            200
+        );
+    }
+}
+
+#[tokio::test]
 async fn partial_source_captures_exclude_months_even_without_record_flags() {
     let pool = crate::db::test_pool().await;
     let (owner, _) = user(&pool, "a@example.com").await;

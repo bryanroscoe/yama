@@ -44,6 +44,7 @@ pub fn summaries(rows: &[Observation], as_of: NaiveDate, half_life: u32) -> Vec<
         .map(|((entity_kind, cohort, metric), months)| {
             let (mut sum, mut weights, mut included, mut excluded, mut games) =
                 (0.0, 0.0, 0, 0, 0);
+            let mut eligible = Vec::new();
             for versions in months.values() {
                 let first = versions[0];
                 // Duplicate source representations count once; conflicting revisions count neither.
@@ -63,12 +64,21 @@ pub fn summaries(rows: &[Observation], as_of: NaiveDate, half_life: u32) -> Vec<
                     continue;
                 }
                 let midpoint = start + (end - start) / 2;
-                let age = (as_of - midpoint).num_days() as f64;
-                let weight = first.source_reported_games as f64 * 2.0_f64.powf(-age / half_life as f64);
-                weights += weight;
-                sum += weight * first.value;
                 included += 1;
                 games += first.source_reported_games;
+                eligible.push((first, midpoint));
+            }
+            // The common decay between the newest eligible midpoint and as_of cancels.
+            // Removing it before exponentiation keeps valid old cohorts from underflowing
+            // together when a caller chooses a short half-life.
+            if let Some(reference) = eligible.iter().map(|(_, midpoint)| *midpoint).max() {
+                for (observation, midpoint) in eligible {
+                    let relative_age = (reference - midpoint).num_days() as f64;
+                    let weight = observation.source_reported_games as f64
+                        * 2.0_f64.powf(-relative_age / half_life as f64);
+                    weights += weight;
+                    sum += weight * observation.value;
+                }
             }
             Summary {
                 entity_kind: entity_kind.into(),

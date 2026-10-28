@@ -117,6 +117,8 @@ reported sample size times recency at the month's midpoint. The result is an
 average of the source's reported normalized percentages, not a pooled raw win
 probability, validated prediction, causal upgrade effect or confidence interval.
 Month-midpoint dating and reported-sample weighting are approximations.
+The average rescales all weights by their common decay before exponentiation, so
+old cohorts still produce a numeric result with a short half-life.
 
 Duplicate representations of a month count once. Conflicting values or sample
 counts for the same month exclude that month. Flagged records, partial source
