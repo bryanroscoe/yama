@@ -26,7 +26,7 @@ The server needs `YAMA_CORS_ORIGINS=capacitor://localhost,https://localhost`.
 
 ## Still to decide or build
 
-- **Google sign-in on device:** Google's web button doesn't work inside the app's web view. Use a native sign-in plugin that returns an ID token, and add the Android OAuth client ID to `YAMA_GOOGLE_CLIENT_IDS`.
+- **Google sign-in on device:** Google's web button doesn't work inside the app's web view. Use a native sign-in plugin (Credential Manager) that asks for an ID token for the server's existing Web client ID, so the token's audience is the client ID `YAMA_GOOGLE_CLIENT_IDS` already holds. Also register an Android OAuth client (package name and signing-key SHA-1) in the same Google Cloud project; it identifies the app and does not go in `YAMA_GOOGLE_CLIENT_IDS`.
 - **Distribution:** Android can be a direct APK, or Google Play (below). iOS stays shelved: no Apple account.
 
 ## Google Play (Bryan can publish there, 2026-10-28)
@@ -38,6 +38,6 @@ Checked 2026-10-28; Play's rules change, so recheck the Play Console help before
 - **Account:** a Play Console developer account. A personal account made after 13 Nov 2023 must run a closed test with at least 12 testers opted in for 14 days in a row before it can publish to production. Organization accounts are exempt.
 - **Policy:** a privacy policy URL (`/privacy/`), the Data safety form, the content rating questionnaire and target audience (not children). Apps with sign-up must offer account deletion both in the app and at a web link that works without the app; today deletion is by email to Bryan (privacy page), which is likely not enough.
 - **Listing:** name, descriptions, 512 px icon, 1024×500 feature graphic, phone screenshots. Keep the unofficial, not-endorsed-by-Wizards notice and use no Wizards logos or card images in the listing.
-- **Server:** for a TWA, a Digital Asset Links file at `/.well-known/assetlinks.json` with the signing key's fingerprint; for Capacitor, the Android OAuth client ID in `YAMA_GOOGLE_CLIENT_IDS` and the app origin in `YAMA_CORS_ORIGINS`.
+- **Server:** for a TWA, a Digital Asset Links file at `/.well-known/assetlinks.json` with the signing key's fingerprint; for Capacitor, an Android OAuth client registered with the Play signing key's SHA-1 (sign-in, above) and the app origin in `YAMA_CORS_ORIGINS`.
 - **Scanner:** camera access via a Capacitor camera or ML plugin; see ARCHITECTURE.md §6.
 - **Keep-awake and haptics:** the web Wake Lock and vibration APIs work in Android's web view.
