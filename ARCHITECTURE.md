@@ -1,6 +1,6 @@
 # Yama (Yet Another Magic App): architecture proposal
 
-A free Magic app, on phone (iOS and Android) and in the browser. Personal data stays private to each account unless its owner shares it (Sharing, 2026-10-28); the public precon reference is described below (2026-10-27). It does two jobs on one account:
+A free Magic app, on Android phones and in the browser (iOS shelved: no Apple account, section 12). Personal data stays private to each account unless its owner shares it (Sharing, 2026-10-28); the public precon reference is described below (2026-10-27). It does two jobs on one account:
 
 - **Play:** Commander online against friends or AI, with every game stored and replayable.
 - **Companion:** what Mythic Tools does today (life counter, playgroups and stats, card scanner, collection, prices, card lookup and decks), plus links to Play that Mythic Tools can't offer.
@@ -26,7 +26,7 @@ Getting off Mythic Tools has to be painless. Mythic Tools has no API, but its CS
 
 ## 2. Apps and code layout
 
-**One React and TypeScript codebase for web and mobile, with Capacitor wrapping it as the iOS and Android apps.**
+**One React and TypeScript codebase for web and mobile, with Capacitor available to wrap it as an Android app.** (iOS was in the first plan; it is shelved with no Apple account, section 12.)
 
 Why not the alternatives:
 
@@ -48,13 +48,13 @@ yama/
   scanner/             Model, catalog build pipeline, eval set of our own card photos
 ```
 
-**Distribution to friends without a public store listing:**
+**Distribution:**
 
-- **iOS:** TestFlight. This needs the Apple Developer Program ($99/yr). External testers need a one-time beta review.
-- **Android:** a direct APK, or Play internal testing.
+- **Android:** the installable web app today. A native app, if one is built, goes out as a direct APK or on Google Play, which Bryan can publish to (2026-10-28; requirements in docs/mobile.md).
+- **iOS:** shelved. TestFlight would need the Apple Developer Program, and there is no Apple account.
 - **Web:** everything works in the browser too.
 
-Keeping Yama out of the public stores also keeps it private, which matters for the legal side (section 11).
+Today Yama is in no public store, which keeps it lower-profile for the legal side (section 11). A Google Play release is optional and, when it happens, Bryan decides what goes in it (docs/mobile.md).
 
 ## 3. Rules engine (Play)
 
@@ -101,6 +101,15 @@ Where our own rules work goes:
 - House rules.
 
 ## 4. Backend
+
+**Canonical domain (Bryan, 2026-10-28):** move web and MCP access to `https://yama.ing`,
+using the existing Cloudflare tunnel, Yama service and database. `YAMA_PUBLIC_URL` supplies
+public canonical links, OAuth issuer/endpoints and the `/mcp` resource. Keep the legacy
+`yama.saget.org` ingress and Google origin available during the transition so old clients
+can sync; do not redirect private writes or transfer browser credentials between origins.
+Google sign-in uses the existing OAuth client with the new authorized origin. People sign
+in again and migrate installed PWAs; OAuth connectors reconnect using `https://yama.ing/mcp`.
+See [the migration runbook](deploy/README.md#domain-migration-2026-10-28).
 
 **Default delivery workflow (Bryan, 2026-10-27):** requested repository changes continue through
 a pushed feature branch, PR, Codex review, fixes, a subsequent independent agent review for
@@ -159,9 +168,9 @@ The proven approach is: find the card's four corners, straighten the image, turn
 - **[CollectorVision](https://github.com/HanClinto/CollectorVision)** does exactly this. ONNX models (portable neural-net files) for corner detection and 128-number embeddings, a catalog of about 108,000 printings keyed by Scryfall ID (53 MB), under 100 ms per scan on a laptop CPU, and an experimental in-browser scanner. Its catalog updates regularly ([CollectorVisionCatalog](https://github.com/HanClinto/CollectorVisionCatalog), MIT).
 - **Catch:** the CollectorVision code is **AGPL-3.0**, with a commercial license available. If Yama is open source under a compatible license, we can use it directly. If Yama stays private, we either write our own pipeline (the approach isn't hard; the trained models are the valuable part) or contact the author. Decide before we use any of it.
 - **Plan:**
-  1. Spike in the web view with `onnxruntime-web` (WebGPU or WASM) on Bryan's iPhone. Target: under 250 ms per frame, with a live box around the card and a beep or haptic when it locks on.
-  2. If that's too slow, move inference to a native Capacitor plugin: Core ML on iOS, ONNX Runtime Mobile on Android.
-- **Picking the right printing:** the embedding narrows it to a few printings. Then the collector-number and set-code OCR (iOS Vision or ML Kit), the user's recent set, and a one-tap correction pick the right one. Finish (foil or etched) and condition are user toggles; foil detection from a camera is unreliable.
+  1. Spike in the web view with `onnxruntime-web` (WebGPU or WASM) on Bryan's phone. Target: under 250 ms per frame, with a live box around the card and a beep or haptic when it locks on.
+  2. If that's too slow, move inference to a native Capacitor plugin: ONNX Runtime Mobile on Android.
+- **Picking the right printing:** the embedding narrows it to a few printings. Then the collector-number and set-code OCR (Tesseract in the browser; ML Kit in a native Android app), the user's recent set, and a one-tap correction pick the right one. Finish (foil or etched) and condition are user toggles; foil detection from a camera is unreliable.
 - **Eval set:** photograph our real cards (the October purchases are a ready-made labeled set: `data/purchases.json` lists set and collector number) and track accuracy on every model or catalog update.
 - **Built (2026-10-28, docs/scanner.md):** the hybrid, without CollectorVision. ManaVault's MPL-2.0 detector, embedding and search graphs (one pinned bundle, downloaded and checked by the server, served from `/scan-bundle/`) run in a web worker on `onnxruntime-web` WASM with our own glue. The card can be anywhere in view; the art names it (96% right on simulated free-hand captures, no confident wrong answers, about 160 ms per frame on a laptop). The printing comes from the printings sharing that illustration (`printings.illustration_id`, `GET /api/scan/printings`): the only one, or the collector line read by Tesseract, or the person picks from thumbnails. A scan never files a guessed printing. OCR alone remains the fallback for cards newer than the bundle, battles, and when the bundle isn't available.
 
@@ -259,7 +268,7 @@ Linking a deck to a container is what powers owned/needed: each deck list is che
 
 0. **Now, no code:** keep using Mythic Tools and play on phase-rs.dev or XMage. Note what annoys us.
 1. **Foundation:** monorepo; Rust server; Google login with allowlist; Scryfall card import; card search and lookup on web.
-2. **Companion v1 (quick wins on mobile):** the Capacitor app, the offline life counter (single device), playgroups, guest players, game logging and stats. TestFlight build to friends.
+2. **Companion v1 (quick wins on mobile):** the installable web app (Capacitor optional), the offline life counter (single device), playgroups, guest players, game logging and stats.
 3. **Collection:** Mythic Tools CSV import and export, containers, bulk edit, daily prices with history, decks with owned/needed. Import `commander-decks` deck lists.
 4. **Play v1:** solo game vs AI in the browser, then 4-player online with friends: lobby, invites, reconnect, timers.
 5. **Scanner:** web-view spike, then native fallback if needed; eval set from our purchases.
@@ -273,7 +282,7 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 | Milestone | State |
 |---|---|
 | 1 Foundation | Done |
-| 2 Companion v1 | Done on the web and as an installable web app. Native apps wait on Xcode and the Apple account |
+| 2 Companion v1 | Done on the web and as an installable web app. A native Android app (APK or Google Play) is optional; iOS is shelved |
 | 3 Collection | Done, except bulk edit and a price-history view (the history is stored) |
 | 4 Play v1 | Working: lobby, friends by code, AI seats, reconnect, restart recovery. No turn timers yet |
 | 5 Scanner | Art recognition plus collector-line OCR built 2026-10-28; live phone check pending (docs/scanner.md) |
@@ -589,7 +598,7 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 - **Two credentials, no sessions:** a script key with the new `mcp` scope (Decks, Plans, Settings, "For Claude"; `plan:sync` keys can't use the tools and `mcp` keys can't sync), or a one-question token (`yama_ask_`, in memory, hashed) that `ask_route` mints for each question when `YAMA_ADVISOR_TOOLS_URL` is set and drops when the answer ends (15 minutes at most). Both resolve to the account through `auth::user_by_id`, which applies the disabled and open sign-up rules.
 - **Tools** (`mcp/tools.rs`), read-only, owner-checked like the pages: `overview`, `deck` (by name or id, with Commander checks and Game Changers), `plan_deck`, `review_queue`, `find_cards` (the search grammar, through `cards::search`, shared with the search page), `card` (Oracle text, legality, Game Changer, dated prices of the default and cheapest playable printing, the copies they own and where, rulings on request), `check_list` (validate a list without saving), `lab_runs`, `lab_run` (each engine's result in words: the paired difference and interval, the verdict, the unscored games by reason, the settle estimate with what adds the pods, and live progress; admins also see the count of earlier Phase games in the shared queue, without other accounts' run or deck details; for both-engine runs the ETA and queue position are Phase-only), `lab_games` (one engine's games pod by pod, or `only: unscored`; with `game`, its schedule line, result line and every seat's list in the lab runner's deck format, so a game can be replayed locally), `precon`. The longer ones reuse `advisor::context::build`. `find_cards` and `card` count against the search rate limit.
 - **Ask Claude with tools:** the sidecar gives `query()` exactly one MCP server, `{type: "http", url, Authorization: Bearer <question token>}`, allows only `mcp__yama`, keeps `tools: []` (none of Claude Code's own tools) and `strictMcpConfig`, and allows 16 turns instead of 1. It streams a `tool` event (the tool's short name only) that the panel shows as "Looking up cards…". The instructions tell Claude to check a card with `card` before recommending it.
-- **Outside clients:** `claude mcp add --transport http yama https://yama.saget.org/mcp`, then `/mcp` and Authenticate (OAuth, below), or a claude.ai custom connector with the same URL, which also shows up in Claude Code and the phone app. A key still works for clients that can't sign in: `--header "Authorization: Bearer <key>"` (Settings shows that command once, with the key).
+- **Outside clients:** `claude mcp add --transport http yama https://yama.ing/mcp`, then `/mcp` and Authenticate (OAuth, below), or a claude.ai custom connector with the same URL, which also shows up in Claude Code and the phone app. A key still works for clients that can't sign in: `--header "Authorization: Bearer <key>"` (Settings shows that command once, with the key).
 
 #### Persistent deck research and review (2026-10-27)
 
@@ -730,7 +739,7 @@ Bryan (2026-10-24) wants Forge as a black-box referee for phase, run like unit t
 
 - **Legal and IP:**
   - Stay inside Wizards' Fan Content Policy: free, non-commercial, an "unofficial, not endorsed by Wizards" notice, no Wizards logos, and no card images or rules documents shipped. Images come from Scryfall at runtime, under its rules (read 2026-10-19 at scryfall.com/docs/api): don't cover, crop or clip the copyright or artist name on card images; don't distort, skew or stretch them; don't blur, sharpen, desaturate or color-shift them; with an art crop, show the artist name and copyright in the same interface; no paywall. The life panels scale the art crop to cover the panel without distorting it (an art crop has no artist name or copyright to cut off) and lay a separate translucent scrim over it for legibility; the image itself gets no filter.
-  - Companion apps like Mythic Tools are common in the app stores. A full game client in a public store listing is a bigger target. Distributing through TestFlight and an APK keeps us private.
+  - Companion apps like Mythic Tools are common in the app stores. A full game client in a public store listing is a bigger target. Today the game client is on the web only. Whether a Google Play build includes it (the ordinary web build does) is Bryan's call before any Play release; if not, that build needs a companion-only route gate (docs/mobile.md).
 - **Engine maturity:** phase is seven months old, mostly from one maintainer, with about 1,559 open issues. Pin it, run AI soak tests before each upgrade, and keep the trait boundary.
 - **Replay drift:** a replay only reproduces on the engine version that recorded it. Store `engine_version` and keep old WASM builds or snapshots.
 - **Scanner:**
@@ -747,7 +756,7 @@ Answered 2026-10-18:
 - **Engine:** phase.
 - **Repo:** private, with local git only.
 - **Hosting:** Bryan's Unraid server, saget. The public route uses the existing Cloudflare tunnel; see deploy/README.md.
-- **Phones:** Android only, with no Apple account. The installable web app is the phone app; Capacitor stays optional. Update 2026-10-28: Bryan can publish to the App Store, so a native iOS app is an option, first for the scanner if the web camera and OCR aren't good enough (docs/scanner.md).
+- **Phones:** Android only, with no Apple account. The installable web app is the phone app; Capacitor stays optional. Update 2026-10-28: Bryan can publish on Google Play, so a Play Store Android app is an option, first for the scanner if the web camera and OCR aren't good enough (docs/scanner.md; what Play needs is in docs/mobile.md). Still no Apple account.
 - **Sign-in:** Google sign-in (set up 2026-10-18; deploy/README.md). Open sign-up for any Google account is allowed (Bryan, 2026-10-20), never with a username and password; it's off until `YAMA_OPEN_SIGNUP=1` and the Google consent screen is published.
 
 Still open:

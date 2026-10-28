@@ -115,7 +115,7 @@ pub async fn fetch_archidekt(http: &reqwest::Client, id: &str) -> Result<String,
     let url = format!("https://archidekt.com/api/decks/{id}/");
     let resp = http
         .get(&url)
-        .header(reqwest::header::USER_AGENT, concat!("Yama/", env!("CARGO_PKG_VERSION"), " (+https://yama.saget.org/about/; imports one deck a signed-in person asked for)"))
+        .header(reqwest::header::USER_AGENT, concat!("Yama/", env!("CARGO_PKG_VERSION"), " (+https://yama.ing/about/; imports one deck a signed-in person asked for)"))
         .header(reqwest::header::ACCEPT, "application/json")
         .timeout(Duration::from_secs(10))
         .send()

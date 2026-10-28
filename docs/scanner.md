@@ -42,7 +42,10 @@ Not pursued:
 - **CollectorVision** (AGPL code and weights).
 - **OpenCV.js** for corner finding: about 8 to 10 MB for one feature [inferred from the usual build sizes]. The edge finder here is about 200 lines.
 - **ManaVault's detector.onnx** (12.6 MB): the guide plus the edge finder did well enough. Worth trying with the hybrid if free-hand scanning (no guide) is wanted.
-- **Native OCR** (iOS Vision, Android ML Kit, through a Capacitor plugin). It is likely faster and more accurate on small print [inferred], but it needs native code on two platforms. Keep `OcrEngine` as the seam for it.
+
+Deferred, not rejected:
+
+- **Native OCR** (ML Kit, through a Capacitor plugin in an Android app; iOS is shelved). It is likely faster and more accurate on small print [inferred]. It is the next step if collector-line reads fail on a real phone ("Left for a real phone test", below). Keep `OcrEngine` as the seam for it.
 
 ## The art recognizer (built 2026-10-28)
 
@@ -234,7 +237,7 @@ SCANNER_RECOGNIZER_EVAL=1 SCANNER_BUNDLE_DIR=data/scan-bundle/<version> npx vite
 2. **A real eval set.** Photograph real cards (the October purchases give set and number for each), sleeved, under room light, foils included, and rerun `recognizer.test.ts` and `eval.test.ts` on them. Retune the thresholds there.
 3. **Collector-line reads on real cards.** Commander precon reprints share art (32 English Arcane Signets), so the printing often rests on reading the set code, from the whole card or the close-up. Note the camera resolution the phone reports. If reads still fail often, the next step is a native app (below).
 4. **Newer bundles.** Cards printed after the pinned bundle go to OCR. Bump the bundle when a set Bryan buys is out.
-5. **Native app, if the web isn't enough (Bryan can publish to the App Store, 2026-10-28).** The Capacitor shell is already a dependency. A native scanner plugin would get the full-resolution camera with proper focus and zoom, and on-device text recognition far better on small print than Tesseract (Apple Vision on iOS, ML Kit on Android) behind the existing `OcrEngine` seam; the art recognizer can stay as it is. Decide after the phone test.
+5. **Native app, if the web isn't enough (Bryan can publish on Google Play, 2026-10-28; Android only).** The Capacitor shell is already a dependency. A native scanner plugin would get the full-resolution camera with proper focus and zoom, and on-device text recognition far better on small print than Tesseract (ML Kit) behind the existing `OcrEngine` seam; the art recognizer can stay as it is. Decide after the phone test.
 
 ## Sources
 

@@ -14,7 +14,7 @@ import urllib.request
 import urllib.error
 
 ROOT = Path(__file__).resolve().parents[2]
-UA = 'Yama-package-commander-audit/1 (https://yama.saget.org)'
+UA = 'Yama-package-commander-audit/1 (https://yama.ing)'
 
 
 def atomic(path, value):
