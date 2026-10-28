@@ -218,6 +218,20 @@ export function DeckPage() {
     }, { replace: true });
   };
   const plan = useDeckPlan(deck.data?.id);
+  // Another configuration: close any sheet opened on the one just left, so nothing saves to it.
+  const shownId = useRef(id);
+  useEffect(() => {
+    if (shownId.current === id) return;
+    shownId.current = id;
+    setCollecting(false);
+    setEditing(false);
+    setGoldfish(false);
+    setExporting(false);
+    setHistory(false);
+    setSharing(false);
+    setConfiguring(false);
+    setOpen(null);
+  }, [id]);
 
   const groups = useMemo(() => {
     const map = new Map<string, DeckEntry[]>();

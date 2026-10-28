@@ -361,8 +361,8 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
     // Each listed deck's result shows only when its cards are the plan's current list for the
     // state it stands for.
     // The plan's newest paired run, then each listed deck's result only when its cards are the
-    // plan's current list for its state and that list existed when the run was made: runs don't
-    // keep their inputs, so a list changed since never borrows an older list's numbers.
+    // plan's current list for its state and that list was current when the run was made: runs
+    // don't keep their inputs, so a list changed or brought back since never borrows the numbers.
     let run = match &key {
         Some(key) => crate::lab::paired_for_plan(pool, &d.sharer.id, key).await?,
         None => None,
@@ -376,7 +376,8 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
         };
         for (state, deck_id) in &states {
             let plan_list: Option<(String, String)> = sqlx::query_as(
-                "SELECT s.cards, s.created_at FROM plan_states s JOIN plan_decks p ON p.id = s.plan_deck_id
+                // updated_at: when this list last became current or changed (import.rs).
+                "SELECT s.cards, s.updated_at FROM plan_states s JOIN plan_decks p ON p.id = s.plan_deck_id
                  WHERE p.owner_id = ? AND p.key = ? AND s.state = ? AND s.current = 1",
             )
             .bind(&d.sharer.id)
