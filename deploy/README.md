@@ -109,7 +109,7 @@ Follow [Releasing Yama](RELEASING.md), then run `./deploy/deploy.sh` from main w
 
 ## Phones
 
-Android only, no app store:
+Android only. The default is the installable web app, with no store; an optional Google Play app is described in [docs/mobile.md](../docs/mobile.md). It is built and published separately, not by `deploy.sh`.
 
 - Open the Yama URL in Chrome and choose **Install app**.
 - It runs full screen and works offline for the life counter and card search.

@@ -54,7 +54,7 @@ yama/
 - **iOS:** shelved. TestFlight would need the Apple Developer Program, and there is no Apple account.
 - **Web:** everything works in the browser too.
 
-Keeping Yama out of the public stores also keeps it private, which matters for the legal side (section 11).
+Today Yama is in no public store, which keeps it lower-profile for the legal side (section 11). A Google Play release is optional and, when it happens, Bryan decides what goes in it (docs/mobile.md).
 
 ## 3. Rules engine (Play)
 
