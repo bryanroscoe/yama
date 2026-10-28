@@ -120,7 +120,9 @@ jobs:
             fi
           done
       - name: Test release guards
-        run: python3 deploy/test_release.py
+        run: |
+          python3 deploy/test_release.py
+          python3 deploy/test_host.py
       - name: Test portable workers and build identity
         run: python3 -m unittest discover -s tools -p 'test_lab*.py'
       - name: Test commander evidence and list validation

@@ -96,34 +96,20 @@ class ReleaseChecks(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), self.git(self.repo, "rev-parse", "HEAD"))
 
-    def test_deploy_forwards_full_revision_to_server_build(self):
-        # Execute the real guarded export/deploy path, stopping at an intercepted build command.
-        # Every network command is a local stub; no server or Docker daemon is contacted.
-        (self.phase / "crates").mkdir()
-        (self.phase / "crates/fixture").write_text("engine source\n")
-        self.commit(self.phase, "Engine export fixture")
-        self.git(self.phase, "push", "origin", "main")
-        (self.repo / "deploy/phase-rev").write_text(self.git(self.phase, "rev-parse", "HEAD") + "\n")
-        self.commit(self.repo, "Release fixture")
-        self.git(self.repo, "push", "origin", "main")
-        capture = self.root / "server-build-command"
-        commands = self.root / "bin"
-        (commands / "ssh").write_text('''#!/bin/sh
-case "$*" in
-  *"docker build -f yama/deploy/Dockerfile "*)
-    printf '%s' "$*" > "$YAMA_RELEASE_TEST_CAPTURE"
-    exit 97 ;;
-esac
-exit 0
+    def test_deploy_requests_exact_revision_from_shared_host_gate(self):
+        capture = self.root / "server-release-command"
+        (self.root / "bin/ssh").write_text('''#!/bin/sh
+printf '%s' "$*" > "$YAMA_RELEASE_TEST_CAPTURE"
+cat > /dev/null
+exit 97
 ''')
-        for name in ("rsync", "scp"):
-            (commands / name).write_text("#!/bin/sh\nexit 0\n")
         result = subprocess.run(["sh", "deploy/deploy.sh"], cwd=self.repo,
-            env={**self.env, "YAMA_RELEASE_TEST_CAPTURE": str(capture)}, capture_output=True, text=True, timeout=15)
+            env={**self.env, "GH_TOKEN": "test-token-not-a-real-secret", "YAMA_RELEASE_TEST_CAPTURE": str(capture)},
+            capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 97, result.stdout + result.stderr)
         revision = self.git(self.repo, "rev-parse", "HEAD")
-        self.assertIn("--build-arg YAMA_GIT_SHA=" + revision, capture.read_text())
-        self.assertIn("-t yama:" + self.git(self.repo, "rev-parse", "--short", "HEAD"), capture.read_text())
+        self.assertIn("/mnt/user/appdata/yama-release/host.py deploy " + revision, capture.read_text())
+        self.assertNotIn("test-token", capture.read_text() + result.stdout + result.stderr)
 
     def test_wrapper_check_verifies_engine_without_server_calls(self):
         result = self.check(wrapper=True)

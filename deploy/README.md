@@ -128,7 +128,13 @@ Claude Code and claude.ai's custom connectors reach Yama's tools at `https://yam
 
 ## Updating
 
-Follow [Releasing Yama](RELEASING.md), then run `./deploy/deploy.sh` from main when deployment is requested. It verifies that the clean checkout matches freshly fetched `origin/main`, builds that exact commit's images, backs up the database before restarting (`data/backups/yama-<time>.db`, written with SQLite's `VACUUM INTO`, which is safe while the server runs), and recreates only the `yama`, `yama-advisor` and `yama-forge` containers. `./deploy/deploy.sh --check` performs the source and engine checks without contacting saget.
+Successful push CI on current `main` automatically deploys through the dedicated saget
+runner. Follow [Releasing Yama](RELEASING.md) for reviews and merge, and [runner operation](RUNNER.md)
+for setup, pause, status and recovery. One server lock serializes automatic and manual
+releases. The server builds committed exports, requires a SQLite backup before activation,
+preserves local configuration/Compose overrides, and verifies exact image IDs plus health.
+`./deploy/deploy.sh --check` still checks local source/engine readiness without contacting
+saget; a requested manual retry uses `./deploy/deploy.sh` and the same server CI gate.
 
 ## Phones
 

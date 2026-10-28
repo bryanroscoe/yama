@@ -1,0 +1,250 @@
+"""Production release failure/authorization tests; no real GitHub, Docker or SSH."""
+import importlib.util
+import io
+import json
+import os
+import sys
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch, MagicMock
+
+spec = importlib.util.spec_from_file_location('host', Path(__file__).with_name('host.py'))
+host = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(host)
+SHA = 'a' * 40
+OTHER = 'b' * 40
+
+
+class HostGate(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='yama-host-test-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.base = self.root / 'release'
+        self.base.mkdir()
+        self.app = self.root / 'app'
+        self.app.mkdir()
+        for name in ('yama.env', 'advisor.env', 'forge.env'):
+            (self.app / name).write_text('PRIVATE=never-log-this\n')
+        (self.app / 'compose.yaml').write_text('old compose\n')
+        (self.app / 'data').mkdir()
+        for key, value in (('BASE', self.base), ('APP', self.app)):
+            p = patch.object(host, key, value)
+            p.start()
+            self.addCleanup(p.stop)
+        self.good_run = {'head_sha': SHA, 'head_branch': 'main', 'event': 'push',
+                         'status': 'completed', 'conclusion': 'success',
+                         'path': '.github/workflows/ci.yml',
+                         'head_repository': {'full_name': host.REPO}}
+
+    def responses(self, run=None, revision=SHA):
+        return [{'object': {'sha': revision}}, {'workflow_runs': [run or self.good_run]}]
+
+    def test_only_current_main_successful_push_ci_is_authorized(self):
+        with patch.object(host, 'api', side_effect=self.responses()) as api:
+            self.assertTrue(host.verify_ci(SHA, 'private-token'))
+            self.assertIn('head_sha=' + SHA, api.call_args.args[0])
+
+    def test_failed_running_pr_foreign_and_wrong_workflow_ci_are_refused(self):
+        for change in ({'conclusion': 'failure'}, {'status': 'in_progress'},
+                       {'event': 'pull_request'}, {'head_branch': 'feature'},
+                       {'head_sha': OTHER}, {'path': '.github/workflows/lab-worker.yml'},
+                       {'head_repository': {'full_name': 'stranger/yama'}}):
+            with self.subTest(change=change), patch.object(host, 'api', side_effect=self.responses({**self.good_run, **change})):
+                with self.assertRaises(host.Refused):
+                    host.verify_ci(SHA, 'token')
+
+    def test_missing_ci_is_refused(self):
+        with patch.object(host, 'api', side_effect=[{'object': {'sha': SHA}}, {'workflow_runs': []}]):
+            with self.assertRaises(host.Refused):
+                host.verify_ci(SHA, 'token')
+
+    def test_superseded_request_never_checks_out_or_contacts_docker(self):
+        with patch.object(host, 'api', return_value={'object': {'sha': OTHER}}), patch.object(host, 'run') as run:
+            host.release(SHA, 'token')
+            run.assert_not_called()
+
+    def test_check_only_does_not_build_or_mutate_app(self):
+        with patch.object(host, 'api', side_effect=self.responses()), patch.object(host, 'run') as run:
+            host.release(SHA, 'token', check_only=True)
+            run.assert_not_called()
+        self.assertEqual((self.app / 'compose.yaml').read_text(), 'old compose\n')
+
+    def test_forced_ssh_command_cannot_execute_arbitrary_shell_or_use_short_sha(self):
+        command = host.ENTRYPOINT + ' deploy ' + SHA
+        self.assertEqual(host.arguments([], command), ('deploy', SHA))
+        for original in ('sh', command + '; id', command + ' extra',
+                         host.ENTRYPOINT + ' deploy abc1234', host.ENTRYPOINT + ' check ' + SHA + '\nwhoami'):
+            with self.subTest(original=original), self.assertRaises(host.Refused):
+                host.arguments([], original)
+
+    def test_api_failure_does_not_echo_credentials(self):
+        with patch.object(host, 'urlopen', side_effect=host.URLError('private-token')):
+            with self.assertRaises(host.Refused) as error:
+                host.api('git/ref/heads/main', 'private-token')
+        self.assertNotIn('private-token', str(error.exception))
+
+    def test_archive_failure_stops_before_tar(self):
+        with patch.object(host, 'run', side_effect=host.Refused('git failed')) as run:
+            with self.assertRaises(host.Refused):
+                host.export(self.root, SHA, self.root / 'source')
+            self.assertEqual(run.call_count, 1)
+
+    def test_compose_keeps_server_override_and_scopes_project(self):
+        override = self.app / 'compose.override.yaml'
+        override.write_text('local capacity\n')
+        with patch.object(host, 'run', return_value='') as run:
+            host.compose(self.root / 'candidate.yaml', {}, 'up', '-d', '--no-deps', *host.SERVICES)
+        args = run.call_args.args[0]
+        self.assertIn(override, args)
+        self.assertIn('--no-deps', args)
+        self.assertEqual(args[args.index('--project-name') + 1], 'yama')
+
+    def resolved(self, images=None):
+        return json.dumps({'services': {s: {'image': image} for s, image in
+                                      zip(host.SERVICES, images or ['id'] * 3)}})
+
+    def test_backup_failure_prevents_config_replacement_and_restart(self):
+        source = self.root / 'source'
+        (source / 'deploy').mkdir(parents=True)
+        (source / 'deploy/compose.yaml').write_text('candidate compose\n')
+        with patch.object(host, 'compose', return_value=self.resolved()) as compose, \
+             patch.object(host, 'inspect', return_value={'Image': 'previous-id'}), \
+             patch.object(host.os, 'chown'), patch.object(host, 'run', side_effect=host.Refused('backup failed')):
+            with self.assertRaises(host.Refused):
+                host.activate(source, SHA, ['id'] * 3, {}, self.base / 'record.json')
+            self.assertEqual(compose.call_count, 1)  # config validation only
+        self.assertEqual((self.app / 'compose.yaml').read_text(), 'old compose\n')
+        self.assertFalse((self.base / 'previous.json').exists())
+
+    def test_backup_must_actually_exist(self):
+        source = self.root / 'source'
+        (source / 'deploy').mkdir(parents=True)
+        (source / 'deploy/compose.yaml').write_text('candidate compose\n')
+        with patch.object(host, 'compose', return_value=self.resolved()) as compose, \
+             patch.object(host, 'inspect', return_value={'Image': 'old-id'}), \
+             patch.object(host.os, 'chown'), patch.object(host, 'run', return_value=''):
+            with self.assertRaisesRegex(host.Refused, 'did not produce'):
+                host.activate(source, SHA, ['id'] * 3, {}, self.base / 'record.json')
+            self.assertEqual(compose.call_count, 1)
+
+    def test_healthy_container_from_wrong_image_cannot_pass(self):
+        with patch.object(host, 'inspect', return_value={'Image': 'old-image', 'State': {
+            'Running': True, 'Health': {'Status': 'healthy'}}}), patch.object(host, 'urlopen') as http:
+            self.assertFalse(host.healthy(['candidate'] * 3))
+            http.assert_not_called()
+
+    def test_plain_text_health_is_checked_with_all_candidate_images(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.status = 200
+        response.read.return_value = b'ok'
+        with patch.object(host, 'inspect', return_value={'Image': 'candidate', 'State': {
+            'Running': True, 'Health': {'Status': 'healthy'}}}), patch.object(host, 'urlopen', return_value=response):
+            self.assertTrue(host.healthy(['candidate'] * 3))
+            response.read.return_value = b'{"ok":true}'
+            self.assertFalse(host.healthy(['candidate'] * 3))
+
+    def test_successful_activation_keeps_override_backup_and_exact_images(self):
+        source = self.root / 'source'
+        (source / 'deploy').mkdir(parents=True)
+        (source / 'deploy/compose.yaml').write_text('candidate compose\n')
+        override = self.app / 'compose.override.yaml'
+        override.write_text('local capacity\n')
+        calls = []
+        def execute(args, **kwargs):
+            calls.append(args)
+            if args[:4] == ['docker', 'exec', 'yama', 'yama-server']:
+                (self.app / 'data/backups' / Path(args[-1]).name).write_text('backup')
+            return ''
+        with patch.object(host, 'compose', return_value=self.resolved(['candidate-id'] * 3)) as compose, \
+             patch.object(host, 'inspect', return_value={'Image': 'old-id'}), \
+             patch.object(host.os, 'chown'), patch.object(host, 'run', side_effect=execute), \
+             patch.object(host, 'healthy', return_value=True):
+            record = {}
+            host.activate(source, SHA, ['candidate-id'] * 3, record, self.base / 'record.json')
+        self.assertEqual((self.app / 'compose.yaml').read_text(), 'candidate compose\n')
+        self.assertEqual(override.read_text(), 'local capacity\n')
+        self.assertTrue(Path(record['backup']).is_file())
+        self.assertEqual(record['images'], {s: 'candidate-id' for s in host.SERVICES})
+        self.assertEqual(json.loads((self.base / 'record.previous.json').read_text())['images'],
+                         {s: 'old-id' for s in host.SERVICES})
+        self.assertEqual(compose.call_args.args[2:], ('up', '-d', '--no-deps', '--pull', 'never', *host.SERVICES))
+        self.assertEqual(calls[1:], [['docker', 'tag', s + ':' + SHA, s + ':latest'] for s in host.SERVICES])
+
+    def test_supersession_after_build_preserves_running_service_and_cleans_exports(self):
+        repo = self.root / 'repo'
+        repo.mkdir()
+        def export(repo, revision, destination, *paths):
+            destination.mkdir()
+        with patch.object(host, 'verify_ci', side_effect=[True, False]), \
+             patch.object(host, 'checkout', return_value=repo), \
+             patch.object(host, 'phase_checkout', return_value=(repo, OTHER)), \
+             patch.object(host, 'export', side_effect=export), \
+             patch.object(host, 'run', return_value='image-id'), patch.object(host, 'activate') as activate:
+            host.release(SHA, 'token')
+            activate.assert_not_called()
+        self.assertEqual(list((self.base / 'builds').iterdir()), [])
+        records = list((self.base / 'history').glob('*.json'))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(json.loads(records[0].read_text())['status'], 'superseded')
+        self.assertFalse((self.base / 'current.json').exists())
+
+    def test_host_command_timeout_terminates_its_own_child(self):
+        with self.assertRaisesRegex(host.Refused, 'timed out'):
+            host.run([sys.executable, '-c', 'import time; time.sleep(60)'], timeout=0.05)
+
+    def test_same_healthy_release_is_idempotent(self):
+        (self.base / 'current.json').write_text(json.dumps({
+            'revision': SHA, 'images': {s: 'id' for s in host.SERVICES}}))
+        with patch.object(host, 'verify_ci', return_value=True), \
+             patch.object(host, 'healthy', return_value=True), patch.object(host, 'checkout') as checkout:
+            host.release(SHA, 'token')
+            checkout.assert_not_called()
+
+    def test_dedicated_checkout_initializes_fast_forwards_and_preserves_dirty_work(self):
+        remote = self.root / 'remote.git'
+        writer = self.root / 'writer'
+        def git(*args, cwd=None):
+            return subprocess.check_output(['git', '-c', 'commit.gpgsign=false', *map(str, args)],
+                cwd=cwd, stderr=subprocess.DEVNULL, text=True).strip()
+        git('init', '--bare', '--initial-branch=main', remote)
+        git('init', '--initial-branch=main', writer)
+        git('config', 'user.name', 'Test', cwd=writer)
+        git('config', 'user.email', 'test@example.invalid', cwd=writer)
+        (writer / 'file').write_text('first')
+        git('add', '.', cwd=writer); git('commit', '-m', 'first', cwd=writer)
+        git('push', str(remote), 'main', cwd=writer)
+        first = git('rev-parse', 'HEAD', cwd=writer)
+        env = dict(os.environ, GIT_CONFIG_COUNT='1',
+                   GIT_CONFIG_KEY_0='url.' + str(remote) + '.insteadOf',
+                   GIT_CONFIG_VALUE_0='https://github.com/' + host.REPO + '.git')
+        with patch.object(host, 'git_auth', return_value=env):
+            repo = host.checkout(first, 'token')
+            self.assertEqual(git('rev-parse', 'HEAD', cwd=repo), first)
+            (writer / 'file').write_text('second')
+            git('add', '.', cwd=writer); git('commit', '-m', 'second', cwd=writer)
+            git('push', str(remote), 'main', cwd=writer)
+            second = git('rev-parse', 'HEAD', cwd=writer)
+            self.assertIsNone(host.checkout(first, 'token'))
+            self.assertEqual(git('rev-parse', 'HEAD', cwd=repo), first)
+            host.checkout(second, 'token')
+            self.assertEqual(git('rev-parse', 'HEAD', cwd=repo), second)
+            (repo / 'file').write_text('preserve me')
+            with self.assertRaisesRegex(host.Refused, 'clean main'):
+                host.checkout(second, 'token')
+            self.assertEqual((repo / 'file').read_text(), 'preserve me')
+
+    def test_lock_cannot_be_acquired_by_another_process_until_release(self):
+        script = 'import fcntl,sys; f=open(sys.argv[1],"a"); fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)'
+        with host.release_lock():
+            result = subprocess.run(['python3', '-c', script, str(self.base / 'release.lock')], capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+        result = subprocess.run(['python3', '-c', script, str(self.base / 'release.lock')], capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

@@ -31,6 +31,7 @@ ARG YAMA_GIT_SHA=
 ARG YAMA_GIT_DIRTY=
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/yama/target \
+    YAMA_GIT_SHA=$YAMA_GIT_SHA YAMA_GIT_DIRTY=$YAMA_GIT_DIRTY \
     YAMA_LAB_GIT_SHA=$YAMA_GIT_SHA YAMA_LAB_GIT_DIRTY=$YAMA_GIT_DIRTY \
     CARGO_BUILD_JOBS=4 cargo build --release -p yama-server \
  && cp target/release/yama-server /usr/local/bin/yama-server

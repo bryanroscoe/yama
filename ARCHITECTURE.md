@@ -130,11 +130,25 @@ main pushes, with a manual trigger for diagnosis. GitHub-hosted Ubuntu jobs run 
 workspace and Python regressions, plus clean-installed web tests/typecheck/build. Rust builds
 the exact private Phase pin through a dedicated read-only deploy key, using the real sibling
 Cargo paths. The Rust job adds 4 GiB of ephemeral swap and logs build resource usage for
-the large cold engine build. Both jobs must pass on the PR before merge. This is separate from
-the opt-in lab simulation workflow and production deployment. Setup and evidence boundaries:
+the large cold engine build. Both jobs must pass on the PR before merge. The successful main-push run gates automatic production deployment;
+the opt-in lab simulation workflow remains separate. Setup and evidence boundaries:
 `docs/ci.md`.
 
-**Release process (Bryan, 2026-10-25):** integrate completed changes only after fetching GitHub's current branches, merge the intended release into main, run the required checks on that merged result and publish main. Production builds come only from clean main at the same commit as freshly fetched `origin/main`, never from a feature branch, detached HEAD or unpublished local commits. `deploy/check-release.sh` enforces this before server access; `deploy/deploy.sh --check` also verifies the pinned engine commit without contacting saget. Source, engine pin, Forge source label and compose configuration all come from the verified commit. The operating guide is `deploy/RELEASING.md`. Pushes, merges and deployment remain separate actions within Bryan's requested scope.
+**Automatic deployment (Bryan, 2026-10-28):** successful push CI on current GitHub main
+triggers `.github/workflows/deploy.yml` on the dedicated saget production runner. Merging
+reviewed work to main now requests production release. The runner has no Docker socket,
+production data/env mounts or general server shell. A restricted SSH command invokes the
+server-owned `deploy/host.py`, which independently verifies current main and successful
+push CI, fetches a dedicated clean main checkout and the published Phase pin, and builds
+committed exports on saget. GitHub concurrency and one host lock serialize automated and
+manual deployments. Superseded builds do not activate. Mandatory SQLite backup precedes
+activation; full-SHA image tags, the preserved server-local Compose override, all three
+container health checks and exact image IDs plus plain-text HTTP health determine success.
+Secrets/data stay server-local; prior images/config and backup provenance remain available
+for deliberate recovery. Host entrypoint updates are separately installed after review.
+`deploy/deploy.sh --check` still checks clean freshly fetched local main and Phase without
+contacting saget; manual deployment calls the same server gate. See `deploy/RUNNER.md` and
+`deploy/RELEASING.md`.
 
 ```
  Phone app (Capacitor)  ─┐                ┌─────────────────────────────────────────────┐
