@@ -2264,6 +2264,10 @@ async fn retry_only_tail_exposes_owned_counts_and_hides_fast_pace_eta() {
     let bryan = user("bryan", false);
     let first = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
     LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
+    // Exclude the untouched fast fixture results: on a busy debug CI runner their
+    // timestamps can otherwise fill the recent-40 window ahead of our paced sample.
+    sqlx::query("UPDATE lab_experiment_games SET finished_at='2026-01-01T00:00:00Z' WHERE experiment_id=?")
+        .bind(&first.item.id).execute(&pool).await.unwrap();
     let now = chrono::Utc::now();
     for (i, age) in [30, 20, 10, 0].into_iter().enumerate() {
         let at = (now - chrono::Duration::seconds(age)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
