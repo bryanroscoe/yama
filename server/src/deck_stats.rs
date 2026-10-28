@@ -97,10 +97,11 @@ pub async fn stats(pool: &SqlitePool, cards: &[DeckCard], info: &HashMap<String,
             continue;
         };
         let mut colors: BTreeSet<char> = mana.chars().filter(|c| "WUBRG".contains(*c)).collect();
-        // Fetch access is counted only for actual eligible targets in this list.
+        // Fetch access is counted only for actual eligible targets in this list's commander and
+        // main deck; a sideboard land can't be fetched.
         let text = card.oracle_text.to_lowercase();
         if colors.is_empty() && text.contains("search your library for") {
-            for target in cards.iter().filter_map(|c| info.get(&c.oracle_id)) {
+            for target in cards.iter().filter(|c| c.board != Board::Side).filter_map(|c| info.get(&c.oracle_id)) {
                 let ty = target.type_line.split(" // ").next().unwrap_or("");
                 if !ty.contains("Land") {
                     continue;
