@@ -74,7 +74,7 @@ Resolve conflicts deliberately and review the result, including migrations, `ARC
 Run the project's required checks on the final combined code, not only on the individual branches:
 
 ```sh
-CARGO_BUILD_JOBS=4 cargo test
+CARGO_BUILD_JOBS=1 cargo test
 npm test
 npm run typecheck
 npm run build
@@ -120,3 +120,13 @@ The check does not merge, push, contact saget, build images or restart anything.
 The script repeats the checks, then exports the verified commit and pinned engine. Source, compose configuration and build labels all use that same commit. It builds on saget, backs up the database before restarting, and recreates only Yama's containers. Server configuration and secrets remain on saget.
 
 Record the deployed revision, check `curl -fsS http://<saget-lan-address>:8099/api/health`, confirm the revision in Admin, Server, and smoke-test the changed feature on the live site. See [the deployment notes](README.md) for logs and rollback. A rollback of an existing production image is a separate recovery action, not permission to deploy a feature branch.
+
+## Shared-server build limits
+
+`YAMA_BUILD_JOBS=1` limits the server's Cargo compilation to one job (default: 4).
+`YAMA_BUILD_CGROUP_PARENT=/guard/builds` passes Docker's cgroup parent to all three
+image builds. Configure and verify the ancestor's memory limit on the build host first;
+the option alone does not impose a memory limit. Use a child beneath the capped ancestor,
+since BuildKit may reset limits on the selected parent itself. `--check` validates the
+option syntax without contacting the host; it cannot verify that host configuration.
+Keep local compilation at one job under the machine's existing compiler guard.

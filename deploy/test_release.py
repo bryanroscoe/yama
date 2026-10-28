@@ -42,6 +42,8 @@ class ReleaseChecks(unittest.TestCase):
             "YAMA_RELEASE_TEST_CONTACT_LOG": str(self.contact_log),
         }
         self.env.pop("YAMA_PHASE_DIR", None)
+        self.env.pop("YAMA_BUILD_JOBS", None)
+        self.env.pop("YAMA_BUILD_CGROUP_PARENT", None)
         phase = self.root / "yama-phase"
         self.git(self.root, "init", "--initial-branch=main", str(phase))
         (phase / "Cargo.toml").write_text("# Test engine commit\n")
@@ -104,26 +106,46 @@ class ReleaseChecks(unittest.TestCase):
         self.commit(self.phase, "Engine export fixture")
         self.git(self.phase, "push", "origin", "main")
         (self.repo / "deploy/phase-rev").write_text(self.git(self.phase, "rev-parse", "HEAD") + "\n")
+        (self.repo / "forge-worker").mkdir()
+        (self.repo / "forge-worker/fixture").write_text("worker source\n")
         self.commit(self.repo, "Release fixture")
         self.git(self.repo, "push", "origin", "main")
         capture = self.root / "server-build-command"
         commands = self.root / "bin"
         (commands / "ssh").write_text('''#!/bin/sh
 case "$*" in
-  *"docker build -f yama/deploy/Dockerfile "*)
-    printf '%s' "$*" > "$YAMA_RELEASE_TEST_CAPTURE"
-    exit 97 ;;
+  *"docker build -f "*)
+    printf '%s\n' "$*" >> "$YAMA_RELEASE_TEST_CAPTURE"
+    case "$*" in *"Dockerfile.forge-worker "*) exit 97 ;; esac ;;
+  *"cat "*"build.status"*) printf '0\n' ;;
 esac
 exit 0
 ''')
         for name in ("rsync", "scp"):
             (commands / name).write_text("#!/bin/sh\nexit 0\n")
         result = subprocess.run(["sh", "deploy/deploy.sh"], cwd=self.repo,
-            env={**self.env, "YAMA_RELEASE_TEST_CAPTURE": str(capture)}, capture_output=True, text=True, timeout=15)
-        self.assertEqual(result.returncode, 97, result.stdout + result.stderr)
+            env={**self.env, "YAMA_RELEASE_TEST_CAPTURE": str(capture),
+                 "YAMA_BUILD_JOBS": "1", "YAMA_BUILD_CGROUP_PARENT": "/guard/builds"}, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Forge worker build failed", result.stdout)
         revision = self.git(self.repo, "rev-parse", "HEAD")
         self.assertIn("--build-arg YAMA_GIT_SHA=" + revision, capture.read_text())
+        self.assertIn("--build-arg CARGO_BUILD_JOBS=1", capture.read_text())
+        self.assertEqual(capture.read_text().count("--cgroup-parent /guard/builds"), 3)
         self.assertIn("-t yama:" + self.git(self.repo, "rev-parse", "--short", "HEAD"), capture.read_text())
+
+    def test_invalid_build_limits_are_refused_before_server_calls(self):
+        for key, values in (
+            ("YAMA_BUILD_JOBS", ("0", "01", "-1", "2;true", "abc")),
+            ("YAMA_BUILD_CGROUP_PARENT", ("/", "relative", "/guard;true", "/guard/../other", "/guard//child")),
+        ):
+            for value in values:
+                with self.subTest(key=key, value=value):
+                    result = subprocess.run(["sh", "deploy/deploy.sh", "--check"],
+                        cwd=self.repo, env={**self.env, key: value}, capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(key, result.stderr)
+                    self.assertFalse(self.contact_log.exists())
 
     def test_wrapper_check_verifies_engine_without_server_calls(self):
         result = self.check(wrapper=True)

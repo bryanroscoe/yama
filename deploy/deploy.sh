@@ -9,6 +9,21 @@ case "$#:$*" in
   1:--check) CHECK_ONLY=1 ;;
   *) echo "Usage: ./deploy/deploy.sh [--check]" >&2; exit 1 ;;
 esac
+# Validate values before interpolating them into the remote shell command.
+BUILD_JOBS=${YAMA_BUILD_JOBS:-4}
+case "$BUILD_JOBS" in
+  ''|*[!0-9]*|0*) echo "YAMA_BUILD_JOBS must be a positive integer without leading zeros" >&2; exit 1 ;;
+esac
+BUILD_CGROUP=${YAMA_BUILD_CGROUP_PARENT:-}
+BUILD_CGROUP_OPT=
+if [ -n "$BUILD_CGROUP" ]; then
+  case "$BUILD_CGROUP" in
+    /|*[!a-zA-Z0-9_/-]*|*/../*|*/..|*/./*|*/.|*//*)
+      echo "YAMA_BUILD_CGROUP_PARENT must be a safe absolute child cgroup path" >&2; exit 1 ;;
+    /*) BUILD_CGROUP_OPT="--cgroup-parent $BUILD_CGROUP" ;;
+    *) echo "YAMA_BUILD_CGROUP_PARENT must be a safe absolute child cgroup path" >&2; exit 1 ;;
+  esac
+fi
 # No server calls until main has been refreshed from GitHub and verified. Keep the exact
 # verified commit throughout the build, even if another local thread moves HEAD later.
 RELEASE_REV=$(sh ./deploy/check-release.sh)
@@ -40,7 +55,7 @@ rsync -a --delete "$SRC/yama-phase/" "$HOST:$DIR/build/yama-phase/"
 
 echo "Building yama:$REV on saget (log: $DIR/build/build.log)…"
 ssh "$HOST" "cd $DIR/build && rm -f build.status && \
-  nohup sh -c 'docker build -f yama/deploy/Dockerfile --build-context phase=yama-phase \
+  nohup sh -c 'docker build -f yama/deploy/Dockerfile $BUILD_CGROUP_OPT --build-arg CARGO_BUILD_JOBS=$BUILD_JOBS --build-context phase=yama-phase \
     --build-arg YAMA_GIT_SHA=$RELEASE_REV --build-arg YAMA_GIT_DIRTY=$DIRTY -t yama:latest -t yama:$REV yama \
     > build.log 2>&1; echo \$? > build.status' > /dev/null 2>&1 &"
 while ! ssh "$HOST" "test -f $DIR/build/build.status"; do sleep 20; done
@@ -49,7 +64,7 @@ if [ "$(ssh "$HOST" "cat $DIR/build/build.status")" != "0" ]; then
 fi
 
 echo "Building yama-advisor:$REV on saget (log: $DIR/build/advisor-build.log)…"
-if ! ssh "$HOST" "cd $DIR/build && docker build -f yama/deploy/Dockerfile.advisor -t yama-advisor:latest -t yama-advisor:$REV yama/advisor \
+if ! ssh "$HOST" "cd $DIR/build && docker build -f yama/deploy/Dockerfile.advisor $BUILD_CGROUP_OPT -t yama-advisor:latest -t yama-advisor:$REV yama/advisor \
     > advisor-build.log 2>&1"; then
   ssh "$HOST" "tail -30 $DIR/build/advisor-build.log"; echo "Advisor build failed."; exit 1
 fi
@@ -59,7 +74,7 @@ echo "Building yama-forge:$REV on saget (log: $DIR/build/forge-build.log; the fi
 # different labels is left out of a run's difference, so a deploy that doesn't touch the worker
 # mustn't change the label of games already played (2026-10-24, run b8c61ce0).
 FORGE_SRC=$(git rev-parse --short=7 "$RELEASE_REV:forge-worker")
-if ! ssh "$HOST" "cd $DIR/build && docker build -f yama/deploy/Dockerfile.forge-worker --build-arg FORGE_WORKER_GIT_SHA=$FORGE_SRC \
+if ! ssh "$HOST" "cd $DIR/build && docker build -f yama/deploy/Dockerfile.forge-worker $BUILD_CGROUP_OPT --build-arg FORGE_WORKER_GIT_SHA=$FORGE_SRC \
     -t yama-forge:latest -t yama-forge:$REV yama/forge-worker > forge-build.log 2>&1"; then
   ssh "$HOST" "tail -30 $DIR/build/forge-build.log"; echo "Forge worker build failed."; exit 1
 fi
