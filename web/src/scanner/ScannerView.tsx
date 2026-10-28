@@ -16,7 +16,7 @@ import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type Load
 import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
 import { readCloseup, readCollectorLine, scanFrame, SURE } from "./pipeline";
-import { hold, holdRead, type Hold } from "./hold";
+import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { choosePrinting, printingOptions } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { createServerCatalog } from "./serverCatalog";
@@ -208,7 +208,9 @@ export function ScannerView({
   const ownedOcr = useRef<TesseractOcr | null>(null);
   const last = useRef<{ index: number; card?: ScanCandidate; at: number } | undefined>(undefined);
   /** The art just accepted: not found again until the card leaves or another one shows. */
-  const blocked = useRef<number | null>(null);
+  const blocked = useRef<ArtHold | null>(null);
+  /** Frames in a row the detector saw no card, for ending a text hold. */
+  const noCard = useRef(0);
   /** The same for a card found by its text (no art match); see hold.ts. The detector seeing no card also ends it. */
   const blockedName = useRef<Hold | null>(null);
   const foundSeq = useRef(0);
@@ -493,20 +495,20 @@ export function ScannerView({
           if (stop) return;
           setOutline(r.quad ? { quad: scaleQuad(r.quad, 1 / k), w: v.videoWidth, h: v.videoHeight } : null);
           const top = r.matches[0];
+          // The card just added stays held until it has clearly gone (hold.ts): one missed
+          // detection while it's still in view, or on its way out, would add it again.
+          if (blocked.current && artHoldFrame(blocked.current, r.quad && top ? top : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
           if (!r.quad || !top) {
-            blocked.current = null;
-            blockedName.current = null;
+            if (++noCard.current >= AWAY_FRAMES) blockedName.current = null;
             last.current = undefined;
             unknownFrames = 0;
-            setStatus("Hold a card in view");
+            setStatus(blocked.current || blockedName.current ? "Ready for the next card" : "Hold a card in view");
             return next(60);
           }
-          if (blocked.current !== null) {
-            if (top.index !== blocked.current || top.score < ART_UNKNOWN) blocked.current = null;
-            else {
-              setStatus("Ready for the next card");
-              return next(60);
-            }
+          noCard.current = 0;
+          if (blocked.current) {
+            setStatus("Ready for the next card");
+            return next(60);
           }
           const prev = last.current && last.current.index === top.index && Date.now() - last.current.at < 1500;
           last.current = { index: top.index, at: Date.now() };
@@ -641,7 +643,8 @@ export function ScannerView({
   /** Back to scanning. The card just shown isn't found again until it leaves the view. */
   const again = () => {
     foundSeq.current += 1;
-    blocked.current = found?.art ? found.art.index : null;
+    blocked.current = found?.art ? { index: found.art.index, away: 0 } : null;
+    noCard.current = 0;
     blockedName.current = found && !found.art ? hold(found.name, Date.now()) : null;
     last.current = undefined;
     setFound(null);

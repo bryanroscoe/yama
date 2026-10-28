@@ -483,6 +483,12 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const sending = useRef(new Set<string>());
   /** What this session's own writes left in each row (session.ts noteWrite). */
   const rowSeen = useRef(new Map<string, number>());
+  /**
+   * Rows whose count was lost (lookups failed, or a retry the server had already applied). They
+   * stay unchecked for the rest of the session: a later count could already miss copies taken
+   * out elsewhere meanwhile.
+   */
+  const unsure = useRef(new Set<string>());
   const rowsOf = (name: string, container: string | null) =>
     api<CollectionItem[]>(`/api/collection?container=${encodeURIComponent(container ?? "none")}&q=${encodeURIComponent(name)}`);
   /**
@@ -505,16 +511,20 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
    */
   const learn = async (r: Pick<Added, "name" | "scryfall_id" | "finish" | "container">) => {
     const { findRow, identity } = await scanner();
+    const k = identity(r);
+    if (unsure.current.has(k)) return;
     for (const wait of [0, 500, 1500]) {
       await new Promise((ok) => setTimeout(ok, wait));
       try {
         const row = findRow(await rowsOf(r.name, r.container), r);
-        if (row && !rowSeen.current.has(identity(r))) rowSeen.current.set(identity(r), row.qty);
+        if (row && !rowSeen.current.has(k)) rowSeen.current.set(k, row.qty);
+        else if (!row) unsure.current.add(k);
         return;
       } catch {
         // Try again.
       }
     }
+    unsure.current.add(k);
   };
   const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -534,7 +544,11 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       const res = a.pending.ops.length > 0 ? await api<{ applied: number; skipped_duplicates: number }>("/api/collection/ops", { method: "POST", json: a.pending.ops }) : null;
       // A retry the server had already applied: the rows may have changed elsewhere since, so their
       // counts can't be trusted now, and fixes to them are refused.
-      if (res && res.skipped_duplicates > 0) for (const k of touched(a)) rowSeen.current.delete(k);
+      if (res && res.skipped_duplicates > 0)
+        for (const k of touched(a)) {
+          rowSeen.current.delete(k);
+          unsure.current.add(k);
+        }
       else await Promise.all(noteWrite(rowSeen.current, a).map(learn));
       patch(key, (x) => {
         const done = settled(x);
@@ -596,7 +610,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       try {
         const { changedElsewhere, findRow, identity, planFix } = await scanner();
         // Without the count this session's writes left in the row, a fix can't tell its copies from older ones.
-        if (!rowSeen.current.has(identity(before)))
+        if (unsure.current.has(identity(before)) || !rowSeen.current.has(identity(before)))
           throw new Error(`Couldn't check the ${before.name} copies added here, so Yama won't change them. Fix them on the Collection page.`);
         const rows = await rowsOf(before.name, before.container);
         const now = listRef.current.find((x) => x.key === before.key);

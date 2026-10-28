@@ -44,3 +44,27 @@ export function holdRead(h: Hold, best: { name: string; confidence: number } | u
   h.other = best.name;
   return best.confidence >= 0.95 || h.seenOther >= 2 ? "free" : "held";
 }
+
+/** Camera frames in a row without the card (no card seen, or a weak match) before it counts as gone. */
+export const AWAY_FRAMES = 4;
+
+/** The art hold: the art just added, and frames in a row it hasn't been seen. */
+export interface ArtHold {
+  index: number;
+  away: number;
+}
+
+/**
+ * One camera frame while the art just added is held: "held" (ignore the frame) or "free". `frame`
+ * is the detector's top art match, or null when it saw no card. A single missed detection or a
+ * blurry, weak match isn't the card leaving (it may still be in view, or on its way out); only
+ * AWAY_FRAMES of those in a row, or another card matched at `other` or better, end the hold.
+ */
+export function artHoldFrame(h: ArtHold, frame: { index: number; score: number } | null, known: number, other: number): "held" | "free" {
+  if (frame && frame.index === h.index && frame.score >= known) {
+    h.away = 0;
+    return "held";
+  }
+  if (frame && frame.index !== h.index && frame.score >= other) return "free";
+  return ++h.away >= AWAY_FRAMES ? "free" : "held";
+}

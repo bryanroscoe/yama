@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hold, holdRead } from "./hold";
+import { artHoldFrame, hold, holdRead, type ArtHold } from "./hold";
 
 const A = { name: "A", confidence: 0.9 };
 const B = { name: "B", confidence: 0.9 };
@@ -33,5 +33,21 @@ describe("holding a card added by its text", () => {
   it("starts over when the held card is read again, or a third card", () => {
     expect(run([weakB, A, weakB], false)).toEqual(["held", "held", "held"]);
     expect(run([weakB, { name: "C", confidence: 0.6 }, weakB], false)).toEqual(["held", "held", "held"]);
+  });
+});
+
+describe("holding a card added by its art", () => {
+  const frames = (seq: ({ index: number; score: number } | null)[]) => {
+    const h: ArtHold = { index: 7, away: 0 };
+    return seq.map((f) => artHoldFrame(h, f, 0.5, 0.62));
+  };
+  const A = { index: 7, score: 0.9 };
+  it("isn't freed by one missed detection or a blurry frame of the same card", () => {
+    expect(frames([null, A, { index: 7, score: 0.3 }, A, null, null, null, A])).toEqual(Array(8).fill("held"));
+  });
+  it("is freed after the card is gone for a few frames, or by another card", () => {
+    expect(frames([null, null, null, null])).toEqual(["held", "held", "held", "free"]);
+    expect(frames([{ index: 9, score: 0.7 }])).toEqual(["free"]);
+    expect(frames([{ index: 9, score: 0.55 }, { index: 9, score: 0.55 }, null, { index: 9, score: 0.55 }])).toEqual(["held", "held", "held", "free"]);
   });
 });
