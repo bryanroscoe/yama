@@ -20,16 +20,39 @@ Follow [Releasing Yama](RELEASING.md) before a first deploy or update: fetch Git
    - **Cloudflare Access (recommended).** Create a self-hosted Access application for the Yama hostname, with an allow policy listing the friends' emails (one-time PIN or Google login). Put the team name and the application's audience tag into `YAMA_CF_ACCESS_TEAM` / `YAMA_CF_ACCESS_AUD`. The Access policy becomes the invite list, and Yama trusts only Cloudflare's signed token, never a bare email header.
    - **Google sign-in.** Set `YAMA_GOOGLE_CLIENT_IDS` (an OAuth web client whose authorized origin is the Yama URL) and invite people with `docker exec yama yama-server invite friend@gmail.com`.
 3. `./deploy/deploy.sh` copies the source to `build/` on saget, builds the image there in the background (so a dropped SSH session can't stop it; log in `build/build.log`) and starts the container. On first start Yama downloads Scryfall card data (about 2 minutes), then refreshes prices daily.
-4. In Cloudflare Zero Trust, open the `novalyst` tunnel and add a public hostname (for example `yama.saget.org`) pointing at service `http://yama:8787`.
+4. In Cloudflare Zero Trust, open the `novalyst` tunnel and add a public hostname (for example `yama.ing`) pointing at service `http://yama:8787`.
 
 ## Current sign-in setup (2026-10-18; open sign-up added 2026-10-20, off until set)
 
-- **Google sign-in:** Google Cloud project `yama-512101`, OAuth web client `228285497505-i6ocbd3fndfdrjim4t0p2grsmiglrkfo.apps.googleusercontent.com`, authorized origin `https://yama.saget.org`. The client ID is public and is set in the server's `yama.env`. Yama never needs the client secret; Bryan keeps the downloaded JSON.
+- **Google sign-in:** Google Cloud project `yama-512101`, OAuth web client `228285497505-i6ocbd3fndfdrjim4t0p2grsmiglrkfo.apps.googleusercontent.com`, authorized origins `https://yama.ing` and the legacy `https://yama.saget.org`. The client ID is public and is set in the server's `yama.env`. Yama never needs the client secret; Bryan keeps the downloaded JSON.
   - While the OAuth consent screen is in **Testing** mode, only listed test users can sign in. Either add each friend there, or publish the app (the email and profile scopes need no Google review). Open sign-up needs it published (see "Open sign-up" below).
   - Friends also need a Yama invite: `ssh root@<saget-lan-address> docker exec yama yama-server invite friend@gmail.com`. Admins (`YAMA_ADMIN_EMAILS`) can invite from the Group tab instead.
 - **Password accounts:** for debugging on the server, test players, or if Google sign-in breaks. `ssh root@<saget-lan-address> docker exec yama yama-server user add debug@example.com --admin` prints a generated password; the login screen then shows "Sign in with a password". `user list` shows every account; `user remove-password EMAIL` turns one off. Nobody can make a password account from the app: that command is the only way. `YAMA_PASSWORD_LOGIN=0` in `yama.env` turns password sign-in off altogether. Dev login (`YAMA_DEV_LOGIN`) never works here: the container listens on 0.0.0.0, so the server ignores it.
 - **Cloudflare Access:** optional, and not set up yet. If it's turned on, commander-decks' `publish.py` and `pull.py` also need an Access service token: set `YAMA_CF_ACCESS_CLIENT_ID` and `YAMA_CF_ACCESS_CLIENT_SECRET` on the Mac, and allow that token in the Access policy. The Yama script key still decides whose plan it is.
-- **Public route:** `yama.saget.org` → `http://yama:8787` on the `novalyst` tunnel, added by Bryan 2026-10-18 (DNS CNAME to the tunnel). Checked through Cloudflare: HTTPS pages, the API and WebSocket upgrades all reach Yama.
+- **Public route (2026-10-28):** `yama.ing` → `http://yama:8787` on the existing `novalyst` tunnel (proxied DNS CNAME to its `cfargotunnel.com` hostname). The legacy `yama.saget.org` route remains available during migration; other tunnel routes are unchanged.
+
+## Domain migration (2026-10-28)
+
+`https://yama.ing` is the canonical web address and `https://yama.ing/mcp` is the connector URL.
+The same server and database serve both domains; no accounts or user data are copied.
+
+- Add the new hostname to the existing Cloudflare tunnel and a proxied CNAME to the same tunnel.
+  Preserve the old hostname and all unrelated ingress rules. No connector restart is needed.
+- Add `https://yama.ing` to the existing Google web client's authorized JavaScript origins,
+  retaining the old origin. In Google Auth Platform, update the app homepage, privacy policy and
+  terms links to the new domain and keep both authorized domains during the transition.
+- Deploy the reviewed main revision with `YAMA_PUBLIC_URL=https://yama.ing` (compose.yaml).
+  Verify `/api/health`, Google sign-in, public canonical URLs, `/sitemap.xml`,
+  `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/mcp`.
+- Sign in again at the new domain. Browser sessions, installed PWAs and offline storage belong
+  to their origin: sync any pending changes on the old site before switching and install the
+  PWA from the new address. Keep the old route until those clients have migrated.
+- Reconnect OAuth clients at the new `/mcp` URL: issuer and resource identifiers change with
+  `YAMA_PUBLIC_URL`. Existing OAuth grants for the old resource are not portable. Script keys
+  still belong to the same accounts; update their configured server URL.
+
+Rollback: restore the previous compose public URL, recreate only Yama, and use the retained
+old DNS/tunnel route and Google origin. Domain routing alone never requires a database restore.
 
 ## Open sign-up (anyone with a Google account)
 
@@ -95,9 +118,9 @@ Checks (read-only): `ssh root@<saget-lan-address> 'docker logs --tail 20 yama-ad
 
 ## Claude's tools from outside Yama (OAuth sign-in)
 
-Claude Code and claude.ai's custom connectors reach Yama's tools at `https://yama.saget.org/mcp` and sign in with OAuth, so nobody pastes a key (`server/src/oauth/`, docs/mcp-design.md slice 3).
+Claude Code and claude.ai's custom connectors reach Yama's tools at `https://yama.ing/mcp` and sign in with OAuth, so nobody pastes a key (`server/src/oauth/`, docs/mcp-design.md slice 3).
 
-- **Setting:** `YAMA_PUBLIC_URL`, set to `https://yama.saget.org` in `compose.yaml`. Every OAuth address (issuer, endpoints, the `/mcp` resource) comes from it, never from a request's Host header. Without it OAuth is off and only script keys work.
+- **Setting:** `YAMA_PUBLIC_URL`, set to `https://yama.ing` in `compose.yaml`. Every OAuth address (issuer, endpoints, the `/mcp` resource) comes from it, never from a request's Host header. Without it OAuth is off and only script keys work.
 - **Where codes may go:** loopback (`http://localhost`, `127.0.0.1`, `[::1]`, any port: Claude Code) and https on `claude.ai` or `claude.com` (claude.ai's callback, `https://claude.ai/api/mcp/auth_callback`; Anthropic says it may move to claude.com). `YAMA_OAUTH_REDIRECT_HOSTS` in `yama.env` replaces that https list. Anything else is refused when the app registers, so a stranger's app can't collect someone's sign-in.
 - **What must stay public:** claude.ai calls `/mcp`, `/.well-known/oauth-*`, `/oauth/register`, `/oauth/token` and `/oauth/revoke` from Anthropic's servers (`160.79.104.0/21`). If Cloudflare Access or a WAF rule is ever put in front of the hostname, leave those paths out of it. Claude Code calls them from the Mac.
 - **Limits:** 30 registrations an hour and 300 token or revocation requests in 10 minutes per address (claude.ai's all come from Anthropic's addresses, so `YAMA_TRUSTED_PROXIES` matters here too), 30 sign-ins in 10 minutes per account, 20 connected apps per account, at most 500 registered apps waiting for a first sign-in. Unused registrations go after a day.
@@ -109,7 +132,7 @@ Follow [Releasing Yama](RELEASING.md), then run `./deploy/deploy.sh` from main w
 
 ## Phones
 
-Android only, no app store:
+Android only. The default is the installable web app, with no store; an optional Google Play app is described in [docs/mobile.md](../docs/mobile.md). It is built and published separately, not by `deploy.sh`.
 
 - Open the Yama URL in Chrome and choose **Install app**.
 - It runs full screen and works offline for the life counter and card search.

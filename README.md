@@ -10,6 +10,9 @@ Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizar
 
 Precon comparisons and detail pages show [source-backed upgradeability](docs/precon-upgradeability.md) for the whole package: all 619 stock-compatible in-box commander configurations across 174 precons are inventoried. Eighteen configurations have supported 1–5 assessments. The table names the highest supported in-box grade and shows how many options remain ungraded. Fantastic Four covers all four featured commanders plus Crystal and Power Pack. Legal comparison lists, source dates, whole-box reviews and raw commander observations remain distinct from measured list results. Public pages, Lab, APIs and MCP share the data.
 
+Production: [yama.ing](https://yama.ing). Existing users should sync pending changes on the old
+site before signing in at the new address; installed apps and MCP connectors need the new URL.
+
 ## What works today
 
 The signed-out home page highlights the public precon reference and MCP guide, explains what
@@ -49,7 +52,7 @@ Yama also exposes its own MCP at `/mcp` for Ask Claude and outside clients: priv
 collection and planner tools; staged edits; full online card search, community recommendations,
 combos, public deck imports and current rules; deck/budget analysis and bounded mana checks.
 No other Magic MCP installation is needed for those workflows. See
-the public [MCP feature and setup guide](https://yama.saget.org/docs/mcp/),
+the public [MCP feature and setup guide](https://yama.ing/docs/mcp/),
 [capabilities and use](docs/mcp-parity.md) and [connection design](docs/mcp-design.md).
 
 Needs Rust (stable) and Node 22+.
@@ -126,7 +129,7 @@ To serve the built web app from the Rust server (one process, as in production):
 
 ### Google sign-in
 
-Create an OAuth client ID (type "Web application") in Google Cloud Console, add your origin (e.g. `http://localhost:5173`) to its authorized JavaScript origins, and set `YAMA_GOOGLE_CLIENT_IDS`. Native apps will add their own client IDs to the same comma-separated list.
+Create an OAuth client ID (type "Web application") in Google Cloud Console, add your origin (e.g. `http://localhost:5173`) to its authorized JavaScript origins, and set `YAMA_GOOGLE_CLIENT_IDS`. A native Android app asks Google for ID tokens for this same Web client ID; its own Android OAuth client only identifies the app (docs/mobile.md).
 
 ## Checks
 

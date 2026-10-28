@@ -1,6 +1,6 @@
 # Commander MCP capability coverage
 
-The public [MCP guide](https://yama.saget.org/docs/mcp/) documents features, setup for Claude and
+The public [MCP guide](https://yama.ing/docs/mcp/) documents features, setup for Claude and
 Codex, examples and review controls. Keep its catalog in step with tool changes.
 
 Bryan, 2026-10-27: bring useful Magic MCP capabilities into Yama, preferably by implementing the
