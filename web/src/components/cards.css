@@ -43,24 +43,11 @@
   padding: 0.6rem 0.9rem;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 12px;
   list-style: none;
 }
 .rulings > summary::-webkit-details-marker {
   display: none;
-}
-.rulings > summary::before {
-  content: "";
-  width: 0.45rem;
-  height: 0.45rem;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(-45deg);
-  transition: transform 120ms ease-out;
-  flex: none;
-}
-.rulings[open] > summary::before {
-  transform: rotate(45deg);
 }
 .rulings ol {
   list-style: none;

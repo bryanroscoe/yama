@@ -29,7 +29,7 @@ import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from
 import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
-import { ZoomableCard } from "../components/ui";
+import { Details, ZoomableCard } from "../components/ui";
 import { deviceId, outbox, useOutbox, useOutboxState } from "./outbox";
 import { AskClaude } from "../advisor/AskClaude";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
@@ -163,12 +163,13 @@ export function Review() {
   return (
     <>
       <PlansHead title="Review" status={<SyncStatus view={view} userId={userId} />} action={<AskClaude context={{ kind: "review" }} about="your proposals" />} />
-      {imported && (
-        <p className="dim small review-intro">
+      <Details label="How review works">
+        {imported && <p>
           Your answers go to your {view.app} inbox. A want joins the plan when the plan is updated there; a no on a planned swap changes nothing until you and
           your planner decide.
-        </p>
-      )}
+        </p>}
+        <p>Keyboard shortcuts: W want, U unsure, N no. J and K move between proposals.</p>
+      </Details>
       <SyncLine view={view} userId={userId} />
       <div className="review-decks" role="tablist" aria-label="Decks" ref={chipsRef}>
         {decks.map((d) => {
@@ -454,7 +455,6 @@ const ReviewCard = memo(function ReviewCard({
             {a?.origin === "import" && a.at ? `, ${fmtDate(a.at)}` : ""}.
           </p>
         )}
-        {wide && <p className="small dim">Keys: W want, U unsure, N no, J and K to move between proposals.</p>}
       </div>
     </article>
   );

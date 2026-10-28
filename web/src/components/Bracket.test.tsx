@@ -15,7 +15,7 @@ describe("bracket suggestions", () => {
     expect(html).toContain("Core starting point");
   });
 
-  it("explains the provisional Core suggestion visibly on the deck page", () => {
+  it("keeps the provisional explanation available beside the suggestion and bracket action", () => {
     const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
     const check: DeckCheck = {
       enabled: false, version_id: "v1", source: "Commander Spellbook", source_url: "https://commanderspellbook.com/",
@@ -30,11 +30,10 @@ describe("bracket suggestions", () => {
     const html = renderToStaticMarkup(<QueryClientProvider client={client}>
       <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} onCard={() => {}} onDeclare={() => {}} />
     </QueryClientProvider>);
-    const visible = html.split('<details class="bracket-guide">')[0]!;
-    expect(visible).toContain("Why this suggestion?");
-    expect(visible).toContain("Start with Core (2)");
-    expect(visible).toContain("never assigns it automatically");
-    expect(visible).toContain("Choose or change your bracket");
+    const explanation = html.match(/<details class="details-fold"><summary>Why this suggestion\?<\/summary>(.*?)<\/details>/s)?.[1];
+    expect(explanation).toContain("Start with Core (2)");
+    expect(explanation).toContain("never assigns it automatically");
+    expect(html).toContain("Choose or change your bracket");
     expect(html).toContain("How Yama suggests a bracket");
     client.clear();
   });

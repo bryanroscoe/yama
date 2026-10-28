@@ -5,6 +5,44 @@ import { describe, expect, it } from "vitest";
 import { SiteNotice } from "./components/SiteNotice";
 
 describe("public reference and content rights", () => {
+  it("serves the select icon offline immediately after the app is installed", async () => {
+    const origin = "https://yama.ing";
+    const css = readFileSync(new URL("./controls.css", import.meta.url), "utf8");
+    const icon = css.match(/background-image:\s*url\("([^"]+)"\)/)?.[1];
+    expect(icon).toBeTruthy();
+    const cached = new Map<string, object>();
+    const listeners = new Map<string, (event: unknown) => void>();
+    let networkCalls = 0;
+    runInNewContext(readFileSync(new URL("../public/sw.js", import.meta.url), "utf8"), {
+      self: {
+        addEventListener: (name: string, fn: (event: unknown) => void) => listeners.set(name, fn),
+        skipWaiting: () => Promise.resolve(),
+      },
+      location: { origin },
+      URL,
+      caches: {
+        open: async () => ({ addAll: async (paths: string[]) => {
+          for (const path of paths) cached.set(new URL(path, origin).href, { path });
+        } }),
+        match: async (request: { url: string }) => cached.get(request.url),
+      },
+      fetch: async () => { networkCalls++; throw new Error("Offline"); },
+    });
+    let installation: Promise<unknown> | undefined;
+    listeners.get("install")!({ waitUntil: (promise: Promise<unknown>) => { installation = promise; } });
+    await installation;
+    const url = new URL(icon!, origin).href;
+    expect(cached.has(url)).toBe(true);
+    let response: Promise<unknown> | undefined;
+    listeners.get("fetch")!({
+      request: { method: "GET", mode: "no-cors", url },
+      respondWith: (promise: Promise<unknown>) => { response = promise; },
+    });
+    expect(response).toBeDefined();
+    expect(await response).toBe(cached.get(url));
+    expect(networkCalls).toBe(0);
+  });
+
   it("keeps public pages and stock exports out of the private offline shell", () => {
     let fetchHandler: (event: { request: { method: string; mode: string; url: string }; respondWith: () => void }) => void = () => {};
     runInNewContext(readFileSync(new URL("../public/sw.js", import.meta.url), "utf8"), {

@@ -212,66 +212,59 @@ export function PreconsPage() {
       <LabHead title="Lab" index />
       <ErrorText error={precons.error} />
       {run ? (
-        <div className="area-note" role="note">
-          <p>
-            <b>
-              {rated} {rated === 1 ? "deck" : "decks"} rated from {run.games.toLocaleString("en-GB")} simulated {run.pod ?? 4}-player games.
-            </b>{" "}
-            {run.engine ?? "An unrecorded engine"}, {(run.difficulty ?? "unrecorded").toLowerCase()} AI, {fmtDate(run.analysed_at ?? run.created_at)}, run {run.name}.
-            {few ? ` ${few} ${few === 1 ? "precon has" : "precons have"} fewer than ${FEW} games, so ${few === 1 ? "its interval is" : "their intervals are"} wide and the order will move.` : ""}{" "}
-            {caveat(run.engine)} Real-game ranks from playgroup.gg sit in their own column.
-          </p>
-          {unjudgedAll > 0 && (
-            <p>
-              The simulation can't judge {unjudgedAll} of these precons: real games disagree strongly with it, or a known gap in the engine's AI breaks their plan.
-              They're marked sim unreliable{hideUnjudged ? " and hidden" : simSort ? " and listed last" : ""}.
-              {doubtfulAll ? ` ${doubtfulAll} more are marked sim doubtful.` : ""}
-            </p>
-          )}
-          {skipped > 0 && <p>Ranks are among all {run.ranked} decks in the run, and {skipped} of those aren't in this list, so some ranks are skipped.</p>}
-          {run.card_data && (
-            <Details>
-              <p>{simDetails(run.card_data)}</p>
-            </Details>
-          )}
-        </div>
-      ) : (
-        <p className="area-note">No rating run is imported on this server yet, so the precons have no simulated strength.</p>
-      )}
-      {run && run.warnings.length > 0 && <RunWarnings warnings={run.warnings} />}
-      {run && (
-        <details className="small">
-          <summary>How the ratings work</summary>
-          <p>Upgradeability grades use published guides, checked card examples and the stated commander’s restrictions. Alternate commanders and on-theme swaps have separate assessments and lists. Sorting uses the highest supported in-box upgrade grade. The table names those commanders and shows how many included options remain ungraded. Replacing the strategy is a separate deck build.</p>
+        <>
           <p className="lab-note">
-            Every precon played whole games against other precons, with {ai} in every seat, in 4-player pods. The <b>model win rate</b> is a model of
-            finishing order ({run.model ?? "Plackett-Luce"})'s chance that the deck wins a pod of three random precons; a quarter is an even share. The bar is
-            its {level} interval, so a wide bar means few games. <b>Strength</b> is the same model's rating: 1 is an average precon, 2 finishes ahead about
-            twice as often. Raw wins and rank ranges are on each precon's page.
+            <b>{rated} precons rated</b> from {run.games.toLocaleString("en-GB")} simulated {run.pod ?? 4}-player games.
+            {" "}{run.engine ?? "Unrecorded engine"}, {(run.difficulty ?? "unrecorded").toLowerCase()} AI, {fmtDate(run.analysed_at ?? run.created_at)}.
           </p>
-          {real && (
-            <p className="lab-note">
-              Real-game ranks: playgroup.gg's precon tier list ({real.method}), fetched {fmtDate(real.fetched)}. They count people's games, not simulations,
-              and only cover precons with enough logged games.
-            </p>
-          )}
-          {run.confidence && (
-            <>
-              <p className="lab-note">
-                The <b>sim unreliable</b> and <b>sim doubtful</b> marks come from the analysis. It compares each precon's simulated win rate with real games on
-                playgroup.gg, counts the cards the engine only partly implements, and checks a hand-kept list of known gaps in the engine's AI (a deck whose plan
-                needs plays the AI never makes). Unreliable means real games disagree strongly or a known gap breaks the deck's plan; doubtful is a lesser
-                warning. No mark only means no problem is known: the simulation as a whole still follows real games only loosely.
-                {run.confidence.reference_run ? ` Decks without real games of their own are judged by their precon in run ${run.confidence.reference_run}.` : ""}
+          <Details label={run.warnings.length ? `Rating details (${run.warnings.length} analysis ${run.warnings.length === 1 ? "note" : "notes"})` : "Rating method and limitations"}>
+            <p>Run: {run.name}.</p>
+            <p>{caveat(run.engine)}</p>
+            {few > 0 && <p>{few} precons have fewer than {FEW} games; their intervals are wide and the order may change.</p>}
+            {unjudgedAll > 0 && (
+              <p>
+                The simulation can't judge {unjudgedAll} of these precons: real games disagree strongly with it, or a known gap in the engine's AI breaks their plan.
+                They're marked sim unreliable{hideUnjudged ? " and hidden" : simSort ? " and listed last" : ""}.
+                {doubtfulAll ? ` ${doubtfulAll} more are marked sim doubtful.` : ""}
               </p>
-              {run.confidence.method && (
-                <Details>
-                  <p>{run.confidence.method}</p>
-                </Details>
-              )}
-            </>
-          )}
-        </details>
+            )}
+            {skipped > 0 && <p>Ranks are among all {run.ranked} decks in the run, and {skipped} of those aren't in this list, so some ranks are skipped.</p>}
+            {run.card_data && <p>{simDetails(run.card_data)}</p>}
+            <p>Upgradeability grades use published guides, checked card examples and the stated commander’s restrictions. Alternate commanders and on-theme swaps have separate assessments and lists. Sorting uses the highest supported in-box upgrade grade. The table names those commanders and shows how many included options remain ungraded. Replacing the strategy is a separate deck build.</p>
+            <p className="lab-note">
+              Every precon played whole games against other precons, with {ai} in every seat, in 4-player pods. The <b>model win rate</b> is a model of
+              finishing order ({run.model ?? "Plackett-Luce"})'s chance that the deck wins a pod of three random precons; a quarter is an even share. The bar is
+              its {level} interval, so a wide bar means few games. <b>Strength</b> is the same model's rating: 1 is an average precon, 2 finishes ahead about
+              twice as often. Raw wins and rank ranges are on each precon's page.
+            </p>
+            {real && (
+              <p className="lab-note">
+                Real-game ranks: playgroup.gg's precon tier list ({real.method}), fetched {fmtDate(real.fetched)}. They count people's games, not simulations,
+                and only cover precons with enough logged games.
+              </p>
+            )}
+            {run.confidence && (
+              <>
+                <p className="lab-note">
+                  The <b>sim unreliable</b> and <b>sim doubtful</b> marks come from the analysis. It compares each precon's simulated win rate with real games on
+                  playgroup.gg, counts the cards the engine only partly implements, and checks a hand-kept list of known gaps in the engine's AI (a deck whose plan
+                  needs plays the AI never makes). Unreliable means real games disagree strongly or a known gap breaks the deck's plan; doubtful is a lesser
+                  warning. No mark only means no problem is known: the simulation as a whole still follows real games only loosely.
+                  {run.confidence.reference_run ? ` Decks without real games of their own are judged by their precon in run ${run.confidence.reference_run}.` : ""}
+                </p>
+                {run.confidence.method && (
+                  <Details>
+                    <p>{run.confidence.method}</p>
+                  </Details>
+                )}
+              </>
+            )}
+
+            {run.warnings.length > 0 && <ul>{run.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+          </Details>
+        </>
+      ) : (
+        <p className="area-note">No simulation ratings yet.</p>
       )}
 
       <div className={`lab-filters${moreOpen || filtering ? " open" : ""}`}>

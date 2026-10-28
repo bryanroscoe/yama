@@ -76,8 +76,8 @@ export function Sheet({ onClose, children, label }: { onClose: () => void; child
 }
 
 /**
- * A collapsed "Details" disclosure for the facts behind a plain sentence: file names, content
- * hashes, commits and the full rule discussion. Visible copy stays one or two plain sentences.
+ * Optional explanation behind a concise, descriptive disclosure. Native details
+ * works with touch, keyboard and assistive technology without a hover dependency.
  */
 export function Details({ children, label = "Details", className = "" }: { children: ReactNode; label?: string; className?: string }) {
   return (
