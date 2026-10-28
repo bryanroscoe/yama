@@ -177,8 +177,8 @@ export function DeckPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   // Switching to another configuration of the same deck keeps this one on screen until the
-  // other arrives, instead of an empty page; its actions are inert meanwhile, so nothing acts
-  // on the configuration just left.
+  // other arrives, instead of an empty page; everything but the switcher is inert meanwhile
+  // (the hero's actions, the whole body, the action bar), so nothing acts on the deck just left.
   const deck = useQuery({
     queryKey: ["deck", id],
     queryFn: () => api<DeckView>(`/api/decks/${id}`),
@@ -364,7 +364,7 @@ export function DeckPage() {
         </div>
       </ArtPanel>
 
-      <div className="page deck-body">
+      <div className="page deck-body" inert={deck.isPlaceholderData} aria-busy={deck.isPlaceholderData}>
         <DeckPrices singles={d.singles_value} ownership={o} />
         {/* Phones: three figure tiles, the plan, then the other actions. */}
         <div className="deck-stats-tiles">
@@ -386,8 +386,8 @@ export function DeckPage() {
             To finish: basics excluded{o.needed_without_price > 0 ? `, ${o.needed_without_price} with no price` : ""}. {priced}.
           </p>
         )}
-        {planLink && <div className="phone-only deck-plan-phone" inert={deck.isPlaceholderData}>{planLink}</div>}
-        <div className="row deck-actions-phone" inert={deck.isPlaceholderData}>
+        {planLink && <div className="phone-only deck-plan-phone">{planLink}</div>}
+        <div className="row deck-actions-phone">
           <button className="outline" onClick={() => setEditing(true)}>Edit deck</button>
           <details className="deck-actions-more">
             <summary>More actions</summary>
@@ -404,7 +404,7 @@ export function DeckPage() {
         </div>
 
         {/* The status row: legality, the plan for this deck, and its simulated strength. */}
-        <div className={`deck-status${plan ? " has-plan" : ""}`} inert={deck.isPlaceholderData}>
+        <div className={`deck-status${plan ? " has-plan" : ""}`}>
           {legal}
           {planLink && <span className="wide-only deck-plan-wide">{planLink}</span>}
           {plan?.sim && <span className="deck-sim">{plan.sim}</span>}
