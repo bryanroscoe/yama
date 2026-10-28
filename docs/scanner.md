@@ -42,7 +42,10 @@ Not pursued:
 - **CollectorVision** (AGPL code and weights).
 - **OpenCV.js** for corner finding: about 8 to 10 MB for one feature [inferred from the usual build sizes]. The edge finder here is about 200 lines.
 - **ManaVault's detector.onnx** (12.6 MB): the guide plus the edge finder did well enough. Worth trying with the hybrid if free-hand scanning (no guide) is wanted.
-- **Native OCR** (iOS Vision, Android ML Kit, through a Capacitor plugin). It is likely faster and more accurate on small print [inferred], but it needs native code on two platforms. Keep `OcrEngine` as the seam for it.
+
+Deferred, not rejected:
+
+- **Native OCR** (ML Kit, through a Capacitor plugin in an Android app; iOS is shelved). It is likely faster and more accurate on small print [inferred]. It is the next step if collector-line reads fail on a real phone ("Left for a real phone test", below). Keep `OcrEngine` as the seam for it.
 
 ## The art recognizer (built 2026-10-28)
 
