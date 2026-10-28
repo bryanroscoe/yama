@@ -294,6 +294,22 @@ pub(crate) struct SharedDetails {
     /// The run and the plan's key, when the plan has a paired run with a list this deck or a
     /// listed configuration stands for.
     pub(crate) sim: Option<(crate::lab::RunListItem, String)>,
+    /// This deck's cards are the plan's current list for the state it stands for, so its result
+    /// may be called "this list". A label alone doesn't make it so.
+    pub(crate) sim_matches: bool,
+}
+
+/// Commander and main deck as (name, copies), sorted, for comparing a deck with a plan list.
+fn list_key<'a>(cards: impl Iterator<Item = (&'a str, i64, bool)>) -> Vec<(String, i64)> {
+    let mut m: HashMap<String, i64> = HashMap::new();
+    for (name, qty, side) in cards {
+        if !side {
+            *m.entry(name.to_lowercase()).or_default() += qty;
+        }
+    }
+    let mut v: Vec<_> = m.into_iter().collect();
+    v.sort();
+    v
 }
 
 /// The plan state a deck stands for: a main deck is "now"; a configuration labelled "stock" is
@@ -322,6 +338,24 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
         .bind(&d.main_id)
         .fetch_optional(pool)
         .await? };
+    let mut sim_matches = false;
+    if let (Some(key), Some(state)) = (&key, d.states.first()) {
+        let plan_list: Option<String> = sqlx::query_scalar(
+            "SELECT s.cards FROM plan_states s JOIN plan_decks p ON p.id = s.plan_deck_id
+             WHERE p.owner_id = ? AND p.key = ? AND s.state = ? AND s.current = 1",
+        )
+        .bind(&d.sharer.id)
+        .bind(key)
+        .bind(state)
+        .fetch_optional(pool)
+        .await?;
+        if let Some(cards) = plan_list.and_then(|j| serde_json::from_str::<Vec<serde_json::Value>>(&j).ok()) {
+            let theirs = list_key(cards.iter().map(|c| {
+                (c["name"].as_str().unwrap_or(""), c["qty"].as_i64().unwrap_or(1), c["board"].as_str() == Some("side"))
+            }));
+            sim_matches = !theirs.is_empty() && theirs == list_key(d.list.iter().map(|c| (c.name.as_str(), c.qty, c.board == Board::Side)));
+        }
+    }
     let sim = match key {
         Some(key) => crate::lab::paired_for_plan(pool, &d.sharer.id, &key).await?.filter(|run| {
             run.paired.as_ref().is_some_and(|p| p.variants.iter().any(|v| crate::lab::variant_state(&v.id, &key).is_some_and(|s| d.states.contains(&s))))
@@ -335,6 +369,7 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
         stats: crate::deck_stats::stats(pool, &d.list, &info).await?,
         singles: crate::deck_prices::singles(&serde_json::to_value(&d.list).map_err(anyhow::Error::from)?, &prices),
         sim,
+        sim_matches,
     })
 }
 

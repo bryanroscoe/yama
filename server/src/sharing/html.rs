@@ -148,6 +148,7 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
         write!(body, "<a class=\"pill dashed\" href=\"#bracket-head\">Suggested {}</a>", e(&value.to_lowercase())).unwrap();
     }
     if let Some((run, key)) = &x.sim
+        && x.sim_matches
         && let Some(v) = run.paired.as_ref().and_then(|p| p.variants.iter().find(|v| crate::lab::variant_state(&v.id, key).as_ref() == d.states.first()))
     {
         write!(body, "<a class=\"pill\" href=\"#sim-head\">Simulated win rate {}</a>", crate::public_page::pct(v.win_rate)).unwrap();
@@ -212,7 +213,7 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
     body.push_str("<div class=\"share-more\">");
     body.push_str(&crate::public_page::bracket_panel(d.bracket, x.check.as_ref(), x.game_changers.as_deref()));
     if let Some((run, key)) = &x.sim {
-        body.push_str(&crate::public_page::sim_panel(run, key, &d.states));
+        body.push_str(&crate::public_page::sim_panel(run, key, &d.states, x.sim_matches));
     }
     body.push_str(&crate::public_page::stats_panel(&x.stats));
     body.push_str(&crate::public_page::singles_panel(&x.singles));

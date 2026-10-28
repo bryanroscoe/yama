@@ -396,3 +396,11 @@ fn configurations_stand_for_plan_states() {
     assert_eq!(crate::lab::variant_state("bryan/riders-of-rohan-after", "riders-of-rohan").as_deref(), Some("after"));
     assert_eq!(crate::lab::variant_state("bryan/riders-of-rohan2-after", "riders-of-rohan"), None);
 }
+
+#[test]
+fn a_deck_matches_a_plan_list_by_cards_not_label() {
+    let deck = [("Sol Ring", 1, false), ("Island", 2, false), ("Spare", 1, true)];
+    let plan = [("island", 1, false), ("sol ring", 1, false), ("Island", 1, false)];
+    assert_eq!(super::list_key(deck.iter().copied()), super::list_key(plan.iter().copied()), "names, copies; sideboard and order aside");
+    assert_ne!(super::list_key(deck.iter().copied()), super::list_key([("Sol Ring", 1, false)].iter().copied()));
+}

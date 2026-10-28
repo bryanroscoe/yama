@@ -275,9 +275,9 @@ pub(crate) fn state_label(state: &str) -> String {
 
 /// The plan's newest paired lab run: each list's raw simulated win rate with its interval, and
 /// the paired differences. Only the lists in `shown` (plan states) appear; the first is the one
-/// this page shows.
-pub(crate) fn sim_panel(run: &RunListItem, key: &str, shown: &[String]) -> String {
-    let current = shown.first().map(String::as_str);
+/// this page shows, called "this list" only when `matches` (its cards are the plan's list now).
+pub(crate) fn sim_panel(run: &RunListItem, key: &str, shown: &[String], matches: bool) -> String {
+    let current = shown.first().map(String::as_str).filter(|_| matches);
     let Some(paired) = &run.paired else { return String::new() };
     let r = &run.run;
     let level = r.level.unwrap_or(0.9) * 100.;
@@ -320,7 +320,10 @@ pub(crate) fn sim_panel(run: &RunListItem, key: &str, shown: &[String]) -> Strin
     if !lines.is_empty() {
         write!(s, "<h3>Paired differences</h3><ul class=\"public-flags\">{}</ul>", lines.concat()).unwrap();
     }
-    s.push_str("<p class=\"dim\">Lists from the owner's upgrade plan. A simulated rate is evidence about these AI pods, not a forecast for a real table; read differences with their intervals.</p></section>");
+    if !matches {
+        s.push_str("<p class=\"dim\">This deck's cards have changed since, or differ from its plan list, so these results describe the plan's lists as simulated, not necessarily this list.</p>");
+    }
+    s.push_str("<p class=\"dim\">Lists from the owner's upgrade plan, as simulated on that date. A simulated rate is evidence about these AI pods, not a forecast for a real table; read differences with their intervals.</p></section>");
     s
 }
 
