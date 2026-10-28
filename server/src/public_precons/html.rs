@@ -172,7 +172,11 @@ fn upgradeability_rubric() -> String {
     out.push_str("</tbody></table><p>These are Yama’s ordinal judgments, with no measured win-rate gain attached. A grade belongs to the stated commander configuration and retained main theme. Assess on-theme commander swaps separately; a replacement strategy is a separate deck build. Missing evidence means ungraded. Targeted changes refine the main package; Moderate replaces several packages; Substantial removes much of the shell. Effort describes work, not a budget or Commander bracket.</p>");
     out
 }
-fn assessment_html(u: &crate::upgradeability::Assessment, full: bool, shared: bool) -> String {
+fn assessment_html(
+    u: &crate::upgradeability::Assessment,
+    full: bool,
+    include_rubric: bool,
+) -> String {
     let mut out = match u.score {
         Some(score) => format!(
             "<strong>{score}/5 {}</strong><small>Yama assessment. {} changes.</small>",
@@ -215,12 +219,7 @@ fn assessment_html(u: &crate::upgradeability::Assessment, full: bool, shared: bo
         )
         .unwrap();
     }
-    write!(
-        out,
-        "<p class=\"dim\">{}",
-        if shared { e(u.basis) } else { String::new() }
-    )
-    .unwrap();
+    write!(out, "<p class=\"dim\">{}", e(u.basis)).unwrap();
     if let Some(date) = &u.assessed_on {
         let label = if matches!(u.status, "stock_list_changed" | "list_needs_validation") {
             "Prior audit"
@@ -243,7 +242,7 @@ fn assessment_html(u: &crate::upgradeability::Assessment, full: bool, shared: bo
         }
         out.push_str(".</p>");
     }
-    if shared {
+    if include_rubric {
         write!(
             out,
             "<details><summary>What 1–5 means</summary>{}</details>",
@@ -291,9 +290,9 @@ fn assessment_html(u: &crate::upgradeability::Assessment, full: bool, shared: bo
         out.push_str("</ul>");
     }
     out.push_str("<h3>Commander results</h3>");
-    if shared {
-        write!(out, "<p>{}</p>", e(u.commander_caveat)).unwrap();
-    }
+    // Each commander disclosure can be opened on its own. Its observations must
+    // carry their own scope and provenance even while the reference stays closed.
+    write!(out, "<p>{}</p>", e(u.commander_caveat)).unwrap();
     if u.commander_results.is_empty() {
         out.push_str("<p class=\"dim\">No commander observation is available.</p>");
     } else {
@@ -313,9 +312,7 @@ fn assessment_html(u: &crate::upgradeability::Assessment, full: bool, shared: bo
         }
         out.push_str("</ul>");
     }
-    if shared {
-        out.push_str("<p class=\"dim\"><a href=\"https://playgroup.gg\">Playgroup.gg / Arcane Digital B.V.</a>, aggregate statistics under <a href=\"https://playgroup.gg/legal\">CC BY 4.0</a>. Source refresh dates are not provided by this endpoint.</p>");
-    }
+    out.push_str("<p class=\"dim\"><a href=\"https://playgroup.gg\">Playgroup.gg / Arcane Digital B.V.</a>, aggregate statistics under <a href=\"https://playgroup.gg/legal\">CC BY 4.0</a>. Source refresh dates are not provided by this endpoint.</p>");
     out
 }
 

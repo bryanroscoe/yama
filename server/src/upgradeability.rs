@@ -1260,6 +1260,22 @@ mod tests {
                 assert!(html.contains("Commander results"));
                 assert!(html.contains("raw wins"));
                 assert!(html.contains("Publisher") || html.contains("Tomer Abramovici"));
+                let alternatives = &public.precons[0].upgradeability.alternatives;
+                assert!(!alternatives.is_empty());
+                for alternative in alternatives {
+                    let start = format!("<details id=\"commander-{}\">", alternative.variant_key);
+                    let disclosure = html
+                        .split_once(&start)
+                        .unwrap()
+                        .1
+                        .split_once("</details>")
+                        .unwrap()
+                        .0;
+                    assert!(disclosure.contains(&crate::public_page::e(COMMANDER_CAVEAT)));
+                    assert!(disclosure.contains("Playgroup.gg / Arcane Digital B.V."));
+                    assert!(disclosure.contains("CC BY 4.0"));
+                    assert!(disclosure.contains("Source refresh dates are not provided"));
+                }
             }
         }
         let mut changed = cards;
