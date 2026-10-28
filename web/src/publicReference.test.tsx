@@ -5,6 +5,15 @@ import { describe, expect, it } from "vitest";
 import { SiteNotice } from "./components/SiteNotice";
 
 describe("public reference and content rights", () => {
+  it("includes every embedded web stylesheet in the server Docker build context", () => {
+    const renderer = readFileSync(new URL("../../server/src/public_precons/html.rs", import.meta.url), "utf8");
+    const dockerfile = readFileSync(new URL("../../deploy/Dockerfile", import.meta.url), "utf8");
+    const copies = dockerfile.split("\n").filter(line => line.startsWith("COPY ")).flatMap(line => line.split(/\s+/).slice(1, -1));
+    for (const [, path] of renderer.matchAll(/include_str!\("\.\.\/\.\.\/\.\.\/(web\/[^"]+\.css)"\)/g)) {
+      expect(copies, path).toContain(path);
+    }
+  });
+
   it("serves the select icon offline immediately after the app is installed", async () => {
     const origin = "https://yama.ing";
     const css = readFileSync(new URL("./controls.css", import.meta.url), "utf8");
