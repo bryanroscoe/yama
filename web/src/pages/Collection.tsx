@@ -485,46 +485,49 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const rowSeen = useRef(new Map<string, number>());
   const rowsOf = (name: string, container: string | null) =>
     api<CollectionItem[]>(`/api/collection?container=${encodeURIComponent(container ?? "none")}&q=${encodeURIComponent(name)}`);
-  /** Row counts being looked up, so a fix can wait for them. */
-  const learning = useRef(new Map<string, Promise<void>>());
+  /**
+   * The session's writes run one at a time, each with its lookups: overlapping saves (Keep adding
+   * the same printing twice quickly) would otherwise muddle what each one left in a row.
+   */
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const enqueue = <T,>(job: () => Promise<T>): Promise<T> => {
+    const run = queue.current.then(job);
+    queue.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
   /**
    * Look up the count of a row the session doesn't know yet, right after its write (a few tries).
    * If it can't be had, the row stays unknown, and fixes to it are refused: checking later could
    * miss copies taken out elsewhere meanwhile.
    */
-  const learn = (r: Pick<Added, "name" | "scryfall_id" | "finish" | "container">) => {
-    const run = (async () => {
-      const { findRow, identity } = await scanner();
-      for (const wait of [0, 500, 1500]) {
-        await new Promise((ok) => setTimeout(ok, wait));
-        try {
-          const row = findRow(await rowsOf(r.name, r.container), r);
-          if (row && !rowSeen.current.has(identity(r))) rowSeen.current.set(identity(r), row.qty);
-          return;
-        } catch {
-          // Try again.
-        }
+  const learn = async (r: Pick<Added, "name" | "scryfall_id" | "finish" | "container">) => {
+    const { findRow, identity } = await scanner();
+    for (const wait of [0, 500, 1500]) {
+      await new Promise((ok) => setTimeout(ok, wait));
+      try {
+        const row = findRow(await rowsOf(r.name, r.container), r);
+        if (row && !rowSeen.current.has(identity(r))) rowSeen.current.set(identity(r), row.qty);
+        return;
+      } catch {
+        // Try again.
       }
-    })();
-    void scanner().then(({ identity }) => {
-      const k = identity(r);
-      learning.current.set(k, run);
-      void run.finally(() => learning.current.get(k) === run && learning.current.delete(k));
-    });
+    }
   };
   const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
 
   /**
-   * Send an entry's pending write. A retry sends the very same ops (same ids), so a write that went
-   * through but lost its reply is applied once. Resolves whether the server confirmed it.
+   * Write an entry's pending ops (call inside the queue). A retry sends the very same ops (same
+   * ids), so a write that went through but lost its reply is applied once. Resolves whether the
+   * server confirmed it.
    */
-  const send = async (key: string): Promise<boolean> => {
+  const write = async (key: string): Promise<boolean> => {
     const a = listRef.current.find((x) => x.key === key);
     if (!a?.pending) return true;
-    if (sending.current.has(key)) return false;
-    sending.current.add(key);
     const { noteWrite, settled, touched } = await scanner();
     patch(key, (x) => (x.pending ? { ...x, pending: { ...x.pending, error: undefined } } : x));
     try {
@@ -532,7 +535,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       // A retry the server had already applied: the rows may have changed elsewhere since, so their
       // counts can't be trusted now, and fixes to them are refused.
       if (res && res.skipped_duplicates > 0) for (const k of touched(a)) rowSeen.current.delete(k);
-      else for (const r of noteWrite(rowSeen.current, a)) learn(r);
+      else await Promise.all(noteWrite(rowSeen.current, a).map(learn));
       patch(key, (x) => {
         const done = settled(x);
         return done.copies > 0 ? done : null;
@@ -542,9 +545,13 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     } catch (e) {
       patch(key, (x) => (x.pending ? { ...x, pending: { ...x.pending, error: e instanceof Error ? e.message : String(e) } } : x));
       return false;
-    } finally {
-      sending.current.delete(key);
     }
+  };
+  /** Queue an entry's pending write (once: a second call while it waits does nothing). */
+  const send = (key: string): Promise<boolean> => {
+    if (sending.current.has(key)) return Promise.resolve(false);
+    sending.current.add(key);
+    return enqueue(() => write(key)).finally(() => sending.current.delete(key));
   };
 
   const accept = async (c: ScanCandidate, copies: number, auto: boolean): Promise<boolean> => {
@@ -583,27 +590,30 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const token = crypto.randomUUID();
     patch(before.key, (x) => ({ ...x, checking: token }));
     const unlock = () => patch(before.key, (x) => (x.checking === token ? { ...x, checking: undefined } : x));
-    let planned = false;
-    try {
-      const { changedElsewhere, findRow, identity, planFix } = await scanner();
-      await learning.current.get(identity(before));
-      // Without the count this session's writes left in the row, a fix can't tell its copies from older ones.
-      if (!rowSeen.current.has(identity(before)))
-        throw new Error(`Couldn't check the ${before.name} copies added here, so Yama won't change them. Fix them on the Collection page.`);
-      const rows = await rowsOf(before.name, before.container);
-      const now = listRef.current.find((x) => x.key === before.key);
-      if (!now || now.checking !== token) return;
-      const row = findRow(rows, now);
-      if (!row) throw new Error(`Couldn't find the ${now.name} added here. It may have been changed on the Collection page.`);
-      // Copies taken out elsewhere since: they may have been older ones, so don't guess.
-      if (changedElsewhere(rowSeen.current, now, row.qty))
-        throw new Error(`Some ${now.name} copies were changed elsewhere since this scan, so Yama can't tell which are the ones added here. Fix them on the Collection page.`);
-      patch(now.key, (x) => ({ ...x, checking: undefined, pending: { ops: planFix(now, f, row, () => crypto.randomUUID()), fix: f, base: row.qty } }));
-      planned = true;
-    } finally {
-      if (!planned) unlock();
-    }
-    if (!(await send(before.key))) throw new Error("Couldn't save that change. Try again sends the same change.");
+    // Look up, check, plan and write in the queue, after any writes before it.
+    const saved = await enqueue(async () => {
+      let planned = false;
+      try {
+        const { changedElsewhere, findRow, identity, planFix } = await scanner();
+        // Without the count this session's writes left in the row, a fix can't tell its copies from older ones.
+        if (!rowSeen.current.has(identity(before)))
+          throw new Error(`Couldn't check the ${before.name} copies added here, so Yama won't change them. Fix them on the Collection page.`);
+        const rows = await rowsOf(before.name, before.container);
+        const now = listRef.current.find((x) => x.key === before.key);
+        if (!now || now.checking !== token) return true;
+        const row = findRow(rows, now);
+        if (!row) throw new Error(`Couldn't find the ${now.name} added here. It may have been changed on the Collection page.`);
+        // Copies taken out elsewhere since: they may have been older ones, so don't guess.
+        if (changedElsewhere(rowSeen.current, now, row.qty))
+          throw new Error(`Some ${now.name} copies were changed elsewhere since this scan, so Yama can't tell which are the ones added here. Fix them on the Collection page.`);
+        patch(now.key, (x) => ({ ...x, checking: undefined, pending: { ops: planFix(now, f, row, () => crypto.randomUUID()), fix: f, base: row.qty } }));
+        planned = true;
+      } finally {
+        if (!planned) unlock();
+      }
+      return write(before.key);
+    });
+    if (!saved) throw new Error("Couldn't save that change. Try again sends the same change.");
   };
   const retry = async (a: Added) => {
     if (!(await send(a.key))) throw new Error("Still couldn't save it. Try again in a moment.");
