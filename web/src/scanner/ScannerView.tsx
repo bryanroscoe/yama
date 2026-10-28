@@ -24,8 +24,12 @@ import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult
 import "./scanner.css";
 
 export interface ScannerViewProps {
-  /** Called when the person confirms a card (`auto`: Keep adding added it). Without it the scanner only shows what it found. */
-  onAccept?: (card: ScanCandidate, copies: number, auto: boolean) => void;
+  /**
+   * Called when the person confirms a card (`auto`: Keep adding added it). Without it the scanner
+   * only shows what it found. A promise says whether the card was saved, so Keep adding only
+   * says "Added" once it was.
+   */
+  onAccept?: (card: ScanCandidate, copies: number, auto: boolean) => void | Promise<boolean>;
   /** For reading text: defaults to the server lookup plus the offline card names. */
   catalog?: ScanCatalog;
   /** For reading text: defaults to tesseract.js. */
@@ -35,6 +39,8 @@ export interface ScannerViewProps {
   addedCount?: number;
   /** Makes the "Added 3 so far" chip a button, to review and fix what was added. */
   onShowAdded?: () => void;
+  /** Cards added whose save failed (kept for review, to try again). */
+  unsavedCount?: number;
   /**
    * Keep adding: a card whose printing the scanner settled itself (the only one, or read from the
    * collector line) is added at once, one copy, and scanning goes on. Anything less still waits.
@@ -180,6 +186,7 @@ export function ScannerView({
   onClose,
   addedCount = 0,
   onShowAdded,
+  unsavedCount = 0,
   autoAdd = false,
   paused = false,
   recent = [],
@@ -201,6 +208,11 @@ export function ScannerView({
   const last = useRef<{ index: number; card?: ScanCandidate; at: number } | undefined>(undefined);
   /** The art just accepted: not found again until the card leaves or another one shows. */
   const blocked = useRef<number | null>(null);
+  /**
+   * The same for a card found by its text (no art match): its name, until the card leaves the view
+   * (the detector sees no card) or a few reads in a row see no card or another one.
+   */
+  const blockedName = useRef<{ name: string; misses: number } | null>(null);
   const foundSeq = useRef(0);
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState("Hold a card in view");
@@ -430,6 +442,17 @@ export function ScannerView({
   const handleText = useCallback(
     (res: ScanResult, single: boolean) => {
       const best = res.candidates[0];
+      const held = blockedName.current;
+      if (held) {
+        if (best?.name === held.name) {
+          held.misses = 0;
+          setStatus("Ready for the next card");
+          return false;
+        }
+        // One missed read isn't the card leaving; three in a row (or another card) is.
+        if (++held.misses >= 3 || best) blockedName.current = null;
+        else return false;
+      }
       if (!best) return false;
       const seen = last.current && Date.now() - last.current.at < 2500 ? last.current.card : undefined;
       const lock = single || best.confidence >= 0.95 || (best.confidence >= 0.6 && sameCard(best, seen));
@@ -469,6 +492,7 @@ export function ScannerView({
           const top = r.matches[0];
           if (!r.quad || !top) {
             blocked.current = null;
+            blockedName.current = null;
             last.current = undefined;
             unknownFrames = 0;
             setStatus("Hold a card in view");
@@ -614,6 +638,7 @@ export function ScannerView({
   const again = () => {
     foundSeq.current += 1;
     blocked.current = found?.art ? found.art.index : null;
+    blockedName.current = found && !found.art ? { name: found.name, misses: 0 } : null;
     last.current = undefined;
     setFound(null);
     setOutline(null);
@@ -732,10 +757,21 @@ export function ScannerView({
   useEffect(() => {
     if (!autoAdd || !onAccept || paused || identityOnly || phase !== "found" || !found || !addsItself(found)) return;
     const c = found.chosen!;
-    onAccept(candidateOf(found, c), 1, true);
-    navigator.vibrate?.(40);
-    setJustAdded(`Added ${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})`);
+    const label = `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})`;
+    const saved = onAccept(candidateOf(found, c), 1, true);
+    // The card stays in the session list either way (a failed save can be tried again there), so
+    // scanning goes on; "Added" waits for the save.
     again();
+    void Promise.resolve(saved).then(
+      (ok) => {
+        if (ok === false) setJustAdded(`Couldn't save ${label}. Tap Added to try again`);
+        else {
+          navigator.vibrate?.(40);
+          setJustAdded(`Added ${label}`);
+        }
+      },
+      () => setJustAdded(`Couldn't save ${label}. Tap Added to try again`),
+    );
     // again() is a plain function of this render; only these decide whether to add.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAdd, onAccept, paused, identityOnly, phase, found]);
@@ -776,7 +812,8 @@ export function ScannerView({
         {addedCount > 0 &&
           (onShowAdded ? (
             <button className="scan-count" onClick={onShowAdded}>
-              Added {addedCount}: review
+              Added {addedCount}
+              {unsavedCount > 0 ? `, ${unsavedCount} not saved` : ""}: review
             </button>
           ) : (
             <span className="scan-count">Added {addedCount} so far</span>
@@ -941,7 +978,7 @@ export function ScannerView({
                     disabled={!ready}
                     onClick={() => {
                       if (unread && !confirming) return setConfirming(true);
-                      onAccept(candidateOf(found, chosen), copies, false);
+                      void onAccept(candidateOf(found, chosen), copies, false);
                       again();
                     }}
                   >

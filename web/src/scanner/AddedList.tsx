@@ -13,10 +13,12 @@ export interface AddedListProps {
   added: Added[];
   /** Apply a fix; rejects with a message to show. */
   onFix: (a: Added, fix: Fix) => Promise<void>;
+  /** Send an entry's unconfirmed write again, unchanged; rejects with a message to show. */
+  onRetry: (a: Added) => Promise<void>;
   onClose: () => void;
 }
 
-export function AddedList({ added, onFix, onClose }: AddedListProps) {
+export function AddedList({ added, onFix, onRetry, onClose }: AddedListProps) {
   const copies = added.reduce((n, a) => n + a.copies, 0);
   return (
     <div className="scan-added">
@@ -31,32 +33,36 @@ export function AddedList({ added, onFix, onClose }: AddedListProps) {
       </div>
       {added.length === 0 ? <p className="dim">Nothing added yet.</p> : (
         <ul className="scan-added-list">
-          {added.map((a) => <AddedRow key={a.key} a={a} onFix={onFix} />)}
+          {added.map((a) => <AddedRow key={a.key} a={a} onFix={onFix} onRetry={onRetry} />)}
         </ul>
       )}
     </div>
   );
 }
 
-function AddedRow({ a, onFix }: { a: Added; onFix: AddedListProps["onFix"] }) {
-  const [busy, setBusy] = useState(false);
+function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFix"]; onRetry: AddedListProps["onRetry"] }) {
+  const [working, setWorking] = useState(false);
+  // An unconfirmed write (kept on the entry, so it survives closing this list) locks the entry:
+  // the only thing to do with a failed one is send it again as it was.
+  const busy = working || !!a.pending;
   const [error, setError] = useState<string | null>(null);
   const [printings, setPrintings] = useState<Printing[] | null>(null);
   const [showAll, setShowAll] = useState(false);
   const base: Fix = { scryfall_id: a.scryfall_id, set: a.set, number: a.number, name: a.name, image: a.image, finish: a.finish, copies: a.copies };
 
-  const run = async (fix: Fix) => {
-    setBusy(true);
+  const attempt = async (write: () => Promise<void>) => {
+    setWorking(true);
     setError(null);
     try {
-      await onFix(a, fix);
+      await write();
       setPrintings(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setWorking(false);
     }
   };
+  const run = (fix: Fix) => attempt(() => onFix(a, fix));
   const openPrintings = async () => {
     if (printings) return setPrintings(null);
     try {
@@ -104,7 +110,19 @@ function AddedRow({ a, onFix }: { a: Added; onFix: AddedListProps["onFix"] }) {
           </div>
         </div>
       </div>
-      {error && <p className="error">{error}</p>}
+      {a.pending && !a.pending.error && <p className="dim small">Saving…</p>}
+      {a.pending?.error && (
+        <div className="scan-step is-tap" role="alert">
+          <p>
+            <strong>{a.pending.fix ? "This change may not have saved." : "This card may not have saved."}</strong> {a.pending.error.replace(/\.$/, "")}. Try again sends the same{" "}
+            {a.pending.fix ? "change" : "card"}, so nothing is added twice.
+          </p>
+          <button className="primary" disabled={working} onClick={() => void attempt(() => onRetry(a))}>
+            Try again
+          </button>
+        </div>
+      )}
+      {error && !a.pending?.error && <p className="error">{error}</p>}
       {printings && (
         <div className="scan-printings" role="listbox" aria-label={`Printings of ${a.name}`}>
           {(showAll ? printings : printings.slice(0, PRINTINGS_FIRST)).map((p) => (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addOp, findRow, planFix, type Added, type Fix } from "./session";
+import { addOp, findRow, planFix, settled, type Added, type Fix } from "./session";
 
 const entry: Added = { key: "k", name: "Sol Ring", scryfall_id: "ecc-57", set: "ecc", number: "57", image: null, finish: "nonfoil", container: "box", copies: 2, auto: true };
 const row = (over: Partial<Parameters<typeof findRow>[0][number]> = {}) => ({ id: "r1", scryfall_id: "ecc-57", qty: 5, condition: "NM", finish: "nonfoil", lang: "en", proxy: false, container_id: "box", ...over });
@@ -41,5 +41,13 @@ describe("scan session fixes", () => {
       { op_id: "op1", kind: "adjust", item_id: "r1", delta: -2 },
       { op_id: "op2", kind: "add", scryfall_id: "ecc-57", qty: 1, finish: "foil", proxy: false, container_id: "box" },
     ]);
+  });
+});
+
+describe("scan session writes", () => {
+  it("applies a confirmed fix to the entry and drops the pending write", () => {
+    const pending = { ops: [], fix: fix({ scryfall_id: "m3c-230", set: "m3c", number: "230", copies: 3 }) };
+    expect(settled({ ...entry, pending })).toEqual({ ...entry, scryfall_id: "m3c-230", set: "m3c", number: "230", copies: 3 });
+    expect(settled({ ...entry, pending: { ops: [], fix: null } })).toEqual(entry);
   });
 });

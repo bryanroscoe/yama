@@ -2,6 +2,10 @@
 // into a row the person may already have (same printing, finish, condition, box), so a fix takes
 // back exactly the copies this session added and adds them again the new way: copies owned
 // before the session are never touched.
+//
+// Every write is kept on its entry until the server confirms it. A failed or unanswered write is
+// only ever sent again as it was (same op ids, so the server applies it once), and the entry
+// takes no other change meanwhile.
 
 import type { CollectionItem } from "../api";
 
@@ -21,6 +25,23 @@ export interface Added {
   copies: number;
   /** Added by Keep adding, without a tap. */
   auto: boolean;
+  /** A write not yet confirmed: the add itself (`fix` null) or a fix. */
+  pending?: Pending;
+}
+
+export interface Pending {
+  ops: CollectionOp[];
+  /** What the entry becomes once these ops are applied; null for the entry's own add. */
+  fix: Fix | null;
+  /** Set when the last send failed: the ops may or may not have been applied. */
+  error?: string;
+}
+
+/** The entry once its pending write is confirmed. */
+export function settled(a: Added): Added {
+  const fix = a.pending?.fix;
+  const { pending: _, ...rest } = a;
+  return fix ? { ...rest, ...fix } : rest;
 }
 
 /** The new state of an entry after a fix. 0 copies takes it back out. */
