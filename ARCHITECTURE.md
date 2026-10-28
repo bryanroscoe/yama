@@ -740,6 +740,33 @@ Bryan (2026-10-24) wants Forge as a black-box referee for phase, run like unit t
 - **Not yet:** combat, multiplayer, X spells, and Forge-side errors (76 cards, mostly the runner's divided damage and per-opponent targets).
 
 
+### Historical evidence datasets (2026-10-28)
+
+Bryan requested historical Playgroup recovery, commander evidence and future dataset
+ingestion, and accepted an initial 180-day exponential half-life. `datasets/` and
+migration 0037 add private account-owned datasets with immutable compressed documents,
+source provenance and indexed records. Local `import-dataset` and session-admin HTTP
+uploads share validation and atomic, content-hash-idempotent import; known old retries
+never roll back the active revision. Owner-checked APIs and read-only MCP tools expose
+paged evidence and sources. Existing MCP/OAuth grants gain no admin upload power.
+Account deletion removes the dataset and every revision/record. Imports never write
+decks, collection, game history, research grades or public ranking snapshots.
+
+The recovery converter retains performance aggregates, catalog entries, weekly
+activity, sanitized commander histories, archetype references and source tables.
+Raw recovery evidence stays separately retained; source URLs are not fetched on
+import. Month summaries weight compatible complete calendar-month source rates by
+reported samples and exponential recency at their midpoints. They are descriptive
+averages, not pooled win probabilities or validated predictions. Duplicate months
+count once; conflicting, partial, flagged, future and zero-sample months are excluded.
+Cumulative snapshots, rolling windows, unknown periods and ELO sequence positions
+never become independently dated games. Original history stays unweighted.
+
+Theme/strategy/style matching has no hard card-overlap cutoff. An upload page,
+scoped unattended collectors, explicit dataset publication, public commander ranks
+and outcome-to-list upgrade analysis remain follow-ons. Format, limits, APIs,
+attribution and the exact recency method are in [docs/datasets.md](docs/datasets.md).
+
 ## 11. Risks
 
 - **Legal and IP:**

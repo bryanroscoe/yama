@@ -125,5 +125,7 @@ jobs:
         run: python3 -m unittest discover -s tools -p 'test_lab*.py'
       - name: Test commander evidence and list validation
         run: python3 -m unittest discover -s scripts/research -p 'test_*.py'
+      - name: Test dataset recovery conversion
+        run: python3 -m unittest discover -s scripts/datasets -p 'test_*.py'
       - name: Test list validation with Python optimization enabled
         run: python3 -O -m unittest discover -s scripts/research -p 'test_*.py'

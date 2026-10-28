@@ -460,6 +460,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "assistant_changes", &[("owner_id", t(&v)), ("conversation_id", t(&conversation))]).await;
     // Research documents, answers and idempotency receipts are private account data too.
     for owner in [&v,&b] {
+        fill(&pool,"evidence_datasets",&[("owner_id",t(owner))]).await;
         let report=crate::util::new_id();
         fill(&pool,"research_reports",&[("owner_id",t(owner)),("id",t(&report)),("document",t("{}"))]).await;
         fill(&pool,"research_reviews",&[("owner_id",t(owner)),("report_id",t(&report)),("version",V::I(1))]).await;
