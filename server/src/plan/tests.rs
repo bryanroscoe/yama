@@ -1271,6 +1271,9 @@ async fn installed_is_read_from_the_decks_current_list() {
     let n = count_versions(&pool, &main).await;
     let (_, again) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": stock, "op_id": "use-1"}))).await;
     assert_eq!(again, used);
+    // The same op_id for another list is refused rather than replayed.
+    let (status, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"version": "whatever", "op_id": "use-1"}))).await;
+    assert_eq!(status, StatusCode::CONFLICT);
     let (_, same) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": stock, "op_id": "use-2"}))).await;
     assert_eq!(same["changed"], false);
     assert_eq!(count_versions(&pool, &main).await, n);
@@ -1287,6 +1290,15 @@ async fn installed_is_read_from_the_decks_current_list() {
     assert!(text.contains("Installed state is read from their Yama deck \"Alpha Deck\""), "{text}");
     assert!(text.contains("Bought Card replacing Cut Card [buy, T1, installed (in the deck's list)]"), "{text}");
     assert!(text.contains("Print Card replacing Old Card [print, T1, not installed (not in the deck's list)]"), "{text}");
+
+    assert_eq!(swap_of(&b, stand)["deck_superseded"], false);
+
+    // The print goes in where the stand-in was: the stand-in is out, but done, not waiting.
+    crate::decks::insert_version(&pool, &main, &alpha_deck(("o-print", "Print Card"), ("o-bought", "Bought Card")), Some("prints")).await.unwrap();
+    let b = bundle(&app, &token).await;
+    assert_eq!(swap_of(&b, print)["deck_installed"], true);
+    assert_eq!(swap_of(&b, stand)["deck_installed"], false);
+    assert_eq!(swap_of(&b, stand)["deck_superseded"], true);
 }
 
 async fn count_versions(pool: &SqlitePool, deck: &str) -> i64 {

@@ -43,10 +43,16 @@ export function InstalledTick({ swap, view, userId, compact = false, short = fal
     const card = swap.role === "standin" ? swap.in : "This swap";
     return (
       <div className={`plan-tick plan-tick-deck${compact ? " small" : ""}${short ? " plan-tick-short" : ""}`}>
-        <span className={`tag ${on ? "good" : "plain"}`}>{on ? "In the deck" : st.skipped ? "Skipped" : "Not in the deck yet"}</span>
+        <span className={`tag ${on || swap.deck_superseded ? "good" : "plain"}`}>
+          {on ? "In the deck" : swap.deck_superseded ? "Its print is in" : st.skipped ? "Skipped" : "Not in the deck yet"}
+        </span>
         {!short && (
           <span className="faint small">
-            {on ? `${card} is in ${yd.name}'s current list.` : `${card} isn't in ${yd.name}'s current list.`}{" "}
+            {on
+              ? `${card} is in ${yd.name}'s current list.`
+              : swap.deck_superseded
+                ? `${swap.in} is out of ${yd.name}: the print it held a slot for is in.`
+                : `${card} isn't in ${yd.name}'s current list.`}{" "}
             <Link to={`/decks/${yd.id}`}>{on ? "Open the deck" : "Change the deck"}</Link>
           </span>
         )}

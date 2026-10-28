@@ -1031,11 +1031,14 @@ async fn use_list(
         .bind(&user.id)
         .fetch_optional(&mut *tx)
         .await?;
+    // A retry gets the first answer; the same op_id for another list is refused, never replayed.
+    let target = serde_json::json!({ "deck": id, "from": body.from, "version": body.version });
     if let Some((kind, payload)) = done {
-        if kind != "deck.use" {
+        let stored: serde_json::Value = serde_json::from_str(&payload).map_err(anyhow::Error::from)?;
+        if kind != "deck.use" || stored["target"] != target {
             return Err(AppError::Conflict("that op_id was used for something else".into()));
         }
-        return Ok(Json(serde_json::from_str(&payload).map_err(anyhow::Error::from)?));
+        return Ok(Json(serde_json::json!({ "version_id": stored["version_id"], "changed": stored["changed"] })));
     }
     let (cards_json, note, prints_from): (String, String, Option<String>) = match (&body.from, &body.version) {
         (Some(from), None) => {
@@ -1094,11 +1097,13 @@ async fn use_list(
         }
         serde_json::json!({ "version_id": vid, "changed": true })
     };
+    let mut stored = result.clone();
+    stored["target"] = target;
     sqlx::query("INSERT INTO applied_ops (op_id, owner_id, kind, payload, applied_at) VALUES (?,?,?,?,?)")
         .bind(&body.op_id)
         .bind(&user.id)
         .bind("deck.use")
-        .bind(result.to_string())
+        .bind(stored.to_string())
         .bind(now())
         .execute(&mut *tx)
         .await?;

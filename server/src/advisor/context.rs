@@ -285,6 +285,8 @@ struct SwapLine {
     installed: bool,
     /// Whether `installed` was read from the Yama deck's current list.
     from_deck: bool,
+    /// A stand-in out of the deck because its print is in.
+    superseded: bool,
 }
 
 async fn swaps_for(pool: &SqlitePool, owner: &str, deck_key: Option<&str>, stage: Option<&str>) -> AppResult<Vec<(String, SwapLine)>> {
@@ -310,7 +312,8 @@ async fn swaps_for(pool: &SqlitePool, owner: &str, deck_key: Option<&str>, stage
         .map(|(deck, key, stage, role, src, in_name, out_name, tier, group, why, why_out, when, ticked)| {
             let derived = installs.swaps.get(&key).copied();
             let installed = derived.unwrap_or(ticked);
-            (deck, SwapLine { key, stage, role, src, in_name, out_name, tier, group, why, why_out, when, installed, from_deck: derived.is_some() })
+            let superseded = installs.superseded.contains_key(&key);
+            (deck, SwapLine { key, stage, role, src, in_name, out_name, tier, group, why, why_out, when, installed, from_deck: derived.is_some(), superseded })
         })
         .collect())
 }
@@ -343,6 +346,7 @@ fn swap_text(sw: &SwapLine, answers: &Answers) -> String {
         tags.push(
             match (sw.installed, sw.from_deck) {
                 (true, true) => "installed (in the deck's list)",
+                (false, true) if sw.superseded => "out of the deck: its print is in",
                 (false, true) => "not installed (not in the deck's list)",
                 (true, false) => "installed",
                 (false, false) => "not installed",

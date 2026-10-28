@@ -438,6 +438,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
                 "got": parse(s.got.as_deref()), "order_item": order_item, "print_order": s.print_order,
                 "listing": s.listing, "when": s.when_text, "advice": s.advice, "why": s.why, "why_out": s.why_out,
                 "note": s.note, "upgrade": parse(s.upgrade.as_deref()), "deck_installed": installs.swaps.get(&s.key),
+                "deck_superseded": installs.superseded.contains_key(&s.key),
                 "retired": s.retired_at.is_some(), "retired_at": s.retired_at, "updated_at": s.updated_at,
             })
         })

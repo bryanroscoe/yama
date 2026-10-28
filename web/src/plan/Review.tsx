@@ -25,7 +25,7 @@ import {
   type ReviewItem,
   type ReviewRecord,
 } from "@yama/core/plan";
-import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
@@ -131,6 +131,8 @@ export function Review() {
   // Laptop keys: W, U and N answer the open proposal; J and K move through the queue.
   const live = useRef({ selected, ordered, select, answer });
   live.current = { selected, ordered, select, answer };
+  // One function for every card, so the memoised cards don't all redraw after each answer.
+  const onAnswer = useCallback((item: ReviewItem, change: Partial<ReviewRecord>) => live.current.answer(item, change), []);
   useEffect(() => {
     if (!wide) return;
     const onKey = (e: KeyboardEvent) => {
@@ -264,7 +266,7 @@ export function Review() {
                 wide
                 position={positionOf(selected)}
                 left={left}
-                onAnswer={answer}
+                onAnswer={onAnswer}
               />
             ) : (
               <p className="empty">Pick a proposal.</p>
@@ -289,13 +291,13 @@ export function Review() {
               <section key={g.id} className="review-group review-section-open">
                 <h2 className="review-group-head">{head}</h2>
                 {g.items.map((i) => (
-                  <ReviewCard key={i.swap.key} item={i} deck={current.deck} view={view} userId={userId} flags={flags.get(i.swap.key)} onAnswer={answer} />
+                  <ReviewCard key={i.swap.key} item={i} deck={current.deck} view={view} userId={userId} flags={flags.get(i.swap.key)} onAnswer={onAnswer} />
                 ))}
               </section>
             ) : (
               <ClosedSection key={`${current.deck.key}-${g.id}`} head={head} about={g.about}>
                 {g.items.map((i) => (
-                  <ReviewCard key={i.swap.key} item={i} deck={current.deck} view={view} userId={userId} flags={flags.get(i.swap.key)} onAnswer={answer} />
+                  <ReviewCard key={i.swap.key} item={i} deck={current.deck} view={view} userId={userId} flags={flags.get(i.swap.key)} onAnswer={onAnswer} />
                 ))}
               </ClosedSection>
             );

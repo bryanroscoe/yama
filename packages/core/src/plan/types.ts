@@ -169,6 +169,8 @@ export interface Swap {
    * proposals: then the tick and the plan's record decide.
    */
   deck_installed?: boolean | null;
+  /** A stand-in out of the deck because the print it held a slot for is in: done, not waiting. */
+  deck_superseded?: boolean;
   retired: boolean;
   retired_at: string | null;
   updated_at: string;

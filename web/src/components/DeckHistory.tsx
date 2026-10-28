@@ -1,7 +1,7 @@
 import { CardText } from "./CardRef";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { diffDecks, type DiffLine } from "@yama/core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type DeckVersion, type DeckVersionRow } from "../api";
 import { ErrorText, Sheet } from "./ui";
 import "./decks.css";
@@ -16,11 +16,13 @@ export function DeckHistory({ deckId, currentVersionId, onClose }: { deckId: str
   const versions = useQuery({ queryKey: ["deck-versions", deckId, currentVersionId], queryFn: () => api<DeckVersionRow[]>(`/api/decks/${deckId}/versions`) });
   // Restoring saves the old list as a new version, so the one it replaces stays here too.
   const qc = useQueryClient();
-  const [opId, setOpId] = useState(() => crypto.randomUUID());
+  // One op id per version asked for: a retry of that version reuses it, another gets its own.
+  const ops = useRef(new Map<string, string>());
+  const opFor = (version: string) => ops.current.get(version) ?? ops.current.set(version, crypto.randomUUID()).get(version)!;
   const restore = useMutation({
-    mutationFn: (version: string) => api<{ changed: boolean }>(`/api/decks/${deckId}/use`, { method: "POST", json: { version, op_id: opId } }),
-    onSuccess: () => {
-      setOpId(crypto.randomUUID());
+    mutationFn: (version: string) => api<{ changed: boolean }>(`/api/decks/${deckId}/use`, { method: "POST", json: { version, op_id: opFor(version) } }),
+    onSuccess: (_, version) => {
+      ops.current.delete(version);
       void qc.invalidateQueries({ queryKey: ["deck"] });
       void qc.invalidateQueries({ queryKey: ["decks"] });
       void qc.invalidateQueries({ queryKey: ["deck-versions", deckId] });

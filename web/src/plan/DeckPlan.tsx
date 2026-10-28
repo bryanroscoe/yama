@@ -388,8 +388,9 @@ export function InstallSource({ deck }: { deck: PlanDeck }) {
   return (
     <p className="small plan-install-source">
       "In the deck" is read from <Link to={`/decks/${yd.id}`}>{yd.name}</Link>
-      {yd.list_at ? `, its list saved ${fmtDate(yd.list_at)}` : ""}: a swap is in when its card is in that list and the card it replaces is gone. To try
-      another build, put a configuration's list in the deck from the deck's page.
+      {yd.list_at ? `, its list saved ${fmtDate(yd.list_at)}` : ""}
+      {yd.linked ? "" : " (found by its name; link a deck to this plan to choose another)"}: a swap is in when its card is in that list and the card it
+      replaces is gone. To try another build, put a configuration's list in the deck from the deck's page.
     </p>
   );
 }

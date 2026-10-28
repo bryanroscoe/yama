@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, type ConfigurationRef, type DeckView } from "../api";
 import { ErrorText } from "../components/ui";
@@ -27,11 +27,14 @@ export function DeckLists({ deck }: { deck: DeckView }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [asking, setAsking] = useState<ConfigurationRef | null>(null);
-  const [opId, setOpId] = useState(() => crypto.randomUUID());
+  // One op id per list asked for: a retry of that list reuses it, another list gets its own.
+  const ops = useRef(new Map<string, string>());
+  const opFor = (target: string) => ops.current.get(target) ?? ops.current.set(target, crypto.randomUUID()).get(target)!;
   const use = useMutation({
-    mutationFn: (from: ConfigurationRef) => api<{ version_id: string | null; changed: boolean }>(`/api/decks/${lists!.main.id}/use`, { method: "POST", json: { from: from.id, op_id: opId } }),
-    onSuccess: () => {
-      setOpId(crypto.randomUUID());
+    mutationFn: (from: ConfigurationRef) =>
+      api<{ version_id: string | null; changed: boolean }>(`/api/decks/${lists!.main.id}/use`, { method: "POST", json: { from: from.id, op_id: opFor(from.id) } }),
+    onSuccess: (_, from) => {
+      ops.current.delete(from.id);
       setAsking(null);
       void qc.invalidateQueries({ queryKey: ["deck"] });
       void qc.invalidateQueries({ queryKey: ["decks"] });

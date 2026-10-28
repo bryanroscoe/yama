@@ -82,6 +82,8 @@ pub struct Installs {
     pub decks: HashMap<String, YamaDeck>,
     /// By swap key, for planned swaps of plan decks with a Yama deck.
     pub swaps: HashMap<String, bool>,
+    /// Stand-ins out of the deck because the print they held a slot for is in: done, not waiting.
+    pub superseded: HashMap<String, bool>,
 }
 
 type DeckRow = (String, String, Option<String>, Option<String>, Option<String>);
@@ -142,15 +144,30 @@ pub async fn load(pool: &SqlitePool, owner: &str) -> AppResult<Installs> {
         lists.insert(plan_id.clone(), (counts(&stock), counts(&deck_cards)));
         out.decks.insert(plan_id, deck);
     }
-    let swaps: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT ext_key, plan_deck_id, in_name, out_name FROM plan_swaps WHERE owner_id = ? AND retired_at IS NULL AND stage = 'planned'",
+    let swaps: Vec<(String, String, String, Option<String>, String, Option<String>)> = sqlx::query_as(
+        "SELECT s.ext_key, s.plan_deck_id, s.in_name, s.out_name, s.role, p.ext_key
+         FROM plan_swaps s LEFT JOIN plan_swaps p ON p.id = s.parent_id AND p.owner_id = s.owner_id
+         WHERE s.owner_id = ? AND s.retired_at IS NULL AND s.stage = 'planned'",
     )
     .bind(owner)
     .fetch_all(pool)
     .await?;
-    for (key, plan_id, inn, out_name) in swaps {
+    let mut standins: Vec<(String, String)> = Vec::new();
+    for (key, plan_id, inn, out_name, role, parent) in swaps {
         if let Some((stock, deck)) = lists.get(&plan_id) {
-            out.swaps.insert(key, in_deck(stock, deck, &inn, out_name.as_deref()));
+            let on = in_deck(stock, deck, &inn, out_name.as_deref());
+            if role == "standin"
+                && !on
+                && let Some(p) = parent
+            {
+                standins.push((key.clone(), p));
+            }
+            out.swaps.insert(key, on);
+        }
+    }
+    for (key, parent) in standins {
+        if out.swaps.get(&parent).copied().unwrap_or(false) {
+            out.superseded.insert(key, true);
         }
     }
     Ok(out)
