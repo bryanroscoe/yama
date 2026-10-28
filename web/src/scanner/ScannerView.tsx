@@ -355,20 +355,20 @@ export function ScannerView({
 
   /** Settle the printing of what was found (not needed when only the card's identity matters). */
   const settle = useCallback(
-    async (seq: number, f: Found, query: { art?: string | null; id?: string; name?: string }, read?: { image: RgbaImage; quad: Quad } | null, known?: { set?: string; number?: string }) => {
+    async (seq: number, f: Found, query: { art?: string | null; id?: string; name?: string }, read?: { image: RgbaImage; quad: Quad } | null, known?: { set?: string; number?: string; proven?: boolean }) => {
       const update = (patch: Partial<Found>) => {
         if (foundSeq.current === seq) setFound((cur) => (cur ? { ...cur, ...patch } : cur));
       };
       try {
         const opts = await printingOptions(query);
         let choice = choosePrinting(opts);
-        // Read from the collector line by the text reader already.
+        // Read from the collector line by the text reader already: proof when the read was.
         if (!choice.chosen && known?.set && known.number) {
           const hit = opts.printings.find((p) => p.set_code === known.set && p.collector_number === known.number);
-          if (hit) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)] };
+          if (hit) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], certain: !!known.proven };
         }
         const reading = !choice.chosen && !!read;
-        update({ options: choice.options, sameArt: opts.sameArt, chosen: choice.chosen, how: choice.how, sure: choice.how === "only", reading });
+        update({ options: choice.options, sameArt: opts.sameArt, chosen: choice.chosen, how: choice.how, sure: choice.how === "only" || !!choice.certain, reading });
         if (!reading) return;
         // Several printings share the art: read the collector line to tell them apart.
         const text = await readCollectorLine(read!.image, read!.quad, await ocrEngine());
@@ -433,7 +433,10 @@ export function ScannerView({
       setCopies(1);
       setPhase("found");
       navigator.vibrate?.(30);
-      if (!identityOnly) void settle(seq, f, { name: best.name }, null, { set: best.set, number: best.number });
+      // The text reader's proof of a printing: set code and number found together with a matching
+      // title (0.97), or an exact, anchored collector line on its own (0.85). See pipeline.ts decide.
+      const proven = best.confidence >= 0.95 || (best.method === "collector" && best.confidence >= 0.85);
+      if (!identityOnly) void settle(seq, f, { name: best.name }, null, { set: best.set, number: best.number, proven });
     },
     [identityOnly, settle],
   );
