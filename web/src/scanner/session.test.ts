@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addOp, changedElsewhere, findRow, identity, noteWrite, planFix, settled, type Added, type Fix } from "./session";
+import { addOp, changedElsewhere, findRow, identity, noteWrite, planFix, settled, touched, type Added, type Fix } from "./session";
 
 const entry: Added = { key: "k", name: "Sol Ring", scryfall_id: "ecc-57", set: "ecc", number: "57", image: null, finish: "nonfoil", container: "box", copies: 2, auto: true };
 const row = (over: Partial<Parameters<typeof findRow>[0][number]> = {}) => ({ id: "r1", scryfall_id: "ecc-57", qty: 5, condition: "NM", finish: "nonfoil", lang: "en", proxy: false, container_id: "box", ...over });
@@ -81,5 +81,14 @@ describe("rows changed elsewhere", () => {
     const again = new Map([[identity(entry), 4]]);
     noteWrite(again, { ...entry, pending: { ops: fewer, fix: fix({ copies: 1 }), base: 4 } });
     expect(again.get(identity(entry))).toBe(3);
+  });
+});
+
+describe("rows a write touches", () => {
+  it("names the entry's row, and the row a fix moves its copies to", () => {
+    expect(touched({ ...entry, pending: { ops: [], fix: null } })).toEqual([identity(entry)]);
+    expect(touched({ ...entry, pending: { ops: [], fix: fix({ copies: 3 }) } })).toEqual([identity(entry)]);
+    expect(touched({ ...entry, pending: { ops: [], fix: fix({ finish: "foil" }) } })).toEqual([identity(entry), identity({ ...entry, finish: "foil" })]);
+    expect(touched({ ...entry, pending: { ops: [], fix: fix({ scryfall_id: "x", copies: 0 }) } })).toEqual([identity(entry)]);
   });
 });

@@ -75,6 +75,17 @@ export function noteWrite(seen: Map<string, number>, a: Added): Pick<Added, "nam
   return unknown;
 }
 
+/** The rows a pending write changes: the entry's own, and the one a fix moves its copies to. */
+export function touched(a: Added): string[] {
+  const keys = [identity(a)];
+  const fix = a.pending?.fix;
+  if (fix && fix.copies > 0) {
+    const to = identity({ scryfall_id: fix.scryfall_id, finish: fix.finish, container: a.container });
+    if (to !== keys[0]) keys.push(to);
+  }
+  return keys;
+}
+
 /** The row holds fewer copies than this session's own writes left in it. */
 export const changedElsewhere = (seen: Map<string, number>, a: Pick<Added, "scryfall_id" | "finish" | "container">, rowQty: number) => {
   const expected = seen.get(identity(a));

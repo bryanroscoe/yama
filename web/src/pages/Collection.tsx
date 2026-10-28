@@ -525,11 +525,14 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     if (!a?.pending) return true;
     if (sending.current.has(key)) return false;
     sending.current.add(key);
-    const { noteWrite, settled } = await scanner();
+    const { noteWrite, settled, touched } = await scanner();
     patch(key, (x) => (x.pending ? { ...x, pending: { ...x.pending, error: undefined } } : x));
     try {
-      if (a.pending.ops.length > 0) await api("/api/collection/ops", { method: "POST", json: a.pending.ops });
-      for (const r of noteWrite(rowSeen.current, a)) learn(r);
+      const res = a.pending.ops.length > 0 ? await api<{ applied: number; skipped_duplicates: number }>("/api/collection/ops", { method: "POST", json: a.pending.ops }) : null;
+      // A retry the server had already applied: the rows may have changed elsewhere since, so their
+      // counts can't be trusted now, and fixes to them are refused.
+      if (res && res.skipped_duplicates > 0) for (const k of touched(a)) rowSeen.current.delete(k);
+      else for (const r of noteWrite(rowSeen.current, a)) learn(r);
       patch(key, (x) => {
         const done = settled(x);
         return done.copies > 0 ? done : null;
