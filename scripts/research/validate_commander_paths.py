@@ -31,9 +31,44 @@ def fingerprint(rows):
 def eligible(card):
     front = card.get('card_faces', [card])[0]
     kind, text = front['type_line'], front.get('oracle_text', '')
+    if 'Background' in kind and 'Creature' not in kind:
+        return False
+    if 'commander_eligible' in card:
+        require(type(card['commander_eligible']) is bool, 'invalid commander eligibility fact')
+        if card['commander_eligible']:
+            return True
+        # Search-index absence does not override an explicit rules-based eligibility check.
+    if card.get('name') == 'Grist, the Hunger Tide' and "isn't on the battlefield" in text and 'creature in addition to its other types' in text:
+        return True
     return 'can be your commander' in text.lower() or ('Legendary' in kind and (
         'Creature' in kind or (('Vehicle' in kind or 'Spacecraft' in kind)
                               and front.get('power') is not None and front.get('toughness') is not None)))
+
+
+def front(card):
+    return card.get('card_faces', [card])[0]
+
+
+def partners(first, second):
+    a, b = front(first), front(second)
+    ta, tb = a.get('oracle_text', ''), b.get('oracle_text', '')
+    named = lambda text: re.search(r'(?m)^Partner with ([^\n(]+)', text)
+    pa, pb = named(ta), named(tb)
+    if pa or pb:
+        return bool(eligible(first) and eligible(second) and pa and pb and canonical(pa[1].strip()) == canonical(second['name'])
+                    and canonical(pb[1].strip()) == canonical(first['name']))
+    keyword = lambda text, word: bool(re.search(r'(?mi)^' + re.escape(word) + r'(?: \(|$)', text))
+    if eligible(first) and eligible(second) and keyword(ta, 'Partner') and keyword(tb, 'Partner'):
+        return True
+    if eligible(first) and eligible(second) and keyword(ta, 'Friends forever') and keyword(tb, 'Friends forever'):
+        return True
+    def background(leader, other):
+        return 'choose a background' in leader.get('oracle_text', '').lower() and 'Legendary' in other['type_line'] and 'Background' in other['type_line']
+    if background(a, b) or background(b, a):
+        return True
+    def doctor(companion, other):
+        return "doctor's companion" in companion.get('oracle_text', '').lower() and 'Legendary Creature' in other['type_line'] and other['type_line'].split(' — ')[-1] == 'Time Lord Doctor'
+    return doctor(a, b) or doctor(b, a)
 
 
 def require(condition, message):
@@ -50,12 +85,14 @@ def validate(entry, facts):
     require(sum(q for _, _, q in rows) == 100, 'expected 100 cards')
     commanders = [n for b, n, _ in rows if b == 'commander']
     require(commanders == entry['commanders'], 'command zone does not match declared configuration')
-    # New pair mechanisms must be checked explicitly rather than accepted by colour alone.
-    if len(commanders) != 1:
-        raise ValueError('joint commander eligibility needs a separate pairing check')
-    leader = facts[canonical(commanders[0])]
-    require(eligible(leader), 'not eligible to be a commander')
-    identity = set(leader['color_identity'])
+    require(len(set(map(canonical, commanders))) == len(commanders), 'commanders must be distinct')
+    require(len(commanders) in (1, 2), 'expected one commander or a legal pair')
+    leaders = [facts[canonical(name)] for name in commanders]
+    if len(leaders) == 1:
+        require(eligible(leaders[0]), 'not eligible to be a commander')
+    else:
+        require(partners(*leaders), 'joint commander eligibility needs a valid pairing rule')
+    identity = set().union(*(set(c['color_identity']) for c in leaders))
     combined = Counter()
     for board, name, qty in rows:
         c = facts[canonical(name)]
