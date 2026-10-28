@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addOp, findRow, planFix, settled, type Added, type Fix } from "./session";
+import { addOp, changedElsewhere, findRow, identity, noteWrite, planFix, settled, type Added, type Fix } from "./session";
 
 const entry: Added = { key: "k", name: "Sol Ring", scryfall_id: "ecc-57", set: "ecc", number: "57", image: null, finish: "nonfoil", container: "box", copies: 2, auto: true };
 const row = (over: Partial<Parameters<typeof findRow>[0][number]> = {}) => ({ id: "r1", scryfall_id: "ecc-57", qty: 5, condition: "NM", finish: "nonfoil", lang: "en", proxy: false, container_id: "box", ...over });
@@ -49,5 +49,37 @@ describe("scan session writes", () => {
     const pending = { ops: [], fix: fix({ scryfall_id: "m3c-230", set: "m3c", number: "230", copies: 3 }) };
     expect(settled({ ...entry, pending })).toEqual({ ...entry, scryfall_id: "m3c-230", set: "m3c", number: "230", copies: 3 });
     expect(settled({ ...entry, pending: { ops: [], fix: null } })).toEqual(entry);
+  });
+});
+
+describe("rows changed elsewhere", () => {
+  const add = (over: Partial<Added> = {}): Added => ({ ...entry, copies: 2, pending: { ops: [addOp("ecc-57", 2, "nonfoil", "box", "o")], fix: null }, ...over });
+
+  it("learns a row's count after an add, and grows it on later adds", () => {
+    const seen = new Map<string, number>();
+    expect(noteWrite(seen, add())).toHaveLength(1); // unknown: look it up
+    seen.set(identity(entry), 4); // looked up: 2 owned before + 2 scanned
+    expect(noteWrite(seen, add({ copies: 1 }))).toEqual([]);
+    expect(seen.get(identity(entry))).toBe(5);
+  });
+
+  it("refuses a fix when the row lost copies elsewhere (Codex: 2 owned + 2 scanned, lowered to 1)", () => {
+    const seen = new Map([[identity(entry), 4]]);
+    expect(changedElsewhere(seen, entry, 1)).toBe(true);
+    expect(changedElsewhere(seen, entry, 4)).toBe(false);
+    expect(changedElsewhere(seen, entry, 6)).toBe(false); // more added elsewhere: taking ours back is still safe
+    expect(changedElsewhere(new Map(), entry, 1)).toBe(false); // not known yet
+  });
+
+  it("tracks the session's own fixes, on the old row and the new one", () => {
+    const seen = new Map([[identity(entry), 4]]);
+    const move = planFix(entry, fix({ scryfall_id: "c21-263" }), row({ qty: 4 }), ids());
+    const unknown = noteWrite(seen, { ...entry, pending: { ops: move, fix: fix({ scryfall_id: "c21-263" }), base: 4 } });
+    expect(seen.get(identity(entry))).toBe(2);
+    expect(unknown).toEqual([{ name: "Sol Ring", scryfall_id: "c21-263", finish: "nonfoil", container: "box" }]);
+    const fewer = planFix(entry, fix({ copies: 1 }), row({ qty: 4 }), ids());
+    const again = new Map([[identity(entry), 4]]);
+    noteWrite(again, { ...entry, pending: { ops: fewer, fix: fix({ copies: 1 }), base: 4 } });
+    expect(again.get(identity(entry))).toBe(3);
   });
 });

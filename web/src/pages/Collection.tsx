@@ -478,6 +478,20 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   };
   const patch = (key: string, fn: (a: Added) => Added | null) => put(listRef.current.flatMap((x) => (x.key === key ? (fn(x) ?? []) : [x])));
   const sending = useRef(new Set<string>());
+  /** What this session's own writes left in each row (session.ts noteWrite). */
+  const rowSeen = useRef(new Map<string, number>());
+  const rowsOf = (name: string, container: string | null) =>
+    api<CollectionItem[]>(`/api/collection?container=${encodeURIComponent(container ?? "none")}&q=${encodeURIComponent(name)}`);
+  /** Look up the count of a row the session doesn't know yet. A failure leaves it unknown. */
+  const learn = async (r: Pick<Added, "name" | "scryfall_id" | "finish" | "container">) => {
+    try {
+      const { findRow, identity } = await scanner();
+      const row = findRow(await rowsOf(r.name, r.container), r);
+      if (row && !rowSeen.current.has(identity(r))) rowSeen.current.set(identity(r), row.qty);
+    } catch {
+      // Unknown stays unknown: the next fix can't check this row against it.
+    }
+  };
   const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
@@ -491,10 +505,11 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     if (!a?.pending) return true;
     if (sending.current.has(key)) return false;
     sending.current.add(key);
-    const { settled } = await scanner();
+    const { noteWrite, settled } = await scanner();
     patch(key, (x) => (x.pending ? { ...x, pending: { ...x.pending, error: undefined } } : x));
     try {
       if (a.pending.ops.length > 0) await api("/api/collection/ops", { method: "POST", json: a.pending.ops });
+      for (const r of noteWrite(rowSeen.current, a)) void learn(r);
       patch(key, (x) => {
         const done = settled(x);
         return done.copies > 0 ? done : null;
@@ -547,13 +562,16 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const unlock = () => patch(before.key, (x) => (x.checking === token ? { ...x, checking: undefined } : x));
     let planned = false;
     try {
-      const { findRow, planFix } = await scanner();
-      const rows = await api<CollectionItem[]>(`/api/collection?container=${encodeURIComponent(before.container ?? "none")}&q=${encodeURIComponent(before.name)}`);
+      const { changedElsewhere, findRow, planFix } = await scanner();
+      const rows = await rowsOf(before.name, before.container);
       const now = listRef.current.find((x) => x.key === before.key);
       if (!now || now.checking !== token) return;
       const row = findRow(rows, now);
       if (!row) throw new Error(`Couldn't find the ${now.name} added here. It may have been changed on the Collection page.`);
-      patch(now.key, (x) => ({ ...x, checking: undefined, pending: { ops: planFix(now, f, row, () => crypto.randomUUID()), fix: f } }));
+      // Copies taken out elsewhere since: they may have been older ones, so don't guess.
+      if (changedElsewhere(rowSeen.current, now, row.qty))
+        throw new Error(`Some ${now.name} copies were changed elsewhere since this scan, so Yama can't tell which are the ones added here. Fix them on the Collection page.`);
+      patch(now.key, (x) => ({ ...x, checking: undefined, pending: { ops: planFix(now, f, row, () => crypto.randomUUID()), fix: f, base: row.qty } }));
       planned = true;
     } finally {
       if (!planned) unlock();

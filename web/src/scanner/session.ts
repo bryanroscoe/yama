@@ -37,7 +37,49 @@ export interface Pending {
   fix: Fix | null;
   /** Set when the last send failed: the ops may or may not have been applied. */
   error?: string;
+  /** For a fix: the row's quantity it was planned from. */
+  base?: number;
 }
+
+/** The row an entry's copies are in, as a key: printing, finish (proxy apart) and box. */
+export const identity = (a: Pick<Added, "scryfall_id" | "finish" | "container">) => `${a.scryfall_id}|${a.finish}|${a.container ?? ""}`;
+
+/**
+ * What the session expects its rows to hold, after its own writes. Copies of one printing are
+ * interchangeable, so if a row holds fewer than expected (some removed on another page or
+ * device), there's no telling whether those were this session's or older ones: a fix is refused
+ * then (`changedElsewhere`) rather than risk taking an older copy.
+ *
+ * Update `seen` once `a`'s pending write is confirmed. Returns the rows whose count isn't known
+ * yet, to look up.
+ */
+export function noteWrite(seen: Map<string, number>, a: Added): Pick<Added, "name" | "scryfall_id" | "finish" | "container">[] {
+  const p = a.pending;
+  if (!p) return [];
+  const unknown: Pick<Added, "name" | "scryfall_id" | "finish" | "container">[] = [];
+  const grow = (row: Pick<Added, "name" | "scryfall_id" | "finish" | "container">, n: number) => {
+    const k = identity(row);
+    const was = seen.get(k);
+    if (was === undefined) unknown.push(row);
+    else seen.set(k, was + n);
+  };
+  if (!p.fix) {
+    grow(a, a.copies);
+    return unknown;
+  }
+  const taken = p.ops.reduce((n, o) => n + (o.kind === "adjust" ? o.delta : 0), 0);
+  if (p.base !== undefined) seen.set(identity(a), p.base + taken);
+  else seen.delete(identity(a));
+  const to = { name: p.fix.name, scryfall_id: p.fix.scryfall_id, finish: p.fix.finish, container: a.container };
+  if (identity(to) !== identity(a) && p.fix.copies > 0) grow(to, p.fix.copies);
+  return unknown;
+}
+
+/** The row holds fewer copies than this session's own writes left in it. */
+export const changedElsewhere = (seen: Map<string, number>, a: Pick<Added, "scryfall_id" | "finish" | "container">, rowQty: number) => {
+  const expected = seen.get(identity(a));
+  return expected !== undefined && rowQty < expected;
+};
 
 /** The entry once its pending write is confirmed. */
 export function settled(a: Added): Added {
