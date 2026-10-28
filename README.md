@@ -168,3 +168,5 @@ web/               React app (Vite). Also the future Capacitor phone app. Planne
 data/              SQLite database and downloads (git-ignored)
 docs/              Design notes
 ```
+
+Phase retry-tail progress shows the experiment's pending/retry counts and hides the normal-pace ETA when only slow retries remain. A completed Phase half is labeled while Forge continues. This is reporting, not a fix for engine stalls or changed timeout budgets.

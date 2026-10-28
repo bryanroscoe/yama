@@ -348,8 +348,10 @@ function phaseDifficulty(e: ExperimentItem): string {
   return enginesOf(e).mode === "forge" ? "Easy" : e.label.difficulty;
 }
 
-function Progress({ e }: { e: ExperimentDetail }) {
-  const { done, total, eta_seconds, games_ahead } = e.progress;
+export function Progress({ e }: { e: ExperimentDetail }) {
+  const { done, total, eta_seconds, games_ahead, phase_pending = 0, phase_retries = 0 } = e.progress;
+  const retryOnly = phase_retries > 0 && phase_pending === phase_retries;
+  const phaseFinished = e.forge_games && enginesOf(e).mode === "both" && done - e.forge_games.done === total - e.forge_games.total;
   const share = total ? done / total : 0;
   return (
     <section aria-live="polite">
@@ -360,11 +362,17 @@ function Progress({ e }: { e: ExperimentDetail }) {
         <b className="num">
           {done} of {total} games
         </b>
-        {eta_seconds != null ? `, ${durationText(eta_seconds)} left` : e.status === "queued" ? ", waiting for its turn" : ", working out how long"}.
+        {phaseFinished ? ", Phase finished; Forge continuing" : retryOnly ? ", finishing slow Phase retries" : eta_seconds != null ? `, ${durationText(eta_seconds)} left` : e.status === "queued" ? ", waiting for its turn" : ", working out how long"}.
       </p>
       {e.forge_games && enginesOf(e).mode === "both" && (
         <p className="lab-note" style={{ margin: "0.2rem 0 0" }}>
           phase {e.progress.done - e.forge_games.done} of {e.progress.total - e.forge_games.total}, Forge {e.forge_games.done} of {e.forge_games.total}.
+        </p>
+      )}
+      {phase_retries > 0 && (
+        <p className="lab-note">
+          Phase has {phase_pending} games left, including {phase_retries} retries of games that hit a time or hang limit.
+          {retryOnly && " The earlier completion pace cannot predict these retries, so no ETA is shown. Each retry can take several minutes and may remain unscored."}
         </p>
       )}
       <ForgeWait e={e} />
