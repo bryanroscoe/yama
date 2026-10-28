@@ -32,11 +32,6 @@ fn add(counts: &mut Counts, name: &str, qty: i64) {
     *counts.entry(full).or_default() += qty;
 }
 
-fn get(counts: &Counts, name: &str) -> i64 {
-    let n = norm(name);
-    counts.get(&n).copied().or_else(|| n.split_once(" // ").and_then(|(front, _)| counts.get(front.trim()).copied())).unwrap_or(0)
-}
-
 /// Commander and main-board copies of a list of `{name, qty, board}` (a deck version or a plan list).
 pub fn counts(cards: &[Value]) -> Counts {
     let mut out = Counts::new();
@@ -51,15 +46,73 @@ pub fn counts(cards: &[Value]) -> Counts {
     out
 }
 
-/// The rule: `inn` is in beyond its stock copies, and `out` (if any) is below its stock copies,
-/// or gone when stock never had it.
+/// The rule for one swap on its own: `inn` is in beyond its stock copies, and `out` (if any) is
+/// below its stock copies, or gone when stock never had it.
 pub fn in_deck(stock: &Counts, deck: &Counts, inn: &str, out: Option<&str>) -> bool {
-    let has_in = get(deck, inn) > get(stock, inn);
-    let out_gone = match out.map(str::trim).filter(|o| !o.is_empty()) {
-        None => true,
-        Some(o) => get(deck, o) < get(stock, o).max(1),
-    };
-    has_in && out_gone
+    Budget::new(stock, deck).take(inn, out)
+}
+
+/// The copies a deck has beyond stock (`added`) and short of stock (`removed`), handed out one
+/// swap at a time, so two swaps that cut the same repeated card (a basic) can't both count one
+/// missing copy, and two that add it can't share one extra copy.
+pub struct Budget<'a> {
+    stock: &'a Counts,
+    deck: &'a Counts,
+    added: Counts,
+    removed: Counts,
+}
+
+impl<'a> Budget<'a> {
+    pub fn new(stock: &'a Counts, deck: &'a Counts) -> Self {
+        let mut added = Counts::new();
+        let mut removed = Counts::new();
+        for k in stock.keys().chain(deck.keys()) {
+            let (s, d) = (stock.get(k).copied().unwrap_or(0), deck.get(k).copied().unwrap_or(0));
+            added.insert(k.clone(), (d - s).max(0));
+            removed.insert(k.clone(), (s - d).max(0));
+        }
+        Budget { stock, deck, added, removed }
+    }
+
+    /// The key a name is counted under: its full name, else its front face.
+    fn key(&self, name: &str) -> String {
+        let n = norm(name);
+        if self.stock.contains_key(&n) || self.deck.contains_key(&n) {
+            return n;
+        }
+        match n.split_once(" // ") {
+            Some((front, _)) => front.trim().to_string(),
+            None => n,
+        }
+    }
+
+    /// Whether this swap is in the deck; if it is, the copies it accounts for are used up.
+    pub fn take(&mut self, inn: &str, out: Option<&str>) -> bool {
+        let ik = self.key(inn);
+        if self.added.get(&ik).copied().unwrap_or(0) < 1 {
+            return false;
+        }
+        let ok_key = match out.map(str::trim).filter(|o| !o.is_empty()) {
+            None => Some(None),
+            Some(o) => {
+                let rk = self.key(o);
+                if self.stock.get(&rk).copied().unwrap_or(0) > 0 {
+                    (self.removed.get(&rk).copied().unwrap_or(0) >= 1).then_some(Some(rk))
+                } else {
+                    // Stock never had it (an owner's change): gone means gone, nothing to share.
+                    (self.deck.get(&rk).copied().unwrap_or(0) == 0).then_some(None)
+                }
+            }
+        };
+        let Some(rk) = ok_key else { return false };
+        if let Some(n) = self.added.get_mut(&ik) {
+            *n -= 1;
+        }
+        if let Some(n) = rk.and_then(|k| self.removed.get_mut(&k)) {
+            *n -= 1;
+        }
+        true
+    }
 }
 
 /// The Yama deck a plan deck reads its installs from.
@@ -140,22 +193,27 @@ pub async fn load(pool: &SqlitePool, owner: &str) -> AppResult<Installs> {
             .bind(&plan_id)
             .fetch_optional(pool)
             .await?;
-        let stock: Vec<Value> = stock.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        // No stock list (a plan may omit its lists): nothing to count against, so the ticks and
+        // the plan's record keep deciding.
+        let Some(stock) = stock.and_then(|t| serde_json::from_str::<Vec<Value>>(&t).ok()).filter(|c| !c.is_empty()) else { continue };
         lists.insert(plan_id.clone(), (counts(&stock), counts(&deck_cards)));
         out.decks.insert(plan_id, deck);
     }
+    // Plan order, swaps before stand-ins, so the swaps the plan means to keep claim shared copies first.
     let swaps: Vec<(String, String, String, Option<String>, String, Option<String>)> = sqlx::query_as(
         "SELECT s.ext_key, s.plan_deck_id, s.in_name, s.out_name, s.role, p.ext_key
          FROM plan_swaps s LEFT JOIN plan_swaps p ON p.id = s.parent_id AND p.owner_id = s.owner_id
-         WHERE s.owner_id = ? AND s.retired_at IS NULL AND s.stage = 'planned'",
+         WHERE s.owner_id = ? AND s.retired_at IS NULL AND s.stage = 'planned'
+         ORDER BY s.role = 'standin', s.sort, s.ext_key",
     )
     .bind(owner)
     .fetch_all(pool)
     .await?;
+    let mut budgets: HashMap<&str, Budget> = lists.iter().map(|(k, (stock, deck))| (k.as_str(), Budget::new(stock, deck))).collect();
     let mut standins: Vec<(String, String)> = Vec::new();
     for (key, plan_id, inn, out_name, role, parent) in swaps {
-        if let Some((stock, deck)) = lists.get(&plan_id) {
-            let on = in_deck(stock, deck, &inn, out_name.as_deref());
+        if let Some(budget) = budgets.get_mut(plan_id.as_str()) {
+            let on = budget.take(&inn, out_name.as_deref());
             if role == "standin"
                 && !on
                 && let Some(p) = parent
@@ -206,6 +264,21 @@ mod tests {
         // The card out came in later (an owner's own change), so stock never had it: gone means gone.
         assert!(in_deck(&stock, &list(&[("Volcanic Island", 1)]), "Volcanic Island", Some("Mount Doom")));
         assert!(!in_deck(&stock, &list(&[("Volcanic Island", 1), ("Mount Doom", 1)]), "Volcanic Island", Some("Mount Doom")));
+    }
+
+    #[test]
+    fn one_missing_copy_counts_for_one_swap() {
+        let stock = list(&[("Plains", 9), ("Island", 5)]);
+        // One Plains gone and both new cards present: only one of the two Plains swaps is in.
+        let deck = list(&[("Plateau", 1), ("Tundra", 1), ("Plains", 8), ("Island", 5)]);
+        let mut b = Budget::new(&stock, &deck);
+        assert!(b.take("Plateau", Some("Plains")));
+        assert!(!b.take("Tundra", Some("Plains")));
+        // One extra Island covers one Island swap, not two.
+        let deck = list(&[("Island", 6)]);
+        let mut b = Budget::new(&stock, &deck);
+        assert!(b.take("Island", Some("Field of Ruin")));
+        assert!(!b.take("Island", Some("Rogue's Passage")));
     }
 
     #[test]

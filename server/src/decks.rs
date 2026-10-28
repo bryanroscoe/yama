@@ -1081,20 +1081,21 @@ async fn use_list(
         }
         None => false,
     };
+    // The source's printing choices fill gaps even when the list itself is already the same.
+    if let Some(from) = &prints_from {
+        sqlx::query(
+            "INSERT OR IGNORE INTO deck_prints (deck_id, oracle_id, set_code, collector_number, finish, proxy)
+             SELECT ?, oracle_id, set_code, collector_number, finish, proxy FROM deck_prints WHERE deck_id = ?",
+        )
+        .bind(&id)
+        .bind(from)
+        .execute(&mut *tx)
+        .await?;
+    }
     let result = if same {
         serde_json::json!({ "version_id": current, "changed": false })
     } else {
         let vid = insert_version_in(&mut tx, &id, &cards, Some(note.as_str())).await?;
-        if let Some(from) = &prints_from {
-            sqlx::query(
-                "INSERT OR IGNORE INTO deck_prints (deck_id, oracle_id, set_code, collector_number, finish, proxy)
-                 SELECT ?, oracle_id, set_code, collector_number, finish, proxy FROM deck_prints WHERE deck_id = ?",
-            )
-            .bind(&id)
-            .bind(from)
-            .execute(&mut *tx)
-            .await?;
-        }
         serde_json::json!({ "version_id": vid, "changed": true })
     };
     let mut stored = result.clone();
