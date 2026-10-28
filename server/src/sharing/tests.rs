@@ -399,8 +399,10 @@ fn configurations_stand_for_plan_states() {
 
 #[test]
 fn a_deck_matches_a_plan_list_by_cards_not_label() {
-    let deck = [("Sol Ring", 1, false), ("Island", 2, false), ("Spare", 1, true)];
-    let plan = [("island", 1, false), ("sol ring", 1, false), ("Island", 1, false)];
-    assert_eq!(super::list_key(deck.iter().copied()), super::list_key(plan.iter().copied()), "names, copies; sideboard and order aside");
-    assert_ne!(super::list_key(deck.iter().copied()), super::list_key([("Sol Ring", 1, false)].iter().copied()));
+    let deck = [("Éowyn", 1, "commander"), ("Sol Ring", 1, "main"), ("Island", 2, "main"), ("Spare", 1, "side")];
+    let plan = [("island", 1, "main"), ("sol ring", 1, ""), ("Island", 1, "main"), ("éowyn", 1, "commander")];
+    assert_eq!(super::list_key(deck.iter().copied()), super::list_key(plan.iter().copied()), "names, copies, roles; sideboard and order aside");
+    assert_ne!(super::list_key(deck.iter().copied()), super::list_key([("Éowyn", 1, "commander"), ("Sol Ring", 1, "main")].iter().copied()));
+    let swapped = [("Éowyn", 1, "main"), ("Sol Ring", 1, "commander"), ("Island", 2, "main")];
+    assert_ne!(super::list_key(deck.iter().copied()), super::list_key(swapped.iter().copied()), "a different commander is a different list");
 }

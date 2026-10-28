@@ -299,15 +299,16 @@ pub(crate) struct SharedDetails {
     pub(crate) sim_matches: bool,
 }
 
-/// Commander and main deck as (name, copies), sorted, for comparing a deck with a plan list.
-fn list_key<'a>(cards: impl Iterator<Item = (&'a str, i64, bool)>) -> Vec<(String, i64)> {
-    let mut m: HashMap<String, i64> = HashMap::new();
-    for (name, qty, side) in cards {
-        if !side {
-            *m.entry(name.to_lowercase()).or_default() += qty;
+/// Commander and main deck as (name, is commander, copies), sorted, for comparing a deck with a
+/// plan list: the same cards with a different commander are a different list.
+fn list_key<'a>(cards: impl Iterator<Item = (&'a str, i64, &'a str)>) -> Vec<(String, bool, i64)> {
+    let mut m: HashMap<(String, bool), i64> = HashMap::new();
+    for (name, qty, board) in cards {
+        if board != "side" {
+            *m.entry((name.to_lowercase(), board == "commander")).or_default() += qty;
         }
     }
-    let mut v: Vec<_> = m.into_iter().collect();
+    let mut v: Vec<_> = m.into_iter().map(|((n, c), q)| (n, c, q)).collect();
     v.sort();
     v
 }
@@ -351,9 +352,14 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
         .await?;
         if let Some(cards) = plan_list.and_then(|j| serde_json::from_str::<Vec<serde_json::Value>>(&j).ok()) {
             let theirs = list_key(cards.iter().map(|c| {
-                (c["name"].as_str().unwrap_or(""), c["qty"].as_i64().unwrap_or(1), c["board"].as_str() == Some("side"))
+                (c["name"].as_str().unwrap_or(""), c["qty"].as_i64().unwrap_or(1), c["board"].as_str().unwrap_or("main"))
             }));
-            sim_matches = !theirs.is_empty() && theirs == list_key(d.list.iter().map(|c| (c.name.as_str(), c.qty, c.board == Board::Side)));
+            let board = |b: &Board| match b {
+                Board::Commander => "commander",
+                Board::Main => "main",
+                Board::Side => "side",
+            };
+            sim_matches = !theirs.is_empty() && theirs == list_key(d.list.iter().map(|c| (c.name.as_str(), c.qty, board(&c.board))));
         }
     }
     let sim = match key {
