@@ -368,13 +368,19 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
         None => None,
     };
     let mut sim_states = Vec::new();
+    // Whether this deck (the first of `states`) matched, not just some deck with its label.
+    let mut sim_matches = false;
     if let (Some(key), Some(run)) = (&key, &run) {
         let board = |b: &Board| match b {
             Board::Commander => "commander",
             Board::Main => "main",
             Board::Side => "side",
         };
-        for (state, deck_id) in &states {
+        for (i, (state, deck_id)) in states.iter().enumerate() {
+            // Two listed decks standing for the same list can't both be it: show neither.
+            if states.iter().filter(|(s, _)| s == state).count() > 1 {
+                continue;
+            }
             let plan_list: Option<(String, String)> = sqlx::query_as(
                 // updated_at: when this list last became current or changed (import.rs).
                 "SELECT s.cards, s.updated_at FROM plan_states s JOIN plan_decks p ON p.id = s.plan_deck_id
@@ -412,10 +418,10 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
             };
             if !theirs.is_empty() && theirs == list_key(list.iter().map(|c| (c.name.as_str(), c.qty, board(&c.board)))) {
                 sim_states.push(state.clone());
+                sim_matches |= i == 0;
             }
         }
     }
-    let sim_matches = states.first().is_some_and(|(s, _)| sim_states.contains(s));
     let sim = match (key, run) {
         (Some(key), Some(run)) => run
             .paired
