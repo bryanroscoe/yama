@@ -1052,7 +1052,7 @@
 }
 .plan .review-field select,
 .plan .review-field input {
-  background: var(--ground);
+  background-color: var(--ground);
 }
 .review-state {
   margin: 0;
@@ -1244,7 +1244,7 @@
 }
 .plan .review-card.is-wide .review-field select,
 .plan .review-card.is-wide .review-field input {
-  background: var(--surface);
+  background-color: var(--surface);
 }
 .plan-orphans {
   margin-top: 2rem;

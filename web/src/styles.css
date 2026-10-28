@@ -277,7 +277,7 @@ textarea {
   font-size: var(--t-base);
   font-weight: 400;
   color: var(--text);
-  background: var(--surface);
+  background-color: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-input);
   padding: 0.6rem 0.85rem;
@@ -1241,7 +1241,7 @@ fieldset.seat.seat-card:has(> .seat-head.art-empty) {
   background: transparent;
 }
 fieldset.seat.seat-card:has(> .seat-head.art-empty) :is(input, select) {
-  background: var(--surface);
+  background-color: var(--surface);
 }
 
 /* Lobby seats: art tiles washed from the bottom, an open seat as a dashed empty slot. */

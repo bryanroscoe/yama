@@ -918,7 +918,7 @@
   font-size: 1.875rem;
 }
 .lab-run :is(input, select) {
-  background: var(--ground);
+  background-color: var(--ground);
 }
 .lab-sofar {
   padding: 14px;
