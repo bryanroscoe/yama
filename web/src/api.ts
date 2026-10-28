@@ -277,6 +277,8 @@ export interface Sharing {
   handle: string | null;
   new_deck_visibility: Visibility;
   collection_public: boolean;
+  /** Shared decks show their plan's simulated win rates. */
+  share_lab_results: boolean;
   /** Live decks by visibility. */
   decks: Record<Visibility, number>;
 }

@@ -4,8 +4,8 @@
 //! containers, proxies, ownership counts, plans, games, playgroups or account details (the Google
 //! display name and email included). A deck's printings are the ones its exports name. A deck
 //! page also shows what's worked out from the list (legality, the stored bracket check, stats,
-//! market value) and its plan's simulated win rates for the lists it and its listed
-//! configurations stand for, nothing else from the plan.
+//! market value) and, when the owner turns it on, its plan's simulated win rates for the lists
+//! it and its listed configurations stand for, nothing else from the plan.
 mod html;
 #[cfg(test)]
 mod tests;
@@ -97,13 +97,15 @@ struct Sharing {
     handle: Option<String>,
     new_deck_visibility: String,
     collection_public: bool,
+    /// Shared decks show their plan's simulated win rates.
+    share_lab_results: bool,
     /// Live decks by visibility.
     decks: DeckCounts,
 }
 
 async fn sharing(pool: &SqlitePool, user: &str) -> AppResult<Sharing> {
-    let (handle, new_deck_visibility, collection_public): (Option<String>, String, bool) =
-        sqlx::query_as("SELECT handle, new_deck_visibility, collection_public FROM users WHERE id = ?").bind(user).fetch_one(pool).await?;
+    let (handle, new_deck_visibility, collection_public, share_lab_results): (Option<String>, String, bool, bool) =
+        sqlx::query_as("SELECT handle, new_deck_visibility, collection_public, share_lab_results FROM users WHERE id = ?").bind(user).fetch_one(pool).await?;
     let mut decks = DeckCounts::default();
     let rows: Vec<(String, i64)> =
         sqlx::query_as("SELECT visibility, COUNT(*) FROM decks WHERE owner_id = ? AND archived = 0 GROUP BY visibility")
@@ -117,7 +119,7 @@ async fn sharing(pool: &SqlitePool, user: &str) -> AppResult<Sharing> {
             _ => decks.private = n,
         }
     }
-    Ok(Sharing { handle, new_deck_visibility, collection_public, decks })
+    Ok(Sharing { handle, new_deck_visibility, collection_public, share_lab_results, decks })
 }
 
 async fn get_sharing(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Sharing>> {
@@ -131,6 +133,7 @@ struct SharingUpdate {
     handle: Option<Option<String>>,
     new_deck_visibility: Option<String>,
     collection_public: Option<bool>,
+    share_lab_results: Option<bool>,
 }
 
 async fn put_sharing(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<SharingUpdate>) -> AppResult<Json<Sharing>> {
@@ -159,6 +162,9 @@ async fn put_sharing(State(st): State<AppState>, CurrentUser(user): CurrentUser,
     }
     if let Some(v) = &body.new_deck_visibility {
         sqlx::query("UPDATE users SET new_deck_visibility = ? WHERE id = ?").bind(v).bind(&user.id).execute(&st.pool).await?;
+    }
+    if let Some(c) = body.share_lab_results {
+        sqlx::query("UPDATE users SET share_lab_results = ? WHERE id = ?").bind(c).bind(&user.id).execute(&st.pool).await?;
     }
     if let Some(c) = body.collection_public {
         sqlx::query("UPDATE users SET collection_public = ? WHERE id = ?").bind(c).bind(&user.id).execute(&st.pool).await?;
@@ -309,11 +315,13 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
         None => None,
     };
     let prices = crate::deck_prices::prices_for(pool, &d.list.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
-    let key: Option<String> = sqlx::query_scalar("SELECT key FROM plan_decks WHERE owner_id = ? AND deck_id = ? AND status <> 'archived' ORDER BY sort LIMIT 1")
+    // Only when the owner chose to show them (Group, You, Sharing).
+    let shares_lab: bool = sqlx::query_scalar("SELECT share_lab_results FROM users WHERE id = ?").bind(&d.sharer.id).fetch_one(pool).await?;
+    let key: Option<String> = if !shares_lab { None } else { sqlx::query_scalar("SELECT key FROM plan_decks WHERE owner_id = ? AND deck_id = ? AND status <> 'archived' ORDER BY sort LIMIT 1")
         .bind(&d.sharer.id)
         .bind(&d.main_id)
         .fetch_optional(pool)
-        .await?;
+        .await? };
     let sim = match key {
         Some(key) => crate::lab::paired_for_plan(pool, &d.sharer.id, &key).await?.filter(|run| {
             run.paired.as_ref().is_some_and(|p| p.variants.iter().any(|v| crate::lab::variant_state(&v.id, &key).is_some_and(|s| d.states.contains(&s))))

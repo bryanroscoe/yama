@@ -129,6 +129,9 @@ async fn shared_pages_carry_no_private_details() {
     assert_eq!(page(&app, "/u/saget/collection.csv").await.0, StatusCode::NOT_FOUND);
     let (_, sharing) = send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "collection_public": true }))).await;
     assert_eq!(sharing["collection_public"], true);
+    assert_eq!(sharing["share_lab_results"], false, "simulated results stay off shared pages until turned on");
+    let (_, sharing) = send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "share_lab_results": true }))).await;
+    assert_eq!(sharing["share_lab_results"], true);
     let (status, _, collection) = page(&app, "/u/saget/collection").await;
     assert_eq!(status, StatusCode::OK);
     assert!(collection.contains("Sol Ring") && !collection.contains("Lightning Bolt"), "proxies aren't listed");

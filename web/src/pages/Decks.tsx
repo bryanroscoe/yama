@@ -177,7 +177,8 @@ export function DeckPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   // Switching to another configuration of the same deck keeps this one on screen until the
-  // other arrives, instead of an empty page.
+  // other arrives, instead of an empty page; its actions are inert meanwhile, so nothing acts
+  // on the configuration just left.
   const deck = useQuery({
     queryKey: ["deck", id],
     queryFn: () => api<DeckView>(`/api/decks/${id}`),
@@ -358,7 +359,7 @@ export function DeckPage() {
           )}
           <div className="hero-row">
             <div className="hero-stats">{stats}</div>
-            <div className="hero-actions">{actions}</div>
+            <div className="hero-actions" inert={deck.isPlaceholderData}>{actions}</div>
           </div>
         </div>
       </ArtPanel>
@@ -385,8 +386,8 @@ export function DeckPage() {
             To finish: basics excluded{o.needed_without_price > 0 ? `, ${o.needed_without_price} with no price` : ""}. {priced}.
           </p>
         )}
-        {planLink && <div className="phone-only deck-plan-phone">{planLink}</div>}
-        <div className="row deck-actions-phone">
+        {planLink && <div className="phone-only deck-plan-phone" inert={deck.isPlaceholderData}>{planLink}</div>}
+        <div className="row deck-actions-phone" inert={deck.isPlaceholderData}>
           <button className="outline" onClick={() => setEditing(true)}>Edit deck</button>
           <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
           <button className="outline" onClick={() => setCollecting(true)}>Add to my collection</button>
@@ -398,7 +399,7 @@ export function DeckPage() {
         </div>
 
         {/* The status row: legality, the plan for this deck, and its simulated strength. */}
-        <div className={`deck-status${plan ? " has-plan" : ""}`}>
+        <div className={`deck-status${plan ? " has-plan" : ""}`} inert={deck.isPlaceholderData}>
           {legal}
           {planLink && <span className="wide-only deck-plan-wide">{planLink}</span>}
           {plan?.sim && <span className="deck-sim">{plan.sim}</span>}
@@ -568,7 +569,7 @@ export function DeckPage() {
       </div>
 
       {/* Phones: the two actions you reach for, kept above the tab bar. */}
-      <div className="deck-actbar">
+      <div className="deck-actbar" inert={deck.isPlaceholderData}>
         <button onClick={() => setGoldfish(true)}>Sample hand</button>
         <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
       </div>

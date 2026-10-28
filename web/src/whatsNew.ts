@@ -19,7 +19,7 @@ export const NEWS: NewsEntry[] = [
     title: "Shared decks show what your deck page shows",
     items: [
       "A shared deck now has the deck page's legality check, your declared bracket beside Yama's suggestion and why, the Game Changers and combos behind it, deck stats, market value, and stacks of card images.",
-      "If your upgrade plan has simulated games, a shared deck shows its own simulated win rate and those of its public configurations.",
+      "Under Group, You, Sharing you can also show simulated win rates: a shared deck then shows its own lab win rate and those of its public configurations.",
       "Configurations sit in a row under each deck, and switching between them keeps the page on screen instead of going blank.",
       "Your deck page splits its value: the real cards you own, what the proxies would cost as real cards, and what's left to get.",
     ],
