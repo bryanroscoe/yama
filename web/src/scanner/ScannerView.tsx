@@ -15,7 +15,7 @@ import { api, shortDate, usd, type Printing } from "../api";
 import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type LoadState } from "./artClient";
 import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
-import { readCollectorLine, scanFrame, SURE } from "./pipeline";
+import { readCloseup, readCollectorLine, scanFrame, SURE } from "./pipeline";
 import { choosePrinting, printingOptions } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { createServerCatalog } from "./serverCatalog";
@@ -114,6 +114,27 @@ function around(source: CanvasImageSource, width: number, height: number, quad: 
   return { image, quad: quad.map(([x, y]) => [(x - x0) * k, (y - y0) * k]) as Quad };
 }
 
+/** Where an on-screen element sits in video pixels (the video is object-fit: cover), clipped to the frame. */
+function boxInVideo(v: HTMLVideoElement, el: HTMLElement, margin = 0): { sx: number; sy: number; sw: number; sh: number; gx: number; gy: number; gw: number; gh: number } {
+  const vb = v.getBoundingClientRect();
+  const gb = el.getBoundingClientRect();
+  const s = Math.max(vb.width / v.videoWidth, vb.height / v.videoHeight);
+  const ox = vb.left + (vb.width - v.videoWidth * s) / 2;
+  const oy = vb.top + (vb.height - v.videoHeight * s) / 2;
+  const gx = (gb.left - ox) / s;
+  const gy = (gb.top - oy) / s;
+  const gw = gb.width / s;
+  const gh = gb.height / s;
+  const sx = Math.max(0, gx - gw * margin);
+  const sy = Math.max(0, gy - gh * margin);
+  return { sx, sy, sw: Math.min(v.videoWidth, gx + gw * (1 + margin)) - sx, sh: Math.min(v.videoHeight, gy + gh * (1 + margin)) - sy, gx, gy, gw, gh };
+}
+
+/** Height a close-up box is read at: the densities scanFrame samples the two lines at. */
+const CLOSEUP_HEIGHT = { collector: 200, title: 110 } as const;
+/** Failed text reads of an unknown card before asking for a close-up of its name. */
+const TITLE_AFTER = 2;
+
 const scaleQuad = (q: Quad, k: number) => q.map(([x, y]) => [x * k, y * k]) as Quad;
 /** The same corners, read a quarter turn on: for cards printed sideways (battles), whose art the detector takes as the top. */
 const quarterTurns = (q: Quad): Quad[] => [q, [q[1], q[2], q[3], q[0]], [q[3], q[0], q[1], q[2]]];
@@ -161,6 +182,16 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
   const [mode, setMode] = useState<"art" | "text" | null>(null);
   const [loadState, setLoadState] = useState<LoadState | null>(null);
   const [copies, setCopies] = useState(1);
+  /** The close-up step: the person holds the camera close to the collector line or the title. */
+  const [closeup, setCloseup] = useState<"collector" | "title" | null>(null);
+  const [closeupRead, setCloseupRead] = useState("");
+  const closeRef = useRef<HTMLDivElement>(null);
+  const foundRef = useRef<Found | null>(null);
+  foundRef.current = found;
+  /** What the camera actually delivers, e.g. "3840×2160". */
+  const [camera, setCamera] = useState<string | null>(null);
+  /** The camera is running (a close-up needs it). */
+  const [live, setLive] = useState(false);
   const [showAll, setShowAll] = useState(false);
 
   const ocrRef = useRef<Promise<OcrEngine> | null>(null);
@@ -227,14 +258,26 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
       return;
     }
     navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
+      // As sharp as the camera allows: the collector line is tiny. Frames are scaled down for
+      // recognition anyway; only the crops read as text use the full resolution.
+      .getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } }, audio: false })
       .then(async (s) => {
         if (stopped) return s.getTracks().forEach((t) => t.stop());
         stream = s;
+        const track = s.getVideoTracks()[0];
+        if (track) {
+          const caps = (track.getCapabilities?.() ?? {}) as { focusMode?: string[] };
+          if (caps.focusMode?.includes("continuous")) {
+            await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet] }).catch(() => undefined);
+          }
+          const st = track.getSettings();
+          if (st.width && st.height) setCamera(`${st.width}×${st.height}`);
+        }
         const v = videoRef.current;
         if (!v) return;
         v.srcObject = s;
         await v.play().catch(() => undefined);
+        setLive(true);
         setPhase((p) => (p === "loading" ? "scanning" : p));
       })
       .catch((e: unknown) => {
@@ -348,8 +391,9 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
 
   // Read loop: one frame at a time.
   useEffect(() => {
-    if (phase !== "scanning" || !mode) return;
+    if (phase !== "scanning" || !mode || closeup) return;
     let stop = false;
+    let failedReads = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let unknownFrames = 0;
     let textFrame = 0;
@@ -408,6 +452,11 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
             // One orientation per attempt, so the camera stays responsive.
             const res = await readAt(hi.image, hi.quad, reader, [quarterTurns(hi.quad)[textFrame++ % 3]!]);
             if (!stop && handleText(res, false)) return;
+            // Still nothing: ask for a close-up of the name.
+            if (!stop && !res.candidates[0] && ++failedReads >= TITLE_AFTER) {
+              setCloseup("title");
+              return;
+            }
           }
           return next(30);
         }
@@ -415,20 +464,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
         const g = guideRef.current;
         const reader = await textReader();
         if (stop || !g) return next(200);
-        // Map the on-screen guide into video pixels (the video is object-fit: cover).
-        const vb = v.getBoundingClientRect();
-        const gb = g.getBoundingClientRect();
-        const s = Math.max(vb.width / v.videoWidth, vb.height / v.videoHeight);
-        const ox = vb.left + (vb.width - v.videoWidth * s) / 2;
-        const oy = vb.top + (vb.height - v.videoHeight * s) / 2;
-        const gx = (gb.left - ox) / s;
-        const gy = (gb.top - oy) / s;
-        const gw = gb.width / s;
-        const gh = gb.height / s;
-        const sx = Math.max(0, gx - gw * MARGIN);
-        const sy = Math.max(0, gy - gh * MARGIN);
-        const sw = Math.min(v.videoWidth, gx + gw * (1 + MARGIN)) - sx;
-        const sh = Math.min(v.videoHeight, gy + gh * (1 + MARGIN)) - sy;
+        const { sx, sy, sw, sh, gx, gy, gw, gh } = boxInVideo(v, g, MARGIN);
         const k = Math.min(1, MAX_SIDE / Math.max(sw, sh));
         const image = draw(v, sx, sy, sw, sh, sw * k, sh * k, canvasRef.current);
         const upright: Quad = rectQuad((gx - sx) * k, (gy - sy) * k, gw * k, gh * k);
@@ -450,7 +486,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
       stop = true;
       clearTimeout(timer);
     };
-  }, [phase, mode, identityOnly, showArt, handleText, textReader]);
+  }, [phase, mode, closeup, identityOnly, showArt, handleText, textReader]);
 
   const fromPhoto = async (file: File) => {
     setStatus("Reading the photo");
@@ -505,9 +541,9 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
   };
 
   /** A card typed by name: straight to its printings. */
-  const fromName = (name: string) => {
+  const fromName = (name: string, how: "typed" | "name" = "typed") => {
     const seq = ++foundSeq.current;
-    const f: Found = { name, method: "name", confidence: 1, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false };
+    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false };
     setFound(f);
     setShowAll(false);
     setCopies(1);
@@ -522,6 +558,8 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
     last.current = undefined;
     setFound(null);
     setOutline(null);
+    setCloseup(null);
+    artRef.current?.reset();
     setStatus(mode === "text" ? "Line the card up with the frame" : "Hold a card in view");
     setPhase(videoRef.current?.srcObject ? "scanning" : "no-camera");
   };
@@ -531,6 +569,83 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
     if (!found?.art) return;
     showArt({ quad: null, upright: 1, matches: [m, found.art, ...found.others.filter((o) => o !== m)], timings: { detectMs: 0, embedMs: 0, totalMs: found.ms ?? 0 } }, m, null);
   };
+
+  // Step 2 starts by itself when the printing isn't settled: several share the art and the
+  // collector line couldn't be read from the whole-card view.
+  const needsCollector = live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading;
+  useEffect(() => {
+    if (needsCollector) setCloseup("collector");
+  }, [needsCollector]);
+  useEffect(() => {
+    if (phase !== "found" && closeup === "collector") setCloseup(null);
+    if (phase === "found" && closeup === "title") setCloseup(null);
+  }, [phase, closeup]);
+
+  // The close-up loop: read the box as text until it settles the printing or the name.
+  useEffect(() => {
+    if (!closeup) return;
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let previous: string | null = null;
+    setCloseupRead("");
+    const next = (ms: number) => {
+      if (!stop) timer = setTimeout(tick, ms);
+    };
+    const tick = async () => {
+      const v = videoRef.current;
+      const box = closeRef.current;
+      if (stop) return;
+      if (!v || !box || v.videoWidth === 0 || document.visibilityState !== "visible") return next(200);
+      try {
+        hiCanvasRef.current ??= document.createElement("canvas");
+        const { sx, sy, sw, sh } = boxInVideo(v, box);
+        if (sw < 8 || sh < 8) return next(200);
+        const h = CLOSEUP_HEIGHT[closeup];
+        const image = draw(v, sx, sy, sw, sh, (sw * h) / sh, h, hiCanvasRef.current);
+        const text = await readCloseup(image, closeup, await ocrEngine());
+        if (stop) return;
+        setCloseupRead(text.replace(/\s+/g, " ").trim());
+        if (closeup === "collector") {
+          const f = foundRef.current;
+          if (!f?.options) return next(200);
+          const c = choosePrinting({ sameArt: f.sameArt, printings: f.options }, text);
+          // Set code and number both read: done. One of them: the same answer twice.
+          if (c.chosen && (c.strong || previous === c.chosen.scryfall_id)) {
+            const chosenNow = c.chosen;
+            setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", options: c.options, raw: text } : cur));
+            setCloseup(null);
+            navigator.vibrate?.(30);
+            return;
+          }
+          previous = c.chosen?.scryfall_id ?? null;
+        } else {
+          const { names, catalog } = await textReader();
+          if (stop) return;
+          const [top, second] = names.match(text, 2);
+          if (top && top.score >= 0.8 && top.score - (second?.score ?? 0) >= 0.05) {
+            const name = catalog.fullName?.(top.name) ?? top.name;
+            if (top.score >= 0.95 || previous === name) {
+              setCloseup(null);
+              fromName(name, "name");
+              return;
+            }
+            previous = name;
+          } else previous = null;
+        }
+        next(120);
+      } catch (e) {
+        if (!stop) setCloseupRead(e instanceof Error ? e.message : String(e));
+        next(500);
+      }
+    };
+    void tick();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+    // fromName is a plain function of this render; the loop only needs the latest at call time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeup, ocrEngine, textReader]);
 
   const chosen = found?.chosen ?? null;
   const ready = identityOnly || !!chosen;
@@ -549,13 +664,17 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
     <div className="scan">
       <div className="scan-camera">
         <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
-        {outline && phase === "scanning" && (
+        {outline && phase === "scanning" && !closeup && (
           <svg className="scan-outline" viewBox={`0 0 ${outline.w} ${outline.h}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true">
             <polygon points={outline.quad.map((p) => p.join(",")).join(" ")} />
           </svg>
         )}
         <div className="scan-frame" aria-hidden="true">
-          <div ref={guideRef} className={`scan-guide${mode === "art" ? " is-hint" : ""}${phase === "found" ? " is-locked" : ""}`} />
+          {closeup ? (
+            <div ref={closeRef} className={`scan-closeup is-${closeup}`} />
+          ) : (
+            <div ref={guideRef} className={`scan-guide${mode === "art" ? " is-hint" : ""}${phase === "found" ? " is-locked" : ""}`} />
+          )}
         </div>
         {onClose && (
           <button className="scan-close" onClick={onClose} aria-label="Close the scanner">
@@ -571,7 +690,19 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
       </div>
 
       <div className="scan-panel" aria-live="polite">
-        {!isFound && (
+        {!isFound && closeup === "title" && (
+          <div className="scan-step">
+            <p>
+              <strong>Can't tell which card this is.</strong> Hold the phone close to the card's name, so the name fills the box.
+            </p>
+            {closeupRead && <p className="scan-note">Reading: {closeupRead}</p>}
+            <div className="scan-other-ways">
+              <button onClick={() => setCloseup(null)}>Back to scanning</button>
+              <NameEntry onPick={(n) => fromName(n)} />
+            </div>
+          </div>
+        )}
+        {!isFound && closeup !== "title" && (
           <>
             {error && <p className="error">{error}</p>}
             {controls}
@@ -589,7 +720,12 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
                   }}
                 />
               </label>
-              <NameEntry onPick={fromName} />
+              <NameEntry onPick={(n) => fromName(n)} />
+              {live && phase === "scanning" && (
+                <button className="scan-photo" onClick={() => setCloseup("title")}>
+                  Read the name up close
+                </button>
+              )}
             </div>
             {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner is reading text. Line the card up with the frame.</p>}
             {recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
@@ -622,6 +758,19 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
                 )}
               </div>
             </div>
+            {closeup === "collector" && options && (
+              <div className="scan-step">
+                <p>
+                  <strong>Step 2: the printing.</strong> Hold the phone close to the card's bottom-left corner, so the set code and number fill the box. Or tap the printing below.
+                </p>
+                {closeupRead && <p className="scan-note">Reading: {closeupRead}</p>}
+              </div>
+            )}
+            {live && !identityOnly && !closeup && !chosen && options && options.length > 1 && !found.reading && (
+              <button className="scan-alt" onClick={() => setCloseup("collector")}>
+                Read the collector number up close
+              </button>
+            )}
             {showPicker && options && (
               <div className="scan-printings" role="listbox" aria-label="Printings">
                 {(showAll ? options : options.slice(0, PICKER_FIRST)).map((p) => (
@@ -630,7 +779,10 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
                     role="option"
                     aria-selected={p === chosen}
                     className={`scan-printing${p === chosen ? " is-chosen" : ""}`}
-                    onClick={() => setFound({ ...found, chosen: p, how: "picked", picking: false })}
+                    onClick={() => {
+                      setCloseup(null);
+                      setFound({ ...found, chosen: p, how: "picked", picking: false });
+                    }}
                   >
                     {p.image_small ? <img src={p.image_small} alt="" loading="lazy" /> : <span className="card-fallback">{p.name}</span>}
                     <span className="scan-printing-set">{p.set_name}</span>
@@ -706,6 +858,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
                   found.art ? `Art: ${found.art.name} (${found.art.set.toUpperCase()} ${found.art.number}), score ${found.art.score.toFixed(2)}` : null,
                   found.raw ? `Read: ${found.raw}` : null,
                   found.ms != null ? `${Math.round(found.ms)} ms` : null,
+                  camera ? `Camera: ${camera}` : null,
                 ]
                   .filter(Boolean)
                   .join("\n")}

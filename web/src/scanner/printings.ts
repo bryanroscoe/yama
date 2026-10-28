@@ -3,7 +3,7 @@
 // neither settles it, the person picks: a scan never files a guessed printing.
 
 import { api, type Printing } from "../api";
-import { parseCollector } from "./parse";
+import { normaliseNumber, parseCollector } from "./parse";
 import { pickPrinting } from "./pick";
 import type { CatalogPrinting } from "./types";
 
@@ -38,6 +38,8 @@ export interface Choice {
   how: "only" | "collector" | null;
   /** What to offer in the picker: English first, the best guesses at the top. */
   options: Printing[];
+  /** The collector line gave both the set code and the number of the chosen printing. */
+  strong?: boolean;
 }
 
 const asCatalog = (p: Printing): CatalogPrinting & { p: Printing } => ({ p, scryfall_id: p.scryfall_id, name: p.name, set: p.set_code, number: p.collector_number, lang: p.lang, image: p.image_normal });
@@ -59,7 +61,8 @@ export function choosePrinting(o: PrintingOptions, collector?: string): Choice {
     // Among a card's every printing (not just one artwork's), only an exactly read set code counts.
     if (pick && (o.sameArt || pick.how === "set")) {
       const chosen = (pick.printing as ReturnType<typeof asCatalog>).p;
-      return { chosen, how: "collector", options: [chosen, ...options.filter((p) => p !== chosen)] };
+      const strong = read.sets.includes(chosen.set_code) && read.numbers.includes(normaliseNumber(chosen.collector_number));
+      return { chosen, how: "collector", options: [chosen, ...options.filter((p) => p !== chosen)], strong };
     }
     // Not settled, but put printings matching what was read first.
     const near = (p: Printing) => read.sets.includes(p.set_code) || read.rawSets.includes(p.set_code) || read.numbers.includes(p.collector_number.replace(/^0+/, ""));

@@ -51,6 +51,28 @@
     0 0 0 3px var(--good),
     0 0 0 100vmax rgb(0 0 0 / 0.45);
 }
+/* The close-up step: a box for just the collector line or the title, the rest veiled. */
+.scan-closeup {
+  width: min(88%, 620px);
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 100vmax rgb(0 0 0 / 0.5);
+}
+.scan-closeup.is-collector {
+  aspect-ratio: 4 / 1;
+}
+.scan-closeup.is-title {
+  aspect-ratio: 7 / 1;
+}
+.scan-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.scan-step p {
+  font-size: var(--t-label);
+}
 /* The card the recognizer sees, outlined over the video (same box and cover fit as the video). */
 .scan-outline {
   position: absolute;

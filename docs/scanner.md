@@ -63,6 +63,8 @@ art score < 0.5 for 3 frames ─▶ the OCR pipeline below, at the detector's qu
 - **Cards the index doesn't know:** a bundle from 26 October doesn't know cards printed after it, and the bundle leaves out battles and art series. These score below 0.6 (wrong matches scored at most 0.58 in the eval), so the scanner reads their text instead. Move to a newer bundle by changing the tag and sums in `scan.rs` and rerunning the recognizer eval. ManaVault publishes a bundle every week or two.
 - **Re-arming:** after Add (or Not this), the same artwork isn't found again until the card leaves the view or another card shows, so one card is never added twice by accident. Copies (1 to 10) are chosen on the result.
 - **Typing instead:** "Or type the name" opens the same printing picker.
+- **Close-up step (Bryan's idea, 2026-10-28):** a whole card in view gives the collector line only about 1 to 2% of the frame's height, so when the first read can't settle the printing, step 2 starts by itself: a wide box replaces the card guide and asks for the phone close to the bottom-left corner. Each frame, just that box is read at full camera resolution (scaled to 200 px tall) and matched against the printings that share the art. A read of both set code and number settles it at once; set code or number alone needs the same answer twice. The picker stays below, so tapping is always an option. For cards whose art isn't known, after two failed text reads (or with "Read the name up close") the scanner asks for the title the same way, then goes on to the printing.
+- **Camera resolution:** the scanner asks for 3840 × 2160 (browsers give the nearest they have) and continuous focus where the browser exposes it. The resolution actually delivered is shown under "What the scanner saw". Frames are scaled to 640 px for recognition; only text crops use the full resolution.
 
 ### Measured [ran]
 
@@ -81,6 +83,8 @@ Node 26, onnxruntime-web 1.31.1 WASM on one thread, M3 Pro. The 26 eval cards re
 | **all** | 208 | **99%** | **96%** | **0** | 3.1% | 161 |
 
 Right answers scored 0.76 to 0.99 (median 0.97); wrong ones at most 0.58. Every miss is the battle (not in the index; it goes to OCR) or the full-art Forest when small or under glare. The OCR scanner got 82% on easier scenes that were lined up with the guide.
+
+Close-ups (`eval/closeup.test.ts`): the collector line and title cut from each eval card's 672 × 936 scan, turned up to 3°, noisy, read the way the close-up box is read, choosing among **all** of the card's printings in the database (harder than among one artwork's): printings **19 of 26 right, 0 wrong**, 7 left to the picker (the five pre-2015 frames print no set code; EOE 224's number was misread and its set code alone left two printings). Titles: 20 of 26 names. Real close-ups have several times these source pixels.
 
 In desktop Chromium against the local server ("Use a photo", synthetic photos): an off-centre WOC Arcane Signet was recognised in 199 ms; 32 printings share its art, and the collector line ("WOC • EN", number misread as 0149) picked WOC #145. An upside-down ECC Sol Ring was the only printing with its art. The STA Counterspell and the borderless DMU Sheoldred #290 (which the OCR scanner couldn't place) were settled by the collector line. The off-centre battle fell back to OCR and was read by name with a quarter-turned quad, leaving two printings to pick from.
 
@@ -220,6 +224,7 @@ Run the evals (need `data/yama.db`; they download card images and models into `/
 SCANNER_EVAL=1 npx vitest run web/src/scanner/eval/eval.test.ts            # OCR, default quad only, about 1.5 min
 SCANNER_EVAL=1 SCANNER_EVAL_QUADS=refined,guide,truth npx vitest run web/src/scanner/eval/eval.test.ts  # all three, about 4 min
 SCANNER_EMBED_EVAL=1 npx vitest run web/src/scanner/eval/embedding.test.ts # embeddings, 50 MB download, about 90 s
+SCANNER_EVAL=1 npx vitest run web/src/scanner/eval/closeup.test.ts  # close-up step, about 30 s
 SCANNER_RECOGNIZER_EVAL=1 SCANNER_BUNDLE_DIR=data/scan-bundle/<version> npx vitest run web/src/scanner/eval/recognizer.test.ts  # art, free-hand, about 2 min
 ```
 
@@ -227,8 +232,9 @@ SCANNER_RECOGNIZER_EVAL=1 SCANNER_BUNDLE_DIR=data/scan-bundle/<version> npx vite
 
 1. **Live camera on Bryan's phone.** Everything above is synthetic photos and desktop Chromium; the camera loop (lock thresholds 0.82 once or 0.62 twice, re-arming between cards) hasn't run on a phone. Check frame time (the target was 250 ms), the first-open download, sleeves and foil glare.
 2. **A real eval set.** Photograph real cards (the October purchases give set and number for each), sleeved, under room light, foils included, and rerun `recognizer.test.ts` and `eval.test.ts` on them. Retune the thresholds there.
-3. **Collector-line reads on real cards.** Commander precon reprints share art (32 English Arcane Signets), so the printing often rests on reading the set code. If that fails often on a phone, a native OCR plugin (`OcrEngine` is the seam) is the next step.
+3. **Collector-line reads on real cards.** Commander precon reprints share art (32 English Arcane Signets), so the printing often rests on reading the set code, from the whole card or the close-up. Note the camera resolution the phone reports. If reads still fail often, the next step is a native app (below).
 4. **Newer bundles.** Cards printed after the pinned bundle go to OCR. Bump the bundle when a set Bryan buys is out.
+5. **Native app, if the web isn't enough (Bryan can publish to the App Store, 2026-10-28).** The Capacitor shell is already a dependency. A native scanner plugin would get the full-resolution camera with proper focus and zoom, and on-device text recognition far better on small print than Tesseract (Apple Vision on iOS, ML Kit on Android) behind the existing `OcrEngine` seam; the art recognizer can stay as it is. Decide after the phone test.
 
 ## Sources
 

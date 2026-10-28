@@ -56,6 +56,10 @@ describe("choosePrinting", () => {
     expect(choosePrinting({ sameArt: true, printings: signets }, "CMR + EN").chosen).toBeNull();
     expect(choosePrinting({ sameArt: true, printings: signets }, "C 0689\nCMR + EN").chosen?.collector_number).toBe("689");
   });
+  it("marks a read of both set code and number as strong (the close-up takes it at once)", () => {
+    expect(choosePrinting({ sameArt: true, printings: signets }, "C 0145\nWOC + EN").strong).toBe(true);
+    expect(choosePrinting({ sameArt: true, printings: signets }, "CC 0149\nWOC + EN").strong).toBe(false);
+  });
   it("puts what was read first when it can't settle it", () => {
     const c = choosePrinting({ sameArt: true, printings: signets }, "CMR + EN");
     expect(c.options.slice(0, 2).map((x) => x.set_code)).toEqual(["cmr", "cmr"]);

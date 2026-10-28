@@ -735,7 +735,7 @@ Answered 2026-10-18:
 - **Engine:** phase.
 - **Repo:** private, with local git only.
 - **Hosting:** Bryan's Unraid server, saget. The public route uses the existing Cloudflare tunnel; see deploy/README.md.
-- **Phones:** Android only, with no Apple account. The installable web app is the phone app; Capacitor stays optional.
+- **Phones:** Android only, with no Apple account. The installable web app is the phone app; Capacitor stays optional. Update 2026-10-28: Bryan can publish to the App Store, so a native iOS app is an option, first for the scanner if the web camera and OCR aren't good enough (docs/scanner.md).
 - **Sign-in:** Google sign-in (set up 2026-10-18; deploy/README.md). Open sign-up for any Google account is allowed (Bryan, 2026-10-20), never with a username and password; it's off until `YAMA_OPEN_SIGNUP=1` and the Google consent screen is published.
 
 Still open:

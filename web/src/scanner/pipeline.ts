@@ -134,6 +134,38 @@ export async function readCollectorLine(frame: RgbaImage, quad: Quad, ocr: OcrEn
   return res.text;
 }
 
+/**
+ * OCR of a close-up: the person holds the camera close to the collector line or the title and
+ * the image is just the box they lined it up in. Collector boxes should be about 200 px tall,
+ * title boxes about 110 px (the densities `scanFrame` samples at).
+ */
+export async function readCloseup(image: RgbaImage, kind: "collector" | "title", ocr: OcrEngine): Promise<string> {
+  const gray = toGray(image);
+  if (kind === "collector") return (await ocr.read(prepareText(gray, 12), { mode: "block", whitelist: COLLECTOR_WHITELIST })).text;
+  // The box holds the title bar with the card's frame and art around it, so the majority of the
+  // box is the wrong guide to which way the text runs. Read the middle, where the name sits,
+  // leaving out the mana cost at the right.
+  const mid = cropGray(gray, 0.02, 0.2, 0.8, 0.8);
+  const banded = (await ocr.read(prepareText(cropToTextBand(prepareText(mid, 0))), { mode: "line" })).text;
+  const letters = (t: string) => t.replace(/[^A-Za-z]/g, "").length >= 3;
+  if (letters(banded)) return banded;
+  const plain = (await ocr.read(prepareText(mid, 12), { mode: "line" })).text;
+  if (letters(plain)) return plain;
+  // A box framed loosely around the name: find the text band in all of it.
+  return (await ocr.read(prepareText(cropToTextBand(prepareText(gray, 0))), { mode: "line" })).text;
+}
+
+/** Part of a grey image, by fractions of its width and height. */
+function cropGray(g: Gray, x0: number, y0: number, x1: number, y1: number): Gray {
+  const left = Math.round(g.width * x0);
+  const top = Math.round(g.height * y0);
+  const w = Math.max(1, Math.round(g.width * x1) - left);
+  const h = Math.max(1, Math.round(g.height * y1) - top);
+  const data = new Uint8ClampedArray(w * h);
+  for (let y = 0; y < h; y += 1) data.set(g.data.subarray((top + y) * g.width + left, (top + y) * g.width + left + w), y * w);
+  return { width: w, height: h, data };
+}
+
 interface Attempt {
   candidates: ScanCandidate[];
   collector: OcrResult;
