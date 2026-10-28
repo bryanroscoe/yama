@@ -14,6 +14,11 @@ export function SinglesPrice({ value }: { value: SinglesValue | undefined }) {
 const copies = (n: number) => (n === 1 ? "1 copy" : `${n} copies`);
 const unpriced = (n: number | undefined) => (n ? `, ${n} without a price` : "");
 
+/** What's left to get costs, or null when none of it has a price (unknown, not $0). */
+export function neededCost(o: DeckView["ownership"]): number | null {
+  return o.needed_cost_usd === 0 && o.needed_without_price > 0 ? null : o.needed_cost_usd;
+}
+
 /** Your part of the deck's value: the real cards you own, the cards proxies stand in for (what
  *  real copies would cost) and what's left to get. Same prices as the singles value. */
 export function OwnershipValue({ o }: { o: DeckView["ownership"] }) {
@@ -29,7 +34,7 @@ export function OwnershipValue({ o }: { o: DeckView["ownership"] }) {
     </div>}
     <div>
       <dt>Still to get</dt>
-      <dd>{o.needed ? <><b className="num">{usd(o.needed_cost_usd)}</b> <span className="dim">{copies(o.needed)}, basics excluded{unpriced(o.needed_without_price)}</span></> : <b>Nothing</b>}</dd>
+      <dd>{o.needed ? <><b className="num">{usd(neededCost(o))}</b> <span className="dim">{copies(o.needed)}, basics excluded{unpriced(o.needed_without_price)}</span></> : <b>Nothing</b>}</dd>
     </div>
   </dl>;
 }

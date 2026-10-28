@@ -1,5 +1,5 @@
 import { CardHover, CardRef } from "../components/CardRef";
-import { DeckPrices, SinglesPrice } from "../components/DeckPrices";
+import { DeckPrices, neededCost, SinglesPrice } from "../components/DeckPrices";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, listText, newHand, rng, type Goldfish } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
@@ -262,7 +262,7 @@ export function DeckPage() {
         </span>
       )}
       <span className="deck-stat">
-        <b className="num">{o.needed ? usd(o.needed_cost_usd) : "Done"}</b>
+        <b className="num">{o.needed ? usd(neededCost(o)) : "Done"}</b>
         <span>
           {o.needed ? `to get the last ${o.needed}, basics excluded` : "nothing left to get"}
           {o.needed_without_price > 0 ? `; ${o.needed_without_price} with no price` : ""}. {priced}
@@ -373,7 +373,7 @@ export function DeckPage() {
             <span>{proxies ? `of ${o.cards} real, ${proxies} ${proxies === 1 ? "proxy" : "proxies"}` : `of ${o.cards} owned`}</span>
           </span>
           <span className="deck-stat">
-            <b className="num">{o.needed ? usd(o.needed_cost_usd) : "Done"}</b>
+            <b className="num">{o.needed ? usd(neededCost(o)) : "Done"}</b>
             <span>{o.needed ? `for the last ${o.needed}${priceDay ? `, ${priceDay}` : ""}` : "nothing to buy"}</span>
           </span>
           <span className="deck-stat">

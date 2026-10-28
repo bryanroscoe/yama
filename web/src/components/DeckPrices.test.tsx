@@ -36,6 +36,7 @@ describe("deck market prices", () => {
     const done = renderToStaticMarkup(<OwnershipValue o={{ cards: 100, owned: 100, needed: 0, needed_cost_usd: 0, needed_without_price: 0 }} />);
     expect(done).not.toContain("Proxies");
     expect(done).toContain("No price");
+    expect(renderToStaticMarkup(<OwnershipValue o={{ cards: 2, owned: 0, needed: 2, needed_cost_usd: 0, needed_without_price: 2 }} />)).not.toContain("$0.00");
     expect(renderToStaticMarkup(<OwnershipValue o={{ cards: 2, owned: 0, needed: 2, needed_cost_usd: 1, needed_without_price: 0, owned_value_usd: null }} />)).toContain("None yet");
     expect(done).toContain("Nothing");
   });
