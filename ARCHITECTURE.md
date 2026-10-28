@@ -763,8 +763,14 @@ count once; conflicting, partial, flagged, future and zero-sample months are exc
 Cumulative snapshots, rolling windows, unknown periods and ELO sequence positions
 never become independently dated games. Original history stays unweighted.
 
-Theme/strategy/style matching has no hard card-overlap cutoff. An upload page,
-scoped unattended collectors, explicit dataset publication, public commander ranks
+The signed-in site exposes `/decks/datasets` from the Decks section navigation.
+It supports name/type filters, paged source evidence and provenance, original gzip
+downloads, and entity history with half-life/evaluation-date controls. Navigation
+pins a revision for consistent reads. Session admins can upload a prepared dataset
+into their own account; View as hides uploads and the server still enforces the guard.
+
+Theme/strategy/style matching has no hard card-overlap cutoff. Scoped unattended
+collectors, explicit dataset publication, public commander ranks
 and outcome-to-list upgrade analysis remain follow-ons. Format, limits, APIs,
 attribution and the exact recency method are in [docs/datasets.md](docs/datasets.md).
 

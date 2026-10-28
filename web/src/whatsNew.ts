@@ -26,6 +26,12 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/decks", label: "Open your decks" },
   },
   {
+    id: "2026-10-28-historical-datasets", date: "2026-10-28",
+    title: "Explore historical commander and precon evidence",
+    items: ["Datasets under Decks lets you search imported performance observations, commander catalogs, weekly activity and source documents. Explore an entity's history and adjust the 180-day recency half-life for compatible complete-month summaries.", "Each observation keeps its source period and provenance. Original datasets remain downloadable; admins can upload prepared JSON or gzip datasets into their own accounts."],
+    link: { to: "/decks/datasets", label: "Browse datasets" },
+  },
+  {
     id: "2026-10-28-site-polish",
     date: "2026-10-28",
     title: "More room, less clutter",
