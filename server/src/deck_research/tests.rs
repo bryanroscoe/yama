@@ -6,6 +6,28 @@ fn doc() -> Value {
     json!({"schema":"yama-research/1","id":"audit","title":"Private audit","generated_at":"2026-10-27T00:00:00Z","decks":[{"key":"energy","name":"Energy","commander":"Saheeli","recommended_build":"b3","builds":[{"id":"b3","label":"Bracket 3","bracket":3,"list":"Commander\n1 Saheeli\nDeck\n99 Island","swaps":[{"id":"monitor","card_in":"Thought Monitor","card_out":"Glimmer of Genius"}]}]}],"extra_evidence":{"kept":true}})
 }
 
+#[test]
+fn scenario_purpose_cannot_silently_turn_a_wishlist_into_an_order() {
+    let mut d = doc();
+    d["scenarios"] =
+        json!([{"id":"wishes","label":"Printed cards","buys":[{"card":"Rhystic Study"}]}]);
+    assert!(validate(&d).is_ok()); // Existing acquisition scenarios need no purpose field.
+    for purpose in ["acquisition", "permanent_real_wishlist"] {
+        d["scenarios"][0]["purpose"] = json!(purpose);
+        assert!(validate(&d).is_ok());
+    }
+    for invalid in [
+        json!("permanent_real_wishlst"),
+        json!(4),
+        json!(null),
+        json!([]),
+        json!({}),
+    ] {
+        d["scenarios"][0]["purpose"] = invalid;
+        assert!(validate(&d).is_err());
+    }
+}
+
 #[tokio::test]
 async fn isolated_idempotent_storage_never_changes_a_deck() {
     let (app, pool) = app().await;

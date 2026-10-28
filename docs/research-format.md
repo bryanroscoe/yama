@@ -50,6 +50,8 @@ plain-text full `list` with Commander and Deck sections. Optional fields support
   fields; quantities, local offers and purchase approvals are not inferred. Printed-copy history
   belongs in the detail text, not a quantity to buy. It remains private research, separate from
   inventory. Print artwork preferences can be retained in the report's method notes.
+  Purpose may be omitted (ordinary acquisition), `acquisition`, or `permanent_real_wishlist`;
+  invalid strings and non-string values are rejected at import.
 - Source: title, safe http(s) URL and optional accessed date.
 
 Additional JSON fields are preserved. Displayed fields are type-checked; text is escaped and
