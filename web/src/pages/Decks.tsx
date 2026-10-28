@@ -29,6 +29,8 @@ import { AskClaude } from "../advisor/AskClaude";
 import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
+import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
+import { groupConfigurations } from "../decks/configurations";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
  *  "Complete". A proxy covers a card for play, so a deck of real cards and proxies is complete;
@@ -88,44 +90,97 @@ export function DecksPage() {
         </div>
       )}
       <ul className="deck-tiles">
-        {decks.data?.map((d) => {
-          const own = ownership(d.owned, d.card_count, d.proxies ?? 0);
-          const played = record(d);
-          return (
-            <li key={d.id}>
-              <Link to={`/decks/${d.id}`} className="deck-tile">
-                {/* One credit line for every tile's art sits under the grid. */}
-                <ArtPanel art={d.commander_image} artist={d.commander_artist} wash="bottom" empty={!d.commanders.length} credit={false}>
-                  <Pips identity={d.color_identity} />
-                  <span className="deck-tile-name">{d.name}</span>
-                  <span className="deck-tile-meta deck-tile-cmdr">{d.commanders.join(" and ") || "No commander set"}</span>
-                  {(d.bracket != null || d.estimate) && (
-                    <span className="deck-tile-meta deck-tile-bracket">
-                      <BracketChips declared={d.bracket} estimate={d.estimate} />
-                    </span>
-                  )}
-                  <span className="deck-tile-meta"><SinglesPrice value={d.singles_value} /></span>
-                  <span className="deck-tile-foot num">
-                    {own ? (
-                      <span className={`deck-own ${own.tone}`}>
-                        <span className="wide-only">{own.text}</span>
-                        <span className="phone-only">{own.short}</span>
-                      </span>
-                    ) : (
-                      <span>{d.card_count} cards</span>
-                    )}
-                    {played && <span className="deck-record">{played}</span>}
-                  </span>
-                </ArtPanel>
-              </Link>
-            </li>
-          );
-        })}
+        {groupConfigurations(decks.data ?? []).map(({ main, configurations }) => (
+          <li key={main.id} className={configurations.length ? "has-configs" : undefined}>
+            <DeckTile d={main} />
+            {configurations.length > 0 && <ConfigurationList main={main} configurations={configurations} />}
+          </li>
+        ))}
       </ul>
       {!!decks.data?.some((d) => d.commander_image) && (
         <p className="small dim art-credits">{artCredits(decks.data.filter((d) => d.commander_image).map((d) => d.commander_artist))}</p>
       )}
     </main>
+  );
+}
+
+const SHARED_LABEL: Record<string, string> = { link: "Shared by link", public: "Public" };
+
+function DeckTile({ d }: { d: DeckSummary }) {
+  const own = ownership(d.owned, d.card_count, d.proxies ?? 0);
+  const played = record(d);
+  return (
+    <Link to={`/decks/${d.id}`} className="deck-tile">
+      {/* One credit line for every tile's art sits under the grid. */}
+      <ArtPanel art={d.commander_image} artist={d.commander_artist} wash="bottom" empty={!d.commanders.length} credit={false}>
+        <Pips identity={d.color_identity} />
+        <span className="deck-tile-name">{d.name}</span>
+        <span className="deck-tile-meta deck-tile-cmdr">{d.commanders.join(" and ") || "No commander set"}</span>
+        {(d.bracket != null || d.estimate) && (
+          <span className="deck-tile-meta deck-tile-bracket">
+            <BracketChips declared={d.bracket} estimate={d.estimate} />
+          </span>
+        )}
+        <span className="deck-tile-meta"><SinglesPrice value={d.singles_value} /></span>
+        <span className="deck-tile-foot num">
+          {own ? (
+            <span className={`deck-own ${own.tone}`}>
+              <span className="wide-only">{own.text}</span>
+              <span className="phone-only">{own.short}</span>
+            </span>
+          ) : (
+            <span>{d.card_count} cards</span>
+          )}
+          {played && <span className="deck-record">{played}</span>}
+          {SHARED_LABEL[d.visibility] && <span className="deck-shared">{SHARED_LABEL[d.visibility]}</span>}
+        </span>
+      </ArtPanel>
+    </Link>
+  );
+}
+
+/** A main deck's other configurations, collapsed under its tile. */
+function ConfigurationList({ main, configurations }: { main: DeckSummary; configurations: DeckSummary[] }) {
+  const key = `yama.decks.configs.${main.id}`;
+  const [open, setOpenState] = useState(() => localStorage.getItem(key) === "1");
+  const setOpen = (o: boolean) => {
+    localStorage.setItem(key, o ? "1" : "0");
+    setOpenState(o);
+  };
+  const listId = `configs-${main.id}`;
+  return (
+    <div className="deck-configs">
+      <button type="button" className="quiet deck-configs-toggle" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(!open)}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d={open ? "m6 9 6 6 6-6" : "m9 18 6-6-6-6"} />
+        </svg>
+        {configurations.length + 1} configurations
+      </button>
+      {open && (
+        <ul id={listId} className="deck-configs-list">
+          <li>
+            <Link to={`/decks/${main.id}`}>
+              <b>{main.configuration ?? "Main"}</b>
+              <span className="dim small">{main.card_count} cards</span>
+            </Link>
+          </li>
+          {configurations.map((c) => {
+            const own = ownership(c.owned, c.card_count, c.proxies ?? 0);
+            return (
+              <li key={c.id}>
+                <Link to={`/decks/${c.id}`}>
+                  <b>{c.configuration ?? c.name}</b>
+                  <span className="dim small">
+                    {own ? own.short : `${c.card_count} cards`}
+                    {SHARED_LABEL[c.visibility] ? `. ${SHARED_LABEL[c.visibility]}` : ""}
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -154,6 +209,8 @@ export function DeckPage() {
   const [goldfish, setGoldfish] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [history, setHistory] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [configuring, setConfiguring] = useState(false);
   // "?collect=1": the end of a deck import offers to add its cards to the collection.
   const [search, setSearch] = useSearchParams();
   const offer = search.get("collect") === "1";
@@ -224,8 +281,10 @@ export function DeckPage() {
       <button className="on-art" onClick={() => setEditing(true)}>Edit deck</button>
       <Link className="button on-art" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
       <button className="on-art" onClick={() => setCollecting(true)}>Add to my collection</button>
+      <button className="on-art" onClick={() => setSharing(true)}>Share</button>
       <button className="on-art" onClick={() => setExporting(true)}>Export</button>
       <button className="on-art" onClick={() => setHistory(true)}>History</button>
+      <button className="on-art" onClick={() => setConfiguring(true)}>New configuration</button>
       <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
       <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
     </>
@@ -275,6 +334,15 @@ export function DeckPage() {
             </span>
           </span>
           <h1 className="hero-title">{d.name}</h1>
+          {d.configurations.length > 1 && (
+            <nav className="hero-configs" aria-label="Configurations of this deck">
+              {d.configurations.map((c, i) => (
+                <Link key={c.id} to={`/decks/${c.id}`} className="on-art" aria-current={c.id === d.id ? "page" : undefined}>
+                  {c.configuration ?? (i === 0 ? "Main" : c.name)}
+                </Link>
+              ))}
+            </nav>
+          )}
           <div className="hero-row">
             <div className="hero-stats">{stats}</div>
             <div className="hero-actions">{actions}</div>
@@ -309,8 +377,10 @@ export function DeckPage() {
           <button className="outline" onClick={() => setEditing(true)}>Edit deck</button>
           <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
           <button className="outline" onClick={() => setCollecting(true)}>Add to my collection</button>
+          <button className="outline" onClick={() => setSharing(true)}>Share</button>
           <button className="outline" onClick={() => setExporting(true)}>Export</button>
           <button className="outline" onClick={() => setHistory(true)}>History</button>
+          <button className="outline" onClick={() => setConfiguring(true)}>New configuration</button>
           <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
         </div>
 
@@ -325,6 +395,8 @@ export function DeckPage() {
         {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
         {exporting && <DeckExport deck={d} onClose={() => setExporting(false)} />}
+        {sharing && <ShareDeck deck={d} onClose={() => setSharing(false)} />}
+        {configuring && <NewConfiguration deck={d} onClose={() => setConfiguring(false)} />}
         {history && <DeckHistory deckId={d.id} currentVersionId={d.version_id} onClose={() => setHistory(false)} />}
         {collecting && <CollectSheet deckId={d.id} offer={offer} onClose={closeCollect} />}
 
@@ -573,6 +645,12 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   const [name, setName] = useState(deck.name);
   const [container, setContainer] = useState(deck.container_id ?? "");
   const [bracket, setBracket] = useState(deck.bracket == null ? "" : String(deck.bracket));
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const [parent, setParent] = useState(deck.parent_id ?? "");
+  const [configuration, setConfiguration] = useState(deck.configuration ?? "");
+  // A deck with configurations of its own stays a main deck; the others can go under a main deck.
+  const hasConfigs = deck.configurations.length > 1 && !deck.parent_id;
+  const mains = (decks.data ?? []).filter((x) => !x.parent_id && x.id !== deck.id);
   const [text, setText] = useState(() => listText(deck.cards));
   const [note, setNote] = useState("");
   const [unknown, setUnknown] = useState<string[]>([]);
@@ -587,13 +665,23 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         setUnknown(parsed.unknown);
         throw new Error("Some lines didn't match a card. Fix them, then save again.");
       }
-      await api(`/api/decks/${deck.id}`, { method: "PATCH", json: { name, container_id: container || null, bracket: bracket ? Number(bracket) : null } });
+      await api(`/api/decks/${deck.id}`, {
+        method: "PATCH",
+        json: {
+          name,
+          container_id: container || null,
+          bracket: bracket ? Number(bracket) : null,
+          configuration: configuration.trim() || null,
+          ...(hasConfigs ? {} : { parent_id: parent || null }),
+        },
+      });
       if (listText(parsed.cards) !== listText(deck.cards)) {
         await api(`/api/decks/${deck.id}`, { method: "PUT", json: { cards: parsed.cards, note: note || null } });
       }
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["deck", deck.id] });
+      // Every deck in its configuration group lists the group.
+      void qc.invalidateQueries({ queryKey: ["deck"] });
       void qc.invalidateQueries({ queryKey: ["decks"] });
       void qc.invalidateQueries({ queryKey: ["deck-versions", deck.id] });
       onClose();
@@ -628,6 +716,23 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
             <option value="">Not declared</option>
             {BRACKETS.map((b) => <option key={b.value} value={b.value}>{b.value}, {b.name}</option>)}
           </select>
+        </label>
+        <label>
+          Configuration of
+          <span className="hint">
+            {hasConfigs
+              ? "This is a main deck with configurations of its own, so it stays one."
+              : "Group this deck under another as one of its builds (stock, budget, high power). It keeps its own versions, games and sharing."}
+          </span>
+          <select value={parent} onChange={(e) => setParent(e.target.value)} disabled={hasConfigs}>
+            <option value="">None, it's a main deck</option>
+            {mains.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </label>
+        <label>
+          Configuration name
+          <span className="hint">{parent ? "How this build shows under its main deck." : "What this deck's own list is called beside its configurations; blank reads as Main."}</span>
+          <input value={configuration} onChange={(e) => setConfiguration(e.target.value)} maxLength={60} placeholder={parent ? "stock" : "Main"} />
         </label>
         <label>
           Physical deck

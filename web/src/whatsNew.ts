@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-28-sharing-and-configurations",
+    date: "2026-10-28",
+    title: "Share your decks, and keep a deck's builds together",
+    items: [
+      "Share a deck from its page: send a link, or list it on your profile. Friends can open it without an account, download it for Moxfield, MTG Arena or as names only, or save a copy in their own Yama.",
+      "Pick a handle under Group, You for your profile at /u/handle. New decks can start shared, one button shares them all, and you can show your collection too. Everything stays private until you share it.",
+      "Configurations: other builds of one deck (stock, after prints, high power) now sit under its main deck, with a switcher on the deck page and New configuration to start another.",
+    ],
+    link: { to: "/group#sharing", label: "Set up sharing" },
+  },
+  {
     id: "2026-10-28-printed-wishlist",
     date: "2026-10-28",
     title: "Keep printed cards on a real-card wishlist",

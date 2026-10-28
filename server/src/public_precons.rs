@@ -1,7 +1,7 @@
 //! Anonymous, read-only stock reference. Public DTOs never serialize Lab summaries or owners.
 //! Publication copies reviewed results; importing or deleting a run cannot change that copy.
 mod consensus;
-mod html;
+pub(crate) mod html;
 #[cfg(test)]
 mod tests;
 

@@ -1,0 +1,50 @@
+/* Sharing: the deck's Share sheet and the settings under Group, You. */
+.share-choices {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.share-choices legend {
+  margin-bottom: 0.4rem;
+}
+.share-choices label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: baseline;
+}
+.share-choices .hint {
+  grid-column: 2;
+}
+.share-what {
+  margin: 0;
+}
+.share-link input {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: var(--t-sm);
+}
+.share-settings {
+  gap: 14px;
+}
+.share-settings label {
+  display: grid;
+  gap: 4px;
+}
+.share-settings .row input {
+  flex: 1;
+  min-width: 0;
+}
+.share-profile-link {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.share-settings label.share-collection-toggle {
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: baseline;
+}
+.share-collection-toggle .hint {
+  grid-column: 2;
+}

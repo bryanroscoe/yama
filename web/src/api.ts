@@ -252,6 +252,47 @@ export interface DeckSummary {
   bracket: number | null;
   /** Commander Spellbook's estimate for the current version, once it has answered. */
   estimate: Estimated | null;
+  /** The main deck this is a configuration of, and its label ("stock"). */
+  parent_id: string | null;
+  configuration: string | null;
+  visibility: Visibility;
+  /** The token in its share link, /d/<token>. */
+  share_token: string | null;
+}
+
+/** private: only you. link: anyone with the link. public: that, and listed on your profile. */
+export type Visibility = "private" | "link" | "public";
+
+/** One deck of a configuration group. */
+export interface ConfigurationRef {
+  id: string;
+  name: string;
+  configuration: string | null;
+  visibility: Visibility;
+  share_token: string | null;
+}
+
+/** Your sharing settings (`/api/me/sharing`). */
+export interface Sharing {
+  handle: string | null;
+  new_deck_visibility: Visibility;
+  collection_public: boolean;
+  /** Live decks by visibility. */
+  decks: Record<Visibility, number>;
+}
+
+/** A deck someone shared, as "Save a copy in Yama" reads it (`/api/public/decks/<token>`). */
+export interface PublicDeck {
+  name: string;
+  handle: string | null;
+  commanders: string[];
+  /** Moxfield format. */
+  text: string;
+}
+
+/** "https://yama.example/d/abc…" for a share token, on this site. */
+export function shareUrl(token: string): string {
+  return `${location.origin}/d/${token}`;
 }
 
 /** An outside bracket estimate, shown beside the declared bracket and never instead of it. */
@@ -297,6 +338,12 @@ export interface DeckView {
   version_id: string | null;
   /** The declared bracket (1-5). */
   bracket: number | null;
+  parent_id: string | null;
+  configuration: string | null;
+  visibility: Visibility;
+  share_token: string | null;
+  /** The main deck and every configuration of it, this one included, main deck first. */
+  configurations: ConfigurationRef[];
   cards: DeckEntry[];
   validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[] };
   ownership: {
