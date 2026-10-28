@@ -195,6 +195,8 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
   /** The camera is running (a close-up needs it). */
   const [live, setLive] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  /** Add was tapped on a printing picked by eye: asking to check it first. */
+  const [confirming, setConfirming] = useState(false);
 
   const ocrRef = useRef<Promise<OcrEngine> | null>(null);
   /** False once the scanner closes: work finishing after that must clean up after itself. */
@@ -670,6 +672,12 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
 
   const chosen = found?.chosen ?? null;
   const ready = identityOnly || !!chosen;
+  // A printing tapped in the picker, among several, wasn't read from the card: the pictures of
+  // reprints often look alike (or are the same art). Adding it asks for a check first.
+  const unread = !identityOnly && found?.how === "picked" && !!found.options && found.options.length > 1;
+  useEffect(() => {
+    setConfirming(false);
+  }, [chosen, phase, closeup]);
   const price = chosen ? (finish === "foil" ? chosen.usd_foil : chosen.usd) : null;
   const isFound = phase === "found" && !!found;
   const options = found?.options ?? null;
@@ -822,6 +830,20 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
               </div>
             )}
             {found.error && <p className="error">{found.error}</p>}
+            {confirming && chosen && options && (
+              <div className="scan-step" role="alert">
+                <p>
+                  <strong>This printing wasn't read from the card.</strong>{" "}
+                  {found.sameArt ? `${options.length} printings share this art, so the pictures can't tell them apart.` : "It was picked by its picture, and reprints often look alike."} Check that the
+                  card's bottom-left corner shows {chosen.set_code.toUpperCase()} {chosen.collector_number}.
+                </p>
+                {live && (
+                  <button className="scan-alt" onClick={() => setCloseup("collector")}>
+                    Read the collector number up close
+                  </button>
+                )}
+              </div>
+            )}
             {renderResult?.(candidateOf(found, chosen))}
             {controls}
             <div className="scan-buttons">
@@ -843,11 +865,12 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
                     className="primary"
                     disabled={!ready}
                     onClick={() => {
+                      if (unread && !confirming) return setConfirming(true);
                       onAccept(candidateOf(found, chosen), copies);
                       again();
                     }}
                   >
-                    {ready ? acceptLabel : options && !found.reading ? "Pick the printing" : "Finding the printing…"}
+                    {!ready ? (options && !found.reading ? "Pick the printing" : "Finding the printing…") : confirming ? `${acceptLabel} anyway` : acceptLabel}
                   </button>
                 </div>
               )}
@@ -903,7 +926,7 @@ function explain(f: Found, identityOnly: boolean): string {
     case "collector":
       return f.method === "art" ? `${by}; the collector number picked the printing.` : `${by}.`;
     case "picked":
-      return `${by}. You picked the printing.`;
+      return f.options.length > 1 ? `${by}. You picked the printing; it wasn't read from the card.` : `${by}. You picked the printing.`;
     default:
       if (f.options.length === 0) return `${by}. Yama's card data has no printing of it.`;
       return f.sameArt ? `${by}. ${f.options.length} printings share this art: pick yours.` : `${by}. Pick the printing.`;
