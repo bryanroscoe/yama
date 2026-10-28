@@ -94,7 +94,7 @@ async fn run_from(
 pub fn importer_version(kind: &str) -> i64 {
     match kind {
         "oracle_cards" => 3, // 2: game_changer; 3: produced_mana (both migration 0008)
-        "default_cards" => 3, // 2: digital, set_type (migration 0008); 3: illustration IDs (0034)
+        "default_cards" => 3, // 2: digital, set_type (migration 0008); 3: illustration IDs (0036)
         _ => 1,
     }
 }

@@ -2008,3 +2008,68 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .view-banner .view-stop:disabled {
   cursor: progress;
 }
+
+/* Configurations: other builds of a deck, collapsed under its tile and switched on its page. */
+.deck-tiles > li.has-configs {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+.deck-configs-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 8px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.deck-configs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.deck-configs-list a {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+.deck-configs-list a:hover {
+  background: var(--raised);
+}
+.deck-shared {
+  font-weight: 600;
+  color: var(--on-art);
+}
+.hero-configs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 10px;
+}
+.hero-configs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.3);
+  background: rgb(11 12 14 / 0.4);
+  color: var(--on-art);
+  font-size: var(--t-sm);
+  text-decoration: none;
+}
+.hero-configs a[aria-current="page"] {
+  background: var(--on-art);
+  border-color: var(--on-art);
+  color: var(--ground);
+}

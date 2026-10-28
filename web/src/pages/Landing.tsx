@@ -52,6 +52,18 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
               </a>
             </div>
             <p className="landing-method">Want to understand the numbers? <a href="/precons/methodology">Read the ranking methodology</a>.</p>
+            <div className="landing-shared">
+              <h3 id="shared-title">Got a link from a friend?</h3>
+              <p>Shared decks open without an account. Or look up a profile by handle.</p>
+              <form className="landing-handle" action="/u" method="get" aria-labelledby="shared-title" onSubmit={(e) => {
+                e.preventDefault();
+                const h = new FormData(e.currentTarget).get("handle")?.toString().trim().replace(/^@/, "").toLowerCase();
+                if (h) location.assign(`/u/${encodeURIComponent(h)}`);
+              }}>
+                <input name="handle" aria-label="Handle" placeholder="@handle" autoCapitalize="none" spellCheck={false} maxLength={31} required />
+                <button type="submit">Open profile</button>
+              </form>
+            </div>
           </section>
         )}
 
@@ -67,6 +79,7 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
             </div>
             <dl className="landing-account-features">
               <div><dt>Decks and upgrades</dt><dd>Save versions, check your lists and review research and suggested changes.</dd></div>
+              <div><dt>Share with friends</dt><dd>Send a deck by link or list your decks and collection on a profile. Friends can download them for Moxfield or Arena, no account needed.</dd></div>
               <div><dt>Your collection</dt><dd>Keep track of owned cards, proxies and where each copy lives.</dd></div>
               <div><dt>Game night</dt><dd>Count life, record your playgroup's results and play Commander online.</dd></div>
               <div><dt>Simulation lab</dt><dd>Compare lists in simulated games, with the engine's limits shown alongside the results.</dd></div>

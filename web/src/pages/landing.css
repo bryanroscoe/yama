@@ -35,7 +35,7 @@
 .landing-signin.login-side .login-title { font-size: 36px; }
 .landing-signin .login-inner > p { line-height: 1.5; }
 .landing-account { grid-area: account; padding-top: 32px; border-top: 1px solid var(--line); }
-.landing-account-features { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; margin: 0; }
+.landing-account-features { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px; margin: 0; }
 .landing-account-features dt { font-weight: 700; margin-bottom: 8px; }
 .landing-account-features dd { color: var(--dim); margin: 0; font-size: .9375rem; line-height: 1.5; }
 .landing-footer { border-top: 1px solid var(--line); padding-top: 20px; }
@@ -61,3 +61,9 @@
   .landing-account-features { grid-template-columns: 1fr; }
   .landing-focused .landing-layout { padding-block: 24px; }
 }
+.landing-shared { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+.landing-shared h3 { margin: 0 0 6px; }
+.landing-shared p { margin: 0 0 12px; color: var(--dim); line-height: 1.5; }
+.landing-handle { display: flex; gap: 8px; flex-wrap: wrap; }
+.landing-handle input { flex: 1 1 200px; min-height: 44px; }
+.landing-handle button { min-height: 44px; }

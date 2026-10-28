@@ -23,6 +23,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/decks/{id}/versions/{version}", get(get_version))
         .route("/api/decks/{id}/check", get(get_check).post(recheck))
         .route("/api/decks/{id}/results", get(results))
+        .route("/api/decks/{id}/share-link", post(reset_share_link))
+        .route("/api/decks/{id}/configurations", post(new_configuration))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -168,6 +170,13 @@ struct DeckSummary {
     updated_at: String,
     /// The bracket the owner declares (1-5), or none.
     bracket: Option<i64>,
+    /// The main deck this is a configuration of, and its label ("stock"). A main deck has no
+    /// parent; its own label, if any, names its main list.
+    parent_id: Option<String>,
+    configuration: Option<String>,
+    /// private | link | public (`sharing.rs`), and the token in its link (`/d/<token>`).
+    visibility: String,
+    share_token: Option<String>,
     /// Commander Spellbook's estimate for the current version, once it has answered.
     #[sqlx(skip)]
     estimate: Option<crate::deck_checks::Estimated>,
@@ -199,7 +208,8 @@ struct DeckSummary {
 
 async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<DeckSummary>>> {
     let mut decks: Vec<DeckSummary> = sqlx::query_as(
-        "SELECT id, name, folder, format, container_id, current_version_id, updated_at, bracket FROM decks
+        "SELECT id, name, folder, format, container_id, current_version_id, updated_at, bracket, parent_id, configuration,
+                visibility, share_token FROM decks
          WHERE owner_id = ? AND archived = 0 ORDER BY folder, name",
     )
     .bind(&user.id)
@@ -342,15 +352,21 @@ pub async fn create_deck_in(
     }
     let id = new_id();
     let stamp = now();
-    sqlx::query("INSERT INTO decks (id, owner_id, name, folder, created_at, updated_at) VALUES (?,?,?,?,?,?)")
-        .bind(&id)
-        .bind(owner)
-        .bind(name.trim())
-        .bind(folder)
-        .bind(&stamp)
-        .bind(&stamp)
-        .execute(&mut *conn)
-        .await?;
+    // A new deck starts as its owner's chosen default (Sharing, under Group, You).
+    sqlx::query(
+        "INSERT INTO decks (id, owner_id, name, folder, created_at, updated_at, visibility, share_token)
+         SELECT ?,?,?,?,?,?, new_deck_visibility, ? FROM users WHERE id = ?",
+    )
+    .bind(&id)
+    .bind(owner)
+    .bind(name.trim())
+    .bind(folder)
+    .bind(&stamp)
+    .bind(&stamp)
+    .bind(crate::sharing::new_token())
+    .bind(owner)
+    .execute(&mut *conn)
+    .await?;
     insert_version_in(conn, &id, cards, Some(note)).await?;
     Ok(id)
 }
@@ -411,6 +427,13 @@ struct DeckView {
     version_id: Option<String>,
     /// The bracket the owner declares (1-5), or none. Estimates come from `/check`.
     bracket: Option<i64>,
+    parent_id: Option<String>,
+    configuration: Option<String>,
+    visibility: String,
+    share_token: Option<String>,
+    /// The main deck and every configuration of it, this one included (just this deck when it
+    /// has none), main deck first.
+    configurations: Vec<ConfigurationRef>,
     cards: Vec<DeckEntry>,
     validation: Validation,
     ownership: OwnershipTotals,
@@ -419,6 +442,30 @@ struct DeckView {
     game_changers: Option<Vec<String>>,
     /// Date of the Scryfall data the flags come from (YYYY-MM-DD), if loaded.
     game_changers_as_of: Option<String>,
+}
+
+#[derive(Serialize, sqlx::FromRow, Clone)]
+pub(crate) struct ConfigurationRef {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) configuration: Option<String>,
+    pub(crate) visibility: String,
+    pub(crate) share_token: Option<String>,
+}
+
+/// The live decks in `deck`'s group: its main deck first, then its configurations by label.
+pub(crate) async fn configuration_group(pool: &SqlitePool, owner: &str, deck: &str) -> AppResult<Vec<ConfigurationRef>> {
+    Ok(sqlx::query_as(
+        "WITH root AS (SELECT COALESCE(parent_id, id) AS id FROM decks WHERE id = ? AND owner_id = ?)
+         SELECT d.id, d.name, d.configuration, d.visibility, d.share_token FROM decks d, root
+         WHERE d.owner_id = ? AND d.archived = 0 AND (d.id = root.id OR d.parent_id = root.id)
+         ORDER BY d.parent_id IS NOT NULL, lower(COALESCE(d.configuration, d.name)), d.created_at",
+    )
+    .bind(deck)
+    .bind(owner)
+    .bind(owner)
+    .fetch_all(pool)
+    .await?)
 }
 
 #[derive(Serialize)]
@@ -446,19 +493,19 @@ struct DeckEntry {
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
-struct PrintRef {
-    set_code: String,
-    collector_number: String,
+pub(crate) struct PrintRef {
+    pub(crate) set_code: String,
+    pub(crate) collector_number: String,
     /// nonfoil | foil | etched
-    finish: String,
+    pub(crate) finish: String,
     /// "owned", "chosen" (the printing an import named) or "default"
-    from: &'static str,
+    pub(crate) from: &'static str,
 }
 
 /// The printing an export should name for a card: a real copy (the one in the deck's container
 /// first), then a proxy the same way (it still names a printing), else `None` so the caller can
 /// fall back to [`paper_printing`].
-fn owned_printing(mine: &[&crate::collection::Item], container_id: Option<&str>) -> Option<PrintRef> {
+pub(crate) fn owned_printing(mine: &[&crate::collection::Item], container_id: Option<&str>) -> Option<PrintRef> {
     let rank = |i: &crate::collection::Item| {
         let here = container_id.is_some() && i.container_id.as_deref() == container_id;
         (i.proxy, !here)
@@ -553,7 +600,7 @@ const RARE_RUN_SETS: [&str; 1] = ["sum"];
 /// one, else foil or etched. Until the printings import has read Scryfall's `digital` flag
 /// nothing is known to be on paper, so it names the default printing as before (with that
 /// printing's finish).
-fn paper_printing(printings: &[PrintingChoice]) -> Option<PrintRef> {
+pub(crate) fn paper_printing(printings: &[PrintingChoice]) -> Option<PrintRef> {
     let best = if printings.iter().any(|p| p.digital.is_some()) {
         printings.iter().filter(|p| p.digital == Some(false)).min_by_key(|p| {
             (
@@ -612,7 +659,12 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
     let validation = validate(&cards, &card_info);
     let game_changers = game_changers(&cards, &card_info);
     let game_changers_as_of = crate::cards::import::game_changers_date(&st.pool).await?;
-    let bracket: Option<i64> = sqlx::query_scalar("SELECT bracket FROM decks WHERE id = ?").bind(&id).fetch_one(&st.pool).await?;
+    let (bracket, parent_id, configuration, visibility, share_token): (Option<i64>, Option<String>, Option<String>, String, Option<String>) =
+        sqlx::query_as("SELECT bracket, parent_id, configuration, visibility, share_token FROM decks WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&st.pool)
+            .await?;
+    let configurations = configuration_group(&st.pool, &user.id, &id).await?;
 
     // Ownership, by oracle ID, across the whole collection.
     let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
@@ -695,6 +747,11 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         container_id,
         version_id,
         bracket,
+        parent_id,
+        configuration,
+        visibility,
+        share_token,
+        configurations,
         cards: entries,
         validation,
         ownership: totals,
@@ -735,6 +792,14 @@ struct UpdateDeck {
     /// The declared bracket, 1-5; null clears it.
     #[serde(default, deserialize_with = "crate::util::double_option")]
     bracket: Option<Option<i64>>,
+    /// private | link | public.
+    visibility: Option<String>,
+    /// The main deck this is a configuration of; null makes it a main deck again.
+    #[serde(default, deserialize_with = "crate::util::double_option")]
+    parent_id: Option<Option<String>>,
+    /// The configuration's label ("stock"); null or blank clears it.
+    #[serde(default, deserialize_with = "crate::util::double_option")]
+    configuration: Option<Option<String>>,
 }
 
 async fn update_deck(
@@ -761,18 +826,162 @@ async fn update_deck(
         Some(n) => deck_name(&n)?,
         None => name,
     };
-    let (folder, bracket): (Option<String>, Option<i64>) =
-        sqlx::query_as("SELECT folder, bracket FROM decks WHERE id = ?").bind(&id).fetch_one(&st.pool).await?;
-    sqlx::query("UPDATE decks SET name = ?, folder = ?, container_id = ?, bracket = ?, updated_at = ? WHERE id = ?")
-        .bind(name)
-        .bind(body.folder.unwrap_or(folder))
-        .bind(body.container_id.unwrap_or(container))
-        .bind(body.bracket.unwrap_or(bracket))
-        .bind(now())
-        .bind(&id)
-        .execute(&st.pool)
-        .await?;
+    if let Some(v) = &body.visibility {
+        crate::sharing::visibility(v)?;
+    }
+    // Immediate, so two moves at once can't both pass the check and nest or loop.
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    if let Some(Some(parent)) = &body.parent_id {
+        check_parent(&mut tx, &user.id, &id, parent).await?;
+    }
+    let (folder, bracket, visibility, parent_id, configuration): (Option<String>, Option<i64>, String, Option<String>, Option<String>) =
+        sqlx::query_as("SELECT folder, bracket, visibility, parent_id, configuration FROM decks WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&mut *tx)
+            .await?;
+    let configuration = match body.configuration {
+        Some(label) => configuration_label(label.as_deref())?,
+        None => configuration,
+    };
+    sqlx::query(
+        "UPDATE decks SET name = ?, folder = ?, container_id = ?, bracket = ?, visibility = ?, parent_id = ?, configuration = ?,
+                share_token = COALESCE(share_token, ?), updated_at = ? WHERE id = ?",
+    )
+    .bind(name)
+    .bind(body.folder.unwrap_or(folder))
+    .bind(body.container_id.unwrap_or(container))
+    .bind(body.bracket.unwrap_or(bracket))
+    .bind(body.visibility.unwrap_or(visibility))
+    .bind(body.parent_id.unwrap_or(parent_id))
+    .bind(configuration)
+    .bind(crate::sharing::new_token())
+    .bind(now())
+    .bind(&id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
     Ok(())
+}
+
+/// A configuration label as typed: trimmed, blank means none, at most 60 characters.
+fn configuration_label(label: Option<&str>) -> AppResult<Option<String>> {
+    let label = label.map(str::trim).filter(|l| !l.is_empty());
+    if label.is_some_and(|l| l.chars().count() > 60) {
+        return Err(AppError::bad("keep a configuration's name under 60 characters"));
+    }
+    Ok(label.map(String::from))
+}
+
+/// `deck` may become a configuration of `parent`: both live and the owner's, `parent` a main deck
+/// (configurations go one level deep) and `deck` without configurations of its own.
+async fn check_parent(conn: &mut SqliteConnection, owner: &str, deck: &str, parent: &str) -> AppResult<()> {
+    if deck == parent {
+        return Err(AppError::bad("a deck can't be a configuration of itself"));
+    }
+    let parent_of_parent: Option<Option<String>> =
+        sqlx::query_scalar("SELECT parent_id FROM decks WHERE id = ? AND owner_id = ? AND archived = 0")
+            .bind(parent)
+            .bind(owner)
+            .fetch_optional(&mut *conn)
+            .await?;
+    match parent_of_parent {
+        None => return Err(AppError::NotFound("deck")),
+        Some(Some(_)) => return Err(AppError::bad("that deck is itself a configuration; pick its main deck")),
+        Some(None) => {}
+    }
+    let children: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decks WHERE parent_id = ? AND archived = 0")
+        .bind(deck)
+        .fetch_one(&mut *conn)
+        .await?;
+    if children > 0 {
+        return Err(AppError::bad("this deck has configurations of its own; move them first"));
+    }
+    Ok(())
+}
+
+async fn reset_share_link(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
+    owned_deck(&st.pool, &user.id, &id).await?;
+    let token = crate::sharing::new_token();
+    sqlx::query("UPDATE decks SET share_token = ?, updated_at = ? WHERE id = ?").bind(&token).bind(now()).bind(&id).execute(&st.pool).await?;
+    Ok(Json(serde_json::json!({ "share_token": token })))
+}
+
+#[derive(Deserialize)]
+struct NewConfiguration {
+    /// Its label, e.g. "stock" or "high power".
+    configuration: String,
+    /// Client-generated, so a retried request makes one deck (`applied_ops`).
+    op_id: String,
+}
+
+/// A new configuration of `id`'s main deck, starting from `id`'s current list and the printings
+/// it names. Named "<main deck> (<label>)", in the same folder.
+async fn new_configuration(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    Json(body): Json<NewConfiguration>,
+) -> AppResult<Json<Created>> {
+    st.limits.deck_writes.check_user(&user)?;
+    let label = configuration_label(Some(&body.configuration))?.ok_or_else(|| AppError::bad("name the configuration"))?;
+    if body.op_id.trim().is_empty() || body.op_id.len() > 100 {
+        return Err(AppError::bad("op_id is required"));
+    }
+    let (_, version_id, _) = owned_deck(&st.pool, &user.id, &id).await?;
+    let mut tx = st.pool.begin().await?;
+    let done: Option<(String, String)> = sqlx::query_as("SELECT kind, payload FROM applied_ops WHERE op_id = ? AND owner_id = ?")
+        .bind(&body.op_id)
+        .bind(&user.id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if let Some((kind, payload)) = done {
+        if kind != "deck.configuration" {
+            return Err(AppError::Conflict("that op_id was used for something else".into()));
+        }
+        let id: String = serde_json::from_str::<serde_json::Value>(&payload).ok().and_then(|v| v["id"].as_str().map(String::from)).unwrap_or_default();
+        return Ok(Json(Created { id, unknown: vec![] }));
+    }
+    let (root, root_name, folder): (String, String, Option<String>) =
+        sqlx::query_as("SELECT p.id, p.name, p.folder FROM decks d JOIN decks p ON p.id = COALESCE(d.parent_id, d.id) WHERE d.id = ?")
+            .bind(&id)
+            .fetch_one(&mut *tx)
+            .await?;
+    let cards = match &version_id {
+        Some(v) => {
+            let text: String = sqlx::query_scalar("SELECT cards FROM deck_versions WHERE id = ?").bind(v).fetch_one(&mut *tx).await?;
+            serde_json::from_str(&text).map_err(anyhow::Error::from)?
+        }
+        None => vec![],
+    };
+    let new = create_deck_in(&mut tx, &user.id, &format!("{root_name} ({label})"), folder.as_deref(), &cards, "new configuration").await?;
+    // It shares no more than the list it copies: the source deck's visibility, not the default
+    // for new decks.
+    sqlx::query("UPDATE decks SET parent_id = ?, configuration = ?, visibility = (SELECT visibility FROM decks WHERE id = ?) WHERE id = ?")
+        .bind(&root)
+        .bind(&label)
+        .bind(&id)
+        .bind(&new)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "INSERT INTO deck_prints (deck_id, oracle_id, set_code, collector_number, finish, proxy)
+         SELECT ?, oracle_id, set_code, collector_number, finish, proxy FROM deck_prints WHERE deck_id = ?",
+    )
+    .bind(&new)
+    .bind(&id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("INSERT INTO applied_ops (op_id, owner_id, kind, payload, applied_at) VALUES (?,?,?,?,?)")
+        .bind(&body.op_id)
+        .bind(&user.id)
+        .bind("deck.configuration")
+        .bind(serde_json::json!({ "id": new, "from": id }).to_string())
+        .bind(now())
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    crate::deck_checks::wake();
+    Ok(Json(Created { id: new, unknown: vec![] }))
 }
 
 async fn archive_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
@@ -783,7 +992,11 @@ async fn archive_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser
 /// (`DELETE /api/decks/{id}` and `yama-server deck archive`).
 pub async fn archive(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<()> {
     owned_deck(pool, owner, id).await?;
-    sqlx::query("UPDATE decks SET archived = 1, updated_at = ? WHERE id = ?").bind(now()).bind(id).execute(pool).await?;
+    let mut tx = pool.begin().await?;
+    sqlx::query("UPDATE decks SET archived = 1, updated_at = ? WHERE id = ?").bind(now()).bind(id).execute(&mut *tx).await?;
+    // Its configurations become main decks of their own rather than hang off an archived one.
+    sqlx::query("UPDATE decks SET parent_id = NULL WHERE parent_id = ?").bind(id).execute(&mut *tx).await?;
+    tx.commit().await?;
     Ok(())
 }
 
