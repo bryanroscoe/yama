@@ -582,7 +582,11 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 #### Persistent deck research and review (2026-10-27)
 
 Research is an owner-scoped document and separate review operations (`0032_research.sql`),
-served under `/decks/research`. It stores complete alternatives, concrete gameplay profiles,
+served under `/decks/research`. A research scenario tagged `purpose: permanent_real_wishlist`
+is a standing genuine-card wishlist, displayed outside acquisition choices and excluded from
+order totals. It records printed-copy history without inferring a purchase quantity or a local
+quote; all card/reason/detail fields use the existing validated scenario item schema.
+Research stores complete alternatives, concrete gameplay profiles,
 combos, sources and dated acquisition allocations. It does not replace installed decks or
 approve planner changes. `save_research` and `review_research` are explicit exceptions to staged MCP writes:
 they directly store research notes and stated preferences only; `research` reads them and their answers. Session import and

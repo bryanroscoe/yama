@@ -24,6 +24,16 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/collection", label: "Scan cards" },
   },
   {
+    id: "2026-10-28-printed-wishlist",
+    date: "2026-10-28",
+    title: "Keep printed cards on a real-card wishlist",
+    items: [
+      "Research can keep a permanent wishlist of genuine cards even when their printed copies are already here. It stays separate from local purchase quotes, quantities to buy and order totals.",
+      "Card names on the wishlist have the same hover and tap previews as the deck guides.",
+    ],
+    link: { to: "/decks/research", label: "Review deck research" },
+  },
+  {
     id: "2026-10-27-commander-options",
     date: "2026-10-27",
     title: "Compare precon commander options separately",
