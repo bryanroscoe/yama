@@ -73,6 +73,13 @@
 .scan-step p {
   font-size: var(--t-label);
 }
+/* The next step is a tap, not the camera: outlined in the panel, and a white chip over the camera. */
+.scan-step.is-tap {
+  padding: 12px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-tile);
+  scroll-margin: 12px;
+}
 /* The card the recognizer sees, outlined over the video (same box and cover fit as the video). */
 .scan-outline {
   position: absolute;
@@ -128,6 +135,10 @@
 }
 .scan-chip.found {
   color: var(--good);
+}
+.scan-chip.is-tap {
+  background: #fff;
+  color: #000;
 }
 .scan-panel {
   position: relative;
