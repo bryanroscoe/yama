@@ -240,10 +240,10 @@
   display: flex;
 }
 .ph-seat-fields select {
-  background: var(--ground);
+  background-color: var(--ground);
 }
 .ph-seat.open .ph-seat-fields select {
-  background: var(--surface);
+  background-color: var(--surface);
 }
 .ph-kind {
   background: var(--ground);
@@ -351,7 +351,7 @@
   grid-row: 2;
 }
 .ph-join-deck select {
-  background: var(--ground);
+  background-color: var(--ground);
 }
 .ph-join-go {
   min-height: 52px;
@@ -976,7 +976,7 @@
   gap: 6px;
 }
 .wh-first select {
-  background: var(--ground);
+  background-color: var(--ground);
 }
 .wh-speed {
   display: flex;

@@ -55,21 +55,17 @@ export function Overview() {
           {b.head && (
             <div className="area-note plan-head-note" role="note">
               <p>
-                Planned in {b.head.app ?? "an outside planner"} and imported {fmtDate(b.head.imported_at)}, so it's read-only here. What you do here goes
-                to its inbox
+                Imported {fmtDate(b.head.imported_at)}. Lists managed in {b.head.app ?? "your planner"}.
                 {b.inputs.pending_pull > 0 ? (
                   <>
-                    : <b>{b.inputs.pending_pull === 1 ? "1 item waiting." : `${b.inputs.pending_pull} items waiting.`}</b>
+                    {" "}<b>{b.inputs.pending_pull === 1 ? "1 answer waiting to be picked up." : `${b.inputs.pending_pull} answers waiting to be picked up.`}</b>
                   </>
-                ) : b.inputs.pulled_at ? (
-                  `; it last picked up ${fmtDate(b.inputs.pulled_at)}.`
-                ) : (
-                  "."
-                )}
+                ) : null}
                 {pending > 0 ? <b> {pending === 1 ? "1 answer is" : `${pending} answers are`} saved on this phone, waiting to sync.</b> : null}
                 {priceAge != null && priceAge > STALE_DAYS ? ` Yama's prices haven't updated for ${priceAge} days.` : ""}
               </p>
-              <Details>
+              <Details label="Plan source and sync details">
+                <p>Lists are read-only here. Your answers go to your planner's inbox.{b.inputs.pulled_at ? ` Last picked up ${fmtDate(b.inputs.pulled_at)}.` : ""}</p>
                 <p>{headDetails(b.head)}</p>
                 <p>
                   Lists, swaps and prices come from that export.

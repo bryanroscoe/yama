@@ -92,7 +92,7 @@
   gap: 4px;
 }
 .deck-toolbar .deck-show > button {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 16px;
   border: none;
   background: transparent;
@@ -106,7 +106,7 @@
   color: var(--ground);
 }
 .deck-toolbar .deck-layout > button {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--line);
   background: transparent;
@@ -229,14 +229,31 @@
     min-height: 52px;
   }
   .deck-page .deck-actions-phone {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
     gap: 8px;
-    flex-wrap: nowrap;
   }
-  .deck-page .deck-actions-phone > button {
-    flex: 1 1 0;
+  .deck-page .deck-actions-phone button,
+  .deck-page .deck-actions-phone .button,
+  .deck-actions-more > summary {
     min-height: 44px;
-    padding: 0 10px;
+    padding: 8px 12px;
     font-size: var(--t-label);
+  }
+  .deck-actions-more[open] { grid-column: 1 / -1; }
+  .deck-actions-more > summary {
+    justify-content: center;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    font-weight: 700;
+  }
+  .deck-actions-more > summary:hover { border-color: var(--dim); }
+  .deck-extra-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding-top: 12px;
   }
 }
 
@@ -291,7 +308,7 @@
   text-shadow: none;
 }
 .hand-view .hand-head button.hand-done {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 16px;
 }
 .hand-body {

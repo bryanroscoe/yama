@@ -3,12 +3,13 @@ const SHELL = "yama-shell-v1";
 const ASSETS = "yama-assets-v1";
 const IMAGES = "yama-images-v1";
 const MAX_IMAGES = 1500;
+const SELECT_CHEVRON = "/select-chevron-v1.svg";
 /** The scanner's recognition bundle, cached by its worker (src/scanner/art.worker.ts). */
 const SCAN = "yama-scan-v1";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg", "/icon-192.png"])).then(() => self.skipWaiting()),
+    caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg", "/icon-192.png", SELECT_CHEVRON])).then(() => self.skipWaiting()),
   );
 });
 
@@ -48,8 +49,8 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Hashed build assets and the OCR engine never change: cache first.
-  if (url.origin === location.origin && (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/ocr/"))) {
+  // Build assets, the OCR engine and the versioned control icon: cache first.
+  if (url.origin === location.origin && (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/ocr/") || url.pathname === SELECT_CHEVRON)) {
     event.respondWith(
       caches.match(req).then(
         (hit) =>

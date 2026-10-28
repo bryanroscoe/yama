@@ -1,0 +1,49 @@
+/* Shared by the app and the server-rendered public pages. Keep native select
+   behavior, with room for both the label and a consistently inset chevron. */
+select:not([multiple]):not([size]),
+select:not([multiple])[size="1"] {
+  appearance: none;
+  min-width: 0;
+  padding-inline-end: 44px;
+  background-image: url("/select-chevron-v1.svg");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 16px;
+}
+
+/* Every disclosure has the same spacing and a full touch target. The chevron
+   stays separate from wrapping text, including on small screens. */
+:where(details > summary) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding-block: 8px;
+  list-style: none;
+  cursor: pointer;
+}
+:where(details > summary)::-webkit-details-marker {
+  display: none;
+}
+:where(details > summary)::before {
+  content: "";
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  margin-inline: 3px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+}
+:where(details[open] > summary)::before {
+  transform: rotate(45deg);
+}
+
+@media (forced-colors: active) {
+  select:not([multiple]):not([size]),
+  select:not([multiple])[size="1"] {
+    appearance: auto;
+    background-image: none;
+    padding-inline-end: 14px;
+  }
+}

@@ -7,7 +7,7 @@ import { api, ApiError, type DeckSummary, type DeckView, type SearchResult } fro
 import { useMe } from "../auth";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
-import { CardImage, ErrorText, ManaCost } from "../components/ui";
+import { CardImage, Details, ErrorText, ManaCost } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { offlineSearch } from "../offline/cards";
 import type { ExperimentDetail, ExperimentItem, NewExperiment, Pace, PreconDetail, TryPrefill } from "./api";
@@ -228,9 +228,10 @@ function TryForm() {
   return (
     <>
       <LabHead title="Try a change" />
-      <p className="dim lab-try-intro">
-        Swap cards in a list, then play the list and the changed copy against the same opponents, seats and shuffles. Or run a list as it is, or <Link to="/decks/lab/compare">compare two decks</Link>. {caveat()}
-      </p>
+      <Details label="How the test works" className="lab-try-intro">
+        <p>Swap cards in a list, then play both versions against the same opponents, seats and shuffles. You can also run an unchanged list or <Link to="/decks/lab/compare">compare decks</Link>.</p>
+        <p>{caveat()}</p>
+      </Details>
 
       <div className="phone-only">
         <RunningNow />
