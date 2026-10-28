@@ -636,10 +636,11 @@ struct OwnershipTotals {
     needed_cost_usd: f64,
     needed_without_price: i64,
     /// The same cheapest prices for the real copies you own, and for the copies proxies cover
-    /// (what replacing them with real cards would cost). Basics count here.
-    owned_value_usd: f64,
+    /// (what replacing them with real cards would cost). Basics count here. None while no copy
+    /// in that group has a price: a missing price is unknown, not zero.
+    owned_value_usd: Option<f64>,
     owned_without_price: i64,
-    proxy_value_usd: f64,
+    proxy_value_usd: Option<f64>,
     proxies_without_price: i64,
     /// The Scryfall price snapshot those prices come from (YYYY-MM-DD).
     price_date: Option<String>,
@@ -708,8 +709,12 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             totals.needed += needed;
             match cheapest_usd {
                 Some(p) => {
-                    totals.owned_value_usd += p * real as f64;
-                    totals.proxy_value_usd += p * proxied as f64;
+                    if real > 0 {
+                        *totals.owned_value_usd.get_or_insert(0.0) += p * real as f64;
+                    }
+                    if proxied > 0 {
+                        *totals.proxy_value_usd.get_or_insert(0.0) += p * proxied as f64;
+                    }
                 }
                 None => {
                     totals.owned_without_price += real;
@@ -742,7 +747,8 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             .flatten();
         entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd, printing, produced_mana });
     }
-    for v in [&mut totals.needed_cost_usd, &mut totals.owned_value_usd, &mut totals.proxy_value_usd] {
+    totals.needed_cost_usd = (totals.needed_cost_usd * 100.0).round() / 100.0;
+    for v in [&mut totals.owned_value_usd, &mut totals.proxy_value_usd].into_iter().flatten() {
         *v = (*v * 100.0).round() / 100.0;
     }
     Ok(Json(DeckView {

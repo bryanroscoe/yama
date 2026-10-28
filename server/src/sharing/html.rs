@@ -261,7 +261,7 @@ pub(super) async fn profile(State(st): State<AppState>, address: ClientAddress, 
             .unwrap();
             if !d.configurations.is_empty() {
                 // Every configuration in view, the main list first, as on the app's deck list.
-                write!(body, "<nav class=\"share-deck-configs\" aria-label=\"Configurations of {}\"><ul><li><a href=\"/d/{}\">Main</a></li>", e(&d.name), e(&d.token)).unwrap();
+                write!(body, "<nav class=\"share-deck-configs\" aria-label=\"Configurations of {}\"><ul><li><a href=\"/d/{}\">{}</a></li>", e(&d.name), e(&d.token), e(&d.label)).unwrap();
                 for (token, label) in &d.configurations {
                     write!(body, "<li><a href=\"/d/{}\">{}</a></li>", e(token), e(label)).unwrap();
                 }

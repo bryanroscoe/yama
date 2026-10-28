@@ -389,6 +389,7 @@ fn configurations_stand_for_plan_states() {
     assert_eq!(super::plan_state(Some("stock")), "stock");
     assert_eq!(super::plan_state(Some("After prints")), "after");
     assert_eq!(super::plan_state(Some("proposed bracket 3")), "proposed-bracket-3");
+    assert_ne!(super::plan_state(Some("Now")), "now", "only the main deck is the plan's now list");
     assert_eq!(crate::lab::variant_state("bryan/riders-of-rohan-after", "riders-of-rohan").as_deref(), Some("after"));
     assert_eq!(crate::lab::variant_state("bryan/riders-of-rohan2-after", "riders-of-rohan"), None);
 }

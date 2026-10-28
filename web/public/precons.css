@@ -1349,7 +1349,7 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 @media(min-width:901px) {
   .public-art { --art-w:min(100%,820px); }
   .public-art>img { left:auto; width:var(--art-w); }
-  .public-art>.art-wash { background:linear-gradient(90deg,var(--surface) calc(100% - var(--art-w)),rgba(11,12,14,.55) calc(100% - var(--art-w) + 220px),transparent calc(100% - var(--art-w) + 420px)),linear-gradient(0deg,rgba(11,12,14,.92),rgba(11,12,14,0) 60%); }
+  .public-art>.art-wash { background:linear-gradient(90deg,var(--surface) calc(100% - var(--art-w)),rgba(11,12,14,.55) calc(100% - var(--art-w) + 220px),transparent calc(100% - var(--art-w) + 420px)),linear-gradient(0deg,rgba(11,12,14,.98),rgba(11,12,14,.5) 60%,rgba(11,12,14,.15)); }
 }
 
 /* Shared deck pages: the deck page's status row, stacks and the sections under the list. */

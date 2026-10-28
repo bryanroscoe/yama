@@ -21,7 +21,7 @@ export function OwnershipValue({ o }: { o: DeckView["ownership"] }) {
   return <dl className="deck-value-split">
     <div>
       <dt>Real cards you own</dt>
-      <dd><b className="num">{usd(o.owned_value_usd ?? null)}</b> <span className="dim">{copies(o.owned)}{unpriced(o.owned_without_price)}</span></dd>
+      <dd>{o.owned ? <><b className="num">{usd(o.owned_value_usd ?? null)}</b> <span className="dim">{copies(o.owned)}{unpriced(o.owned_without_price)}</span></> : <b>None yet</b>}</dd>
     </div>
     {proxies > 0 && <div>
       <dt>Proxies</dt>

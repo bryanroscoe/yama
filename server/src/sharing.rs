@@ -296,6 +296,8 @@ fn plan_state(configuration: Option<&str>) -> String {
     match configuration.map(|c| c.trim().to_lowercase()) {
         None => "now".into(),
         Some(c) if c == "after prints" || c == "after" => "after".into(),
+        // "now" is the main deck's alone: a configuration labelled so never stands for it.
+        Some(c) if c == "now" => "configuration-now".into(),
         Some(c) => c.split_whitespace().collect::<Vec<_>>().join("-"),
     }
 }
@@ -452,6 +454,8 @@ pub(crate) struct ProfileDeck {
     pub(crate) color_identity: String,
     pub(crate) art: Option<(String, Option<String>, String)>,
     pub(crate) card_count: i64,
+    /// The main list's own label ("Main" unless it has one), as its page names it.
+    pub(crate) label: String,
     pub(crate) configurations: Vec<(String, String)>,
 }
 
@@ -510,6 +514,7 @@ pub(crate) async fn profile_decks(pool: &SqlitePool, owner: &str) -> AppResult<V
             color_identity: "WUBRG".chars().filter(|c| identity.contains(*c)).collect(),
             art,
             card_count: cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum(),
+            label: r.configuration.clone().unwrap_or_else(|| "Main".into()),
             configurations,
         });
     }

@@ -357,9 +357,10 @@ export interface DeckView {
     needed_cost_usd: number;
     needed_without_price: number;
     /** The same prices for your real copies, and for the copies proxies stand in for. */
-    owned_value_usd?: number;
+    /** null while none of those copies has a price. */
+    owned_value_usd?: number | null;
     owned_without_price?: number;
-    proxy_value_usd?: number;
+    proxy_value_usd?: number | null;
     proxies_without_price?: number;
     /** The Scryfall price snapshot behind those prices (YYYY-MM-DD). */
     price_date?: string | null;
