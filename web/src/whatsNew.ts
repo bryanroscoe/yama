@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-28-scanner-art",
+    date: "2026-10-28",
+    title: "A faster scanner that gets the printing right",
+    items: [
+      "The scanner now recognizes cards by their art. Hold a card anywhere in view, at any angle; no lining up. The first scan downloads the card recognizer once (about 40 MB).",
+      "It never guesses the printing. When several printings share the art, it reads the collector number, and if that's unclear you pick from pictures of each printing. Choose how many copies before adding, or type a name instead.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-10-28-sharing-and-configurations",
     date: "2026-10-28",
     title: "Share your decks, and keep a deck's builds together",

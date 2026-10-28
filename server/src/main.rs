@@ -25,6 +25,7 @@ mod public_precons;
 #[cfg(test)]
 mod privacy_tests;
 mod routes;
+mod scan;
 mod sharing;
 #[cfg(test)]
 mod signup_tests;

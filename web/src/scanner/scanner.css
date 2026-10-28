@@ -42,10 +42,51 @@
     0 0 0 100vmax rgb(0 0 0 / 0.45);
   transition: box-shadow 0.15s;
 }
+/* With art recognition the card can be anywhere: the frame is only a hint, with no veil. */
+.scan-guide.is-hint {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.35);
+}
 .scan-guide.is-locked {
   box-shadow:
     0 0 0 3px var(--good),
     0 0 0 100vmax rgb(0 0 0 / 0.45);
+}
+/* The close-up step: a box for just the collector line or the title, the rest veiled. */
+.scan-closeup {
+  width: min(88%, 620px);
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 100vmax rgb(0 0 0 / 0.5);
+}
+.scan-closeup.is-collector {
+  aspect-ratio: 4 / 1;
+}
+.scan-closeup.is-title {
+  aspect-ratio: 7 / 1;
+}
+.scan-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.scan-step p {
+  font-size: var(--t-label);
+}
+/* The card the recognizer sees, outlined over the video (same box and cover fit as the video). */
+.scan-outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.scan-outline polygon {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 6;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
 }
 .scan .scan-close {
   position: absolute;
@@ -159,6 +200,98 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
 }
+.scan-accept {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.scan-accept .primary {
+  flex: 1 1 auto;
+}
+.scan-copies {
+  flex: 0 0 auto;
+  gap: 2px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.scan-copies select {
+  min-height: 34px;
+  background: var(--ground);
+  color: var(--text);
+}
+/* Printings that share the art: pick the one in hand. */
+.scan-printings {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
+.scan .scan-printing {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 0;
+  padding: 6px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--t-sm);
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: left;
+}
+.scan .scan-printing.is-chosen {
+  border-color: #fff;
+}
+.scan-printing img,
+.scan-printing .card-fallback {
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: 4px;
+  object-fit: cover;
+}
+.scan-printing-set {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.scan-other-ways {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: start;
+}
+.scan-name {
+  position: relative;
+  flex: 1 1 12rem;
+}
+.scan-name input {
+  width: 100%;
+  background: var(--ground);
+  color: var(--text);
+}
+.scan-name-list {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border-radius: 8px;
+  background: var(--raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.5);
+}
+.scan-name-list button {
+  width: 100%;
+  min-height: 40px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-weight: 400;
+  text-align: left;
+}
 .scan-buttons button {
   min-height: 54px;
 }
@@ -181,7 +314,6 @@
   text-underline-offset: 0.2em;
 }
 .scan .scan-photo {
-  align-self: start;
   background: var(--raised);
 }
 .scan-photo input {

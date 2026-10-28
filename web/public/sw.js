@@ -3,6 +3,8 @@ const SHELL = "yama-shell-v1";
 const ASSETS = "yama-assets-v1";
 const IMAGES = "yama-images-v1";
 const MAX_IMAGES = 1500;
+/** The scanner's recognition bundle, cached by its worker (src/scanner/art.worker.ts). */
+const SCAN = "yama-scan-v1";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -11,7 +13,7 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  const keep = [SHELL, ASSETS, IMAGES];
+  const keep = [SHELL, ASSETS, IMAGES, SCAN];
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(keys.filter((k) => !keep.includes(k)).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
   );
