@@ -1,6 +1,8 @@
-# Card scanner spike
+# Card scanner
 
-Status: OCR scanner in `web/src/scanner/`, available from Collection and the planner's swap sheet. Research measurements below are from 2026-10-18; the hybrid embedding stage remains a proposal.
+Status (2026-10-28): the hybrid is built. The scanner in `web/src/scanner/` recognises the card by its **art** (ManaVault's MPL-2.0 detector and embedding models, our own glue, in a web worker), finds the card anywhere in the frame, and settles the **printing** from the printings that share that art: the only one, or the collector line read by OCR, or the person's pick. A scan never files a guessed printing. The OCR-only scanner remains as the fallback for cards the art index doesn't know (new sets, battles) and for when the recognition bundle isn't available. See "The art recognizer (built 2026-10-28)". The research below, from 2026-10-18, is kept as written.
+
+Why it changed (Bryan, 2026-10-28): scanning is now how the collection is kept, and the OCR scanner was slow, needed the card lined up exactly, misread cards, and filed two cards under the wrong printing. That last one was a bug: a title-only read was added as Scryfall's default printing (`Collection.tsx`). It's gone; a scan without a settled printing can't be added.
 
 Since 2026-10-25, Plans, Prints, Swap sheet (and each plan deck's Changes tab) can scan either side of a now-to-after-prints swap and immediately show the replacement, add and cut reasons, destination and installed status. This mode reads identity from the saved card names plus plan names, including both faces, without a printing lookup or network price request. It changes no data. The sheet also accepts a photo or an exact typed name. Live phone-camera accuracy still needs a real device check; the measurements below use synthetic captures.
 
@@ -42,7 +44,47 @@ Not pursued:
 - **ManaVault's detector.onnx** (12.6 MB): the guide plus the edge finder did well enough. Worth trying with the hybrid if free-hand scanning (no guide) is wanted.
 - **Native OCR** (iOS Vision, Android ML Kit, through a Capacitor plugin). It is likely faster and more accurate on small print [inferred], but it needs native code on two platforms. Keep `OcrEngine` as the seam for it.
 
-## How the built pipeline works
+## The art recognizer (built 2026-10-28)
+
+```
+camera frame, short side 640 ─▶ worker: detector on the middle 640 px square (then the whole frame if nothing)
+      ─▶ detector again on a window where the card fills 60% ─▶ card quad, top first, any rotation
+      ─▶ embed (the graph warps the card itself) ─▶ search: top 5 of 51,843 illustrations
+      ─▶ lock at score ≥ 0.82, or ≥ 0.62 on two agreeing frames
+      ─▶ GET /api/scan/printings?art=<illustration id>: the printings that share the art
+      ─▶ one English printing: done. Several: OCR the collector line (full-resolution crop at the quad)
+         and pick among them (pickPrinting). Still unsure: the person picks from thumbnails.
+art score < 0.5 for 3 frames ─▶ the OCR pipeline below, at the detector's quad (a quarter turn per try, for battles)
+```
+
+- **Bundle:** `scanner-bundle-retrain-20261026T052522727512Z` from `cfbender/manavault` releases, pinned with SHA-256 sums in `server/src/scan.rs`. The server downloads it once into `data/scan-bundle/<version>/` (on startup when imports run, or on the first `GET /api/scan/bundle`), drops the 126 MB `printings.json` it doesn't need, and turns the 18 MB `arts.json` into a 6 MB column form (3.2 MB gzipped). It serves the files at `/scan-bundle/<version>/` as immutable. Phones never fetch from GitHub.
+- **On the phone:** the first scanner open downloads about 39 MB over the wire (detector 12.6 MB, search 13.9 MB, embed 5.1 MB, artwork index 3.2 MB, ONNX Runtime WASM 3.9 MB, gzipped where it helps), with a progress line, into the Cache API (`yama-scan-v1`, kept by `sw.js`). Later opens load from the cache. Tesseract is loaded only when a collector line has to be read.
+- **Printings that share art:** `printings.illustration_id` and `back_illustration_id` (migration 0034, filled by the `default_cards` import, importer version 3, so a running server re-imports on its next pass). Until a printing has illustration data, the endpoint returns every printing of the card (`same_art: false`); the collector line then has to read the set code exactly to settle it.
+- **Cards the index doesn't know:** a bundle from 26 October doesn't know cards printed after it, and the bundle leaves out battles and art series. These score below 0.6 (wrong matches scored at most 0.58 in the eval), so the scanner reads their text instead. Move to a newer bundle by changing the tag and sums in `scan.rs` and rerunning the recognizer eval. ManaVault publishes a bundle every week or two.
+- **Re-arming:** after Add (or Not this), the same artwork isn't found again until the card leaves the view or another card shows, so one card is never added twice by accident. Copies (1 to 10) are chosen on the result.
+- **Typing instead:** "Or type the name" opens the same printing picker.
+
+### Measured [ran]
+
+Node 26, onnxruntime-web 1.31.1 WASM on one thread, M3 Pro. The 26 eval cards rendered into 1080 × 1440 phone frames with **no guide to line up with**, scaled to a 640 px short side as the app does (`eval/recognizer.test.ts`):
+
+| Variant | Scans | Card found | Right card | Wrong with score ≥ 0.8 | Median corner error | Median ms |
+|---|---|---|---|---|---|---|
+| off-centre (anywhere, 75 to 115% size, ±12°) | 26 | 100% | 96% | 0 | 2.5% | 161 |
+| tilted 20-35° | 26 | 100% | 96% | 0 | 2.8% | 162 |
+| sideways (90°) | 26 | 100% | 100% | 0 | 5.8% | 162 |
+| upside down | 26 | 100% | 96% | 0 | 6.4% | 161 |
+| small (a third of the frame width) | 26 | 96% | 92% | 0 | 4.3% | 161 |
+| rough (dark, glare, blur, black mat) | 26 | 96% | 92% | 0 | 5.2% | 161 |
+| steady, in the old guide | 26 | 96% | 96% | 0 | 1.6% | 161 |
+| far, in the old guide | 26 | 100% | 96% | 0 | 1.9% | 160 |
+| **all** | 208 | **99%** | **96%** | **0** | 3.1% | 161 |
+
+Right answers scored 0.76 to 0.99 (median 0.97); wrong ones at most 0.58. Every miss is the battle (not in the index; it goes to OCR) or the full-art Forest when small or under glare. The OCR scanner got 82% on easier scenes that were lined up with the guide.
+
+In desktop Chromium against the local server ("Use a photo", synthetic photos): an off-centre WOC Arcane Signet was recognised in 199 ms; 32 printings share its art, and the collector line ("WOC • EN", number misread as 0149) picked WOC #145. An upside-down ECC Sol Ring was the only printing with its art. The STA Counterspell and the borderless DMU Sheoldred #290 (which the OCR scanner couldn't place) were settled by the collector line. The off-centre battle fell back to OCR and was read by name with a quarter-turned quad, leaving two printings to pick from.
+
+## How the OCR pipeline works
 
 ```
 frame ─▶ grey ─▶ guide quad ─▶ snap to the card's edges (locate.ts)
@@ -122,23 +164,23 @@ Every miss with an upright card is the battle (Invasion of Tolvada, printed side
 | tesseract.js-core 7.0.0 (WASM) | Apache-2.0 [read: npm] | loaded by tesseract.js |
 | `@tesseract.js-data/eng` 4.0.0_best_int | MIT package [read: npm]; the data is Tesseract's `tessdata_best`, Apache-2.0 [read] | downloaded at runtime (2.95 MB) |
 | jpeg-js 0.4.4 | BSD-3-Clause [read: npm] | dev dependency, eval harness only |
-| onnxruntime-web 1.30.0 | MIT [read: npm] | eval only, downloaded to /tmp; not a dependency |
+| onnxruntime-web 1.31.1 | MIT [read: npm] | dependency of `web`; its WASM runtime is a build asset |
 | cfbender/oracle code and `models/*.pt` | MPL-2.0 [read: repo licence] | not used directly |
-| ManaVault scanner bundle (ONNX weights, gallery) | MPL-2.0 (published as releases of `cfbender/manavault`, an MPL-2.0 repo; the bundle has no separate licence file) [read] | eval only, downloaded to /tmp |
+| ManaVault scanner bundle (ONNX weights, gallery) | MPL-2.0 (published as releases of `cfbender/manavault`, an MPL-2.0 repo; the bundle has no separate licence file) [read] | downloaded by the server, served unmodified to the app (the artwork index reduced to fewer fields); source: <https://github.com/cfbender/manavault/releases> and <https://github.com/cfbender/oracle> |
 | Oracle's recogniser starting point | torchvision MobileNetV3-Small `IMAGENET1K_V1` weights, fine-tuned on Scryfall art crops and the author's captures [read: `cardid/model.py`, CONTRIBUTING] | |
 | CollectorVision code and `milo` model | AGPL-3.0 [read: GitHub, Hugging Face model card] | not used |
 | Scryfall images | Wizards' copyright, served under Scryfall's guidelines | 26 test images in /tmp, never committed |
 
-MPL-2.0 is file-level copyleft: if we ship the bundle files inside the app (TestFlight counts as distribution), those files' source must stay available, which it already is upstream. Our own code can stay private [inferred, not legal advice]. The ImageNet starting weights and the Scryfall training images are the usual grey areas of hobby vision models; for a private, free, invite-only app this seems fine, but it is a judgment call for Bryan [inferred].
+MPL-2.0 is file-level copyleft: when we serve the bundle files to browsers, those files' source must stay available, which it is upstream (linked above). Our glue (`recognizer.ts`, `art.worker.ts`) is our own, written from the graphs' inputs and outputs, so it stays private [inferred, not legal advice]. The ImageNet starting weights and the Scryfall training images are the usual grey areas of hobby vision models; for a private, free, invite-only app this seems fine, but it is a judgment call for Bryan [inferred].
 
-## The prototype
+## Using it
 
 ```ts
 import { ScannerView } from "./scanner";
-<ScannerView onAccept={(card) => addToCollection(card)} onClose={() => navigate(-1)} />
+<ScannerView onAccept={(card, copies) => addToCollection(card, copies)} onClose={() => navigate(-1)} />
 ```
 
-`card` is a `ScanCandidate`: `{ name, set?, number?, lang?, scryfall_id?, image?, confidence, method }`. `method` is `"collector+name"`, `"collector"` or `"name"`; a `"name"` result has no printing and should open a printing picker.
+`card` is a `ScanCandidate`: `{ name, set?, number?, lang?, scryfall_id?, image?, confidence, method }`. `method` is `"art"`, `"collector+name"`, `"collector"` or `"name"`. Unless `identityOnly` is set, `onAccept` is only offered once the printing is settled, so `scryfall_id` is always there.
 
 For other uses, the pipeline is pure:
 
@@ -162,11 +204,15 @@ Files, all under `web/src/scanner/`:
 | `fuzzy.ts` | trigram plus fitting-edit-distance name index |
 | `pick.ts` | `pickPrinting`: printing from title plus partial collector read |
 | `tesseract.ts` | `OcrEngine` on tesseract.js (two workers) |
+| `recognizer.ts` | the art recognizer: detector, embed and search graphs (ONNX Runtime passed in) |
+| `art.worker.ts`, `artClient.ts` | the recognizer in a web worker; bundle download and Cache API |
+| `printings.ts` | `printingOptions` (`/api/scan/printings`) and `choosePrinting` |
+| `printings.test.ts` | unit tests for the printing choice and the recognizer's pure parts |
 | `serverCatalog.ts` | `ScanCatalog` on the server API and the offline card bundle |
 | `ScannerView.tsx`, `scanner.css` | camera screen |
 | `dev.html`, `dev.tsx` | stand-alone page: `http://localhost:5173/src/scanner/dev.html` |
 | `scanner.test.ts` | unit tests, part of `npm test` |
-| `eval/` | accuracy harness: fixtures, scene simulator, DB catalog, `eval.test.ts`, `embedding.test.ts` |
+| `eval/` | accuracy harness: fixtures, scene simulator, DB catalog, `eval.test.ts` (OCR), `recognizer.test.ts` (art, free-hand), `embedding.test.ts` (the 2026-10-18 spike) |
 
 Run the evals (need `data/yama.db`; they download card images and models into `/tmp/yama-scanner-spike` on first run):
 
@@ -174,16 +220,15 @@ Run the evals (need `data/yama.db`; they download card images and models into `/
 SCANNER_EVAL=1 npx vitest run web/src/scanner/eval/eval.test.ts            # OCR, default quad only, about 1.5 min
 SCANNER_EVAL=1 SCANNER_EVAL_QUADS=refined,guide,truth npx vitest run web/src/scanner/eval/eval.test.ts  # all three, about 4 min
 SCANNER_EMBED_EVAL=1 npx vitest run web/src/scanner/eval/embedding.test.ts # embeddings, 50 MB download, about 90 s
+SCANNER_RECOGNIZER_EVAL=1 SCANNER_BUNDLE_DIR=data/scan-bundle/<version> npx vitest run web/src/scanner/eval/recognizer.test.ts  # art, free-hand, about 2 min
 ```
 
 ## Left for a real phone test
 
-1. **HTTPS.** Phones only open the camera on https or localhost. Run Vite with a dev certificate (for example `@vitejs/plugin-basic-ssl`, MIT) and open it on the LAN, or test in the Capacitor shell. Until then, "Use a photo instead" works over plain http.
-2. **Self-host the OCR files** so it works offline: copy `tesseract.js/dist/worker.min.js`, one `tesseract.js-core` WASM build and `eng.traineddata.gz` into `web/public/` and pass `workerPath`, `corePath` and `langPath` to `createTesseractOcr`.
-3. **A real eval set.** Photograph the October purchases (`commander-decks/data/purchases.json` gives set and number for each) in sleeves, under room light, foils included, and rerun both evals on them. Replace the 0.8/0.95 thresholds with ones measured there.
-4. **Speed on Bryan's iPhone**, per frame and for the first load (workers and model). If OCR is over about 500 ms, try one worker with the title read only when needed, or the native OCR route.
-5. **Server:** add `GET /api/sets` (codes only). Without it `createServerCatalog` treats any 2 to 5 character code as plausible, which costs extra 404 lookups and weakens lookalike correction.
-6. **Then the hybrid:** port the embed and search glue (our own code), cache the bundle in IndexedDB, map `arts.json` entries to our printings by set and number, and keep OCR for the printing and for battles.
+1. **Live camera on Bryan's phone.** Everything above is synthetic photos and desktop Chromium; the camera loop (lock thresholds 0.82 once or 0.62 twice, re-arming between cards) hasn't run on a phone. Check frame time (the target was 250 ms), the first-open download, sleeves and foil glare.
+2. **A real eval set.** Photograph real cards (the October purchases give set and number for each), sleeved, under room light, foils included, and rerun `recognizer.test.ts` and `eval.test.ts` on them. Retune the thresholds there.
+3. **Collector-line reads on real cards.** Commander precon reprints share art (32 English Arcane Signets), so the printing often rests on reading the set code. If that fails often on a phone, a native OCR plugin (`OcrEngine` is the seam) is the next step.
+4. **Newer bundles.** Cards printed after the pinned bundle go to OCR. Bump the bundle when a set Bryan buys is out.
 
 ## Sources
 

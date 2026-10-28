@@ -94,7 +94,7 @@ async fn run_from(
 pub fn importer_version(kind: &str) -> i64 {
     match kind {
         "oracle_cards" => 3, // 2: game_changer; 3: produced_mana (both migration 0008)
-        "default_cards" => 2, // 2: digital, set_type (migration 0008)
+        "default_cards" => 3, // 2: digital, set_type (migration 0008); 3: illustration IDs (0034)
         _ => 1,
     }
 }
@@ -407,6 +407,8 @@ struct Face {
     oracle_id: Option<String>,
     #[serde(default, skip_serializing)]
     image_uris: Option<ImageUris>,
+    #[serde(default, skip_serializing)]
+    illustration_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -444,6 +446,9 @@ struct ScryCard {
     card_faces: Option<Vec<Face>>,
     artist: Option<String>,
     // printing fields (default_cards)
+    /// The art's identity across printings (cards with one image; faces carry their own).
+    #[serde(default)]
+    illustration_id: Option<String>,
     #[serde(default)]
     set: String,
     #[serde(default)]
@@ -495,6 +500,14 @@ impl ScryCard {
             return None; // single image (split, adventure, flip…)
         }
         self.card_faces.as_ref()?.get(1)?.image_uris.as_ref()?.normal().cloned()
+    }
+
+    /// Illustration IDs of the front and, for cards with two images, the back.
+    fn illustrations(&self) -> (Option<&String>, Option<&String>) {
+        let face = |i: usize| self.card_faces.as_ref()?.get(i)?.illustration_id.as_ref();
+        let front = self.illustration_id.as_ref().or_else(|| face(0));
+        let back = if self.image_uris.is_some() { None } else { face(1) };
+        (front, back)
     }
 
     fn front(&self, get: fn(&Face) -> Option<&String>) -> Option<&String> {
@@ -676,11 +689,12 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
             }
             let Some(oracle_id) = c.oracle_id().map(str::to_string) else { continue };
             let images = c.front_images();
+            let (illustration, back_illustration) = c.illustrations();
             sqlx::query(
                 "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang,
                     rarity, finishes, released_at, image_normal, image_small, image_art_crop, back_image_normal,
-                    artist, digital, set_type, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    artist, digital, set_type, illustration_id, back_illustration_id, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                  ON CONFLICT(scryfall_id) DO UPDATE SET oracle_id=excluded.oracle_id, name=excluded.name,
                     set_code=excluded.set_code, set_name=excluded.set_name,
                     collector_number=excluded.collector_number, lang=excluded.lang, rarity=excluded.rarity,
@@ -688,6 +702,7 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
                     image_normal=excluded.image_normal, image_small=excluded.image_small,
                     image_art_crop=excluded.image_art_crop, back_image_normal=excluded.back_image_normal,
                     artist=excluded.artist, digital=excluded.digital, set_type=excluded.set_type,
+                    illustration_id=excluded.illustration_id, back_illustration_id=excluded.back_illustration_id,
                     updated_at=excluded.updated_at",
             )
             .bind(&c.id)
@@ -707,6 +722,8 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
             .bind(&c.artist)
             .bind(c.digital)
             .bind(&c.set_type)
+            .bind(illustration)
+            .bind(back_illustration)
             .bind(&stamp)
             .execute(&mut *tx)
             .await?;
@@ -795,16 +812,16 @@ mod tests {
       {"id":"p1","oracle_id":"o1","name":"Sol Ring","layout":"normal","mana_cost":"{1}","cmc":1.0,
        "type_line":"Artifact","oracle_text":"{T}: Add {C}{C}.","colors":[],"color_identity":[],
        "produced_mana":["C"],"keywords":[],"legalities":{"commander":"legal","vintage":"restricted"},"rarity":"uncommon",
-       "image_uris":{"small":"s","normal":"n","art_crop":"a"},"set":"cmm","set_name":"Commander Masters",
+       "image_uris":{"small":"s","normal":"n","art_crop":"a"},"illustration_id":"ill-sol","set":"cmm","set_name":"Commander Masters",
        "collector_number":"410","lang":"en","finishes":["nonfoil","foil"],"digital":false,"set_type":"masters",
        "prices":{"usd":"1.50","usd_foil":null,"eur":"1.20","tix":null}},
       {"id":"p2","oracle_id":"o2","name":"Fable of the Mirror-Breaker // Reflection of Kiki-Jiki",
        "layout":"transform","cmc":3.0,"type_line":"Enchantment — Saga // Enchantment Creature — Goblin Shaman",
        "colors":["R"],"color_identity":["R"],"legalities":{"commander":"legal"},
        "card_faces":[{"name":"Fable of the Mirror-Breaker","mana_cost":"{2}{R}","type_line":"Enchantment — Saga",
-         "oracle_text":"(As this Saga enters...)","image_uris":{"normal":"front"}},
+         "oracle_text":"(As this Saga enters...)","image_uris":{"normal":"front"},"illustration_id":"ill-fable"},
         {"name":"Reflection of Kiki-Jiki","mana_cost":"","type_line":"Enchantment Creature — Goblin Shaman",
-         "oracle_text":"{1}, {T}: Create a token...","power":"2","toughness":"2","image_uris":{"normal":"back"}}],
+         "oracle_text":"{1}, {T}: Create a token...","power":"2","toughness":"2","image_uris":{"normal":"back"},"illustration_id":"ill-kiki"}],
        "set":"neo","set_name":"Kamigawa: Neon Dynasty","collector_number":"141","lang":"en","finishes":["nonfoil"],
        "prices":{"usd":null}},
       {"id":"p3","oracle_id":"o3","name":"Art","layout":"art_series","set":"x","collector_number":"1","lang":"en"}
@@ -845,6 +862,11 @@ mod tests {
         let kinds: Vec<(String, Option<bool>, Option<String>)> =
             sqlx::query_as("SELECT scryfall_id, digital, set_type FROM printings ORDER BY scryfall_id").fetch_all(&pool).await.unwrap();
         assert_eq!(kinds, vec![("p1".into(), Some(false), Some("masters".into())), ("p2".into(), None, None)]);
+
+        // Art identity for the scanner: the card's, or each face's when the faces have their own images.
+        let arts: Vec<(String, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT scryfall_id, illustration_id, back_illustration_id FROM printings ORDER BY scryfall_id").fetch_all(&pool).await.unwrap();
+        assert_eq!(arts, vec![("p1".into(), Some("ill-sol".into()), None), ("p2".into(), Some("ill-fable".into()), Some("ill-kiki".into()))]);
 
         // Missing prices stay missing; a printing with no prices at all gets no row.
         let prices: Vec<(String, Option<f64>, Option<f64>)> =

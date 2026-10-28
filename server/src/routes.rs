@@ -51,6 +51,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::plan::router())
         .merge(crate::lab::router())
         .merge(crate::public_precons::router())
+        .merge(crate::scan::router(&state.cfg.data_dir))
         .merge(crate::advisor::router())
         .merge(crate::mcp::router())
         .merge(crate::mcp::changes::router())
@@ -102,6 +103,9 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         crate::cards::import::spawn_scheduler(pool.clone(), cfg.data_dir.clone());
         crate::calendar::spawn_scheduler(pool.clone(), http_client());
         crate::deck_prices::spawn_scheduler(pool.clone(), http_client());
+        // The scanner's recognition bundle, so the first scan doesn't wait on the download.
+        let (dir, http) = (cfg.data_dir.clone(), http_client());
+        tokio::spawn(async move { crate::scan::ensure(dir, http).await });
     }
     if cfg.deck_checks {
         crate::deck_checks::spawn_worker(pool.clone(), http_client(), crate::deck_checks::SPELLBOOK_ESTIMATE_URL.into());

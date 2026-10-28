@@ -463,30 +463,25 @@ function ScanToCollection({ containers, onClose }: { containers: Container[]; on
   const [added, setAdded] = useState<{ name: string; set?: string }[]>([]);
   const [error, setError] = useState<unknown>(null);
 
-  const accept = async (c: ScanCandidate) => {
+  const accept = async (c: ScanCandidate, copies: number) => {
     try {
-      // A name-only read has no printing; use the card's default printing and fix it later if needed.
-      let id = c.scryfall_id;
-      if (!id) {
-        const r = await api<{ cards: { default_printing: string | null }[] }>(`/api/cards/search?q=${encodeURIComponent(`!"${c.name}"`)}`);
-        id = r.cards[0]?.default_printing ?? undefined;
-      }
-      if (!id) throw new Error(`Couldn't find a printing for ${c.name}`);
+      // The scanner only offers Add once the printing is settled (read from the card or picked).
+      if (!c.scryfall_id) throw new Error(`Pick the printing of ${c.name} first`);
       await api("/api/collection/ops", {
         method: "POST",
         json: [
           {
             op_id: crypto.randomUUID(),
             kind: "add",
-            scryfall_id: id,
-            qty: 1,
+            scryfall_id: c.scryfall_id,
+            qty: copies,
             finish: finish === "proxy" ? "nonfoil" : finish,
             proxy: finish === "proxy",
             container_id: container || null,
           },
         ],
       });
-      setAdded((a) => [{ name: c.name, set: c.set?.toUpperCase() }, ...a]);
+      setAdded((a) => [...Array.from({ length: copies }, () => ({ name: c.name, set: c.set?.toUpperCase() })), ...a]);
       setError(null);
       void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
     } catch (e) {
@@ -518,10 +513,10 @@ function ScanToCollection({ containers, onClose }: { containers: Container[]; on
     <div className="scan-overlay">
       <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
         <ScannerView
-          onAccept={(c) => void accept(c)}
+          onAccept={(c, copies) => void accept(c, copies)}
           onClose={onClose}
           addedCount={added.length}
-          recent={added.map((a) => a.name)}
+          recent={[...new Set(added.map((a) => (a.set ? `${a.name} (${a.set})` : a.name)))]}
           finish={finish === "proxy" ? "nonfoil" : finish}
           controls={controls}
           acceptLabel="Add and scan next"

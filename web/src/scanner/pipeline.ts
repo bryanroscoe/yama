@@ -123,6 +123,17 @@ export async function decide(collectorText: string, nameText: string, opts: Pick
   return byName ? [byName] : [];
 }
 
+/**
+ * OCR of the collector line alone, for a card whose quad is already known (the art recognizer's).
+ * The quad is snapped to the card's edges first when they are clear.
+ */
+export async function readCollectorLine(frame: RgbaImage, quad: Quad, ocr: OcrEngine): Promise<string> {
+  const gray = toGray(frame);
+  const q = refineQuad(gray, quad) ?? quad;
+  const res = await ocr.read(crop(gray, q, COLLECTOR_REGION, COLLECTOR_DENSITY, false), { mode: "block", whitelist: COLLECTOR_WHITELIST });
+  return res.text;
+}
+
 interface Attempt {
   candidates: ScanCandidate[];
   collector: OcrResult;

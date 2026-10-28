@@ -61,12 +61,16 @@ export interface CatalogPrinting {
   image?: string | null;
 }
 
-export type ScanMethod = "collector" | "collector+name" | "name";
+/**
+ * How the card was recognised: by its artwork ("art"), or by reading text: the collector line
+ * and title together, the collector line alone, or the title alone ("name", which settles no printing).
+ */
+export type ScanMethod = "art" | "collector" | "collector+name" | "name";
 
 export interface ScanCandidate {
   /** Card name as the catalog spells it. */
   name: string;
-  /** Present when the printing was read from the collector line. */
+  /** Present once the printing is settled (read from the card, or picked). */
   set?: string;
   number?: string;
   lang?: string;
