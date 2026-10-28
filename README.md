@@ -15,6 +15,12 @@ site before signing in at the new address; installed apps and MCP connectors nee
 
 ## What works today
 
+Historical evidence can be imported as private, immutable [datasets](docs/datasets.md)
+from JSON or gzip, read through authenticated APIs and the `datasets`/`dataset` MCP
+tools, and inspected with 180-day-default descriptive monthly weighting. Overlapping
+snapshots, activity counts and undated ELO sequences keep their own meanings; imports
+do not publish rankings or change decks and games.
+
 The signed-out home page highlights the public precon reference and MCP guide, explains what
 an account adds, and keeps Google sign-in directly accessible. OAuth and private links use a
 focused sign-in view.

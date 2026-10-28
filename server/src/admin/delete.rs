@@ -50,6 +50,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("collection_items", "owner_id"),
     ("containers", "owner_id"),
     ("decks", "owner_id"),
+    ("evidence_datasets", "owner_id"),
     ("game_seats", "user_id"),
     ("games", "created_by"),
     ("invites", "invited_by"),
@@ -91,6 +92,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
 /// Tables the account's own rows are simply deleted from, children before parents. Tables that
 /// need more than a delete (games, playgroups, online games, invites) are handled before these.
 const OWNED_DELETES: &[(&str, &str)] = &[
+    ("evidence_datasets", "owner_id"),
     ("research_reviews", "owner_id"),
     ("research_review_ops", "owner_id"),
     ("research_reports", "owner_id"),
