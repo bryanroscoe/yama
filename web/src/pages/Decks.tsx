@@ -389,13 +389,18 @@ export function DeckPage() {
         {planLink && <div className="phone-only deck-plan-phone" inert={deck.isPlaceholderData}>{planLink}</div>}
         <div className="row deck-actions-phone" inert={deck.isPlaceholderData}>
           <button className="outline" onClick={() => setEditing(true)}>Edit deck</button>
-          <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
-          <button className="outline" onClick={() => setCollecting(true)}>Add to my collection</button>
-          <button className="outline" onClick={() => setSharing(true)}>Share</button>
-          <button className="outline" onClick={() => setExporting(true)}>Export</button>
-          <button className="outline" onClick={() => setHistory(true)}>History</button>
-          <button className="outline" onClick={() => setConfiguring(true)}>New configuration</button>
-          <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
+          <details className="deck-actions-more">
+            <summary>More actions</summary>
+            <div className="deck-extra-actions">
+              <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+              <button className="outline" onClick={() => setCollecting(true)}>Add to my collection</button>
+              <button className="outline" onClick={() => setSharing(true)}>Share</button>
+              <button className="outline" onClick={() => setExporting(true)}>Export</button>
+              <button className="outline" onClick={() => setHistory(true)}>History</button>
+              <button className="outline" onClick={() => setConfiguring(true)}>New configuration</button>
+              <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
+            </div>
+          </details>
         </div>
 
         {/* The status row: legality, the plan for this deck, and its simulated strength. */}
@@ -522,7 +527,7 @@ export function DeckPage() {
           </>
         )}
         <p className="small dim">
-          Prices are each card's cheapest printing, for one copy: {priced}. A market price isn't a quote from any store.
+          Cheapest printing per copy. {priced}.
         </p>
 
         {/* Everything else about the deck, under the cards. */}

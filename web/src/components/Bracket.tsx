@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { api, type Combo, type DeckCheck, type Estimated } from "../api";
 import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, localDay, pollAfter, SENDS_LIST } from "./deckCheck";
 import { NameList } from "./OnlineSupport";
-import { ErrorText } from "./ui";
+import { Details, ErrorText } from "./ui";
 import "./decks.css";
 
 /** The Commander brackets, as Wizards names them. */
@@ -129,11 +129,12 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
 
       {status && <p className="note" role="status">{status}</p>}
       <ErrorText error={again.error} />
-      {r ? <div className="bracket-reason">
-        <h3>Why this suggestion?</h3>
-        <p className="note">{estimateExplanation(r.bracket_tag)}</p>
-        <button className="name-link small" onClick={onDeclare}>Choose or change your bracket</button>
-      </div> : <p className="note">Yama suggests a starting bracket from the card list. Your declared bracket is what you tell the table, based on the deck's speed, consistency and intended play experience.</p>}
+      <Details label={r ? "Why this suggestion?" : "About bracket suggestions"}>
+        <p>{r ? estimateExplanation(r.bracket_tag) : "Yama suggests a starting bracket from the card list. Your declared bracket is what you tell the table, based on the deck's speed, consistency and intended play experience."}</p>
+        {r && <p>{gameChangerFloor(r.game_changers.length)}</p>}
+        {r && <p>Commander Spellbook counts your commander as always available, so it isn't counted as a combo piece. A listed combo doesn't establish how early it wins. Yama uses Core (2) as a provisional starting point when no higher-bracket signals are found.</p>}
+      </Details>
+      {r && <button className="name-link small" onClick={onDeclare}>Choose or change your bracket</button>}
       <BracketGuide />
 
       {r ? (
@@ -147,7 +148,6 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
                 ) : (
                   <>. <NameList names={r.game_changers} onCard={onCard} /></>
                 ))}
-              <p>{gameChangerFloor(r.game_changers.length)}</p>
             </li>
             <li>
               <b>Mass land denial:</b> {r.mld.length ? <NameList names={r.mld} onCard={onCard} /> : "none"}
@@ -179,7 +179,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
             </details>
           )}
           <p className="note">
-            Card-list signals and combos from <a href={SPELLBOOK} target="_blank" rel="noreferrer">Commander Spellbook</a>, counted its way: your commander is always available, so it isn't counted as a piece. A combo being listed doesn't by itself establish how early it wins. Yama uses Core (2) as a provisional starting point when no higher-bracket signals are found.
+            Card-list signals and combos from <a href={SPELLBOOK} target="_blank" rel="noreferrer">Commander Spellbook</a>.
           </p>
         </>
       ) : (

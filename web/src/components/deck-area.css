@@ -53,7 +53,7 @@
   .area-top > .deck-sections > a {
     flex: 1;
     justify-content: center;
-    min-height: 40px;
+    min-height: 44px;
   }
   .is-index .area-wide {
     display: none;

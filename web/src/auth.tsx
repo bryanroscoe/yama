@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, setToken, type User } from "./api";
-import { ErrorText } from "./components/ui";
+import { Details, ErrorText } from "./components/ui";
 import { outbox } from "./plan/outbox";
 import { discardQuestion, signOut, within } from "./plan/signout";
 import { clearPlanData } from "./plan/store";
@@ -193,7 +193,7 @@ export function Login() {
           <p style={{ margin: "0 0 8px" }}>An app wants to connect to your Yama. Sign in first; you'll see what it asks for before anything is shared.</p>
         )}
         {config.data?.open_signup ? (
-          <p className="dim" style={{ margin: 0 }}>Anyone with a verified Google account can join. Yama is free. Your decks, collection and research stay private to your account.</p>
+          <p className="dim" style={{ margin: 0 }}>Free with a verified Google account.</p>
         ) : (
           <p className="dim" style={{ margin: 0 }}>Yama is invite-only. Use the {clientId ? "Google account" : "account"} your host added.</p>
         )}
@@ -263,7 +263,10 @@ export function Login() {
         </form>
       )}
       <ErrorText error={error ?? config.error} />
-      <p className="small dim" style={{ margin: 0 }}>Offline? The life counter still opens on any phone that has signed in before.</p>
+      <Details label="Accounts and offline use">
+        <p>Your data stays private unless you choose to share a deck or collection.</p>
+        <p>The life counter works offline on a phone that has signed in before.</p>
+      </Details>
     </Landing>
   );
 }

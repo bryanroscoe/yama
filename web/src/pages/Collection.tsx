@@ -170,7 +170,7 @@ export function CollectionPage() {
             )}
           </ul>
           <p className="small dim coll-note">
-            Values are {priced}.{" "}
+            {priced}.{" "}
             {tiles.some((t) => t.art) ? artCredits(tiles.filter((t) => t.art).map((t) => t.artist)) : ""}
           </p>
         </section>
@@ -245,10 +245,13 @@ export function CollectionPage() {
         )}
         {!!items.data?.length && (
           <p className="small dim coll-note">
-            Each price is the TCGplayer market price via Scryfall on {day}, for one copy in its finish. It isn't a quote from any store.
+            TCGplayer market via Scryfall, {day}.
             {thumbArtists.length > 0 ? ` ${artCredits(thumbArtists)}` : ""}
           </p>
         )}
+        {!!items.data?.length && <Details label="About collection prices">
+          <p>Prices are per copy in its finish. Market values are not store quotes or resale offers. Proxies are excluded from collection value; missing prices stay unpriced.</p>
+        </Details>}
         <a className="button outline coll-export-narrow" href={`${API_BASE}/api/collection/export.csv`}>Export CSV</a>
       </section>
 

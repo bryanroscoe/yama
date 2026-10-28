@@ -106,7 +106,7 @@ fn meta(p: &Precon, detailed: bool) -> String {
     };
     let components = if detailed {
         format!(
-            "<p>Real-game percentile <strong>{:.1}</strong>. Simulation percentile <strong>{:.1}</strong>.</p><p class=\"dim\">{} precons have at least 20 games in real results and each published engine. Higher scores mean stronger ordering across those sources.</p>",
+            "<details><summary>Score breakdown</summary><p>Real-game percentile <strong>{:.1}</strong>. Simulation percentile <strong>{:.1}</strong>.</p><p>{} precons have at least 20 games in real results and each published engine.</p><p>50% real-game percentile + 50% mean simulation percentile. This score is an ordering, not a win rate.</p></details>",
             m.real_percentile, m.simulation_percentile, m.cohort
         )
     } else {
@@ -299,7 +299,12 @@ fn package_summary(u: &crate::upgradeability::Assessment, full: bool) -> String 
     };
     let mut out = match p.best_supported_score {
         Some(n) => format!(
-            "<strong>Highest supported in-box upgrade grade: {n}/5 {}</strong>",
+            "<strong>{}{n}/5 {}</strong>",
+            if full {
+                "Highest supported in-box upgrade grade: "
+            } else {
+                ""
+            },
             e(p.best_supported_label)
         ),
         None => "<strong>Package ungraded</strong>".into(),
@@ -309,8 +314,14 @@ fn package_summary(u: &crate::upgradeability::Assessment, full: bool) -> String 
     }
     write!(
         out,
-        "<small>{}/{} commander configurations graded. Unassessed options may be stronger.</small>",
-        p.graded_configurations, p.configurations
+        "<small>{}/{} configurations graded{}</small>",
+        p.graded_configurations,
+        p.configurations,
+        if full {
+            ". Unassessed options may be stronger."
+        } else {
+            ""
+        }
     )
     .unwrap();
     if full {
@@ -422,7 +433,7 @@ fn upgradeability(p: &Precon, full: bool) -> String {
 }
 
 fn real(p: &Precon, detailed: bool) -> String {
-    p.real_games.as_ref().map(|r|format!("<a class=\"result-value\" href=\"{}\">{:.1}%</a><small>{} stock games</small>{}",e(&r.url),r.win_rate_4p,count(r.games),if detailed{format!("<p class=\"dim\">Playgroup.gg, fetched {}. Normalised to four players; pilots and opponents differ from the simulation. This is observed evidence, not a personal win-rate forecast.</p>",when(r.fetched_at.as_deref().unwrap_or("")))}else{String::new()})).unwrap_or_else(||"<span class=\"dim\">No real-game data</span>".into())
+    p.real_games.as_ref().map(|r|format!("<a class=\"result-value\" href=\"{}\">{:.1}%</a><small>{} stock games</small>{}",e(&r.url),r.win_rate_4p,count(r.games),if detailed{format!("<p class=\"dim\">Playgroup.gg, fetched {}.</p><details><summary>About real-game results</summary><p>Normalised to four players; pilots and opponents differ from the simulation. This is observed evidence, not a personal win-rate forecast.</p></details>",when(r.fetched_at.as_deref().unwrap_or("")))}else{String::new()})).unwrap_or_else(||"<span class=\"dim\">No real-game data</span>".into())
 }
 fn price(p: &Precon, detailed: bool) -> String {
     let singles = &p.singles_value;
@@ -436,7 +447,7 @@ fn price(p: &Precon, detailed: bool) -> String {
         return sealed;
     }
     format!(
-        "<section class=\"public-panel\"><p class=\"eyebrow\">Market references</p><h2>What it costs</h2><div class=\"price-pair\"><div><h3>Sealed deck</h3>{sealed}</div><div><h3>Singles replacement</h3><span class=\"result-value\">{}</span><small>TCGplayer / Scryfall</small><small>{dates}</small></div></div><p class=\"dim\">{} priced copies; {} without a price{}. Market references are not store quotes, proof of availability or resale offers.</p></section>",
+        "<section class=\"public-panel\"><p class=\"eyebrow\">Market references</p><h2>What it costs</h2><div class=\"price-pair\"><div><h3>Sealed deck</h3>{sealed}</div><div><h3>Singles replacement</h3><span class=\"result-value\">{}</span><small>TCGplayer / Scryfall</small><small>{dates}</small></div></div><p class=\"dim\">{} priced copies; {} without a price{}.</p><details><summary>About market prices</summary><p>Market references are not store quotes, proof of availability or resale offers. Singles estimate the cost of replacing the list, rather than what you could sell it for.</p></details></section>",
         usd(singles.usd),
         singles.priced_copies,
         singles.unpriced_copies,
@@ -540,20 +551,20 @@ pub(super) async fn index(
         )
         .unwrap();
     }
-    write!(body,"<span class=\"source-chip\">Playgroup.gg</span>{}</div><div class=\"rank-intro\"><div><h2>The rankings</h2><span class=\"source-chip\">Experimental meta</span></div><p>",run_line(data.publication.as_ref())).unwrap();
+    write!(body,"<span class=\"source-chip\">Playgroup.gg</span>{}</div><div class=\"rank-intro\"><div><h2>The rankings</h2><span class=\"source-chip\">Experimental meta</span></div><details class=\"ranking-help\"><summary>About these results</summary><div class=\"details-body\">",run_line(data.publication.as_ref())).unwrap();
     if data.meta_cohort >= 4 {
         write!(
             body,
-            "Half real-game ordering, half simulation ordering across {} shared decks. ",
+            "<p>Half real-game ordering, half simulation ordering across {} shared decks.</p>",
             data.meta_cohort
         )
         .unwrap();
     } else {
         body.push_str(
-            "Meta ranks await enough shared evidence. Browse the available source results. ",
+            "<p>Meta ranks await enough shared evidence. Browse the available source results.</p>",
         );
     }
-    body.push_str("<a href=\"/precons/methodology#meta\">See the formula</a>.</p></div>");
+    body.push_str("<p>Meta scores summarise source orderings, not a chance of winning. Decks missing shared data stay unranked. Win rates describe different fields; the dashed mark shows the 25% equal-deck baseline.</p><p>Upgradeability shows the highest supported in-box grade and the configurations assessed. Unassessed commanders may be stronger. Open a deck for its reasoning, source dates and the 1–5 rubric.</p><a href=\"/precons/methodology\">Sources and methodology ↗</a></div></details></div>");
     write!(body,"<form class=\"public-filters\" method=\"get\" action=\"/precons\" aria-label=\"Filter precons\"><label class=\"search\"><span class=\"sr-only\">Search</span><input type=\"search\" name=\"q\" value=\"{}\" maxlength=\"200\" placeholder=\"Search deck, commander or set\"></label><label><span class=\"sr-only\">Sort</span><select name=\"s\">",e(&filters.q)).unwrap();
     for (value, label) in [
         ("meta", "Meta rank"),
@@ -625,7 +636,12 @@ pub(super) async fn index(
     let pages = matched.div_ceil(24).max(1);
     let current = filters.page.max(1).min(pages);
     let start = (current - 1) * 24;
-    write!(body,"<p class=\"table-note\">{} of {total} decks<span>Win rates describe different fields. Dashed mark: 25% equal-deck baseline.</span></p>",matched).unwrap();
+    write!(
+        body,
+        "<p class=\"table-note\">{} of {total} decks</p>",
+        matched
+    )
+    .unwrap();
     if matched == 0 {
         body.push_str("<div class=\"empty-state\"><h2>No matching precons</h2><p>Try a commander, a different color or <a href=\"/precons\">clear the filters</a>.</p></div>");
     } else {
@@ -678,8 +694,6 @@ pub(super) async fn index(
         }
         body.push_str("</div></nav>");
     }
-    body.push_str("<p class=\"dim\">Upgradeability grades use cited guides, checked card examples and the stated commander’s restrictions. Open a deck for the reasoning, source dates, commander game counts and the 1–5 rubric. Unsupported grades have been withdrawn; ungraded configurations remain listed. Sorting uses the highest supported in-box upgrade grade; each named configuration retains its own assessment. Unassessed commanders may be stronger.</p>");
-    body.push_str("<aside class=\"reading-note\"><h3>Reading the rankings</h3><p>Meta scores summarise source orderings, not a chance of winning. Engine cautions remain part of the evidence. Decks missing shared data stay unranked. Open a deck for source dates, intervals, limitations and its complete stock list.</p><a href=\"/precons/methodology\">Read the methodology ↗</a></aside>");
     Ok(response(
         &headers,
         page(
@@ -730,7 +744,7 @@ pub(super) async fn detail(
     write!(body,"<div class=\"art-heading\"><p class=\"eyebrow\">Stock Commander precon</p><h1>{}</h1><p>{}</p><div class=\"deck-meta\">{}<span>{} / {} / {} cards</span></div></div><p class=\"art-credit\">{}</p></section><div class=\"public-actions\"><a class=\"button primary\" href=\"/precons/{}/decklist.txt\">Download stock list</a><a class=\"button\" href=\"/decks/lab/p/{}\">Sign in to save this deck</a><a class=\"text-action\" href=\"/decks/lab/try?precon={}\">Sign in to try a change ↗</a></div>",e(&p.name),e(&p.commanders.join(" and ")),colors(p),e(p.set_name.as_deref().unwrap_or(&p.set_code)),when(p.released.as_deref().unwrap_or("")),p.card_count,credit(p),e(&p.id),e(&p.id),e(&p.id)).unwrap();
     body.push_str("<section class=\"evidence-heading\"><div><p class=\"eyebrow\">Read the evidence</p><h2>How it compares</h2></div><a href=\"/precons/methodology\">Sources &amp; method ↗</a></section><div class=\"public-evidence\"><section class=\"public-panel meta-panel\"><span class=\"source-chip\">Experimental</span><h3>Meta rank</h3>");
     body.push_str(&meta(p, true));
-    body.push_str("<p class=\"dim\">50% real-game percentile + 50% mean simulation percentile. This score is an ordering, not a win rate.</p></section><section class=\"public-panel\"><p class=\"eyebrow\">Human tables</p><h3>Real-game win rate</h3>");
+    body.push_str("</section><section class=\"public-panel\"><p class=\"eyebrow\">Human tables</p><h3>Real-game win rate</h3>");
     body.push_str(&real(p, true));
     body.push_str("</section>");
     for source in data.publication.iter().chain(data.comparisons.iter()) {
@@ -879,8 +893,9 @@ pub(crate) fn stylesheet() -> &'static (String, String) {
             .map(|(tokens, _)| format!(":root {{{tokens}\n}}"))
             .unwrap_or_default();
         let body = format!(
-            "{tokens}\n{}",
-            include_str!("../../../web/public/precons.css")
+            "{tokens}\n{}\n{}",
+            include_str!("../../../web/public/precons.css"),
+            include_str!("../../../web/src/controls.css")
         );
         let path = format!("/precons/assets/style-{}.css", sha256_hex(&body));
         (body, path)

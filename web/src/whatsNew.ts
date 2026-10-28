@@ -26,6 +26,15 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/decks", label: "Open your decks" },
   },
   {
+    id: "2026-10-28-site-polish",
+    date: "2026-10-28",
+    title: "More room, less clutter",
+    items: [
+      "Dropdowns and expandable sections have more space around their arrows. Optional explanations now sit under named details on precons, deck stats, the Lab and planner pages.",
+    ],
+    link: { to: "/precons", label: "Browse precons" },
+  },
+  {
     id: "2026-10-28-scanner-art",
     date: "2026-10-28",
     title: "A faster scanner that gets the printing right",

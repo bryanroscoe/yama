@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { api, priceSource, usd, type Card, type SearchResult } from "../api";
 import { isNetworkError } from "../cardDetail";
-import { CardImage, ErrorText, Sheet } from "../components/ui";
+import { CardImage, Details, ErrorText, Sheet } from "../components/ui";
 import { offlineSearch } from "../offline/cards";
 import { ReleaseCalendar } from "../components/Upcoming";
 import { queryChips, withoutTerm } from "./cardQuery";
@@ -125,7 +125,9 @@ export function CardsPage() {
 
         {!q && (
           <div className="cards-help">
-            <p className="dim">Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>is:gamechanger</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
+            <Details label="Search syntax">
+              <p>Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>is:gamechanger</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
+            </Details>
             <div className="cards-chips">
               {EXAMPLES.map((e) => (
                 <button key={e.q} className="cards-chip" onClick={() => set({ q: e.q, page: "1" })}>{e.label}</button>

@@ -371,7 +371,7 @@
 }
 .grp-you button {
   flex: none;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 14px;
   font-size: var(--t-label);
 }

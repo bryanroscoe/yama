@@ -268,7 +268,8 @@ nav a[aria-current=page],nav a:hover {
 }
 .rank-intro {
   display:flex;
-  align-items:end;
+  align-items:center;
+  flex-wrap:wrap;
   justify-content:space-between;
   gap:24px;
   margin:28px 0 16px
@@ -279,16 +280,22 @@ nav a[aria-current=page],nav a:hover {
   flex-wrap:wrap;
   gap:14px
 }
-.rank-intro p {
-  max-width:47ch;
+.ranking-help {
+  border:0;
+  padding:0;
+  margin:0;
   font-size:13px;
   color:var(--dim)
 }
+.ranking-help[open] { flex-basis:100%; }
+.ranking-help .details-body { max-width:72ch; padding:8px 0 16px; }
+.ranking-help p { margin:0 0 12px; }
+.ranking-help summary { font-weight:700; }
 .public-filters {
   display:flex;
   align-items:start;
   flex-wrap:wrap;
-  gap:10px
+  gap:12px
 }
 .public-filters>.search {
   flex:1;
@@ -315,9 +322,6 @@ input,select,textarea {
   font:inherit;
   font-size:14px
 }
-select {
-  padding-right:24px
-}
 input::placeholder {
   color:var(--dim)
 }
@@ -333,8 +337,7 @@ textarea {
 .more-filters summary {
   padding:10px 12px;
   min-height:44px;
-  font-size:14px;
-  list-style:revert
+  font-size:14px
 }
 .more-filters[open] {
   width:100%;
@@ -1078,9 +1081,6 @@ dd {
   .rank-intro>div {
     gap:10px
   }
-  .rank-intro p {
-    font-size:12px
-  }
   .public-filters {
     gap:8px
   }
@@ -1097,7 +1097,7 @@ dd {
   .more-filters summary {
     padding-left:0;
     font-size:13px;
-    min-height:38px
+    min-height:44px
   }
   .filter-fields {
     gap:12px;

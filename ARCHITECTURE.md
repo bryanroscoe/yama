@@ -26,6 +26,12 @@ Getting off Mythic Tools has to be painless. Mythic Tools has no API, but its CS
 
 ## 2. Apps and code layout
 
+**Interface polish (2026-10-28):** routine guidance, calculation methods and extended caveats
+belong in labeled, collapsed disclosures. Keep field labels, errors, result confidence,
+missing-data states and dated source attribution visible. The React app and public HTML
+share `web/src/controls.css` for inset native-select chevrons and 44 px disclosure targets;
+public content-addressed styles include those rules. See `design/tokens.md` for copy and spacing.
+
 **One React and TypeScript codebase for web and mobile, with Capacitor available to wrap it as an Android app.** (iOS was in the first plan; it is shelved with no Apple account, section 12.)
 
 Why not the alternatives:

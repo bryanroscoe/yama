@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
+import { Details } from "../components/ui";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import type { PlanView } from "./view";
 
@@ -42,10 +43,12 @@ export function Spares() {
     <>
       <PlansHead title="Spares" />
       <p className="spares-intro">Cards leaving one deck, and where they go next.</p>
-      <p className="small dim">
+      <Details label="How spares are counted">
+        <p>
         Check here before buying or printing a card: a spare can fill another deck's slot for free. Read from your now and after-prints lists, so a card
         counts as out only when its list says so.
-      </p>
+        </p>
+      </Details>
       <div className="row plan-spares-tools">
         <input
           type="search"
