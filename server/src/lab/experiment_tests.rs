@@ -2281,6 +2281,10 @@ async fn retry_only_tail_exposes_owned_counts_and_hides_fast_pace_eta() {
     let initial = detail(&pool, "bryan", &mine.item.id).await.unwrap();
     assert_eq!((initial.item.progress.phase_pending, initial.item.progress.phase_retries), (100, 0));
     assert!(initial.item.progress.eta_seconds.is_some());
+    // A later normal run cannot use fast-game pace through someone else's retry tail.
+    let behind = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
+    assert_eq!(behind.item.progress.phase_retries, 0);
+    assert_eq!(behind.item.progress.eta_seconds, None);
     // Mixed first attempts and retries still show counts without presenting other owners' counts.
     sqlx::query("UPDATE lab_experiment_games SET retried=1 WHERE experiment_id=? AND ord<2")
         .bind(&mine.item.id).execute(&pool).await.unwrap();
