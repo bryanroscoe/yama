@@ -275,11 +275,18 @@ async fn printings_by_art(State(st): State<AppState>, _user: CurrentUser, Query(
         }
     }
     let (oracle_sql, key) = match (p.id.as_deref(), p.name.as_deref()) {
-        (Some(id), _) if !id.is_empty() => ("SELECT oracle_id FROM printings WHERE scryfall_id = ?", id.strip_suffix("-1").unwrap_or(id)),
-        (_, Some(name)) if !name.trim().is_empty() => ("SELECT oracle_id FROM card_names WHERE name = ? LIMIT 1", name.trim()),
+        (Some(id), _) if !id.is_empty() => ("SELECT oracle_id FROM printings WHERE scryfall_id = ?1", id.strip_suffix("-1").unwrap_or(id)),
+        // A card's own name wins over another card's face with the same name (Brainstorm, and the
+        // adventure face called Brainstorm). Failing that, every card with that face is offered.
+        (_, Some(name)) if !name.trim().is_empty() => (
+            "SELECT oracle_id FROM cards WHERE name = ?1 COLLATE NOCASE
+             UNION SELECT oracle_id FROM card_names WHERE name = ?1
+               AND NOT EXISTS (SELECT 1 FROM cards WHERE name = ?1 COLLATE NOCASE)",
+            name.trim(),
+        ),
         _ => return Err(AppError::BadRequest("give art and id, or name".into())),
     };
-    let printings = sqlx::query_as::<_, Printing>(AssertSqlSafe(format!("{PRINTING_SELECT} WHERE p.oracle_id = ({oracle_sql}) {ORDER}")))
+    let printings = sqlx::query_as::<_, Printing>(AssertSqlSafe(format!("{PRINTING_SELECT} WHERE p.oracle_id IN ({oracle_sql}) {ORDER}")))
         .bind(key)
         .fetch_all(&st.pool)
         .await?;
@@ -320,6 +327,19 @@ mod tests {
 
         let (_, body) = testutil::send(&app, Method::GET, "/api/scan/printings?name=Sol%20Ring", Some(&token), None).await;
         assert_eq!(ids(&body).len(), 4);
+
+        // A standalone card and another card's face share the name: the standalone card's printings only.
+        sqlx::query("INSERT INTO cards (oracle_id, name, layout, color_identity, colors, cmc, updated_at) VALUES ('adv', 'Big Score // Sol Ring', 'adventure', '', '', 1, '2026-10-28')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES ('sol ring', 'adv')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES ('a1', 'adv', 'Big Score // Sol Ring', 'woe', 'Set', '9', 'en', '2026-10-28')")
+            .execute(&pool).await.unwrap();
+        let (_, body) = testutil::send(&app, Method::GET, "/api/scan/printings?name=sol%20ring", Some(&token), None).await;
+        assert_eq!(ids(&body).len(), 4);
+        // A face name alone offers its card.
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES ('big score', 'adv')").execute(&pool).await.unwrap();
+        let (_, body) = testutil::send(&app, Method::GET, "/api/scan/printings?name=Big%20Score", Some(&token), None).await;
+        assert_eq!(ids(&body), ["a1"]);
 
         let (status, _) = testutil::send(&app, Method::GET, "/api/scan/printings?name=Nothing", Some(&token), None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
