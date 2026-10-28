@@ -25,6 +25,12 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/group#sharing", label: "Set up sharing" },
   },
   {
+    id: "2026-10-28-complete-precon-commanders", date: "2026-10-28",
+    title: "Assess every commander in the box",
+    items: ["Precons now inventory all stock-compatible in-box commanders and checked pairs. Package summaries name the highest supported upgrade grade and show the remaining assessment gaps.", "Fantastic Four includes all four featured commanders, plus Crystal and Power Pack. Prepared legal lists can enter one shared tournament through MCP without creating saved decks."],
+    link: { to: "/precons/the-fantastic-four", label: "See the complete package" },
+  },
+  {
     id: "2026-10-28-printed-wishlist",
     date: "2026-10-28",
     title: "Keep printed cards on a real-card wishlist",

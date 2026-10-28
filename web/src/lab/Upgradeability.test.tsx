@@ -13,7 +13,7 @@ const value: Upgradeability = {
   limitation: "Commander removal stops the damage engine.",
   assessed_on: "2026-10-27",
   source_url: "https://mtgjson.com/api/v5/decks/Test.json",
-  method: "source-backed-upgradeability-v3",
+  method: "source-backed-upgradeability-v4",
   basis: "Yama judgment; no upgrade win-rate estimate.",
   rubric: "Ordinal grades; missing evidence is ungraded.",
   levels: [
@@ -305,6 +305,57 @@ describe("upgradeability evidence", () => {
     expect(find("kilo", "G")).toEqual([]);
     expect(find("kilo", "", 2021)).toEqual([]);
     expect(find("not present")).toEqual([]);
+  });
+  it("shows package coverage and ranks supported in-box options without borrowing an outside grade", () => {
+    const packageInfo = {
+      checked_on: "2026-10-28",
+      roster_complete: true,
+      configurations: 6,
+      validated_configurations: 6,
+      graded_configurations: 4,
+      best_supported_score: 4,
+      best_supported_label: "Broad",
+      best_supported_commanders: [["Mister Fantastic"], ["Human Torch"]],
+      featured_commanders: [
+        ["Invisible Woman"],
+        ["Mister Fantastic"],
+        ["Human Torch"],
+        ["The Thing"],
+      ],
+      other_legends: ["Alicia Masters"],
+      note: "Unassessed options may be stronger.",
+    };
+    const v = { ...value, score: 3, package: packageInfo };
+    const html = renderToStaticMarkup(<UpgradeabilitySection value={v} />);
+    for (const phrase of [
+      "The complete package",
+      "Highest supported in-box upgrade grade: 4/5 Broad",
+      "4/6 commander configurations graded",
+      "Human Torch",
+      "The Thing",
+      "Other included legends",
+    ])
+      expect(html).toContain(phrase);
+    const outsideOnly = {
+      ...value,
+      score: 5,
+      package: {
+        ...packageInfo,
+        best_supported_score: null,
+        best_supported_commanders: [],
+        graded_configurations: 0,
+      },
+    };
+    const rows = [
+      { name: "Outside only", upgradeability: outsideOnly },
+      { name: "Covered package", upgradeability: v },
+    ] as PreconItem[];
+    expect(
+      sortPrecons(rows, "upgradeability", true).map((x) => x.name),
+    ).toEqual(["Covered package", "Outside only"]);
+    expect(
+      renderToStaticMarkup(<UpgradeabilitySummary value={outsideOnly} />),
+    ).toContain("Package ungraded");
   });
   it("sorts grades independently of strength and leaves ungraded lists last", () => {
     const rows = [

@@ -280,7 +280,19 @@ impl Filters {
         });
         rows.sort_by(|a, b| {
             let ordering = match self.s.as_str() {
-                "upgradeability" => b.upgradeability.score.cmp(&a.upgradeability.score),
+                "upgradeability" => b
+                    .upgradeability
+                    .package
+                    .as_ref()
+                    .map(|p| p.best_supported_score)
+                    .unwrap_or(b.upgradeability.score)
+                    .cmp(
+                        &a.upgradeability
+                            .package
+                            .as_ref()
+                            .map(|p| p.best_supported_score)
+                            .unwrap_or(a.upgradeability.score),
+                    ),
                 "name" => a.name.cmp(&b.name),
                 "year" => b.released.cmp(&a.released),
                 "real" => b

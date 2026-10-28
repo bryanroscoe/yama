@@ -1,5 +1,5 @@
 {
-  "method": "source-backed-upgradeability-v3",
+  "method": "source-backed-upgradeability-v4",
   "assessed_on": "2026-10-27",
   "author": "Yama editorial assessment",
   "supersedes": "editorial-upgradeability-v1: unsupported grades withdrawn, not carried forward",
@@ -385,6 +385,38 @@
         ]
       ],
       "accessed_on": "2026-10-26"
+    },
+    "edhrec-fantastic-four-package": {
+      "title": "The Fantastic Four – Marvel Super Heroes Precon Guide",
+      "author": "Ciel Collins",
+      "publisher": "EDHREC",
+      "published_on": "2026-06-16",
+      "checked_on": "2026-10-28",
+      "accessed_on": "2026-10-28",
+      "url": "https://edhrec.com/guides/the-fantastic-four-marvel-super-heroes-precon-guide",
+      "summary": "Reviews all six in-box commander options, distinguishes their plans and suggests noncreature upgrades. Mister Fantastic fits the stock shell; the combat commanders need more specialised support. B+ is the package review, not a grade for each commander.",
+      "kind": "review_and_upgrade_guide",
+      "rating": "B+",
+      "commander_configurations": [
+        [
+          "Invisible Woman"
+        ],
+        [
+          "Mister Fantastic"
+        ],
+        [
+          "Human Torch"
+        ],
+        [
+          "The Thing"
+        ],
+        [
+          "Crystal, Inhuman Princess"
+        ],
+        [
+          "Power Pack"
+        ]
+      ]
     }
   },
   "decks": {
@@ -22214,7 +22246,7 @@
             "retains": "Keeps token makers and creature-copy targets.",
             "changes": "Esix changes the first token event on each of your turns into creature copies; Adrix and Nev doubles tokens."
           },
-          "list_checked_on": "2026-10-27",
+          "list_checked_on": "2026-10-28",
           "commanders": [
             "Esix, Fractal Bloom"
           ],
@@ -22652,7 +22684,7 @@
             "retains": "Keeps the token package. Curiosity Crafter can draw from Coil combat damage, and Spawning Kraken rewards Serpent combat damage.",
             "changes": "Moves Adrix and Nev into the 99, replaces Geometric Nexus with Koma, and uses recurring Serpent tokens for combat and control."
           },
-          "list_checked_on": "2026-10-27",
+          "list_checked_on": "2026-10-28",
           "commanders": [
             "Koma, Cosmos Serpent"
           ],
@@ -23084,7 +23116,7 @@
         }
       ],
       "catalog_validated_fingerprint": "080126bc9820786f36ca5ad96dc4147dbdab1a91b6f848cdfa1bdc15ae63b57c",
-      "catalog_list_checked_on": "2026-10-27"
+      "catalog_list_checked_on": "2026-10-28"
     },
     "silverquill-statement": {
       "commanders": [
@@ -66748,7 +66780,7 @@
             "retains": "Keeps creature growth and counter synergies.",
             "changes": "Yuna supplies creature mana and recovers counters when other permanents die; Tidus moves counters and rewards combat damage."
           },
-          "list_checked_on": "2026-10-27",
+          "list_checked_on": "2026-10-28",
           "commanders": [
             "Yuna, Grand Summoner"
           ],
@@ -67245,7 +67277,7 @@
         }
       ],
       "catalog_validated_fingerprint": "a4ad22f2a16003c50ec2311413c2c949c2f45135a0a7e145095f04f4d65219d3",
-      "catalog_list_checked_on": "2026-10-27"
+      "catalog_list_checked_on": "2026-10-28"
     },
     "limit-break-final-fantasy-vii": {
       "commanders": [
@@ -67789,7 +67821,7 @@
             "retains": "Keeps Equipment and the power-seven combat package.",
             "changes": "Tifa offers another combat after a qualifying hit in the first combat; Cloud offers attack-triggered cards and Treasure."
           },
-          "list_checked_on": "2026-10-27",
+          "list_checked_on": "2026-10-28",
           "commanders": [
             "Tifa, Martial Artist"
           ],
@@ -68286,7 +68318,7 @@
         }
       ],
       "catalog_validated_fingerprint": "14e99cdab105d82ecf2a67713b2f2d30c616205f37593e2173d90c6bd7435a3f",
-      "catalog_list_checked_on": "2026-10-27"
+      "catalog_list_checked_on": "2026-10-28"
     },
     "revival-trance-final-fantasy-vi": {
       "commanders": [
@@ -68814,7 +68846,7 @@
             "retains": "Keeps discard, graveyard setup and creature recursion.",
             "changes": "Celes rewards graveyard entries with team counters; Terra reanimates after combat damage."
           },
-          "list_checked_on": "2026-10-27",
+          "list_checked_on": "2026-10-28",
           "commanders": [
             "Celes, Rune Knight"
           ],
@@ -69306,7 +69338,7 @@
         }
       ],
       "catalog_validated_fingerprint": "8576e82f036a89c87cbe649dd6bade6e1d965d1f1a5af7f1c66c3c8fa42b0f62",
-      "catalog_list_checked_on": "2026-10-27"
+      "catalog_list_checked_on": "2026-10-28"
     },
     "scions-spellcraft-final-fantasy-xiv": {
       "commanders": [
@@ -69840,7 +69872,7 @@
             "retains": "Keeps casting noncreature spells as the engine.",
             "changes": "G’raha can turn one noncreature spell each turn into a Hero token with +1/+1 counters at a life cost; Y’shtola supplies damage and draw."
           },
-          "list_checked_on": "2026-10-27",
+          "list_checked_on": "2026-10-28",
           "commanders": [
             "G'raha Tia, Scion Reborn"
           ],
@@ -70327,7 +70359,7 @@
         }
       ],
       "catalog_validated_fingerprint": "474fe7ad62c36631471995880fae77bad150279b1dc8d98c4be95d8ce3aba91b",
-      "catalog_list_checked_on": "2026-10-27"
+      "catalog_list_checked_on": "2026-10-28"
     },
     "counter-intelligence": {
       "commanders": [
@@ -70833,7 +70865,7 @@
             "retains": "Keeps the artifact and counter package.",
             "changes": "Kilo proliferates when tapped; Inspirit builds toward protecting the artifact board."
           },
-          "list_checked_on": "2026-10-27",
+          "list_checked_on": "2026-10-28",
           "commanders": [
             "Kilo, Apogee Mind"
           ],
@@ -71366,7 +71398,7 @@
         }
       ],
       "catalog_validated_fingerprint": "d488430ec812b270701274212975a9207025badc3f79dca38ae694f0362f6a97",
-      "catalog_list_checked_on": "2026-10-27"
+      "catalog_list_checked_on": "2026-10-28"
     },
     "world-shaper": {
       "commanders": [
@@ -76537,7 +76569,7 @@
             "retains": "Keeps the Hero creature package.",
             "changes": "Nick Fury discounts Heroes and finds them on attacks; Captain America provides haste and counters."
           },
-          "list_checked_on": "2026-10-27",
+          "list_checked_on": "2026-10-28",
           "commanders": [
             "Director Nick Fury"
           ],
@@ -77001,7 +77033,7 @@
         }
       ],
       "catalog_validated_fingerprint": "d2213bfc21a0acfe72bdc96e40c192d02611712ce18c567ae9378ee1cab653d2",
-      "catalog_list_checked_on": "2026-10-27"
+      "catalog_list_checked_on": "2026-10-28"
     },
     "doom-prevails": {
       "commanders": [
@@ -77517,7 +77549,7 @@
             "retains": "Keeps Villains and their creature abilities.",
             "changes": "Loki creates an attacking copy of another Villain and draws from Villain combat damage; Doom rewards land discard and connive."
           },
-          "list_checked_on": "2026-10-27",
+          "list_checked_on": "2026-10-28",
           "commanders": [
             "Loki, the Deceiver"
           ],
@@ -77984,7 +78016,7 @@
         }
       ],
       "catalog_validated_fingerprint": "eccfd218f5d046526bea6647adb9528157d1ccbcb69599e423ae431895a7e7bb",
-      "catalog_list_checked_on": "2026-10-27"
+      "catalog_list_checked_on": "2026-10-28"
     },
     "the-fantastic-four": {
       "commanders": [
@@ -78428,16 +78460,45 @@
           1
         ]
       ],
-      "score": null,
-      "effort": null,
-      "path": null,
-      "limitation": null,
-      "rationale": null,
-      "examples": [],
-      "sources": [
-        "goldfish-marvel"
+      "score": 3,
+      "effort": "Moderate",
+      "path": "Add noncreature token makers so her attack trigger can turn a wide board into one unblockable threat.",
+      "limitation": "The attack activation costs four colours, needs a creature already attacking, and does not protect it from removal.",
+      "rationale": {
+        "support": "Token-making spells both supply bodies and satisfy her pre-combat noncreature condition.",
+        "payoff": "The attack trigger converts the number of creatures you control into power and evasion for one attacker.",
+        "constraints": "Walls alone do not attack; the damage plan still needs suitable attackers, four-colour mana and an intact board."
+      },
+      "examples": [
+        {
+          "name": "March of the Multitudes",
+          "role": "Creates attackers while satisfying the noncreature-spell condition; convoke can use existing Walls.",
+          "url": "https://scryfall.com/card/ncc/346/march-of-the-multitudes?utm_source=api",
+          "oracle_id": "0c26ab0d-80f6-4e5b-9d0e-af17c1519583",
+          "color_identity": [
+            "G",
+            "W"
+          ],
+          "legal_checked_on": "2026-10-28",
+          "basis": "Yama rules analysis"
+        },
+        {
+          "name": "Secure the Wastes",
+          "role": "Turns spare mana into creatures counted by the attack-triggered power boost.",
+          "url": "https://scryfall.com/card/frc/31/secure-the-wastes?utm_source=api",
+          "oracle_id": "b2347910-d6c6-4681-8316-7ef27056485c",
+          "color_identity": [
+            "W"
+          ],
+          "legal_checked_on": "2026-10-28",
+          "basis": "Yama rules analysis"
+        }
       ],
-      "gap": "The reviewed upgrade guide switches to Mister Fantastic. It cannot justify a grade for stock Invisible Woman.",
+      "sources": [
+        "goldfish-marvel",
+        "edhrec-fantastic-four-package"
+      ],
+      "gap": null,
       "commander_cards": [
         {
           "name": "Invisible Woman",
@@ -78455,7 +78516,7 @@
             "retains": "Keeps the noncreature-spell package and its triggered payoffs.",
             "changes": "Mister Fantastic draws cards and copies triggers; Invisible Woman makes Walls and rewards attacks."
           },
-          "list_checked_on": "2026-10-27",
+          "list_checked_on": "2026-10-28",
           "commanders": [
             "Mister Fantastic"
           ],
@@ -78942,7 +79003,8 @@
             }
           ],
           "sources": [
-            "goldfish-marvel"
+            "goldfish-marvel",
+            "edhrec-fantastic-four-package"
           ],
           "gap": null,
           "commander_cards": [
@@ -78953,11 +79015,1951 @@
               "oracle_id": "a8011dce-17fb-46e1-8297-81a4acccbd05"
             }
           ],
-          "validated_fingerprint": "6dbfa4b9b7ac6269e46d41da26f73e60295b6331fafd46d5709978ecb982aea7"
+          "validated_fingerprint": "6dbfa4b9b7ac6269e46d41da26f73e60295b6331fafd46d5709978ecb982aea7",
+          "reviewed_on": "2026-10-28"
+        },
+        {
+          "key": "human-torch",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Noncreature spells enabling combat.",
+            "retains": "Keeps the pre-combat spell engine and spell-based interaction.",
+            "changes": "Shifts the finish to an evasive double-strike attacker whose damage can reach the table."
+          },
+          "list_checked_on": "2026-10-28",
+          "commanders": [
+            "Human Torch"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/TheFantasticFour_MSC.json",
+          "stock": [
+            [
+              "main",
+              "Invisible Woman",
+              1
+            ],
+            [
+              "main",
+              "Alicia Masters, Skilled Sculptor",
+              1
+            ],
+            [
+              "main",
+              "Annie Joins Up",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Baxter Building",
+              1
+            ],
+            [
+              "main",
+              "Black Bolt, Inhuman King",
+              1
+            ],
+            [
+              "main",
+              "Bovine Intervention",
+              1
+            ],
+            [
+              "main",
+              "Canopy Vista",
+              1
+            ],
+            [
+              "main",
+              "Chromatic Lantern",
+              1
+            ],
+            [
+              "main",
+              "Cinder Glade",
+              1
+            ],
+            [
+              "main",
+              "Cleansing Nova",
+              1
+            ],
+            [
+              "main",
+              "Clever Concealment",
+              1
+            ],
+            [
+              "main",
+              "Clifftop Retreat",
+              1
+            ],
+            [
+              "main",
+              "Collective Effort",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Cosmic Crucible",
+              1
+            ],
+            [
+              "main",
+              "Council of Reeds",
+              1
+            ],
+            [
+              "main",
+              "Crystal, Inhuman Princess",
+              1
+            ],
+            [
+              "main",
+              "Cultivate",
+              1
+            ],
+            [
+              "main",
+              "Cut a Deal",
+              1
+            ],
+            [
+              "main",
+              "Deep Analysis",
+              1
+            ],
+            [
+              "main",
+              "Dragon Man, Reformed Robot",
+              1
+            ],
+            [
+              "main",
+              "Evolving Wilds",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Expressive Iteration",
+              1
+            ],
+            [
+              "main",
+              "Fabled Passage",
+              1
+            ],
+            [
+              "main",
+              "Fantastic Elasticity",
+              1
+            ],
+            [
+              "main",
+              "Farseek",
+              1
+            ],
+            [
+              "main",
+              "First Family",
+              1
+            ],
+            [
+              "main",
+              "Flame On!",
+              1
+            ],
+            [
+              "main",
+              "Forest",
+              5
+            ],
+            [
+              "main",
+              "Franklin Richards, Ascendant",
+              1
+            ],
+            [
+              "main",
+              "Galactus, Devourer of Worlds",
+              1
+            ],
+            [
+              "main",
+              "Galvanic Iteration",
+              1
+            ],
+            [
+              "main",
+              "Genesis Ultimatum",
+              1
+            ],
+            [
+              "main",
+              "Glacial Fortress",
+              1
+            ],
+            [
+              "main",
+              "H.E.R.B.I.E., Lovable Robot",
+              1
+            ],
+            [
+              "main",
+              "Hinterland Harbor",
+              1
+            ],
+            [
+              "main",
+              "Hull Breach",
+              1
+            ],
+            [
+              "commander",
+              "Human Torch",
+              1
+            ],
+            [
+              "main",
+              "Into the Time Vortex",
+              1
+            ],
+            [
+              "main",
+              "Invisible Force Field",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              4
+            ],
+            [
+              "main",
+              "It's Clobberin' Time!",
+              1
+            ],
+            [
+              "main",
+              "Lightning Greaves",
+              1
+            ],
+            [
+              "main",
+              "Lockjaw, Slobbering Teleporter",
+              1
+            ],
+            [
+              "main",
+              "Medusa, Inhuman Queen",
+              1
+            ],
+            [
+              "main",
+              "Mind's Dilation",
+              1
+            ],
+            [
+              "main",
+              "Mirage Mirror",
+              1
+            ],
+            [
+              "main",
+              "Mister Fantastic",
+              1
+            ],
+            [
+              "main",
+              "Mister Fantastic, Reed Richards",
+              1
+            ],
+            [
+              "main",
+              "Monologue Tax",
+              1
+            ],
+            [
+              "main",
+              "Mountain",
+              3
+            ],
+            [
+              "main",
+              "Namor, Atlantean King",
+              1
+            ],
+            [
+              "main",
+              "Negative Zone Portal",
+              1
+            ],
+            [
+              "main",
+              "Nova Flame",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Path of Discovery",
+              1
+            ],
+            [
+              "main",
+              "Path to Exile",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              5
+            ],
+            [
+              "main",
+              "Power Pack",
+              1
+            ],
+            [
+              "main",
+              "Prairie Stream",
+              1
+            ],
+            [
+              "main",
+              "Promise of Loyalty",
+              1
+            ],
+            [
+              "main",
+              "Quantum Misalignment",
+              1
+            ],
+            [
+              "main",
+              "Radiant Summit",
+              1
+            ],
+            [
+              "main",
+              "Recurring Insight",
+              1
+            ],
+            [
+              "main",
+              "Rejuvenating Springs",
+              1
+            ],
+            [
+              "main",
+              "Rootbound Crag",
+              1
+            ],
+            [
+              "main",
+              "Scorched Geyser",
+              1
+            ],
+            [
+              "main",
+              "Seize the Day",
+              1
+            ],
+            [
+              "main",
+              "Silver Surfer, Galactus's Herald",
+              1
+            ],
+            [
+              "main",
+              "Sodden Verdure",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Sulfur Falls",
+              1
+            ],
+            [
+              "main",
+              "Sunpetal Grove",
+              1
+            ],
+            [
+              "main",
+              "Taunt from the Rampart",
+              1
+            ],
+            [
+              "main",
+              "Terramorph",
+              1
+            ],
+            [
+              "main",
+              "Terramorphic Expanse",
+              1
+            ],
+            [
+              "main",
+              "The Fantasticar",
+              1
+            ],
+            [
+              "main",
+              "The Thing",
+              1
+            ],
+            [
+              "main",
+              "Three Visits",
+              1
+            ],
+            [
+              "main",
+              "Tragic Arrogance",
+              1
+            ],
+            [
+              "main",
+              "Ultimate Nullification",
+              1
+            ],
+            [
+              "main",
+              "Unstable Molecule Suit",
+              1
+            ],
+            [
+              "main",
+              "Valeria Richards, Precocious",
+              1
+            ],
+            [
+              "main",
+              "Whirlwind of Thought",
+              1
+            ],
+            [
+              "main",
+              "Willie Lumpkin, Postman",
+              1
+            ]
+          ],
+          "score": 4,
+          "effort": "Moderate",
+          "path": "Keep pre-combat noncreature spells, then add power boosts and damage-to-draw effects around his double-strike attack.",
+          "limitation": "He must connect in combat and pay four colours for the damage-sharing ability; removal or combat prevention can stop the finish.",
+          "rationale": {
+            "support": "Power-doubling instants and damage-triggered draw enchantments are noncreature spells, so they support the existing casting theme.",
+            "payoff": "A qualifying spell grants flying, double strike and haste. Paying for the attack trigger makes his combat damage also hit the other opponents.",
+            "constraints": "He supplies no cards himself. Auras and pump spells expose invested resources to removal, and the extra damage is not commander combat damage."
+          },
+          "examples": [
+            {
+              "name": "Curiosity",
+              "role": "Draws from both combat damage and the resulting damage to other opponents.",
+              "url": "https://scryfall.com/card/jmp/147/curiosity?utm_source=api",
+              "oracle_id": "223fa044-d387-4884-bf4e-75f1b61c6a46",
+              "color_identity": [
+                "U"
+              ],
+              "legal_checked_on": "2026-10-28",
+              "basis": "Yama rules analysis"
+            },
+            {
+              "name": "Unleash Fury",
+              "role": "Doubles power before a double-strike combat while enabling his pre-combat trigger.",
+              "url": "https://scryfall.com/card/m21/170/unleash-fury?utm_source=api",
+              "oracle_id": "4eaa100c-f1ef-4a2b-9370-5dad7f3a95f2",
+              "color_identity": [
+                "R"
+              ],
+              "legal_checked_on": "2026-10-28",
+              "basis": "Yama rules analysis"
+            }
+          ],
+          "sources": [
+            "edhrec-fantastic-four-package"
+          ],
+          "gap": null,
+          "commander_cards": [
+            {
+              "name": "Human Torch",
+              "url": "https://scryfall.com/card/msc/3/human-torch?utm_source=api",
+              "oracle_id": "d55cb52d-b35c-4602-a518-cd51f155a2d1",
+              "checked_on": "2026-10-28"
+            }
+          ],
+          "validated_fingerprint": "fbea7ce179b0c016ca7579b42cafbc1e86ed6467bbabbc148febdb40abf7419b",
+          "reviewed_on": "2026-10-28"
+        },
+        {
+          "key": "the-thing",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Noncreature spells enabling creature combat.",
+            "retains": "Keeps the pre-combat spell engine and a combat finish.",
+            "changes": "Focuses upgrades on counters rather than generic expensive spells."
+          },
+          "list_checked_on": "2026-10-28",
+          "commanders": [
+            "The Thing"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/TheFantasticFour_MSC.json",
+          "stock": [
+            [
+              "main",
+              "Invisible Woman",
+              1
+            ],
+            [
+              "main",
+              "Alicia Masters, Skilled Sculptor",
+              1
+            ],
+            [
+              "main",
+              "Annie Joins Up",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Baxter Building",
+              1
+            ],
+            [
+              "main",
+              "Black Bolt, Inhuman King",
+              1
+            ],
+            [
+              "main",
+              "Bovine Intervention",
+              1
+            ],
+            [
+              "main",
+              "Canopy Vista",
+              1
+            ],
+            [
+              "main",
+              "Chromatic Lantern",
+              1
+            ],
+            [
+              "main",
+              "Cinder Glade",
+              1
+            ],
+            [
+              "main",
+              "Cleansing Nova",
+              1
+            ],
+            [
+              "main",
+              "Clever Concealment",
+              1
+            ],
+            [
+              "main",
+              "Clifftop Retreat",
+              1
+            ],
+            [
+              "main",
+              "Collective Effort",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Cosmic Crucible",
+              1
+            ],
+            [
+              "main",
+              "Council of Reeds",
+              1
+            ],
+            [
+              "main",
+              "Crystal, Inhuman Princess",
+              1
+            ],
+            [
+              "main",
+              "Cultivate",
+              1
+            ],
+            [
+              "main",
+              "Cut a Deal",
+              1
+            ],
+            [
+              "main",
+              "Deep Analysis",
+              1
+            ],
+            [
+              "main",
+              "Dragon Man, Reformed Robot",
+              1
+            ],
+            [
+              "main",
+              "Evolving Wilds",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Expressive Iteration",
+              1
+            ],
+            [
+              "main",
+              "Fabled Passage",
+              1
+            ],
+            [
+              "main",
+              "Fantastic Elasticity",
+              1
+            ],
+            [
+              "main",
+              "Farseek",
+              1
+            ],
+            [
+              "main",
+              "First Family",
+              1
+            ],
+            [
+              "main",
+              "Flame On!",
+              1
+            ],
+            [
+              "main",
+              "Forest",
+              5
+            ],
+            [
+              "main",
+              "Franklin Richards, Ascendant",
+              1
+            ],
+            [
+              "main",
+              "Galactus, Devourer of Worlds",
+              1
+            ],
+            [
+              "main",
+              "Galvanic Iteration",
+              1
+            ],
+            [
+              "main",
+              "Genesis Ultimatum",
+              1
+            ],
+            [
+              "main",
+              "Glacial Fortress",
+              1
+            ],
+            [
+              "main",
+              "H.E.R.B.I.E., Lovable Robot",
+              1
+            ],
+            [
+              "main",
+              "Hinterland Harbor",
+              1
+            ],
+            [
+              "main",
+              "Hull Breach",
+              1
+            ],
+            [
+              "main",
+              "Human Torch",
+              1
+            ],
+            [
+              "main",
+              "Into the Time Vortex",
+              1
+            ],
+            [
+              "main",
+              "Invisible Force Field",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              4
+            ],
+            [
+              "main",
+              "It's Clobberin' Time!",
+              1
+            ],
+            [
+              "main",
+              "Lightning Greaves",
+              1
+            ],
+            [
+              "main",
+              "Lockjaw, Slobbering Teleporter",
+              1
+            ],
+            [
+              "main",
+              "Medusa, Inhuman Queen",
+              1
+            ],
+            [
+              "main",
+              "Mind's Dilation",
+              1
+            ],
+            [
+              "main",
+              "Mirage Mirror",
+              1
+            ],
+            [
+              "main",
+              "Mister Fantastic",
+              1
+            ],
+            [
+              "main",
+              "Mister Fantastic, Reed Richards",
+              1
+            ],
+            [
+              "main",
+              "Monologue Tax",
+              1
+            ],
+            [
+              "main",
+              "Mountain",
+              3
+            ],
+            [
+              "main",
+              "Namor, Atlantean King",
+              1
+            ],
+            [
+              "main",
+              "Negative Zone Portal",
+              1
+            ],
+            [
+              "main",
+              "Nova Flame",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Path of Discovery",
+              1
+            ],
+            [
+              "main",
+              "Path to Exile",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              5
+            ],
+            [
+              "main",
+              "Power Pack",
+              1
+            ],
+            [
+              "main",
+              "Prairie Stream",
+              1
+            ],
+            [
+              "main",
+              "Promise of Loyalty",
+              1
+            ],
+            [
+              "main",
+              "Quantum Misalignment",
+              1
+            ],
+            [
+              "main",
+              "Radiant Summit",
+              1
+            ],
+            [
+              "main",
+              "Recurring Insight",
+              1
+            ],
+            [
+              "main",
+              "Rejuvenating Springs",
+              1
+            ],
+            [
+              "main",
+              "Rootbound Crag",
+              1
+            ],
+            [
+              "main",
+              "Scorched Geyser",
+              1
+            ],
+            [
+              "main",
+              "Seize the Day",
+              1
+            ],
+            [
+              "main",
+              "Silver Surfer, Galactus's Herald",
+              1
+            ],
+            [
+              "main",
+              "Sodden Verdure",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Sulfur Falls",
+              1
+            ],
+            [
+              "main",
+              "Sunpetal Grove",
+              1
+            ],
+            [
+              "main",
+              "Taunt from the Rampart",
+              1
+            ],
+            [
+              "main",
+              "Terramorph",
+              1
+            ],
+            [
+              "main",
+              "Terramorphic Expanse",
+              1
+            ],
+            [
+              "main",
+              "The Fantasticar",
+              1
+            ],
+            [
+              "commander",
+              "The Thing",
+              1
+            ],
+            [
+              "main",
+              "Three Visits",
+              1
+            ],
+            [
+              "main",
+              "Tragic Arrogance",
+              1
+            ],
+            [
+              "main",
+              "Ultimate Nullification",
+              1
+            ],
+            [
+              "main",
+              "Unstable Molecule Suit",
+              1
+            ],
+            [
+              "main",
+              "Valeria Richards, Precocious",
+              1
+            ],
+            [
+              "main",
+              "Whirlwind of Thought",
+              1
+            ],
+            [
+              "main",
+              "Willie Lumpkin, Postman",
+              1
+            ]
+          ],
+          "score": 3,
+          "effort": "Moderate",
+          "path": "Focus noncreature slots on counter support and protect a growing trampling attacker.",
+          "limitation": "Six mana to cast and four colours per attack activation make repeated removal expensive.",
+          "rationale": {
+            "support": "Counter enchantments trigger his pre-combat growth and increase the counters his attack ability can double.",
+            "payoff": "He gains four +1/+1 counters after a qualifying cast and can double counters on any number of your permanents when attacking.",
+            "constraints": "He has no haste or card draw. The stock noncreature package contains many cards that do not exploit counters, so narrowing the package is necessary."
+          },
+          "examples": [
+            {
+              "name": "Hardened Scales",
+              "role": "Increases +1/+1-counter additions, including the commander’s growth and counter-doubling effect.",
+              "url": "https://scryfall.com/card/soc/272/hardened-scales?utm_source=api",
+              "oracle_id": "a1f3da21-af6d-450e-bf0b-985d158418e6",
+              "color_identity": [
+                "G"
+              ],
+              "legal_checked_on": "2026-10-28",
+              "basis": "Yama rules analysis"
+            },
+            {
+              "name": "Court of Garenbrig",
+              "role": "Adds counters, can double creature counters while you remain monarch, and is itself a qualifying noncreature spell.",
+              "url": "https://scryfall.com/card/plst/WOC-25/court-of-garenbrig?utm_source=api",
+              "oracle_id": "1f3f6336-6f99-4181-be3c-1814f7b8ef36",
+              "color_identity": [
+                "G"
+              ],
+              "legal_checked_on": "2026-10-28",
+              "basis": "Yama rules analysis"
+            }
+          ],
+          "sources": [
+            "edhrec-fantastic-four-package"
+          ],
+          "gap": null,
+          "commander_cards": [
+            {
+              "name": "The Thing",
+              "url": "https://scryfall.com/card/msc/4/the-thing?utm_source=api",
+              "oracle_id": "c8de07d4-9bc1-4bfe-b5a4-0a58e05af022",
+              "checked_on": "2026-10-28"
+            }
+          ],
+          "validated_fingerprint": "3260a615cee95562765fef414dfdba6a6caeb0e00e67e2ab12b435d89b2c468a",
+          "reviewed_on": "2026-10-28"
+        },
+        {
+          "key": "crystal-inhuman-princess",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Noncreature spells.",
+            "retains": "Keeps noncreature casting as the engine.",
+            "changes": "Weights coloured spells for repeatable damage to each opponent and supplies one mana per tap."
+          },
+          "list_checked_on": "2026-10-28",
+          "commanders": [
+            "Crystal, Inhuman Princess"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/TheFantasticFour_MSC.json",
+          "stock": [
+            [
+              "main",
+              "Invisible Woman",
+              1
+            ],
+            [
+              "main",
+              "Alicia Masters, Skilled Sculptor",
+              1
+            ],
+            [
+              "main",
+              "Annie Joins Up",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Baxter Building",
+              1
+            ],
+            [
+              "main",
+              "Black Bolt, Inhuman King",
+              1
+            ],
+            [
+              "main",
+              "Bovine Intervention",
+              1
+            ],
+            [
+              "main",
+              "Canopy Vista",
+              1
+            ],
+            [
+              "main",
+              "Chromatic Lantern",
+              1
+            ],
+            [
+              "main",
+              "Cinder Glade",
+              1
+            ],
+            [
+              "main",
+              "Cleansing Nova",
+              1
+            ],
+            [
+              "main",
+              "Clever Concealment",
+              1
+            ],
+            [
+              "main",
+              "Clifftop Retreat",
+              1
+            ],
+            [
+              "main",
+              "Collective Effort",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Cosmic Crucible",
+              1
+            ],
+            [
+              "main",
+              "Council of Reeds",
+              1
+            ],
+            [
+              "commander",
+              "Crystal, Inhuman Princess",
+              1
+            ],
+            [
+              "main",
+              "Cultivate",
+              1
+            ],
+            [
+              "main",
+              "Cut a Deal",
+              1
+            ],
+            [
+              "main",
+              "Deep Analysis",
+              1
+            ],
+            [
+              "main",
+              "Dragon Man, Reformed Robot",
+              1
+            ],
+            [
+              "main",
+              "Evolving Wilds",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Expressive Iteration",
+              1
+            ],
+            [
+              "main",
+              "Fabled Passage",
+              1
+            ],
+            [
+              "main",
+              "Fantastic Elasticity",
+              1
+            ],
+            [
+              "main",
+              "Farseek",
+              1
+            ],
+            [
+              "main",
+              "First Family",
+              1
+            ],
+            [
+              "main",
+              "Flame On!",
+              1
+            ],
+            [
+              "main",
+              "Forest",
+              5
+            ],
+            [
+              "main",
+              "Franklin Richards, Ascendant",
+              1
+            ],
+            [
+              "main",
+              "Galactus, Devourer of Worlds",
+              1
+            ],
+            [
+              "main",
+              "Galvanic Iteration",
+              1
+            ],
+            [
+              "main",
+              "Genesis Ultimatum",
+              1
+            ],
+            [
+              "main",
+              "Glacial Fortress",
+              1
+            ],
+            [
+              "main",
+              "H.E.R.B.I.E., Lovable Robot",
+              1
+            ],
+            [
+              "main",
+              "Hinterland Harbor",
+              1
+            ],
+            [
+              "main",
+              "Hull Breach",
+              1
+            ],
+            [
+              "main",
+              "Human Torch",
+              1
+            ],
+            [
+              "main",
+              "Into the Time Vortex",
+              1
+            ],
+            [
+              "main",
+              "Invisible Force Field",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              4
+            ],
+            [
+              "main",
+              "It's Clobberin' Time!",
+              1
+            ],
+            [
+              "main",
+              "Lightning Greaves",
+              1
+            ],
+            [
+              "main",
+              "Lockjaw, Slobbering Teleporter",
+              1
+            ],
+            [
+              "main",
+              "Medusa, Inhuman Queen",
+              1
+            ],
+            [
+              "main",
+              "Mind's Dilation",
+              1
+            ],
+            [
+              "main",
+              "Mirage Mirror",
+              1
+            ],
+            [
+              "main",
+              "Mister Fantastic",
+              1
+            ],
+            [
+              "main",
+              "Mister Fantastic, Reed Richards",
+              1
+            ],
+            [
+              "main",
+              "Monologue Tax",
+              1
+            ],
+            [
+              "main",
+              "Mountain",
+              3
+            ],
+            [
+              "main",
+              "Namor, Atlantean King",
+              1
+            ],
+            [
+              "main",
+              "Negative Zone Portal",
+              1
+            ],
+            [
+              "main",
+              "Nova Flame",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Path of Discovery",
+              1
+            ],
+            [
+              "main",
+              "Path to Exile",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              5
+            ],
+            [
+              "main",
+              "Power Pack",
+              1
+            ],
+            [
+              "main",
+              "Prairie Stream",
+              1
+            ],
+            [
+              "main",
+              "Promise of Loyalty",
+              1
+            ],
+            [
+              "main",
+              "Quantum Misalignment",
+              1
+            ],
+            [
+              "main",
+              "Radiant Summit",
+              1
+            ],
+            [
+              "main",
+              "Recurring Insight",
+              1
+            ],
+            [
+              "main",
+              "Rejuvenating Springs",
+              1
+            ],
+            [
+              "main",
+              "Rootbound Crag",
+              1
+            ],
+            [
+              "main",
+              "Scorched Geyser",
+              1
+            ],
+            [
+              "main",
+              "Seize the Day",
+              1
+            ],
+            [
+              "main",
+              "Silver Surfer, Galactus's Herald",
+              1
+            ],
+            [
+              "main",
+              "Sodden Verdure",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Sulfur Falls",
+              1
+            ],
+            [
+              "main",
+              "Sunpetal Grove",
+              1
+            ],
+            [
+              "main",
+              "Taunt from the Rampart",
+              1
+            ],
+            [
+              "main",
+              "Terramorph",
+              1
+            ],
+            [
+              "main",
+              "Terramorphic Expanse",
+              1
+            ],
+            [
+              "main",
+              "The Fantasticar",
+              1
+            ],
+            [
+              "main",
+              "The Thing",
+              1
+            ],
+            [
+              "main",
+              "Three Visits",
+              1
+            ],
+            [
+              "main",
+              "Tragic Arrogance",
+              1
+            ],
+            [
+              "main",
+              "Ultimate Nullification",
+              1
+            ],
+            [
+              "main",
+              "Unstable Molecule Suit",
+              1
+            ],
+            [
+              "main",
+              "Valeria Richards, Precocious",
+              1
+            ],
+            [
+              "main",
+              "Whirlwind of Thought",
+              1
+            ],
+            [
+              "main",
+              "Willie Lumpkin, Postman",
+              1
+            ]
+          ],
+          "score": null,
+          "effort": null,
+          "path": null,
+          "limitation": null,
+          "rationale": null,
+          "examples": [],
+          "sources": [
+            "edhrec-fantastic-four-package"
+          ],
+          "gap": "Commander option reviewed; the available upgrade discussion does not yet justify a numerical upgradeability grade for this configuration.",
+          "commander_cards": [
+            {
+              "name": "Crystal, Inhuman Princess",
+              "url": "https://scryfall.com/card/msc/80/crystal-inhuman-princess?utm_source=api",
+              "oracle_id": "32c14d7f-fdaa-4340-af94-1f10bf064f51",
+              "checked_on": "2026-10-28"
+            }
+          ],
+          "validated_fingerprint": "3422ed16333a66338babbfddc202f73fa33b986d07e50d474e4ad31410470692",
+          "reviewed_on": "2026-10-28"
+        },
+        {
+          "key": "power-pack",
+          "scope": "in_box",
+          "continuity": {
+            "theme": "Noncreature spells and combat.",
+            "retains": "Keeps the instant/sorcery package and combat payoffs.",
+            "changes": "Uses combat damage to select a random graveyard spell for the following upkeep; the delay and randomness matter."
+          },
+          "list_checked_on": "2026-10-28",
+          "commanders": [
+            "Power Pack"
+          ],
+          "source_url": "https://mtgjson.com/api/v5/decks/TheFantasticFour_MSC.json",
+          "stock": [
+            [
+              "main",
+              "Invisible Woman",
+              1
+            ],
+            [
+              "main",
+              "Alicia Masters, Skilled Sculptor",
+              1
+            ],
+            [
+              "main",
+              "Annie Joins Up",
+              1
+            ],
+            [
+              "main",
+              "Arcane Signet",
+              1
+            ],
+            [
+              "main",
+              "Baxter Building",
+              1
+            ],
+            [
+              "main",
+              "Black Bolt, Inhuman King",
+              1
+            ],
+            [
+              "main",
+              "Bovine Intervention",
+              1
+            ],
+            [
+              "main",
+              "Canopy Vista",
+              1
+            ],
+            [
+              "main",
+              "Chromatic Lantern",
+              1
+            ],
+            [
+              "main",
+              "Cinder Glade",
+              1
+            ],
+            [
+              "main",
+              "Cleansing Nova",
+              1
+            ],
+            [
+              "main",
+              "Clever Concealment",
+              1
+            ],
+            [
+              "main",
+              "Clifftop Retreat",
+              1
+            ],
+            [
+              "main",
+              "Collective Effort",
+              1
+            ],
+            [
+              "main",
+              "Command Tower",
+              1
+            ],
+            [
+              "main",
+              "Cosmic Crucible",
+              1
+            ],
+            [
+              "main",
+              "Council of Reeds",
+              1
+            ],
+            [
+              "main",
+              "Crystal, Inhuman Princess",
+              1
+            ],
+            [
+              "main",
+              "Cultivate",
+              1
+            ],
+            [
+              "main",
+              "Cut a Deal",
+              1
+            ],
+            [
+              "main",
+              "Deep Analysis",
+              1
+            ],
+            [
+              "main",
+              "Dragon Man, Reformed Robot",
+              1
+            ],
+            [
+              "main",
+              "Evolving Wilds",
+              1
+            ],
+            [
+              "main",
+              "Exotic Orchard",
+              1
+            ],
+            [
+              "main",
+              "Expressive Iteration",
+              1
+            ],
+            [
+              "main",
+              "Fabled Passage",
+              1
+            ],
+            [
+              "main",
+              "Fantastic Elasticity",
+              1
+            ],
+            [
+              "main",
+              "Farseek",
+              1
+            ],
+            [
+              "main",
+              "First Family",
+              1
+            ],
+            [
+              "main",
+              "Flame On!",
+              1
+            ],
+            [
+              "main",
+              "Forest",
+              5
+            ],
+            [
+              "main",
+              "Franklin Richards, Ascendant",
+              1
+            ],
+            [
+              "main",
+              "Galactus, Devourer of Worlds",
+              1
+            ],
+            [
+              "main",
+              "Galvanic Iteration",
+              1
+            ],
+            [
+              "main",
+              "Genesis Ultimatum",
+              1
+            ],
+            [
+              "main",
+              "Glacial Fortress",
+              1
+            ],
+            [
+              "main",
+              "H.E.R.B.I.E., Lovable Robot",
+              1
+            ],
+            [
+              "main",
+              "Hinterland Harbor",
+              1
+            ],
+            [
+              "main",
+              "Hull Breach",
+              1
+            ],
+            [
+              "main",
+              "Human Torch",
+              1
+            ],
+            [
+              "main",
+              "Into the Time Vortex",
+              1
+            ],
+            [
+              "main",
+              "Invisible Force Field",
+              1
+            ],
+            [
+              "main",
+              "Island",
+              4
+            ],
+            [
+              "main",
+              "It's Clobberin' Time!",
+              1
+            ],
+            [
+              "main",
+              "Lightning Greaves",
+              1
+            ],
+            [
+              "main",
+              "Lockjaw, Slobbering Teleporter",
+              1
+            ],
+            [
+              "main",
+              "Medusa, Inhuman Queen",
+              1
+            ],
+            [
+              "main",
+              "Mind's Dilation",
+              1
+            ],
+            [
+              "main",
+              "Mirage Mirror",
+              1
+            ],
+            [
+              "main",
+              "Mister Fantastic",
+              1
+            ],
+            [
+              "main",
+              "Mister Fantastic, Reed Richards",
+              1
+            ],
+            [
+              "main",
+              "Monologue Tax",
+              1
+            ],
+            [
+              "main",
+              "Mountain",
+              3
+            ],
+            [
+              "main",
+              "Namor, Atlantean King",
+              1
+            ],
+            [
+              "main",
+              "Negative Zone Portal",
+              1
+            ],
+            [
+              "main",
+              "Nova Flame",
+              1
+            ],
+            [
+              "main",
+              "Path of Ancestry",
+              1
+            ],
+            [
+              "main",
+              "Path of Discovery",
+              1
+            ],
+            [
+              "main",
+              "Path to Exile",
+              1
+            ],
+            [
+              "main",
+              "Plains",
+              5
+            ],
+            [
+              "commander",
+              "Power Pack",
+              1
+            ],
+            [
+              "main",
+              "Prairie Stream",
+              1
+            ],
+            [
+              "main",
+              "Promise of Loyalty",
+              1
+            ],
+            [
+              "main",
+              "Quantum Misalignment",
+              1
+            ],
+            [
+              "main",
+              "Radiant Summit",
+              1
+            ],
+            [
+              "main",
+              "Recurring Insight",
+              1
+            ],
+            [
+              "main",
+              "Rejuvenating Springs",
+              1
+            ],
+            [
+              "main",
+              "Rootbound Crag",
+              1
+            ],
+            [
+              "main",
+              "Scorched Geyser",
+              1
+            ],
+            [
+              "main",
+              "Seize the Day",
+              1
+            ],
+            [
+              "main",
+              "Silver Surfer, Galactus's Herald",
+              1
+            ],
+            [
+              "main",
+              "Sodden Verdure",
+              1
+            ],
+            [
+              "main",
+              "Sol Ring",
+              1
+            ],
+            [
+              "main",
+              "Sulfur Falls",
+              1
+            ],
+            [
+              "main",
+              "Sunpetal Grove",
+              1
+            ],
+            [
+              "main",
+              "Taunt from the Rampart",
+              1
+            ],
+            [
+              "main",
+              "Terramorph",
+              1
+            ],
+            [
+              "main",
+              "Terramorphic Expanse",
+              1
+            ],
+            [
+              "main",
+              "The Fantasticar",
+              1
+            ],
+            [
+              "main",
+              "The Thing",
+              1
+            ],
+            [
+              "main",
+              "Three Visits",
+              1
+            ],
+            [
+              "main",
+              "Tragic Arrogance",
+              1
+            ],
+            [
+              "main",
+              "Ultimate Nullification",
+              1
+            ],
+            [
+              "main",
+              "Unstable Molecule Suit",
+              1
+            ],
+            [
+              "main",
+              "Valeria Richards, Precocious",
+              1
+            ],
+            [
+              "main",
+              "Whirlwind of Thought",
+              1
+            ],
+            [
+              "main",
+              "Willie Lumpkin, Postman",
+              1
+            ]
+          ],
+          "score": null,
+          "effort": null,
+          "path": null,
+          "limitation": null,
+          "rationale": null,
+          "examples": [],
+          "sources": [
+            "edhrec-fantastic-four-package"
+          ],
+          "gap": "Commander option reviewed; the available upgrade discussion does not yet justify a numerical upgradeability grade for this configuration.",
+          "commander_cards": [
+            {
+              "name": "Power Pack",
+              "url": "https://scryfall.com/card/msc/90/power-pack?utm_source=api",
+              "oracle_id": "3d5c98ff-fcf1-42bd-9533-2648791a4f45",
+              "checked_on": "2026-10-28"
+            }
+          ],
+          "validated_fingerprint": "5758f8b68d12a8dfe2311a5bd2c9a67165a4aed830a6ab495d5efa2fee1399af",
+          "reviewed_on": "2026-10-28"
         }
       ],
       "catalog_validated_fingerprint": "8403940274e49b49b21c9a4e5e3198e615d4087e246f77abe1d2c6aeea0e9e1a",
-      "catalog_list_checked_on": "2026-10-27"
+      "catalog_list_checked_on": "2026-10-28",
+      "reviewed_on": "2026-10-28"
     },
     "wakanda-forever": {
       "commanders": [
@@ -79416,7 +81418,7 @@
             "retains": "Uses the monarch subtheme already present in the box.",
             "changes": "Okoye supplies the crown and helps attack its holder; T’Challa instead accelerates artifacts."
           },
-          "list_checked_on": "2026-10-27",
+          "list_checked_on": "2026-10-28",
           "commanders": [
             "Okoye, Mighty and Adored"
           ],
@@ -79833,7 +81835,7 @@
         }
       ],
       "catalog_validated_fingerprint": "296e3760c85c32a3ffc49ce4c6eb9191c3e75096c94af6e37ad66d1fab573d37",
-      "catalog_list_checked_on": "2026-10-27"
+      "catalog_list_checked_on": "2026-10-28"
     },
     "hatsune-miku": {
       "commanders": [
