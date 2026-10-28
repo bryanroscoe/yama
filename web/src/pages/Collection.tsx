@@ -540,17 +540,25 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const fix = async (a: Added, f: Fix) => {
     const before = listRef.current.find((x) => x.key === a.key);
     if (!before) return;
-    if (before.pending) throw new Error(busyMessage(before));
-    const { findRow, planFix } = await scanner();
-    const rows = await api<CollectionItem[]>(`/api/collection?container=${encodeURIComponent(a.container ?? "none")}&q=${encodeURIComponent(a.name)}`);
-    // Another change to this entry may have started while the rows loaded.
-    const now = listRef.current.find((x) => x.key === a.key);
-    if (!now) return;
-    if (now.pending) throw new Error(busyMessage(now));
-    const row = findRow(rows, now);
-    if (!row) throw new Error(`Couldn't find the ${now.name} added here. It may have been changed on the Collection page.`);
-    patch(now.key, (x) => ({ ...x, pending: { ops: planFix(now, f, row, () => crypto.randomUUID()), fix: f } }));
-    if (!(await send(now.key))) throw new Error("Couldn't save that change. Try again sends the same change.");
+    if (before.pending || before.checking) throw new Error(busyMessage(before));
+    // Lock the entry before anything waits, so no other change starts from the same state.
+    const token = crypto.randomUUID();
+    patch(before.key, (x) => ({ ...x, checking: token }));
+    const unlock = () => patch(before.key, (x) => (x.checking === token ? { ...x, checking: undefined } : x));
+    let planned = false;
+    try {
+      const { findRow, planFix } = await scanner();
+      const rows = await api<CollectionItem[]>(`/api/collection?container=${encodeURIComponent(before.container ?? "none")}&q=${encodeURIComponent(before.name)}`);
+      const now = listRef.current.find((x) => x.key === before.key);
+      if (!now || now.checking !== token) return;
+      const row = findRow(rows, now);
+      if (!row) throw new Error(`Couldn't find the ${now.name} added here. It may have been changed on the Collection page.`);
+      patch(now.key, (x) => ({ ...x, checking: undefined, pending: { ops: planFix(now, f, row, () => crypto.randomUUID()), fix: f } }));
+      planned = true;
+    } finally {
+      if (!planned) unlock();
+    }
+    if (!(await send(before.key))) throw new Error("Couldn't save that change. Try again sends the same change.");
   };
   const retry = async (a: Added) => {
     if (!(await send(a.key))) throw new Error("Still couldn't save it. Try again in a moment.");

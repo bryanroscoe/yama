@@ -44,7 +44,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
   const [working, setWorking] = useState(false);
   // An unconfirmed write (kept on the entry, so it survives closing this list) locks the entry:
   // the only thing to do with a failed one is send it again as it was.
-  const busy = working || !!a.pending;
+  const busy = working || !!a.pending || !!a.checking;
   const [error, setError] = useState<string | null>(null);
   const [printings, setPrintings] = useState<Printing[] | null>(null);
   const [showAll, setShowAll] = useState(false);

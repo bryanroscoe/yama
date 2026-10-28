@@ -27,6 +27,8 @@ export interface Added {
   auto: boolean;
   /** A write not yet confirmed: the add itself (`fix` null) or a fix. */
   pending?: Pending;
+  /** A fix is finding the entry's row (a token for that lookup); the entry is locked meanwhile. */
+  checking?: string;
 }
 
 export interface Pending {

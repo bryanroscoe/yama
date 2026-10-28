@@ -16,6 +16,7 @@ import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type Load
 import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
 import { readCloseup, readCollectorLine, scanFrame, SURE } from "./pipeline";
+import { hold, holdRead, type Hold } from "./hold";
 import { choosePrinting, printingOptions } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { createServerCatalog } from "./serverCatalog";
@@ -208,11 +209,8 @@ export function ScannerView({
   const last = useRef<{ index: number; card?: ScanCandidate; at: number } | undefined>(undefined);
   /** The art just accepted: not found again until the card leaves or another one shows. */
   const blocked = useRef<number | null>(null);
-  /**
-   * The same for a card found by its text (no art match): its name, until the card leaves the view
-   * (the detector sees no card) or a few reads in a row see no card or another one.
-   */
-  const blockedName = useRef<{ name: string; misses: number } | null>(null);
+  /** The same for a card found by its text (no art match); see hold.ts. The detector seeing no card also ends it. */
+  const blockedName = useRef<Hold | null>(null);
   const foundSeq = useRef(0);
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState("Hold a card in view");
@@ -446,15 +444,14 @@ export function ScannerView({
     (res: ScanResult, single: boolean) => {
       const best = res.candidates[0];
       const held = blockedName.current;
-      if (held) {
-        if (best?.name === held.name) {
-          held.misses = 0;
-          setStatus("Ready for the next card");
+      // A photo is a deliberate read: no hold.
+      if (single) blockedName.current = null;
+      else if (held) {
+        if (holdRead(held, best) === "held") {
+          if (best?.name === held.name) setStatus("Ready for the next card");
           return false;
         }
-        // One missed read isn't the card leaving; three in a row (or another card) is.
-        if (++held.misses >= 3 || best) blockedName.current = null;
-        else return false;
+        blockedName.current = null;
       }
       if (!best) return false;
       const seen = last.current && Date.now() - last.current.at < 2500 ? last.current.card : undefined;
@@ -532,7 +529,8 @@ export function ScannerView({
             const res = await readAt(hi.image, hi.quad, reader, [quarterTurns(hi.quad)[textFrame++ % 3]!]);
             if (!stop && handleText(res, false)) return;
             // Still nothing: ask for a close-up of the name.
-            if (!stop && !res.candidates[0] && ++failedReads >= TITLE_AFTER) {
+            // (Not while the card just added is held: that would read it again.)
+            if (!stop && !res.candidates[0] && !blockedName.current && ++failedReads >= TITLE_AFTER) {
               setCloseup("title");
               return;
             }
@@ -641,7 +639,7 @@ export function ScannerView({
   const again = () => {
     foundSeq.current += 1;
     blocked.current = found?.art ? found.art.index : null;
-    blockedName.current = found && !found.art ? { name: found.name, misses: 0 } : null;
+    blockedName.current = found && !found.art ? hold(found.name) : null;
     last.current = undefined;
     setFound(null);
     setOutline(null);
