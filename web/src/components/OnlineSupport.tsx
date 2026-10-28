@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Fragment } from "react";
 import { api, type OnlineSupport as Support } from "../api";
 import "./cards.css";
-import { Details } from "./ui";
 
 /** Card names, each a link to its card sheet when `onCard` is given. */
 export function NameList({ names, onCard }: { names: string[]; onCard?: (name: string) => void }) {
@@ -65,23 +64,21 @@ export function OnlineSupport({ deckId, versionId, onCard }: {
       <p className={`label${all ? " all" : ""}`}>
         Online play: {s.supported}/{s.total} cards supported
       </p>
-      {!all && <Details label="Card support details">
       {s.missing.length > 0 && (
         <p className="names">
-          Not in the rules engine, so left out of online games: <NameList names={s.missing} onCard={onCard} />
+          Left out of online games: <NameList names={s.missing} onCard={onCard} />
         </p>
       )}
       {s.partial.length > 0 && (
         <p className="names">
-          Some abilities don't work online yet: <NameList names={s.partial} onCard={onCard} />
+          Some abilities unsupported online: <NameList names={s.partial} onCard={onCard} />
         </p>
       )}
       {s.uncertain.length > 0 && (
         <p className="names">
-          May not work fully online (the engine had trouble reading part of the text): <NameList names={s.uncertain} onCard={onCard} />
+          May not work fully online: <NameList names={s.uncertain} onCard={onCard} />
         </p>
       )}
-      </Details>}
     </div>
   );
 }
