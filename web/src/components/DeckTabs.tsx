@@ -12,6 +12,7 @@ export const DECK_SECTIONS: { to: string; label: string; end?: boolean }[] = [
   { to: "/decks/plan", label: "Plans" },
   { to: "/decks/research", label: "Research" },
   { to: "/decks/lab", label: "Lab" },
+  { to: "/decks/datasets", label: "Datasets" },
 ];
 
 /** Proposals with no answer yet, over the plans that aren't archived (the Plans badge). */

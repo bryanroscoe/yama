@@ -442,27 +442,12 @@ async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<Strin
 
 /// The newest of the owner's paired lab runs with lists for this plan deck.
 async fn plan_lab(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<String> {
-    let runs = crate::lab::runs_for(pool, owner).await?;
     let prefix = format!("{key}-");
     let state_of = |id: &str| id.rsplit('/').next().and_then(|tail| tail.strip_prefix(&prefix)).map(str::to_string);
-    let mut best: Option<Value> = None;
-    for r in runs {
-        let v = serde_json::to_value(&r).map_err(anyhow::Error::from)?;
-        if v["global"].as_bool() != Some(false) || v["kind"] != "paired" {
-            continue;
-        }
-        let has = v["paired"]["variants"].as_array().is_some_and(|vs| vs.iter().any(|x| state_of(&s(x, "id")).is_some()));
-        if !has {
-            continue;
-        }
-        let when = |x: &Value| {
-            let a = s(x, "analysed_at");
-            if a.is_empty() { s(x, "created_at") } else { a }
-        };
-        if best.as_ref().is_none_or(|b| when(&v) > when(b)) {
-            best = Some(v);
-        }
-    }
+    let best = match crate::lab::paired_for_plan(pool, owner, key).await? {
+        Some(r) => Some(serde_json::to_value(&r).map_err(anyhow::Error::from)?),
+        None => None,
+    };
     let Some(run) = best else {
         return Ok("\nSimulated (lab): no paired run for this deck yet.\n".into());
     };

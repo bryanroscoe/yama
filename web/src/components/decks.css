@@ -560,3 +560,22 @@ table.curve-table {
   font-weight: 700;
   color: var(--dk-text-dim);
 }
+
+/* Market value, split: real cards you own, proxies standing in, and what's left to get. */
+.deck-value-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 24px;
+  margin: 0 0 12px;
+}
+.deck-value-split > div {
+  display: grid;
+  gap: 2px;
+}
+.deck-value-split dt {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.deck-value-split dd {
+  margin: 0;
+}

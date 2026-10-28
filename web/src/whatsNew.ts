@@ -14,6 +14,24 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-28-shared-deck-pages",
+    date: "2026-10-28",
+    title: "Shared decks show what your deck page shows",
+    items: [
+      "A shared deck now has the deck page's legality check, your declared bracket beside Yama's suggestion and why, the Game Changers and combos behind it, deck stats, market value, and stacks of card images.",
+      "Under Group, You, Sharing you can also show simulated win rates: a shared deck then shows its own lab win rate and those of its public configurations.",
+      "Configurations sit in a row under each deck, and switching between them keeps the page on screen instead of going blank.",
+      "Your deck page splits its value: the real cards you own, what the proxies would cost as real cards, and what's left to get.",
+    ],
+    link: { to: "/decks", label: "Open your decks" },
+  },
+  {
+    id: "2026-10-28-historical-datasets", date: "2026-10-28",
+    title: "Explore historical commander and precon evidence",
+    items: ["Datasets under Decks lets you search imported performance observations, commander catalogs, weekly activity and source documents. Explore an entity's history and adjust the 180-day recency half-life for compatible complete-month summaries.", "Each observation keeps its source period and provenance. Original datasets remain downloadable; admins can upload prepared JSON or gzip datasets into their own accounts."],
+    link: { to: "/decks/datasets", label: "Browse datasets" },
+  },
+  {
     id: "2026-10-28-site-polish",
     date: "2026-10-28",
     title: "More room, less clutter",

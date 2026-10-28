@@ -10,6 +10,7 @@ mod datasets;
 mod deck_checks;
 mod deck_prices;
 mod deck_research;
+mod deck_stats;
 mod deck_import;
 mod decks;
 mod error;
@@ -22,6 +23,7 @@ mod oauth;
 mod play;
 mod plan;
 mod playgroups;
+mod public_page;
 mod public_precons;
 #[cfg(test)]
 mod privacy_tests;

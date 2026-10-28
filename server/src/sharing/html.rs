@@ -2,7 +2,8 @@
 //! Same stylesheet, notice and Content-Security-Policy as the public precon reference.
 use super::*;
 use crate::public_precons::NOTICE;
-use crate::public_precons::html::{WORDMARK, e, stylesheet, when};
+use crate::public_page::{WORDMARK, bracket_name, card_item, e, identity as pips, secure, stack_card, when};
+use crate::public_precons::html::stylesheet;
 use axum::extract::Query;
 use std::fmt::Write;
 
@@ -20,8 +21,7 @@ fn page(st: &AppState, path: &str, title: &str, description: &str, image: Option
 
 fn response(headers: &HeaderMap, body: String) -> Response {
     let mut res = fresh(headers, body, "text/html; charset=utf-8");
-    res.headers_mut().insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://cards.scryfall.io; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"));
-    res.headers_mut().insert(header::REFERRER_POLICY, HeaderValue::from_static("strict-origin-when-cross-origin"));
+    secure(&mut res);
     res
 }
 
@@ -33,28 +33,6 @@ fn not_found(st: &AppState, what: &str) -> Response {
     res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     res.headers_mut().insert("x-robots-tag", HeaderValue::from_static("noindex"));
     res
-}
-
-fn pips(identity: &str) -> String {
-    let letters = if identity.is_empty() { "C" } else { identity };
-    let names: Vec<_> = letters
-        .chars()
-        .filter_map(|c| match c {
-            'W' => Some("white"),
-            'U' => Some("blue"),
-            'B' => Some("black"),
-            'R' => Some("red"),
-            'G' => Some("green"),
-            'C' => Some("colorless"),
-            _ => None,
-        })
-        .collect();
-    let mut s = format!("<span class=\"identity\" aria-label=\"Color identity: {}\">", names.join(", "));
-    for c in letters.chars().filter(|c| "WUBRGC".contains(*c)) {
-        write!(s, "<span class=\"color color-{c}\" aria-hidden=\"true\">{c}</span>").unwrap();
-    }
-    s.push_str("</span>");
-    s
 }
 
 fn credit(art: &Option<(String, Option<String>, String)>) -> String {
@@ -113,6 +91,7 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
         Err(AppError::NotFound(_)) => return Ok(not_found(&st, "Deck")),
         Err(err) => return Err(err),
     };
+    let x = shared_details(&st.pool, &d).await?;
     let size: i64 = d.cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
     let mut body = String::new();
     if let Some(h) = &d.sharer.handle {
@@ -129,7 +108,7 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
         e(&d.name),
         e(&if d.commanders.is_empty() { "No commander set".to_string() } else { d.commanders.join(" and ") }),
         pips(&d.color_identity),
-        d.bracket.map(|b| format!("<span>Bracket {b}, as its owner declares it</span>")).unwrap_or_default(),
+        d.bracket.map(|b| format!("<span>Bracket {b}, {}, as its owner declares it</span>", bracket_name(b))).unwrap_or_default(),
         when(&d.updated_at),
         credit(&d.art),
     )
@@ -158,20 +137,48 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
     }
     write!(body, "<a class=\"text-action\" href=\"/decks/import?shared={}\">Save a copy in Yama ↗</a></div>", e(&d.token)).unwrap();
 
-    write!(body, "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{size} cards</p><h2>Decklist</h2></div></div><p class=\"dim\">Images and card details from Scryfall.</p>").unwrap();
-    for g in GROUP_ORDER {
-        let mut cards: Vec<&SharedCard> = d.cards.iter().filter(|c| group(c) == g).collect();
-        if cards.is_empty() {
-            continue;
+    // The status row, as on the deck page: legality, then the declared and suggested brackets.
+    body.push_str("<div class=\"share-status\">");
+    body.push_str(&crate::public_page::legality(&x.validation));
+    if let Some(b) = d.bracket {
+        write!(body, "<span class=\"pill\">Bracket {b} declared</span>").unwrap();
+    }
+    if let Some(r) = &x.check {
+        let (value, _, _) = crate::public_page::suggestion(r);
+        write!(body, "<a class=\"pill dashed\" href=\"#bracket-head\">Suggested {}</a>", e(&value.to_lowercase())).unwrap();
+    }
+    if let Some((run, key)) = &x.sim
+        && x.sim_matches
+        && let Some(v) = run.paired.as_ref().and_then(|p| p.variants.iter().find(|v| crate::lab::variant_state(&v.id, key) == x.sim_current))
+    {
+        write!(body, "<a class=\"pill\" href=\"#sim-head\">Simulated win rate {}</a>", crate::public_page::pct(v.win_rate)).unwrap();
+    }
+    body.push_str("</div>");
+
+    // The list: stacks of card images or a list with thumbnails. The choice is two radio
+    // buttons and CSS, so it works without script.
+    write!(body, "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{size} cards</p><h2>Decklist</h2></div></div>").unwrap();
+    body.push_str("<input class=\"layout-pick\" type=\"radio\" name=\"layout\" id=\"layout-stacks\" checked><input class=\"layout-pick\" type=\"radio\" name=\"layout\" id=\"layout-list\"><div class=\"layout-toggle\" role=\"group\" aria-label=\"View\"><label for=\"layout-stacks\">Stacks</label><label for=\"layout-list\">List</label></div>");
+    let groups: Vec<(&str, Vec<&SharedCard>)> = GROUP_ORDER
+        .iter()
+        .filter_map(|g| {
+            let mut cards: Vec<&SharedCard> = d.cards.iter().filter(|c| group(c) == *g).collect();
+            cards.sort_by(|a, b| a.cmc.total_cmp(&b.cmc).then_with(|| a.name.cmp(&b.name)));
+            (!cards.is_empty()).then_some((*g, cards))
+        })
+        .collect();
+    body.push_str("<div class=\"public-stacks\">");
+    for (g, cards) in &groups {
+        write!(body, "<section class=\"public-stack\" aria-label=\"{g}\"><h3>{g} <span class=\"dim\">{}</span></h3><div class=\"public-stack-cards\">", cards.iter().map(|c| c.qty).sum::<i64>()).unwrap();
+        for c in cards {
+            body.push_str(&stack_card(&c.name, c.image.as_deref(), &scryfall(&c.name), c.qty));
         }
-        cards.sort_by(|a, b| a.cmc.total_cmp(&b.cmc).then_with(|| a.name.cmp(&b.name)));
+        body.push_str("</div></section>");
+    }
+    body.push_str("</div><div class=\"public-list\">");
+    for (g, cards) in &groups {
         write!(body, "<h3>{g} <span class=\"dim\">{}</span></h3><ul class=\"public-card-list\">", cards.iter().map(|c| c.qty).sum::<i64>()).unwrap();
         for c in cards {
-            let image = c
-                .image
-                .as_ref()
-                .map(|u| format!("<img src=\"{}\" alt=\"{}\" loading=\"lazy\" width=\"48\" height=\"67\">", e(u), e(&c.name)))
-                .unwrap_or_default();
             let printing = c
                 .printing
                 .as_ref()
@@ -190,25 +197,27 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
                 (None, false) => e(&printing),
                 (None, true) => "Card details on Scryfall".into(),
             };
-            write!(
-                body,
-                "<li><a class=\"public-card-ref\" data-card-name=\"{}\" data-card-image=\"{}\" href=\"{}\">{image}<span><span class=\"card-qty\">{}</span> {}<small>{small}</small></span></a></li>",
-                e(&c.name),
-                e(c.image.as_deref().unwrap_or("")),
-                e(&scryfall(&c.name)),
-                c.qty,
-                e(&c.name),
-            )
-            .unwrap();
+            body.push_str(&card_item(&c.name, c.image.as_deref(), &scryfall(&c.name), c.qty, &small));
         }
         body.push_str("</ul>");
     }
+    body.push_str("</div><p class=\"dim\">Images and card details from Scryfall.</p>");
     write!(
         body,
         "<details><summary>Select the list to copy</summary><textarea readonly rows=\"14\" aria-label=\"Decklist, Moxfield format\">{}</textarea></details></section>",
         e(&export(&d.cards, "moxfield"))
     )
     .unwrap();
+
+    // Everything else about the deck, under the cards, as on the deck page.
+    body.push_str("<div class=\"share-more\">");
+    body.push_str(&crate::public_page::bracket_panel(d.bracket, x.check.as_ref(), x.game_changers.as_deref()));
+    if let Some((run, key)) = &x.sim {
+        body.push_str(&crate::public_page::sim_panel(run, key, &x.sim_states, x.sim_matches));
+    }
+    body.push_str(&crate::public_page::stats_panel(&x.stats));
+    body.push_str(&crate::public_page::singles_panel(&x.singles));
+    body.push_str("</div>");
     let description = format!("{}{}, a Commander deck shared on Yama.", d.name, if d.commanders.is_empty() { String::new() } else { format!(" ({})", d.commanders.join(" and ")) });
     Ok(response(&headers, page(&st, &format!("/d/{token}"), &d.name, &description, d.art.as_ref().map(|a| a.0.as_str()), &body)))
 }
@@ -252,13 +261,12 @@ pub(super) async fn profile(State(st): State<AppState>, address: ClientAddress, 
             )
             .unwrap();
             if !d.configurations.is_empty() {
-                body.push_str("<details class=\"share-deck-configs\"><summary>");
-                write!(body, "{} more {}", d.configurations.len(), if d.configurations.len() == 1 { "configuration" } else { "configurations" }).unwrap();
-                body.push_str("</summary><ul>");
+                // Every configuration in view, the main list first, as on the app's deck list.
+                write!(body, "<nav class=\"share-deck-configs\" aria-label=\"Configurations of {}\"><ul><li><a href=\"/d/{}\">{}</a></li>", e(&d.name), e(&d.token), e(&d.label)).unwrap();
                 for (token, label) in &d.configurations {
                     write!(body, "<li><a href=\"/d/{}\">{}</a></li>", e(token), e(label)).unwrap();
                 }
-                body.push_str("</ul></details>");
+                body.push_str("</ul></nav>");
             }
             body.push_str("</li>");
         }

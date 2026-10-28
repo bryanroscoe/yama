@@ -1091,6 +1091,34 @@ pub async fn runs_for(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<RunList
     Ok(out)
 }
 
+/// The list state a paired-run variant id names for a plan deck: `bryan/riders-of-rohan-after`
+/// is "after" for `riders-of-rohan` (web/src/lab/paired.ts).
+pub fn variant_state(id: &str, key: &str) -> Option<String> {
+    id.rsplit('/').next()?.strip_prefix(key)?.strip_prefix('-').map(str::to_string)
+}
+
+/// The owner's newest paired run with lists for this plan deck (web/src/lab/paired.ts, pairedFor).
+pub async fn paired_for_plan(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<Option<RunListItem>> {
+    let when = |r: &RunListItem| r.run.analysed_at.clone().unwrap_or_else(|| r.run.created_at.clone());
+    // Only the owner's own paired runs, in runs_for's order (public pages call this per view).
+    let runs: Vec<RunLabel> = sqlx::query_as(AssertSqlSafe(format!(
+        "SELECT {RUN_COLUMNS} FROM lab_runs WHERE owner_id = ? AND kind = 'paired' ORDER BY created_at DESC, imported_at DESC"
+    )))
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    let mut items = Vec::with_capacity(runs.len());
+    for run in runs {
+        let paired = batch_paired(pool, &run).await?;
+        items.push(RunListItem { run, decks: 0, paired });
+    }
+    Ok(items
+        .into_iter()
+        .filter(|r| r.paired.as_ref().is_some_and(|p| p.variants.iter().any(|v| variant_state(&v.id, key).is_some())))
+        // Newest first already, so the first of equally recent runs wins.
+        .fold(None, |best: Option<RunListItem>, r| if best.as_ref().is_none_or(|b| when(&r) > when(b)) { Some(r) } else { best }))
+}
+
 async fn list_runs(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<RunListItem>>> {
     Ok(Json(runs_for(&st.pool, &user.id).await?))
 }

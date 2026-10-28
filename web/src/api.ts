@@ -35,7 +35,7 @@ export function setToken(token: string | null) {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
-export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+async function apiResponse(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   const token = localStorage.getItem(TOKEN_KEY);
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -56,6 +56,16 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
     }
     throw new ApiError(res.status, message, data);
   }
+  return res;
+}
+
+/** Binary exports need the same cookie/bearer authentication and error handling as JSON reads. */
+export async function apiBlob(path: string): Promise<Blob> {
+  return (await apiResponse(path)).blob();
+}
+
+export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+  const res = await apiResponse(path, init);
   const type = res.headers.get("content-type") ?? "";
   if (type.includes("application/json")) return (await res.json()) as T;
   return (await res.text()) as unknown as T;
@@ -277,6 +287,8 @@ export interface Sharing {
   handle: string | null;
   new_deck_visibility: Visibility;
   collection_public: boolean;
+  /** Shared decks show their plan's simulated win rates. */
+  share_lab_results: boolean;
   /** Live decks by visibility. */
   decks: Record<Visibility, number>;
 }
@@ -353,8 +365,15 @@ export interface DeckView {
     /** Copies covered by proxies beyond the real ones; a proxied card isn't needed. */
     proxies?: number;
     needed: number;
+    /** Cheapest prices of the cards still needed, basics excluded. */
     needed_cost_usd: number;
     needed_without_price: number;
+    /** The same prices for your real copies, and for the copies proxies stand in for. */
+    /** null while none of those copies has a price. */
+    owned_value_usd?: number | null;
+    owned_without_price?: number;
+    proxy_value_usd?: number | null;
+    proxies_without_price?: number;
     /** The Scryfall price snapshot behind those prices (YYYY-MM-DD). */
     price_date?: string | null;
   };

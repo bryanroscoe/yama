@@ -2,7 +2,10 @@
 //! profile, and the collection's card list. Everything starts private; only what its owner shares
 //! is served, and only through the projections here. They never carry prices paid, notes,
 //! containers, proxies, ownership counts, plans, games, playgroups or account details (the Google
-//! display name and email included). A deck's printings are the ones its exports name.
+//! display name and email included). A deck's printings are the ones its exports name. A deck
+//! page also shows what's worked out from the list (legality, the stored bracket check, stats,
+//! market value) and, when the owner turns it on, its plan's simulated win rates for the lists
+//! it and its listed configurations stand for, nothing else from the plan.
 mod html;
 #[cfg(test)]
 mod tests;
@@ -94,13 +97,15 @@ struct Sharing {
     handle: Option<String>,
     new_deck_visibility: String,
     collection_public: bool,
+    /// Shared decks show their plan's simulated win rates.
+    share_lab_results: bool,
     /// Live decks by visibility.
     decks: DeckCounts,
 }
 
 async fn sharing(pool: &SqlitePool, user: &str) -> AppResult<Sharing> {
-    let (handle, new_deck_visibility, collection_public): (Option<String>, String, bool) =
-        sqlx::query_as("SELECT handle, new_deck_visibility, collection_public FROM users WHERE id = ?").bind(user).fetch_one(pool).await?;
+    let (handle, new_deck_visibility, collection_public, share_lab_results): (Option<String>, String, bool, bool) =
+        sqlx::query_as("SELECT handle, new_deck_visibility, collection_public, share_lab_results FROM users WHERE id = ?").bind(user).fetch_one(pool).await?;
     let mut decks = DeckCounts::default();
     let rows: Vec<(String, i64)> =
         sqlx::query_as("SELECT visibility, COUNT(*) FROM decks WHERE owner_id = ? AND archived = 0 GROUP BY visibility")
@@ -114,7 +119,7 @@ async fn sharing(pool: &SqlitePool, user: &str) -> AppResult<Sharing> {
             _ => decks.private = n,
         }
     }
-    Ok(Sharing { handle, new_deck_visibility, collection_public, decks })
+    Ok(Sharing { handle, new_deck_visibility, collection_public, share_lab_results, decks })
 }
 
 async fn get_sharing(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Sharing>> {
@@ -128,6 +133,7 @@ struct SharingUpdate {
     handle: Option<Option<String>>,
     new_deck_visibility: Option<String>,
     collection_public: Option<bool>,
+    share_lab_results: Option<bool>,
 }
 
 async fn put_sharing(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<SharingUpdate>) -> AppResult<Json<Sharing>> {
@@ -156,6 +162,9 @@ async fn put_sharing(State(st): State<AppState>, CurrentUser(user): CurrentUser,
     }
     if let Some(v) = &body.new_deck_visibility {
         sqlx::query("UPDATE users SET new_deck_visibility = ? WHERE id = ?").bind(v).bind(&user.id).execute(&st.pool).await?;
+    }
+    if let Some(c) = body.share_lab_results {
+        sqlx::query("UPDATE users SET share_lab_results = ? WHERE id = ?").bind(c).bind(&user.id).execute(&st.pool).await?;
     }
     if let Some(c) = body.collection_public {
         sqlx::query("UPDATE users SET collection_public = ? WHERE id = ?").bind(c).bind(&user.id).execute(&st.pool).await?;
@@ -264,6 +273,174 @@ pub(crate) struct SharedDeck {
     pub(crate) cards: Vec<SharedCard>,
     /// This deck and the public decks in its configuration group, main deck first.
     pub(crate) configurations: Vec<SharedLink>,
+    /// The main deck of its configuration group: this deck, or the one it's a configuration of.
+    pub(crate) main_id: String,
+    pub(crate) version_id: Option<String>,
+    pub(crate) list: Vec<DeckCard>,
+    /// The plan states this deck and its listed configurations stand for, with each deck's id,
+    /// this deck's first: only their simulated results can be shown.
+    pub(crate) states: Vec<(String, String)>,
+}
+
+/// What the deck page says about a shared deck beyond its list, as the app's deck page does:
+/// legality, Game Changers, the stored bracket check, stats, market value and the plan's newest
+/// paired lab run. All of it read from what's stored; viewing never starts a check or a run.
+pub(crate) struct SharedDetails {
+    pub(crate) validation: crate::decks::Validation,
+    pub(crate) game_changers: Option<Vec<String>>,
+    pub(crate) check: Option<crate::deck_checks::CheckResult>,
+    pub(crate) stats: crate::deck_stats::DeckStats,
+    pub(crate) singles: crate::deck_prices::SinglesValue,
+    /// The run and the plan's key, when the plan has a paired run with a list this deck or a
+    /// listed configuration stands for.
+    pub(crate) sim: Option<(crate::lab::RunListItem, String)>,
+    /// This deck's cards are the plan's current list for the state it stands for, so its result
+    /// may be called "this list". A label alone doesn't make it so.
+    pub(crate) sim_matches: bool,
+    /// The states whose deck (this one or a listed configuration) has the plan's current list
+    /// for it: the only results shown, in `states` order.
+    pub(crate) sim_states: Vec<String>,
+    /// The state this deck stands for in that plan.
+    pub(crate) sim_current: Option<String>,
+}
+
+/// Commander and main deck as (name, is commander, copies), sorted, for comparing a deck with a
+/// plan list: the same cards with a different commander are a different list.
+fn list_key<'a>(cards: impl Iterator<Item = (&'a str, i64, &'a str)>) -> Vec<(String, bool, i64)> {
+    let mut m: HashMap<(String, bool), i64> = HashMap::new();
+    for (name, qty, board) in cards {
+        if board != "side" {
+            *m.entry((name.to_lowercase(), board == "commander")).or_default() += qty;
+        }
+    }
+    let mut v: Vec<_> = m.into_iter().map(|((n, c), q)| (n, c, q)).collect();
+    v.sort();
+    v
+}
+
+/// The plan state a deck stands for: a main deck is "now"; a configuration labelled "stock" is
+/// "stock", "after prints" is "after", and another label the state of the same name.
+fn plan_state(configuration: Option<&str>) -> String {
+    match configuration.map(|c| c.trim().to_lowercase()) {
+        None => "now".into(),
+        Some(c) if c == "after prints" || c == "after" => "after".into(),
+        // "now" is the main deck's alone: a configuration labelled so never stands for it.
+        Some(c) if c == "now" => "configuration-now".into(),
+        Some(c) => c.split_whitespace().collect::<Vec<_>>().join("-"),
+    }
+}
+
+pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResult<SharedDetails> {
+    let info = crate::decks::card_info(pool, &d.list).await?;
+    let check = match &d.version_id {
+        Some(v) => crate::deck_checks::view(pool, Some(v), false).await?.result,
+        None => None,
+    };
+    let prices = crate::deck_prices::prices_for(pool, &d.list.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
+    // Only when the owner chose to show them (Group, You, Sharing).
+    let shares_lab: bool = sqlx::query_scalar("SELECT share_lab_results FROM users WHERE id = ?").bind(&d.sharer.id).fetch_one(pool).await?;
+    // A deck's own plan comes first: a configuration linked to its own plan is that plan's "now"
+    // list, and its siblings (lists of the main deck's plan) have no part in it. Otherwise the
+    // main deck's plan, with this deck and its listed configurations as its states.
+    let this_id = d.states.first().map(|s| s.1.clone()).unwrap_or_else(|| d.main_id.clone());
+    let plan_of = |deck: String| async move {
+        if !shares_lab {
+            return Ok::<Option<String>, sqlx::Error>(None);
+        }
+        sqlx::query_scalar("SELECT key FROM plan_decks WHERE owner_id = ? AND deck_id = ? AND status <> 'archived' ORDER BY sort LIMIT 1")
+            .bind(&d.sharer.id)
+            .bind(deck)
+            .fetch_optional(pool)
+            .await
+    };
+    let own = if this_id != d.main_id { plan_of(this_id.clone()).await? } else { None };
+    let (key, states): (Option<String>, Vec<(String, String)>) = match own {
+        Some(k) => (Some(k), vec![("now".into(), this_id.clone())]),
+        None => (plan_of(d.main_id.clone()).await?, d.states.clone()),
+    };
+    // Each listed deck's result shows only when its cards are the plan's current list for the
+    // state it stands for.
+    // The plan's newest paired run, then each listed deck's result only when its cards are the
+    // plan's current list for its state and that list was current when the run was made: runs
+    // don't keep their inputs, so a list changed or brought back since never borrows the numbers.
+    let run = match &key {
+        Some(key) => crate::lab::paired_for_plan(pool, &d.sharer.id, key).await?,
+        None => None,
+    };
+    let mut sim_states = Vec::new();
+    // Whether this deck (the first of `states`) matched, not just some deck with its label.
+    let mut sim_matches = false;
+    if let (Some(key), Some(run)) = (&key, &run) {
+        let board = |b: &Board| match b {
+            Board::Commander => "commander",
+            Board::Main => "main",
+            Board::Side => "side",
+        };
+        for (i, (state, deck_id)) in states.iter().enumerate() {
+            // Two listed decks standing for the same list can't both be it: show neither.
+            if states.iter().filter(|(s, _)| s == state).count() > 1 {
+                continue;
+            }
+            let plan_list: Option<(String, String)> = sqlx::query_as(
+                // updated_at: when this list last became current or changed (import.rs).
+                "SELECT s.cards, s.updated_at FROM plan_states s JOIN plan_decks p ON p.id = s.plan_deck_id
+                 WHERE p.owner_id = ? AND p.key = ? AND s.state = ? AND s.current = 1",
+            )
+            .bind(&d.sharer.id)
+            .bind(key)
+            .bind(state)
+            .fetch_optional(pool)
+            .await?;
+            let Some((cards, since)) = plan_list else { continue };
+            // The runner writes its own timestamp format; an unreadable one proves nothing.
+            let at = |t: &str| {
+                chrono::DateTime::parse_from_rfc3339(t)
+                    .map(|d| d.to_utc())
+                    .or_else(|_| chrono::NaiveDateTime::parse_from_str(t, "%Y-%m-%dT%H:%M:%S%.f").map(|n| n.and_utc()))
+                    .ok()
+            };
+            if !matches!((at(&since), at(&run.run.created_at)), (Some(a), Some(b)) if a <= b) {
+                continue;
+            }
+            let Ok(cards) = serde_json::from_str::<Vec<serde_json::Value>>(&cards) else { continue };
+            let theirs = list_key(cards.iter().map(|c| {
+                (c["name"].as_str().unwrap_or(""), c["qty"].as_i64().unwrap_or(1), c["board"].as_str().unwrap_or("main"))
+            }));
+            // This deck's cards are loaded already; a listed configuration's are its current list.
+            let list = if *deck_id == this_id {
+                d.list.clone()
+            } else {
+                let version: Option<String> = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(deck_id).fetch_optional(pool).await?.flatten();
+                match version {
+                    Some(v) => crate::decks::load_version_cards(pool, &v).await?,
+                    None => vec![],
+                }
+            };
+            if !theirs.is_empty() && theirs == list_key(list.iter().map(|c| (c.name.as_str(), c.qty, board(&c.board)))) {
+                sim_states.push(state.clone());
+                sim_matches |= i == 0;
+            }
+        }
+    }
+    let sim = match (key, run) {
+        (Some(key), Some(run)) => run
+            .paired
+            .as_ref()
+            .is_some_and(|p| p.variants.iter().any(|v| crate::lab::variant_state(&v.id, &key).is_some_and(|s| sim_states.contains(&s))))
+            .then_some((run, key)),
+        _ => None,
+    };
+    Ok(SharedDetails {
+        validation: crate::decks::validate(&d.list, &info),
+        game_changers: crate::decks::game_changers(&d.list, &info),
+        check,
+        stats: crate::deck_stats::stats(pool, &d.list, &info).await?,
+        singles: crate::deck_prices::singles(&serde_json::to_value(&d.list).map_err(anyhow::Error::from)?, &prices),
+        sim,
+        sim_matches,
+        sim_current: states.first().map(|s| s.0.clone()),
+        sim_states,
+    })
 }
 
 #[derive(sqlx::FromRow)]
@@ -275,6 +452,7 @@ struct DeckRow {
     updated_at: String,
     current_version_id: Option<String>,
     container_id: Option<String>,
+    parent_id: Option<String>,
 }
 
 /// A deck shared by link or on a profile, by its token. Private, archived and unknown decks,
@@ -286,7 +464,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     let row: DeckRow = sqlx::query_as(
         "SELECT d.id, d.owner_id, d.name, d.bracket,
                 COALESCE((SELECT v.created_at FROM deck_versions v WHERE v.id = d.current_version_id), d.created_at) AS updated_at,
-                d.current_version_id, d.container_id
+                d.current_version_id, d.container_id, d.parent_id
          FROM decks d JOIN users u ON u.id = d.owner_id
          WHERE d.share_token = ? AND d.visibility IN ('link', 'public') AND d.archived = 0 AND u.disabled_at IS NULL",
     )
@@ -304,7 +482,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     let items = crate::collection::items_for_owner(pool, &row.owner_id).await?;
     let mut cards = Vec::new();
     let (mut commanders, mut identity, mut art) = (vec![], String::new(), None);
-    for c in list {
+    for c in list.iter().cloned() {
         let info: Option<(Option<String>, f64, Option<String>, Option<String>, String, Option<String>, Option<String>)> = sqlx::query_as(
             "SELECT type_line, cmc, layout, image_normal, color_identity, image_art_crop, artist FROM cards WHERE oracle_id = ?",
         )
@@ -344,10 +522,16 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         });
     }
     let group = crate::decks::configuration_group(pool, &row.owner_id, &row.id).await?;
-    let configurations = group
+    let listed: Vec<_> = group
         .iter()
         // A link-only configuration is never listed elsewhere, only this deck and public ones.
         .filter(|g| g.id == row.id || g.visibility == "public")
+        .collect();
+    let state_of = |g: &crate::decks::ConfigurationRef| plan_state(if g.id == group[0].id { None } else { Some(g.configuration.as_deref().unwrap_or(&g.name)) });
+    let mut states: Vec<(String, String)> = listed.iter().filter(|g| g.id == row.id).map(|g| (state_of(g), g.id.clone())).collect();
+    states.extend(listed.iter().filter(|g| g.id != row.id).map(|g| (state_of(g), g.id.clone())));
+    let configurations = listed
+        .into_iter()
         .filter_map(|g| {
             Some(SharedLink {
                 token: g.share_token.clone()?,
@@ -367,6 +551,10 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         art,
         cards,
         configurations,
+        main_id: row.parent_id.clone().unwrap_or_else(|| row.id.clone()),
+        version_id: row.current_version_id,
+        list,
+        states,
     })
 }
 
@@ -379,6 +567,8 @@ pub(crate) struct ProfileDeck {
     pub(crate) color_identity: String,
     pub(crate) art: Option<(String, Option<String>, String)>,
     pub(crate) card_count: i64,
+    /// The main list's own label ("Main" unless it has one), as its page names it.
+    pub(crate) label: String,
     pub(crate) configurations: Vec<(String, String)>,
 }
 
@@ -437,6 +627,7 @@ pub(crate) async fn profile_decks(pool: &SqlitePool, owner: &str) -> AppResult<V
             color_identity: "WUBRG".chars().filter(|c| identity.contains(*c)).collect(),
             art,
             card_count: cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum(),
+            label: r.configuration.clone().unwrap_or_else(|| "Main".into()),
             configurations,
         });
     }
