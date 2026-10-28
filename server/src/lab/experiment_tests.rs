@@ -2305,3 +2305,23 @@ async fn retry_counts_are_not_lost_for_remotely_scheduled_experiments() {
     assert_eq!((remote.item.progress.phase_pending, remote.item.progress.phase_retries), (100, 100));
     assert_eq!(remote.item.progress.eta_seconds, None);
 }
+
+#[tokio::test]
+async fn cancelled_retry_tail_is_not_described_as_ongoing_in_advisor_context() {
+    let pool = fixture().await;
+    let bryan = user("bryan", false);
+    let d = create(&pool, &bryan, swap_req(100), FakeSim::new().as_ref()).await.unwrap();
+    sqlx::query("UPDATE lab_experiment_games SET retried=1 WHERE experiment_id=?")
+        .bind(&d.item.id).execute(&pool).await.unwrap();
+    let active = crate::advisor::context::build(&pool, &bryan, "experiment", Some(&d.item.id)).await.unwrap();
+    assert!(active.contains("100 slow retries"));
+    assert!(active.contains("retry-only tail"));
+    for status in ["cancelled", "failed", "done"] {
+        sqlx::query("UPDATE lab_experiments SET status=? WHERE id=?")
+            .bind(status).bind(&d.item.id).execute(&pool).await.unwrap();
+        let ended = crate::advisor::context::build(&pool, &bryan, "experiment", Some(&d.item.id)).await.unwrap();
+        assert!(ended.contains(&format!("({status})")));
+        assert!(!ended.contains("slow retries"));
+        assert!(!ended.contains("retry-only tail"));
+    }
+}

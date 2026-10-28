@@ -664,7 +664,7 @@ async fn experiment(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Strin
     if let Some(g) = e.forge_games {
         let _ = write!(out, " ({} of {} on Forge)", g.done, g.total);
     }
-    if p.phase_retries > 0 {
+    if matches!(e.status.as_str(), "queued" | "running") && p.phase_retries > 0 {
         let _ = write!(out, "; Phase has {} pending, including {} slow retries", p.phase_pending, p.phase_retries);
         if p.phase_pending == p.phase_retries { out.push_str("; retry-only tail: ordinary completion pace is not a reliable ETA"); }
     }
