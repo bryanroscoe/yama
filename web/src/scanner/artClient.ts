@@ -40,14 +40,30 @@ export interface ArtRecognizer {
 
 export type LoadState = { kind: "downloading"; loaded: number; total: number } | { kind: "preparing" };
 
+/** The last ready bundle's info, kept on the device: the API isn't cached, the bundle files are. */
+const INFO_KEY = "yama-scan-bundle";
+
+/** The server's bundle info, or when it can't be reached (offline), the last one seen here. */
+async function bundleInfo(): Promise<BundleInfo | null> {
+  try {
+    const info = await api<BundleInfo>("/api/scan/bundle");
+    if (info.ready) localStorage.setItem(INFO_KEY, JSON.stringify(info));
+    return info;
+  } catch (e) {
+    const kept = localStorage.getItem(INFO_KEY);
+    if (!kept) throw e;
+    return JSON.parse(kept) as BundleInfo;
+  }
+}
+
 /**
  * Start the recognizer. Resolves null when the server doesn't have the bundle yet (it starts
  * downloading it; the scanner reads text meanwhile). Rejects on a real failure.
  */
 export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promise<ArtRecognizer | null> {
   if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") return null;
-  const info = await api<BundleInfo>("/api/scan/bundle");
-  if (!info.ready || !info.constants) return null;
+  const info = await bundleInfo();
+  if (!info?.ready || !info.constants) return null;
   const worker = new Worker(new URL("./art.worker.ts", import.meta.url), { type: "module" });
   const pending = new Map<number, { resolve: (r: Recognition) => void; reject: (e: Error) => void }>();
   let nextId = 1;
