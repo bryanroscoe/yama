@@ -28,6 +28,8 @@ APP = Path('/mnt/user/appdata/yama')
 ENTRYPOINT = str(BASE / 'host.py')
 SERVICES = ('yama', 'yama-advisor', 'yama-forge')
 IMAGE_VARS = ('YAMA_IMAGE', 'YAMA_ADVISOR_IMAGE', 'YAMA_FORGE_IMAGE')
+LOCK_WAIT_SECONDS = 110 * 60
+RELEASE_SECONDS = 105 * 60
 COMMAND_DEADLINE = None
 
 
@@ -108,7 +110,7 @@ def release_lock():
     BASE.mkdir(parents=True, exist_ok=True)
     with (BASE / 'release.lock').open('a') as lock:
         log('Waiting for the production release lock…')
-        deadline = time.monotonic() + 6600
+        deadline = time.monotonic() + LOCK_WAIT_SECONDS
         while True:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -261,30 +263,40 @@ def activate(source, revision, images, record, record_path):
 def release(revision, token, check_only=False):
     global COMMAND_DEADLINE
     with release_lock():
-        COMMAND_DEADLINE = time.monotonic() + 6300
+        COMMAND_DEADLINE = time.monotonic() + RELEASE_SECONDS
         if not verify_ci(revision, token):
             log('Superseded: requested commit is no longer main; nothing deployed.')
             return
         if check_only:
             log('Host gate passed: current main has successful push CI. No deployment performed.')
             return
-        current = BASE / 'current.json'
-        if current.exists():
-            saved = json.loads(current.read_text())
-            if saved.get('revision') == revision and healthy([saved['images'][s] for s in SERVICES]):
-                log('Already deployed and healthy at ' + revision + '; nothing restarted.')
-                return
-        repo = checkout(revision, token)
-        if repo is None:
-            log('Superseded during fetch; nothing deployed.')
-            return
-        phase, phase_rev = phase_checkout(repo)
         history = BASE / 'history'
         history.mkdir(exist_ok=True)
         record_path = history / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.json')
-        record = {'revision': revision, 'phase': phase_rev, 'status': 'building'}
+        # Authorized requests get a record before any fallible preparation,
+        # including the dedicated Yama fetch and published Phase resolution.
+        record = {'revision': revision, 'phase': None, 'status': 'preparing', 'stage': 'current'}
         write_json(record_path, record)
         try:
+            current = BASE / 'current.json'
+            if current.exists():
+                saved = json.loads(current.read_text())
+                if saved.get('revision') == revision and healthy([saved['images'][s] for s in SERVICES]):
+                    record['status'] = 'already_healthy'
+                    log('Already deployed and healthy at ' + revision + '; nothing restarted.')
+                    return
+            record['stage'] = 'checkout'
+            write_json(record_path, record)
+            repo = checkout(revision, token)
+            if repo is None:
+                record['status'] = 'superseded'
+                log('Superseded during fetch; nothing deployed.')
+                return
+            record['stage'] = 'phase_checkout'
+            write_json(record_path, record)
+            phase, phase_rev = phase_checkout(repo)
+            record.update(phase=phase_rev, status='building', stage='export')
+            write_json(record_path, record)
             builds = BASE / 'builds'
             builds.mkdir(exist_ok=True)
             with tempfile.TemporaryDirectory(prefix=revision[:12] + '-', dir=builds) as scratch:
@@ -301,6 +313,8 @@ def release(revision, token, check_only=False):
                 contexts = (source, source / 'advisor', source / 'forge-worker')
                 dockerfiles = ('Dockerfile', 'Dockerfile.advisor', 'Dockerfile.forge-worker')
                 for service, dockerfile, context, extra in zip(SERVICES, dockerfiles, contexts, builds_args):
+                    record['stage'] = 'build:' + service
+                    write_json(record_path, record)
                     build_log = record_path.with_suffix('.' + service + '.log')
                     log('Building ' + service + ':' + revision + ' (' + str(build_log) + ')…')
                     with build_log.open('w') as stream:
@@ -316,12 +330,17 @@ def release(revision, token, check_only=False):
                     record['status'] = 'superseded'
                     log('Superseded during build; running production was preserved.')
                     return
+                record['stage'] = 'activate'
+                write_json(record_path, record)
                 activate(source, revision, images, record, record_path)
-                record['status'] = 'success'
+                record.update(status='success', stage='complete')
                 write_json(BASE / 'current.json', record)
                 log('Production verified at ' + revision + '; HTTP health ok, all image IDs match.')
-        except Exception:
+        except Exception as error:
             record['status'] = 'failed'
+            # Refused messages are deliberately credential-free. Never persist
+            # arbitrary exception text from HTTP clients or other libraries.
+            record['error'] = str(error) if isinstance(error, Refused) else type(error).__name__
             raise
         finally:
             write_json(record_path, record)

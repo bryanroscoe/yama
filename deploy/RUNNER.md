@@ -35,7 +35,8 @@ Pause deployments by stopping `yama-deploy-runner` on saget; CI and PRs keep wor
 - `yama-phase`, `phase_ed25519`, `github_known_hosts`: published engine objects and
   the dedicated read credential; private key mode 0600.
 - `builds`: one temporary committed-source export per release, removed on exit.
-- `history`: per-attempt status records and build logs. `current.json` records the
+- `history`: per-attempt status records and build logs. Authorized attempts are recorded
+  before Yama/Phase preparation, with their stage and sanitized failure reason. `current.json` records the
   last successful SHA, pinned Phase, image IDs and pre-release database backup.
 - `previous.json`: the running image IDs and base Compose config before the last
   attempted activation, plus that attempt's database backup path. Every activation also retains its own
@@ -73,6 +74,7 @@ A disconnected SSH client does not intentionally cancel the host release: SIGHUP
 ignored and builds write their own logs. Inspect the lock/process and history before
 retrying. Host commands have process-group timeouts, builds are limited to 90 minutes,
 the whole release has a 105-minute command deadline, and lock waits stop after 110 minutes.
+The Actions job allows 240 minutes, covering both bounds plus startup and cleanup.
 A manual cancellation can revoke the ephemeral token; if fresh verification
 then fails before activation, the running service is preserved.
 

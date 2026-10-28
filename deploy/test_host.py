@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sys
 from pathlib import Path
 import subprocess
@@ -191,6 +192,37 @@ class HostGate(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertEqual(json.loads(records[0].read_text())['status'], 'superseded')
         self.assertFalse((self.base / 'current.json').exists())
+
+    def test_actions_timeout_covers_host_wait_and_release_with_cleanup_margin(self):
+        workflow = Path(__file__).resolve().parents[1] / '.github/workflows/deploy.yml'
+        minutes = int(re.search(r'timeout-minutes:\s*(\d+)', workflow.read_text()).group(1))
+        self.assertGreater(minutes * 60, host.LOCK_WAIT_SECONDS + host.RELEASE_SECONDS + 300)
+
+    def test_phase_preparation_failure_is_recorded_before_any_build(self):
+        with patch.object(host, 'verify_ci', return_value=True), \
+             patch.object(host, 'checkout', return_value=self.root), \
+             patch.object(host, 'phase_checkout', side_effect=host.Refused('Phase fetch unavailable')), \
+             patch.object(host, 'run') as run:
+            with self.assertRaisesRegex(host.Refused, 'Phase fetch unavailable'):
+                host.release(SHA, 'private-token')
+            run.assert_not_called()
+        records = list((self.base / 'history').glob('*.json'))
+        self.assertEqual(len(records), 1)
+        record = json.loads(records[0].read_text())
+        self.assertEqual(record, {'revision': SHA, 'phase': None, 'status': 'failed',
+                                 'stage': 'phase_checkout', 'error': 'Phase fetch unavailable'})
+        self.assertNotIn('private-token', records[0].read_text())
+        self.assertFalse((self.base / 'current.json').exists())
+
+    def test_yama_fetch_failure_also_retains_attempt_provenance(self):
+        with patch.object(host, 'verify_ci', return_value=True), \
+             patch.object(host, 'checkout', side_effect=host.Refused('Yama fetch unavailable')):
+            with self.assertRaises(host.Refused):
+                host.release(SHA, 'token')
+        record = json.loads(next((self.base / 'history').glob('*.json')).read_text())
+        self.assertEqual(record['status'], 'failed')
+        self.assertEqual(record['stage'], 'checkout')
+        self.assertEqual(record['error'], 'Yama fetch unavailable')
 
     def test_host_command_timeout_terminates_its_own_child(self):
         with self.assertRaisesRegex(host.Refused, 'timed out'):
