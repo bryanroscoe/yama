@@ -1,9 +1,30 @@
 import type { Upgradeability } from "./api";
-const METHOD = "source-backed-upgradeability-v3";
+const METHOD = "source-backed-upgradeability-v4";
 
 export function UpgradeabilitySummary({ value }: { value?: Upgradeability }) {
   if (value && value.method !== METHOD)
     return <span className="dim small">Needs refreshed evidence</span>;
+  if (value?.package) {
+    const p = value.package;
+    return (
+      <span>
+        <strong>
+          {p.best_supported_score == null
+            ? "Package ungraded"
+            : `Highest supported in-box upgrade grade: ${p.best_supported_score}/5 ${p.best_supported_label}`}
+        </strong>
+        {p.best_supported_commanders.map((c) => (
+          <span className="sub" key={c.join(" + ")}>
+            {c.join(" + ")}
+          </span>
+        ))}
+        <span className="sub">
+          {p.graded_configurations}/{p.configurations} commander configurations
+          graded. Unassessed options may be stronger.
+        </span>
+      </span>
+    );
+  }
   const others = value?.alternatives ?? [];
   const graded = others.filter((x) => x.score != null);
   return (
@@ -34,7 +55,9 @@ function Evidence({ value: v }: { value: Upgradeability }) {
   return (
     <>
       <p>
-        <UpgradeabilitySummary value={{ ...v, alternatives: [] }} />
+        <UpgradeabilitySummary
+          value={{ ...v, alternatives: [], package: null }}
+        />
       </p>
       {v.continuity && (
         <>
@@ -200,6 +223,41 @@ export function UpgradeabilitySection({
     <section>
       <h2>Upgradeability</h2>
       <p>{v.basis}</p>
+      {v.package && (
+        <>
+          <h3>The complete package</h3>
+          <p>
+            <UpgradeabilitySummary value={v} />
+          </p>
+          <p>
+            {v.package.configurations} stock-compatible in-box commander
+            configurations inventoried on {v.package.checked_on}.{" "}
+            {v.package.validated_configurations} have validated simulation lists.{" "}
+            {v.package.roster_complete
+              ? "Inventory complete for the checked stock list."
+              : "Inventory incomplete."}
+          </p>
+          {!!v.package.featured_commanders.length && (
+            <p>
+              Featured commanders:{" "}
+              {v.package.featured_commanders
+                .map((c) => c.join(" + "))
+                .join(", ")}
+              .
+            </p>
+          )}
+          <p>{v.package.note}</p>
+          {!!v.package.other_legends.length && (
+            <details>
+              <summary>Other included legends</summary>
+              <p>
+                These cannot lead the complete unchanged stock pool with a
+                checked configuration: {v.package.other_legends.join(", ")}.
+              </p>
+            </details>
+          )}
+        </>
+      )}
       {!!v.commanders.length && <h3>{v.commanders.join(" + ")}</h3>}
       <Evidence value={v} />
       {!!v.alternatives.length && (
