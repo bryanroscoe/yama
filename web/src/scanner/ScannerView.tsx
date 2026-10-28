@@ -899,7 +899,7 @@ function explain(f: Found, identityOnly: boolean): string {
   if (f.reading) return `${by}. ${f.options.length} printings share this art; reading the collector number…`;
   switch (f.how) {
     case "only":
-      return `${by}. It's the only printing with this art.`;
+      return f.sameArt ? `${by}. It's the only printing with this art.` : `${by}. It's the card's only printing.`;
     case "collector":
       return f.method === "art" ? `${by}; the collector number picked the printing.` : `${by}.`;
     case "picked":

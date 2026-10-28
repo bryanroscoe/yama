@@ -34,7 +34,7 @@ export function printingOptions(q: { art?: string | null; id?: string; name?: st
 export interface Choice {
   /** The printing to file, or null when the person has to pick. */
   chosen: Printing | null;
-  /** "only": the one printing with this art. "collector": read from the collector line. */
+  /** "only": the one printing with this art, or of the card. "collector": read from the collector line. */
   how: "only" | "collector" | null;
   /** What to offer in the picker: English first, the best guesses at the top. */
   options: Printing[];
@@ -58,7 +58,8 @@ export function choosePrinting(o: PrintingOptions, collector?: string): Choice {
   const english = o.printings.filter((p) => p.lang === "en");
   const pool = english.length > 0 ? english : o.printings;
   const options = [...pool, ...o.printings.filter((p) => !pool.includes(p))];
-  if (o.sameArt && pool.length === 1) return { chosen: pool[0]!, how: "only", options };
+  // One printing (of this art, or of the card at all) leaves nothing to tell apart.
+  if (pool.length === 1) return { chosen: pool[0]!, how: "only", options };
   if (collector) {
     const sets = new Set(pool.map((p) => p.set_code));
     const read = parseCollector(collector, (code) => sets.has(code));

@@ -37,6 +37,11 @@ describe("choosePrinting", () => {
     expect(c.chosen?.set_code).toBe("ecc");
     expect(c.how).toBe("only");
   });
+  it("files a card's only printing even without art data", () => {
+    const c = choosePrinting({ sameArt: false, printings: [p("fic", "9")] });
+    expect(c.chosen?.set_code).toBe("fic");
+    expect(c.how).toBe("only");
+  });
   it("prefers English when other languages share the art", () => {
     const c = choosePrinting({ sameArt: true, printings: [p("ecc", "57", "ja"), p("ecc", "57")] });
     expect(c.chosen?.lang).toBe("en");
