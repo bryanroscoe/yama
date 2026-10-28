@@ -369,10 +369,20 @@ struct Source {
     accessed: String,
 }
 #[allow(dead_code)]
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ScenarioPurpose {
+    #[default]
+    Acquisition,
+    PermanentRealWishlist,
+}
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct Scenario {
     id: String,
     label: String,
+    #[serde(default)]
+    purpose: ScenarioPurpose,
     #[serde(default)]
     deck_count: usize,
     #[serde(default)]
