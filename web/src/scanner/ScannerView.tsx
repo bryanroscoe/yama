@@ -190,17 +190,27 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
   foundRef.current = found;
   /** What the camera actually delivers, e.g. "3840×2160". */
   const [camera, setCamera] = useState<string | null>(null);
+  /** A photo is being read: the camera loop waits, so the two can't both report a card. */
+  const [photoBusy, setPhotoBusy] = useState(false);
   /** The camera is running (a close-up needs it). */
   const [live, setLive] = useState(false);
   const [showAll, setShowAll] = useState(false);
 
   const ocrRef = useRef<Promise<OcrEngine> | null>(null);
+  /** False once the scanner closes: work finishing after that must clean up after itself. */
+  const alive = useRef(true);
   /** Tesseract, started on first use. */
   const ocrEngine = useCallback(() => {
     // Served by the app (scripts/copy-ocr.mjs), so it works offline and loads nothing from a CDN.
     ocrRef.current ??= ocrProp
       ? Promise.resolve(ocrProp)
-      : createTesseractOcr({ workerPath: "/ocr/worker.min.js", corePath: "/ocr/core", langPath: "/ocr/lang" }).then((o) => (ownedOcr.current = o));
+      : createTesseractOcr({ workerPath: "/ocr/worker.min.js", corePath: "/ocr/core", langPath: "/ocr/lang" }).then((o) => {
+          if (!alive.current) {
+            void o.terminate();
+            throw new Error("The scanner is closed");
+          }
+          return (ownedOcr.current = o);
+        });
     ocrRef.current.catch(() => (ocrRef.current = null));
     return ocrRef.current;
   }, [ocrProp]);
@@ -218,6 +228,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
   useEffect(() => {
     let cancelled = false;
     let art: ArtRecognizer | null = null;
+    alive.current = true;
     (async () => {
       try {
         art = await loadArtRecognizer((s) => !cancelled && setLoadState(s));
@@ -239,6 +250,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
     })();
     return () => {
       cancelled = true;
+      alive.current = false;
       artRef.current = null;
       art?.dispose();
       void ownedOcr.current?.terminate();
@@ -310,8 +322,10 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
         if (!reading) return;
         // Several printings share the art: read the collector line to tell them apart.
         const text = await readCollectorLine(read!.image, read!.quad, await ocrEngine());
+        // One read from the whole-card view settles it only when it's proof; otherwise the guess goes
+        // first in the picker and the close-up step confirms it.
         const byLine = choosePrinting(opts, text);
-        update({ options: byLine.options, chosen: byLine.chosen, how: byLine.how, raw: text, reading: false });
+        update({ options: byLine.options, chosen: byLine.certain ? byLine.chosen : null, how: byLine.certain ? byLine.how : null, raw: text, reading: false });
       } catch (e) {
         update({ options: [], reading: false, error: e instanceof Error ? e.message : String(e) });
       }
@@ -391,7 +405,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
 
   // Read loop: one frame at a time.
   useEffect(() => {
-    if (phase !== "scanning" || !mode || closeup) return;
+    if (phase !== "scanning" || !mode || closeup || photoBusy) return;
     let stop = false;
     let failedReads = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -486,10 +500,14 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
       stop = true;
       clearTimeout(timer);
     };
-  }, [phase, mode, closeup, identityOnly, showArt, handleText, textReader]);
+  }, [phase, mode, closeup, photoBusy, identityOnly, showArt, handleText, textReader]);
 
   const fromPhoto = async (file: File) => {
     setStatus("Reading the photo");
+    setPhotoBusy(true);
+    // Anything shown meanwhile (a typed name, Not this) makes this photo's answer stale.
+    const start = foundSeq.current;
+    const current = () => foundSeq.current === start && alive.current;
     try {
       const bmp = await createImageBitmap(file);
       canvasRef.current ??= document.createElement("canvas");
@@ -503,7 +521,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
         if (r.quad && top && top.score >= LOCK_TWICE) {
           const read = identityOnly ? null : around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
           bmp.close();
-          showArt(r, top, read);
+          if (current()) showArt(r, top, read);
           return;
         }
         // A card whose art isn't known: read its text where the recognizer found it.
@@ -513,7 +531,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
           const res = await readAt(hi.image, hi.quad, reader);
           if ((res.candidates[0]?.confidence ?? 0) >= SURE) {
             bmp.close();
-            handleText(res, true);
+            if (current()) handleText(res, true);
             return;
           }
         }
@@ -534,9 +552,12 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
         if (!res || (r.candidates[0]?.confidence ?? 0) > (res.candidates[0]?.confidence ?? 0)) res = r;
         if ((res.candidates[0]?.confidence ?? 0) >= SURE) break;
       }
+      if (!current()) return;
       if (!res || !handleText(res, true)) setStatus("Couldn't read that photo. Fill the photo with the card, or type the name.");
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err));
+      if (current()) setStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPhotoBusy(false);
     }
   };
 
@@ -610,7 +631,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
           if (!f?.options) return next(200);
           const c = choosePrinting({ sameArt: f.sameArt, printings: f.options }, text);
           // Set code and number both read: done. One of them: the same answer twice.
-          if (c.chosen && (c.strong || previous === c.chosen.scryfall_id)) {
+          if (c.chosen && (c.certain || previous === c.chosen.scryfall_id)) {
             const chosenNow = c.chosen;
             setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", options: c.options, raw: text } : cur));
             setCloseup(null);

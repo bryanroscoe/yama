@@ -38,8 +38,13 @@ export interface Choice {
   how: "only" | "collector" | null;
   /** What to offer in the picker: English first, the best guesses at the top. */
   options: Printing[];
-  /** The collector line gave both the set code and the number of the chosen printing. */
-  strong?: boolean;
+  /**
+   * The read alone is proof: the set code read exactly as printed (no lookalike repair), and
+   * either the number matched or that set has only one of these printings. Anything less
+   * (a repaired set code, a number alone) is a guess: shown first, but confirmed by a second
+   * close-up read or picked by the person.
+   */
+  certain?: boolean;
 }
 
 const asCatalog = (p: Printing): CatalogPrinting & { p: Printing } => ({ p, scryfall_id: p.scryfall_id, name: p.name, set: p.set_code, number: p.collector_number, lang: p.lang, image: p.image_normal });
@@ -58,11 +63,13 @@ export function choosePrinting(o: PrintingOptions, collector?: string): Choice {
     const sets = new Set(pool.map((p) => p.set_code));
     const read = parseCollector(collector, (code) => sets.has(code));
     const pick = pickPrinting(pool.map(asCatalog), read.sets.slice(0, 3), read.numbers.slice(0, 3), read.rawSets);
+    const chosen = pick ? (pick.printing as ReturnType<typeof asCatalog>).p : null;
+    const exactSet = !!chosen && read.exactSets.includes(chosen.set_code);
     // Among a card's every printing (not just one artwork's), only an exactly read set code counts.
-    if (pick && (o.sameArt || pick.how === "set")) {
-      const chosen = (pick.printing as ReturnType<typeof asCatalog>).p;
-      const strong = read.sets.includes(chosen.set_code) && read.numbers.includes(normaliseNumber(chosen.collector_number));
-      return { chosen, how: "collector", options: [chosen, ...options.filter((p) => p !== chosen)], strong };
+    if (chosen && (o.sameArt || exactSet)) {
+      const numberRead = read.numbers.includes(normaliseNumber(chosen.collector_number));
+      const onlyInSet = pool.filter((p) => p.set_code === chosen.set_code).length === 1;
+      return { chosen, how: "collector", options: [chosen, ...options.filter((p) => p !== chosen)], certain: exactSet && (numberRead || onlyInSet) };
     }
     // Not settled, but put printings matching what was read first.
     const near = (p: Printing) => read.sets.includes(p.set_code) || read.rawSets.includes(p.set_code) || read.numbers.includes(p.collector_number.replace(/^0+/, ""));

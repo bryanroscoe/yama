@@ -51,14 +51,24 @@ describe("choosePrinting", () => {
     const c = choosePrinting({ sameArt: true, printings: signets }, "A ON I\nCC 0149\nWOC + EN D S");
     expect(c.chosen?.set_code).toBe("woc");
     expect(c.how).toBe("collector");
+    // WOC read exactly and it has one printing of this art: proof enough.
+    expect(c.certain).toBe(true);
+  });
+  it("treats a number alone or a repaired set code as a guess, not proof", () => {
+    const byNumber = choosePrinting({ sameArt: true, printings: signets }, "234");
+    expect(byNumber.chosen?.set_code).toBe("c21");
+    expect(byNumber.certain).toBe(false);
+    // "C2I" is repaired to c21: a guess among art siblings, nothing at all among every printing.
+    expect(choosePrinting({ sameArt: true, printings: signets }, "C 0234\nC2I + EN").certain).toBe(false);
+    expect(choosePrinting({ sameArt: false, printings: signets }, "C 0234\nC2I + EN").chosen).toBeNull();
   });
   it("needs the number when one set has two printings of the art", () => {
     expect(choosePrinting({ sameArt: true, printings: signets }, "CMR + EN").chosen).toBeNull();
     expect(choosePrinting({ sameArt: true, printings: signets }, "C 0689\nCMR + EN").chosen?.collector_number).toBe("689");
   });
-  it("marks a read of both set code and number as strong (the close-up takes it at once)", () => {
-    expect(choosePrinting({ sameArt: true, printings: signets }, "C 0145\nWOC + EN").strong).toBe(true);
-    expect(choosePrinting({ sameArt: true, printings: signets }, "CC 0149\nWOC + EN").strong).toBe(false);
+  it("needs the number when the set has two printings of the art", () => {
+    expect(choosePrinting({ sameArt: true, printings: signets }, "C 0689\nCMR + EN").certain).toBe(true);
+    expect(choosePrinting({ sameArt: true, printings: signets }, "C 0688\nCMR + EN").certain).toBeFalsy();
   });
   it("puts what was read first when it can't settle it", () => {
     const c = choosePrinting({ sameArt: true, printings: signets }, "CMR + EN");
