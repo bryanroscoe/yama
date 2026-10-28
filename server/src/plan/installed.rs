@@ -17,19 +17,20 @@ use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 
-/// Copies by lower-case name. A double-faced card counts under its full name and its front face.
+/// Copies by lower-case name; a double-faced or split card counts under its front face, so
+/// "Brazen Borrower" and "Brazen Borrower // Petty Theft" are one card.
 pub type Counts = HashMap<String, i64>;
 
 fn norm(name: &str) -> String {
-    name.trim().to_lowercase()
+    let n = name.trim().to_lowercase();
+    match n.split_once(" // ") {
+        Some((front, _)) => front.trim().to_string(),
+        None => n,
+    }
 }
 
 fn add(counts: &mut Counts, name: &str, qty: i64) {
-    let full = norm(name);
-    if let Some((front, _)) = full.split_once(" // ") {
-        *counts.entry(front.trim().to_string()).or_default() += qty;
-    }
-    *counts.entry(full).or_default() += qty;
+    *counts.entry(norm(name)).or_default() += qty;
 }
 
 /// Commander and main-board copies of a list of `{name, qty, board}` (a deck version or a plan list).
@@ -74,16 +75,14 @@ impl<'a> Budget<'a> {
         Budget { stock, deck, added, removed }
     }
 
-    /// The key a name is counted under: its full name, else its front face.
     fn key(&self, name: &str) -> String {
-        let n = norm(name);
-        if self.stock.contains_key(&n) || self.deck.contains_key(&n) {
-            return n;
-        }
-        match n.split_once(" // ") {
-            Some((front, _)) => front.trim().to_string(),
-            None => n,
-        }
+        norm(name)
+    }
+
+    /// Whether the deck has more copies of `name` than stock does, whatever any swap claimed.
+    pub fn present(&self, name: &str) -> bool {
+        let k = self.key(name);
+        self.deck.get(&k).copied().unwrap_or(0) > self.stock.get(&k).copied().unwrap_or(0)
     }
 
     /// Whether this swap is in the deck; if it is, the copies it accounts for are used up.
@@ -214,8 +213,10 @@ pub async fn load(pool: &SqlitePool, owner: &str) -> AppResult<Installs> {
     for (key, plan_id, inn, out_name, role, parent) in swaps {
         if let Some(budget) = budgets.get_mut(plan_id.as_str()) {
             let on = budget.take(&inn, out_name.as_deref());
+            // A stand-in can only be superseded once it's actually out of the list.
             if role == "standin"
                 && !on
+                && !budget.present(&inn)
                 && let Some(p) = parent
             {
                 standins.push((key.clone(), p));
@@ -287,6 +288,10 @@ mod tests {
         let deck = list(&[("Brazen Borrower // Petty Theft", 1)]);
         assert!(in_deck(&stock, &deck, "brazen borrower", None));
         assert!(in_deck(&stock, &deck, "Brazen Borrower // Petty Theft", None));
+        // Both spellings share one copy.
+        let mut b = Budget::new(&stock, &deck);
+        assert!(b.take("Brazen Borrower", None));
+        assert!(!b.take("Brazen Borrower // Petty Theft", None));
         // The side board doesn't count.
         let side = counts(&[json!({"name": "Spare", "qty": 1, "board": "side"})]);
         assert!(!in_deck(&stock, &side, "Spare", None));
