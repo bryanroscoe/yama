@@ -1,8 +1,15 @@
 # Datasets and historical evidence
 
-28 October 2026. This is the private ingestion foundation, before an upload page,
-unattended source collectors or public commander rankings. Application release and
-production imports are separate operator actions.
+28 October 2026. Private ingestion and browsing are available under **Decks, Datasets**
+(`/decks/datasets`). Each account sees its own imported evidence. Application release
+and production imports are separate operator actions.
+
+The browser searches names, filters the six evidence types, pages through records
+and provenance, and downloads the retained original revision. **Explore history**
+opens all evidence for a source entity, with complete-month summaries and adjustable
+half-life/evaluation date. Browse links pin a revision so paging stays consistent
+when a newer import arrives. Session admins can upload prepared JSON/gzip files;
+the server validates the complete document atomically before saving. View as is read-only.
 
 An import adds source evidence. It never records a game in a playgroup, edits a deck,
 changes a research assessment or publishes a ranking. Every dataset belongs to an
@@ -140,8 +147,8 @@ Measured upgrade effects still need outcomes linked to exact lists as played.
 
 ## Follow-on work
 
-Add an admin upload/review page and scoped collector credentials using this import
-contract; do not give every existing admin MCP connection upload powers. Then add
+Add scoped collector credentials using this import contract; do not give every
+existing admin MCP connection upload powers. Then add
 scheduled, dated source adapters with last-good-state retention, explicit dataset
 promotion and a dedicated public projection. Current imports remain private and
 do not change existing public precon or commander assessments.
