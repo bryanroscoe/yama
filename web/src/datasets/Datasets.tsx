@@ -1,0 +1,199 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { api, apiBlob } from "../api";
+import { useMe } from "../auth";
+import { AreaHead } from "../components/DeckTabs";
+import { Details, ErrorText } from "../components/ui";
+import { KINDS, count, dataset, datasets, object, percent, periodLabel, recordName, sourceUrl, text, type Dataset, type DatasetRead, type EvidenceRecord, type Source } from "./api";
+import "./datasets.css";
+
+function SourceLink({ url, children }: { url: unknown; children: ReactNode }) {
+  const href = sourceUrl(url);
+  return href ? <a href={href} target="_blank" rel="noreferrer">{children}</a> : <span>{children}</span>;
+}
+function JsonDetails({ value, label }: { value: unknown; label: string }) {
+  return <Details label={label}><pre>{JSON.stringify(value, null, 2)}</pre></Details>;
+}
+export function DatasetCard({ d }: { d: Dataset }) {
+  const revision = `revision=${d.revision}`;
+  return <article className="dataset-card">
+    <h2><Link to={`/decks/datasets/${encodeURIComponent(d.id)}?${revision}`}>{d.title}</Link></h2>
+    <p className="dim">{d.source.name}, revision {d.revision}. Imported {d.imported_at.slice(0, 10)}.</p>
+    <p>{count(Object.values(d.records).reduce((a, b) => a + (b ?? 0), 0))} records from {count(d.source_documents)} source documents</p>
+    <div className="dataset-counts">{Object.entries(KINDS).map(([kind, label]) => <Link key={kind} to={`/decks/datasets/${encodeURIComponent(d.id)}?${revision}&kind=${kind}`}>{label} <b>{count(d.records[kind as keyof typeof KINDS] ?? 0)}</b></Link>)}</div>
+  </article>;
+}
+function UploadDataset() {
+  const [file, setFile] = useState<File | null>(null);
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const upload = useMutation({
+    mutationFn: async (f: File) => {
+      if (f.size > 32 * 1024 * 1024) throw new Error("Choose a JSON or gzip dataset of at most 32 MiB.");
+      return api<{ id: string; revision: number }>("/api/datasets/import", { method: "POST", headers: { "Content-Type": f.name.toLowerCase().endsWith(".gz") ? "application/gzip" : "application/json" }, body: f });
+    },
+    onSuccess: async (r) => {
+      await client.invalidateQueries({ queryKey: ["datasets"] });
+      navigate(`/decks/datasets/${encodeURIComponent(r.id)}?revision=${r.revision}`);
+    },
+  });
+  return <Details label="Import a dataset">
+    <p>Upload a prepared yama-dataset/1 JSON or JSON.gz file, up to 32 MiB. It is validated before saving to your private account.</p>
+    <form className="dataset-upload" onSubmit={(e) => { e.preventDefault(); if (file) upload.mutate(file); }}>
+      <label>Dataset file<input type="file" accept=".json,.gz,application/json,application/gzip" disabled={upload.isPending} onChange={(e) => { setFile(e.target.files?.[0] ?? null); upload.reset(); }} /></label>
+      <button type="submit" disabled={!file || upload.isPending}>{upload.isPending ? "Importing…" : "Import dataset"}</button>
+      <ErrorText error={upload.error} />
+    </form>
+  </Details>;
+}
+export function DatasetsPage() {
+  const { id } = useParams();
+  return id ? <DatasetDetail key={id} id={id} /> : <DatasetIndex />;
+}
+function DatasetIndex() {
+  const me = useMe();
+  const list = useQuery({ queryKey: ["datasets", me.data?.id], queryFn: datasets });
+  return <main className="page datasets-page">
+    <AreaHead title="Datasets" index />
+    <p>Explore historical precon and commander evidence saved to your account. Source dates, periods and counts stay attached to each observation.</p>
+    <ErrorText error={list.error} />
+    {list.isPending && <p role="status">Loading datasets…</p>}
+    {list.data?.length === 0 && <p>No datasets have been imported into your account yet.</p>}
+    {list.data?.map((d) => <DatasetCard key={d.id} d={d} />)}
+    {me.data?.is_admin && !me.data.viewing && <UploadDataset />}
+  </main>;
+}
+function SourceCard({ source }: { source: Source }) {
+  return <article className="dataset-record">
+    <h3><SourceLink url={source.url}>{source.url || "Retained source document"}</SourceLink></h3>
+    <dl className="dataset-facts">
+      {source.source_as_of && <><dt>Source updated</dt><dd>{source.source_as_of}</dd></>}
+      {source.captured_at && <><dt>Archive capture</dt><dd>{source.captured_at}</dd></>}
+      {source.retrieved_at && <><dt>Retrieved</dt><dd>{source.retrieved_at}</dd></>}
+      <dt>SHA-256</dt><dd><code>{source.sha256}</code></dd>
+    </dl>
+    {!!source.flags?.length && <p>Quality flags: {source.flags.join(", ")}</p>}
+    {source.transformation && <p>{source.transformation}</p>}
+  </article>;
+}
+export function RecordCard({ record, explore }: { record: EvidenceRecord; explore: (r: EvidenceRecord) => void }) {
+  const d = record.data;
+  const stats = object(d.stats);
+  return <article className="dataset-record">
+    <div className="dataset-record-head"><h3>{recordName(record)}</h3><button className="outline" onClick={() => explore(record)}>Explore history</button></div>
+    <p className="small dim">{KINDS[record.kind]}</p>
+    {record.kind === "performance" && <>
+      <p className="dataset-value">{percent(d.value)} <span>source-reported normalized 4-player win rate</span></p>
+      <p>{count(d.source_reported_games)} source-reported games. {periodLabel(d.observation_period)}.</p>
+      <p className="small">Population: <SourceLink url={d.cohort}>{text(d.cohort)}</SourceLink></p>
+      {Array.isArray(d.quality_flags) && d.quality_flags.length > 0 && <p>Quality flags: {d.quality_flags.map(text).join(", ")}</p>}
+    </>}
+    {record.kind === "weekly_activity" && <p>{count(d.value)} reported activity for the week of {text(d.week)}.</p>}
+    {record.kind === "commander" && <p>{count(d.game_played_count)} source-reported games, {count(d.pilot_count)} pilots. Source ELO: {count(d.global_elo)}.</p>}
+    {record.kind === "commander_history" && <>
+      <p>{count(d.weekly_points)} weekly activity points{d.first_week ? ` from ${text(d.first_week)} to ${text(d.last_week)}` : ""}. {count(d.elo_points)} ELO sequence points.</p>
+      <p className="dim small">{text(d.note)}</p>
+      {Object.keys(stats).length > 0 && <JsonDetails value={stats} label="Reported commander statistics" />}
+    </>}
+    {record.kind === "archetype" && <p>{text(d.note)}</p>}
+    {d.omitted === true && <p>{text(d.note)} Download the original dataset for the complete record.</p>}
+    {!!(d.source_entity_url || d.source_url) && <p><SourceLink url={d.source_entity_url || d.source_url}>Open source</SourceLink></p>}
+    <JsonDetails value={record} label="Record and source references" />
+  </article>;
+}
+export function MonthlySummaries({ data }: { data: DatasetRead }) {
+  return <section aria-label="Monthly summaries" className="dataset-monthly">
+    <h2>Monthly evidence</h2>
+    <p className="small dim">Complete months use reported sample size and recency at each month's midpoint. Overlapping rolling windows and cumulative snapshots stay separate.{data.dataset.source.name === "Playgroup.gg" && " Monthly Playgroup reports cover the 100 most-played commanders."}</p>
+    {data.monthly_summaries?.map((s) => <article className="dataset-record" key={s.cohort}>
+      <p className="dataset-value">{s.weighted_source_rate_percent == null ? "No eligible months" : percent(s.weighted_source_rate_percent)} <span>weighted source-rate average</span></p>
+      <p>{count(s.months)} complete months, {count(s.source_reported_games)} reported samples; {count(s.excluded_months)} months excluded.</p>
+      <p className="small">Half-life {s.half_life_days} days, evaluated {s.as_of}. Population: <SourceLink url={s.cohort}>{s.cohort}</SourceLink></p>
+    </article>)}
+    {!data.monthly_summaries?.length && <p>No compatible monthly observations for this entity. Its other source evidence remains below.</p>}
+    {data.summary_note && <p>{data.summary_note}</p>}
+    <p className="small dim">This describes source aggregates; it does not measure the effect of changing a deck.</p>
+  </section>;
+}
+function DatasetDetail({ id }: { id: string }) {
+  const me = useMe();
+  const [params, setParams] = useSearchParams();
+  const read = useQuery({ queryKey: ["datasets", me.data?.id, id, params.toString()], queryFn: () => dataset(id, params) });
+  const data = read.data;
+  const head = data?.dataset;
+  const sources = params.get("section") === "sources";
+  const offset = Number(params.get("offset") || 0);
+  const download = useMutation({ mutationFn: async (revision: number) => {
+    const blob = await apiBlob(`/api/datasets/${encodeURIComponent(id)}/export?revision=${revision}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${id}-r${revision}.json.gz`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    // Let the browser/webview start saving before releasing the object URL.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } });
+  function update(values: Record<string, string>, paging = false) {
+    const next = new URLSearchParams(params);
+    if (!paging) next.delete("offset");
+    for (const [key, value] of Object.entries(values)) { if (value) next.set(key, value); else next.delete(key); }
+    if (head) next.set("revision", String(head.revision));
+    setParams(next);
+  }
+  function search(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    update({ search: String(form.get("search") || "").trim(), entity: "", label: "", kind: String(form.get("kind") || ""), section: "" });
+  }
+  return <main className="page datasets-page">
+    <AreaHead title="Dataset evidence" back={{ to: "/decks/datasets", label: "Back to datasets" }} />
+    <ErrorText error={read.error} />
+    {read.isPending && <p role="status">Loading evidence…</p>}
+    {head && <>
+      <h2>{head.title}</h2>
+      <p className="dim">Private to your account. Revision {head.revision}, imported {head.imported_at.slice(0, 10)}.</p>
+      <p>{head.method}</p>
+      <div className="dataset-actions">
+        <button className={sources ? "outline" : "primary"} onClick={() => update({ section: "" })}>Browse records</button>
+        <button className={sources ? "primary" : "outline"} onClick={() => update({ section: "sources" })}>Source documents ({count(head.source_documents)})</button>
+        <button className="outline" disabled={download.isPending} onClick={() => download.mutate(head.revision)}>{download.isPending ? "Downloading…" : "Download original dataset"}</button>
+      </div>
+      <ErrorText error={download.error} />
+      <Details label="Attribution and recovery coverage">
+        <p><SourceLink url={head.source.url}>{head.source.name}</SourceLink>. {head.source.attribution}</p><p>{head.source.license}</p>
+        <JsonDetails value={head.coverage} label="Coverage at recovery" />
+        <p className="small">Content SHA-256: <code>{head.content_hash}</code></p>
+      </Details>
+      {!sources && <>
+        <form className="dataset-filters" onSubmit={search} key={`${params.get("search")}-${params.get("kind")}`}>
+          <label>Commander or precon name<input name="search" defaultValue={params.get("search") || ""} maxLength={240} placeholder="Try Riders of Rohan or Atraxa" /></label>
+          <label>Evidence type<select name="kind" defaultValue={params.get("kind") || ""}><option value="">All evidence</option>{Object.entries(KINDS).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
+          <button type="submit">Search</button>
+        </form>
+        {params.get("entity") && <>
+          <div className="dataset-actions"><h2>{params.get("label") || params.get("entity")}</h2><button className="outline" onClick={() => update({ entity: "", label: "", kind: "", search: "" })}>Clear entity</button></div>
+          <form className="dataset-filters" key={`${params.get("half_life_days")}-${params.get("as_of")}`} onSubmit={(e) => {
+            e.preventDefault(); const form = new FormData(e.currentTarget);
+            update({ half_life_days: String(form.get("half_life_days") || "180"), as_of: String(form.get("as_of") || "") });
+          }}>
+            <label>Recency half-life (days)<input name="half_life_days" type="number" min={1} max={3650} required defaultValue={params.get("half_life_days") || "180"} /></label>
+            <label>Evaluate as of<input name="as_of" type="date" defaultValue={params.get("as_of") || ""} /></label><button type="submit">Update weighting</button>
+          </form>
+          {data && <MonthlySummaries data={data} />}
+        </>}
+      </>}
+      {data?.sources?.map((s) => <SourceCard key={s.sha256} source={s} />)}
+      {data?.records?.map((r) => <RecordCard key={r.id} record={r} explore={(record) => update({ entity: record.entity, label: recordName(record), search: "", kind: "", section: "" })} />)}
+      {!sources && data?.records?.length === 0 && <p>No matching records. Try another name or evidence type.</p>}
+      {sources && data?.sources?.length === 0 && <p>No source documents on this page.</p>}
+      <nav className="dataset-actions" aria-label="Evidence pages">
+        <button disabled={offset <= 0 || read.isFetching} onClick={() => update({ offset: String(Math.max(0, offset - 25)) }, true)}>Previous</button>
+        <span>Page {Math.floor(offset / 25) + 1}</span>
+        <button disabled={data?.next_offset == null || read.isFetching} onClick={() => update({ offset: String(data?.next_offset) }, true)}>Next</button>
+      </nav>
+    </>}
+  </main>;
+}

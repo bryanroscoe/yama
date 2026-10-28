@@ -35,7 +35,7 @@ export function setToken(token: string | null) {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
-export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+async function apiResponse(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   const token = localStorage.getItem(TOKEN_KEY);
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -56,6 +56,16 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
     }
     throw new ApiError(res.status, message, data);
   }
+  return res;
+}
+
+/** Binary exports need the same cookie/bearer authentication and error handling as JSON reads. */
+export async function apiBlob(path: string): Promise<Blob> {
+  return (await apiResponse(path)).blob();
+}
+
+export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+  const res = await apiResponse(path, init);
   const type = res.headers.get("content-type") ?? "";
   if (type.includes("application/json")) return (await res.json()) as T;
   return (await res.text()) as unknown as T;
