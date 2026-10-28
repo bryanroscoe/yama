@@ -420,7 +420,8 @@ pub(crate) fn stats_panel(st: &DeckStats) -> String {
     }
     write!(s, "<line class=\"baseline\" x1=\"0\" x2=\"{width}\" y1=\"{0}\" y2=\"{0}\"/></svg></div>", base + 0.5).unwrap();
     // Pips and land access, each column on its own scale.
-    let colors: Vec<_> = MANA.iter().filter(|(c, _)| st.pips.contains_key(c) || st.sources.as_ref().is_some_and(|x| x.contains_key(c))).collect();
+    // Only colors the spells ask for, as packages/core does: a land's extra colors aren't a row.
+    let colors: Vec<_> = MANA.iter().filter(|(c, _)| st.pips.get(c).is_some_and(|n| *n > 0)).collect();
     if !colors.is_empty() {
         let max_pips = colors.iter().map(|(c, _)| st.pips.get(c).copied().unwrap_or(0)).max().unwrap_or(0).max(1);
         let max_sources = colors.iter().map(|(c, _)| st.sources.as_ref().and_then(|x| x.get(c)).copied().unwrap_or(0)).max().unwrap_or(0).max(1);
