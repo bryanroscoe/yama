@@ -686,7 +686,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
       ? null
       : confirming
         ? "Check the printing below"
-        : !chosen && !found.reading && !!found.options && found.options.length > 1
+        : (!chosen || found.picking) && !found.reading && !!found.options && found.options.length > 1
           ? "Tap your printing below"
           : null;
   useEffect(() => {
@@ -816,7 +816,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
                 Read the collector number up close
               </button>
             )}
-            {showPicker && options && !chosen && !closeup && (
+            {showPicker && options && (!chosen || found.picking) && !closeup && (
               <div ref={tapRef} className="scan-step is-tap">
                 <p>
                   <strong>Your turn:</strong> tap the printing that matches your card. Its set code and number are in the bottom-left corner.
