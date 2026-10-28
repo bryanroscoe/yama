@@ -19,6 +19,7 @@ export const NEWS: NewsEntry[] = [
     title: "A faster scanner that gets the printing right",
     items: [
       "The scanner now recognizes cards by their art. Hold a card anywhere in view, at any angle; no lining up. The first scan downloads the card recognizer once (about 40 MB).",
+      "Keep adding (a switch under the camera) adds each card as soon as the scanner is sure of its printing and goes straight on to the next. Tap Added, review to see this session's cards and fix the copies, finish or printing, or take one back out; copies you owned before aren't touched.",
       "It never guesses the printing. When several printings share the art, it reads the collector number, and if that's unclear you pick from pictures of each printing; adding a printing it didn't read asks you to check the card's corner first. Choose how many copies before adding, or type a name instead.",
     ],
     link: { to: "/collection", label: "Scan cards" },

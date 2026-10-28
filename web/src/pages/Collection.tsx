@@ -1,6 +1,6 @@
 import { CardHover, CardRef } from "../components/CardRef";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { api, API_BASE, priceSource, shortDate, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { CardImage, Details, ErrorText, Sheet } from "../components/ui";
@@ -17,10 +17,15 @@ function tileMeta(copies: number, value: number | undefined, unpriced: number | 
   const money = `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   return `${cards}, ${money}${unpriced ? `, ${unpriced} with no price` : ""}`;
 }
-import type { ScanCandidate } from "../scanner";
+import type { Added, Finish, Fix, ScanCandidate } from "../scanner";
 
 // The scanner pulls in OCR; load it only when someone opens it.
-const ScannerView = lazy(() => import("../scanner").then((m) => ({ default: m.ScannerView })));
+const scanner = () => import("../scanner");
+const ScannerView = lazy(() => scanner().then((m) => ({ default: m.ScannerView })));
+const AddedList = lazy(() => scanner().then((m) => ({ default: m.AddedList })));
+
+/** Keep adding is remembered on this device. */
+const KEEP_ADDING = "yama.scan.keepAdding";
 
 /** A collection row with its printing's art crop and artist, for the art thumbnails. */
 type Item = CollectionItem & { image_art_crop?: string | null; artist?: string | null };
@@ -456,44 +461,53 @@ function NewContainer({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ScanToCollection({ containers, onClose }: { containers: Container[]; onClose: () => void }) {
+export function ScanToCollection({ containers, onClose }: { containers: Container[]; onClose: () => void }) {
   const qc = useQueryClient();
-  const [finish, setFinish] = useState<"nonfoil" | "foil" | "proxy">("nonfoil");
+  const [finish, setFinish] = useState<Finish>("nonfoil");
   const [container, setContainer] = useState("");
-  const [added, setAdded] = useState<{ name: string; set?: string }[]>([]);
+  const [keepAdding, setKeepAdding] = useState(() => localStorage.getItem(KEEP_ADDING) === "1");
+  /** What this session added, newest first, so mistakes can be fixed (see scanner/session.ts). */
+  const [added, setAdded] = useState<Added[]>([]);
+  const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
 
-  const accept = async (c: ScanCandidate, copies: number) => {
-    try {
-      // The scanner only offers Add once the printing is settled (read from the card or picked).
-      if (!c.scryfall_id) throw new Error(`Pick the printing of ${c.name} first`);
-      await api("/api/collection/ops", {
-        method: "POST",
-        json: [
-          {
-            op_id: crypto.randomUUID(),
-            kind: "add",
-            scryfall_id: c.scryfall_id,
-            qty: copies,
-            finish: finish === "proxy" ? "nonfoil" : finish,
-            proxy: finish === "proxy",
-            container_id: container || null,
-          },
-        ],
-      });
-      setAdded((a) => [...Array.from({ length: copies }, () => ({ name: c.name, set: c.set?.toUpperCase() })), ...a]);
-      setError(null);
-      void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
-    } catch (e) {
-      setError(e);
-    }
+  const accept = useCallback(
+    async (c: ScanCandidate, copies: number, auto: boolean) => {
+      try {
+        // The scanner only offers Add once the printing is settled (read from the card or picked).
+        if (!c.scryfall_id) throw new Error(`Pick the printing of ${c.name} first`);
+        const { addOp } = await scanner();
+        const box = container || null;
+        await api("/api/collection/ops", { method: "POST", json: [addOp(c.scryfall_id, copies, finish, box, crypto.randomUUID())] });
+        const entry: Added = { key: crypto.randomUUID(), name: c.name, scryfall_id: c.scryfall_id, set: c.set ?? "", number: c.number ?? "", image: c.thumb ?? c.image ?? null, finish, container: box, copies, auto };
+        setAdded((a) => [entry, ...a]);
+        setError(null);
+        refresh();
+      } catch (e) {
+        setError(e);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [container, finish],
+  );
+
+  const fix = async (a: Added, f: Fix) => {
+    const { findRow, planFix } = await scanner();
+    const rows = await api<CollectionItem[]>(`/api/collection?container=${encodeURIComponent(a.container ?? "none")}&q=${encodeURIComponent(a.name)}`);
+    const row = findRow(rows, a);
+    if (!row) throw new Error(`Couldn't find the ${a.name} added here. It may have been changed on the Collection page.`);
+    const ops = planFix(a, f, row, () => crypto.randomUUID());
+    if (ops.length > 0) await api("/api/collection/ops", { method: "POST", json: ops });
+    setAdded((list) => (f.copies > 0 ? list.map((x) => (x.key === a.key ? { ...x, ...f } : x)) : list.filter((x) => x.key !== a.key)));
+    refresh();
   };
 
   const controls = (
     <div className="scan-choices">
       <label>
         Finish
-        <select value={finish} onChange={(e) => setFinish(e.target.value as "nonfoil" | "foil" | "proxy")}>
+        <select value={finish} onChange={(e) => setFinish(e.target.value as Finish)}>
           <option value="nonfoil">Regular</option>
           <option value="foil">Foil</option>
           <option value="proxy">Proxy</option>
@@ -506,6 +520,19 @@ function ScanToCollection({ containers, onClose }: { containers: Container[]; on
           {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
         </select>
       </label>
+      <label className="scan-keep">
+        <input
+          type="checkbox"
+          checked={keepAdding}
+          onChange={(e) => {
+            setKeepAdding(e.target.checked);
+            localStorage.setItem(KEEP_ADDING, e.target.checked ? "1" : "0");
+          }}
+        />
+        <span>
+          <strong>Keep adding.</strong> Add each card as soon as the scanner is sure of its printing, and go on to the next. It still stops to ask when it isn't sure.
+        </span>
+      </label>
       <ErrorText error={error} />
     </div>
   );
@@ -513,14 +540,22 @@ function ScanToCollection({ containers, onClose }: { containers: Container[]; on
     <div className="scan-overlay">
       <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
         <ScannerView
-          onAccept={(c, copies) => void accept(c, copies)}
+          onAccept={(c, copies, auto) => void accept(c, copies, auto)}
           onClose={onClose}
-          addedCount={added.length}
-          recent={[...new Set(added.map((a) => (a.set ? `${a.name} (${a.set})` : a.name)))]}
+          addedCount={added.reduce((n, a) => n + a.copies, 0)}
+          onShowAdded={() => setReviewing(true)}
+          autoAdd={keepAdding}
+          paused={reviewing}
+          recent={[...new Set(added.map((a) => (a.set ? `${a.name} (${a.set.toUpperCase()})` : a.name)))]}
           finish={finish === "proxy" ? "nonfoil" : finish}
           controls={controls}
           acceptLabel="Add and scan next"
         />
+        {reviewing && (
+          <Sheet onClose={() => setReviewing(false)} label="Added while scanning">
+            <AddedList added={added} onFix={fix} onClose={() => setReviewing(false)} />
+          </Sheet>
+        )}
       </Suspense>
     </div>
   );
