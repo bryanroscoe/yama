@@ -360,16 +360,23 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
     };
     // Each listed deck's result shows only when its cards are the plan's current list for the
     // state it stands for.
+    // The plan's newest paired run, then each listed deck's result only when its cards are the
+    // plan's current list for its state and that list existed when the run was made: runs don't
+    // keep their inputs, so a list changed since never borrows an older list's numbers.
+    let run = match &key {
+        Some(key) => crate::lab::paired_for_plan(pool, &d.sharer.id, key).await?,
+        None => None,
+    };
     let mut sim_states = Vec::new();
-    if let Some(key) = &key {
+    if let (Some(key), Some(run)) = (&key, &run) {
         let board = |b: &Board| match b {
             Board::Commander => "commander",
             Board::Main => "main",
             Board::Side => "side",
         };
         for (state, deck_id) in &states {
-            let plan_list: Option<String> = sqlx::query_scalar(
-                "SELECT s.cards FROM plan_states s JOIN plan_decks p ON p.id = s.plan_deck_id
+            let plan_list: Option<(String, String)> = sqlx::query_as(
+                "SELECT s.cards, s.created_at FROM plan_states s JOIN plan_decks p ON p.id = s.plan_deck_id
                  WHERE p.owner_id = ? AND p.key = ? AND s.state = ? AND s.current = 1",
             )
             .bind(&d.sharer.id)
@@ -377,7 +384,18 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
             .bind(state)
             .fetch_optional(pool)
             .await?;
-            let Some(cards) = plan_list.and_then(|j| serde_json::from_str::<Vec<serde_json::Value>>(&j).ok()) else { continue };
+            let Some((cards, since)) = plan_list else { continue };
+            // The runner writes its own timestamp format; an unreadable one proves nothing.
+            let at = |t: &str| {
+                chrono::DateTime::parse_from_rfc3339(t)
+                    .map(|d| d.to_utc())
+                    .or_else(|_| chrono::NaiveDateTime::parse_from_str(t, "%Y-%m-%dT%H:%M:%S%.f").map(|n| n.and_utc()))
+                    .ok()
+            };
+            if !matches!((at(&since), at(&run.run.created_at)), (Some(a), Some(b)) if a <= b) {
+                continue;
+            }
+            let Ok(cards) = serde_json::from_str::<Vec<serde_json::Value>>(&cards) else { continue };
             let theirs = list_key(cards.iter().map(|c| {
                 (c["name"].as_str().unwrap_or(""), c["qty"].as_i64().unwrap_or(1), c["board"].as_str().unwrap_or("main"))
             }));
@@ -397,11 +415,13 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
         }
     }
     let sim_matches = states.first().is_some_and(|(s, _)| sim_states.contains(s));
-    let sim = match key {
-        Some(key) => crate::lab::paired_for_plan(pool, &d.sharer.id, &key).await?.filter(|run| {
-            run.paired.as_ref().is_some_and(|p| p.variants.iter().any(|v| crate::lab::variant_state(&v.id, &key).is_some_and(|s| sim_states.contains(&s))))
-        }).map(|run| (run, key)),
-        None => None,
+    let sim = match (key, run) {
+        (Some(key), Some(run)) => run
+            .paired
+            .as_ref()
+            .is_some_and(|p| p.variants.iter().any(|v| crate::lab::variant_state(&v.id, &key).is_some_and(|s| sim_states.contains(&s))))
+            .then_some((run, key)),
+        _ => None,
     };
     Ok(SharedDetails {
         validation: crate::decks::validate(&d.list, &info),
