@@ -90,10 +90,10 @@ local secret workflow; never put tokens in arguments, source, logs or a checked-
 existing session token can create a target-limited key without printing it:
 
 ```sh
-python3 tools/lab_worker.py --server https://yama.saget.org --token-file /private/session-token \
+python3 tools/lab_worker.py --server https://yama.ing --token-file /private/session-token \
   key --target laptop --output /private/laptop-worker-token --days 7
 
-python3 tools/lab_worker.py --server https://yama.saget.org --token-file /private/laptop-worker-token \
+python3 tools/lab_worker.py --server https://yama.ing --token-file /private/laptop-worker-token \
   work --binary ./target/release/yama-server --work-dir /private/yama-worker --max-jobs 1
 ```
 
@@ -112,14 +112,14 @@ plain HTTP for local fixture tests, not production.
 Route an untouched queued experiment, using a persisted UUID for safe retries:
 
 ```sh
-python3 tools/lab_worker.py --server https://yama.saget.org --token-file /private/session-token \
+python3 tools/lab_worker.py --server https://yama.ing --token-file /private/session-token \
   execution --id UUID --experiment EXPERIMENT_UUID --target auto
 
-python3 tools/lab_worker.py --server https://yama.saget.org --token-file /private/session-token \
+python3 tools/lab_worker.py --server https://yama.ing --token-file /private/session-token \
   execution --id DIFFERENT_UUID --experiment EXPERIMENT_UUID \
   --compare saget laptop --sample-units 3
 
-python3 tools/lab_worker.py --server https://yama.saget.org --token-file /private/session-token \
+python3 tools/lab_worker.py --server https://yama.ing --token-file /private/session-token \
   report EXECUTION_UUID
 ```
 

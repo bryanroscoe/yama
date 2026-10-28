@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useMe } from "../auth";
-import { ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Sheet } from "../components/ui";
 import { deviceId, outbox } from "../plan/outbox";
 import { advisorStatus, ask, changesKey, conversation, conversations, deleteConversation, stagedChanges, type AdvisorStatus, type StagedChange } from "./api";
 import { ChangeCard } from "./Changes";
@@ -335,10 +335,12 @@ function Footnote({ status }: { status: AdvisorStatus }) {
   // On the shared key the count is already in the line under the title.
   const used = status.per_day != null && status.mode !== "shared" ? ` ${status.used_today} of ${status.per_day} questions in the last 24 hours.` : "";
   return (
-    <p className="ask-foot faint small">
-      Claude can be wrong; check prices and legality before you buy. Simulated results are evidence about the simulation, not your table. {who}
-      {used}
-    </p>
+    <div className="ask-foot faint small">
+      <p>{who}{used}</p>
+      <Details label="About assistant answers">
+        <p>Claude can be wrong; check prices and legality before you buy. Simulated results describe the simulation, not your table.</p>
+      </Details>
+    </div>
   );
 }
 

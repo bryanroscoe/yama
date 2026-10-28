@@ -15,7 +15,7 @@ services:
     environment:
       # Yama's public address, for OAuth sign-in from Claude Code and claude.ai's connectors
       # (server/src/oauth): the issuer, endpoints and /mcp resource are built from it.
-      YAMA_PUBLIC_URL: https://yama.saget.org
+      YAMA_PUBLIC_URL: https://yama.ing
     volumes:
       - ./data:/data
     ports:

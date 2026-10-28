@@ -54,6 +54,28 @@ macro_rules! staged {
 
 const TOOLS: &[Tool] = &[
     Tool {
+        name: "datasets",
+        title: "Your evidence datasets",
+        description: "List your private imported evidence datasets, active revisions, sources and record counts. Imported aggregates, overlapping windows and ELO points are not independent game records. Use dataset to inspect dated evidence.",
+        schema: no_args,
+        does: Does::Read,
+    },
+    Tool {
+        name: "dataset",
+        title: "Read dated dataset evidence",
+        description: "Read one private evidence dataset by id. Filter records by kind, entity id or name search; use section=sources for source provenance. Pages are bounded. An exact entity also gets descriptive monthly source-rate averages with a default 180-day exponential half-life; cumulative snapshots, overlapping rolling windows, flagged and undated data are excluded from that average. ELO sequence indices are not dates. This never imports, publishes or changes decks/games.",
+        schema: || json!({"type":"object","properties":{
+            "id":{"type":"string"},"revision":{"type":"integer","minimum":1},
+            "section":{"type":"string","enum":["records","sources"]},
+            "kind":{"type":"string","enum":["performance","weekly_activity","commander","commander_history","archetype","source_table"]},
+            "entity":{"type":"string","description":"Exact source entity id from a dataset record."},
+            "search":{"type":"string","description":"Case-insensitive name search."},
+            "offset":{"type":"integer","minimum":0,"maximum":200000},"limit":{"type":"integer","minimum":1,"maximum":50},
+            "as_of":{"type":"string","description":"Optional YYYY-MM-DD evaluation date."},
+            "half_life_days":{"type":"integer","minimum":1,"maximum":3650}},"required":["id"],"additionalProperties":false}),
+        does: Does::Read,
+    },
+    Tool {
         name: "research",
         title: "Your saved deck research and review choices",
         description: "Read private research and review choices. No id lists reports; id alone gives a compact overview with build power and scenario totals. deck retrieves one full deck audit, optionally narrowed by build; scenario retrieves one exact global shopping/print allocation. full=true returns the complete potentially large document. Research is advice, not installed decks or approved purchases.",
@@ -571,6 +593,13 @@ pub fn offered(name: &str, via: &Via) -> bool {
 pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
     match name {
+        "datasets" => Ok(serde_json::to_string_pretty(&crate::datasets::list(pool,&user.id).await?).map_err(anyhow::Error::from)?),
+        "dataset" => {
+            let mut query=args.as_object().cloned().ok_or_else(||AppError::bad("arguments must be an object"))?;
+            let id=query.remove("id").and_then(|v|v.as_str().map(str::to_owned)).filter(|s|!s.is_empty()).ok_or_else(||AppError::bad("id is required"))?;
+            let q:crate::datasets::ReadQuery=serde_json::from_value(Value::Object(query)).map_err(|e|AppError::bad(format!("invalid dataset query: {e}")))?;
+            Ok(serde_json::to_string_pretty(&crate::datasets::read(pool,&user.id,&id,q).await?).map_err(anyhow::Error::from)?)
+        },
         "save_research" => {
             let document = args.get("document").ok_or_else(|| AppError::bad("Missing document."))?;
             Ok(crate::deck_research::save(pool, &user.id, document).await?.to_string())

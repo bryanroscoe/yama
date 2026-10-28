@@ -14,7 +14,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
 API = 'https://playgroup.gg/api/public/v1/commanders'
-UA = 'Yama-commander-evidence/2 (https://yama.saget.org; aggregate research)'
+UA = 'Yama-commander-evidence/2 (https://yama.ing; aggregate research)'
 
 
 def canonical(name):

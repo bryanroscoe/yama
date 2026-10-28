@@ -263,3 +263,15 @@ export const VARIANTS: Record<string, SceneParams> = {
   "far (720p-like)": { ...BASE, guideFill: 0.5, offset: 0.03, scaleMin: 0.94, scaleMax: 1.03, rotate: 4, perspective: 0.02, brightness: 0.85, shade: 0.3, glare: false, blur: 1.0, noise: 5, jpeg: 75, background: "desk" },
   "upside down": { ...BASE, turn: 180, offset: 0.03, scaleMin: 0.94, scaleMax: 1.03, rotate: 4, perspective: 0.02, brightness: 0.85, shade: 0.3, glare: false, blur: 1.2, noise: 5, jpeg: 75, background: "felt" },
 };
+
+const HANDHELD = { ...BASE, perspective: 0.03, brightness: 0.85, shade: 0.3, glare: false, blur: 1.2, noise: 5, jpeg: 75 } as const;
+
+/** Free-hand captures: the card anywhere in view, at any size and angle, no guide to line up with. */
+export const FREEHAND: Record<string, SceneParams> = {
+  "off-centre": { ...HANDHELD, guideFill: 0.6, offset: 0.25, scaleMin: 0.75, scaleMax: 1.15, rotate: 12, background: "wood" },
+  "tilted 20-35°": { ...HANDHELD, guideFill: 0.55, offset: 0.1, scaleMin: 0.9, scaleMax: 1.05, rotate: 35, background: "felt" },
+  sideways: { ...HANDHELD, guideFill: 0.5, offset: 0.08, scaleMin: 0.9, scaleMax: 1.05, rotate: 6, turn: 90, background: "desk" },
+  "upside down": { ...HANDHELD, guideFill: 0.7, offset: 0.08, scaleMin: 0.9, scaleMax: 1.05, rotate: 8, turn: 180, background: "felt" },
+  small: { ...HANDHELD, guideFill: 0.32, offset: 0.3, scaleMin: 0.9, scaleMax: 1.1, rotate: 10, background: "wood" },
+  rough: { ...HANDHELD, guideFill: 0.7, offset: 0.12, scaleMin: 0.85, scaleMax: 1.1, rotate: 12, brightness: 0.6, shade: 0.4, glare: true, blur: 1.8, noise: 8, jpeg: 60, background: "black" },
+};

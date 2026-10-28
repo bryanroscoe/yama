@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0b0c0e" />
   <meta name="description" content="Connect Claude or Codex to Yama. Build and upgrade Commander decks, research cards and rules, use your collection, and review changes before applying them." />
-  <link rel="canonical" href="https://yama.saget.org/docs/mcp/" />
+  <link rel="canonical" href="https://yama.ing/docs/mcp/" />
   <link rel="icon" href="/icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="guide.css" />
   <title>Yama MCP: features and setup</title>
@@ -45,14 +45,14 @@
       <h2>Connect your assistant</h2>
       <p>First <a href="/">sign in to Yama with a verified Google account</a>. Use that account when the connection opens Yama's approval page. Reading this guide does not require an account.</p>
       <p>The hosted server address is:</p>
-      <pre><code>https://yama.saget.org/mcp</code></pre>
+      <pre><code>https://yama.ing/mcp</code></pre>
       <p>This is a tool endpoint, not a page to open in a browser.</p>
 
       <article class="setup" id="claude-code">
         <h3>Claude Code</h3>
         <ol>
           <li>With Claude Code installed, run this in Terminal. User scope makes Yama available across your projects:
-            <pre><code>claude mcp add --transport http --scope user yama https://yama.saget.org/mcp</code></pre>
+            <pre><code>claude mcp add --transport http --scope user yama https://yama.ing/mcp</code></pre>
           </li>
           <li>In Claude Code, enter <code>/mcp</code>, select <strong>yama</strong> and choose <strong>Authenticate</strong>.</li>
           <li>In the browser, sign in to Yama, review the requested access and press <strong>Allow</strong>. Return to Claude Code and check the connection in <code>/mcp</code>.</li>
@@ -64,7 +64,7 @@
         <h3>Claude on the web, desktop or phone</h3>
         <ol>
           <li>On Claude's web or desktop app, open <strong>Customize → Connectors</strong> (called <strong>Settings → Connectors</strong> in some versions). Choose <strong>Add</strong>, then <strong>Add custom connector</strong>.</li>
-          <li>Name it <strong>Yama</strong> and use <code>https://yama.saget.org/mcp</code> as the remote server URL.</li>
+          <li>Name it <strong>Yama</strong> and use <code>https://yama.ing/mcp</code> as the remote server URL.</li>
           <li>Use sign-in authentication. If an OAuth client choice is shown, choose <strong>Register automatically</strong>. Connect, sign in to Yama and press <strong>Allow</strong>.</li>
           <li>Enable Yama for the conversation. Once connected, it can also be used from Claude's mobile apps.</li>
         </ol>
@@ -75,7 +75,7 @@
         <h3>Codex</h3>
         <ol>
           <li>With Codex CLI installed, add the hosted server:
-            <pre><code>codex mcp add yama --url https://yama.saget.org/mcp</code></pre>
+            <pre><code>codex mcp add yama --url https://yama.ing/mcp</code></pre>
           </li>
           <li>Complete the browser sign-in if it starts automatically. Otherwise run:
             <pre><code>codex mcp login yama</code></pre>

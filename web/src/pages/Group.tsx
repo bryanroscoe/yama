@@ -11,6 +11,7 @@ import { useCardArt } from "../components/useCardArt";
 import "./group.css";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
+import { SharingSettings } from "../decks/SharingSettings";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
@@ -353,10 +354,8 @@ function ExportGames({ group }: { group?: Playgroup }) {
   return (
     <section className="stack" style={{ marginBottom: "2.5rem", gap: "0.6rem" }}>
       <h2 style={{ margin: 0 }}>Export games</h2>
-      <p className="dim small" style={{ margin: 0 }}>
-        Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings.
-      </p>
-      <Details>
+      <Details label="Export contents and formats">
+        <p>Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings.</p>
         <p>The JSON fits commander-decks' data/games.json; the CSV has one row per seat.</p>
       </Details>
       {group && (
@@ -413,6 +412,7 @@ function Account() {
           </span>
         </div>
         <OfflineCardsSetting />
+        {!me.data?.viewing && <SharingSettings />}
         {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
         {!me.data?.viewing && <AdvisorSettings />}
         {me.data?.is_admin && (

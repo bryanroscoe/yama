@@ -1,6 +1,6 @@
 import { CardHover, CardRef } from "../components/CardRef";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { api, API_BASE, priceSource, shortDate, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { CardImage, Details, ErrorText, Sheet } from "../components/ui";
@@ -17,10 +17,15 @@ function tileMeta(copies: number, value: number | undefined, unpriced: number | 
   const money = `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   return `${cards}, ${money}${unpriced ? `, ${unpriced} with no price` : ""}`;
 }
-import type { ScanCandidate } from "../scanner";
+import type { Added, Finish, Fix, ScanCandidate } from "../scanner";
 
 // The scanner pulls in OCR; load it only when someone opens it.
-const ScannerView = lazy(() => import("../scanner").then((m) => ({ default: m.ScannerView })));
+const scanner = () => import("../scanner");
+const ScannerView = lazy(() => scanner().then((m) => ({ default: m.ScannerView })));
+const AddedList = lazy(() => scanner().then((m) => ({ default: m.AddedList })));
+
+/** Keep adding is remembered on this device. */
+const KEEP_ADDING = "yama.scan.keepAdding";
 
 /** A collection row with its printing's art crop and artist, for the art thumbnails. */
 type Item = CollectionItem & { image_art_crop?: string | null; artist?: string | null };
@@ -170,7 +175,7 @@ export function CollectionPage() {
             )}
           </ul>
           <p className="small dim coll-note">
-            Values are {priced}.{" "}
+            {priced}.{" "}
             {tiles.some((t) => t.art) ? artCredits(tiles.filter((t) => t.art).map((t) => t.artist)) : ""}
           </p>
         </section>
@@ -245,10 +250,13 @@ export function CollectionPage() {
         )}
         {!!items.data?.length && (
           <p className="small dim coll-note">
-            Each price is the TCGplayer market price via Scryfall on {day}, for one copy in its finish. It isn't a quote from any store.
+            TCGplayer market via Scryfall, {day}.
             {thumbArtists.length > 0 ? ` ${artCredits(thumbArtists)}` : ""}
           </p>
         )}
+        {!!items.data?.length && <Details label="About collection prices">
+          <p>Prices are per copy in its finish. Market values are not store quotes or resale offers. Proxies are excluded from collection value; missing prices stay unpriced.</p>
+        </Details>}
         <a className="button outline coll-export-narrow" href={`${API_BASE}/api/collection/export.csv`}>Export CSV</a>
       </section>
 
@@ -456,49 +464,180 @@ function NewContainer({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ScanToCollection({ containers, onClose }: { containers: Container[]; onClose: () => void }) {
+export function ScanToCollection({ containers, onClose }: { containers: Container[]; onClose: () => void }) {
   const qc = useQueryClient();
-  const [finish, setFinish] = useState<"nonfoil" | "foil" | "proxy">("nonfoil");
+  const [finish, setFinish] = useState<Finish>("nonfoil");
   const [container, setContainer] = useState("");
-  const [added, setAdded] = useState<{ name: string; set?: string }[]>([]);
-  const [error, setError] = useState<unknown>(null);
-
-  const accept = async (c: ScanCandidate) => {
-    try {
-      // A name-only read has no printing; use the card's default printing and fix it later if needed.
-      let id = c.scryfall_id;
-      if (!id) {
-        const r = await api<{ cards: { default_printing: string | null }[] }>(`/api/cards/search?q=${encodeURIComponent(`!"${c.name}"`)}`);
-        id = r.cards[0]?.default_printing ?? undefined;
+  const [keepAdding, setKeepAdding] = useState(() => localStorage.getItem(KEEP_ADDING) === "1");
+  /**
+   * What this session added, newest first, so mistakes can be fixed (see scanner/session.ts). The
+   * ref is the truth (read right after a write); the state mirrors it for rendering.
+   */
+  const listRef = useRef<Added[]>([]);
+  const [added, setAdded] = useState<Added[]>([]);
+  const put = (list: Added[]) => {
+    listRef.current = list;
+    setAdded(list);
+  };
+  const patch = (key: string, fn: (a: Added) => Added | null) => put(listRef.current.flatMap((x) => (x.key === key ? (fn(x) ?? []) : [x])));
+  const sending = useRef(new Set<string>());
+  /** What this session's own writes left in each row (session.ts noteWrite). */
+  const rowSeen = useRef(new Map<string, number>());
+  /**
+   * Rows whose count was lost (lookups failed, or a retry the server had already applied). They
+   * stay unchecked for the rest of the session: a later count could already miss copies taken
+   * out elsewhere meanwhile.
+   */
+  const unsure = useRef(new Set<string>());
+  const rowsOf = (name: string, container: string | null) =>
+    api<CollectionItem[]>(`/api/collection?container=${encodeURIComponent(container ?? "none")}&q=${encodeURIComponent(name)}`);
+  /**
+   * The session's writes run one at a time, each with its lookups: overlapping saves (Keep adding
+   * the same printing twice quickly) would otherwise muddle what each one left in a row.
+   */
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const enqueue = <T,>(job: () => Promise<T>): Promise<T> => {
+    const run = queue.current.then(job);
+    queue.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
+  /**
+   * Look up the count of a row the session doesn't know yet, right after its write (a few tries).
+   * If it can't be had, the row stays unknown, and fixes to it are refused: checking later could
+   * miss copies taken out elsewhere meanwhile.
+   */
+  const learn = async (r: Pick<Added, "name" | "scryfall_id" | "finish" | "container">) => {
+    const { findRow, identity } = await scanner();
+    const k = identity(r);
+    if (unsure.current.has(k)) return;
+    for (const wait of [0, 500, 1500]) {
+      await new Promise((ok) => setTimeout(ok, wait));
+      try {
+        const row = findRow(await rowsOf(r.name, r.container), r);
+        if (row && !rowSeen.current.has(k)) rowSeen.current.set(k, row.qty);
+        else if (!row) unsure.current.add(k);
+        return;
+      } catch {
+        // Try again.
       }
-      if (!id) throw new Error(`Couldn't find a printing for ${c.name}`);
-      await api("/api/collection/ops", {
-        method: "POST",
-        json: [
-          {
-            op_id: crypto.randomUUID(),
-            kind: "add",
-            scryfall_id: id,
-            qty: 1,
-            finish: finish === "proxy" ? "nonfoil" : finish,
-            proxy: finish === "proxy",
-            container_id: container || null,
-          },
-        ],
-      });
-      setAdded((a) => [{ name: c.name, set: c.set?.toUpperCase() }, ...a]);
-      setError(null);
-      void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
-    } catch (e) {
-      setError(e);
     }
+    unsure.current.add(k);
+  };
+  const [reviewing, setReviewing] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
+
+  /**
+   * Write an entry's pending ops (call inside the queue). A retry sends the very same ops (same
+   * ids), so a write that went through but lost its reply is applied once. Resolves whether the
+   * server confirmed it.
+   */
+  const write = async (key: string): Promise<boolean> => {
+    const a = listRef.current.find((x) => x.key === key);
+    if (!a?.pending) return true;
+    const { noteWrite, settled, touched } = await scanner();
+    patch(key, (x) => (x.pending ? { ...x, pending: { ...x.pending, error: undefined } } : x));
+    try {
+      const res = a.pending.ops.length > 0 ? await api<{ applied: number; skipped_duplicates: number }>("/api/collection/ops", { method: "POST", json: a.pending.ops }) : null;
+      // A retry the server had already applied: the rows may have changed elsewhere since, so their
+      // counts can't be trusted now, and fixes to them are refused.
+      if (res && res.skipped_duplicates > 0)
+        for (const k of touched(a)) {
+          rowSeen.current.delete(k);
+          unsure.current.add(k);
+        }
+      else await Promise.all(noteWrite(rowSeen.current, a).map(learn));
+      patch(key, (x) => {
+        const done = settled(x);
+        return done.copies > 0 ? done : null;
+      });
+      refresh();
+      return true;
+    } catch (e) {
+      patch(key, (x) => (x.pending ? { ...x, pending: { ...x.pending, error: e instanceof Error ? e.message : String(e) } } : x));
+      return false;
+    }
+  };
+  /** Queue an entry's pending write (once: a second call while it waits does nothing). */
+  const send = (key: string): Promise<boolean> => {
+    if (sending.current.has(key)) return Promise.resolve(false);
+    sending.current.add(key);
+    return enqueue(() => write(key)).finally(() => sending.current.delete(key));
+  };
+
+  const accept = async (c: ScanCandidate, copies: number, auto: boolean): Promise<boolean> => {
+    // The scanner only offers Add once the printing is settled (read from the card or picked).
+    if (!c.scryfall_id) {
+      setError(new Error(`Pick the printing of ${c.name} first`));
+      return false;
+    }
+    const { addOp } = await scanner();
+    const box = container || null;
+    const entry: Added = {
+      key: crypto.randomUUID(),
+      name: c.name,
+      scryfall_id: c.scryfall_id,
+      set: c.set ?? "",
+      number: c.number ?? "",
+      image: c.thumb ?? c.image ?? null,
+      finish,
+      container: box,
+      copies,
+      auto,
+      pending: { ops: [addOp(c.scryfall_id, copies, finish, box, crypto.randomUUID())], fix: null },
+    };
+    put([entry, ...listRef.current]);
+    const ok = await send(entry.key);
+    setError(ok ? null : new Error(`Couldn't save ${c.name}. It's kept in the Added list to try again.`));
+    return ok;
+  };
+
+  const busyMessage = (a: Added) => (a.pending?.error ? "Try the last change again first." : "Still saving the last change.");
+  const fix = async (a: Added, f: Fix) => {
+    const before = listRef.current.find((x) => x.key === a.key);
+    if (!before) return;
+    if (before.pending || before.checking) throw new Error(busyMessage(before));
+    // Lock the entry before anything waits, so no other change starts from the same state.
+    const token = crypto.randomUUID();
+    patch(before.key, (x) => ({ ...x, checking: token }));
+    const unlock = () => patch(before.key, (x) => (x.checking === token ? { ...x, checking: undefined } : x));
+    // Look up, check, plan and write in the queue, after any writes before it.
+    const saved = await enqueue(async () => {
+      let planned = false;
+      try {
+        const { changedElsewhere, findRow, identity, planFix } = await scanner();
+        // Without the count this session's writes left in the row, a fix can't tell its copies from older ones.
+        if (unsure.current.has(identity(before)) || !rowSeen.current.has(identity(before)))
+          throw new Error(`Couldn't check the ${before.name} copies added here, so Yama won't change them. Fix them on the Collection page.`);
+        const rows = await rowsOf(before.name, before.container);
+        const now = listRef.current.find((x) => x.key === before.key);
+        if (!now || now.checking !== token) return true;
+        const row = findRow(rows, now);
+        if (!row) throw new Error(`Couldn't find the ${now.name} added here. It may have been changed on the Collection page.`);
+        // Copies taken out elsewhere since: they may have been older ones, so don't guess.
+        if (changedElsewhere(rowSeen.current, now, row.qty))
+          throw new Error(`Some ${now.name} copies were changed elsewhere since this scan, so Yama can't tell which are the ones added here. Fix them on the Collection page.`);
+        patch(now.key, (x) => ({ ...x, checking: undefined, pending: { ops: planFix(now, f, row, () => crypto.randomUUID()), fix: f, base: row.qty } }));
+        planned = true;
+      } finally {
+        if (!planned) unlock();
+      }
+      return write(before.key);
+    });
+    if (!saved) throw new Error("Couldn't save that change. Try again sends the same change.");
+  };
+  const retry = async (a: Added) => {
+    if (!(await send(a.key))) throw new Error("Still couldn't save it. Try again in a moment.");
   };
 
   const controls = (
     <div className="scan-choices">
       <label>
         Finish
-        <select value={finish} onChange={(e) => setFinish(e.target.value as "nonfoil" | "foil" | "proxy")}>
+        <select value={finish} onChange={(e) => setFinish(e.target.value as Finish)}>
           <option value="nonfoil">Regular</option>
           <option value="foil">Foil</option>
           <option value="proxy">Proxy</option>
@@ -511,6 +650,19 @@ function ScanToCollection({ containers, onClose }: { containers: Container[]; on
           {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
         </select>
       </label>
+      <label className="scan-keep">
+        <input
+          type="checkbox"
+          checked={keepAdding}
+          onChange={(e) => {
+            setKeepAdding(e.target.checked);
+            localStorage.setItem(KEEP_ADDING, e.target.checked ? "1" : "0");
+          }}
+        />
+        <span>
+          <strong>Keep adding.</strong> Add each card as soon as the scanner is sure of its printing, and go on to the next. It still stops to ask when it isn't sure.
+        </span>
+      </label>
       <ErrorText error={error} />
     </div>
   );
@@ -518,14 +670,23 @@ function ScanToCollection({ containers, onClose }: { containers: Container[]; on
     <div className="scan-overlay">
       <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
         <ScannerView
-          onAccept={(c) => void accept(c)}
+          onAccept={accept}
           onClose={onClose}
-          addedCount={added.length}
-          recent={added.map((a) => a.name)}
+          addedCount={added.reduce((n, a) => n + a.copies, 0)}
+          onShowAdded={() => setReviewing(true)}
+          unsavedCount={added.filter((a) => a.pending?.error && a.pending.fix === null).length}
+          autoAdd={keepAdding}
+          paused={reviewing}
+          recent={[...new Set(added.map((a) => (a.set ? `${a.name} (${a.set.toUpperCase()})` : a.name)))]}
           finish={finish === "proxy" ? "nonfoil" : finish}
           controls={controls}
           acceptLabel="Add and scan next"
         />
+        {reviewing && (
+          <Sheet onClose={() => setReviewing(false)} label="Added while scanning">
+            <AddedList added={added} onFix={fix} onRetry={retry} onClose={() => setReviewing(false)} />
+          </Sheet>
+        )}
       </Suspense>
     </div>
   );

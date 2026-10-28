@@ -1,6 +1,7 @@
 import { deckStats, MANA, type CurveBucket, type DeckStats as Stats } from "@yama/core";
 import { useMemo, useState } from "react";
 import type { DeckEntry } from "../api";
+import { Details } from "./ui";
 import "./decks.css";
 
 /** Deck stats, worked out on the device from the deck as loaded: curve, averages, lands, and
@@ -124,7 +125,7 @@ function Curve({ curve }: { curve: CurveBucket[] }) {
         })}
         <line className="baseline" x1={0} x2={width} y1={top + plot + 0.5} y2={top + plot + 0.5} />
       </svg>
-      <p className="curve-tip" aria-live="polite">{tip ?? "Spells by mana value. Select a column for its split."}</p>
+      <p className="curve-tip" aria-live="polite">{tip}</p>
       <details>
         <summary className="small">Curve as a table</summary>
         <table className="curve-table">
@@ -156,7 +157,6 @@ function PipTable({ s }: { s: Stats }) {
   return (
     <div className="mana-balance">
       <h3>Mana colors</h3>
-      <p className="note">Pips in spell costs and potential land access. Bars compare colors within each column; each column has its own scale.</p>
       <table className="pip-table">
         <thead>
           <tr>
@@ -188,11 +188,11 @@ function PipTable({ s }: { s: Stats }) {
           ))}
         </tbody>
       </table>
-      <p className="note">A land can supply mana repeatedly; you don't need a different land for each pip in the deck. Access includes fetch lands with matching targets in this list, land back faces and conditional producers. It doesn't mean untapped mana available on a particular turn; one land may appear in several colors. Mana rocks, creatures and spell abilities aren't included.</p>
-      <details>
-        <summary className="small">How to assess color consistency</summary>
+      <Details label="About mana colors and consistency">
+        <p>Pips in spell costs and potential land access. Bars compare colors within each column; each column has its own scale.</p>
+        <p>A land can supply mana repeatedly; you don't need a different land for each pip in the deck. Access includes fetch lands with matching targets in this list, land back faces and conditional producers. It doesn't mean untapped mana available on a particular turn; one land may appear in several colors. Mana rocks, creatures and spell abilities aren't included.</p>
         <p className="note">Look at a specific spell's colored symbols and the turn you want to cast it. Two white symbols on turn two demand more white access than one white symbol on turn five. A reliable estimate must state its draw and mulligan assumptions and account for tapped lands, conditional mana, shared sources, ramp and alternative costs. Total pip ratios alone can't establish a shortage. See <a href="https://www.tcgplayer.com/content/article/How-Many-Sources-Do-You-Need-to-Consistently-Cast-Your-Spells-A-2022-Update/dc23a7d2-0a16-4c0b-ad36-586fcca03ad8/" target="_blank" rel="noreferrer">Frank Karsten's source-requirement method</a>.</p>
-      </details>
+      </Details>
       {s.landsWithoutManaData.length > 0 && <p className="note">
         {
           (s.landsWithManaData === 0

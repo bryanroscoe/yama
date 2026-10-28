@@ -14,6 +14,37 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-28-site-polish",
+    date: "2026-10-28",
+    title: "More room, less clutter",
+    items: [
+      "Dropdowns and expandable sections have more space around their arrows. Optional explanations now sit under named details on precons, deck stats, the Lab and planner pages.",
+    ],
+    link: { to: "/precons", label: "Browse precons" },
+  },
+  {
+    id: "2026-10-28-scanner-art",
+    date: "2026-10-28",
+    title: "A faster scanner that gets the printing right",
+    items: [
+      "The scanner now recognizes cards by their art. Hold a card anywhere in view, at any angle; no lining up. The first scan downloads the card recognizer once (about 40 MB).",
+      "Keep adding (a switch under the camera) adds each card as soon as the scanner is sure of its printing and goes straight on to the next. Tap Added, review to see this session's cards and fix the copies, finish or printing, or take one back out; copies you owned before aren't touched.",
+      "It never guesses the printing. When several printings share the art, it reads the collector number, and if that's unclear you pick from pictures of each printing; adding a printing it didn't read asks you to check the card's corner first. Choose how many copies before adding, or type a name instead.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
+    id: "2026-10-28-sharing-and-configurations",
+    date: "2026-10-28",
+    title: "Share your decks, and keep a deck's builds together",
+    items: [
+      "Share a deck from its page: send a link, or list it on your profile. Friends can open it without an account, download it for Moxfield, MTG Arena or as names only, or save a copy in their own Yama.",
+      "Pick a handle under Group, You for your profile at /u/handle. New decks can start shared, one button shares them all, and you can show your collection too. Everything stays private until you share it.",
+      "Configurations: other builds of one deck (stock, after prints, high power) now sit under its main deck, with a switcher on the deck page and New configuration to start another.",
+    ],
+    link: { to: "/group#sharing", label: "Set up sharing" },
+  },
+  {
     id: "2026-10-28-complete-precon-commanders", date: "2026-10-28",
     title: "Assess every commander in the box",
     items: ["Precons now inventory all stock-compatible in-box commanders and checked pairs. Package summaries name the highest supported upgrade grade and show the remaining assessment gaps.", "Fantastic Four includes all four featured commanders, plus Crystal and Power Pack. Prepared legal lists can enter one shared tournament through MCP without creating saved decks."],

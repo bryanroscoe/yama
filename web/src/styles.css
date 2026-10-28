@@ -215,11 +215,15 @@ button,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
+  gap: 8px;
 }
 button:hover,
 .button:hover {
   background: color-mix(in srgb, var(--raised), var(--text) 7%);
+}
+button > svg,
+.button > svg {
+  flex-shrink: 0;
 }
 /* Primary: a text-colored pill with ground text. One per view. */
 button.primary,
@@ -273,7 +277,7 @@ textarea {
   font-size: var(--t-base);
   font-weight: 400;
   color: var(--text);
-  background: var(--surface);
+  background-color: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-input);
   padding: 0.6rem 0.85rem;
@@ -292,7 +296,7 @@ textarea:hover {
 }
 /* On a surface (sheets, seat cards, side panels) fields drop to the ground color. */
 :where(.sheet, fieldset.seat, .surface, .side, .scan-controls) :is(input, select, textarea) {
-  background: var(--ground);
+  background-color: var(--ground);
 }
 input[type="checkbox"],
 input[type="radio"] {
@@ -316,6 +320,7 @@ textarea {
 /* Labels sit above their field, 14 px bold. */
 label {
   display: grid;
+  min-width: 0;
   gap: 6px;
   font-weight: 700;
   font-size: var(--t-label);
@@ -408,47 +413,26 @@ label > span.hint {
   font-size: var(--t-sm);
   line-height: 1.45;
 }
-/* A 44 px target with the lab's chevron (right when folded, down when open); the negative margin
-   keeps the note it sits in compact. */
+/* Keep the full target in the layout so neighboring controls cannot overlap it. */
 .details-fold > summary {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   width: fit-content;
   min-height: 44px;
-  margin: -8px 0;
-  padding-right: 8px;
+  padding: 8px 8px 8px 0;
   list-style: none;
   cursor: pointer;
   font-weight: 700;
   color: var(--dim);
-}
-.details-fold > summary::-webkit-details-marker {
-  display: none;
-}
-.details-fold > summary::before {
-  content: "";
-  flex: none;
-  width: 0.45em;
-  height: 0.45em;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(-45deg);
-  transition: transform 120ms ease-out;
-}
-.details-fold[open] > summary::before {
-  transform: rotate(45deg);
-}
-.details-fold[open] > summary {
-  margin-bottom: -4px;
 }
 .details-fold > summary:hover {
   color: var(--text);
 }
 .details-body {
   display: grid;
-  gap: 4px;
-  padding: 2px 0 4px;
+  gap: 8px;
+  padding: 4px 0 12px;
   overflow-wrap: anywhere;
 }
 .details-body > p {
@@ -1257,7 +1241,7 @@ fieldset.seat.seat-card:has(> .seat-head.art-empty) {
   background: transparent;
 }
 fieldset.seat.seat-card:has(> .seat-head.art-empty) :is(input, select) {
-  background: var(--surface);
+  background-color: var(--surface);
 }
 
 /* Lobby seats: art tiles washed from the bottom, an open seat as a dashed empty slot. */
@@ -2007,4 +1991,69 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 .view-banner .view-stop:disabled {
   cursor: progress;
+}
+
+/* Configurations: other builds of a deck, collapsed under its tile and switched on its page. */
+.deck-tiles > li.has-configs {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+.deck-configs-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 8px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.deck-configs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.deck-configs-list a {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+.deck-configs-list a:hover {
+  background: var(--raised);
+}
+.deck-shared {
+  font-weight: 600;
+  color: var(--on-art);
+}
+.hero-configs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 10px;
+}
+.hero-configs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.3);
+  background: rgb(11 12 14 / 0.4);
+  color: var(--on-art);
+  font-size: var(--t-sm);
+  text-decoration: none;
+}
+.hero-configs a[aria-current="page"] {
+  background: var(--on-art);
+  border-color: var(--on-art);
+  color: var(--ground);
 }

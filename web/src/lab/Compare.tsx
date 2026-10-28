@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary } from "../api";
 import { useMe } from "../auth";
+import { Details } from "../components/ui";
 import type { ComparePrefill, ExperimentDetail, NewExperiment } from "./api";
 import { LabHead } from "./LabLayout";
 import { caveat, durationText, expectedSeconds, gameChoices } from "./logic";
@@ -111,9 +112,6 @@ function CompareForm() {
   return (
     <>
       <LabHead title="Compare decks" />
-      <p className="dim lab-try-intro">
-        No changes needed: see which of your decks does better. {caveat()}
-      </p>
       <div className="lab-chips lab-modes" role="radiogroup" aria-label="How to compare">
         <button type="button" role="radio" aria-checked={mode === "compare"} onClick={() => switchMode("compare")}>
           Against the same opponents
@@ -125,11 +123,14 @@ function CompareForm() {
           Tournament
         </button>
       </div>
-      <p className="small dim" style={{ marginTop: 0 }}>
+      <Details label="How this comparison works" className="lab-try-intro">
+        <p>
         {tournament ? "One shared experiment for a large field. Randomized four-player pods balance appearances and opponent meetings, and rotate every deck through all seats. Every deck at the table contributes to the results." : versus
           ? "Your decks sit at the same table and play each other, every deck taking every seat in turn so going first evens out."
           : "Both decks play the same pods: the same opponents, seats and shuffles. Only the deck differs, so the difference is between the decks."}
-      </p>
+        </p>
+        <p>{caveat()}</p>
+      </Details>
 
       <div className="phone-only">
         <RunningNow />

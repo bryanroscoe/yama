@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GROUP_ORDER, groupOf } from "@yama/core";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { api, type DeckSummary, type DeckView, type PreconList } from "../api";
+import { api, type DeckSummary, type DeckView, type PreconList, type PublicDeck } from "../api";
 import { AreaHead } from "../components/DeckTabs";
 import { hasDeckNamed } from "../components/calendar";
 import { CardImage, ErrorText, Pips } from "../components/ui";
@@ -37,7 +37,8 @@ interface Source {
 
 /**
  * Add a deck (or a new version of one) from a pasted list, a file or a link: `/decks/import`.
- * `?deck=<id>` updates that deck; `?precon=<file>` starts from a precon's stock list; `?text=`,
+ * `?deck=<id>` updates that deck; `?precon=<file>` starts from a precon's stock list;
+ * `?shared=<token>` copies a deck someone shared (`/d/<token>`); `?text=`,
  * `?url=` and `?title=` come from the phone's share sheet (the manifest's share_target).
  */
 export function ImportPage() {
@@ -46,6 +47,7 @@ export function ImportPage() {
   const [params] = useSearchParams();
   const updating = params.get("deck");
   const precon = params.get("precon");
+  const shared = params.get("shared");
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const [text, setText] = useState(() => sharedText(params));
   const [guideKey, setGuideKey] = useState<string | null>(null);
@@ -71,6 +73,18 @@ export function ImportPage() {
     if (stock.data) setText((t) => t || stock.data.text);
   }, [stock.data]);
 
+  // A friend's shared deck, as its page's "Save a copy in Yama" asks.
+  const friend = useQuery({
+    queryKey: ["shared-deck", shared],
+    queryFn: () => api<PublicDeck>(`/api/public/decks/${encodeURIComponent(shared!)}`),
+    enabled: !!shared,
+    retry: false,
+    staleTime: Infinity,
+  });
+  useEffect(() => {
+    if (friend.data) setText((t) => t || friend.data.text);
+  }, [friend.data]);
+
   const check = useMutation({
     mutationFn: async (sources: Source[]) => {
       const out: { source: Source; preview: ImportPreview }[] = [];
@@ -88,7 +102,7 @@ export function ImportPage() {
       const keepName = updating ? decks.data?.find((x) => x.id === updating)?.name : undefined;
       for (const { source, preview } of results) {
         for (const d of preview.decks) {
-          const fallback = stock.data?.name ?? (source.fileName ? source.fileName.replace(/\.[^.]+$/, "").replace(/_/g, " ") : "");
+          const fallback = stock.data?.name ?? friend.data?.name ?? (source.fileName ? source.fileName.replace(/\.[^.]+$/, "").replace(/_/g, " ") : "");
           const draft = draftFrom(d, fallback);
           next.push(updating ? { ...draft, name: keepName ?? (draft.name || "This deck") } : draft);
         }
@@ -163,7 +177,13 @@ export function ImportPage() {
 
   return (
     <main className="page import-page">
-      <AreaHead title={updating ? "Update a deck" : precon ? "Start from a precon" : "Add a deck"} back={{ to: backTo, label: "Back" }} />
+      <AreaHead title={updating ? "Update a deck" : precon ? "Start from a precon" : shared ? "Save a copy" : "Add a deck"} back={{ to: backTo, label: "Back" }} />
+      {shared && friend.data && (
+        <p className="dim">
+          A copy of {friend.data.name}{friend.data.handle ? `, shared by @${friend.data.handle}` : ""}. It becomes your own deck; theirs doesn't change.
+        </p>
+      )}
+      {shared && friend.error && <p className="error">That shared deck isn't available. It may be private now, or its link was reset.</p>}
       <div className="import-grid">
         <section className="import-get" aria-labelledby="imp-get">
           <h2 id="imp-get">Get your list</h2>

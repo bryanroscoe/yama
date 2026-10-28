@@ -1,34 +1,55 @@
-// Camera scanner: a card-shaped guide over the live camera. Every few hundred milliseconds the
-// part of the frame around the guide is read; when the same card comes back twice (or once
-// with high confidence) the scanner locks and shows it.
+// Camera scanner. Hold a card anywhere in view: the art recognizer (recognizer.ts, in a worker)
+// finds it, outlines it and names it from its artwork, usually within a frame or two. The
+// printing comes from the printings that share that art: settled when there's only one, read
+// from the collector line when there are several, and otherwise picked by the person. Nothing
+// is filed under a guessed printing.
 //
-// Needs a secure context for the camera (https or localhost; a phone on the LAN dev server over
-// plain http gets no camera, so "Use a photo" is offered as a fallback).
+// When the recognition bundle isn't available (the server is still downloading it, or an old
+// browser), or a card's art isn't in it (new sets, battles), the scanner reads text with
+// Tesseract instead (pipeline.ts), as it did before.
+//
+// Needs a secure context for the camera (https or localhost). "Use a photo" works anywhere.
 
-import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { api, shortDate, usd, type Printing } from "../api";
+import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type LoadState } from "./artClient";
 import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
-import { scanFrame, SURE } from "./pipeline";
-import { api, shortDate, usd, type Printing } from "../api";
+import { readCloseup, readCollectorLine, scanFrame, SURE } from "./pipeline";
+import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
+import { choosePrinting, printingOptions } from "./printings";
+import type { ArtMatch, Recognition } from "./recognizer";
 import { createServerCatalog } from "./serverCatalog";
 import { createTesseractOcr, type TesseractOcr } from "./tesseract";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
 
 export interface ScannerViewProps {
-  /** Called when the user confirms a card. Without it the scanner only shows what it found. */
-  onAccept?: (card: ScanCandidate) => void;
-  /** Defaults to the server lookup plus the offline card names. */
+  /**
+   * Called when the person confirms a card (`auto`: Keep adding added it). Without it the scanner
+   * only shows what it found. A promise says whether the card was saved, so Keep adding only
+   * says "Added" once it was.
+   */
+  onAccept?: (card: ScanCandidate, copies: number, auto: boolean) => void | Promise<boolean>;
+  /** For reading text: defaults to the server lookup plus the offline card names. */
   catalog?: ScanCatalog;
-  /** Defaults to tesseract.js. */
+  /** For reading text: defaults to tesseract.js. */
   ocr?: OcrEngine;
-  /** Pause between reads. */
-  intervalMs?: number;
   onClose?: () => void;
   /** Copies added since the scanner opened, for the "Added 3 so far" chip. */
   addedCount?: number;
-  /** Names of the last few cards added, newest first. */
+  /** Makes the "Added 3 so far" chip a button, to review and fix what was added. */
+  onShowAdded?: () => void;
+  /** Cards added whose save failed (kept for review, to try again). */
+  unsavedCount?: number;
+  /**
+   * Keep adding: a card whose printing the scanner settled itself (the only one, or read from the
+   * collector line) is added at once, one copy, and scanning goes on. Anything less still waits.
+   */
+  autoAdd?: boolean;
+  /** Stop reading the camera (something is shown over the scanner). */
+  paused?: boolean;
+  /** The last few cards added, newest first. */
   recent?: string[];
   /** The finish being added, so the found card shows that finish's price. */
   finish?: "nonfoil" | "foil";
@@ -38,69 +59,256 @@ export interface ScannerViewProps {
   acceptLabel?: string;
   /** Context for the recognized card, shown immediately without accepting or adding it. */
   renderResult?: (card: ScanCandidate) => ReactNode;
-  /** Hide printing and price details when the caller only needs card identity. */
+  /** Only the card's identity matters: no printing, price or picker. */
   identityOnly?: boolean;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
 
-/** Extra frame kept around the guide so the edge finder can see the card's edges. */
-const MARGIN = 0.12;
-/** Long side of the image handed to the pipeline. Keeps small print readable without wasting time. */
-const MAX_SIDE = 1500;
-const CARD_ASPECT = 88 / 63;
-
-const sameCard = (a: ScanCandidate | undefined, b: ScanCandidate | undefined) =>
-  !!a && !!b && a.name === b.name && a.set === b.set && a.number === b.number;
-
-function grab(source: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, canvas: HTMLCanvasElement): { image: RgbaImage; scale: number } {
-  const scale = Math.min(1, MAX_SIDE / Math.max(sw, sh));
-  canvas.width = Math.round(sw * scale);
-  canvas.height = Math.round(sh * scale);
-  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  return { image: ctx.getImageData(0, 0, canvas.width, canvas.height), scale };
+/** What was found, and how far settling its printing has got. */
+interface Found {
+  name: string;
+  method: ScanCandidate["method"];
+  confidence: number;
+  /** The art match, when the card was recognised by its artwork. */
+  art?: ArtMatch;
+  /** Other cards it might be, for "Not this card?". */
+  others: ArtMatch[];
+  /** Printings to choose from; null while loading. */
+  options: Printing[] | null;
+  sameArt: boolean;
+  chosen: Printing | null;
+  how: "only" | "collector" | "picked" | null;
+  /** The scanner settled the printing itself, with proof (not a guess, not a tap). */
+  sure?: boolean;
+  /** The person asked to see the other printings. */
+  picking: boolean;
+  /** Reading the collector line to tell printings apart. */
+  reading?: boolean;
+  /** What OCR read, when it read anything. */
+  raw?: string;
+  ms?: number;
+  error?: string;
 }
 
-export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, intervalMs = 250, onClose, addedCount = 0, recent = [], finish = "nonfoil", controls, acceptLabel = "Add", renderResult, identityOnly = false }: ScannerViewProps) {
+/** Lock at this art score on one frame, or at LOCK_TWICE on two agreeing frames. */
+const LOCK_ONCE = 0.82;
+const LOCK_TWICE = 0.62;
+/** Below this the art is probably not in the bundle; after a few such frames, read text instead. */
+const ART_UNKNOWN = 0.5;
+/** For reading text: extra frame kept around the on-screen guide, and the longest side read. */
+const MARGIN = 0.12;
+const MAX_SIDE = 1500;
+const CARD_ASPECT = 88 / 63;
+const PICKER_FIRST = 24;
+
+const sameCard = (a: ScanCandidate | undefined, b: ScanCandidate | undefined) => !!a && !!b && a.name === b.name && a.set === b.set && a.number === b.number;
+
+function draw(source: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, w: number, h: number, canvas: HTMLCanvasElement): RgbaImage {
+  canvas.width = Math.max(1, Math.round(w));
+  canvas.height = Math.max(1, Math.round(h));
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+/** The whole source with its short side at RECOGNIZER_SHORT_SIDE (never enlarged), and the scale used. */
+function small(source: CanvasImageSource, width: number, height: number, canvas: HTMLCanvasElement): { image: RgbaImage; k: number } {
+  const k = Math.min(1, RECOGNIZER_SHORT_SIDE / Math.min(width, height));
+  return { image: draw(source, 0, 0, width, height, width * k, height * k, canvas), k };
+}
+
+/** The part of the source around a card quad (source pixels), at full resolution, and the quad within it. */
+function around(source: CanvasImageSource, width: number, height: number, quad: Quad, canvas: HTMLCanvasElement): { image: RgbaImage; quad: Quad } {
+  const xs = quad.map((p) => p[0]);
+  const ys = quad.map((p) => p[1]);
+  const pad = 0.08 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  const x0 = Math.max(0, Math.floor(Math.min(...xs) - pad));
+  const y0 = Math.max(0, Math.floor(Math.min(...ys) - pad));
+  const x1 = Math.min(width, Math.ceil(Math.max(...xs) + pad));
+  const y1 = Math.min(height, Math.ceil(Math.max(...ys) + pad));
+  const k = Math.min(1, 2400 / Math.max(x1 - x0, y1 - y0));
+  const image = draw(source, x0, y0, x1 - x0, y1 - y0, (x1 - x0) * k, (y1 - y0) * k, canvas);
+  return { image, quad: quad.map(([x, y]) => [(x - x0) * k, (y - y0) * k]) as Quad };
+}
+
+/** Where an on-screen element sits in video pixels (the video is object-fit: cover), clipped to the frame. */
+function boxInVideo(v: HTMLVideoElement, el: HTMLElement, margin = 0): { sx: number; sy: number; sw: number; sh: number; gx: number; gy: number; gw: number; gh: number } {
+  const vb = v.getBoundingClientRect();
+  const gb = el.getBoundingClientRect();
+  const s = Math.max(vb.width / v.videoWidth, vb.height / v.videoHeight);
+  const ox = vb.left + (vb.width - v.videoWidth * s) / 2;
+  const oy = vb.top + (vb.height - v.videoHeight * s) / 2;
+  const gx = (gb.left - ox) / s;
+  const gy = (gb.top - oy) / s;
+  const gw = gb.width / s;
+  const gh = gb.height / s;
+  const sx = Math.max(0, gx - gw * margin);
+  const sy = Math.max(0, gy - gh * margin);
+  return { sx, sy, sw: Math.min(v.videoWidth, gx + gw * (1 + margin)) - sx, sh: Math.min(v.videoHeight, gy + gh * (1 + margin)) - sy, gx, gy, gw, gh };
+}
+
+/** Height a close-up box is read at: the densities scanFrame samples the two lines at. */
+const CLOSEUP_HEIGHT = { collector: 200, title: 110 } as const;
+/** Failed text reads of an unknown card before asking for a close-up of its name. */
+const TITLE_AFTER = 2;
+
+const scaleQuad = (q: Quad, k: number) => q.map(([x, y]) => [x * k, y * k]) as Quad;
+/** The same corners, read a quarter turn on: for cards printed sideways (battles), whose art the detector takes as the top. */
+const quarterTurns = (q: Quad): Quad[] => [q, [q[1], q[2], q[3], q[0]], [q[3], q[0], q[1], q[2]]];
+
+/** Read a card's text at a known quad, upright and turned. The most confident read wins. */
+async function readAt(image: RgbaImage, quad: Quad, reader: { ocr: OcrEngine; catalog: ScanCatalog; names: NameIndex }, turns: Quad[] = quarterTurns(quad)): Promise<ScanResult> {
+  let best: ScanResult | null = null;
+  for (const q of turns) {
+    const r = await scanFrame(image, { ...reader, guide: q, tryUpsideDown: true });
+    if (!best || (r.candidates[0]?.confidence ?? 0) > (best.candidates[0]?.confidence ?? 0)) best = r;
+    if ((best.candidates[0]?.confidence ?? 0) >= SURE) break;
+  }
+  return best!;
+}
+
+const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
+  name: p?.name ?? f.name,
+  set: p?.set_code,
+  number: p?.collector_number,
+  lang: p?.lang,
+  scryfall_id: p?.scryfall_id,
+  image: p?.image_normal,
+  thumb: p?.image_small,
+  confidence: f.confidence,
+  method: f.method,
+});
+
+export function ScannerView({
+  onAccept,
+  catalog: catalogProp,
+  ocr: ocrProp,
+  onClose,
+  addedCount = 0,
+  onShowAdded,
+  unsavedCount = 0,
+  autoAdd = false,
+  paused = false,
+  recent = [],
+  finish = "nonfoil",
+  controls,
+  acceptLabel = "Add",
+  renderResult,
+  identityOnly = false,
+}: ScannerViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const guideRef = useRef<HTMLDivElement>(null);
+  /** The part of the panel that needs a tap, when scanning can't go on by itself. */
+  const tapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const engine = useRef<{ ocr: OcrEngine; catalog: ScanCatalog; names: NameIndex } | null>(null);
-  const last = useRef<{ card: ScanCandidate; at: number } | undefined>(undefined);
+  const hiCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const artRef = useRef<ArtRecognizer | null>(null);
+  const textRef = useRef<Promise<{ ocr: OcrEngine; catalog: ScanCatalog; names: NameIndex }> | null>(null);
+  const ownedOcr = useRef<TesseractOcr | null>(null);
+  const last = useRef<{ index: number; card?: ScanCandidate; at: number } | undefined>(undefined);
+  /** The art just accepted: not found again until the card leaves or another one shows. */
+  const blocked = useRef<ArtHold | null>(null);
+  /** Frames in a row the detector saw no card, for ending a text hold. */
+  const noCard = useRef(0);
+  /** The same for a card found by its text (no art match); see hold.ts. The detector seeing no card also ends it. */
+  const blockedName = useRef<Hold | null>(null);
+  const foundSeq = useRef(0);
   const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState("Line the card up with the frame");
-  const [result, setResult] = useState<ScanResult | null>(null);
+  const [status, setStatus] = useState("Hold a card in view");
+  const [found, setFound] = useState<Found | null>(null);
+  const [outline, setOutline] = useState<{ quad: Quad; w: number; h: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
+  /** "art": recognising artwork. "text": reading text only. null: still starting. */
+  const [mode, setMode] = useState<"art" | "text" | null>(null);
+  const [loadState, setLoadState] = useState<LoadState | null>(null);
+  const [copies, setCopies] = useState(1);
+  /** The close-up step: the person holds the camera close to the collector line or the title. */
+  const [closeup, setCloseup] = useState<"collector" | "title" | null>(null);
+  const [closeupRead, setCloseupRead] = useState("");
+  const closeRef = useRef<HTMLDivElement>(null);
+  const foundRef = useRef<Found | null>(null);
+  foundRef.current = found;
+  /** What the camera actually delivers, e.g. "3840×2160". */
+  const [camera, setCamera] = useState<string | null>(null);
+  /** A photo is being read: the camera loop waits, so the two can't both report a card. */
+  const [photoBusy, setPhotoBusy] = useState(false);
+  /** The camera is running (a close-up needs it). */
+  const [live, setLive] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  /** Add was tapped on a printing picked by eye: asking to check it first. */
+  const [confirming, setConfirming] = useState(false);
+  /** What Keep adding just added, shown on the camera for a moment. */
+  const [justAdded, setJustAdded] = useState<string | null>(null);
+  useEffect(() => {
+    if (!justAdded) return;
+    const t = setTimeout(() => setJustAdded(null), 2500);
+    return () => clearTimeout(t);
+  }, [justAdded]);
 
-  // OCR workers and the catalog: once per mount.
+  const ocrRef = useRef<Promise<OcrEngine> | null>(null);
+  /** False once the scanner closes: work finishing after that must clean up after itself. */
+  const alive = useRef(true);
+  /** Tesseract, started on first use. */
+  const ocrEngine = useCallback(() => {
+    // Served by the app (scripts/copy-ocr.mjs), so it works offline and loads nothing from a CDN.
+    ocrRef.current ??= ocrProp
+      ? Promise.resolve(ocrProp)
+      : createTesseractOcr({ workerPath: "/ocr/worker.min.js", corePath: "/ocr/core", langPath: "/ocr/lang" }).then((o) => {
+          if (!alive.current) {
+            void o.terminate();
+            throw new Error("The scanner is closed");
+          }
+          return (ownedOcr.current = o);
+        });
+    ocrRef.current.catch(() => (ocrRef.current = null));
+    return ocrRef.current;
+  }, [ocrProp]);
+  /** The text reader (Tesseract plus every card name), started on first use. */
+  const textReader = useCallback(() => {
+    textRef.current ??= (async () => {
+      const catalog = catalogProp ?? (await createServerCatalog({ setCodes: await api<string[]>("/api/sets").catch(() => undefined) }));
+      return { ocr: await ocrEngine(), catalog, names: new NameIndex(catalog.names()) };
+    })();
+    textRef.current.catch(() => (textRef.current = null));
+    return textRef.current;
+  }, [catalogProp, ocrEngine]);
+
+  // The art recognizer, once per mount; the text reader when there's no recognizer.
   useEffect(() => {
     let cancelled = false;
-    let owned: TesseractOcr | null = null;
+    let art: ArtRecognizer | null = null;
+    alive.current = true;
     (async () => {
       try {
-        const catalog = catalogProp ?? (await createServerCatalog({ setCodes: await api<string[]>("/api/sets").catch(() => undefined) }));
-        let ocr = ocrProp;
-        // Served by the app (scripts/copy-ocr.mjs), so scanning works offline and loads nothing from a CDN.
-        if (!ocr) ocr = owned = await createTesseractOcr({ workerPath: "/ocr/worker.min.js", corePath: "/ocr/core", langPath: "/ocr/lang" });
-        if (cancelled) {
-          void owned?.terminate();
-          return;
-        }
-        const names = new NameIndex(catalog.names());
-        engine.current = { ocr, catalog, names };
-        setReady(true);
+        art = await loadArtRecognizer((s) => !cancelled && setLoadState(s));
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        console.warn("Card recognizer unavailable", e);
+      }
+      if (cancelled) return art?.dispose();
+      artRef.current = art;
+      setLoadState(null);
+      if (art) setMode("art");
+      else {
+        try {
+          await textReader();
+          if (!cancelled) setMode("text");
+        } catch (e) {
+          if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        }
       }
     })();
     return () => {
       cancelled = true;
-      engine.current = null;
-      void owned?.terminate();
+      alive.current = false;
+      artRef.current = null;
+      art?.dispose();
+      void ownedOcr.current?.terminate();
+      ownedOcr.current = null;
+      ocrRef.current = null;
+      textRef.current = null;
     };
-  }, [catalogProp, ocrProp]);
+  }, [textReader]);
 
   // Camera.
   useEffect(() => {
@@ -112,14 +320,26 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
       return;
     }
     navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
+      // As sharp as the camera allows: the collector line is tiny. Frames are scaled down for
+      // recognition anyway; only the crops read as text use the full resolution.
+      .getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } }, audio: false })
       .then(async (s) => {
         if (stopped) return s.getTracks().forEach((t) => t.stop());
         stream = s;
+        const track = s.getVideoTracks()[0];
+        if (track) {
+          const caps = (track.getCapabilities?.() ?? {}) as { focusMode?: string[] };
+          if (caps.focusMode?.includes("continuous")) {
+            await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet] }).catch(() => undefined);
+          }
+          const st = track.getSettings();
+          if (st.width && st.height) setCamera(`${st.width}×${st.height}`);
+        }
         const v = videoRef.current;
         if (!v) return;
         v.srcObject = s;
         await v.play().catch(() => undefined);
+        setLive(true);
         setPhase((p) => (p === "loading" ? "scanning" : p));
       })
       .catch((e: unknown) => {
@@ -133,132 +353,461 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
     };
   }, []);
 
-  const handle = useCallback((res: ScanResult, single: boolean) => {
-    const best = res.candidates[0];
-    if (!best) {
-      setStatus("Line the card up with the frame");
-      return false;
-    }
-    // The same card twice within a couple of seconds, or once when the read is certain.
-    const seen = last.current && Date.now() - last.current.at < 2500 ? last.current.card : undefined;
-    const lock = single || best.confidence >= 0.95 || (best.confidence >= 0.6 && sameCard(best, seen));
-    last.current = { card: best, at: Date.now() };
-    if (lock) {
-      setResult(res);
+  /** Settle the printing of what was found (not needed when only the card's identity matters). */
+  const settle = useCallback(
+    async (seq: number, f: Found, query: { art?: string | null; id?: string; name?: string }, read?: { image: RgbaImage; quad: Quad } | null, known?: { set?: string; number?: string; proven?: boolean }) => {
+      const update = (patch: Partial<Found>) => {
+        if (foundSeq.current === seq) setFound((cur) => (cur ? { ...cur, ...patch } : cur));
+      };
+      try {
+        const opts = await printingOptions(query);
+        let choice = choosePrinting(opts);
+        // Read from the collector line by the text reader already: proof when the read was.
+        if (!choice.chosen && known?.set && known.number) {
+          const hit = opts.printings.find((p) => p.set_code === known.set && p.collector_number === known.number);
+          if (hit) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], certain: !!known.proven };
+        }
+        const reading = !choice.chosen && !!read;
+        update({ options: choice.options, sameArt: opts.sameArt, chosen: choice.chosen, how: choice.how, sure: choice.how === "only" || !!choice.certain, reading });
+        if (!reading) return;
+        // Several printings share the art: read the collector line to tell them apart.
+        const text = await readCollectorLine(read!.image, read!.quad, await ocrEngine());
+        // One read from the whole-card view settles it only when it's proof; otherwise the guess goes
+        // first in the picker and the close-up step confirms it.
+        const byLine = choosePrinting(opts, text);
+        update({ options: byLine.options, chosen: byLine.certain ? byLine.chosen : null, how: byLine.certain ? byLine.how : null, sure: !!byLine.certain, raw: text, reading: false });
+      } catch (e) {
+        update({ options: [], reading: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    },
+    [ocrEngine],
+  );
+
+  /** Show a card recognised by its art. `read` is a sharp view of it for the collector line. */
+  const showArt = useCallback(
+    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null) => {
+      const seq = ++foundSeq.current;
+      const f: Found = {
+        name: top.name,
+        method: "art",
+        confidence: top.score,
+        art: top,
+        others: r.matches.slice(1).filter((m, i, all) => m.name !== top.name && m.score >= top.score - 0.2 && all.findIndex((x) => x.name === m.name) === i),
+        options: null,
+        sameArt: true,
+        chosen: null,
+        how: null,
+        picking: false,
+        ms: r.timings.totalMs,
+      };
+      setFound(f);
+      setShowAll(false);
+      setCopies(1);
       setPhase("found");
       navigator.vibrate?.(30);
-      return true;
-    }
-    setStatus(`Holding steady: ${best.name}?`);
-    return false;
-  }, []);
+      if (!identityOnly) void settle(seq, f, { art: top.illustrationId, id: top.id }, read);
+    },
+    [identityOnly, settle],
+  );
 
-  // Read loop: one frame at a time, a short pause between reads.
+  /** Show a card read as text. */
+  const showText = useCallback(
+    (res: ScanResult) => {
+      const best = res.candidates[0]!;
+      const seq = ++foundSeq.current;
+      const f: Found = {
+        name: best.name,
+        method: best.method,
+        confidence: best.confidence,
+        others: [],
+        options: null,
+        sameArt: false,
+        chosen: null,
+        how: null,
+        picking: false,
+        raw: `${res.raw.collector}\n${res.raw.name}`,
+        ms: res.timings.totalMs,
+      };
+      setFound(f);
+      setShowAll(false);
+      setCopies(1);
+      setPhase("found");
+      navigator.vibrate?.(30);
+      // The text reader's proof of a printing: set code and number found together with a matching
+      // title (0.97), or an exact, anchored collector line on its own (0.85). See pipeline.ts decide.
+      const proven = best.confidence >= 0.95 || (best.method === "collector" && best.confidence >= 0.85);
+      if (!identityOnly) void settle(seq, f, { name: best.name }, null, { set: best.set, number: best.number, proven });
+    },
+    [identityOnly, settle],
+  );
+
+  /** A text read: lock on the same card twice, or once when it's certain. */
+  const handleText = useCallback(
+    /** `emptyFrees`: no card detector (text-only mode), so empty reads can end a hold (hold.ts). */
+    (res: ScanResult, single: boolean, emptyFrees = false) => {
+      const best = res.candidates[0];
+      const held = blockedName.current;
+      // A photo is a deliberate read: no hold.
+      if (single) blockedName.current = null;
+      else if (held) {
+        if (holdRead(held, best, Date.now(), emptyFrees) === "held") {
+          if (best?.name === held.name) setStatus("Ready for the next card");
+          // Another card seen while held counts toward locking on it once the hold ends.
+          else if (best) last.current = { index: -1, card: best, at: Date.now() };
+          return false;
+        }
+        blockedName.current = null;
+      }
+      if (!best) return false;
+      const seen = last.current && Date.now() - last.current.at < 2500 ? last.current.card : undefined;
+      const lock = single || best.confidence >= 0.95 || (best.confidence >= 0.6 && sameCard(best, seen));
+      last.current = { index: -1, card: best, at: Date.now() };
+      if (lock) showText(res);
+      else setStatus(`Hold still: ${best.name}?`);
+      return lock;
+    },
+    [showText],
+  );
+
+  // Read loop: one frame at a time.
   useEffect(() => {
-    if (phase !== "scanning" || !ready) return;
+    if (phase !== "scanning" || !mode || closeup || photoBusy || paused) return;
     let stop = false;
+    let failedReads = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    setStatus("Line the card up with the frame");
-    let frameNo = 0;
+    let unknownFrames = 0;
+    let textFrame = 0;
+    setStatus(mode === "art" ? "Hold a card in view" : "Line the card up with the frame");
+    const next = (ms: number) => {
+      if (!stop) timer = setTimeout(tick, ms);
+    };
     const tick = async () => {
       if (stop) return;
       const v = videoRef.current;
-      const g = guideRef.current;
-      const e = engine.current;
-      if (v && g && e && v.videoWidth > 0 && document.visibilityState === "visible") {
-        // Map the on-screen guide into video pixels (the video is object-fit: cover).
-        const vb = v.getBoundingClientRect();
-        const gb = g.getBoundingClientRect();
-        const s = Math.max(vb.width / v.videoWidth, vb.height / v.videoHeight);
-        const ox = vb.left + (vb.width - v.videoWidth * s) / 2;
-        const oy = vb.top + (vb.height - v.videoHeight * s) / 2;
-        const gx = (gb.left - ox) / s;
-        const gy = (gb.top - oy) / s;
-        const gw = gb.width / s;
-        const gh = gb.height / s;
-        const sx = Math.max(0, gx - gw * MARGIN);
-        const sy = Math.max(0, gy - gh * MARGIN);
-        const sw = Math.min(v.videoWidth, gx + gw * (1 + MARGIN)) - sx;
-        const sh = Math.min(v.videoHeight, gy + gh * (1 + MARGIN)) - sy;
-        canvasRef.current ??= document.createElement("canvas");
-        const { image, scale } = grab(v, sx, sy, sw, sh, canvasRef.current);
-        const upright: Quad = rectQuad((gx - sx) * scale, (gy - sy) * scale, gw * scale, gh * scale);
-        // Alternate upright and upside-down reads across frames rather than both in one frame.
-        const flip = frameNo++ % 2 === 1;
-        const guide: Quad = flip ? [upright[2], upright[3], upright[0], upright[1]] : upright;
-        try {
-          const res = await scanFrame(image, { ...e, guide, tryUpsideDown: false });
-          if (!stop && handle(res, false)) return;
-        } catch (err) {
-          if (!stop) setStatus(err instanceof Error ? err.message : String(err));
+      const art = artRef.current;
+      if (!v || v.videoWidth === 0 || document.visibilityState !== "visible") return next(200);
+      canvasRef.current ??= document.createElement("canvas");
+      hiCanvasRef.current ??= document.createElement("canvas");
+      try {
+        if (mode === "art" && art) {
+          const { image, k } = small(v, v.videoWidth, v.videoHeight, canvasRef.current);
+          const r = await art.identify(image);
+          if (stop) return;
+          setOutline(r.quad ? { quad: scaleQuad(r.quad, 1 / k), w: v.videoWidth, h: v.videoHeight } : null);
+          const top = r.matches[0];
+          // The card just added stays held until it has clearly gone (hold.ts): one missed
+          // detection while it's still in view, or on its way out, would add it again.
+          if (blocked.current && artHoldFrame(blocked.current, r.quad && top ? top : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
+          if (!r.quad || !top) {
+            if (++noCard.current >= AWAY_FRAMES) blockedName.current = null;
+            last.current = undefined;
+            unknownFrames = 0;
+            setStatus(blocked.current || blockedName.current ? "Ready for the next card" : "Hold a card in view");
+            return next(60);
+          }
+          noCard.current = 0;
+          if (blocked.current) {
+            setStatus("Ready for the next card");
+            return next(60);
+          }
+          const prev = last.current && last.current.index === top.index && Date.now() - last.current.at < 1500;
+          last.current = { index: top.index, at: Date.now() };
+          if (top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev)) {
+            unknownFrames = 0;
+            const read = identityOnly ? null : around(v, v.videoWidth, v.videoHeight, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
+            showArt(r, top, read);
+            return;
+          }
+          if (top.score >= ART_UNKNOWN) {
+            setStatus(`Hold still: ${top.name}?`);
+            return next(30);
+          }
+          // A card the artwork index doesn't know (a new set, a battle): read its text.
+          setStatus("Hold still");
+          if (++unknownFrames >= 3) {
+            unknownFrames = 0;
+            const reader = await textReader();
+            if (stop) return;
+            const quad = scaleQuad(r.quad, 1 / k);
+            const hi = around(v, v.videoWidth, v.videoHeight, quad, hiCanvasRef.current);
+            // One orientation per attempt, so the camera stays responsive.
+            const res = await readAt(hi.image, hi.quad, reader, [quarterTurns(hi.quad)[textFrame++ % 3]!]);
+            if (!stop && handleText(res, false)) return;
+            // Still nothing: ask for a close-up of the name.
+            // (Not while the card just added is held: that would read it again.)
+            if (!stop && !res.candidates[0] && !blockedName.current && ++failedReads >= TITLE_AFTER) {
+              setCloseup("title");
+              return;
+            }
+          }
+          return next(30);
         }
+        // Text only: read the part of the frame around the on-screen guide.
+        const g = guideRef.current;
+        const reader = await textReader();
+        if (stop || !g) return next(200);
+        const { sx, sy, sw, sh, gx, gy, gw, gh } = boxInVideo(v, g, MARGIN);
+        const k = Math.min(1, MAX_SIDE / Math.max(sw, sh));
+        const image = draw(v, sx, sy, sw, sh, sw * k, sh * k, canvasRef.current);
+        const upright: Quad = rectQuad((gx - sx) * k, (gy - sy) * k, gw * k, gh * k);
+        // Alternate upright and upside-down reads across frames rather than both in one frame.
+        const flip = textFrame++ % 2 === 1;
+        const guide: Quad = flip ? [upright[2], upright[3], upright[0], upright[1]] : upright;
+        const res = await scanFrame(image, { ...reader, guide, tryUpsideDown: false });
+        if (!stop && handleText(res, false, true)) return;
+        if (!stop && !res.candidates[0]) setStatus("Line the card up with the frame");
+        next(250);
+      } catch (err) {
+        if (stop) return;
+        setStatus(err instanceof Error ? err.message : String(err));
+        next(500);
       }
-      if (!stop) timer = setTimeout(tick, intervalMs);
     };
     void tick();
     return () => {
       stop = true;
       clearTimeout(timer);
     };
-  }, [phase, ready, intervalMs, handle]);
+  }, [phase, mode, closeup, photoBusy, paused, identityOnly, showArt, handleText, textReader]);
 
   const fromPhoto = async (file: File) => {
-    const e = engine.current;
-    if (!e) return setStatus("The reader is still loading. Try again in a moment.");
     setStatus("Reading the photo");
+    setPhotoBusy(true);
+    // Anything shown meanwhile (a typed name, Not this) makes this photo's answer stale.
+    const start = foundSeq.current;
+    const current = () => foundSeq.current === start && alive.current;
     try {
       const bmp = await createImageBitmap(file);
       canvasRef.current ??= document.createElement("canvas");
-      const { image } = grab(bmp, 0, 0, bmp.width, bmp.height, canvasRef.current);
+      hiCanvasRef.current ??= document.createElement("canvas");
+      const art = artRef.current;
+      if (art) {
+        art.reset();
+        const { image, k } = small(bmp, bmp.width, bmp.height, canvasRef.current);
+        const r = await art.identify(image);
+        const top = r.matches[0];
+        if (r.quad && top && top.score >= LOCK_TWICE) {
+          const read = identityOnly ? null : around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
+          bmp.close();
+          if (current()) showArt(r, top, read);
+          return;
+        }
+        // A card whose art isn't known: read its text where the recognizer found it.
+        if (r.quad) {
+          const reader = await textReader();
+          const hi = around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
+          const res = await readAt(hi.image, hi.quad, reader);
+          if ((res.candidates[0]?.confidence ?? 0) >= SURE) {
+            bmp.close();
+            if (current()) handleText(res, true);
+            return;
+          }
+        }
+      }
+      const reader = await textReader();
+      const k = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
+      const image = draw(bmp, 0, 0, bmp.width, bmp.height, bmp.width * k, bmp.height * k, canvasRef.current);
       bmp.close();
       // A photo cropped to the card (a scan, a screenshot) is the card: try that first, as is.
       // Otherwise assume the card is centred; try a few sizes and let the edge finder correct each.
       let res: ScanResult | null = null;
       const cropped = Math.abs(image.height / image.width - CARD_ASPECT) < 0.06;
-      const tries: { fill: number; refine: boolean }[] = [
-        ...(cropped ? [{ fill: 1, refine: false }] : []),
-        { fill: 0.9, refine: true },
-        { fill: 0.78, refine: true },
-        { fill: 0.65, refine: true },
-      ];
+      const tries = [...(cropped ? [{ fill: 1, refine: false }] : []), { fill: 0.9, refine: true }, { fill: 0.78, refine: true }, { fill: 0.65, refine: true }];
       for (const { fill, refine } of tries) {
         const h = Math.min(image.height * fill, image.width * fill * CARD_ASPECT);
         const w = h / CARD_ASPECT;
-        const guide = rectQuad((image.width - w) / 2, (image.height - h) / 2, w, h);
-        const r = await scanFrame(image, { ...e, guide, refine });
+        const r = await scanFrame(image, { ...reader, guide: rectQuad((image.width - w) / 2, (image.height - h) / 2, w, h), refine });
         if (!res || (r.candidates[0]?.confidence ?? 0) > (res.candidates[0]?.confidence ?? 0)) res = r;
         if ((res.candidates[0]?.confidence ?? 0) >= SURE) break;
       }
-      if (!res || !handle(res, true)) setStatus("Couldn't read that photo. Fill the photo with the card and try again.");
+      if (!current()) return;
+      if (!res || !handleText(res, true)) setStatus("Couldn't read that photo. Fill the photo with the card, or type the name.");
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err));
+      if (current()) setStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPhotoBusy(false);
     }
   };
 
+  /** A card typed by name: straight to its printings. */
+  const fromName = (name: string, how: "typed" | "name" = "typed") => {
+    const seq = ++foundSeq.current;
+    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false };
+    setFound(f);
+    setShowAll(false);
+    setCopies(1);
+    setPhase("found");
+    if (!identityOnly) void settle(seq, f, { name });
+  };
+
+  /** Back to scanning. The card just shown isn't found again until it leaves the view. */
   const again = () => {
+    foundSeq.current += 1;
+    blocked.current = found?.art ? { index: found.art.index, away: 0 } : null;
+    noCard.current = 0;
+    blockedName.current = found && !found.art ? hold(found.name, Date.now()) : null;
     last.current = undefined;
-    setResult(null);
+    setFound(null);
+    setOutline(null);
+    setCloseup(null);
+    artRef.current?.reset();
+    setStatus(mode === "text" ? "Line the card up with the frame" : "Hold a card in view");
     setPhase(videoRef.current?.srcObject ? "scanning" : "no-camera");
   };
 
-  const best = result?.candidates[0];
-  // The printing's set name and market price, once the collector line has been read.
-  const printing = useQuery({
-    queryKey: ["scan-printing", best?.set, best?.number, best?.lang],
-    queryFn: () => api<Printing>(`/api/printings/lookup?${new URLSearchParams({ set: best!.set!, number: best!.number!, lang: best!.lang ?? "en" })}`),
-    enabled: !identityOnly && phase === "found" && !!best?.set && !!best?.number,
-    retry: false,
-    staleTime: Infinity,
-  });
-  const p = printing.data;
-  const price = p ? (finish === "foil" ? p.usd_foil : p.usd) : undefined;
-  const found = phase === "found" && !!best;
+  /** Switch to another card the art might be. */
+  const pickOther = (m: ArtMatch) => {
+    if (!found?.art) return;
+    showArt({ quad: null, upright: 1, matches: [m, found.art, ...found.others.filter((o) => o !== m)], timings: { detectMs: 0, embedMs: 0, totalMs: found.ms ?? 0 } }, m, null);
+  };
+
+  // Step 2 starts by itself when the printing isn't settled: several share the art and the
+  // collector line couldn't be read from the whole-card view.
+  const needsCollector = live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading;
+  useEffect(() => {
+    if (needsCollector) setCloseup("collector");
+  }, [needsCollector]);
+  useEffect(() => {
+    if (phase !== "found" && closeup === "collector") setCloseup(null);
+    if (phase === "found" && closeup === "title") setCloseup(null);
+  }, [phase, closeup]);
+
+  // The close-up loop: read the box as text until it settles the printing or the name.
+  useEffect(() => {
+    if (!closeup || paused) return;
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let previous: string | null = null;
+    setCloseupRead("");
+    const next = (ms: number) => {
+      if (!stop) timer = setTimeout(tick, ms);
+    };
+    const tick = async () => {
+      const v = videoRef.current;
+      const box = closeRef.current;
+      if (stop) return;
+      if (!v || !box || v.videoWidth === 0 || document.visibilityState !== "visible") return next(200);
+      try {
+        hiCanvasRef.current ??= document.createElement("canvas");
+        const { sx, sy, sw, sh } = boxInVideo(v, box);
+        if (sw < 8 || sh < 8) return next(200);
+        const h = CLOSEUP_HEIGHT[closeup];
+        const image = draw(v, sx, sy, sw, sh, (sw * h) / sh, h, hiCanvasRef.current);
+        const text = await readCloseup(image, closeup, await ocrEngine());
+        if (stop) return;
+        setCloseupRead(text.replace(/\s+/g, " ").trim());
+        if (closeup === "collector") {
+          const f = foundRef.current;
+          if (!f?.options) return next(200);
+          const c = choosePrinting({ sameArt: f.sameArt, printings: f.options }, text);
+          // Set code and number both read: done. One of them: the same answer twice.
+          if (c.chosen && (c.certain || previous === c.chosen.scryfall_id)) {
+            const chosenNow = c.chosen;
+            setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", sure: true, options: c.options, raw: text } : cur));
+            setCloseup(null);
+            navigator.vibrate?.(30);
+            return;
+          }
+          previous = c.chosen?.scryfall_id ?? null;
+        } else {
+          const { names, catalog } = await textReader();
+          if (stop) return;
+          const [top, second] = names.match(text, 2);
+          if (top && top.score >= 0.8 && top.score - (second?.score ?? 0) >= 0.05) {
+            const name = catalog.fullName?.(top.name) ?? top.name;
+            if (top.score >= 0.95 || previous === name) {
+              setCloseup(null);
+              fromName(name, "name");
+              return;
+            }
+            previous = name;
+          } else previous = null;
+        }
+        next(120);
+      } catch (e) {
+        if (!stop) setCloseupRead(e instanceof Error ? e.message : String(e));
+        next(500);
+      }
+    };
+    void tick();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+    // fromName is a plain function of this render; the loop only needs the latest at call time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeup, paused, ocrEngine, textReader]);
+
+  const chosen = found?.chosen ?? null;
+  const ready = identityOnly || !!chosen;
+  // A printing tapped in the picker, among several, wasn't read from the card: the pictures of
+  // reprints often look alike (or are the same art). Adding it asks for a check first.
+  const unread = !identityOnly && found?.how === "picked" && !!found.options && found.options.length > 1;
+  // Any change to the card, its printing or the step (including reopening the picker) asks again.
+  useEffect(() => {
+    setConfirming(false);
+  }, [chosen, phase, closeup, found?.picking]);
+  // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into view.
+  const tapNeeded: string | null =
+    phase !== "found" || !found || closeup
+      ? null
+      : confirming
+        ? "Check the printing below"
+        : (!chosen || found.picking) && !found.reading && !!found.options && found.options.length > 1
+          ? "Tap your printing below"
+          : null;
+  useEffect(() => {
+    if (!tapNeeded) return;
+    navigator.vibrate?.([20, 60, 20]);
+    tapRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [tapNeeded]);
+  useEffect(() => {
+    if (!autoAdd || !onAccept || paused || identityOnly || phase !== "found" || !found || !addsItself(found)) return;
+    const c = found.chosen!;
+    const label = `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})`;
+    const saved = onAccept(candidateOf(found, c), 1, true);
+    // The card stays in the session list either way (a failed save can be tried again there), so
+    // scanning goes on; "Added" waits for the save.
+    again();
+    void Promise.resolve(saved).then(
+      (ok) => {
+        if (ok === false) setJustAdded(`Couldn't save ${label}. Tap Added to try again`);
+        else {
+          navigator.vibrate?.(40);
+          setJustAdded(`Added ${label}`);
+        }
+      },
+      () => setJustAdded(`Couldn't save ${label}. Tap Added to try again`),
+    );
+    // again() is a plain function of this render; only these decide whether to add.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAdd, onAccept, paused, identityOnly, phase, found]);
+  const price = chosen ? (finish === "foil" ? chosen.usd_foil : chosen.usd) : null;
+  const isFound = phase === "found" && !!found;
+  const options = found?.options ?? null;
+  const showPicker = !identityOnly && !!found && !!options && options.length > 1 && !found.reading && (found.picking || !chosen);
+  const loadingText =
+    loadState?.kind === "downloading"
+      ? `Getting card recognition ready (${Math.round(loadState.loaded / 1e6)} of ${Math.round(loadState.total / 1e6)} MB, once)`
+      : loadState?.kind === "preparing"
+        ? "Getting card recognition ready"
+        : "Getting the scanner ready";
+
   return (
     <div className="scan">
       <div className="scan-camera">
         <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
+        {outline && phase === "scanning" && !closeup && (
+          <svg className="scan-outline" viewBox={`0 0 ${outline.w} ${outline.h}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <polygon points={outline.quad.map((p) => p.join(",")).join(" ")} />
+          </svg>
+        )}
         <div className="scan-frame" aria-hidden="true">
-          <div ref={guideRef} className={`scan-guide${phase === "found" ? " is-locked" : ""}`} />
+          {closeup ? (
+            <div ref={closeRef} className={`scan-closeup is-${closeup}`} />
+          ) : (
+            <div ref={guideRef} className={`scan-guide${mode === "art" ? " is-hint" : ""}${phase === "found" ? " is-locked" : ""}`} />
+          )}
         </div>
         {onClose && (
           <button className="scan-close" onClick={onClose} aria-label="Close the scanner">
@@ -267,84 +816,216 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
             </svg>
           </button>
         )}
-        {addedCount > 0 && <span className="scan-count">Added {addedCount} so far</span>}
-        <span className={`scan-chip${found ? " found" : ""}`} role="status">
-          {found ? "Found it" : ready ? status : "Getting the reader ready"}
+        {addedCount > 0 &&
+          (onShowAdded ? (
+            <button className="scan-count" onClick={onShowAdded}>
+              Added {addedCount}
+              {unsavedCount > 0 ? `, ${unsavedCount} not saved` : ""}: review
+            </button>
+          ) : (
+            <span className="scan-count">Added {addedCount} so far</span>
+          ))}
+        <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : justAdded ? " found" : ""}`} role="status">
+          {tapNeeded ?? (isFound && closeup === "collector" ? "Found it. Now the printing" : isFound ? "Found it" : (justAdded ?? (mode ? status : loadingText)))}
         </span>
       </div>
 
       <div className="scan-panel" aria-live="polite">
-        {!found && (
+        {!isFound && closeup === "title" && (
+          <div className="scan-step">
+            <p>
+              <strong>Can't tell which card this is.</strong> Hold the phone close to the card's name, so the name fills the box.
+            </p>
+            {closeupRead && <p className="scan-note">Reading: {closeupRead}</p>}
+            <div className="scan-other-ways">
+              <button onClick={() => setCloseup(null)}>Back to scanning</button>
+              <NameEntry onPick={(n) => fromName(n)} />
+            </div>
+          </div>
+        )}
+        {!isFound && closeup !== "title" && (
           <>
             {error && <p className="error">{error}</p>}
             {controls}
-            <label className="scan-photo button">
-              Use a photo instead
-              <input type="file" accept="image/*" capture="environment" onChange={(ev) => {
-                const file = ev.target.files?.[0];
-                ev.target.value = "";
-                if (file) void fromPhoto(file);
-              }} />
-            </label>
+            <div className="scan-other-ways">
+              <label className="scan-photo button">
+                Use a photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(ev) => {
+                    const file = ev.target.files?.[0];
+                    ev.target.value = "";
+                    if (file) void fromPhoto(file);
+                  }}
+                />
+              </label>
+              <NameEntry onPick={(n) => fromName(n)} />
+              {live && phase === "scanning" && (
+                <button className="scan-photo" onClick={() => setCloseup("title")}>
+                  Read the name up close
+                </button>
+              )}
+            </div>
+            {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner is reading text. Line the card up with the frame.</p>}
             {recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
           </>
         )}
-        {found && best && (
+        {isFound && found && (
           <>
             <div className="scan-result">
-              {best.image ? <img className="scan-thumb" src={best.image} alt={best.name} /> : <div className="scan-thumb card-fallback">{best.name}</div>}
+              {chosen?.image_normal ? <img className="scan-thumb" src={chosen.image_normal} alt={chosen.name} /> : <div className="scan-thumb card-fallback">{found.name}</div>}
               <div className="scan-info">
-                <h3>{best.name}</h3>
-                {!identityOnly && <span className="dim">
-                  {best.set ? `${p?.set_name ?? best.set.toUpperCase()} #${best.number}` : "Printing not read"}
-                  {best.lang && best.lang !== "en" ? `, ${best.lang}` : ""}
-                  {`, ${finish === "foil" ? "foil" : "regular"}`}
-                </span>}
-                {!identityOnly && best.set && !printing.isPending && (
-                  <span>
-                    {usd(price)}
-                    {price != null && <span className="dim"> market, {shortDate(p?.price_date) ?? "date unknown"}</span>}
+                <h3>{found.name}</h3>
+                {!identityOnly && chosen && (
+                  <span className="dim">
+                    {`${chosen.set_name} #${chosen.collector_number}`}
+                    {chosen.lang !== "en" ? `, ${chosen.lang}` : ""}
+                    {`, ${finish === "foil" ? "foil" : "regular"}`}
                   </span>
                 )}
-                <span className="scan-method">{identityOnly ? "Matched by name. Check the card name." : describe(best)}</span>
+                {!identityOnly && chosen && (
+                  <span>
+                    {usd(price)}
+                    {price != null && <span className="dim"> market, {shortDate(chosen.price_date) ?? "date unknown"}</span>}
+                  </span>
+                )}
+                <span className="scan-method">{explain(found, identityOnly)}</span>
+                {!identityOnly && chosen && options && options.length > 1 && !found.picking && (
+                  <button className="scan-alt" onClick={() => setFound({ ...found, picking: true })}>
+                    Change printing ({options.length})
+                  </button>
+                )}
               </div>
             </div>
-            {renderResult?.(best)}
+            {closeup === "collector" && options && (
+              <div className="scan-step">
+                <p>
+                  <strong>Step 2: the printing.</strong> Hold the phone close to the card's bottom-left corner, so the set code and number fill the box. Or tap the printing below.
+                </p>
+                {closeupRead && <p className="scan-note">Reading: {closeupRead}</p>}
+              </div>
+            )}
+            {live && !identityOnly && !closeup && !chosen && options && options.length > 1 && !found.reading && (
+              <button className="scan-alt" onClick={() => setCloseup("collector")}>
+                Read the collector number up close
+              </button>
+            )}
+            {showPicker && options && (!chosen || found.picking) && !closeup && (
+              <div ref={tapRef} className="scan-step is-tap">
+                <p>
+                  <strong>Your turn:</strong> tap the printing that matches your card. Its set code and number are in the bottom-left corner.
+                </p>
+              </div>
+            )}
+            {showPicker && options && (
+              <div className="scan-printings" role="listbox" aria-label="Printings">
+                {(showAll ? options : options.slice(0, PICKER_FIRST)).map((p) => (
+                  <button
+                    key={p.scryfall_id}
+                    role="option"
+                    aria-selected={p === chosen}
+                    className={`scan-printing${p === chosen ? " is-chosen" : ""}`}
+                    onClick={() => {
+                      setCloseup(null);
+                      setFound({ ...found, chosen: p, how: "picked", sure: false, picking: false });
+                    }}
+                  >
+                    {p.image_small ? <img src={p.image_small} alt="" loading="lazy" /> : <span className="card-fallback">{p.name}</span>}
+                    <span className="scan-printing-set">{p.set_name}</span>
+                    <span className="dim">
+                      #{p.collector_number}
+                      {p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}
+                      {p.lang !== "en" ? `, ${p.lang}` : ""}
+                    </span>
+                  </button>
+                ))}
+                {!showAll && options.length > PICKER_FIRST && (
+                  <button className="scan-alt" onClick={() => setShowAll(true)}>
+                    Show all {options.length}
+                  </button>
+                )}
+              </div>
+            )}
+            {found.error && <p className="error">{found.error}</p>}
+            {confirming && chosen && options && (
+              <div ref={tapRef} className="scan-step is-tap" role="alert">
+                <p>
+                  <strong>This printing wasn't read from the card.</strong>{" "}
+                  {found.sameArt ? `${options.length} printings share this art, so the pictures can't tell them apart.` : "It was picked by its picture, and reprints often look alike."} Check that the
+                  card's bottom-left corner shows {chosen.set_code.toUpperCase()} {chosen.collector_number}.
+                </p>
+                {live && (
+                  <button className="scan-alt" onClick={() => setCloseup("collector")}>
+                    Read the collector number up close
+                  </button>
+                )}
+              </div>
+            )}
+            {renderResult?.(candidateOf(found, chosen))}
             {controls}
             <div className="scan-buttons">
               {onAccept && (
-                <button className="primary" onClick={() => { onAccept(best); again(); }}>
-                  {acceptLabel}
-                </button>
+                <div className="scan-accept">
+                  {!identityOnly && (
+                    <label className="scan-copies">
+                      Copies
+                      <select value={copies} onChange={(e) => setCopies(Number(e.target.value))}>
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <button
+                    className="primary"
+                    disabled={!ready}
+                    onClick={() => {
+                      if (unread && !confirming) return setConfirming(true);
+                      void onAccept(candidateOf(found, chosen), copies, false);
+                      again();
+                    }}
+                  >
+                    {!ready ? (options && !found.reading ? "Pick the printing" : "Finding the printing…") : confirming ? `${acceptLabel} anyway` : acceptLabel}
+                  </button>
+                </div>
               )}
               <button onClick={again}>{onAccept ? "Not this" : "Scan next"}</button>
             </div>
-            {(result.candidates.length > 1 || recent.length > 0) && (
+            {(found.others.length > 0 || recent.length > 0) && (
               <p className="scan-note">
-                {result.candidates.length > 1 && (
+                {found.others.length > 0 && (
                   <>
-                    Not this one? {onAccept ? "Add" : "It might be"}{" "}
-                    {result.candidates.slice(1).map((c, i) => (
-                      <span key={`${c.name}${c.set ?? ""}${c.number ?? ""}`}>
+                    Not this card? It might be{" "}
+                    {found.others.map((m, i) => (
+                      <span key={m.index}>
                         {i > 0 && " or "}
-                        <button className="scan-alt" onClick={() => {
-                          if (onAccept) { onAccept(c); again(); }
-                          else setResult({ ...result, candidates: [c, ...result.candidates.filter((x) => x !== c)] });
-                        }}>
-                          {c.name}
-                          {c.set ? ` (${c.set.toUpperCase()} ${c.number})` : ""}
+                        <button className="scan-alt" onClick={() => pickOther(m)}>
+                          {m.name}
                         </button>
                       </span>
                     ))}
-                    {onAccept ? " instead" : ""}.{" "}
+                    .{" "}
                   </>
                 )}
                 {recent.length > 0 && `Recent: ${recent.slice(0, 3).join(", ")}.`}
               </p>
             )}
             <details className="small dim">
-              <summary>What the camera read</summary>
-              <pre className="scan-raw">{`${result.raw.collector}\n${result.raw.name}\n${Math.round(result.timings.totalMs)} ms`}</pre>
+              <summary>What the scanner saw</summary>
+              <pre className="scan-raw">
+                {[
+                  found.art ? `Art: ${found.art.name} (${found.art.set.toUpperCase()} ${found.art.number}), score ${found.art.score.toFixed(2)}` : null,
+                  found.raw ? `Read: ${found.raw}` : null,
+                  found.ms != null ? `${Math.round(found.ms)} ms` : null,
+                  camera ? `Camera: ${camera}` : null,
+                ]
+                  .filter(Boolean)
+                  .join("\n")}
+              </pre>
             </details>
           </>
         )}
@@ -353,13 +1034,72 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, inte
   );
 }
 
-function describe(c: ScanCandidate): string {
-  switch (c.method) {
-    case "collector+name":
-      return "Collector number and name both match.";
+/**
+ * Keep adding adds a card by itself only when the camera found it and the scanner proved the
+ * printing (the only one, or read from the collector line). A typed name, or a printing guessed or
+ * tapped, waits for Add.
+ */
+export function addsItself(f: Pick<Found, "sure" | "chosen" | "method" | "confidence">): boolean {
+  const typed = f.method === "name" && f.confidence === 1;
+  return !!f.sure && !!f.chosen && !typed;
+}
+
+function explain(f: Found, identityOnly: boolean): string {
+  const by = f.method === "art" ? "Recognized by its art" : f.method === "name" ? (f.confidence === 1 ? "Typed by name" : "Read from the card's name") : "Read from the collector number";
+  if (identityOnly) return `${by}. Check the card name.`;
+  if (f.options === null) return `${by}. Finding the printing…`;
+  if (f.reading) return `${by}. ${f.options.length} printings share this art; reading the collector number…`;
+  switch (f.how) {
+    case "only":
+      return f.sameArt ? `${by}. It's the only printing with this art.` : `${by}. It's the card's only printing.`;
     case "collector":
-      return "Read from the collector number. Check the name.";
-    case "name":
-      return "Matched by name. Pick the printing yourself.";
+      return f.method === "art" ? `${by}; the collector number picked the printing.` : `${by}.`;
+    case "picked":
+      return f.options.length > 1 ? `${by}. You picked the printing; it wasn't read from the card.` : `${by}. You picked the printing.`;
+    default:
+      if (f.options.length === 0) return `${by}. Yama's card data has no printing of it.`;
+      return f.sameArt ? `${by}. ${f.options.length} printings share this art: pick yours.` : `${by}. Pick the printing.`;
   }
+}
+
+/** Type a card's name instead of scanning it. */
+function NameEntry({ onPick }: { onPick: (name: string) => void }) {
+  const [q, setQ] = useState("");
+  const [names, setNames] = useState<string[]>([]);
+  useEffect(() => {
+    const t = q.trim();
+    if (t.length < 2) return setNames([]);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api<string[]>(`/api/cards/autocomplete?q=${encodeURIComponent(t)}`)
+        .then((r) => !cancelled && setNames(r.slice(0, 6)))
+        .catch(() => undefined);
+    }, 180);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [q]);
+  return (
+    <div className="scan-name">
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Or type the name" aria-label="Card name" autoComplete="off" />
+      {names.length > 0 && (
+        <ul className="scan-name-list">
+          {names.map((n) => (
+            <li key={n}>
+              <button
+                onClick={() => {
+                  setQ("");
+                  setNames([]);
+                  onPick(n);
+                }}
+              >
+                {n}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }

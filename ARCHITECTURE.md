@@ -1,6 +1,6 @@
 # Yama (Yet Another Magic App): architecture proposal
 
-A free Magic app, on phone (iOS and Android) and in the browser. Personal data stays private to each account; the public precon reference is described below (2026-10-27). It does two jobs on one account:
+A free Magic app, on Android phones and in the browser (iOS shelved: no Apple account, section 12). Personal data stays private to each account unless its owner shares it (Sharing, 2026-10-28); the public precon reference is described below (2026-10-27). It does two jobs on one account:
 
 - **Play:** Commander online against friends or AI, with every game stored and replayable.
 - **Companion:** what Mythic Tools does today (life counter, playgroups and stats, card scanner, collection, prices, card lookup and decks), plus links to Play that Mythic Tools can't offer.
@@ -26,7 +26,13 @@ Getting off Mythic Tools has to be painless. Mythic Tools has no API, but its CS
 
 ## 2. Apps and code layout
 
-**One React and TypeScript codebase for web and mobile, with Capacitor wrapping it as the iOS and Android apps.**
+**Interface polish (2026-10-28):** routine guidance, calculation methods and extended caveats
+belong in labeled, collapsed disclosures. Keep field labels, errors, result confidence,
+missing-data states and dated source attribution visible. The React app and public HTML
+share `web/src/controls.css` for inset native-select chevrons and 44 px disclosure targets;
+public content-addressed styles include those rules. See `design/tokens.md` for copy and spacing.
+
+**One React and TypeScript codebase for web and mobile, with Capacitor available to wrap it as an Android app.** (iOS was in the first plan; it is shelved with no Apple account, section 12.)
 
 Why not the alternatives:
 
@@ -48,13 +54,13 @@ yama/
   scanner/             Model, catalog build pipeline, eval set of our own card photos
 ```
 
-**Distribution to friends without a public store listing:**
+**Distribution:**
 
-- **iOS:** TestFlight. This needs the Apple Developer Program ($99/yr). External testers need a one-time beta review.
-- **Android:** a direct APK, or Play internal testing.
+- **Android:** the installable web app today. A native app, if one is built, goes out as a direct APK or on Google Play, which Bryan can publish to (2026-10-28; requirements in docs/mobile.md).
+- **iOS:** shelved. TestFlight would need the Apple Developer Program, and there is no Apple account.
 - **Web:** everything works in the browser too.
 
-Keeping Yama out of the public stores also keeps it private, which matters for the legal side (section 11).
+Today Yama is in no public store, which keeps it lower-profile for the legal side (section 11). A Google Play release is optional and, when it happens, Bryan decides what goes in it (docs/mobile.md).
 
 ## 3. Rules engine (Play)
 
@@ -101,6 +107,15 @@ Where our own rules work goes:
 - House rules.
 
 ## 4. Backend
+
+**Canonical domain (Bryan, 2026-10-28):** move web and MCP access to `https://yama.ing`,
+using the existing Cloudflare tunnel, Yama service and database. `YAMA_PUBLIC_URL` supplies
+public canonical links, OAuth issuer/endpoints and the `/mcp` resource. Keep the legacy
+`yama.saget.org` ingress and Google origin available during the transition so old clients
+can sync; do not redirect private writes or transfer browser credentials between origins.
+Google sign-in uses the existing OAuth client with the new authorized origin. People sign
+in again and migrate installed PWAs; OAuth connectors reconnect using `https://yama.ing/mcp`.
+See [the migration runbook](deploy/README.md#domain-migration-2026-10-28).
 
 **Default delivery workflow (Bryan, 2026-10-27):** requested repository changes continue through
 a pushed feature branch, PR, Codex review, fixes, a subsequent independent agent review for
@@ -159,10 +174,11 @@ The proven approach is: find the card's four corners, straighten the image, turn
 - **[CollectorVision](https://github.com/HanClinto/CollectorVision)** does exactly this. ONNX models (portable neural-net files) for corner detection and 128-number embeddings, a catalog of about 108,000 printings keyed by Scryfall ID (53 MB), under 100 ms per scan on a laptop CPU, and an experimental in-browser scanner. Its catalog updates regularly ([CollectorVisionCatalog](https://github.com/HanClinto/CollectorVisionCatalog), MIT).
 - **Catch:** the CollectorVision code is **AGPL-3.0**, with a commercial license available. If Yama is open source under a compatible license, we can use it directly. If Yama stays private, we either write our own pipeline (the approach isn't hard; the trained models are the valuable part) or contact the author. Decide before we use any of it.
 - **Plan:**
-  1. Spike in the web view with `onnxruntime-web` (WebGPU or WASM) on Bryan's iPhone. Target: under 250 ms per frame, with a live box around the card and a beep or haptic when it locks on.
-  2. If that's too slow, move inference to a native Capacitor plugin: Core ML on iOS, ONNX Runtime Mobile on Android.
-- **Picking the right printing:** the embedding narrows it to a few printings. Then the collector-number and set-code OCR (iOS Vision or ML Kit), the user's recent set, and a one-tap correction pick the right one. Finish (foil or etched) and condition are user toggles; foil detection from a camera is unreliable.
+  1. Spike in the web view with `onnxruntime-web` (WebGPU or WASM) on Bryan's phone. Target: under 250 ms per frame, with a live box around the card and a beep or haptic when it locks on.
+  2. If that's too slow, move inference to a native Capacitor plugin: ONNX Runtime Mobile on Android.
+- **Picking the right printing:** the embedding narrows it to a few printings. Then the collector-number and set-code OCR (Tesseract in the browser; ML Kit in a native Android app), the user's recent set, and a one-tap correction pick the right one. Finish (foil or etched) and condition are user toggles; foil detection from a camera is unreliable.
 - **Eval set:** photograph our real cards (the October purchases are a ready-made labeled set: `data/purchases.json` lists set and collector number) and track accuracy on every model or catalog update.
+- **Built (2026-10-28, docs/scanner.md):** the hybrid, without CollectorVision. ManaVault's MPL-2.0 detector, embedding and search graphs (one pinned bundle, downloaded and checked by the server, served from `/scan-bundle/`) run in a web worker on `onnxruntime-web` WASM with our own glue. The card can be anywhere in view; the art names it (96% right on simulated free-hand captures, no confident wrong answers, about 160 ms per frame on a laptop). The printing comes from the printings sharing that illustration (`printings.illustration_id`, `GET /api/scan/printings`): the only one, or the collector line read by Tesseract, or the person picks from thumbnails. A scan never files a guessed printing. OCR alone remains the fallback for cards newer than the bundle, battles, and when the bundle isn't available.
 
 ## 7. AI opponents (Play)
 
@@ -248,7 +264,7 @@ api_tokens(owner_id, token_hash, scopes, expires_at, revoked_at)                
 - Buy, Prints and Spares (slice 5) are views computed on the device from the bundle (`packages/core/src/plan/{buy,prints,spares,rules,overview}.ts`), so they work in a store with no signal. The buy list takes proposals to buy that weren't answered no and planned buys with no order, and puts each in the store with the cheapest listing that can go in a cart, from each store's newest stock check (a newer "sold out" beats an older "in stock"). Totals add only known prices and count the rest as "without a listed price", never as $0. Price flags come from the owner's dated rule sets: a price is judged by the set in force on its check date (a purchase, on its order date), against Yama's price for the listing's own printing, else the cheapest non-foil copy, else the plan's recorded benchmark, and every flag names the price it used and its date. A market price more than three days older than Yama's newest price is shown as "last priced", and the Buy page says when Yama's prices stopped updating. Spares are read from the stored lists the way commander-decks' `library.py` builds them (stock with the owner's own changes, minus now; now minus after), so a card counts as out only when its list says so; a stand-in's recorded later cut is shown as a suggestion, not applied. Installed ticks and "bought it" marks are ops (above); a marked card leaves the buy list's totals and carts but isn't an order until the plan records one.
 - Two routes change no plan content, so they work on imported plans too: `PATCH /api/plan/decks/{key}` links the owner's Yama deck (a plan's order stays with its export, 409), and `POST /api/plan/decks/{key}/yama-deck` makes a Yama deck in the folder "Plans" from a stored list. It refuses lists with cards Yama doesn't know (400 with the names), and its version note names the list's content hash, so asking twice returns the same deck.
 
-**Swap sheets and card checks (2026-10-25):** `/decks/plan/prints/swap` keeps the incoming-print sorting sheet and adds takeout sheets A to Z, either grouped by deck or across all decks, with a deck checklist for any subset, Select all and Clear controls, and printing of the selected view. Repeated `deck` URL parameters preserve a selection and existing single-deck links; `deckScope=selected` distinguishes an empty selection from the default of all decks. The checklist filters the sorting checklist, copy counts, swap/takeout tables, typed checks and scanner together; cross-deck destinations remain visible even when the destination deck is excluded. Selecting no decks disables Print. Print options select instructions, the sorting checklist and deck swap tables independently in the full sheet, plus card pictures and add/cut reasons in every view. When reasons are selected, the add rationale is under the incoming card and the cut rationale under the outgoing card, in both full and takeout tables; rows align at the top and the two card columns share the available width. Options are kept in the URL and the page previews the selected content; omitting pictures removes image requests from print preparation. An empty section selection disables Print, and deck-only sheets start without a blank first page. Every row is a physical copy from the same now-to-after difference (`packages/core/src/plan/swapsheet.ts`), including the actual stand-in or basic holding a slot, cross-deck moves, destinations and installed marks with aliases followed. Each plan deck links directly to its own takeout sheet and scanner. Scanning either the incoming or outgoing card shows all matching changes in the selected deck (or all decks), the recorded add and cut reasons, the cut card's destination and installed status. Matching uses card identity and either face, never the printing; an original cut replaced by a stand-in is not treated as the card currently coming out. The existing OCR scanner is lazy-loaded and uses the saved card catalog plus plan names, without server printing or price lookups. A photo and typed-name check are fallbacks. These checks cover only the now-to-after-prints sheet, change no plan or collection data, and do not mark a swap installed. Camera access needs HTTPS or localhost; offline recognition needs the OCR assets loaded on the device.
+**Swap sheets and card checks (2026-10-25):** `/decks/plan/prints/swap` keeps the incoming-print sorting sheet and adds takeout sheets A to Z, either grouped by deck or across all decks, with a deck checklist for any subset, Select all and Clear controls, and printing of the selected view. Repeated `deck` URL parameters preserve a selection and existing single-deck links; `deckScope=selected` distinguishes an empty selection from the default of all decks. The checklist filters the sorting checklist, copy counts, swap/takeout tables, typed checks and scanner together; cross-deck destinations remain visible even when the destination deck is excluded. Selecting no decks disables Print. Print options select instructions, the sorting checklist and deck swap tables independently in the full sheet, plus card pictures and add/cut reasons in every view. When reasons are selected, the add rationale is under the incoming card and the cut rationale under the outgoing card, in both full and takeout tables; rows align at the top and the two card columns share the available width. Options are kept in the URL and the page previews the selected content; omitting pictures removes image requests from print preparation. An empty section selection disables Print, and deck-only sheets start without a blank first page. Every row is a physical copy from the same now-to-after difference (`packages/core/src/plan/swapsheet.ts`), including the actual stand-in or basic holding a slot, cross-deck moves, destinations and installed marks with aliases followed. Each plan deck links directly to its own takeout sheet and scanner. Scanning either the incoming or outgoing card shows all matching changes in the selected deck (or all decks), the recorded add and cut reasons, the cut card's destination and installed status. Matching uses card identity and either face, never the printing; an original cut replaced by a stand-in is not treated as the card currently coming out. The scanner is lazy-loaded; it recognises the card by its art (or, as a fallback, reads its text against the saved card catalog plus plan names), without server printing or price lookups. A photo and typed-name check are fallbacks. These checks cover only the now-to-after-prints sheet, change no plan or collection data, and do not mark a swap installed. Camera access needs HTTPS or localhost; offline recognition needs the recognition bundle (or the OCR assets) cached on the device.
 
 **Swap PDF pictures (2026-10-25):** sheet thumbnails load eagerly, including rows never scrolled into view, with the full-card URL as a fallback when a bundle has no thumbnail URL. The Print button waits for the selected sheet's images to load and decode and for fonts to be ready. A failed or timed-out picture is named on screen and stops that print attempt; trying Print again retries failed requests. Images still come directly from Scryfall at runtime.
 
@@ -258,7 +274,7 @@ Linking a deck to a container is what powers owned/needed: each deck list is che
 
 0. **Now, no code:** keep using Mythic Tools and play on phase-rs.dev or XMage. Note what annoys us.
 1. **Foundation:** monorepo; Rust server; Google login with allowlist; Scryfall card import; card search and lookup on web.
-2. **Companion v1 (quick wins on mobile):** the Capacitor app, the offline life counter (single device), playgroups, guest players, game logging and stats. TestFlight build to friends.
+2. **Companion v1 (quick wins on mobile):** the installable web app (Capacitor optional), the offline life counter (single device), playgroups, guest players, game logging and stats.
 3. **Collection:** Mythic Tools CSV import and export, containers, bulk edit, daily prices with history, decks with owned/needed. Import `commander-decks` deck lists.
 4. **Play v1:** solo game vs AI in the browser, then 4-player online with friends: lobby, invites, reconnect, timers.
 5. **Scanner:** web-view spike, then native fallback if needed; eval set from our purchases.
@@ -272,10 +288,10 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 | Milestone | State |
 |---|---|
 | 1 Foundation | Done |
-| 2 Companion v1 | Done on the web and as an installable web app. Native apps wait on Xcode and the Apple account |
+| 2 Companion v1 | Done on the web and as an installable web app. A native Android app (APK or Google Play) is optional; iOS is shelved |
 | 3 Collection | Done, except bulk edit and a price-history view (the history is stored) |
 | 4 Play v1 | Working: lobby, friends by code, AI seats, reconnect, restart recovery. No turn timers yet |
-| 5 Scanner | Research spike in progress (docs/scanner.md) |
+| 5 Scanner | Art recognition plus collector-line OCR built 2026-10-28; live phone check pending (docs/scanner.md) |
 | 6 Shared table and replays | Shared table done. Final boards are rebuilt from replays; a step-through viewer isn't built |
 | 7 Depth | Sample hands done; the rest not started |
 
@@ -480,6 +496,17 @@ Bryan also requested “all rights reserved” (2026-10-27). The shared site not
 
 Operating steps, source research and the path to a combined ranking are in [docs/public-precons.md](docs/public-precons.md). These are source implementation facts; publication/deployment and live verification are separate actions.
 
+### Sharing and deck configurations (2026-10-28)
+
+Bryan (2026-10-28): "I want to send my friends the decks I have ... mark all my stuff as public and then share my profile and just generally make the site a bit more open", with a handle you choose (his is saget), the collection shareable too, and a deck's builds ("Riders of Rohan" and its stock and after-prints lists) as a first-class, collapsible thing. Code: `server/src/sharing.rs` (+ `sharing/html.rs`, `sharing/tests.rs`), migration 0035.
+
+- **Opt in, never by default.** Every existing deck and collection stays private. `decks.visibility` is `private` (only the owner), `link` (anyone with `/d/<share_token>`) or `public` (that, and listed on the profile). `users.new_deck_visibility` is what a new deck starts as (`create_deck_in` reads it), so someone can choose "public" once; "Make all my decks public" (`POST /api/me/sharing/decks`) changes every live deck. `users.collection_public` adds the collection to the profile. Settings live under Group, You (`/group#sharing`); each deck's Share sheet sets its own visibility and resets its link (`POST /api/decks/{id}/share-link`, a new random token of about 92 bits, so every old link ends).
+- **Handles, not names.** A profile is `/u/<handle>`: 3 to 30 of a-z, 0-9, - and _, starting with a letter, stored lowercase, unique, a short reserved list refused. Without a handle there is no profile; link sharing still works. Pages never show the Google display name (often a full real name) or email.
+- **A separate public projection.** Shared pages are rendered by the Rust server before the app's sign-in gate, like the precon reference, with its stylesheet, notice and Content-Security-Policy. They read only: a deck's name, current card list, the printing its exports name (the import's chosen printing, the owner's copy, else a paper printing, as the owner's own Export does), commander art with the artist credited, declared bracket, the date of its current list and its *public* configurations (a link-only configuration is never listed from another deck's page); for the collection, real (non-proxy) copies grouped by printing, finish, language and condition. Never prices paid, notes, containers, proxies, ownership counts, versions' notes, plans, games, playgroups, lab runs or account details. Private, archived and unknown decks and disabled accounts are the same 404. `sharing::tests` checks this from a signed-out client.
+- **Exports for friends.** `/d/<token>/{names,moxfield,arena}.txt` match `packages/core/src/deckExport.ts`; the collection downloads as `collection.txt` (Moxfield-style lines) and `collection.csv` (Count, Name, Edition, Collector Number, Foil, Condition, Language). "Save a copy in Yama" opens `/decks/import?shared=<token>`, which reads `GET /api/public/decks/<token>` (the only new public API, exempt from view-as like the precon API) and goes through the ordinary import and its limits.
+- **Fresh, not cached.** Shared responses send `Cache-Control: private, no-cache` with an ETag, so turning sharing off takes effect at once, plus `noindex` (header and meta). No sitemap entries. Reads count against the public reference's 120/minute per address. The service worker leaves `/u/` and `/d/` out of the app-shell cache. On deployment, the public hostname must let `/u/`, `/d/` and `/api/public/decks/` through without Google sign-in, as for `/precons`.
+- **Configurations.** `decks.parent_id` points a configuration at its main deck (same owner, one level: a configuration can't have configurations, `check_parent`), and `decks.configuration` is its label ("stock"; on a main deck, the name of its own list, else "Main"). Each configuration is an ordinary deck with its own versions, games, plan link and sharing. The deck list shows configurations collapsed under the main deck's tile; the deck page has a switcher and "New configuration" (`POST /api/decks/{id}/configurations`, idempotent by `op_id` through `applied_ops`, copying the current list and chosen printings and the source deck's visibility, never the more open default for new decks). Edit deck moves a deck under a main deck or out again. Archiving a main deck makes its configurations main decks. Migration 0035 grouped existing "Name (label)" decks beside a live "Name" of the same owner, keeping their names. Ask Claude and the MCP `overview` name each deck's configuration and sharing.
+
 ### Open sign-up (2026-10-20)
 
 Bryan (2026-10-20): "we can also open up signups to anybody. I don't really care as long as it's secure with Gmail, that is, not with the username/password." Built behind `YAMA_OPEN_SIGNUP=1`, off by default, so nothing changes until it is set. Operating steps (publishing the Google consent screen, `YAMA_TRUSTED_PROXIES`) are in deploy/README.md.
@@ -576,7 +603,7 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 - **Two credentials, no sessions:** a script key with the new `mcp` scope (Decks, Plans, Settings, "For Claude"; `plan:sync` keys can't use the tools and `mcp` keys can't sync), or a one-question token (`yama_ask_`, in memory, hashed) that `ask_route` mints for each question when `YAMA_ADVISOR_TOOLS_URL` is set and drops when the answer ends (15 minutes at most). Both resolve to the account through `auth::user_by_id`, which applies the disabled and open sign-up rules.
 - **Tools** (`mcp/tools.rs`), read-only, owner-checked like the pages: `overview`, `deck` (by name or id, with Commander checks and Game Changers), `plan_deck`, `review_queue`, `find_cards` (the search grammar, through `cards::search`, shared with the search page), `card` (Oracle text, legality, Game Changer, dated prices of the default and cheapest playable printing, the copies they own and where, rulings on request), `check_list` (validate a list without saving), `lab_runs`, `lab_run` (each engine's result in words: the paired difference and interval, the verdict, the unscored games by reason, the settle estimate with what adds the pods, and live progress; admins also see the count of earlier Phase games in the shared queue, without other accounts' run or deck details; for both-engine runs the ETA and queue position are Phase-only), `lab_games` (one engine's games pod by pod, or `only: unscored`; with `game`, its schedule line, result line and every seat's list in the lab runner's deck format, so a game can be replayed locally), `precon`. The longer ones reuse `advisor::context::build`. `find_cards` and `card` count against the search rate limit.
 - **Ask Claude with tools:** the sidecar gives `query()` exactly one MCP server, `{type: "http", url, Authorization: Bearer <question token>}`, allows only `mcp__yama`, keeps `tools: []` (none of Claude Code's own tools) and `strictMcpConfig`, and allows 16 turns instead of 1. It streams a `tool` event (the tool's short name only) that the panel shows as "Looking up cards…". The instructions tell Claude to check a card with `card` before recommending it.
-- **Outside clients:** `claude mcp add --transport http yama https://yama.saget.org/mcp`, then `/mcp` and Authenticate (OAuth, below), or a claude.ai custom connector with the same URL, which also shows up in Claude Code and the phone app. A key still works for clients that can't sign in: `--header "Authorization: Bearer <key>"` (Settings shows that command once, with the key).
+- **Outside clients:** `claude mcp add --transport http yama https://yama.ing/mcp`, then `/mcp` and Authenticate (OAuth, below), or a claude.ai custom connector with the same URL, which also shows up in Claude Code and the phone app. A key still works for clients that can't sign in: `--header "Authorization: Bearer <key>"` (Settings shows that command once, with the key).
 
 #### Persistent deck research and review (2026-10-27)
 
@@ -713,11 +740,38 @@ Bryan (2026-10-24) wants Forge as a black-box referee for phase, run like unit t
 - **Not yet:** combat, multiplayer, X spells, and Forge-side errors (76 cards, mostly the runner's divided damage and per-opponent targets).
 
 
+### Historical evidence datasets (2026-10-28)
+
+Bryan requested historical Playgroup recovery, commander evidence and future dataset
+ingestion, and accepted an initial 180-day exponential half-life. `datasets/` and
+migration 0037 add private account-owned datasets with immutable compressed documents,
+source provenance and indexed records. Local `import-dataset` and session-admin HTTP
+uploads share validation and atomic, content-hash-idempotent import; known old retries
+never roll back the active revision. Owner-checked APIs and read-only MCP tools expose
+paged evidence and sources. Existing MCP/OAuth grants gain no admin upload power.
+Account deletion removes the dataset and every revision/record. Imports never write
+decks, collection, game history, research grades or public ranking snapshots.
+
+The recovery converter retains performance aggregates, catalog entries, weekly
+activity, sanitized commander histories, archetype references and source tables.
+Raw recovery evidence stays separately retained; source URLs are not fetched on
+import. Month summaries weight compatible complete calendar-month source rates by
+reported samples and exponential recency at their midpoints. They are descriptive
+averages, not pooled win probabilities or validated predictions. Duplicate months
+count once; conflicting, partial, flagged, future and zero-sample months are excluded.
+Cumulative snapshots, rolling windows, unknown periods and ELO sequence positions
+never become independently dated games. Original history stays unweighted.
+
+Theme/strategy/style matching has no hard card-overlap cutoff. An upload page,
+scoped unattended collectors, explicit dataset publication, public commander ranks
+and outcome-to-list upgrade analysis remain follow-ons. Format, limits, APIs,
+attribution and the exact recency method are in [docs/datasets.md](docs/datasets.md).
+
 ## 11. Risks
 
 - **Legal and IP:**
   - Stay inside Wizards' Fan Content Policy: free, non-commercial, an "unofficial, not endorsed by Wizards" notice, no Wizards logos, and no card images or rules documents shipped. Images come from Scryfall at runtime, under its rules (read 2026-10-19 at scryfall.com/docs/api): don't cover, crop or clip the copyright or artist name on card images; don't distort, skew or stretch them; don't blur, sharpen, desaturate or color-shift them; with an art crop, show the artist name and copyright in the same interface; no paywall. The life panels scale the art crop to cover the panel without distorting it (an art crop has no artist name or copyright to cut off) and lay a separate translucent scrim over it for legibility; the image itself gets no filter.
-  - Companion apps like Mythic Tools are common in the app stores. A full game client in a public store listing is a bigger target. Distributing through TestFlight and an APK keeps us private.
+  - Companion apps like Mythic Tools are common in the app stores. A full game client in a public store listing is a bigger target. Today the game client is on the web only. Whether a Google Play build includes it (the ordinary web build does) is Bryan's call before any Play release; if not, that build needs a companion-only route gate (docs/mobile.md).
 - **Engine maturity:** phase is seven months old, mostly from one maintainer, with about 1,559 open issues. Pin it, run AI soak tests before each upgrade, and keep the trait boundary.
 - **Replay drift:** a replay only reproduces on the engine version that recorded it. Store `engine_version` and keep old WASM builds or snapshots.
 - **Scanner:**
@@ -734,7 +788,7 @@ Answered 2026-10-18:
 - **Engine:** phase.
 - **Repo:** private, with local git only.
 - **Hosting:** Bryan's Unraid server, saget. The public route uses the existing Cloudflare tunnel; see deploy/README.md.
-- **Phones:** Android only, with no Apple account. The installable web app is the phone app; Capacitor stays optional.
+- **Phones:** Android only, with no Apple account. The installable web app is the phone app; Capacitor stays optional. Update 2026-10-28: Bryan can publish on Google Play, so a Play Store Android app is an option, first for the scanner if the web camera and OCR aren't good enough (docs/scanner.md; what Play needs is in docs/mobile.md). Still no Apple account.
 - **Sign-in:** Google sign-in (set up 2026-10-18; deploy/README.md). Open sign-up for any Google account is allowed (Bryan, 2026-10-20), never with a username and password; it's off until `YAMA_OPEN_SIGNUP=1` and the Google consent screen is published.
 
 Still open:

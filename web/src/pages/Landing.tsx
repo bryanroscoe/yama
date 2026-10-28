@@ -35,23 +35,33 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
           <section className="landing-explore" aria-labelledby="explore-title">
             <div className="landing-section-head">
               <h2 id="explore-title">Explore without an account</h2>
-              <p>Start with a deck, or bring your own assistant.</p>
             </div>
             <div className="landing-public-links">
               <a className="landing-destination" href="/precons">
                 <span className="landing-destination-kind">Public reference</span>
                 <h3>Find your next precon</h3>
-                <p>Browse stock lists, compare upgrade potential and read the evidence behind the rankings.</p>
+                <p>Stock lists, upgrade potential and rankings with sources.</p>
                 <span className="landing-destination-action">Browse precons <span aria-hidden="true">↗</span></span>
               </a>
               <a className="landing-destination" href="/docs/mcp/">
                 <span className="landing-destination-kind">MCP guide</span>
                 <h3>Connect Claude or Codex</h3>
-                <p>Read the setup guide and see how your assistant can research cards, build decks and suggest upgrades.</p>
+                <p>Research cards and plan upgrades with your assistant.</p>
                 <span className="landing-destination-action">Read the guide <span aria-hidden="true">↗</span></span>
               </a>
             </div>
-            <p className="landing-method">Want to understand the numbers? <a href="/precons/methodology">Read the ranking methodology</a>.</p>
+            <p className="landing-method"><a href="/precons/methodology">Ranking methodology</a></p>
+            <div className="landing-shared">
+              <h3 id="shared-title">Got a link from a friend?</h3>
+              <form className="landing-handle" action="/u" method="get" aria-labelledby="shared-title" onSubmit={(e) => {
+                e.preventDefault();
+                const h = new FormData(e.currentTarget).get("handle")?.toString().trim().replace(/^@/, "").toLowerCase();
+                if (h) location.assign(`/u/${encodeURIComponent(h)}`);
+              }}>
+                <input name="handle" aria-label="Handle" placeholder="@handle" autoCapitalize="none" spellCheck={false} maxLength={31} required />
+                <button type="submit">Open profile</button>
+              </form>
+            </div>
           </section>
         )}
 
@@ -63,10 +73,10 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
           <section className="landing-account" aria-labelledby="account-title">
             <div className="landing-section-head">
               <h2 id="account-title">Make room for your own decks</h2>
-              <p>Sign in with Google to use Yama's private tools. Yama is free.</p>
             </div>
             <dl className="landing-account-features">
               <div><dt>Decks and upgrades</dt><dd>Save versions, check your lists and review research and suggested changes.</dd></div>
+              <div><dt>Share with friends</dt><dd>Share decks and collection by link or profile, with Moxfield and Arena exports.</dd></div>
               <div><dt>Your collection</dt><dd>Keep track of owned cards, proxies and where each copy lives.</dd></div>
               <div><dt>Game night</dt><dd>Count life, record your playgroup's results and play Commander online.</dd></div>
               <div><dt>Simulation lab</dt><dd>Compare lists in simulated games, with the engine's limits shown alongside the results.</dd></div>

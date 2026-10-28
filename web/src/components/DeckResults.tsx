@@ -3,7 +3,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, type DeckResults as Results } from "../api";
-import { ErrorText } from "./ui";
+import { Details, ErrorText } from "./ui";
 import { recordText } from "./statsText";
 import "./stats.css";
 
@@ -39,9 +39,9 @@ export function DeckResults({ deckId, versionId }: { deckId: string; versionId: 
           ))}
         </ul>
       )}
-      <p className="small dim" style={{ margin: 0 }}>
-        Finished games where this deck was picked for a seat, at the table or in Log a game. Wins-losses; under {under} games a record is provisional.
-      </p>
+      <Details label="Which games count">
+        <p>Finished games where you played this deck, at the table or in Log a game. Records show wins and losses; under {under} games is provisional.</p>
+      </Details>
     </section>
   );
 }

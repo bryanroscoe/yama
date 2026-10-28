@@ -61,17 +61,23 @@ export interface CatalogPrinting {
   image?: string | null;
 }
 
-export type ScanMethod = "collector" | "collector+name" | "name";
+/**
+ * How the card was recognised: by its artwork ("art"), or by reading text: the collector line
+ * and title together, the collector line alone, or the title alone ("name", which settles no printing).
+ */
+export type ScanMethod = "art" | "collector" | "collector+name" | "name";
 
 export interface ScanCandidate {
   /** Card name as the catalog spells it. */
   name: string;
-  /** Present when the printing was read from the collector line. */
+  /** Present once the printing is settled (read from the card, or picked). */
   set?: string;
   number?: string;
   lang?: string;
   scryfall_id?: string;
   image?: string | null;
+  /** The small picture, for lists. */
+  thumb?: string | null;
   /** 0..1. Above ~0.8 is safe to accept without a tap; see docs/scanner.md. */
   confidence: number;
   method: ScanMethod;

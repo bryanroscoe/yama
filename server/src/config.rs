@@ -52,7 +52,7 @@ pub struct Config {
     /// Forge as a second Lab engine (`lab/forge.rs`): where its worker container is.
     pub forge: ForgeConfig,
     /// Yama's public address, as people and Claude's connectors reach it (YAMA_PUBLIC_URL, e.g.
-    /// `https://yama.saget.org`): an origin, with no path or trailing slash. OAuth sign-in for
+    /// `https://yama.ing`): an origin, with no path or trailing slash. OAuth sign-in for
     /// the tools (`oauth/`) is off without it. Its issuer, endpoints and the `/mcp` resource are
     /// built from this, never from a request's Host header.
     pub public_url: Option<String>,
@@ -74,7 +74,7 @@ pub fn public_origin(raw: &str) -> anyhow::Result<String> {
     anyhow::ensure!(parsed.host_str().is_some_and(|h| !h.is_empty()), "YAMA_PUBLIC_URL has no host");
     anyhow::ensure!(
         matches!(parsed.path(), "" | "/") && parsed.query().is_none() && parsed.fragment().is_none() && parsed.username().is_empty() && parsed.password().is_none(),
-        "YAMA_PUBLIC_URL must be just the address, like https://yama.saget.org (no path, query or login)"
+        "YAMA_PUBLIC_URL must be just the address, like https://yama.ing (no path, query or login)"
     );
     Ok(parsed.origin().ascii_serialization())
 }
