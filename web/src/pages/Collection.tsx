@@ -485,15 +485,32 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const rowSeen = useRef(new Map<string, number>());
   const rowsOf = (name: string, container: string | null) =>
     api<CollectionItem[]>(`/api/collection?container=${encodeURIComponent(container ?? "none")}&q=${encodeURIComponent(name)}`);
-  /** Look up the count of a row the session doesn't know yet. A failure leaves it unknown. */
-  const learn = async (r: Pick<Added, "name" | "scryfall_id" | "finish" | "container">) => {
-    try {
+  /** Row counts being looked up, so a fix can wait for them. */
+  const learning = useRef(new Map<string, Promise<void>>());
+  /**
+   * Look up the count of a row the session doesn't know yet, right after its write (a few tries).
+   * If it can't be had, the row stays unknown, and fixes to it are refused: checking later could
+   * miss copies taken out elsewhere meanwhile.
+   */
+  const learn = (r: Pick<Added, "name" | "scryfall_id" | "finish" | "container">) => {
+    const run = (async () => {
       const { findRow, identity } = await scanner();
-      const row = findRow(await rowsOf(r.name, r.container), r);
-      if (row && !rowSeen.current.has(identity(r))) rowSeen.current.set(identity(r), row.qty);
-    } catch {
-      // Unknown stays unknown: the next fix can't check this row against it.
-    }
+      for (const wait of [0, 500, 1500]) {
+        await new Promise((ok) => setTimeout(ok, wait));
+        try {
+          const row = findRow(await rowsOf(r.name, r.container), r);
+          if (row && !rowSeen.current.has(identity(r))) rowSeen.current.set(identity(r), row.qty);
+          return;
+        } catch {
+          // Try again.
+        }
+      }
+    })();
+    void scanner().then(({ identity }) => {
+      const k = identity(r);
+      learning.current.set(k, run);
+      void run.finally(() => learning.current.get(k) === run && learning.current.delete(k));
+    });
   };
   const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -512,7 +529,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     patch(key, (x) => (x.pending ? { ...x, pending: { ...x.pending, error: undefined } } : x));
     try {
       if (a.pending.ops.length > 0) await api("/api/collection/ops", { method: "POST", json: a.pending.ops });
-      for (const r of noteWrite(rowSeen.current, a)) void learn(r);
+      for (const r of noteWrite(rowSeen.current, a)) learn(r);
       patch(key, (x) => {
         const done = settled(x);
         return done.copies > 0 ? done : null;
@@ -565,7 +582,11 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const unlock = () => patch(before.key, (x) => (x.checking === token ? { ...x, checking: undefined } : x));
     let planned = false;
     try {
-      const { changedElsewhere, findRow, planFix } = await scanner();
+      const { changedElsewhere, findRow, identity, planFix } = await scanner();
+      await learning.current.get(identity(before));
+      // Without the count this session's writes left in the row, a fix can't tell its copies from older ones.
+      if (!rowSeen.current.has(identity(before)))
+        throw new Error(`Couldn't check the ${before.name} copies added here, so Yama won't change them. Fix them on the Collection page.`);
       const rows = await rowsOf(before.name, before.container);
       const now = listRef.current.find((x) => x.key === before.key);
       if (!now || now.checking !== token) return;
