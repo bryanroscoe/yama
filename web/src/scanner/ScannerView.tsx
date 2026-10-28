@@ -16,6 +16,7 @@ import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type Load
 import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
 import { readCloseup, readCollectorLine, scanFrame, SURE } from "./pipeline";
+import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { choosePrinting, printingOptions } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { createServerCatalog } from "./serverCatalog";
@@ -24,8 +25,12 @@ import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult
 import "./scanner.css";
 
 export interface ScannerViewProps {
-  /** Called when the person confirms a card. Without it the scanner only shows what it found. */
-  onAccept?: (card: ScanCandidate, copies: number) => void;
+  /**
+   * Called when the person confirms a card (`auto`: Keep adding added it). Without it the scanner
+   * only shows what it found. A promise says whether the card was saved, so Keep adding only
+   * says "Added" once it was.
+   */
+  onAccept?: (card: ScanCandidate, copies: number, auto: boolean) => void | Promise<boolean>;
   /** For reading text: defaults to the server lookup plus the offline card names. */
   catalog?: ScanCatalog;
   /** For reading text: defaults to tesseract.js. */
@@ -33,6 +38,17 @@ export interface ScannerViewProps {
   onClose?: () => void;
   /** Copies added since the scanner opened, for the "Added 3 so far" chip. */
   addedCount?: number;
+  /** Makes the "Added 3 so far" chip a button, to review and fix what was added. */
+  onShowAdded?: () => void;
+  /** Cards added whose save failed (kept for review, to try again). */
+  unsavedCount?: number;
+  /**
+   * Keep adding: a card whose printing the scanner settled itself (the only one, or read from the
+   * collector line) is added at once, one copy, and scanning goes on. Anything less still waits.
+   */
+  autoAdd?: boolean;
+  /** Stop reading the camera (something is shown over the scanner). */
+  paused?: boolean;
   /** The last few cards added, newest first. */
   recent?: string[];
   /** The finish being added, so the found card shows that finish's price. */
@@ -63,6 +79,8 @@ interface Found {
   sameArt: boolean;
   chosen: Printing | null;
   how: "only" | "collector" | "picked" | null;
+  /** The scanner settled the printing itself, with proof (not a guess, not a tap). */
+  sure?: boolean;
   /** The person asked to see the other printings. */
   picking: boolean;
   /** Reading the collector line to tell printings apart. */
@@ -157,11 +175,28 @@ const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
   lang: p?.lang,
   scryfall_id: p?.scryfall_id,
   image: p?.image_normal,
+  thumb: p?.image_small,
   confidence: f.confidence,
   method: f.method,
 });
 
-export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onClose, addedCount = 0, recent = [], finish = "nonfoil", controls, acceptLabel = "Add", renderResult, identityOnly = false }: ScannerViewProps) {
+export function ScannerView({
+  onAccept,
+  catalog: catalogProp,
+  ocr: ocrProp,
+  onClose,
+  addedCount = 0,
+  onShowAdded,
+  unsavedCount = 0,
+  autoAdd = false,
+  paused = false,
+  recent = [],
+  finish = "nonfoil",
+  controls,
+  acceptLabel = "Add",
+  renderResult,
+  identityOnly = false,
+}: ScannerViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const guideRef = useRef<HTMLDivElement>(null);
   /** The part of the panel that needs a tap, when scanning can't go on by itself. */
@@ -173,7 +208,11 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
   const ownedOcr = useRef<TesseractOcr | null>(null);
   const last = useRef<{ index: number; card?: ScanCandidate; at: number } | undefined>(undefined);
   /** The art just accepted: not found again until the card leaves or another one shows. */
-  const blocked = useRef<number | null>(null);
+  const blocked = useRef<ArtHold | null>(null);
+  /** Frames in a row the detector saw no card, for ending a text hold. */
+  const noCard = useRef(0);
+  /** The same for a card found by its text (no art match); see hold.ts. The detector seeing no card also ends it. */
+  const blockedName = useRef<Hold | null>(null);
   const foundSeq = useRef(0);
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState("Hold a card in view");
@@ -199,6 +238,13 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
   const [showAll, setShowAll] = useState(false);
   /** Add was tapped on a printing picked by eye: asking to check it first. */
   const [confirming, setConfirming] = useState(false);
+  /** What Keep adding just added, shown on the camera for a moment. */
+  const [justAdded, setJustAdded] = useState<string | null>(null);
+  useEffect(() => {
+    if (!justAdded) return;
+    const t = setTimeout(() => setJustAdded(null), 2500);
+    return () => clearTimeout(t);
+  }, [justAdded]);
 
   const ocrRef = useRef<Promise<OcrEngine> | null>(null);
   /** False once the scanner closes: work finishing after that must clean up after itself. */
@@ -309,27 +355,27 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
 
   /** Settle the printing of what was found (not needed when only the card's identity matters). */
   const settle = useCallback(
-    async (seq: number, f: Found, query: { art?: string | null; id?: string; name?: string }, read?: { image: RgbaImage; quad: Quad } | null, known?: { set?: string; number?: string }) => {
+    async (seq: number, f: Found, query: { art?: string | null; id?: string; name?: string }, read?: { image: RgbaImage; quad: Quad } | null, known?: { set?: string; number?: string; proven?: boolean }) => {
       const update = (patch: Partial<Found>) => {
         if (foundSeq.current === seq) setFound((cur) => (cur ? { ...cur, ...patch } : cur));
       };
       try {
         const opts = await printingOptions(query);
         let choice = choosePrinting(opts);
-        // Read from the collector line by the text reader already.
+        // Read from the collector line by the text reader already: proof when the read was.
         if (!choice.chosen && known?.set && known.number) {
           const hit = opts.printings.find((p) => p.set_code === known.set && p.collector_number === known.number);
-          if (hit) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)] };
+          if (hit) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], certain: !!known.proven };
         }
         const reading = !choice.chosen && !!read;
-        update({ options: choice.options, sameArt: opts.sameArt, chosen: choice.chosen, how: choice.how, reading });
+        update({ options: choice.options, sameArt: opts.sameArt, chosen: choice.chosen, how: choice.how, sure: choice.how === "only" || !!choice.certain, reading });
         if (!reading) return;
         // Several printings share the art: read the collector line to tell them apart.
         const text = await readCollectorLine(read!.image, read!.quad, await ocrEngine());
         // One read from the whole-card view settles it only when it's proof; otherwise the guess goes
         // first in the picker and the close-up step confirms it.
         const byLine = choosePrinting(opts, text);
-        update({ options: byLine.options, chosen: byLine.certain ? byLine.chosen : null, how: byLine.certain ? byLine.how : null, raw: text, reading: false });
+        update({ options: byLine.options, chosen: byLine.certain ? byLine.chosen : null, how: byLine.certain ? byLine.how : null, sure: !!byLine.certain, raw: text, reading: false });
       } catch (e) {
         update({ options: [], reading: false, error: e instanceof Error ? e.message : String(e) });
       }
@@ -387,15 +433,31 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
       setCopies(1);
       setPhase("found");
       navigator.vibrate?.(30);
-      if (!identityOnly) void settle(seq, f, { name: best.name }, null, { set: best.set, number: best.number });
+      // The text reader's proof of a printing: set code and number found together with a matching
+      // title (0.97), or an exact, anchored collector line on its own (0.85). See pipeline.ts decide.
+      const proven = best.confidence >= 0.95 || (best.method === "collector" && best.confidence >= 0.85);
+      if (!identityOnly) void settle(seq, f, { name: best.name }, null, { set: best.set, number: best.number, proven });
     },
     [identityOnly, settle],
   );
 
   /** A text read: lock on the same card twice, or once when it's certain. */
   const handleText = useCallback(
-    (res: ScanResult, single: boolean) => {
+    /** `emptyFrees`: no card detector (text-only mode), so empty reads can end a hold (hold.ts). */
+    (res: ScanResult, single: boolean, emptyFrees = false) => {
       const best = res.candidates[0];
+      const held = blockedName.current;
+      // A photo is a deliberate read: no hold.
+      if (single) blockedName.current = null;
+      else if (held) {
+        if (holdRead(held, best, Date.now(), emptyFrees) === "held") {
+          if (best?.name === held.name) setStatus("Ready for the next card");
+          // Another card seen while held counts toward locking on it once the hold ends.
+          else if (best) last.current = { index: -1, card: best, at: Date.now() };
+          return false;
+        }
+        blockedName.current = null;
+      }
       if (!best) return false;
       const seen = last.current && Date.now() - last.current.at < 2500 ? last.current.card : undefined;
       const lock = single || best.confidence >= 0.95 || (best.confidence >= 0.6 && sameCard(best, seen));
@@ -409,7 +471,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
 
   // Read loop: one frame at a time.
   useEffect(() => {
-    if (phase !== "scanning" || !mode || closeup || photoBusy) return;
+    if (phase !== "scanning" || !mode || closeup || photoBusy || paused) return;
     let stop = false;
     let failedReads = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -433,19 +495,20 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
           if (stop) return;
           setOutline(r.quad ? { quad: scaleQuad(r.quad, 1 / k), w: v.videoWidth, h: v.videoHeight } : null);
           const top = r.matches[0];
+          // The card just added stays held until it has clearly gone (hold.ts): one missed
+          // detection while it's still in view, or on its way out, would add it again.
+          if (blocked.current && artHoldFrame(blocked.current, r.quad && top ? top : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
           if (!r.quad || !top) {
-            blocked.current = null;
+            if (++noCard.current >= AWAY_FRAMES) blockedName.current = null;
             last.current = undefined;
             unknownFrames = 0;
-            setStatus("Hold a card in view");
+            setStatus(blocked.current || blockedName.current ? "Ready for the next card" : "Hold a card in view");
             return next(60);
           }
-          if (blocked.current !== null) {
-            if (top.index !== blocked.current || top.score < ART_UNKNOWN) blocked.current = null;
-            else {
-              setStatus("Ready for the next card");
-              return next(60);
-            }
+          noCard.current = 0;
+          if (blocked.current) {
+            setStatus("Ready for the next card");
+            return next(60);
           }
           const prev = last.current && last.current.index === top.index && Date.now() - last.current.at < 1500;
           last.current = { index: top.index, at: Date.now() };
@@ -471,7 +534,8 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
             const res = await readAt(hi.image, hi.quad, reader, [quarterTurns(hi.quad)[textFrame++ % 3]!]);
             if (!stop && handleText(res, false)) return;
             // Still nothing: ask for a close-up of the name.
-            if (!stop && !res.candidates[0] && ++failedReads >= TITLE_AFTER) {
+            // (Not while the card just added is held: that would read it again.)
+            if (!stop && !res.candidates[0] && !blockedName.current && ++failedReads >= TITLE_AFTER) {
               setCloseup("title");
               return;
             }
@@ -490,7 +554,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
         const flip = textFrame++ % 2 === 1;
         const guide: Quad = flip ? [upright[2], upright[3], upright[0], upright[1]] : upright;
         const res = await scanFrame(image, { ...reader, guide, tryUpsideDown: false });
-        if (!stop && handleText(res, false)) return;
+        if (!stop && handleText(res, false, true)) return;
         if (!stop && !res.candidates[0]) setStatus("Line the card up with the frame");
         next(250);
       } catch (err) {
@@ -504,7 +568,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
       stop = true;
       clearTimeout(timer);
     };
-  }, [phase, mode, closeup, photoBusy, identityOnly, showArt, handleText, textReader]);
+  }, [phase, mode, closeup, photoBusy, paused, identityOnly, showArt, handleText, textReader]);
 
   const fromPhoto = async (file: File) => {
     setStatus("Reading the photo");
@@ -579,7 +643,9 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
   /** Back to scanning. The card just shown isn't found again until it leaves the view. */
   const again = () => {
     foundSeq.current += 1;
-    blocked.current = found?.art ? found.art.index : null;
+    blocked.current = found?.art ? { index: found.art.index, away: 0 } : null;
+    noCard.current = 0;
+    blockedName.current = found && !found.art ? hold(found.name, Date.now()) : null;
     last.current = undefined;
     setFound(null);
     setOutline(null);
@@ -608,7 +674,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
 
   // The close-up loop: read the box as text until it settles the printing or the name.
   useEffect(() => {
-    if (!closeup) return;
+    if (!closeup || paused) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let previous: string | null = null;
@@ -637,7 +703,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
           // Set code and number both read: done. One of them: the same answer twice.
           if (c.chosen && (c.certain || previous === c.chosen.scryfall_id)) {
             const chosenNow = c.chosen;
-            setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", options: c.options, raw: text } : cur));
+            setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", sure: true, options: c.options, raw: text } : cur));
             setCloseup(null);
             navigator.vibrate?.(30);
             return;
@@ -670,7 +736,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
     };
     // fromName is a plain function of this render; the loop only needs the latest at call time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [closeup, ocrEngine, textReader]);
+  }, [closeup, paused, ocrEngine, textReader]);
 
   const chosen = found?.chosen ?? null;
   const ready = identityOnly || !!chosen;
@@ -695,6 +761,27 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
     navigator.vibrate?.([20, 60, 20]);
     tapRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [tapNeeded]);
+  useEffect(() => {
+    if (!autoAdd || !onAccept || paused || identityOnly || phase !== "found" || !found || !addsItself(found)) return;
+    const c = found.chosen!;
+    const label = `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})`;
+    const saved = onAccept(candidateOf(found, c), 1, true);
+    // The card stays in the session list either way (a failed save can be tried again there), so
+    // scanning goes on; "Added" waits for the save.
+    again();
+    void Promise.resolve(saved).then(
+      (ok) => {
+        if (ok === false) setJustAdded(`Couldn't save ${label}. Tap Added to try again`);
+        else {
+          navigator.vibrate?.(40);
+          setJustAdded(`Added ${label}`);
+        }
+      },
+      () => setJustAdded(`Couldn't save ${label}. Tap Added to try again`),
+    );
+    // again() is a plain function of this render; only these decide whether to add.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAdd, onAccept, paused, identityOnly, phase, found]);
   const price = chosen ? (finish === "foil" ? chosen.usd_foil : chosen.usd) : null;
   const isFound = phase === "found" && !!found;
   const options = found?.options ?? null;
@@ -729,9 +816,17 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
             </svg>
           </button>
         )}
-        {addedCount > 0 && <span className="scan-count">Added {addedCount} so far</span>}
-        <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : ""}`} role="status">
-          {tapNeeded ?? (isFound && closeup === "collector" ? "Found it. Now the printing" : isFound ? "Found it" : mode ? status : loadingText)}
+        {addedCount > 0 &&
+          (onShowAdded ? (
+            <button className="scan-count" onClick={onShowAdded}>
+              Added {addedCount}
+              {unsavedCount > 0 ? `, ${unsavedCount} not saved` : ""}: review
+            </button>
+          ) : (
+            <span className="scan-count">Added {addedCount} so far</span>
+          ))}
+        <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : justAdded ? " found" : ""}`} role="status">
+          {tapNeeded ?? (isFound && closeup === "collector" ? "Found it. Now the printing" : isFound ? "Found it" : (justAdded ?? (mode ? status : loadingText)))}
         </span>
       </div>
 
@@ -834,7 +929,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
                     className={`scan-printing${p === chosen ? " is-chosen" : ""}`}
                     onClick={() => {
                       setCloseup(null);
-                      setFound({ ...found, chosen: p, how: "picked", picking: false });
+                      setFound({ ...found, chosen: p, how: "picked", sure: false, picking: false });
                     }}
                   >
                     {p.image_small ? <img src={p.image_small} alt="" loading="lazy" /> : <span className="card-fallback">{p.name}</span>}
@@ -890,7 +985,7 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
                     disabled={!ready}
                     onClick={() => {
                       if (unread && !confirming) return setConfirming(true);
-                      onAccept(candidateOf(found, chosen), copies);
+                      void onAccept(candidateOf(found, chosen), copies, false);
                       again();
                     }}
                   >
@@ -937,6 +1032,16 @@ export function ScannerView({ onAccept, catalog: catalogProp, ocr: ocrProp, onCl
       </div>
     </div>
   );
+}
+
+/**
+ * Keep adding adds a card by itself only when the camera found it and the scanner proved the
+ * printing (the only one, or read from the collector line). A typed name, or a printing guessed or
+ * tapped, waits for Add.
+ */
+export function addsItself(f: Pick<Found, "sure" | "chosen" | "method" | "confidence">): boolean {
+  const typed = f.method === "name" && f.confidence === 1;
+  return !!f.sure && !!f.chosen && !typed;
 }
 
 function explain(f: Found, identityOnly: boolean): string {

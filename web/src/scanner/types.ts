@@ -76,6 +76,8 @@ export interface ScanCandidate {
   lang?: string;
   scryfall_id?: string;
   image?: string | null;
+  /** The small picture, for lists. */
+  thumb?: string | null;
   /** 0..1. Above ~0.8 is safe to accept without a tap; see docs/scanner.md. */
   confidence: number;
   method: ScanMethod;
