@@ -28,7 +28,7 @@ pub fn colored_pips(cost: &str) -> BTreeMap<char, i64> {
 
 #[derive(Debug, Default, Clone)]
 pub struct DeckStats {
-    /// Commander and main deck copies; the sideboard doesn't count.
+    /// Commander and main deck copies, unknown cards included; the sideboard doesn't count.
     pub cards: i64,
     pub lands: i64,
     pub nonlands: i64,
@@ -40,7 +40,7 @@ pub struct DeckStats {
     /// Lands that can make each color, or None while some land's mana isn't in the card data.
     pub sources: Option<BTreeMap<char, i64>>,
     pub lands_without_mana_data: Vec<String>,
-    /// Cards not in the card data, left out of everything above.
+    /// Cards not in the card data, left out of everything above but `cards`.
     pub unknown: Vec<String>,
 }
 
@@ -65,11 +65,13 @@ pub async fn stats(pool: &SqlitePool, cards: &[DeckCard], info: &HashMap<String,
     let mut s = DeckStats::default();
     let mut sources = BTreeMap::<char, i64>::new();
     for c in cards.iter().filter(|c| c.board != Board::Side) {
+        // Every copy counts toward the deck's size, as in packages/core; an unknown card is
+        // only left out of the counts that need its data.
+        s.cards += c.qty;
         let Some(card) = info.get(&c.oracle_id) else {
             s.unknown.push(c.name.clone());
             continue;
         };
-        s.cards += c.qty;
         let front = card.type_line.split(" // ").next().unwrap_or("");
         if front.contains("Land") {
             s.lands += c.qty;
