@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { describe, expect, it, vi } from "vitest";
-import { AcquisitionItem, PowerSummary, ResearchPage, Shopping } from "./Research";
+import { AcquisitionItem, PowerSummary, PrintedWishlist, ResearchPage, Shopping } from "./Research";
 import { AccountingSummary, buildAccounting, listEntries, resolvedCombos } from "./details";
 import { changedAnswer, money, safeUrl, targetForSwap, type ResearchBundle } from "./api";
 
@@ -17,6 +17,12 @@ function fullPage(query="") {
 }
 
 describe("deck research evidence", () => {
+  it("keeps permanent printed-card wishes separate from orders and unknown quotes",()=>{
+    const wishlist={id:"printed-real",label:"Permanent real-card wishlist",purpose:"permanent_real_wishlist" as const,note:"A proxy never removes this wish.",buys:[{card:"Rhystic Study",reason:"3 arrived prints recorded",detail:"Real copies: 0 in dated snapshot",url:"javascript:alert(1)"}],buy_total:null};
+    const html=renderToStaticMarkup(<MemoryRouter><PrintedWishlist scenarios={[wishlist]}/><Shopping defaultId="printed-real" scenarios={[wishlist,{id:"order",label:"Actual proposal",buys:[{card:"Other card",price:1}],buy_total:1}]}/></MemoryRouter>);
+    expect(html).toContain("3 arrived prints recorded");expect(html).toContain("Quantity to buy: undecided");expect(html).toContain("Local price and stock: Unknown");expect(html).toContain('aria-label="Preview Rhystic Study"');expect(html).not.toContain("javascript:");expect(html).toContain("1 local singles; $1.00 before tax");expect(html).not.toContain('value="printed-real"');
+    expect(renderToStaticMarkup(<Shopping scenarios={[wishlist]}/>)).toBe("");
+  });
   it("keeps unknown prices unknown and store quotes apart from markets", () => {
     expect(money(null)).toBe("Unknown");expect(money(undefined)).toBe("Unknown");expect(money(0)).toBe("$0.00");
     const html=renderToStaticMarkup(<MemoryRouter><AcquisitionItem item={{card:"New Card",kind:"buy",store:"Pat’s",price:1.75,market:null,printing:"SET #1",checked:"2026-10-27",url:"https://example.com/card"}} /></MemoryRouter>);

@@ -44,6 +44,7 @@ export interface ResearchDeck {
 }
 export interface Scenario {
   id: string; label: string; deck_count?: number; note?: string; buys?: Item[]; prints?: Item[];
+  purpose?: "permanent_real_wishlist";
   buy_total?: number | null; print_count?: number;
   sealed_purchases?: Item[];
 }
