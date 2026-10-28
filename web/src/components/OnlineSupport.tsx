@@ -66,17 +66,17 @@ export function OnlineSupport({ deckId, versionId, onCard }: {
       </p>
       {s.missing.length > 0 && (
         <p className="names">
-          Not in the rules engine, so left out of online games: <NameList names={s.missing} onCard={onCard} />
+          Left out of online games: <NameList names={s.missing} onCard={onCard} />
         </p>
       )}
       {s.partial.length > 0 && (
         <p className="names">
-          Some abilities don't work online yet: <NameList names={s.partial} onCard={onCard} />
+          Some abilities unsupported online: <NameList names={s.partial} onCard={onCard} />
         </p>
       )}
       {s.uncertain.length > 0 && (
         <p className="names">
-          May not work fully online (the engine had trouble reading part of the text): <NameList names={s.uncertain} onCard={onCard} />
+          May not work fully online: <NameList names={s.uncertain} onCard={onCard} />
         </p>
       )}
     </div>

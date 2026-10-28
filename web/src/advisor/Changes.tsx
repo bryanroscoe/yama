@@ -96,7 +96,7 @@ export function ChangesPage() {
     <main className="page">
       <AreaHead title="Suggested changes" back={{ to: "/decks", label: "Decks" }} />
       <p className="dim">
-        Review suggestions from Yama’s assistant, MCP clients and other connected apps. Nothing changes until you press Apply.
+        Suggestions take effect when you press Apply.
       </p>
       <ErrorText error={all.error} />
       {all.isPending && <p className="dim">Loading…</p>}

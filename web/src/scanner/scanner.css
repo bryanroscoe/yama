@@ -200,7 +200,7 @@
   color: var(--dim);
 }
 .scan-choices select {
-  background: var(--ground);
+  background-color: var(--ground);
   color: var(--text);
 }
 .scan-choices .error {
@@ -227,7 +227,7 @@
 }
 .scan-copies select {
   min-height: 34px;
-  background: var(--ground);
+  background-color: var(--ground);
   color: var(--text);
 }
 /* Printings that share the art: pick the one in hand. */
