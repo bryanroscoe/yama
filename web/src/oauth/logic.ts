@@ -81,7 +81,7 @@ export interface ConnectedApp {
 export interface ConnectedApps {
   /** OAuth is set up on this server (YAMA_PUBLIC_URL). */
   enabled: boolean;
-  /** The address to give Claude, e.g. https://yama.saget.org/mcp. */
+  /** The address to give Claude, e.g. https://yama.ing/mcp. */
   mcp_url: string | null;
   apps: ConnectedApp[];
 }

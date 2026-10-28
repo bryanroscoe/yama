@@ -1,7 +1,7 @@
 # Yama tools for Claude (MCP): design
 
 User-facing features, setup and examples are published at
-[the public MCP guide](https://yama.saget.org/docs/mcp/) (`web/public/docs/mcp/index.html`).
+[the public MCP guide](https://yama.ing/docs/mcp/) (`web/public/docs/mcp/index.html`).
 
 Bryan, 2026-10-22: "Could we create a full MCP to work with and optimize your decks and stuff with
 this?" His answers: **both** (Ask Claude inside Yama and outside clients such as Claude Code), from
@@ -19,7 +19,7 @@ this?" His answers: **both** (Ask Claude inside Yama and outside clients such as
 - **Two ways in, one credential each:**
   - **Outside clients** (Claude Code, claude.ai's connectors, which also reach Claude Desktop and
     the phone app): OAuth sign-in (slice 3, below): `claude mcp add --transport http yama
-    https://yama.saget.org/mcp`, then `/mcp` and Authenticate, and Allow on Yama's page. Clients that
+    https://yama.ing/mcp`, then `/mcp` and Authenticate, and Allow on Yama's page. Clients that
     can't sign in use a script key with the scope `mcp` (Decks, Plans, Settings, where `plan:sync`
     keys are made): `--header "Authorization: Bearer yama_pat_…"`. Either way the credential is the
     person's own and the Claude on the other end is theirs too, so no subscription is shared.
@@ -121,7 +121,7 @@ change to an imported plan goes in as an idea or a review answer and reaches the
 ## OAuth sign-in (slice 3, built 2026-10-22)
 
 Bryan wanted Claude to connect to Yama without pasting a key, from Claude Code
-(`claude mcp add --transport http yama https://yama.saget.org/mcp`, `/mcp`, Authenticate) and from
+(`claude mcp add --transport http yama https://yama.ing/mcp`, `/mcp`, Authenticate) and from
 claude.ai (Settings, Connectors, Add custom connector, the same URL). Yama is its own authorization
 server (`server/src/oauth/`); the consent page is the web app's (`web/src/oauth/`).
 
