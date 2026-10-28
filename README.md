@@ -126,7 +126,7 @@ To serve the built web app from the Rust server (one process, as in production):
 
 ### Google sign-in
 
-Create an OAuth client ID (type "Web application") in Google Cloud Console, add your origin (e.g. `http://localhost:5173`) to its authorized JavaScript origins, and set `YAMA_GOOGLE_CLIENT_IDS`. Native apps will add their own client IDs to the same comma-separated list.
+Create an OAuth client ID (type "Web application") in Google Cloud Console, add your origin (e.g. `http://localhost:5173`) to its authorized JavaScript origins, and set `YAMA_GOOGLE_CLIENT_IDS`. A native Android app asks Google for ID tokens for this same Web client ID; its own Android OAuth client only identifies the app (docs/mobile.md).
 
 ## Checks
 
