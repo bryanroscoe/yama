@@ -441,14 +441,17 @@ export function ScannerView({
 
   /** A text read: lock on the same card twice, or once when it's certain. */
   const handleText = useCallback(
-    (res: ScanResult, single: boolean) => {
+    /** `emptyFrees`: no card detector (text-only mode), so empty reads can end a hold (hold.ts). */
+    (res: ScanResult, single: boolean, emptyFrees = false) => {
       const best = res.candidates[0];
       const held = blockedName.current;
       // A photo is a deliberate read: no hold.
       if (single) blockedName.current = null;
       else if (held) {
-        if (holdRead(held, best) === "held") {
+        if (holdRead(held, best, Date.now(), emptyFrees) === "held") {
           if (best?.name === held.name) setStatus("Ready for the next card");
+          // Another card seen while held counts toward locking on it once the hold ends.
+          else if (best) last.current = { index: -1, card: best, at: Date.now() };
           return false;
         }
         blockedName.current = null;
@@ -549,7 +552,7 @@ export function ScannerView({
         const flip = textFrame++ % 2 === 1;
         const guide: Quad = flip ? [upright[2], upright[3], upright[0], upright[1]] : upright;
         const res = await scanFrame(image, { ...reader, guide, tryUpsideDown: false });
-        if (!stop && handleText(res, false)) return;
+        if (!stop && handleText(res, false, true)) return;
         if (!stop && !res.candidates[0]) setStatus("Line the card up with the frame");
         next(250);
       } catch (err) {
@@ -639,7 +642,7 @@ export function ScannerView({
   const again = () => {
     foundSeq.current += 1;
     blocked.current = found?.art ? found.art.index : null;
-    blockedName.current = found && !found.art ? hold(found.name) : null;
+    blockedName.current = found && !found.art ? hold(found.name, Date.now()) : null;
     last.current = undefined;
     setFound(null);
     setOutline(null);
