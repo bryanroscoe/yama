@@ -100,6 +100,45 @@ fn sim(r: Option<&Rating>) -> String {
         }
     )
 }
+fn simulation_panel(source: &Publication, r: Option<&Rating>, rating_status: &str) -> String {
+    let result = if r.is_none() && rating_status == "stock_list_changed" {
+        "<span class=\"dim\">Not rated</span><small>Stock list changed</small>".into()
+    } else {
+        sim(r)
+    };
+    let mut body = String::new();
+    write!(body,"<section class=\"public-panel\"><p class=\"eyebrow\">{} simulation</p><h3>Model win rate</h3>{}<small>Analysed {}</small><details><summary>Result details &amp; limitations</summary><p>{:.0}% bootstrap interval. Field: {} stock precons in four-player pods.</p>",consensus::engine_family(&source.engine),result,when(&source.analysed_at),source.interval_level*100.,source.field_size).unwrap();
+    if let Some(r) = r {
+        if let Some([lo, hi]) = r.model_interval {
+            write!(
+                body,
+                "<p>{:.0}% interval: {:.1}%–{:.1}%.</p>",
+                source.interval_level * 100.,
+                lo * 100.,
+                hi * 100.
+            )
+            .unwrap();
+        }
+        if let Some([lo, hi]) = r.rank_interval {
+            write!(
+                body,
+                "<p>Rank range {lo}–{hi}. Observed wins: {}.</p>",
+                pct(r.observed_win_rate)
+            )
+            .unwrap();
+        }
+        if !r.reasons.is_empty() {
+            body.push_str("<h4>Simulation limitations</h4><ul>");
+            for reason in &r.reasons {
+                write!(body, "<li>{}</li>", e(reason)).unwrap();
+            }
+            body.push_str("</ul>");
+        }
+    }
+    body.push_str("</details></section>");
+    body
+}
+
 fn meta(p: &Precon, detailed: bool) -> String {
     let Some(m) = &p.meta else {
         return "<span class=\"dim\">Not ranked</span><small>Needs shared evidence</small>".into();
@@ -133,7 +172,11 @@ fn upgradeability_rubric() -> String {
     out.push_str("</tbody></table><p>These are Yama’s ordinal judgments, with no measured win-rate gain attached. A grade belongs to the stated commander configuration and retained main theme. Assess on-theme commander swaps separately; a replacement strategy is a separate deck build. Missing evidence means ungraded. Targeted changes refine the main package; Moderate replaces several packages; Substantial removes much of the shell. Effort describes work, not a budget or Commander bracket.</p>");
     out
 }
-fn assessment_html(u: &crate::upgradeability::Assessment, full: bool, shared: bool) -> String {
+fn assessment_html(
+    u: &crate::upgradeability::Assessment,
+    full: bool,
+    include_rubric: bool,
+) -> String {
     let mut out = match u.score {
         Some(score) => format!(
             "<strong>{score}/5 {}</strong><small>Yama assessment. {} changes.</small>",
@@ -176,12 +219,7 @@ fn assessment_html(u: &crate::upgradeability::Assessment, full: bool, shared: bo
         )
         .unwrap();
     }
-    write!(
-        out,
-        "<p class=\"dim\">{}",
-        if shared { e(u.basis) } else { String::new() }
-    )
-    .unwrap();
+    write!(out, "<p class=\"dim\">{}", e(u.basis)).unwrap();
     if let Some(date) = &u.assessed_on {
         let label = if matches!(u.status, "stock_list_changed" | "list_needs_validation") {
             "Prior audit"
@@ -204,7 +242,7 @@ fn assessment_html(u: &crate::upgradeability::Assessment, full: bool, shared: bo
         }
         out.push_str(".</p>");
     }
-    if shared {
+    if include_rubric {
         write!(
             out,
             "<details><summary>What 1–5 means</summary>{}</details>",
@@ -252,9 +290,9 @@ fn assessment_html(u: &crate::upgradeability::Assessment, full: bool, shared: bo
         out.push_str("</ul>");
     }
     out.push_str("<h3>Commander results</h3>");
-    if shared {
-        write!(out, "<p>{}</p>", e(u.commander_caveat)).unwrap();
-    }
+    // Each commander disclosure can be opened on its own. Its observations must
+    // carry their own scope and provenance even while the reference stays closed.
+    write!(out, "<p>{}</p>", e(u.commander_caveat)).unwrap();
     if u.commander_results.is_empty() {
         out.push_str("<p class=\"dim\">No commander observation is available.</p>");
     } else {
@@ -274,9 +312,7 @@ fn assessment_html(u: &crate::upgradeability::Assessment, full: bool, shared: bo
         }
         out.push_str("</ul>");
     }
-    if shared {
-        out.push_str("<p class=\"dim\"><a href=\"https://playgroup.gg\">Playgroup.gg / Arcane Digital B.V.</a>, aggregate statistics under <a href=\"https://playgroup.gg/legal\">CC BY 4.0</a>. Source refresh dates are not provided by this endpoint.</p>");
-    }
+    out.push_str("<p class=\"dim\"><a href=\"https://playgroup.gg\">Playgroup.gg / Arcane Digital B.V.</a>, aggregate statistics under <a href=\"https://playgroup.gg/legal\">CC BY 4.0</a>. Source refresh dates are not provided by this endpoint.</p>");
     out
 }
 
@@ -325,6 +361,7 @@ fn package_summary(u: &crate::upgradeability::Assessment, full: bool) -> String 
     )
     .unwrap();
     if full {
+        out.push_str("<details><summary>Package coverage</summary>");
         write!(
             out,
             "<p>{} colour-compatible in-box commander configurations inventoried {}. {} have validated simulation lists. {}</p>",
@@ -354,6 +391,7 @@ fn package_summary(u: &crate::upgradeability::Assessment, full: bool) -> String 
         if !p.other_legends.is_empty() {
             write!(out,"<details><summary>Other included legends</summary><p>These cannot lead the complete unchanged stock pool with a checked configuration: {}.</p></details>",e(&p.other_legends.join(", "))).unwrap();
         }
+        out.push_str("</details>");
     }
     out
 }
@@ -364,17 +402,23 @@ fn upgradeability(p: &Precon, full: bool) -> String {
     }
     let mut out = if full {
         format!(
-            "{}<h4>{}</h4>{}",
+            "{}<details><summary>{}: {}</summary>{}",
             package_summary(u, true),
             e(&u.commanders.join(" + ")),
+            u.score
+                .map(|n| format!("{n}/5 {}", e(u.label)))
+                .unwrap_or_else(|| e(u.label)),
             prepared_list(u)
         )
     } else {
         String::new()
     };
     out.push_str(&assessment_html(u, full, true));
+    if full {
+        out.push_str("</details>");
+    }
     if full && !u.alternatives.is_empty() {
-        out.push_str("<h3>Other commander options</h3><p>Each option has its own assessment and comparison list. Stock results elsewhere on this page are not results for these alternative lists.</p>");
+        out.push_str("<h3>Other commander options</h3>");
         for a in &u.alternatives {
             let grade = a
                 .score
@@ -382,7 +426,7 @@ fn upgradeability(p: &Precon, full: bool) -> String {
                 .unwrap_or_else(|| a.label.into());
             write!(
                 out,
-                "<details id=\"commander-{}\"><summary>{}: {}</summary><p>{}</p>",
+                "<details id=\"commander-{}\"><summary>{}: {}</summary><p>{}. Stock results elsewhere on this page do not describe this alternative list.</p>",
                 e(&a.variant_key),
                 e(&a.commanders.join(" + ")),
                 e(&grade),
@@ -741,8 +785,8 @@ pub(super) async fn detail(
         )
         .unwrap();
     }
-    write!(body,"<div class=\"art-heading\"><p class=\"eyebrow\">Stock Commander precon</p><h1>{}</h1><p>{}</p><div class=\"deck-meta\">{}<span>{} / {} / {} cards</span></div></div><p class=\"art-credit\">{}</p></section><div class=\"public-actions\"><a class=\"button primary\" href=\"/precons/{}/decklist.txt\">Download stock list</a><a class=\"button\" href=\"/decks/lab/p/{}\">Sign in to save this deck</a><a class=\"text-action\" href=\"/decks/lab/try?precon={}\">Sign in to try a change ↗</a></div>",e(&p.name),e(&p.commanders.join(" and ")),colors(p),e(p.set_name.as_deref().unwrap_or(&p.set_code)),when(p.released.as_deref().unwrap_or("")),p.card_count,credit(p),e(&p.id),e(&p.id),e(&p.id)).unwrap();
-    body.push_str("<section class=\"evidence-heading\"><div><p class=\"eyebrow\">Read the evidence</p><h2>How it compares</h2></div><a href=\"/precons/methodology\">Sources &amp; method ↗</a></section><div class=\"public-evidence\"><section class=\"public-panel meta-panel\"><span class=\"source-chip\">Experimental</span><h3>Meta rank</h3>");
+    write!(body,"<div class=\"art-heading\"><h1>{}</h1><p>{}</p><div class=\"deck-meta\">{}<span>{} / {} / {} cards</span></div></div><p class=\"art-credit\">{}</p></section><div class=\"public-actions\"><a class=\"button primary\" href=\"/precons/{}/decklist.txt\">Download stock list</a><a class=\"button\" href=\"/decks/lab/p/{}\">Save to my decks</a><a class=\"text-action\" href=\"/decks/lab/try?precon={}\">Try a change ↗</a></div>",e(&p.name),e(&p.commanders.join(" and ")),colors(p),e(p.set_name.as_deref().unwrap_or(&p.set_code)),when(p.released.as_deref().unwrap_or("")),p.card_count,credit(p),e(&p.id),e(&p.id),e(&p.id)).unwrap();
+    body.push_str("<section class=\"evidence-heading\"><div><h2>How it compares</h2></div><a href=\"/precons/methodology\">Sources &amp; method ↗</a></section><div class=\"public-evidence\"><section class=\"public-panel meta-panel\"><span class=\"source-chip\">Experimental</span><h3>Meta rank</h3>");
     body.push_str(&meta(p, true));
     body.push_str("</section><section class=\"public-panel\"><p class=\"eyebrow\">Human tables</p><h3>Real-game win rate</h3>");
     body.push_str(&real(p, true));
@@ -753,39 +797,7 @@ pub(super) async fn detail(
             .iter()
             .find(|s| s.publication_id == source.id)
             .map(|s| &s.rating);
-        write!(body,"<section class=\"public-panel\"><p class=\"eyebrow\">{} simulation</p><h3>Model win rate</h3>{}<p class=\"dim\">Published interval coverage: {}% (game bootstrap). Versus {} stock precons, four-player pods. Analysed {}.</p>",consensus::engine_family(&source.engine),sim(r),source.interval_level*100.,source.field_size,when(&source.analysed_at)).unwrap();
-        if let Some(r) = r {
-            if let Some([lo, hi]) = r.model_interval {
-                write!(
-                    body,
-                    "<p>{:.0}% interval: {:.1}%–{:.1}%.</p>",
-                    source.interval_level * 100.,
-                    lo * 100.,
-                    hi * 100.
-                )
-                .unwrap();
-            }
-            if let Some([lo, hi]) = r.rank_interval {
-                write!(
-                    body,
-                    "<p>Rank range {lo}–{hi}. Observed wins: {}.</p>",
-                    pct(r.observed_win_rate)
-                )
-                .unwrap();
-            }
-            if !r.reasons.is_empty() {
-                body.push_str("<details><summary>Simulation limitations</summary><ul>");
-                for reason in &r.reasons {
-                    write!(body, "<li>{}</li>", e(reason)).unwrap();
-                }
-                body.push_str("</ul></details>");
-            }
-        } else if p.rating_status == "stock_list_changed" {
-            body.push_str(
-                "<p>Stock list changed. The published result describes an older list.</p>",
-            );
-        }
-        body.push_str("</section>");
+        body.push_str(&simulation_panel(source, r, &p.rating_status));
     }
     body.push_str("</div>");
     body.push_str("<section class=\"public-panel\"><h3>Upgradeability</h3>");
@@ -812,7 +824,13 @@ pub(super) async fn detail(
         )
         .unwrap();
         for c in cards {
-            body.push_str(&card_item(&c.name, c.image.as_deref(), &c.scryfall_url, c.qty, &e(c.type_line.as_deref().unwrap_or("Card details on Scryfall"))));
+            body.push_str(&card_item(
+                &c.name,
+                c.image.as_deref(),
+                &c.scryfall_url,
+                c.qty,
+                &e(c.type_line.as_deref().unwrap_or("Card details on Scryfall")),
+            ));
         }
         body.push_str("</ul>");
     }
@@ -893,9 +911,10 @@ pub(crate) fn stylesheet() -> &'static (String, String) {
             .map(|(tokens, _)| format!(":root {{{tokens}\n}}"))
             .unwrap_or_default();
         let body = format!(
-            "{tokens}\n{}\n{}",
+            "{tokens}\n{}\n{}\n{}",
             include_str!("../../../web/public/precons.css"),
-            include_str!("../../../web/src/controls.css")
+            include_str!("../../../web/src/controls.css"),
+            include_str!("../../../web/src/art-framing.css")
         );
         let path = format!("/precons/assets/style-{}.css", sha256_hex(&body));
         (body, path)

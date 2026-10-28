@@ -56,7 +56,7 @@ export function ArtPanel({
   const kind = shown ? "art-has" : empty ? "art-empty" : "art-none";
   const Body = Tag === "span" ? "span" : "div";
   return (
-    <Tag className={`art-panel wash-${wash} ${kind}${toGround ? " to-ground" : ""}${className ? ` ${className}` : ""}`} style={style}>
+    <Tag className={`art-panel wash-${wash} ${kind}${toGround ? " to-ground" : ""}${Tag === "header" ? " art-scene" : ""}${className ? ` ${className}` : ""}`} style={style}>
       {shown && (
         <>
           <img className="art-img" src={shown} alt="" loading="lazy" decoding="async" draggable={false} onError={() => setFailed(shown)} />

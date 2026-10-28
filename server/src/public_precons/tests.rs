@@ -365,6 +365,22 @@ async fn public_html_is_complete_escaped_and_links_only_public_catalog_in_sitema
     let (_, headers, html) = request(&app, "/precons/forest-deck", &[]).await;
     assert!(html.contains("Forest &lt;Deck&gt;"));
     assert!(html.contains("Art by Test Artist"));
+    let result = html.split("<h3>Model win rate</h3>").nth(1).unwrap();
+    let (visible, explanation) = result.split_once("<details>").unwrap();
+    assert!(visible.contains("Engine caution"));
+    assert!(visible.contains("40 games"));
+    assert!(visible.contains("Analysed"));
+    assert!(!visible.contains("Rank range"));
+    assert!(explanation.starts_with("<summary>Result details &amp; limitations</summary>"));
+    assert!(
+        explanation
+            .split("</details>")
+            .next()
+            .unwrap()
+            .contains("Rank range")
+    );
+    assert!(!result.starts_with("<details open"));
+
     assert!(html.contains("All rights reserved"));
     assert!(html.contains("Third-party content belongs"));
     assert!(html.contains("/precons/forest-deck/decklist.txt"));

@@ -1409,3 +1409,11 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 .share-deck-configs { padding:10px 18px 14px; }
 .share-deck-configs ul { margin:0; }
 .sim-row .caution { display:block; margin-top:6px; }
+
+/* Comparable figures share one row; expanding one panel needn't stretch its neighbours. */
+.public-evidence { grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); align-items:start; }
+.public-panel { padding:24px; }
+.public-panel h3 { margin-bottom:16px; }
+.public-panel details { margin-top:16px; }
+.public-panel details p { max-width:72ch; }
+.public-panel > details:last-child { padding-bottom:0; }
