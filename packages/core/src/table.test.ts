@@ -6,6 +6,7 @@ import {
   commanderTax,
   initialState,
   lossOf,
+  lossesOf,
   record,
   replay,
   toServerEvents,
@@ -64,6 +65,22 @@ describe("table", () => {
     expect(s.players[1]!.commanderDamage["0"]).toBeUndefined();
     expect(s.players[1]!.commanderDamage["0~1"]).toBe(4);
     expect(commanderSources(s, 1).map((c) => [c.key, c.name])).toEqual([["0", "Atraxa, Praetors' Voice"], ["0~1", "Tana"]]);
+  });
+
+  it("lists every cause, so a later one can still be asked about", () => {
+    let s = initialState(setup);
+    s = apply(s, { type: "commander_damage", seat: 1, source: "0", delta: 21 });
+    s = apply(s, { type: "poison", seat: 1, delta: 10 });
+    expect(lossesOf(s, s.players[1]!).map((l) => l.key)).toEqual(["cd:0", "poison"]);
+  });
+
+  it("a new commander starts with no tax; the same one keeps its casts", () => {
+    let s = initialState({ ...setup, players: [{ ...setup.players[0]!, commanderName: "Edgar Markov" }, setup.players[1]!] });
+    s = apply(s, { type: "commander_cast", seat: 0, delta: 2 });
+    s = apply(s, { type: "seat", seat: 0, commanderName: "Edgar Markov", colorIdentity: "WBR", art: "x" });
+    expect(s.players[0]!.commanderCasts).toBe(2);
+    s = apply(s, { type: "seat", seat: 0, commanderName: "Krenko, Mob Boss", colorIdentity: "R" });
+    expect(s.players[0]!.commanderCasts).toBe(0);
   });
 
   it("damage from a replaced commander never adds up with the new one's", () => {

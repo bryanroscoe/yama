@@ -273,6 +273,9 @@ export function apply(state: TableState, e: TableEvent): TableState {
         partnerArt: pick.partnerArt,
         partnerArtist: pick.partnerArtist,
         deckLabel: pick.deckLabel ?? pick.commanderName,
+        // Tax is per card: a different commander hasn't been cast yet (CR 903.8).
+        commanderCasts: pick.commanderName === p.commanderName ? p.commanderCasts : 0,
+        partnerCasts: pick.partnerName === p.partnerName ? p.partnerCasts : 0,
         // Another commander is another deck: the seat keeps its deck only if the event says so.
         deckVersionId: pick.deckVersionId,
       }));
@@ -354,17 +357,23 @@ export interface Loss {
  * asks; players confirm, since some cards change the rules (Platinum Angel, Phyrexian Unlife).
  */
 export function lossOf(state: TableState, p: PlayerState): Loss | null {
-  if (p.eliminated) return null;
+  return lossesOf(state, p)[0] ?? null;
+}
+
+/** Every reason a player has probably lost, commander damage first, then poison, then life. */
+export function lossesOf(state: TableState, p: PlayerState): Loss[] {
+  if (p.eliminated) return [];
+  const out: Loss[] = [];
   for (const [source, dmg] of Object.entries(p.commanderDamage) as [CommanderKey, number | undefined][]) {
     if ((dmg ?? 0) >= COMMANDER_LETHAL) {
       const from = state.players.find((x) => x.seat === keySeat(source));
       const name = sourceName(state, source) ?? (from ? `${from.name}'s commander` : "one commander");
-      return { kind: "commander_damage", text: `${dmg} commander damage from ${name}`, bySeat: from?.seat, key: `cd:${source}` };
+      out.push({ kind: "commander_damage", text: `${dmg} commander damage from ${name}`, bySeat: from?.seat, key: `cd:${source}` });
     }
   }
-  if (p.poison >= POISON_LETHAL) return { kind: "poison", text: `${p.poison} poison counters`, key: "poison" };
-  if (p.life <= 0) return { kind: "life", text: `Life at ${p.life}`, key: "life" };
-  return null;
+  if (p.poison >= POISON_LETHAL) out.push({ kind: "poison", text: `${p.poison} poison counters`, key: "poison" });
+  if (p.life <= 0) out.push({ kind: "life", text: `Life at ${p.life}`, key: "life" });
+  return out;
 }
 
 /** The name of the commander behind a key, retired ones included; undefined if it has none. */

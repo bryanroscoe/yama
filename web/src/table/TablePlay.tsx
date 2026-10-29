@@ -6,6 +6,7 @@ import {
   COMMANDER_LETHAL,
   identityKeys,
   lossOf,
+  lossesOf,
   MANA,
   panelFills,
   remaining,
@@ -255,10 +256,10 @@ export function useTableArt(players: PlayerState[]): ArtFor {
 export function useLethalPrompt(state: TableState | null, onlySeat?: number | null) {
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [ready, setReady] = useState<string | null>(null);
+  // Every active cause, so dismissing one (21 from Atraxa) still lets a later one (10 poison) ask.
   const losses = (state?.players ?? [])
     .filter((p) => onlySeat === undefined || p.seat === onlySeat)
-    .map((p) => ({ seat: p.seat, loss: state ? lossOf(state, p) : null }))
-    .filter((x): x is { seat: number; loss: Loss } => !!x.loss);
+    .flatMap((p) => (state ? lossesOf(state, p) : []).map((loss) => ({ seat: p.seat, loss })));
   const live = losses.map((x) => `${x.seat}:${x.loss.key}`);
   const liveKey = live.join("|");
   const pending = losses.find((x) => !dismissed.includes(`${x.seat}:${x.loss.key}`));
