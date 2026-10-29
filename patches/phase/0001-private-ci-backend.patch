@@ -1,7 +1,7 @@
 From d7f62af3f93983e14fcd565a7aa9b8c8e1a25a78 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:04:43 -0500
-Subject: [PATCH 1/3] Adapt private fork CI to the isolated saget worker
+Subject: [PATCH 1/4] Adapt private fork CI to the isolated saget worker
 
 ---
  .github/actions/prepare-private-ci/action.yml |  28 ++++
@@ -594,7 +594,7 @@ index 0000000..6130968
 From cb43f56649df0999be42b91dd87ba9d309b29a7e Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:07:07 -0500
-Subject: [PATCH 2/3] fork: scope private automation to CI and pin stable Rust
+Subject: [PATCH 2/4] fork: scope private automation to CI and pin stable Rust
 
 ---
  .github/workflows/ai-gate.yml | 4 ++++
@@ -772,7 +772,7 @@ index 6130968..e910f8f 100644
 From 40b45dd7069a8343548eec96eaad1eb75a3e2537 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:10:01 -0500
-Subject: [PATCH 3/3] fork: rely on tool-cache configuration before listener
+Subject: [PATCH 3/4] fork: rely on tool-cache configuration before listener
  startup
 
 ---
@@ -791,3 +791,46 @@ index 39be49d..c15b2c3 100644
          echo 'CARGO_BUILD_JOBS=2' >> "$GITHUB_ENV"
          echo 'ANDROID_HOME=/ci-cache/android' >> "$GITHUB_ENV"
          echo 'ANDROID_SDK_ROOT=/ci-cache/android' >> "$GITHUB_ENV"
+
+From b9ba0f649658cae3890843beeb2b87ba2c659449 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:20:01 -0500
+Subject: [PATCH 4/4] fork: extract each test shard outside the persistent
+ target cache
+
+---
+ .github/workflows/ci.yml | 6 +++++-
+ docs/private-ci.md       | 3 ++-
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 13f2d89..980f065 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -368,7 +368,11 @@ jobs:
+         # caught before it lands on the branch that feeds staging/preview.
+         env:
+           PROPTEST_CASES: ${{ github.event_name == 'pull_request' && '32' || '256' }}
+-        run: cargo-nextest nextest run --profile ci --partition count:${{ matrix.shard }}/5 --archive-file nextest-archive.tar.zst --extract-to target --status-level fail --final-status-level fail
++        run: |
++          # Each shard gets a fresh archive extraction. The persistent target
++          # cache is shared between jobs and must not hold nested archive output.
++          nextest_extract="$(mktemp -d "$RUNNER_TEMP/nextest.XXXXXX")"
++          cargo-nextest nextest run --profile ci --partition count:${{ matrix.shard }}/5 --archive-file nextest-archive.tar.zst --extract-to "$nextest_extract" --status-level fail --final-status-level fail
+ 
+   card-data-gate:
+     name: Card data (generate, validate, coverage)
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index e910f8f..2942971 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -25,7 +25,8 @@ The private `saget-yama-phase-ci` worker has its own container, network, runner
+ state, Cargo/tool/Android/Gradle caches and no Docker socket or production mounts.
+ Fork PR execution must remain disabled at repository level. Tools install into
+ writable project caches; checkout target symlinks preserve existing script/artifact
+-paths. Rust target cache and bounded local sccache stay on saget instead of being
++paths. Each Nextest shard extracts its archive under disposable RUNNER_TEMP,
++so repeated shards cannot collide inside the persistent target cache. Rust target cache and bounded local sccache stay on saget instead of being
+ uploaded as GitHub Cargo caches. Hosted-only disk pruning never runs here.
+ 
+ All private workers share a two-CPU/12-GiB parent and a whole-job slot with Yama
