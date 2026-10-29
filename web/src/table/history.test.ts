@@ -57,6 +57,8 @@ describe("partners", () => {
     expect(pairing({ oracle_text: "Choose a Background (You can have a Background as a second commander.)" })).toBe("background");
     expect(pairing({ oracle_text: "Friends forever" })).toBe("partner");
     expect(pairing({ oracle_text: "Flying, vigilance, deathtouch, lifelink" })).toBeNull();
+    // A Doctor's companion ability is on the companion, so the Doctor pairs by its type.
+    expect(pairing({ oracle_text: "Whenever a creature you control deals combat damage...", type_line: "Legendary Creature — Time Lord Doctor" })).toBe("partner");
     expect(unionIdentity("WB", "RG")).toBe("WBRG");
   });
 

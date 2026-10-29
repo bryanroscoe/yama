@@ -160,16 +160,19 @@ const WUBRG = "WUBRG";
 export const unionIdentity = (...ids: (string | undefined)[]) => [...WUBRG].filter((c) => ids.some((i) => i?.includes(c))).join("");
 
 /** What a commander card allows as a second commander, if anything. */
-export function pairing(card: Pick<Card, "oracle_text"> | undefined): "partner" | "background" | null {
+export function pairing(card: (Pick<Card, "oracle_text"> & Partial<Pick<Card, "type_line">>) | undefined): "partner" | "background" | null {
   const text = card?.oracle_text ?? "";
+  // A Time Lord Doctor pairs with a Doctor's companion; the ability is on the companion.
+  if (/\bTime Lord Doctor\b/.test(card?.type_line ?? "")) return "partner";
   if (/Choose a Background/i.test(text)) return "background";
   if (/^(Partner|Friends forever|Doctor's companion)\b/im.test(text) || /\bPartner with\b/.test(text)) return "partner";
   return null;
 }
 
 /** Where to look for the second commander: cards with the same pairing keyword. */
-function pairScope(card: Pick<Card, "oracle_text"> | undefined): string {
+function pairScope(card: (Pick<Card, "oracle_text"> & Partial<Pick<Card, "type_line">>) | undefined): string {
   const text = card?.oracle_text ?? "";
+  if (/\bTime Lord Doctor\b/.test(card?.type_line ?? "")) return 'is:commander o:"doctor\'s companion"';
   if (/Choose a Background/i.test(text)) return "t:background";
   if (/^Friends forever\b/im.test(text)) return 'is:commander o:"friends forever"';
   if (/^Doctor's companion\b/im.test(text)) return 'is:commander t:doctor';
@@ -295,6 +298,10 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
   const showPartner = !!value.partnerName || adding;
   const pairs = value.pairs ?? (value.partnerName ? "partner" : null);
   const mainPicked = !!value.art || !!value.ownIdentity;
+  // A pair opened mid-game knows only both colors together: look the commander up again, so a
+  // new partner's colors don't keep the old partner's.
+  const ownCard = useQuery({ queryKey: ["table-card", name], queryFn: () => cardNamed(name), enabled: !!name && !value.ownIdentity && !!value.partnerName, staleTime: Infinity });
+  const ownId = value.ownIdentity ?? ownCard.data?.color_identity;
   return (
     <div className="cmdr-fields">
       <CommanderSearch
@@ -323,7 +330,7 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
             scope={value.pairScope ?? (pairs === "background" ? "t:background" : "is:commander")}
             suggest={value.pairsWith}
             autoFocus={adding}
-            onText={(t) => onChange({ ...value, partnerName: t, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined, colorIdentity: value.ownIdentity ?? value.colorIdentity })}
+            onText={(t) => onChange({ ...value, partnerName: t, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined, colorIdentity: ownId ?? value.colorIdentity })}
             onPick={(c) =>
               onChange({
                 ...value,
@@ -331,7 +338,8 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
                 partnerArt: c.image_art_crop ?? undefined,
                 partnerArtist: c.artist ?? undefined,
                 partnerIdentity: c.color_identity,
-                colorIdentity: unionIdentity(value.ownIdentity ?? value.colorIdentity, c.color_identity),
+                ownIdentity: ownId,
+                colorIdentity: unionIdentity(ownId ?? value.colorIdentity, c.color_identity),
               })
             }
           />
@@ -341,7 +349,7 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
             onClick={async () => {
               setAdding(false);
               // The commander's own colors: known if it was picked here, else looked up again.
-              const own = value.ownIdentity ?? (name ? (await cardNamed(name))?.color_identity : undefined) ?? value.colorIdentity;
+              const own = ownId ?? (name ? (await cardNamed(name))?.color_identity : undefined) ?? value.colorIdentity;
               onChange({ ...value, partnerName: undefined, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined, colorIdentity: own ?? "" });
             }}
           >
