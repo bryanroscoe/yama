@@ -313,8 +313,8 @@ pub fn schedule_versus(
 /// Each chosen quartet plays four fresh-seed games, once in every seat. Appearances are rounded
 /// up to a multiple of four; a non-multiple-of-four field can overshoot a target by four games.
 /// `families` gives each entrant a group (versions of one deck share one). Balance comes first:
-/// taking the least-used keeps every deck within four appearances of every other, which is what
-/// keeps each within four of the target. Among the equally used, one whose group is already at
+/// taking the least-used keeps every deck within four appearances of every other, so each ends
+/// between the target rounded up to a multiple of four and four past that (98 → 100..=104). Among the equally used, one whose group is already at
 /// the table comes last, and the biggest groups go first so their versions spread over the
 /// tables. Two versions share a table only when the equally used candidates leave no other choice;
 /// some fields force it (in A, A, B, C, D the As can't always sit apart unless B, C and D play
@@ -578,6 +578,15 @@ mod tournament_tests {
             check(&[0, 0, 0, 1, 2, 3, 4, 5], seed);
             check(&[0, 0, 1, 2, 3], seed);
         }
+        // A target that isn't a multiple of four rounds up first: 98 gives 100..=104.
+        let ids5: Vec<String> = (0..5).map(|i| format!("e{i}")).collect();
+        let mut used = [0usize; 5];
+        for g in schedule_tournament("test", &ids5, &[0, 0, 1, 2, 3], 98, 0, "Easy", &LIMITS) {
+            for d in &g.spec.decks {
+                used[d[1..].parse::<usize>().unwrap()] += 1;
+            }
+        }
+        assert!(used.iter().all(|u| (100..=104).contains(u)), "{used:?}");
         // A field that is all one deck still plays: the rule gives way when nobody else is left.
         let same = vec![0usize; 5];
         let five: Vec<String> = (0..5).map(|i| format!("e{i}")).collect();
