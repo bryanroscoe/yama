@@ -107,6 +107,10 @@ describe("partners", () => {
     expect(typed).toMatchObject({ commanderName: "Atraxa, Praetors' Voice", colorIdentity: "WUBG", artist: "Victor Adame Minguez" });
     const picked = { commanderName: "Tana", colorIdentity: "RG", ownIdentity: "RG", art: "x" };
     expect(await resolveDraft(picked)).toBe(picked);
+    // Atraxa has no partner ability, so a partner left over from the old pair goes.
+    const pair = await resolveDraft({ commanderName: "atraxa, praetors' voice", colorIdentity: "WB", partnerName: "Tymna the Weaver", partnerIdentity: "WB", partnerArt: "y" });
+    expect(pair.partnerName).toBeUndefined();
+    expect(pair.colorIdentity).toBe("WUBG");
     const unknown = { commanderName: "Not a card", colorIdentity: "" };
     expect(await resolveDraft(unknown)).toBe(unknown);
     spy.mockRestore();

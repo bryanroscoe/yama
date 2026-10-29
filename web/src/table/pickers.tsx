@@ -299,6 +299,14 @@ export function draftFromCard(c: Card): CommanderDraft {
   };
 }
 
+/** Whether `partner` can be the second commander for a commander whose partner search is `scope`. Offline: yes (it can't be checked). */
+async function partnerFits(scope: string | undefined, partner: string): Promise<boolean> {
+  return searchCards(`${scope ?? "is:commander"} !"${partner.replace(/"/g, "")}"`).then(
+    (r) => r.length > 0,
+    () => true,
+  );
+}
+
 /**
  * A draft with any typed-but-never-picked names looked up by exact name (the card's art and
  * colors). The same draft back if nothing needed it or nothing was found (offline, a typo).
@@ -313,6 +321,11 @@ export async function resolveDraft<T extends CommanderDraft>(d: T): Promise<T> {
   if (main) {
     const m = draftFromCard(main);
     next = { ...next, commanderName: m.commanderName, ownIdentity: m.ownIdentity, art: m.art, artist: m.artist, pairs: m.pairs, pairsWith: m.pairsWith, pairScope: m.pairScope };
+    // The commander turned out to be a real card: keep the partner only if the two can pair.
+    if (next.partnerName && !(m.pairs && (await partnerFits(m.pairScope, partner?.name ?? next.partnerName)))) {
+      next = { ...next, partnerName: undefined, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined };
+      return { ...next, colorIdentity: next.ownIdentity ?? "" };
+    }
   }
   if (partner) next = { ...next, partnerName: partner.name, partnerArt: partner.image_art_crop ?? undefined, partnerArtist: partner.artist ?? undefined, partnerIdentity: partner.color_identity };
   next.colorIdentity = unionIdentity(next.ownIdentity ?? d.colorIdentity, next.partnerName ? next.partnerIdentity : undefined);
@@ -366,13 +379,7 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
             const partner = value.partnerName;
             // Keep the partner already chosen only if the new commander can pair with it (Tymna
             // can't go with The Tenth Doctor). Offline, nothing can be checked, so it stays.
-            const fits =
-              !!next.pairs &&
-              !!partner &&
-              (await searchCards(`${next.pairScope ?? "is:commander"} !"${partner.replace(/"/g, "")}"`).then(
-                (r) => r.length > 0,
-                () => true,
-              ));
+            const fits = !!next.pairs && !!partner && (await partnerFits(next.pairScope, partner));
             if (mine !== pickNo.current) return;
             if (fits) {
               Object.assign(next, { partnerName: partner, partnerArt: value.partnerArt, partnerArtist: value.partnerArtist, partnerIdentity: value.partnerIdentity });
