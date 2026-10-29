@@ -2247,6 +2247,8 @@ async fn tables_group_a_tournament_by_table_with_each_seat_for_the_owner_only() 
     assert_eq!(third.tables.len(), 1);
     assert_eq!(third.tables[0], all.tables[2], "a table keeps its number when filtered");
     assert_eq!(third.decks.len(), 4, "only the decks it names");
+    assert!(tables_for(&pool, "admin", &d.item.id, None, None, Some(0)).await.unwrap().tables.is_empty());
+    assert!(tables_for(&pool, "admin", &d.item.id, None, None, Some(usize::MAX)).await.unwrap().tables.is_empty());
     assert!(tables_for(&pool, "other", &d.item.id, None, None, None).await.is_err());
     assert!(tables_for(&pool, "admin", &d.item.id, Some("nope"), None, None).await.is_err());
 }
@@ -2278,6 +2280,20 @@ async fn lab_games_reads_a_tournament_table_by_table() {
     assert_eq!(one.matches("\n- ").count(), 4, "a table's four games: {one}");
     assert!(call(json!({"id": d.item.id, "deck": "precon"})).await.unwrap_err().to_string().contains("matches 5 decks"));
     assert!(call(json!({"id": d.item.id, "deck": "nobody"})).await.unwrap_err().to_string().contains("No deck"));
+    let other = user("other", false);
+    assert!(matches!(tools::call(&st, &other, &Via::Key, "lab_games", &json!({"id": d.item.id, "deck": "e0"})).await.unwrap_err(), AppError::NotFound(_)));
+
+    // Two decks with one name (versions of a saved deck keep its name): the name is ambiguous.
+    let a = deck(&pool, "admin", "Twin", list_of("Ghave", &["Llanowar Elves"])).await;
+    let b = deck(&pool, "admin", "Twin", list_of("Atla", &["Grizzly Bears"])).await;
+    let r = req(json!({"op_id":"mcp-twins", "mode":"tournament", "entrants": [
+        {"kind":"deck","id":a}, {"kind":"deck","id":b}, {"kind":"precon","id":"p1"}, {"kind":"precon","id":"p2"}
+    ], "games":4}));
+    let twins = create(&pool, &admin, r, sim.as_ref()).await.unwrap();
+    st.lab.drain().await;
+    let err = call(json!({"id": twins.item.id, "deck": "twin"})).await.unwrap_err().to_string();
+    assert!(err.contains("matches 2 decks") && err.contains("(e0)") && err.contains("(e1)"), "{err}");
+    assert!(call(json!({"id": twins.item.id, "deck": "E1"})).await.unwrap().contains("where Twin sat"));
 }
 
 #[tokio::test]
@@ -2294,6 +2310,13 @@ async fn tables_name_the_precons_filling_head_to_head_seats() {
     assert_eq!(t.tables.len(), 2);
     assert!(t.tables.iter().all(|x| x.games.len() == 4 && x.decks.iter().any(|d| d == "e0") && x.decks.iter().any(|d| d == "e1")));
     assert!(t.decks.iter().any(|x| x.entrant.is_none()), "the fillers are named too");
+    // 1v1: tables of two, two games each.
+    let r = req(json!({"op_id":"tables-1v1", "mode":"versus", "entrants": [{"kind":"precon","id":"p1"}, {"kind":"precon","id":"p2"}], "pod": 2, "games": 6}));
+    let one = create(&pool, &admin, r, sim.as_ref()).await.unwrap();
+    LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
+    let t = tables_for(&pool, "admin", &one.item.id, None, None, None).await.unwrap();
+    assert_eq!(t.tables.iter().map(|x| (x.table, x.games.len(), x.decks.len())).collect::<Vec<_>>(), [(1, 2, 2), (2, 2, 2), (3, 2, 2)]);
+    assert_eq!(tables_for(&pool, "admin", &one.item.id, None, None, Some(2)).await.unwrap().tables, vec![t.tables[1].clone()]);
     // Change runs have no tables.
     let c = create(&pool, &admin, swap_req(20), sim.as_ref()).await.unwrap();
     assert!(tables_for(&pool, "admin", &c.item.id, None, None, None).await.is_err());

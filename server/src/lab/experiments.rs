@@ -2826,15 +2826,37 @@ pub async fn tables_for(pool: &SqlitePool, owner: &str, id: &str, engine: Option
             .await?
             .unwrap_or_else(|| "phase".to_string()),
     };
-    let rows: Vec<(String, i64, String, Option<String>, Option<String>)> =
-        sqlx::query_as("SELECT game, ord, spec, result, finished_at FROM lab_experiment_games WHERE experiment_id = ? AND engine = ? ORDER BY ord")
-            .bind(id)
-            .bind(&engine)
-            .fetch_all(pool)
-            .await?;
     // Both schedules play game g at ord 2g in blocks of `pod` games with one set of decks, a seat
-    // apart (`schedule_versus`, `schedule_tournament`); a "both" run's Forge half is offset.
-    let first = rows.first().map_or(0, |r| r.1 - r.1 % 2);
+    // apart (`schedule_versus`, `schedule_tournament`); a "both" run's Forge half is offset. The
+    // filters go into the query, so one table or one deck's tables don't read the whole run.
+    let first: i64 = sqlx::query_scalar("SELECT COALESCE(MIN(ord), 0) FROM lab_experiment_games WHERE experiment_id = ? AND engine = ?")
+        .bind(id)
+        .bind(&engine)
+        .fetch_one(pool)
+        .await?;
+    let first = first - first % 2;
+    let span = 2 * i64::try_from(spec.pod.max(1)).unwrap_or(4);
+    let (lo, hi) = match table {
+        Some(n) => {
+            let n = i64::try_from(n).unwrap_or(i64::MAX).clamp(1, i64::MAX / 4 / span);
+            (first + (n - 1) * span, first + n * span)
+        }
+        None => (i64::MIN, i64::MAX),
+    };
+    let rows: Vec<(String, i64, String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT game, ord, spec, result, finished_at FROM lab_experiment_games g
+         WHERE experiment_id = ? AND engine = ? AND ord >= ? AND ord < ?
+           AND (? IS NULL OR EXISTS (SELECT 1 FROM json_each(g.spec, '$.decks') d WHERE d.value = ?))
+         ORDER BY ord",
+    )
+    .bind(id)
+    .bind(&engine)
+    .bind(lo)
+    .bind(hi)
+    .bind(entrant)
+    .bind(entrant)
+    .fetch_all(pool)
+    .await?;
     let pod = spec.pod.max(1);
     let mut tables: Vec<TableView> = Vec::new();
     for (game, ord, gspec, result, finished_at) in rows {
@@ -2846,7 +2868,8 @@ pub async fn tables_for(pool: &SqlitePool, owner: &str, id: &str, engine: Option
         let g = table_game(game, gspec.decks, result.as_deref(), finished_at);
         tables.last_mut().expect("pushed above").games.push(g);
     }
-    tables.retain(|t| table.is_none_or(|n| t.table == n) && entrant.is_none_or(|e| t.decks.iter().any(|d| d == e)));
+    // The query did the filtering; this drops a table 0 (clamped to table 1's range above).
+    tables.retain(|t| table.is_none_or(|n| t.table == n));
     let named: HashSet<&str> = tables.iter().flat_map(|t| t.decks.iter().map(String::as_str)).collect();
     let mut decks: Vec<TableDeck> = spec
         .entrants

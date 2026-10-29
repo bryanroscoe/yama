@@ -46,11 +46,28 @@ export function seatText(g: TableGame, seat: number): string {
   return life != null ? `Still in, ${life} life` : "Still in";
 }
 
-/** A place as a short badge: "1st", "2nd", "Tied 3rd" (tied players share the mean). */
-export function placeBadge(place: number | null | undefined): string {
-  if (place == null) return "";
-  if (Number.isInteger(place)) return placeText(place);
-  return `Tied ${placeText(Math.floor(place))}`;
+/**
+ * A seat's place in a scored game as the table saw it: the place its group started at, and
+ * whether it shared it. The server gives tied players the mean of their places (a winner and
+ * three survivors at the cap are 1, 3, 3, 3), so the group is the seats with an equal rank.
+ */
+export function placeOf(g: TableGame, seat: number): { place: number; tied: boolean } | null {
+  const mine = g.places[seat];
+  if (!g.scored || mine == null) return null;
+  let better = 0;
+  let same = 0;
+  for (const p of g.places) {
+    if (p == null) continue;
+    if (p < mine) better += 1;
+    else if (p === mine) same += 1;
+  }
+  return { place: better + 1, tied: same > 1 };
+}
+
+/** A place as a short badge: "1st", "2nd", "Tied 2nd". */
+export function placeBadge(p: { place: number; tied: boolean } | null | undefined): string {
+  if (!p) return "";
+  return `${p.tied ? "Tied " : ""}${placeText(p.place)}`;
 }
 
 export interface DeckRecord {
@@ -58,14 +75,16 @@ export interface DeckRecord {
   played: number;
   scored: number;
   wins: number;
-  /** Scored games by place: [1st, 2nd, 3rd, 4th]; a shared place counts for the better one. */
+  /** Scored games by the place a deck's group started at: [1st, 2nd, 3rd, 4th]; a shared place
+   *  counts there and in `tied` too. */
   places: number[];
+  tied: number[];
   avgPlace: number | null;
 }
 
 /** A deck's record over the given tables. */
 export function deckRecord(tables: TableView[], deck: string, pod = 4): DeckRecord {
-  const r: DeckRecord = { played: 0, scored: 0, wins: 0, places: Array(pod).fill(0), avgPlace: null };
+  const r: DeckRecord = { played: 0, scored: 0, wins: 0, places: Array(pod).fill(0), tied: Array(pod).fill(0), avgPlace: null };
   let sum = 0;
   for (const t of tables) {
     for (const g of t.games) {
@@ -77,8 +96,9 @@ export function deckRecord(tables: TableView[], deck: string, pod = 4): DeckReco
       r.scored += 1;
       sum += p;
       if (g.winner === s && g.end === "win") r.wins += 1;
-      const at = Math.min(pod, Math.max(1, Math.floor(p))) - 1;
+      const at = Math.min(pod, placeOf(g, s)?.place ?? pod) - 1;
       r.places[at] = (r.places[at] ?? 0) + 1;
+      if (placeOf(g, s)?.tied) r.tied[at] = (r.tied[at] ?? 0) + 1;
     }
   }
   r.avgPlace = r.scored ? sum / r.scored : null;

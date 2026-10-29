@@ -703,7 +703,7 @@ function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engi
             field have only a handful; under {FEW_GAMES} games a pair can't tell you much. Open a pair to see its tables.
           </p>
           <label>Filter pairs by deck<input value={matchupFilter} onChange={(e) => { setMatchupFilter(e.target.value); setMatchupPage(0); }} /></label>
-          <p className="small dim">Showing {meetings.length ? matchupPage * 200 + 1 : 0}–{Math.min((matchupPage + 1) * 200, meetings.length)} of {meetings.length} pairs. This is finish order at four-player tables, not a 1v1 win rate.</p>
+          <p className="small dim">Showing {meetings.length ? matchupPage * 200 + 1 : 0}–{Math.min((matchupPage + 1) * 200, meetings.length)} of {meetings.length} pairs. {v.pod === 2 ? "In a 1v1 run this is the same as who won." : "This is finish order at four-player tables, not a 1v1 win rate."}</p>
           <div className="lab-scroll">
             <table className="plain small lab-h2h">
               <thead>

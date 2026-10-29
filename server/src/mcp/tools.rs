@@ -1089,6 +1089,10 @@ async fn lab_tables(pool: &SqlitePool, user: &User, id: &str, engine: Option<&st
     let entrant = match deck {
         None => None,
         Some(d) => {
+            let own: Option<i64> = sqlx::query_scalar("SELECT 1 FROM lab_experiments WHERE id = ? AND owner_id = ?").bind(id).bind(&user.id).fetch_optional(pool).await?;
+            if own.is_none() {
+                return Err(AppError::NotFound("experiment"));
+            }
             let names: Vec<(String, String)> = sqlx::query_as(
                 "SELECT json_extract(o.value, '$.id'), json_extract(o.value, '$.label') FROM lab_experiments e, json_each(e.spec, '$.entrants') o WHERE e.id = ? AND e.owner_id = ?",
             )
@@ -1097,14 +1101,18 @@ async fn lab_tables(pool: &SqlitePool, user: &User, id: &str, engine: Option<&st
             .fetch_all(pool)
             .await?;
             let low = d.to_lowercase();
-            let exact: Vec<&(String, String)> = names.iter().filter(|(i, l)| i == d || l.to_lowercase() == low).collect();
-            let partial: Vec<&(String, String)> = names.iter().filter(|(_, l)| l.to_lowercase().contains(&low)).collect();
-            match (exact.as_slice(), partial.as_slice()) {
-                ([one, ..], _) | ([], [one]) => Some(one.0.clone()),
-                ([], []) => return Err(AppError::bad(format!("No deck in this run is called \"{d}\""))),
-                ([], many) => {
-                    let list: Vec<&str> = many.iter().take(8).map(|(_, l)| l.as_str()).collect();
-                    return Err(AppError::bad(format!("\"{d}\" matches {} decks ({}); give the full name or its entrant id", many.len(), list.join(", "))));
+            let listed = |m: &[&(String, String)]| m.iter().take(8).map(|(i, l)| format!("{l} ({i})")).collect::<Vec<_>>().join(", ");
+            // An entrant id wins; then a name only when exactly one deck has it, or contains it.
+            if let Some((i, _)) = names.iter().find(|(i, _)| i.eq_ignore_ascii_case(d)) {
+                Some(i.clone())
+            } else {
+                let exact: Vec<&(String, String)> = names.iter().filter(|(_, l)| l.to_lowercase() == low).collect();
+                let partial: Vec<&(String, String)> = names.iter().filter(|(_, l)| l.to_lowercase().contains(&low)).collect();
+                let pick = if exact.is_empty() { &partial } else { &exact };
+                match pick.as_slice() {
+                    [one] => Some(one.0.clone()),
+                    [] => return Err(AppError::bad(format!("No deck in this run is called \"{d}\""))),
+                    many => return Err(AppError::bad(format!("\"{d}\" matches {} decks: {}; give its entrant id", many.len(), listed(many)))),
                 }
             }
         }
@@ -1113,7 +1121,7 @@ async fn lab_tables(pool: &SqlitePool, user: &User, id: &str, engine: Option<&st
     let label = |d: &str| t.decks.iter().find(|x| x.id == d).map_or_else(|| d.to_string(), |x| x.label.clone());
     let mut out = format!(
         "{} table{} on {}{}. A table is the same decks for a block of games, a seat apart. Turns count every player's turn. \
-         Places are 1 for the winner; tied players share the mean of their places.\n",
+         Each seat is listed best first with its place (1 is the winner; \"tied 2\" when several shared it).\n",
         t.tables.len(),
         if t.tables.len() == 1 { "" } else { "s" },
         t.engine,
@@ -1136,7 +1144,12 @@ async fn lab_tables(pool: &SqlitePool, user: &User, id: &str, engine: Option<&st
             let seats: Vec<String> = order
                 .iter()
                 .map(|&s| {
-                    let place = g.places[s].map(|p| if p.fract() == 0.0 { format!("{p:.0}") } else { format!("{p:.1}") });
+                    // Tied players share the mean of their places: name the place the tie starts at.
+                    let place = g.places[s].map(|p| {
+                        let better = g.places.iter().flatten().filter(|o| **o < p).count();
+                        let tied = g.places.iter().flatten().filter(|o| **o == p).count() > 1;
+                        format!("{}{}", if tied { "tied " } else { "" }, better + 1)
+                    });
                     let went = (s + n - first) % n + 1;
                     let how = if g.winner == Some(s as u8) && g.end.as_deref() == Some("win") {
                         "won".to_string()

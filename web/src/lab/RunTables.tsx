@@ -10,7 +10,7 @@ import { enginesOf } from "./engines";
 import { LabHead } from "./LabLayout";
 import { pct, pctRange, placeText } from "./logic";
 import { ArtPanel } from "./parts";
-import { FEW_GAMES, deckRecord, endText, filterTables, labeller, placeBadge, rivalText, rivals, seatOf, seatText, turnOrder, wilson90, type TableFilter } from "./tables";
+import { FEW_GAMES, deckRecord, endText, filterTables, labeller, placeBadge, placeOf, rivalText, rivals, seatOf, seatText, turnOrder, wilson90, type TableFilter } from "./tables";
 import "./tables.css";
 
 /** `?engine=forge` picks a "both" run's Forge half; anything else is the run's first engine. */
@@ -37,20 +37,37 @@ export function tablePath(run: string, table: number, engine?: string): string {
   return `/lab/runs/${run}/tables/${table}${engine ? `?engine=${engine}` : ""}`;
 }
 
+const LIVE = new Set(["queued", "running"]);
+
+/** The run, polled every 5 s while it plays, as the run page does. */
 function useRun(id: string | undefined) {
-  return useQuery({ queryKey: ["lab", "experiment", id], queryFn: () => api<ExperimentDetail>(`/api/lab/experiments/${id}`) });
+  return useQuery({
+    queryKey: ["lab", "experiment", id],
+    queryFn: () => api<ExperimentDetail>(`/api/lab/experiments/${id}`),
+    refetchInterval: (q) => (q.state.data && LIVE.has(q.state.data.status) ? 5000 : false),
+  });
 }
 
-function useTables(id: string | undefined, engine: string, filter: { entrant?: string; table?: number }, enabled: boolean) {
+/** The tables, fetched again whenever the run's game count moves. */
+function useTables(id: string | undefined, engine: string, filter: { entrant?: string; table?: number }, done: number | undefined, enabled: boolean) {
   const q = new URLSearchParams({ engine });
   if (filter.entrant) q.set("entrant", filter.entrant);
   if (filter.table) q.set("table", String(filter.table));
   return useQuery({
-    queryKey: ["lab", "tables", id, q.toString()],
+    queryKey: ["lab", "tables", id, q.toString(), done ?? 0],
     queryFn: () => api<Tables>(`/api/lab/experiments/${id}/tables?${q}`),
     enabled,
+    placeholderData: (prev) => prev,
   });
 }
+
+/** Players at each of the run's tables (4, or 2 for a 1v1 head to head). */
+function podOf(e: ExperimentDetail | undefined): number {
+  return e?.label.pod ?? 4;
+}
+
+const COUNT = ["no", "one", "two", "three", "four", "five", "six"];
+const count = (n: number) => COUNT[n] ?? String(n);
 
 /** A small commander-art tile for a deck at a table; the page credits the artists once. */
 function DeckTile({ deck, to, mark, children }: { deck: TableDeck | undefined; to?: string; mark?: boolean; children?: ReactNode }) {
@@ -91,7 +108,7 @@ export function RunDeckPage() {
   const run = useRun(id);
   const e = run.data;
   const engine = useEngine(e);
-  const tables = useTables(id, engine, { entrant: deck }, !!e);
+  const tables = useTables(id, engine, { entrant: deck }, e?.progress.done, !!e);
   const [filter, setFilter] = useState<TableFilter>("all");
   const [rivalSearch, setRivalSearch] = useState("");
   const vs = params.get("vs");
@@ -160,13 +177,22 @@ export function RunDeckPage() {
               <div className="rt-places" aria-label="Finishing places">
                 {record.places.map((n, i) => (
                   <span key={i} className="rt-place-row">
-                    <span className="rt-place-name">{placeBadge(i + 1)}</span>
+                    <span className="rt-place-name">{placeText(i + 1)}</span>
                     <span className="rt-place-bar" aria-hidden="true">
                       <span style={{ width: `${(n / record.scored) * 100}%` }} className={i === 0 ? "first" : ""} />
                     </span>
                     <span className="num small">{n}</span>
                   </span>
                 ))}
+                {record.tied.some((n) => n > 0) && (
+                  <span className="small dim">
+                    Shared places, counted at the place the tie started:{" "}
+                    {record.tied
+                      .map((n, i) => (n ? `${n} at ${placeText(i + 1)}` : ""))
+                      .filter(Boolean)
+                      .join(", ")}
+                  </span>
+                )}
               </div>
             )}
           </section>
@@ -174,7 +200,7 @@ export function RunDeckPage() {
           <section>
             <h2>Who it sat with</h2>
             <p className="small dim">
-              Finish order between the two decks in the games they shared, whoever won. Under {FEW_GAMES} games a pair says very little: one table is 4 games.
+              Finish order between the two decks in the games they shared, whoever won. Under {FEW_GAMES} games a pair says very little: one table is {podOf(e)} games.
             </p>
             {met.length > 8 && (
               <label className="small">
@@ -225,7 +251,7 @@ export function RunDeckPage() {
               )}
             </div>
             <p className="small dim">
-              {shown.length} of {all.length} {all.length === 1 ? "table" : "tables"}. Each table is the same four decks for {data.tables[0]?.games.length ?? 4} games, a seat apart, so every deck goes first once.
+              {shown.length} of {all.length} {all.length === 1 ? "table" : "tables"}. Each table is the same {count(podOf(e))} decks for {podOf(e)} games, a seat apart, so every deck goes first once.
             </p>
             <ul className="rt-tables">
               {shown.map((t) => (
@@ -242,7 +268,7 @@ export function RunDeckPage() {
   );
 }
 
-/** A table in a deck's list: the four commanders, then that deck's place in each game. */
+/** A table in a deck's list: its commanders, then that deck's place in each game. */
 function TableCard({ t, deck, decks, to, label }: { t: TableView; deck: string; decks: Map<string, TableDeck>; to: string; label: (id: string) => string }) {
   const others = t.decks.filter((d) => d !== deck);
   return (
@@ -260,7 +286,7 @@ function TableCard({ t, deck, decks, to, label }: { t: TableView; deck: string; 
         {t.games.map((g) => {
           const s = seatOf(g, deck);
           const won = g.played && g.end === "win" && g.winner === s;
-          const text = !g.played ? "Not yet" : g.scored ? placeBadge(g.places[s]) : "Unscored";
+          const text = !g.played ? "Not yet" : g.scored ? placeBadge(placeOf(g, s)) : "Unscored";
           return (
             <span key={g.game} className={`rt-pill${won ? " won" : ""}${!g.scored ? " faint" : ""}`}>
               {text}
@@ -272,14 +298,14 @@ function TableCard({ t, deck, decks, to, label }: { t: TableView; deck: string; 
   );
 }
 
-/** One table: its four decks, how each did there, and every game seat by seat in turn order. */
+/** One table: its decks, how each did there, and every game seat by seat in turn order. */
 export function RunTablePage() {
   const { id, table = "" } = useParams();
   const run = useRun(id);
   const e = run.data;
   const engine = useEngine(e);
   const n = Number(table);
-  const tables = useTables(id, engine, { table: n }, !!e && Number.isInteger(n) && n > 0);
+  const tables = useTables(id, engine, { table: n }, e?.progress.done, !!e && Number.isInteger(n) && n > 0);
   if (!e || run.error) return <Wait id={id} error={run.error} />;
   const data = tables.data;
   const t = data?.tables[0];
@@ -315,8 +341,8 @@ export function RunTablePage() {
             })}
           </section>
           <p className="small dim">
-            The same four decks played {t.games.length} games, each starting from a new shuffle, rotating a seat each time so every deck went first once. Turns count every player's turn, so a
-            round of four players is four turns.
+            The same {count(t.decks.length)} decks played {t.games.length} games, each starting from a new shuffle, rotating a seat each time so every deck went first once. Turns count every
+            player's turn, so a round of {count(t.decks.length)} players is {count(t.decks.length)} turns.
           </p>
           <ol className="rt-games">
             {t.games.map((g, i) => (
@@ -350,7 +376,7 @@ function GameCard({ g, n, of, decks, label }: { g: TableGame; n: number; of: num
             const won = g.end === "win" && g.winner === s;
             return (
               <li key={s} className={won ? "won" : ""}>
-                <span className="rt-place">{g.scored ? placeBadge(g.places[s]) : ""}</span>
+                <span className="rt-place">{placeBadge(placeOf(g, s))}</span>
                 <SharedArtPanel as="span" className="rt-thumb" art={decks.get(d)?.art?.url} wash="bottom" credit={false} />
                 <span className="rt-finish-name">
                   <b>{label(d)}</b>

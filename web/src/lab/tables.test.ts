@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TableGame, TableView } from "./api";
-import { wilson90, deckRecord, endText, filterTables, placeBadge, rivalText, rivals, seatText, turnOrder } from "./tables";
+import { placeOf, wilson90, deckRecord, endText, filterTables, placeBadge, rivalText, rivals, seatText, turnOrder } from "./tables";
 
 function game(seats: string[], o: Partial<TableGame> = {}): TableGame {
   return {
@@ -51,17 +51,28 @@ describe("a run's tables", () => {
     expect(endText(t.games[3]!, label)).toBe("Not played yet");
   });
 
-  it("names places, tied ones too", () => {
-    expect(placeBadge(1)).toBe("1st");
-    expect(placeBadge(2.5)).toBe("Tied 2nd");
-    expect(placeBadge(null)).toBe("");
+  it("names places, tied ones by the place their group started at", () => {
+    const g = t.games[0]!;
+    expect(placeBadge(placeOf(g, 0))).toBe("1st");
+    expect(placeBadge(placeOf(g, 3))).toBe("4th");
+    // Two survivors at the cap share 1st and 2nd (1.5 each); the server sends the mean.
+    expect(placeBadge(placeOf(t.games[2]!, 0))).toBe("Tied 2nd");
+    expect(placeBadge(placeOf(t.games[2]!, 2))).toBe("1st");
+    // A winner and three survivors: 1, 3, 3, 3 is a win and a three-way tie for 2nd.
+    const three = game(["a", "b", "c", "d"], { places: [1, 3, 3, 3] });
+    expect([0, 1, 2, 3].map((s) => placeBadge(placeOf(three, s)))).toEqual(["1st", "Tied 2nd", "Tied 2nd", "Tied 2nd"]);
+    // Four out together: 2.5 each, a four-way tie for 1st.
+    expect(placeBadge(placeOf(game(["a", "b", "c", "d"], { end: "draw", winner: null, places: [2.5, 2.5, 2.5, 2.5] }), 1))).toBe("Tied 1st");
+    expect(placeBadge(placeOf(t.games[3]!, 0))).toBe("");
   });
 
   it("adds up a deck's record from its seats, leaving out unplayed games", () => {
     const a = deckRecord([t], "a");
-    expect(a).toMatchObject({ played: 3, scored: 3, wins: 1, places: [2, 1, 0, 0] });
+    expect(a).toMatchObject({ played: 3, scored: 3, wins: 1, places: [2, 1, 0, 0], tied: [0, 0, 0, 0] });
     expect(a.avgPlace).toBeCloseTo((1 + 2 + 1) / 3);
-    expect(deckRecord([t], "b")).toMatchObject({ wins: 1, places: [1, 1, 0, 1] });
+    // b: 2nd, then won, then 4th at the cap; c tied for 2nd there.
+    expect(deckRecord([t], "b")).toMatchObject({ wins: 1, places: [1, 1, 0, 1], tied: [0, 0, 0, 0] });
+    expect(deckRecord([t], "c")).toMatchObject({ places: [0, 1, 2, 0], tied: [0, 1, 0, 0] });
   });
 
   it("counts who finished above whom, whoever won", () => {
