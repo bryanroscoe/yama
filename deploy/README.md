@@ -31,7 +31,8 @@ Follow [Releasing Yama](RELEASING.md) before a first deploy or update: fetch Git
    is recovered from the existing secret; conflicting or empty paired secrets require
    explicit repair and are never silently rotated.
 5. A genuinely empty installation (no Yama container and no database/WAL files) can
-   start without a backup. A rebuild containing a database must first restore a running
+   start without a backup when using the default database settings and standard /data
+   bind. Custom database URLs/data mounts and a rebuild containing a database must first restore a running
    Yama container using the recovery instructions so its mandatory backup can succeed.
    A missing container never makes an existing database disposable. Builds and attempt
    records live under `/mnt/user/appdata/yama-release`, as described in the runner guide.

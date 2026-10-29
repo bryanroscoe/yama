@@ -70,7 +70,8 @@ server-local. Missing sidecar env files/pairs are initialized once under the hos
 existing credentials and custom settings are never rotated. Conflicting/empty pairs
 require explicit repair. The pre-release SQLite backup is mandatory for any existing
 database. Only an empty first installation with no Yama container or database/WAL
-files can initialize without one; rebuilds with data require a running backup source. Every container must run the
+files can initialize without one, and only with the default database path and standard
+/data bind. Custom database settings/mounts and rebuilds with data require a running backup source. Every container must run the
 expected image ID with Docker health `healthy`; `/api/health` must return plain-text
 `ok`. A failed build/backup preserves the existing deployment. Failure after activation
 is recorded as failure and requires inspection, never an automatic database restore.

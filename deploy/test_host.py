@@ -104,8 +104,10 @@ class HostGate(unittest.TestCase):
         self.assertEqual(args[args.index('--project-name') + 1], 'yama')
 
     def resolved(self, images=None):
-        return json.dumps({'services': {s: {'image': image} for s, image in
-                                      zip(host.SERVICES, images or ['id'] * 3)}})
+        services = {s: {'image': image} for s, image in zip(host.SERVICES, images or ['id'] * 3)}
+        services['yama'].update(environment={}, volumes=[{
+            'type': 'bind', 'source': str(self.app / 'data'), 'target': '/data'}])
+        return json.dumps({'services': services})
 
     def test_backup_failure_prevents_config_replacement_and_restart(self):
         source = self.root / 'source'
@@ -266,6 +268,26 @@ class HostGate(unittest.TestCase):
             run.assert_not_called()
             self.assertEqual(compose.call_count, 1)
         self.assertEqual((self.app / 'data/yama.db').read_text(), 'existing data')
+
+    def test_custom_database_or_nonstandard_mount_never_takes_fresh_install_path(self):
+        source = self.activation_fixture()
+        (self.app / 'data/custom.db').write_text('restored data')
+        variants = [
+            {'environment': {'DATABASE_URL': 'sqlite:///data/custom.db'}},
+            {'environment': {'YAMA_DATA_DIR': '/custom-data'}},
+            {'volumes': [{'type': 'bind', 'source': '/different/data', 'target': '/data'}]},
+        ]
+        for variant in variants:
+            config = json.loads(self.resolved())
+            config['services']['yama'].update(variant)
+            with self.subTest(variant=variant), patch.object(host, 'compose', return_value=json.dumps(config)) as compose, \
+                 patch.object(host, 'existing_images', return_value={s: None for s in host.SERVICES}), \
+                 patch.object(host, 'run') as run:
+                with self.assertRaisesRegex(host.Refused, 'Custom database settings'):
+                    host.activate(source, SHA, ['id'] * 3, {}, self.base / 'record.json', 'token')
+                run.assert_not_called()
+                self.assertEqual(compose.call_count, 1)
+        self.assertEqual((self.app / 'data/custom.db').read_text(), 'restored data')
 
     def test_first_install_with_no_database_can_start_without_backup(self):
         source = self.activation_fixture()

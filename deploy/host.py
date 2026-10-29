@@ -301,7 +301,15 @@ def activate(source, revision, images, record, record_path, token):
     previous = {'images': existing_images(),
                 'compose': (APP / 'compose.yaml').read_text() if (APP / 'compose.yaml').exists() else None}
     if previous['images']['yama'] is None:
-        if any((APP / 'data').glob('yama.db*')):
+        service = resolved['services']['yama']
+        settings = service.get('environment', {})
+        mounts = [mount for mount in service.get('volumes', []) if mount.get('target') == '/data']
+        if (settings.get('DATABASE_URL') or settings.get('YAMA_DATA_DIR', '/data') != '/data'
+                or len(mounts) != 1 or mounts[0].get('type') != 'bind'
+                or Path(mounts[0].get('source', '')).resolve() != (APP / 'data').resolve()):
+            raise Refused('Custom database settings or data mount require a running backup source')
+        if (any((APP / 'data').glob('*.db*'))
+                or any((APP / 'data').glob('*.sqlite*'))):
             raise Refused('Existing database requires a running Yama backup before activation')
         # No database has ever been created. Existing database/WAL files never
         # take this path, including a rebuild whose container is missing.
