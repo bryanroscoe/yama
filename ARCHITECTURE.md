@@ -131,14 +131,17 @@ should be enabled for the repository. An unavailable cloud reviewer is disclosed
 by an independent Codex agent review. Event-driven PR monitoring resumes pending work through
 merge rather than leaving an unmonitored handoff. See `AGENTS.md` and `deploy/RELEASING.md`.
 
-**Test CI (2026-10-27):** `.github/workflows/ci.yml` runs automatically for PRs into main and
-main pushes, with a manual trigger for diagnosis. GitHub-hosted Ubuntu jobs run the locked Rust
-workspace and Python regressions, plus clean-installed web tests/typecheck/build. Rust builds
-the exact private Phase pin through a dedicated read-only deploy key, using the real sibling
-Cargo paths. The Rust job adds 4 GiB of ephemeral swap and logs build resource usage for
-the large cold engine build. Both jobs must pass on the PR before merge. The successful main-push run gates automatic production deployment;
-the opt-in lab simulation workflow remains separate. Setup and evidence boundaries:
-`docs/ci.md`.
+**Test CI (Bryan, 2026-10-29):** `.github/workflows/ci.yml` runs automatically for PRs into
+main and main pushes, with a manual trigger for diagnosis. Both jobs run on the separate
+`saget-yama-ci` container after hosted jobs hit an account billing block. It runs one job at a
+time, capped at two CPUs/12 GiB, with preinstalled Rust 1.98.1 and Node 22. Locked Rust and
+Python regressions plus clean-installed web tests/typecheck/build retain the same acceptance
+checks. Rust builds the exact private Phase pin through a read-only deploy key and real sibling
+Cargo paths. A dedicated persistent Cargo/npm cache is separate from production; job checkouts,
+dependencies and temporary files are removed after post-actions. No Docker socket, production
+mounts or deployment key enter CI. Both jobs must pass on the actual PR before merge. Successful
+main-push CI gates automatic production deployment; the opt-in hosted lab simulation workflow
+remains separate. Setup, maintenance and evidence boundaries: `docs/ci.md`.
 
 **Automatic deployment (Bryan, 2026-10-28):** successful push CI on current GitHub main
 triggers `.github/workflows/deploy.yml` on the dedicated saget production runner. Merging

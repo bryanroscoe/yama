@@ -18,7 +18,8 @@ Pause deployments by stopping `yama-deploy-runner` on saget; CI and PRs keep wor
 - The host entrypoint lives outside runner-writable paths. It checks GitHub itself:
   exact current main, latest push CI for that SHA, the CI workflow identity, success,
   branch, event and source repository. A PR job cannot grant itself deployment access
-  merely by selecting the runner label. Keep ordinary CI on GitHub-hosted machines.
+  merely by selecting the runner label. Ordinary CI uses a separate `yama-ci` runner,
+  state/cache and container with no deployment key; see [CI setup](../docs/ci.md).
 - Yama Git/API access uses the request's ephemeral token, only in memory/per-process
   git configuration. Phase uses a separate server-only read-only deploy key. Tokens
   never enter Docker contexts, application environments, logs, or command arguments.
