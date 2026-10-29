@@ -26,18 +26,28 @@ export function describe(before: TableState, after: TableState, e: TableEvent): 
     case "life":
       if (e.delta === 0) return null;
       return `${name(e.seat)} ${e.delta < 0 ? "lost" : "gained"} ${plural(Math.abs(e.delta), "life", "life")}, now ${now(e.seat)?.life}.`;
-    case "poison":
-      return `${name(e.seat)} ${e.delta > 0 ? "got" : "lost"} ${plural(Math.abs(e.delta), "poison counter")}, now ${now(e.seat)?.poison}.`;
+    case "poison": {
+      // What was applied, not what was tapped: totals stop at 0.
+      const moved = (now(e.seat)?.poison ?? 0) - (before.players.find((p) => p.seat === e.seat)?.poison ?? 0);
+      if (moved === 0) return null;
+      return `${name(e.seat)} ${moved > 0 ? "got" : "lost"} ${plural(Math.abs(moved), "poison counter")}, now ${now(e.seat)?.poison}.`;
+    }
     case "commander_damage": {
       const from = before.players.find((p) => p.seat === keySeat(e.source));
       const cmdr = sourceName(before, e.source) ?? `${from?.name ?? "a"}'s commander`;
       const total = now(e.seat)?.commanderDamage[e.source] ?? 0;
-      return e.delta > 0
-        ? `${name(e.seat)} took ${e.delta} commander damage from ${cmdr}, ${total} in all.`
-        : `${plural(-e.delta, "point")} of ${cmdr}'s commander damage to ${name(e.seat)} taken back.`;
+      const moved = total - (before.players.find((p) => p.seat === e.seat)?.commanderDamage[e.source] ?? 0);
+      if (moved === 0) return null;
+      return moved > 0
+        ? `${name(e.seat)} took ${moved} commander damage from ${cmdr}, ${total} in all.`
+        : `${plural(-moved, "point")} of ${cmdr}'s commander damage to ${name(e.seat)} taken back.`;
     }
-    case "counter":
-      return `${name(e.seat)} ${e.delta > 0 ? "got" : "lost"} ${Math.abs(e.delta)} ${e.counter}, now ${now(e.seat)?.counters[e.counter] ?? 0}.`;
+    case "counter": {
+      const after = now(e.seat)?.counters[e.counter] ?? 0;
+      const moved = after - (before.players.find((p) => p.seat === e.seat)?.counters[e.counter] ?? 0);
+      if (moved === 0) return null;
+      return `${name(e.seat)} ${moved > 0 ? "got" : "lost"} ${Math.abs(moved)} ${e.counter}, now ${after}.`;
+    }
     case "commander_cast": {
       const p = now(e.seat);
       const cmdr = (e.partner ? p?.partnerName : p?.commanderName) ?? "their commander";

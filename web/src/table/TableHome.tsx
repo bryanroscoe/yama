@@ -280,7 +280,17 @@ function NewGame({ onStart }: { onStart: () => void }) {
       group,
       decks: s.userId && s.userId === me.data?.id ? decks.data : undefined,
       deckName: decks.data?.find((d) => d.id === s.deckId)?.name,
-      people: people.filter((p) => !seats.some((o, j) => j !== i && o.name.trim().toLowerCase() === p.name.toLowerCase())),
+      // Not someone already sitting elsewhere: the same member or account, or the same guest name.
+      people: people.filter(
+        (p) =>
+          !seats.some((o, j) =>
+            j === i
+              ? false
+              : p.memberId || p.userId
+                ? (!!p.memberId && o.memberId === p.memberId) || (!!p.userId && !p.memberId && o.userId === p.userId)
+                : !o.memberId && !o.userId && o.name.trim().toLowerCase() === p.name.toLowerCase(),
+          ),
+      ),
       commander: format === "commander",
     };
   };
@@ -435,11 +445,16 @@ function usePeople(group: Playgroup | undefined, groups: Playgroup[] | undefined
   const me = useMe().data;
   const games = useQuery({ queryKey: ["games"], queryFn: () => api<GameRow[]>("/api/games") });
   const out: Person[] = [];
-  const seen = new Set<string>();
+  const names = new Set<string>();
+  const ids = new Set<string>();
+  // Members and accounts are told apart by id (two Alexes in a group are two people); a bare
+  // name (another group's member, someone from a past game) only if no one listed has it yet.
   const add = (p: Person) => {
-    const k = p.name.trim().toLowerCase();
-    if (!k || seen.has(k)) return;
-    seen.add(k);
+    const name = p.name.trim().toLowerCase();
+    const id = p.memberId ?? p.userId;
+    if (!name || (id ? ids.has(id) : names.has(name))) return;
+    if (id) ids.add(id);
+    names.add(name);
     out.push(p);
   };
   if (group) {

@@ -44,6 +44,18 @@ describe("table history", () => {
     ]);
   });
 
+  it("says what was applied when a take-back goes past 0", () => {
+    const lines = history(setup, log([
+      { type: "commander_damage", seat: 1, source: "0", delta: 3 },
+      { type: "commander_damage", seat: 1, source: "0", delta: -10 },
+      { type: "poison", seat: 1, delta: -2 },
+    ]));
+    expect(lines.map((l) => l.text)).toEqual([
+      "Sam took 3 commander damage from Tana, the Bloodsower, 3 in all.",
+      "3 points of Tana, the Bloodsower's commander damage to Sam taken back.",
+    ]);
+  });
+
   it("sums up a game in progress without middle dots", () => {
     const s = replay(setup, log([{ type: "pass_turn" }]));
     expect(gameSummary(s)).toBe("Commander game on turn 1. Sam's turn.");
