@@ -57,7 +57,8 @@ changing the variable does not clear a billing block.
 Hosted jobs install Node 22 and Rust 1.98.1, with eight GiB of swap on their
 one-use VM for the engine compiler. Saget uses its preinstalled tools and persistent
 cache, with no sudo or host swap changes. Tests and deployment authorization are
-identical on both backends.
+identical on both backends. The local job budget includes time waiting for the
+shared compute slot; hosted job budgets retain their previous limits.
 
 ## Manage saget workers
 
