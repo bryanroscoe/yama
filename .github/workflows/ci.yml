@@ -87,6 +87,7 @@ jobs:
         run: |
           rustup toolchain install 1.98.1 --profile minimal
           echo 'RUSTUP_TOOLCHAIN=1.98.1' >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/cargo-target"
           echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
           # Only the disposable hosted VM may create swap. Saget has no sudo.
           sudo fallocate -l 8G /swapfile-yama-ci

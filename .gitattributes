@@ -1,0 +1,4 @@
+
+# Mail patches contain required single-space diff context markers. Their source
+# changes are whitespace-checked in the Phase repository before export.
+patches/phase/*.patch -whitespace
