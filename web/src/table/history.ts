@@ -50,6 +50,9 @@ export function describe(before: TableState, after: TableState, e: TableEvent): 
     }
     case "commander_cast": {
       const p = now(e.seat);
+      const was = before.players.find((x) => x.seat === e.seat);
+      // A take-back at 0 casts changed nothing.
+      if (p && was && (e.partner ? p.partnerCasts === was.partnerCasts : p.commanderCasts === was.commanderCasts)) return null;
       const cmdr = (e.partner ? p?.partnerName : p?.commanderName) ?? "their commander";
       return e.delta > 0 ? `${name(e.seat)} cast ${cmdr}. Tax is now +${p ? commanderTax(p, !!e.partner) : 0}.` : `${name(e.seat)}'s cast of ${cmdr} taken back.`;
     }

@@ -49,6 +49,7 @@ describe("table history", () => {
       { type: "commander_damage", seat: 1, source: "0", delta: 3 },
       { type: "commander_damage", seat: 1, source: "0", delta: -10 },
       { type: "poison", seat: 1, delta: -2 },
+      { type: "commander_cast", seat: 1, delta: -1 },
     ]));
     expect(lines.map((l) => l.text)).toEqual([
       "Sam took 3 commander damage from Tana, the Bloodsower, 3 in all.",

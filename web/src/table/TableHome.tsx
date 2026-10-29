@@ -602,7 +602,8 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
           const day = new Date(g.started_at);
           return (
             <li key={g.id}>
-              <Link className="rg-row" to={`/table/games/${g.id}`} aria-label={`${text.title}${text.with ? ` with ${text.with}` : ""}, ${day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}. Details`}>
+              {/* An online game keeps its replay with the online board; a table game has its own page. */}
+              <Link className="rg-row" to={g.mode === "in_person" ? `/table/games/${g.id}` : `/play/${g.id}`} aria-label={`${text.title}${text.with ? ` with ${text.with}` : ""}, ${day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}. Details`}>
               {winner ? (
                 <span className="rg-art">{a?.art && <img src={a.art} alt="" loading="lazy" />}</span>
               ) : (
