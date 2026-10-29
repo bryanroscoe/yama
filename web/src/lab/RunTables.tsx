@@ -39,12 +39,16 @@ export function tablePath(run: string, table: number, engine?: string): string {
 
 const LIVE = new Set(["queued", "running"]);
 
-/** The run, polled every 5 s while it plays, as the run page does. */
+/** The run, polled every 5 s while it plays and after a cancel until its last games are in, as the run page does. */
 function useRun(id: string | undefined) {
   return useQuery({
     queryKey: ["lab", "experiment", id],
     queryFn: () => api<ExperimentDetail>(`/api/lab/experiments/${id}`),
-    refetchInterval: (q) => (q.state.data && LIVE.has(q.state.data.status) ? 5000 : false),
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      if (!d) return false;
+      return LIVE.has(d.status) || (d.status === "cancelled" && d.summary && !d.summary.verdict.final) ? 5000 : false;
+    },
   });
 }
 
@@ -115,7 +119,8 @@ export function RunDeckPage() {
   const data = tables.data;
   const label = useMemo(() => labeller(data?.decks ?? []), [data]);
   const all = data?.tables ?? [];
-  const record = useMemo(() => deckRecord(all, deck), [all, deck]);
+  const pod = podOf(e);
+  const record = useMemo(() => deckRecord(all, deck, pod), [all, deck, pod]);
   const met = useMemo(() => rivals(all, deck, label), [all, deck, label]);
   if (!e || run.error) return <Wait id={id} error={run.error} />;
   const me = data?.decks.find((d) => d.id === deck);

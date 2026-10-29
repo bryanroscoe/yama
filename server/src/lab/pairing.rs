@@ -312,11 +312,13 @@ pub fn schedule_versus(
 /// A shared field: least-used entrants first, then least-met opponents, with seeded tie breaks.
 /// Each chosen quartet plays four fresh-seed games, once in every seat. Appearances are rounded
 /// up to a multiple of four; a non-multiple-of-four field can overshoot a target by four games.
-/// `families` gives each entrant a group (versions of one deck share one). One from a group already
-/// at the table is taken only when every other candidate is more than a table's appearances past
-/// the least-used deck: the slack keeps versions apart in any field that allows it while appearances
-/// still end at most four past the target (a field like A, A, B, C, D can't keep the As apart for
-/// ever without B, C and D playing twice as often, so there they meet now and then).
+/// `families` gives each entrant a group (versions of one deck share one). Balance comes first:
+/// taking the least-used keeps every deck within four appearances of every other, which is what
+/// keeps each within four of the target. Among the equally used, one whose group is already at
+/// the table comes last, and the biggest groups go first so their versions spread over the
+/// tables. Two versions share a table only when the equally used candidates leave no other choice;
+/// some fields force it (in A, A, B, C, D the As can't always sit apart unless B, C and D play
+/// twice as often), and a field with a few versions among many decks never does.
 #[allow(clippy::too_many_arguments)]
 pub fn schedule_tournament(run: &str, entrants: &[String], families: &[usize], target: usize, seed: u64, difficulty: &str, limits: &Limits) -> Vec<ScheduledGame> {
     assert!(entrants.len() >= POD && target > 0);
@@ -328,12 +330,13 @@ pub fn schedule_tournament(run: &str, entrants: &[String], families: &[usize], t
     let mut games = Vec::new();
     while used.iter().any(|u| *u < target) {
         let mut group = Vec::with_capacity(POD);
-        let least = used.iter().copied().min().unwrap_or(0);
         for _ in 0..POD {
             let kin = |i: usize| group.iter().any(|j: &usize| families[*j] == families[i]);
+            // Others of its group as used as it and still free: the bigger, the sooner.
+            let peers = |i: usize| (0..n).filter(|&j| j != i && families[j] == families[i] && used[j] == used[i] && !group.contains(&j)).count();
             let best = (0..n).filter(|i| !group.contains(i)).map(|i| {
                 let met: usize = group.iter().map(|j: &usize| meetings[i][*j]).sum();
-                ((used[i] > least + POD, kin(i), used[i], met, rng.next_u64()), i)
+                ((used[i], kin(i), std::cmp::Reverse(peers(i)), met, rng.next_u64()), i)
             }).min_by_key(|(cost, _)| *cost).expect("four distinct entrants").1;
             group.push(best);
         }
@@ -551,25 +554,30 @@ mod tournament_tests {
             }
         }
         assert!(used.iter().all(|u| (100..=104).contains(u)), "appearances stay balanced: {used:?}");
-        // A small field with spare families keeps versions apart too (Codex review of PR 28).
-        let ids9: Vec<String> = (0..9).map(|i| format!("e{i}")).collect();
-        let fam9 = [0, 0, 1, 2, 3, 4, 5, 6, 7];
+        // Small fields (Codex and the independent review of PR 28): balance always holds, and a
+        // field that can seat every version apart does, whatever the seed.
+        let check = |fam: &[usize], seed: u64| {
+            let ids: Vec<String> = (0..fam.len()).map(|i| format!("e{i}")).collect();
+            let mut used = vec![0usize; fam.len()];
+            let mut shared = 0;
+            for g in schedule_tournament("test", &ids, fam, 100, seed, "Easy", &LIMITS) {
+                let ix: Vec<usize> = g.spec.decks.iter().map(|d| d[1..].parse::<usize>().unwrap()).collect();
+                if ix.iter().map(|i| fam[*i]).collect::<std::collections::HashSet<_>>().len() < 4 {
+                    shared += 1;
+                }
+                for i in ix {
+                    used[i] += 1;
+                }
+            }
+            assert!(used.iter().all(|u| (100..=104).contains(u)), "{fam:?} seed {seed}: {used:?}");
+            shared
+        };
         for seed in 0..20 {
-            for g in schedule_tournament("test", &ids9, &fam9, 100, seed, "Easy", &LIMITS) {
-                let fam: std::collections::HashSet<usize> = g.spec.decks.iter().map(|d| fam9[d[1..].parse::<usize>().unwrap()]).collect();
-                assert_eq!(fam.len(), 4, "seed {seed}: {:?}", g.spec.decks);
-            }
+            assert_eq!(check(&[0, 0, 1, 2, 3, 4, 5, 6, 7], seed), 0, "one doubled deck among nine, seed {seed}");
+            assert_eq!(check(&[0, 0, 0, 1, 1, 1, 2, 2, 3, 4, 5, 6], seed), 0, "three, three and two versions among twelve, seed {seed}");
+            check(&[0, 0, 0, 1, 2, 3, 4, 5], seed);
+            check(&[0, 0, 1, 2, 3], seed);
         }
-        // Where keeping them apart would unbalance the field, balance wins and they meet sometimes.
-        let ids5: Vec<String> = (0..5).map(|i| format!("e{i}")).collect();
-        let a5 = schedule_tournament("test", &ids5, &[0, 0, 1, 2, 3], 100, 3, "Easy", &LIMITS);
-        let mut used5 = [0usize; 5];
-        for g in &a5 {
-            for d in &g.spec.decks {
-                used5[d[1..].parse::<usize>().unwrap()] += 1;
-            }
-        }
-        assert!(used5.iter().all(|u| (100..=104).contains(u)), "{used5:?}");
         // A field that is all one deck still plays: the rule gives way when nobody else is left.
         let same = vec![0usize; 5];
         let five: Vec<String> = (0..5).map(|i| format!("e{i}")).collect();

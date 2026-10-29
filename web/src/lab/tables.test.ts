@@ -73,6 +73,9 @@ describe("a run's tables", () => {
     // b: 2nd, then won, then 4th at the cap; c tied for 2nd there.
     expect(deckRecord([t], "b")).toMatchObject({ wins: 1, places: [1, 1, 0, 1], tied: [0, 0, 0, 0] });
     expect(deckRecord([t], "c")).toMatchObject({ places: [0, 1, 2, 0], tied: [0, 1, 0, 0] });
+    // A 1v1 table has two places.
+    const duel: TableView = { table: 1, decks: ["a", "b"], games: [game(["a", "b"], { places: [1, 2] }), game(["b", "a"], { places: [1, 2] })] };
+    expect(deckRecord([duel], "a", 2)).toMatchObject({ scored: 2, wins: 1, places: [1, 1], tied: [0, 0] });
   });
 
   it("counts who finished above whom, whoever won", () => {
