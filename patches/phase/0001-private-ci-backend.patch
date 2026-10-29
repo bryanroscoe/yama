@@ -1,7 +1,7 @@
 From d7f62af3f93983e14fcd565a7aa9b8c8e1a25a78 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:04:43 -0500
-Subject: [PATCH 1/4] Adapt private fork CI to the isolated saget worker
+Subject: [PATCH 1/5] Adapt private fork CI to the isolated saget worker
 
 ---
  .github/actions/prepare-private-ci/action.yml |  28 ++++
@@ -594,7 +594,7 @@ index 0000000..6130968
 From cb43f56649df0999be42b91dd87ba9d309b29a7e Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:07:07 -0500
-Subject: [PATCH 2/4] fork: scope private automation to CI and pin stable Rust
+Subject: [PATCH 2/5] fork: scope private automation to CI and pin stable Rust
 
 ---
  .github/workflows/ai-gate.yml | 4 ++++
@@ -772,7 +772,7 @@ index 6130968..e910f8f 100644
 From 40b45dd7069a8343548eec96eaad1eb75a3e2537 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:10:01 -0500
-Subject: [PATCH 3/4] fork: rely on tool-cache configuration before listener
+Subject: [PATCH 3/5] fork: rely on tool-cache configuration before listener
  startup
 
 ---
@@ -795,7 +795,7 @@ index 39be49d..c15b2c3 100644
 From b9ba0f649658cae3890843beeb2b87ba2c659449 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:20:01 -0500
-Subject: [PATCH 4/4] fork: extract each test shard outside the persistent
+Subject: [PATCH 4/5] fork: extract each test shard outside the persistent
  target cache
 
 ---
@@ -834,3 +834,52 @@ index e910f8f..2942971 100644
  uploaded as GitHub Cargo caches. Hosted-only disk pruning never runs here.
  
  All private workers share a two-CPU/12-GiB parent and a whole-job slot with Yama
+
+From 8b6f0491e713ef035aaaef59048c588376eaf924 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:27:29 -0500
+Subject: [PATCH 5/5] fork: retain nightly for the libtest JSON archive
+ workload
+
+---
+ .github/workflows/ci.yml | 4 ++--
+ docs/private-ci.md       | 4 +++-
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 980f065..5198227 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -255,7 +255,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
+-          toolchain: '1.98.1'
++          toolchain: 'nightly-2026-04-19'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+@@ -334,7 +334,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
+-          toolchain: '1.98.1'
++          toolchain: 'nightly-2026-04-19'
+           target: wasm32-unknown-unknown
+           cache: false
+ 
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index 2942971..df80835 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -5,7 +5,9 @@ action-pin audit on saget. These remain GitHub Actions workflows with their
+ existing test commands, test shards, WASM/Android checks and AI workloads.
+ `CI_LINUX_RUNNER` selects JSON runner labels; unset retains GitHub-hosted Linux.
+ The audit follows this fork's CI workflow ID, not the upstream repository's ID.
+-CI explicitly installs stable Rust 1.98.1, matching the fork's stable-build policy.
++Production/lint/WASM/AI builds use stable Rust 1.98.1, matching the fork's
++stable-build policy. The test archive and shards retain pinned nightly-2026-04-19
++because probe-pin's existing libtest JSON tests require nightly; no tests are skipped.
+ 
+ From the `bryanroscoe/sagetserver` checkout:
+ 
