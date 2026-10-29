@@ -300,12 +300,18 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
   const name = value.commanderName ?? "";
   // A pair that came from a deck or an earlier game: the second field shows without asking.
   const showPartner = !!value.partnerName || adding;
-  const pairs = value.pairs ?? (value.partnerName ? "partner" : null);
   const mainPicked = !!value.art || !!value.ownIdentity;
-  // A pair opened mid-game knows only both colors together: look the commander up again, so a
-  // new partner's colors don't keep the old partner's.
-  const ownCard = useQuery({ queryKey: ["table-card", name], queryFn: () => cardNamed(name), enabled: !!name && !value.ownIdentity && !!value.partnerName, staleTime: Infinity });
+  // A commander opened mid-game knows only its name, art and both colors together: look the
+  // card up again (once typing settles) for its own colors and what it may pair with, so a new
+  // partner's colors don't keep the old one's and a Background stays a Background.
+  const settled = useDebounced(name, 400);
+  const needsCard = !!settled && settled === name && (value.pairs === undefined || (!value.ownIdentity && !!value.partnerName));
+  const ownCard = useQuery({ queryKey: ["table-card", settled], queryFn: () => cardNamed(settled), enabled: needsCard, staleTime: Infinity });
+  const known = value.pairs === undefined && ownCard.data ? draftFromCard(ownCard.data) : null;
   const ownId = value.ownIdentity ?? ownCard.data?.color_identity;
+  const pairs = value.pairs ?? known?.pairs ?? (value.partnerName ? "partner" : null);
+  const partnerScope = value.pairScope ?? known?.pairScope;
+  const pairsWith = value.pairsWith ?? known?.pairsWith;
   return (
     <div className="cmdr-fields">
       <CommanderSearch
@@ -340,8 +346,8 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
           <CommanderSearch
             label={pairs === "background" ? "Background" : "Partner"}
             value={value.partnerName ?? ""}
-            scope={value.pairScope ?? (pairs === "background" ? "t:background" : "is:commander")}
-            suggest={value.pairsWith}
+            scope={partnerScope ?? (pairs === "background" ? "t:background" : "is:commander")}
+            suggest={pairsWith}
             autoFocus={adding}
             onText={(t) => onChange({ ...value, partnerName: t, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined, colorIdentity: ownId ?? value.colorIdentity })}
             onPick={(c) =>
