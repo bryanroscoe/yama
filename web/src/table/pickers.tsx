@@ -315,14 +315,23 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
           scope="is:commander"
           autoFocus={autoFocus}
           onText={(t) => onChange({ ...value, commanderName: t, colorIdentity: value.partnerIdentity ?? "", ownIdentity: undefined, art: undefined, artist: undefined, pairs: undefined })}
-          onPick={(c) => {
+          onPick={async (c) => {
             const next = draftFromCard(c);
-            // Keep a partner already chosen if the new commander can still have one.
-            if (next.pairs && value.partnerName) {
-              Object.assign(next, { partnerName: value.partnerName, partnerArt: value.partnerArt, partnerArtist: value.partnerArtist, partnerIdentity: value.partnerIdentity });
+            setAdding(false);
+            const partner = value.partnerName;
+            // Keep the partner already chosen only if the new commander can pair with it (Tymna
+            // can't go with The Tenth Doctor). Offline, nothing can be checked, so it stays.
+            const fits =
+              !!next.pairs &&
+              !!partner &&
+              (await searchCards(`${next.pairScope ?? "is:commander"} !"${partner.replace(/"/g, "")}"`).then(
+                (r) => r.length > 0,
+                () => true,
+              ));
+            if (fits) {
+              Object.assign(next, { partnerName: partner, partnerArt: value.partnerArt, partnerArtist: value.partnerArtist, partnerIdentity: value.partnerIdentity });
               next.colorIdentity = unionIdentity(next.ownIdentity, value.partnerIdentity);
             }
-            setAdding(false);
             onChange(next);
           }}
         />
