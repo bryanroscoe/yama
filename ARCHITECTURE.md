@@ -131,16 +131,37 @@ should be enabled for the repository. An unavailable cloud reviewer is disclosed
 by an independent Codex agent review. Event-driven PR monitoring resumes pending work through
 merge rather than leaving an unmonitored handoff. See `AGENTS.md` and `deploy/RELEASING.md`.
 
-**Test CI (2026-10-27):** `.github/workflows/ci.yml` runs automatically for PRs into main and
-main pushes, with a manual trigger for diagnosis. GitHub-hosted Ubuntu jobs run the locked Rust
-workspace and Python regressions, plus clean-installed web tests/typecheck/build. Rust builds
-the exact private Phase pin through a dedicated read-only deploy key, using the real sibling
-Cargo paths. The Rust job adds 4 GiB of ephemeral swap and logs build resource usage for
-the large cold engine build. Both jobs must pass on the PR before merge. This is separate from
-the opt-in lab simulation workflow and production deployment. Setup and evidence boundaries:
-`docs/ci.md`.
+**Test CI (Bryan, 2026-10-29):** `.github/workflows/ci.yml` runs automatically for PRs into
+main and main pushes, with a manual trigger for diagnosis. Concurrency groups include the
+event type so manual diagnostics cannot cancel deployment-authorizing push CI. Both jobs run on the separate
+`saget-yama-ci` container after hosted jobs hit an account billing block. It runs one job at a
+time, capped at two CPUs/12 GiB, with preinstalled Rust 1.98.1 and Node 22. Locked Rust and
+Python regressions plus clean-installed web tests/typecheck/build retain the same acceptance
+checks. Rust builds the exact private Phase pin through a read-only deploy key and real sibling
+Cargo paths. A dedicated persistent Cargo/npm cache is separate from production; job checkouts,
+dependencies and temporary files are removed after post-actions. No Docker socket, production
+mounts or deployment key enter CI. Both jobs must pass on the actual PR before merge. Successful
+main-push CI gates automatic production deployment; the opt-in hosted lab simulation workflow
+remains separate. Setup, maintenance and evidence boundaries: `docs/ci.md`.
 
-**Release process (Bryan, 2026-10-25):** integrate completed changes only after fetching GitHub's current branches, merge the intended release into main, run the required checks on that merged result and publish main. Production builds come only from clean main at the same commit as freshly fetched `origin/main`, never from a feature branch, detached HEAD or unpublished local commits. `deploy/check-release.sh` enforces this before server access; `deploy/deploy.sh --check` also verifies the pinned engine commit without contacting saget. Source, engine pin, Forge source label and compose configuration all come from the verified commit. The operating guide is `deploy/RELEASING.md`. Pushes, merges and deployment remain separate actions within Bryan's requested scope.
+**Automatic deployment (Bryan, 2026-10-28):** successful push CI on current GitHub main
+triggers `.github/workflows/deploy.yml` on the dedicated saget production runner. Merging
+reviewed work to main now requests production release. The runner has no Docker socket,
+production data/env mounts or general server shell. A restricted SSH command invokes the
+server-owned `deploy/host.py`, which independently verifies current main and successful
+push CI, fetches a dedicated clean main checkout and the published Phase pin, and builds
+committed exports on saget. GitHub concurrency and one host lock serialize automated and
+manual deployments. Superseded builds do not activate; a final GitHub check follows
+backup and immediately precedes the live config switch. Missing sidecar configuration
+is bootstrapped once under the lock, preserving existing credentials. A mandatory SQLite
+backup precedes activation of an existing database; only a genuinely empty first
+installation can initialize without one; full-SHA image tags, the preserved server-local Compose override, all three
+container health checks and exact image IDs plus plain-text HTTP health determine success.
+Secrets/data stay server-local; prior images/config and backup provenance remain available
+for deliberate recovery. Host entrypoint updates are separately installed after review.
+`deploy/deploy.sh --check` still checks clean freshly fetched local main and Phase without
+contacting saget; manual deployment calls the same server gate. See `deploy/RUNNER.md` and
+`deploy/RELEASING.md`.
 
 ```
  Phone app (Capacitor)  ─┐                ┌─────────────────────────────────────────────┐

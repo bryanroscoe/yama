@@ -2,7 +2,7 @@
 # yama.env (not in git) and data/. See deploy/README.md.
 services:
   yama:
-    image: yama:latest
+    image: ${YAMA_IMAGE:-yama:latest}
     container_name: yama
     restart: unless-stopped
     user: "99:100"
@@ -31,7 +31,7 @@ services:
   # optionally ANTHROPIC_SHARED_API_KEY (the pay-per-use key for granted friends), which
   # deploy/advisor-shared-key.sh writes. Without it, shared mode is simply off.
   yama-advisor:
-    image: yama-advisor:latest
+    image: ${YAMA_ADVISOR_IMAGE:-yama-advisor:latest}
     container_name: yama-advisor
     restart: unless-stopped
     user: "1000:1000"
@@ -49,7 +49,7 @@ services:
   # mode 0600) holds FORGE_SECRET, which deploy.sh makes. Each game is a JVM of up to FORGE_XMX: memory is
   # slots x (heap + 512 MB) + 1 GB, and two CPUs a game, at a low share so Plex and the rest win.
   yama-forge:
-    image: yama-forge:latest
+    image: ${YAMA_FORGE_IMAGE:-yama-forge:latest}
     container_name: yama-forge
     restart: unless-stopped
     user: "99:100"
