@@ -150,7 +150,11 @@ reviewed work to main now requests production release. The runner has no Docker 
 production data/env mounts or general server shell. A restricted SSH command invokes the
 server-owned `deploy/host.py`, which independently verifies current main and successful
 push CI, fetches a dedicated clean main checkout and the published Phase pin, and builds
-committed exports on saget. GitHub concurrency and one host lock serialize automated and
+committed exports on saget. CI jobs can select saget or GitHub-hosted Linux using the repository
+`CI_LINUX_RUNNER` JSON variable; both run the same checks. The personal-account
+CI fleet control plane lives in `bryanroscoe/sagetserver` with separate per-project
+state/cache, an aggregate two-CPU/12-GiB budget and a whole-job lock shared with
+this production release gate. GitHub concurrency and one host lock serialize automated and
 manual deployments. Superseded builds do not activate; a final GitHub check follows
 backup and immediately precedes the live config switch. Missing sidecar configuration
 is bootstrapped once under the lock, preserving existing credentials. A mandatory SQLite
