@@ -11,6 +11,7 @@ import "@fontsource/atkinson-hyperlegible-next/700";
 import "@fontsource/atkinson-hyperlegible-mono/400";
 import "./styles.css";
 import "./controls.css";
+import "./art-framing.css";
 import { refreshOfflineCardsIfStale } from "./offline/cards";
 
 const queryClient = new QueryClient({

@@ -1,0 +1,37 @@
+/* Page banners share the whole composition. A wide cover crop can remove the
+   subject's face; containing the art preserves it without guessing a focal point.
+   Scryfall art stays at its native proportions and is never filtered. */
+.public-art > img,
+.art-panel.art-scene > .art-img {
+  left: auto;
+  right: 0;
+  width: min(100%, 626px);
+  height: 100%;
+  object-fit: contain;
+  object-position: right top;
+}
+.public-art > .art-wash,
+.art-panel.art-scene > .art-wash {
+  background: linear-gradient(0deg, var(--ground) 0%, rgb(11 12 14 / .82) 45%, rgb(11 12 14 / .08) 85%);
+}
+@media (min-width: 900px) {
+  .public-art > .art-wash,
+  .art-panel.art-scene > .art-wash {
+    background:
+      linear-gradient(90deg, var(--ground) 0%, transparent 75%),
+      linear-gradient(0deg, var(--ground) 0%, transparent 65%);
+  }
+}
+/* Short mobile banners still leave a window above the title for the subject. */
+@media (max-width: 899px) {
+  .public-art,
+  .lab-art.art-panel {
+    min-height: 320px;
+  }
+}
+/* Cover-fitted tiles and compact rows favour the upper part of the composition.
+   Page banners above preserve the entire image rather than applying this crop. */
+.featured > img,
+.art-panel:not(.art-scene) > .art-img {
+  object-position: var(--art-position, center top);
+}

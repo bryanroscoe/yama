@@ -79,23 +79,21 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
             {p.playgroup.win_rate_4p != null ? `, ${p.playgroup.win_rate_4p.toFixed(1)}% wins in 4-player pods` : ""}
             {p.playgroup.games != null ? ` over ${p.playgroup.games} logged games` : ""}.
           </p>
-          <p className="lab-note" style={{ margin: "0.25rem 0 0" }}>
-            People's games, not simulations. {p.playgroup.method} Fetched {fmtDate(p.playgroup.fetched)}
+          <p className="lab-note">Fetched {fmtDate(p.playgroup.fetched)}</p>
+          <Details label="About real-game results"><p>
+            {p.playgroup.method}
             {p.playgroup.url && (
               <>
                 {" "}from <a href={p.playgroup.url} target="_blank" rel="noreferrer">playgroup.gg</a>
               </>
             )}
             .
-          </p>
+          </p></Details>
         </section>
       )}
 
       <section>
         <h2>EDHREC reviews and upgrades</h2>
-        <p className="lab-note">
-          EDHREC's page for this precon has popular additions and cuts, plus any published primers, upgrade guides or reviews.
-        </p>
         <a className="button" href={`https://edhrec.com/precons/${encodeURIComponent(p.id)}`} target="_blank" rel="noreferrer">
           Open {p.name} on EDHREC
         </a>
@@ -206,7 +204,7 @@ function Rating({ detail, all }: { detail: PreconDetail; all: PreconItem[] }) {
   return (
     <>
       {conf && conf.level !== "ok" && (
-        <ConfidenceNote level={conf.level} reasons={conf.reasons}>
+        <ConfidenceNote level={conf.level} reasons={conf.reasons} fold>
           {cantJudge(conf) && pg?.rank != null && (
             <p>
               Real games are the better guide: rank {pg.rank} of {pg.of} on playgroup.gg{pg.win_rate_4p != null ? `, ${pg.win_rate_4p.toFixed(1)}% wins` : ""}, below.
@@ -217,33 +215,23 @@ function Rating({ detail, all }: { detail: PreconDetail; all: PreconItem[] }) {
       <div className={`lab-figures${cantJudge(conf) ? " unjudged" : ""}`}>
         <div className="lab-figure">
           <b>{r.rank != null ? `${r.rank}${of ? ` of ${of}` : ""}` : "no rank"}</b>
-          <span>
-            simulated rank{of ? ` among the ${of} decks in run ${run.name}` : ""}
-            {r.rank_lo != null && r.rank_hi != null ? `; could be anywhere from ${r.rank_lo} to ${r.rank_hi}` : ""}
-          </span>
+          <span>Simulated rank</span>
         </div>
         <div className="lab-figure">
           <b>{strengthText(r.strength)}</b>
-          <span>strength, where 1 is an average precon{r.lo != null && r.hi != null ? `; interval ${strengthText(r.lo)} to ${strengthText(r.hi)}` : ""}</span>
+          <span>Relative strength</span>
           <IntervalBar value={r.strength} lo={r.lo} hi={r.hi} scale={strengthScale} reference={1} label={`Strength ${strengthText(r.strength)}; the line is average`} />
         </div>
         {r.p4_field != null && (
           <div className="lab-figure">
             <b>{pct(r.p4_field)}</b>
-            <span>
-              of 4-player pods won against random precons, by the model{r.p4_lo != null && r.p4_hi != null ? `; interval ${pctRange(r.p4_lo, r.p4_hi)}` : ""}. A quarter is
-              average.
-            </span>
+            <span>Model win rate (4-player)</span>
             <IntervalBar value={r.p4_field} lo={r.p4_lo} hi={r.p4_hi} scale={linScale(0, 1)} reference={0.25} label={`Wins ${pct(r.p4_field)} of 4-player pods; the line is a quarter`} />
           </div>
         )}
         <div className="lab-figure">
           <b>{r.games}</b>
-          <span>
-            {r.games === 1 ? "game" : "games"} played{wins != null ? `, ${wins} won` : ""}
-            {r.wr_lo != null && r.wr_hi != null ? ` (raw win rate ${pct(r.win_rate)}, interval ${pctRange(r.wr_lo, r.wr_hi)})` : ""}
-            {r.avg_place != null ? `, average place ${r.avg_place.toFixed(2)}` : ""}
-          </span>
+          <span>{r.games === 1 ? "Game" : "Games"}{wins != null ? ` / ${wins} wins` : ""}</span>
         </div>
       </div>
       {r.flags.length > 0 && (
@@ -252,7 +240,13 @@ function Rating({ detail, all }: { detail: PreconDetail; all: PreconItem[] }) {
         </p>
       )}
       <RunLine run={run} />
-      <p className="lab-caveat">{caveat(run.engine)}</p>
+      <Details label="How to read these results">
+        <p>Rank among {of ?? "the"} decks in {run.name}.{r.rank_lo != null && r.rank_hi != null ? ` Rank range: ${r.rank_lo}–${r.rank_hi}.` : ""}</p>
+        <p>Strength 1 is an average precon.{r.lo != null && r.hi != null ? ` Strength interval: ${strengthText(r.lo)}–${strengthText(r.hi)}.` : ""}</p>
+        <p>The model estimates wins against random precons in four-player pods; 25% is the equal-deck baseline.{r.p4_lo != null && r.p4_hi != null ? ` Model interval: ${pctRange(r.p4_lo, r.p4_hi)}.` : ""}</p>
+        <p>Observed wins: {pct(r.win_rate)}.{r.wr_lo != null && r.wr_hi != null ? ` Interval: ${pctRange(r.wr_lo, r.wr_hi)}.` : ""}{r.avg_place != null ? ` Average place: ${r.avg_place.toFixed(2)}.` : ""}</p>
+        <p>{caveat(run.engine)}</p>
+      </Details>
     </>
   );
 }
@@ -272,12 +266,13 @@ function Matchups({ rows, run, unjudged }: { rows: Matchup[]; run: RunLabel; unj
   );
   return (
     <section>
-      <h2>One-on-one odds</h2>
-      <p className="lab-note">
+      <h2>Modelled one-on-one odds</h2>
+      {unjudged && <p className="lab-note">Engine caution: these matchups share the simulation’s limitations.</p>}
+      <Details label="How matchups are estimated"><p>
         The chance of beating each precon in a game of two, implied by the model from the 4-player games of run {run.name}. They aren't head-to-head
         games, and with few games per precon they lean towards even.
         {unjudged ? " They come from the same simulation, which can't judge this deck yet, so they say little about real games too." : ""}
-      </p>
+      </p></Details>
       <div className="lab-two">
         <div>
           <h3>Best matchups</h3>
