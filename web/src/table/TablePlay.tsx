@@ -273,10 +273,11 @@ export function useLethalPrompt(state: TableState | null, onlySeat?: number | nu
     });
   const [ready, setReady] = useState<string | null>(null);
   // Every active cause, so dismissing one (21 from Atraxa) still lets a later one (10 poison) ask.
-  const losses = (state?.players ?? [])
-    .filter((p) => onlySeat === undefined || p.seat === onlySeat)
-    .flatMap((p) => (state ? lossesOf(state, p) : []).map((loss) => ({ seat: p.seat, loss })));
-  const live = losses.map((x) => `${x.seat}:${x.loss.key}`);
+  const everyLoss = (state?.players ?? []).flatMap((p) => (state ? lossesOf(state, p) : []).map((loss) => ({ seat: p.seat, loss })));
+  const losses = everyLoss.filter((x) => onlySeat === undefined || x.seat === onlySeat);
+  // Answers are forgotten only when their cause is gone from the table, not when a guest's phone
+  // looks at another seat.
+  const live = everyLoss.map((x) => `${x.seat}:${x.loss.key}`);
   const liveKey = live.join("|");
   const pending = losses.find((x) => !dismissed.includes(`${x.seat}:${x.loss.key}`));
   const pendingKey = pending ? `${pending.seat}:${pending.loss.key}` : null;
