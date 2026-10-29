@@ -16,7 +16,7 @@ import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, us
 import { layout } from "./TablePlay";
 import { panelArt, useShowArt } from "./art";
 import { recentGameText, winningSeat } from "./recent";
-import { cardNamed, CommanderFields, draftFromCard, PlayerSearch, unionIdentity, type CommanderDraft, type Person } from "./pickers";
+import { cardNamed, CommanderFields, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type Person } from "./pickers";
 import { gameSummary } from "./history";
 import "./seats.css";
 import "./home.css";
@@ -227,11 +227,16 @@ function NewGame({ onStart }: { onStart: () => void }) {
   };
   const setCount = (n: number) => setSeats((s) => (n > s.length ? [...s, ...Array.from({ length: n - s.length }, emptySeat)] : s.slice(0, n)));
 
-  const start = () => {
+  const [starting, setStarting] = useState(false);
+  const start = async () => {
+    setStarting(true);
+    // Commanders typed but never picked from the list still get their cards' art and colors.
+    const ready = format === "commander" ? await Promise.all(seats.map((s) => (s.deckId ? s : resolveDraft(s as SeatDraft & CommanderDraft)))) : seats;
+    const seatsNow = ready as SeatDraft[];
     // Only a Commander game names commanders and Commander decks; a 20-life game left with a
     // seat's last commander would count toward that commander's and deck's results.
     const cmdr = format === "commander";
-    const players: PlayerSetup[] = seats.map((s, i) => ({
+    const players: PlayerSetup[] = seatsNow.map((s, i) => ({
       seat: i,
       name: s.name.trim() || `Player ${i + 1}`,
       memberId: s.memberId,
@@ -254,7 +259,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
       playgroupId: groupId || undefined,
       players,
     };
-    localStorage.setItem(LAST_SETUP, JSON.stringify({ seats, groupId, life, format, at: new Date().toISOString() }));
+    localStorage.setItem(LAST_SETUP, JSON.stringify({ seats: seatsNow, groupId, life, format, at: new Date().toISOString() }));
     startGame(setup);
     onStart();
   };
@@ -310,7 +315,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
         {!wide && groupSelect("ng-group-quiet", false)}
         {wide && (
           <span className="ng-start-wide">
-            <button className="primary" onClick={start}>{startLabel}</button>
+            <button className="primary" onClick={() => void start()} disabled={starting}>{startLabel}</button>
             <span className="small dim">{startSub}</span>
           </span>
         )}
@@ -346,7 +351,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
             Seats go clockwise from you. Tap a seat to change the player{format === "commander" ? " or commander" : ""}.
             {artists.length > 0 && ` ${artCredits(artists)}`}
           </p>
-          <button className="primary ng-start" onClick={start}>
+          <button className="primary ng-start" onClick={() => void start()} disabled={starting}>
             <span>{startLabel}</span>
             <span className="ng-start-sub">{startSub}</span>
           </button>

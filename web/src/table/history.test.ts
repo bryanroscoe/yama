@@ -2,7 +2,9 @@ import { replay, type LoggedEvent, type TableEvent, type TableSetup } from "@yam
 import { describe, expect, it } from "vitest";
 import { gameSummary, history } from "./history";
 import { setupFromServer } from "./GameDetail";
-import { pairing, pairScope, rankByName, unionIdentity } from "./pickers";
+import { pairing, pairScope, rankByName, resolveDraft, unionIdentity } from "./pickers";
+import { vi } from "vitest";
+import * as apiModule from "../api";
 import { searchOffline, type OfflineCard } from "@yama/core";
 import { deckLabel } from "./store";
 import { uprightLayout } from "./TablePlay";
@@ -91,6 +93,23 @@ describe("partners", () => {
     const scope = pairScope({ oracle_text: "Partner (You can have two commanders if both have partner.)" });
     expect(searchOffline(pool, scope).map((c) => c.n)).toEqual(["Tymna the Weaver"]);
     expect(searchOffline(pool, pairScope({ oracle_text: pir })).map((c) => c.n)).toEqual(["Toothy, Imaginary Friend"]);
+  });
+
+  it("looks up a commander typed but never picked, and leaves picked ones alone", async () => {
+    const spy = vi.spyOn(apiModule, "api").mockImplementation(async (path: string) => {
+      const q = decodeURIComponent(path.split("q=")[1] ?? "");
+      const cards = q === '!"atraxa, praetors\' voice"'
+        ? [{ name: "Atraxa, Praetors' Voice", color_identity: "WUBG", image_art_crop: "https://cards.scryfall.io/art_crop/a.jpg", artist: "Victor Adame Minguez", oracle_text: "Flying" }]
+        : [];
+      return { total: cards.length, page: 1, page_size: 60, cards } as never;
+    });
+    const typed = await resolveDraft({ commanderName: "atraxa, praetors' voice", colorIdentity: "" });
+    expect(typed).toMatchObject({ commanderName: "Atraxa, Praetors' Voice", colorIdentity: "WUBG", artist: "Victor Adame Minguez" });
+    const picked = { commanderName: "Tana", colorIdentity: "RG", ownIdentity: "RG", art: "x" };
+    expect(await resolveDraft(picked)).toBe(picked);
+    const unknown = { commanderName: "Not a card", colorIdentity: "" };
+    expect(await resolveDraft(unknown)).toBe(unknown);
+    spy.mockRestore();
   });
 
   it("puts names that start with the search first", () => {

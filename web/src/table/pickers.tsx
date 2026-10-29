@@ -46,6 +46,7 @@ export function Combobox<T>({
   trailing,
   autoFocus = false,
   footer,
+  onLeave,
 }: {
   label: string;
   text: string;
@@ -60,6 +61,8 @@ export function Combobox<T>({
   autoFocus?: boolean;
   /** A last line in the open list (the art credit for the crops shown). */
   footer?: ReactNode;
+  /** Focus left the field (to resolve text that was typed but never picked). */
+  onLeave?: () => void;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -106,7 +109,10 @@ export function Combobox<T>({
           }}
           onFocus={() => setOpen(true)}
           // Let a tap on an option land before the list closes.
-          onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+          onBlur={() => {
+            window.setTimeout(() => setOpen(false), 150);
+            onLeave?.();
+          }}
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") {
               e.preventDefault();
@@ -229,7 +235,7 @@ function useCardSearch(text: string, scope: string) {
 }
 
 /** One commander field: search commanders (or Backgrounds), see their art, pick one. */
-function CommanderSearch({ label, value, scope, suggest, onPick, onText, autoFocus, trailing }: {
+function CommanderSearch({ label, value, scope, suggest, onPick, onText, autoFocus, trailing, onLeave }: {
   label: string;
   value: string;
   scope: string;
@@ -239,6 +245,7 @@ function CommanderSearch({ label, value, scope, suggest, onPick, onText, autoFoc
   onText: (t: string) => void;
   autoFocus?: boolean;
   trailing?: ReactNode;
+  onLeave?: () => void;
 }) {
   const search = useCardSearch(value, scope);
   const suggested = useQuery({ queryKey: ["table-card", suggest], queryFn: () => cardNamed(suggest!), enabled: !!suggest && !value, staleTime: Infinity });
@@ -255,6 +262,7 @@ function CommanderSearch({ label, value, scope, suggest, onPick, onText, autoFoc
       loading={search.isFetching && !search.data?.length}
       autoFocus={autoFocus}
       trailing={trailing}
+      onLeave={onLeave}
       // Scryfall asks for the artist wherever an art crop shows.
       footer={options.some((o) => o.art) ? artCredits(cards.slice(0, 8).filter((c) => c.image_art_crop).map((c) => c.artist)) : undefined}
       empty={search.isError ? "Can't search right now. The name you typed will still be used." : "No commander by that name."}
@@ -292,6 +300,26 @@ export function draftFromCard(c: Card): CommanderDraft {
 }
 
 /**
+ * A draft with any typed-but-never-picked names looked up by exact name (the card's art and
+ * colors). The same draft back if nothing needed it or nothing was found (offline, a typo).
+ */
+export async function resolveDraft<T extends CommanderDraft>(d: T): Promise<T> {
+  const needMain = !!d.commanderName?.trim() && !d.art && !d.ownIdentity;
+  const needPartner = !!d.partnerName?.trim() && !d.partnerArt && !d.partnerIdentity;
+  if (!needMain && !needPartner) return d;
+  const [main, partner] = await Promise.all([needMain ? cardNamed(d.commanderName!.trim()) : null, needPartner ? cardNamed(d.partnerName!.trim()) : null]);
+  if (!main && !partner) return d;
+  let next: T = { ...d };
+  if (main) {
+    const m = draftFromCard(main);
+    next = { ...next, commanderName: m.commanderName, ownIdentity: m.ownIdentity, art: m.art, artist: m.artist, pairs: m.pairs, pairsWith: m.pairsWith, pairScope: m.pairScope };
+  }
+  if (partner) next = { ...next, partnerName: partner.name, partnerArt: partner.image_art_crop ?? undefined, partnerArtist: partner.artist ?? undefined, partnerIdentity: partner.color_identity };
+  next.colorIdentity = unionIdentity(next.ownIdentity ?? d.colorIdentity, next.partnerName ? next.partnerIdentity : undefined);
+  return next;
+}
+
+/**
  * Commander, and a second field when the commander has partner (or chooses a Background). The
  * art and colors come from the card picked; a name typed and never picked keeps no art.
  */
@@ -314,6 +342,13 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
   const pairs = value.pairs ?? known?.pairs ?? (value.partnerName ? "partner" : null);
   const partnerScope = value.pairScope ?? known?.pairScope;
   const pairsWith = value.pairsWith ?? known?.pairsWith;
+  // A name typed and never picked: look it up when the field is left, so the seat still gets
+  // its card's art and colors. Nothing changes if a newer edit came in meanwhile.
+  const settle = async () => {
+    const mine = pickNo.current;
+    const resolved = await resolveDraft(value);
+    if (resolved !== value && mine === pickNo.current) onChange(resolved);
+  };
   return (
     <div className="cmdr-fields">
       <CommanderSearch
@@ -323,6 +358,7 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
           scope="is:commander"
           autoFocus={autoFocus}
           onText={(t) => (pickNo.current++, onChange({ ...value, commanderName: t, colorIdentity: value.partnerIdentity ?? "", ownIdentity: undefined, art: undefined, artist: undefined, pairs: undefined }))}
+          onLeave={() => settle()}
           onPick={async (c) => {
             const mine = ++pickNo.current;
             const next = draftFromCard(c);
@@ -353,8 +389,13 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
             scope={partnerScope ?? (pairs === "background" ? "t:background" : "is:commander")}
             suggest={pairsWith}
             autoFocus={adding}
-            onText={(t) => onChange({ ...value, partnerName: t, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined, colorIdentity: ownId ?? value.colorIdentity })}
-            onPick={(c) =>
+            onText={(t) => {
+              pickNo.current++;
+              onChange({ ...value, partnerName: t, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined, colorIdentity: ownId ?? value.colorIdentity });
+            }}
+            onLeave={() => settle()}
+            onPick={(c) => {
+              pickNo.current++;
               onChange({
                 ...value,
                 partnerName: c.name,
@@ -363,16 +404,18 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
                 partnerIdentity: c.color_identity,
                 ownIdentity: ownId,
                 colorIdentity: unionIdentity(ownId ?? value.colorIdentity, c.color_identity),
-              })
-            }
+              });
+            }}
           />
           <button
             type="button"
             className="quiet small"
             onClick={async () => {
+              const mine = ++pickNo.current;
               setAdding(false);
               // The commander's own colors: known if it was picked here, else looked up again.
               const own = ownId ?? (name ? (await cardNamed(name))?.color_identity : undefined) ?? value.colorIdentity;
+              if (mine !== pickNo.current) return;
               onChange({ ...value, partnerName: undefined, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined, colorIdentity: own ?? "" });
             }}
           >

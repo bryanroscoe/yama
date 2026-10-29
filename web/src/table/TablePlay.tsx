@@ -30,7 +30,7 @@ import { Pips, Sheet } from "../components/ui";
 import { useCardArt, type CardArt } from "../components/useCardArt";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { panelArt, setFacing, setShowArt, useFacing, useShowArt, type Facing } from "./art";
-import { CommanderFields, type CommanderDraft } from "./pickers";
+import { CommanderFields, resolveDraft, type CommanderDraft } from "./pickers";
 import { ShareCard } from "./share";
 import { canUndo, discardGame, dispatch, finishGame, redo, undo, useSyncStatus, useTable } from "./store";
 
@@ -769,7 +769,7 @@ function OpenDetails({ label, open, className, children }: { label: string; open
 /** Mid-game: this seat is playing a different commander (or the one at setup was wrong). */
 function ChangeCommander({ p, onDone }: { p: PlayerState; onDone: () => void }) {
   const dispatch = useContext(DispatchContext);
-  const [draft, setDraft] = useState<CommanderDraft>({
+  const [typed, setDraft] = useState<CommanderDraft>({
     commanderName: p.commanderName,
     partnerName: p.partnerName,
     colorIdentity: p.colorIdentity,
@@ -778,7 +778,11 @@ function ChangeCommander({ p, onDone }: { p: PlayerState; onDone: () => void }) 
     partnerArt: p.partnerArt,
     partnerArtist: p.partnerArtist,
   });
-  const save = () => {
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    // A name typed but never picked from the list still gets its card's art and colors.
+    const draft = await resolveDraft(typed);
     const pick: CommanderPick = {
       commanderName: draft.commanderName?.trim() || undefined,
       partnerName: draft.partnerName?.trim() || undefined,
@@ -799,10 +803,10 @@ function ChangeCommander({ p, onDone }: { p: PlayerState; onDone: () => void }) 
         <h2>{p.name}'s commander</h2>
         <button className="quiet" onClick={onDone}>Cancel</button>
       </div>
-      <CommanderFields value={draft} onChange={setDraft} autoFocus />
+      <CommanderFields value={typed} onChange={setDraft} autoFocus />
       <p className="small dim" style={{ margin: 0 }}>Damage already dealt and taken stays as it is.</p>
       <div className="row">
-        <button className="primary" onClick={save}>Save</button>
+        <button className="primary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
       </div>
     </div>
   );
