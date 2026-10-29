@@ -38,6 +38,8 @@ import { ArtPanel, IntervalChart, SimLine, StatusTag } from "./parts";
 import { LabHead } from "./LabLayout";
 import { usePrecons } from "./Precons";
 import { usePace } from "./pickers";
+import { deckPath, tablePath } from "./RunTables";
+import { FEW_GAMES } from "./tables";
 import { gameChoices } from "./logic";
 
 const LIVE = new Set(["queued", "running"]);
@@ -295,11 +297,11 @@ export function RunPage() {
 
       {enginesOf(e).mode === "both" ? (
         <>
-          {halfOf(e, "phase").progress.done > 0 && <Pods id={e.id} done={halfOf(e, "phase").progress.done} status={e.status} mode={modeOf(e)} engine="phase" />}
-          {halfOf(e, "forge").progress.done > 0 && <Pods id={e.id} done={halfOf(e, "forge").progress.done} status={e.status} mode={modeOf(e)} engine="forge" />}
+          {halfOf(e, "phase").progress.done > 0 && <Pods id={e.id} done={halfOf(e, "phase").progress.done} status={e.status} mode={modeOf(e)} engine="phase" pod={e.label.pod ?? 4} />}
+          {halfOf(e, "forge").progress.done > 0 && <Pods id={e.id} done={halfOf(e, "forge").progress.done} status={e.status} mode={modeOf(e)} engine="forge" pod={e.label.pod ?? 4} />}
         </>
       ) : (
-        e.progress.done > 0 && <Pods id={e.id} done={e.progress.done} status={e.status} mode={modeOf(e)} />
+        e.progress.done > 0 && <Pods id={e.id} done={e.progress.done} status={e.status} mode={modeOf(e)} pod={e.label.pod ?? 4} />
       )}
 
       <section>
@@ -397,7 +399,7 @@ function ForgeWait({ e }: { e: ExperimentItem }) {
 /** The results view for a run's mode. */
 function ModeResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine?: HalfEngine }) {
   const on = engine ?? (enginesOf(e).mode === "forge" ? "forge" : "phase");
-  return ["versus", "tournament"].includes(modeOf(e)) ? <VersusResults e={e} s={s} /> : modeOf(e) === "solo" ? <SoloResults e={e} s={s} engine={on} /> : <Results e={e} s={s} engine={on} />;
+  return ["versus", "tournament"].includes(modeOf(e)) ? <VersusResults e={e} s={s} engine={enginesOf(e).mode === "both" ? on : undefined} /> : modeOf(e) === "solo" ? <SoloResults e={e} s={s} engine={on} /> : <Results e={e} s={s} engine={on} />;
 }
 
 /** A "both" run: whether the engines agree, then each engine's results under its own heading. */
@@ -640,8 +642,9 @@ function SoloResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine
 }
 
 /** Decks head to head: each deck's win share, who finished ahead of whom, and game length. */
-function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
+function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine?: HalfEngine }) {
   const v = s.versus!;
+  const ids = v.entrants.map((x) => x.id);
   const level = `${Math.round(s.level * 100)}%`;
   const even = 1 / v.pod;
   const top = rateCeiling(v.entrants.map((x) => x.wilson?.[1]));
@@ -663,7 +666,9 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
           key: x.id,
           label: (
             <>
-              <b>{x.label}</b>
+              <b>
+                <Link to={deckPath(e.id, x.id, engine)}>{x.label}</Link>
+              </b>
               <span>
                 first in {x.first} {x.first === 1 ? "game" : "games"}
               </span>
@@ -693,31 +698,49 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
       {v.meetings.length > 0 && (
         <>
           <h3>Head to head</h3>
-          <label>Filter matchups by deck<input value={matchupFilter} onChange={(e) => { setMatchupFilter(e.target.value); setMatchupPage(0); }} /></label>
-          <p className="small dim">Only decks that shared scored games are compared. Showing {meetings.length ? matchupPage * 200 + 1 : 0}–{Math.min((matchupPage + 1) * 200, meetings.length)} of {meetings.length} matching pairs. This is finish order in multiplayer pods, not a simulated 1v1 win rate.</p>
+          <p className="small">
+            Two decks that sat at the same table, and which of the two finished higher in each game they shared, whoever won the game. One table is {v.pod} games, so most pairs in a big
+            field have only a handful; under {FEW_GAMES} games a pair can't tell you much. Open a pair to see its tables.
+          </p>
+          <label>Filter pairs by deck<input value={matchupFilter} onChange={(e) => { setMatchupFilter(e.target.value); setMatchupPage(0); }} /></label>
+          <p className="small dim">Showing {meetings.length ? matchupPage * 200 + 1 : 0}–{Math.min((matchupPage + 1) * 200, meetings.length)} of {meetings.length} pairs. This is finish order at four-player tables, not a 1v1 win rate.</p>
           <div className="lab-scroll">
             <table className="plain small lab-h2h">
               <thead>
                 <tr>
-                  <th>Decks</th>
+                  <th>Pair</th>
                   <th className="r">Games</th>
-                  <th>Who finished ahead</th>
+                  <th>Who finished higher</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {meetings.slice(matchupPage * 200, (matchupPage + 1) * 200).map((m) => (
-                  <tr key={`${m.a}-${m.b}`}>
-                    <td>
-                      {names[m.a]} and {names[m.b]}
-                    </td>
-                    <td className="r num">{m.games}</td>
-                    <td>
-                      {names[m.a]} {m.a_ahead}, {names[m.b]} {m.b_ahead}
-                      {m.ties ? `, level ${m.ties}` : ""}
-                      {m.a_share != null && m.a_share_ci ? ` (${names[m.a]} ahead in ${pct(m.a_share)}, ${level} interval ${pctRange(m.a_share_ci[0], m.a_share_ci[1])})` : ""}
-                    </td>
-                  </tr>
-                ))}
+                {meetings.slice(matchupPage * 200, (matchupPage + 1) * 200).map((m) => {
+                  const [hi, lo, hiN] = m.a_ahead >= m.b_ahead ? [names[m.a], names[m.b], m.a_ahead] : [names[m.b], names[m.a], m.b_ahead];
+                  const untied = m.a_ahead + m.b_ahead;
+                  const share = m.a_ahead >= m.b_ahead ? m.a_share : m.a_share != null ? 1 - m.a_share : null;
+                  const ci = m.a_share_ci ? (m.a_ahead >= m.b_ahead ? m.a_share_ci : ([1 - m.a_share_ci[1], 1 - m.a_share_ci[0]] as [number, number])) : null;
+                  return (
+                    <tr key={`${m.a}-${m.b}`}>
+                      <td>
+                        <Link to={deckPath(e.id, ids[m.a] ?? "", engine)}>{names[m.a]}</Link> and <Link to={deckPath(e.id, ids[m.b] ?? "", engine)}>{names[m.b]}</Link>
+                      </td>
+                      <td className="r num">{m.games}</td>
+                      <td>
+                        {untied === 0
+                          ? `Level in every game`
+                          : m.a_ahead === m.b_ahead
+                            ? `Even: each finished higher in ${m.a_ahead}`
+                            : `${hi} finished higher than ${lo} in ${hiN} of ${untied}`}
+                        {m.ties ? `, level in ${m.ties}` : ""}
+                        {untied > 0 && untied < FEW_GAMES ? <span className="dim">, too few games to tell</span> : share != null && ci && m.a_ahead !== m.b_ahead ? <span className="dim"> ({pct(share)}, {level} interval {pctRange(ci[0], ci[1])})</span> : null}
+                      </td>
+                      <td>
+                        <Link to={deckPath(e.id, ids[m.a] ?? "", engine, ids[m.b] ?? "")}>See the games</Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -846,7 +869,7 @@ const MISSING: Record<ExperimentStatus, string> = {
   done: "not played",
 };
 
-function Pods({ id, done, status, mode, engine }: { id: string; done: number; status: ExperimentStatus; mode: ExperimentMode; engine?: "phase" | "forge" }) {
+function Pods({ id, done, status, mode, engine, pod = 4 }: { id: string; done: number; status: ExperimentStatus; mode: ExperimentMode; engine?: "phase" | "forge"; pod?: number }) {
   const [open, setOpen] = useState(false);
   const pods = useQuery({
     queryKey: ["lab", "pods", id, done, engine ?? ""],
@@ -878,6 +901,7 @@ function Pods({ id, done, status, mode, engine }: { id: string; done: number; st
                   <th>Game</th>
                   <th>Seats, first player first</th>
                   <th>Result</th>
+                  <th>Table</th>
                 </tr>
               </thead>
               <tbody>
@@ -901,6 +925,9 @@ function Pods({ id, done, status, mode, engine }: { id: string; done: number; st
                       ) : (
                         <span className="faint">{MISSING[status]}</span>
                       )}
+                    </td>
+                    <td>
+                      <Link to={tablePath(id, Math.floor((p.pod - 1) / pod) + 1, engine)}>Table {Math.floor((p.pod - 1) / pod) + 1}</Link>
                     </td>
                   </tr>
                 ))}

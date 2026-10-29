@@ -14,6 +14,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-29-lab-tables",
+    date: "2026-10-29",
+    title: "See what happened at every table of a lab run",
+    items: [
+      "In a head-to-head or tournament run, every deck's name opens its own page: how it placed, who it sat with and how it did against each, and every table it played at with the commanders' art.",
+      "Open a table to see its four games one by one: who went first, the finishing order, the turn each deck was knocked out, and the life left when a game hit the cap.",
+      "Head to head now says it in words, such as \"Lorehold Spirit finished higher than Fantastic Four in 3 of 4\", and marks pairs with too few games to tell.",
+      "Tournaments no longer seat two versions of the same deck (yours, the stock list, a variant) at one table when anyone else can take the seat.",
+    ],
+    link: { to: "/lab/runs", label: "Open my runs" },
+  },
+  {
     id: "2026-10-28-review-installs-lab",
     date: "2026-10-28",
     title: "A clearer Review, installs read from your decks, and a Lab tab",

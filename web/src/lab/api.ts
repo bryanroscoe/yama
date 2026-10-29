@@ -470,6 +470,49 @@ export interface VersusGame {
   finished_at: string | null;
 }
 
+/** A deck at a head-to-head run's tables: an entrant, or a precon filling a seat (entrant null). */
+export interface TableDeck {
+  id: string;
+  label: string;
+  commanders: string[];
+  art: Art | null;
+  entrant: number | null;
+}
+
+/** One game at a table, seat by seat. Everything after `played` is empty until it's played. */
+export interface TableGame {
+  game: string;
+  /** Deck ids in seat order. */
+  seats: string[];
+  played: boolean;
+  end: string | null;
+  scored: boolean;
+  first_seat: number | null;
+  winner: number | null;
+  /** Finishing place per seat in a scored game (tied players share the mean). */
+  places: (number | null)[];
+  /** The turn each seat was knocked out on, every player's turn counted. */
+  out_turn: (number | null)[];
+  final_life: (number | null)[];
+  turns: number;
+  seconds: number;
+  error: string | null;
+  finished_at: string | null;
+}
+
+/** The same decks for a block of games, a seat apart. */
+export interface TableView {
+  table: number;
+  decks: string[];
+  games: TableGame[];
+}
+
+export interface Tables {
+  engine: "phase" | "forge";
+  decks: TableDeck[];
+  tables: TableView[];
+}
+
 export interface Pace {
   available: boolean;
   message: string | null;

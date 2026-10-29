@@ -26,6 +26,7 @@ import { OldLabRedirect } from "./lab/OldLabRedirect";
 import { PreconDetailPage } from "./lab/PreconDetail";
 import { PreconsPage } from "./lab/Precons";
 import { RunPage } from "./lab/Run";
+import { RunDeckPage, RunTablePage } from "./lab/RunTables";
 import { BatchPage, RunsPage } from "./lab/Runs";
 import { TryPage } from "./lab/Try";
 import { ComparePage } from "./lab/Compare";
@@ -158,6 +159,8 @@ export function App() {
           <Route path="runs" element={<RunsPage />} />
           <Route path="runs/batch/:id" element={<BatchPage />} />
           <Route path="runs/:id" element={<RunPage />} />
+          <Route path="runs/:id/decks/:deck" element={<RunDeckPage />} />
+          <Route path="runs/:id/tables/:table" element={<RunTablePage />} />
         </Route>
         <Route path="decks/changes" element={<ChangesPage />} />
         <Route path="decks/import" element={<ImportPage />} />

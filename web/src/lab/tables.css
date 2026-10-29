@@ -1,0 +1,303 @@
+/* A run's tables: a deck's page within a run and one table's games (RunTables.tsx).
+   Commander art is the shared ArtPanel (never filtered; darkened only by its wash) with the
+   artists credited once per page. White is the only accent: a won game is a white pill, the deck
+   the page is about has a white outline. Sentence case; no all-caps; no middle-dot separators. */
+
+.rt-head {
+  margin: 0.5rem 0 1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+.rt-head h1 {
+  margin: 0;
+  font-size: var(--t-title);
+}
+
+/* ── record ─────────────────────────────────────────────────────────────── */
+
+.rt-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: var(--s-2);
+  margin-bottom: var(--s-4);
+}
+.rt-stats > div {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+  padding: var(--s-2) var(--s-3);
+  display: grid;
+  align-content: start;
+  gap: 0.2rem;
+}
+.rt-big {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-big);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.rt-places {
+  gap: 0.35rem !important;
+}
+.rt-place-row {
+  display: grid;
+  grid-template-columns: 2.6rem 1fr 2rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+.rt-place-name {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.rt-place-bar {
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  overflow: hidden;
+}
+.rt-place-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--dim);
+  border-radius: inherit;
+}
+.rt-place-bar > span.first {
+  background: var(--text);
+}
+.rt-place-row .num {
+  text-align: right;
+}
+
+/* ── art tiles ──────────────────────────────────────────────────────────── */
+
+.art-panel.rt-thumb {
+  display: inline-block;
+  flex: none;
+  width: 56px;
+  height: 41px;
+  border-radius: var(--r-tile);
+}
+.art-panel.rt-mark {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+.rt-seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+}
+.rt-tile-link {
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--r-panel);
+}
+.rt-tile-link:hover .rt-tile-name {
+  text-decoration: underline;
+}
+.art-panel.rt-tile {
+  display: grid;
+  min-height: 190px;
+}
+.rt-tile > .art-body {
+  align-self: end;
+  display: grid;
+  gap: 0.2rem;
+  padding: 56px 14px 12px;
+}
+.rt-tile-name {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-lg);
+  line-height: 1;
+  text-shadow: var(--art-shadow);
+}
+.rt-tile-sub {
+  font-size: var(--t-sm);
+  color: var(--on-art-dim);
+}
+.rt-tile.art-none .rt-tile-sub {
+  color: var(--dim);
+}
+
+/* ── who it sat with ────────────────────────────────────────────────────── */
+
+.rt-rivals {
+  list-style: none;
+  padding: 0;
+  margin: var(--s-2) 0 var(--s-4);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: var(--s-1);
+}
+.lab .rt-rival {
+  width: 100%;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 6px 12px 6px 6px;
+  text-align: left;
+  font-weight: 400;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+}
+.lab .rt-rival.on {
+  border-color: var(--text);
+}
+.rt-rival-text {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+.rt-rival-text b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rt-score {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-md);
+}
+
+/* ── tables list ────────────────────────────────────────────────────────── */
+
+.rt-tables {
+  list-style: none;
+  padding: 0;
+  margin: var(--s-2) 0 var(--s-3);
+  display: grid;
+  gap: var(--s-1);
+}
+.rt-table-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 8px 12px 8px 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+  color: var(--text);
+  text-decoration: none;
+}
+.rt-table-card:hover,
+.rt-table-card:focus-visible {
+  border-color: var(--dim);
+}
+.rt-table-art {
+  display: flex;
+  gap: 4px;
+}
+.rt-table-text {
+  display: grid;
+  flex: 1;
+  min-width: 12rem;
+}
+.rt-results {
+  display: flex;
+  gap: 4px;
+}
+.rt-pill {
+  min-width: 3.2rem;
+  text-align: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums;
+}
+.rt-pill.won {
+  background: var(--text);
+  color: var(--ground);
+  font-weight: 700;
+}
+.rt-pill.faint {
+  color: var(--dim);
+}
+
+/* ── a table's games ────────────────────────────────────────────────────── */
+
+.rt-games {
+  list-style: none;
+  padding: 0;
+  margin: var(--s-3) 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  gap: var(--s-2);
+}
+.rt-game {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  padding: var(--s-3);
+  display: grid;
+  gap: var(--s-2);
+  height: 100%;
+}
+.rt-game header h3 {
+  margin: 0 0 0.2rem;
+}
+.rt-game header p {
+  margin: 0;
+}
+.rt-finish {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.rt-finish li {
+  display: grid;
+  grid-template-columns: 3.4rem 56px 1fr;
+  align-items: center;
+  gap: var(--s-1);
+}
+.rt-place {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-md);
+  color: var(--dim);
+}
+.rt-finish li.won .rt-place {
+  color: var(--text);
+}
+.rt-finish li.won .rt-thumb {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+.rt-finish-name {
+  display: grid;
+  min-width: 0;
+}
+.rt-finish-name b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rt-finish-how {
+  color: var(--dim);
+}
+.rt-finish li.won .rt-finish-how {
+  color: var(--text);
+  font-weight: 700;
+}
+
+@media (max-width: 520px) {
+  .rt-games {
+    grid-template-columns: 1fr;
+  }
+  .rt-finish li {
+    grid-template-columns: 2.8rem 48px 1fr;
+  }
+  .art-panel.rt-thumb {
+    width: 48px;
+    height: 35px;
+  }
+}
