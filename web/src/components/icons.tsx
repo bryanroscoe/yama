@@ -13,6 +13,9 @@ export const CollectionIcon = () => (
 export const DecksIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><rect x="6" y="3" width="12" height="16" rx="1.5" /><path d="M4 7v12a2 2 0 0 0 2 2h10" /></svg>
 );
+export const LabIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><path d="M9 3h6M10 3v6l-5.6 9.4A1.7 1.7 0 0 0 5.9 21h12.2a1.7 1.7 0 0 0 1.5-2.6L14 9V3" /><path d="M7.2 15h9.6" /></svg>
+);
 export const GroupIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5" /></svg>
 );

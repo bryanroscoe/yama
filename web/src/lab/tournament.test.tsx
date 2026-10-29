@@ -11,7 +11,7 @@ describe("tournament setup", () => {
   it("exposes a single field, bulk version selection, benchmarks and a per-deck budget", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const html = renderToStaticMarkup(
-      <QueryClientProvider client={client}><MemoryRouter initialEntries={["/decks/lab/compare?mode=tournament"]}><ComparePage /></MemoryRouter></QueryClientProvider>,
+      <QueryClientProvider client={client}><MemoryRouter initialEntries={["/lab/compare?mode=tournament"]}><ComparePage /></MemoryRouter></QueryClientProvider>,
     );
     expect(html).toContain("Select all my saved decks");
     expect(html).toContain("Include all supported stock precons as tournament entrants");

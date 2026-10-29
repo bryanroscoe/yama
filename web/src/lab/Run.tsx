@@ -90,7 +90,7 @@ function Again({ e }: { e: ExperimentDetail }) {
     mutationFn: () => api<ExperimentDetail>(`/api/lab/experiments/${e.id}/again`, { method: "POST", json: { games: pick, op_id: `${e.id}-again-${pick}-${Date.now()}` } }),
     onSuccess: (d) => {
       void qc.invalidateQueries({ queryKey: ["lab", "experiments"] });
-      navigate(`/decks/lab/runs/${d.id}`);
+      navigate(`/lab/runs/${d.id}`);
     },
   });
   return (
@@ -224,14 +224,14 @@ export function RunPage() {
     mutationFn: () => api(`/api/lab/experiments/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["lab", "experiments"] });
-      navigate("/decks/lab/runs");
+      navigate("/lab/runs");
     },
   });
 
   if (exp.error) {
     return (
       <>
-        <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
+        <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
         <ErrorText error={exp.error} />
       </>
     );
@@ -244,7 +244,7 @@ export function RunPage() {
 
   return (
     <>
-      <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
+      <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
       <ArtPanel art={e.base?.art}>
         <span>
           <StatusTag status={e.status} />
@@ -311,9 +311,9 @@ export function RunPage() {
             </button>
           )}
           {modeOf(e) === "change" || modeOf(e) === "solo" ? (
-            <button onClick={() => navigate("/decks/lab/try", { state: { prefill: prefillFrom(e) } })}>{modeOf(e) === "solo" ? "Try a change to it" : "Edit the change"}</button>
+            <button onClick={() => navigate("/lab/try", { state: { prefill: prefillFrom(e) } })}>{modeOf(e) === "solo" ? "Try a change to it" : "Edit the change"}</button>
           ) : (
-            <button onClick={() => navigate("/decks/lab/compare", { state: { prefill: comparePrefill(e) } })}>Edit and run again</button>
+            <button onClick={() => navigate("/lab/compare", { state: { prefill: comparePrefill(e) } })}>Edit and run again</button>
           )}
           <button className="quiet" onClick={() => confirm("Delete this run and its results?") && remove.mutate()} disabled={remove.isPending}>
             Delete
@@ -825,7 +825,7 @@ function RunNotes({ e }: { e: ExperimentDetail }) {
           <ul className="lab-note">
             {e.opponents.map((o) => (
               <li key={o.id}>
-                {(o.source as { kind?: string; id?: string }).kind === "precon" ? <Link to={`/decks/lab/p/${(o.source as { id: string }).id}`}>{o.label}</Link> : o.label}, in {o.pods}{" "}
+                {(o.source as { kind?: string; id?: string }).kind === "precon" ? <Link to={`/lab/p/${(o.source as { id: string }).id}`}>{o.label}</Link> : o.label}, in {o.pods}{" "}
                 {o.pods === 1 ? unit[0] : unit[1]}
               </li>
             ))}

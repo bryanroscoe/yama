@@ -10,6 +10,7 @@ pub mod bundle;
 pub mod decks;
 pub mod import;
 pub mod inputs;
+pub mod installed;
 pub mod model;
 pub mod swap_in;
 pub mod tokens;

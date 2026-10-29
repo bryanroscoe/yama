@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { AcquisitionItem, PowerSummary, PrintedWishlist, ResearchPage, Shopping } from "./Research";
 import { AccountingSummary, buildAccounting, listEntries, resolvedCombos } from "./details";
 import { changedAnswer, money, safeUrl, targetForSwap, type ResearchBundle } from "./api";
+import { changedSince } from "./about";
+import type { DeckSummary } from "../api";
 
 vi.mock("../auth",()=>({useMe:()=>({data:{id:"owner"}})}));
 vi.mock("../components/DeckTabs",()=>({AreaHead:({title}:{title:string})=><h1>{title}</h1>}));
@@ -65,6 +67,25 @@ describe("deck research evidence", () => {
   it("selects the planned-purchase scenario and separates sealed prices from singles",()=>{
     const html=renderToStaticMarkup(<MemoryRouter><Shopping defaultId="future" scenarios={[{id:"default",label:"Owned only",buys:[],prints:[],buy_total:0},{id:"future",label:"After Final Fantasy purchase",sealed_purchases:[{kind:"sealed_purchase",card:"Limit Break",store:"Pat’s",price:47.01,market:50,detail:"Not bought"}],buys:[{card:"Single",price:1.25,market:1.3,store:"Pat’s"}],buy_total:1.25,print_count:12}]}/></MemoryRouter>);
     expect(html).toContain("Buy these precons first");expect(html).toContain("$47.01");expect(html).toContain("$1.25 before tax");expect(html).not.toContain("$48.26");expect(html).toContain("not cards you own now");
+  });
+
+  it("labels research as agent notes that need nothing from you, on the index and on a note",()=>{
+    const client=new QueryClient({defaultOptions:{queries:{staleTime:Infinity,retry:false}}});
+    client.setQueryData(["research","owner","list"],[{id:"audit",title:"Deck review",revision:1,updated_at:"2026-10-27"}]);
+    const index=renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/decks/research"]}><Routes><Route path="/decks/research" element={<ResearchPage/>}/></Routes></MemoryRouter></QueryClientProvider>);
+    client.clear();
+    expect(index).toContain("<h1>Agent notes</h1>");expect(index).toContain("Agent notes are what Claude and other agents save");expect(index).toContain("nothing here needs you to do anything");
+    expect(index).toContain('href="/decks/plan/review"');expect(index).toContain("has changed since the note was saved");
+    const note=fullPage();
+    expect(note).toContain("Agent notes are what Claude and other agents save");expect(note).toContain("Note saved 2026-10-27");
+  });
+
+  it("flags a note's deck when the deck changed after the note was saved",()=>{
+    const d=(name:string,updated_at:string,parent_id:string|null=null)=>({id:name,name,updated_at,parent_id} as unknown as DeckSummary);
+    const decks=[d("Living Energy","2026-10-28T10:00:00Z"),d("Riders of Rohan","2026-10-20T10:00:00Z"),d("Living Energy (stock)","2026-10-29T00:00:00Z","Living Energy")];
+    expect(changedSince(decks,"living energy","2026-10-27")?.id).toBe("Living Energy");
+    expect(changedSince(decks,"Riders of Rohan","2026-10-27")).toBeNull();
+    expect(changedSince(decks,"Unknown deck","2026-10-27")).toBeNull();
   });
 
 });
