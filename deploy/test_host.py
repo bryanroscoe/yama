@@ -112,10 +112,10 @@ class HostGate(unittest.TestCase):
         (source / 'deploy').mkdir(parents=True)
         (source / 'deploy/compose.yaml').write_text('candidate compose\n')
         with patch.object(host, 'compose', return_value=self.resolved()) as compose, \
-             patch.object(host, 'inspect', return_value={'Image': 'previous-id'}), \
+             patch.object(host, 'existing_images', return_value={s: 'previous-id' for s in host.SERVICES}), \
              patch.object(host.os, 'chown'), patch.object(host, 'run', side_effect=host.Refused('backup failed')):
             with self.assertRaises(host.Refused):
-                host.activate(source, SHA, ['id'] * 3, {}, self.base / 'record.json')
+                host.activate(source, SHA, ['id'] * 3, {}, self.base / 'record.json', 'token')
             self.assertEqual(compose.call_count, 1)  # config validation only
         self.assertEqual((self.app / 'compose.yaml').read_text(), 'old compose\n')
         self.assertFalse((self.base / 'previous.json').exists())
@@ -125,10 +125,10 @@ class HostGate(unittest.TestCase):
         (source / 'deploy').mkdir(parents=True)
         (source / 'deploy/compose.yaml').write_text('candidate compose\n')
         with patch.object(host, 'compose', return_value=self.resolved()) as compose, \
-             patch.object(host, 'inspect', return_value={'Image': 'old-id'}), \
+             patch.object(host, 'existing_images', return_value={s: 'old-id' for s in host.SERVICES}), \
              patch.object(host.os, 'chown'), patch.object(host, 'run', return_value=''):
             with self.assertRaisesRegex(host.Refused, 'did not produce'):
-                host.activate(source, SHA, ['id'] * 3, {}, self.base / 'record.json')
+                host.activate(source, SHA, ['id'] * 3, {}, self.base / 'record.json', 'token')
             self.assertEqual(compose.call_count, 1)
 
     def test_healthy_container_from_wrong_image_cannot_pass(self):
@@ -161,11 +161,11 @@ class HostGate(unittest.TestCase):
                 (self.app / 'data/backups' / Path(args[-1]).name).write_text('backup')
             return ''
         with patch.object(host, 'compose', return_value=self.resolved(['candidate-id'] * 3)) as compose, \
-             patch.object(host, 'inspect', return_value={'Image': 'old-id'}), \
+             patch.object(host, 'existing_images', return_value={s: 'old-id' for s in host.SERVICES}), \
              patch.object(host.os, 'chown'), patch.object(host, 'run', side_effect=execute), \
-             patch.object(host, 'healthy', return_value=True):
+             patch.object(host, 'healthy', return_value=True), patch.object(host, 'verify_ci', return_value=True):
             record = {}
-            host.activate(source, SHA, ['candidate-id'] * 3, record, self.base / 'record.json')
+            host.activate(source, SHA, ['candidate-id'] * 3, record, self.base / 'record.json', 'token')
         self.assertEqual((self.app / 'compose.yaml').read_text(), 'candidate compose\n')
         self.assertEqual(override.read_text(), 'local capacity\n')
         self.assertTrue(Path(record['backup']).is_file())
@@ -223,6 +223,109 @@ class HostGate(unittest.TestCase):
         self.assertEqual(record['status'], 'failed')
         self.assertEqual(record['stage'], 'checkout')
         self.assertEqual(record['error'], 'Yama fetch unavailable')
+
+    def activation_fixture(self):
+        source = self.root / 'source'
+        (source / 'deploy').mkdir(parents=True)
+        (source / 'deploy/compose.yaml').write_text('candidate compose\n')
+        return source
+
+    def test_main_advancing_during_backup_prevents_config_switch_and_restart(self):
+        source = self.activation_fixture()
+        backup_created = []
+        def backup(args, **kwargs):
+            path = self.app / 'data/backups' / Path(args[-1]).name
+            path.write_text('backup')
+            backup_created.append(path)
+            return ''
+        def recheck(revision, token):
+            self.assertEqual(revision, SHA)
+            self.assertTrue(backup_created[0].is_file())
+            return False
+        with patch.object(host, 'compose', return_value=self.resolved()) as compose, \
+             patch.object(host, 'existing_images', return_value={s: 'old' for s in host.SERVICES}), \
+             patch.object(host.os, 'chown'), patch.object(host, 'run', side_effect=backup), \
+             patch.object(host, 'verify_ci', side_effect=recheck):
+            record = {}
+            result = host.activate(source, SHA, ['id'] * 3, record, self.base / 'record.json', 'token')
+            self.assertFalse(result)
+            self.assertEqual(record['status'], 'superseded')
+            self.assertEqual(compose.call_count, 1)
+        self.assertEqual((self.app / 'compose.yaml').read_text(), 'old compose\n')
+        self.assertFalse((self.base / 'previous.json').exists())
+        self.assertEqual(list(self.app.glob('.compose.release-*')), [])
+
+    def test_missing_container_with_existing_database_never_skips_backup(self):
+        source = self.activation_fixture()
+        (self.app / 'data/yama.db').write_text('existing data')
+        with patch.object(host, 'compose', return_value=self.resolved()) as compose, \
+             patch.object(host, 'existing_images', return_value={s: None for s in host.SERVICES}), \
+             patch.object(host, 'run') as run:
+            with self.assertRaisesRegex(host.Refused, 'Existing database requires'):
+                host.activate(source, SHA, ['id'] * 3, {}, self.base / 'record.json', 'token')
+            run.assert_not_called()
+            self.assertEqual(compose.call_count, 1)
+        self.assertEqual((self.app / 'data/yama.db').read_text(), 'existing data')
+
+    def test_first_install_with_no_database_can_start_without_backup(self):
+        source = self.activation_fixture()
+        (self.app / 'compose.yaml').unlink()
+        with patch.object(host, 'compose', return_value=self.resolved()) as compose, \
+             patch.object(host, 'existing_images', return_value={s: None for s in host.SERVICES}), \
+             patch.object(host, 'run', return_value='') as run, \
+             patch.object(host, 'verify_ci', return_value=True), patch.object(host, 'healthy', return_value=True):
+            record = {}
+            self.assertTrue(host.activate(source, SHA, ['id'] * 3, record, self.base / 'record.json', 'token'))
+            self.assertTrue(record['fresh_install'])
+            self.assertIsNone(record['backup'])
+            self.assertEqual(run.call_count, 3)  # only successful latest tags
+            self.assertEqual(compose.call_args.args[2:], ('up', '-d', '--no-deps', '--pull', 'never', *host.SERVICES))
+        self.assertEqual((self.app / 'compose.yaml').read_text(), 'candidate compose\n')
+
+    def test_existing_images_distinguishes_absence_from_daemon_failure(self):
+        with patch.object(host, 'run', return_value='yama\n'), patch.object(host, 'inspect', return_value={'Image': 'running-id'}):
+            self.assertEqual(host.existing_images(), {'yama': 'running-id', 'yama-advisor': None, 'yama-forge': None})
+        with patch.object(host, 'run', side_effect=host.Refused('Docker unavailable')):
+            with self.assertRaises(host.Refused):
+                host.existing_images()
+
+    def test_bootstrap_creates_missing_pairs_once_and_preserves_paid_credentials(self):
+        (self.app / 'yama.env').write_text('YAMA_ADMIN_EMAILS=owner@example.invalid,friend@example.invalid\n')
+        (self.app / 'advisor.env').write_text('CLAUDE_CODE_OAUTH_TOKEN=keep-this-token\nANTHROPIC_SHARED_API_KEY=keep-this-key\n')
+        (self.app / 'forge.env').unlink()
+        host.bootstrap_sidecars(self.app)
+        first = {p.name: p.read_bytes() for p in self.app.glob('*.env')}
+        host.bootstrap_sidecars(self.app)
+        self.assertEqual(first, {p.name: p.read_bytes() for p in self.app.glob('*.env')})
+        def values(name):
+            return dict(line.split('=', 1) for line in (self.app / name).read_text().splitlines() if '=' in line)
+        yama, advisor, forge = values('yama.env'), values('advisor.env'), values('forge.env')
+        self.assertEqual(yama['YAMA_ADVISOR_SECRET'], advisor['ADVISOR_SECRET'])
+        self.assertEqual(yama['YAMA_FORGE_SECRET'], forge['FORGE_SECRET'])
+        self.assertEqual(yama['YAMA_ADVISOR_SUBSCRIPTION_EMAILS'], 'owner@example.invalid')
+        self.assertEqual(advisor['CLAUDE_CODE_OAUTH_TOKEN'], 'keep-this-token')
+        self.assertEqual(advisor['ANTHROPIC_SHARED_API_KEY'], 'keep-this-key')
+        for p in self.app.glob('*.env'):
+            self.assertEqual(p.stat().st_mode & 0o777, 0o600)
+
+    def test_bootstrap_recovers_a_missing_partner_without_rotating_secrets(self):
+        (self.app / 'advisor.env').write_text('ADVISOR_SECRET=existing-advisor-secret\n')
+        (self.app / 'yama.env').write_text('YAMA_FORGE_SECRET=existing-forge-secret\nYAMA_ADVISOR_KEY_SECRET=existing-encryption-key\n')
+        host.bootstrap_sidecars(self.app)
+        yama = (self.app / 'yama.env').read_text()
+        self.assertIn('YAMA_ADVISOR_SECRET=existing-advisor-secret\n', yama)
+        self.assertIn('YAMA_ADVISOR_KEY_SECRET=existing-encryption-key\n', yama)
+        self.assertIn('FORGE_SECRET=existing-forge-secret\n', (self.app / 'forge.env').read_text())
+
+    def test_bootstrap_conflicting_second_pair_fails_before_writing_any_file_or_secret(self):
+        (self.app / 'forge.env').write_text('FORGE_SECRET=first-private-secret\n')
+        (self.app / 'yama.env').write_text('YAMA_FORGE_SECRET=second-private-secret\n')
+        before = {p.name: p.read_bytes() for p in self.app.glob('*.env')}
+        with self.assertRaises(host.Refused) as error:
+            host.bootstrap_sidecars(self.app)
+        self.assertNotIn('first-private-secret', str(error.exception))
+        self.assertNotIn('second-private-secret', str(error.exception))
+        self.assertEqual(before, {p.name: p.read_bytes() for p in self.app.glob('*.env')})
 
     def test_host_command_timeout_terminates_its_own_child(self):
         with self.assertRaisesRegex(host.Refused, 'timed out'):

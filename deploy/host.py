@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import shlex
 import shutil
 import signal
@@ -177,6 +178,76 @@ def phase_checkout(repo):
     return phase, revision
 
 
+def bootstrap_sidecars(directory):
+    """Create missing paired configuration once; never rotate existing secrets."""
+    files = {name: directory / name for name in ('yama.env', 'advisor.env', 'forge.env')}
+    if not files['yama.env'].is_file():
+        raise Refused('Configure yama.env with first-time.sh before deploying')
+    texts, values, additions = {}, {}, {name: {} for name in files}
+    for name, path in files.items():
+        if path.is_symlink():
+            raise Refused('Server configuration must not be a symlink: ' + name)
+        texts[name] = path.read_text() if path.exists() else ''
+        values[name] = {}
+        for line in texts[name].splitlines():
+            key, separator, value = line.partition('=')
+            if separator and key.strip() and not key.lstrip().startswith('#'):
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+                values[name][key.strip()] = value
+
+    def add(name, key, value):
+        if key not in values[name]:
+            additions[name][key] = value
+
+    for name, key, paired in (('advisor.env', 'ADVISOR_SECRET', 'YAMA_ADVISOR_SECRET'),
+                              ('forge.env', 'FORGE_SECRET', 'YAMA_FORGE_SECRET')):
+        local, server = values[name].get(key), values['yama.env'].get(paired)
+        if local == '' or server == '':
+            raise Refused('Empty paired secret requires explicit repair: ' + key)
+        if local is not None and server is not None and local != server:
+            raise Refused('Paired secrets differ; refusing to rotate ' + key)
+        secret = local or server or secrets.token_hex(32)
+        # Values already written in a file are preserved verbatim. Only a missing
+        # partner is appended; reject characters unsafe for a new dotenv line.
+        if (local is None or server is None) and not re.fullmatch(r'[A-Za-z0-9_\-]+', secret):
+            raise Refused('Paired secret needs explicit dotenv repair: ' + key)
+        add(name, key, secret)
+        add('yama.env', paired, secret)
+    for key, value in {
+        'YAMA_ADVISOR_URL': 'http://yama-advisor:8790',
+        'YAMA_ADVISOR_TOOLS_URL': 'http://yama:8787/mcp',
+        'YAMA_FORGE_URL': 'http://yama-forge:8791',
+        'YAMA_ADVISOR_KEY_SECRET': secrets.token_hex(32),
+        'YAMA_ADVISOR_SUBSCRIPTION_EMAILS': values['yama.env'].get('YAMA_ADMIN_EMAILS', '').split(',')[0].strip(),
+    }.items():
+        add('yama.env', key, value)
+    # Validate and plan all pairs before writing. If a write is interrupted,
+    # the next run recovers the already-written partner instead of rotating it.
+    for name in ('advisor.env', 'forge.env', 'yama.env'):
+        path = files[name]
+        if additions[name] or not path.exists():
+            text = texts[name].rstrip('\n') + '\n'
+            text += ''.join(key + '=' + value + '\n' for key, value in additions[name].items())
+            with tempfile.NamedTemporaryFile(dir=directory, prefix='.' + name + '-', mode='w', delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(text)
+            try:
+                temporary.chmod(0o600)
+                os.replace(temporary, path)
+            finally:
+                temporary.unlink(missing_ok=True)
+        path.chmod(0o600)
+
+
+def existing_images():
+    # A daemon error must fail closed; only a successful container listing can
+    # establish that a first installation has no existing Yama container.
+    names = set(run(['docker', 'ps', '--all', '--format', '{{.Names}}']).splitlines())
+    return {service: inspect(service)['Image'] if service in names else None for service in SERVICES}
+
+
 def export(repo, revision, destination, *paths):
     destination.mkdir()
     archive = destination.parent / (destination.name + '.tar')
@@ -214,7 +285,7 @@ def healthy(images):
         return False
 
 
-def activate(source, revision, images, record, record_path):
+def activate(source, revision, images, record, record_path, token):
     # Pin runtime image IDs, so unchanged sidecars keep the same Compose config
     # across main commits and are not restarted just because a tag changed.
     env = dict(os.environ, **dict(zip(IMAGE_VARS, images)))
@@ -223,30 +294,50 @@ def activate(source, revision, images, record, record_path):
     for service, image in zip(SERVICES, images):
         if resolved['services'][service]['image'] != image:
             raise Refused('Server override changes the release image for ' + service)
-    # Setup owns secrets; releases never create or replace server-local env files.
+    # Bootstrap ran under the host lock; activation never rewrites env files.
     for name in ('yama.env', 'advisor.env', 'forge.env'):
         if not (APP / name).is_file():
             raise Refused('Missing server configuration: ' + name)
-    previous = {'images': {s: inspect(s)['Image'] for s in SERVICES},
-                'compose': (APP / 'compose.yaml').read_text()}
-    stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    backup = 'yama-release-' + stamp + '-' + revision[:12] + '.db'
-    (APP / 'data/backups').mkdir(exist_ok=True)
-    os.chown(APP / 'data/backups', 99, 100)
-    log('Backing up SQLite before activation…')
-    run(['docker', 'exec', 'yama', 'yama-server', 'backup', '/data/backups/' + backup])
-    if not (APP / 'data/backups' / backup).is_file():
-        raise Refused('Backup command did not produce a database')
-    previous['backup'] = str(APP / 'data/backups' / backup)
-    # Keep every attempt's rollback inputs: a retry of an unhealthy deployment
-    # must not erase the last known-good images/config from an earlier attempt.
+    previous = {'images': existing_images(),
+                'compose': (APP / 'compose.yaml').read_text() if (APP / 'compose.yaml').exists() else None}
+    if previous['images']['yama'] is None:
+        if any((APP / 'data').glob('yama.db*')):
+            raise Refused('Existing database requires a running Yama backup before activation')
+        # No database has ever been created. Existing database/WAL files never
+        # take this path, including a rebuild whose container is missing.
+        previous['backup'] = None
+        record['fresh_install'] = True
+        log('First installation: no existing Yama database to back up.')
+    else:
+        stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        backup = 'yama-release-' + stamp + '-' + revision[:12] + '.db'
+        (APP / 'data/backups').mkdir(exist_ok=True)
+        os.chown(APP / 'data/backups', 99, 100)
+        log('Backing up SQLite before activation…')
+        run(['docker', 'exec', 'yama', 'yama-server', 'backup', '/data/backups/' + backup])
+        if not (APP / 'data/backups' / backup).is_file():
+            raise Refused('Backup command did not produce a database')
+        previous['backup'] = str(APP / 'data/backups' / backup)
+    # Keep every attempt's recovery inputs, including superseded backups.
     write_json(record_path.with_suffix('.previous.json'), previous)
-    write_json(BASE / 'previous.json', previous)
-    record.update(status='activating', backup=previous['backup'], images=dict(zip(SERVICES, images)))
+    record.update(backup=previous['backup'], images=dict(zip(SERVICES, images)))
     write_json(record_path, record)
-    temp = APP / 'compose.yaml.release-tmp'
-    shutil.copyfile(config, temp)
-    os.replace(temp, APP / 'compose.yaml')
+    with tempfile.NamedTemporaryFile(dir=APP, prefix='.compose.release-', delete=False) as stream:
+        temporary = Path(stream.name)
+        stream.write(config.read_bytes())
+    try:
+        # Resolve and validate Compose, inspect containers, and back up before
+        # this last remote check. Superseded work must never replace live config.
+        if not verify_ci(revision, token):
+            record['status'] = 'superseded'
+            log('Superseded before activation; running production was preserved.')
+            return False
+        write_json(BASE / 'previous.json', previous)
+        record['status'] = 'activating'
+        write_json(record_path, record)
+        os.replace(temporary, APP / 'compose.yaml')
+    finally:
+        temporary.unlink(missing_ok=True)
     compose(APP / 'compose.yaml', env, 'up', '-d', '--no-deps', '--pull', 'never', *SERVICES)
     log('Waiting for all three release images and HTTP health…')
     deadline = time.monotonic() + 240
@@ -254,7 +345,7 @@ def activate(source, revision, images, record, record_path):
         if healthy(images):
             for service in SERVICES:
                 run(['docker', 'tag', service + ':' + revision, service + ':latest'])
-            return
+            return True
         time.sleep(5)
     raise Refused('Release health failed; previous images and pre-release backup are in previous.json. '
                   'Do not restore a database or reverse migrations automatically.')
@@ -295,7 +386,10 @@ def release(revision, token, check_only=False):
             record['stage'] = 'phase_checkout'
             write_json(record_path, record)
             phase, phase_rev = phase_checkout(repo)
-            record.update(phase=phase_rev, status='building', stage='export')
+            record.update(phase=phase_rev, stage='bootstrap')
+            write_json(record_path, record)
+            bootstrap_sidecars(APP)
+            record.update(status='building', stage='export')
             write_json(record_path, record)
             builds = BASE / 'builds'
             builds.mkdir(exist_ok=True)
@@ -332,7 +426,8 @@ def release(revision, token, check_only=False):
                     return
                 record['stage'] = 'activate'
                 write_json(record_path, record)
-                activate(source, revision, images, record, record_path)
+                if not activate(source, revision, images, record, record_path, token):
+                    return
                 record.update(status='success', stage='complete')
                 write_json(BASE / 'current.json', record)
                 log('Production verified at ' + revision + '; HTTP health ok, all image IDs match.')

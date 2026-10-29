@@ -141,8 +141,11 @@ production data/env mounts or general server shell. A restricted SSH command inv
 server-owned `deploy/host.py`, which independently verifies current main and successful
 push CI, fetches a dedicated clean main checkout and the published Phase pin, and builds
 committed exports on saget. GitHub concurrency and one host lock serialize automated and
-manual deployments. Superseded builds do not activate. Mandatory SQLite backup precedes
-activation; full-SHA image tags, the preserved server-local Compose override, all three
+manual deployments. Superseded builds do not activate; a final GitHub check follows
+backup and immediately precedes the live config switch. Missing sidecar configuration
+is bootstrapped once under the lock, preserving existing credentials. A mandatory SQLite
+backup precedes activation of an existing database; only a genuinely empty first
+installation can initialize without one; full-SHA image tags, the preserved server-local Compose override, all three
 container health checks and exact image IDs plus plain-text HTTP health determine success.
 Secrets/data stay server-local; prior images/config and backup provenance remain available
 for deliberate recovery. Host entrypoint updates are separately installed after review.

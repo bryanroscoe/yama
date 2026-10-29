@@ -57,15 +57,20 @@ the runner. No new public ingress is needed.
 
 GitHub's `yama-production` concurrency group finishes an active run without cancelling
 it. The host lock also protects manual releases, independent of the runner. Already healthy deployments are idempotent and do not restart. Old queued
-SHAs are skipped; a release superseded during its build does not activate. A fresh
-GitHub check happens before building and again before backup/activation. If GitHub or
+SHAs are skipped; a release superseded during its build does not activate. Fresh
+GitHub checks happen before building, after building, and after backup immediately
+before switching the live Compose configuration. If GitHub or
 Phase cannot be freshly checked, deployment fails closed.
 
 Builds reuse saget's existing Docker/BuildKit cache. All three images get full-SHA tags;
 `latest` changes only after verification. Activation pins the corresponding immutable image IDs, so unchanged sidecars keep
 their Compose configuration and avoid needless restarts. It keeps `/mnt/user/appdata/yama/compose.override.yaml`, and runs
 `docker compose up -d --no-deps --pull never yama yama-advisor yama-forge`. Secrets and data stay
-server-local. The pre-release SQLite backup is mandatory. Every container must run the
+server-local. Missing sidecar env files/pairs are initialized once under the host lock;
+existing credentials and custom settings are never rotated. Conflicting/empty pairs
+require explicit repair. The pre-release SQLite backup is mandatory for any existing
+database. Only an empty first installation with no Yama container or database/WAL
+files can initialize without one; rebuilds with data require a running backup source. Every container must run the
 expected image ID with Docker health `healthy`; `/api/health` must return plain-text
 `ok`. A failed build/backup preserves the existing deployment. Failure after activation
 is recorded as failure and requires inspection, never an automatic database restore.
@@ -79,6 +84,9 @@ A manual cancellation can revoke the ephemeral token; if fresh verification
 then fails before activation, the running service is preserved.
 
 ## Setup and maintenance
+
+First prepare the app directory and `yama.env` with [the first-deploy procedure](README.md#first-deploy).
+Missing advisor/Forge configuration is created by the first authorized release.
 
 1. Build `deploy/runner/Dockerfile` as `yama-deploy-runner:2.338.2` on saget. Copy
    `deploy/runner/compose.yaml` to its server directory. Create `state` and `ssh` with
