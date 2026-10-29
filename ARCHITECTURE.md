@@ -132,7 +132,8 @@ by an independent Codex agent review. Event-driven PR monitoring resumes pending
 merge rather than leaving an unmonitored handoff. See `AGENTS.md` and `deploy/RELEASING.md`.
 
 **Test CI (Bryan, 2026-10-29):** `.github/workflows/ci.yml` runs automatically for PRs into
-main and main pushes, with a manual trigger for diagnosis. Both jobs run on the separate
+main and main pushes, with a manual trigger for diagnosis. Concurrency groups include the
+event type so manual diagnostics cannot cancel deployment-authorizing push CI. Both jobs run on the separate
 `saget-yama-ci` container after hosted jobs hit an account billing block. It runs one job at a
 time, capped at two CPUs/12 GiB, with preinstalled Rust 1.98.1 and Node 22. Locked Rust and
 Python regressions plus clean-installed web tests/typecheck/build retain the same acceptance

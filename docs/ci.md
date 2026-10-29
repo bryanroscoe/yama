@@ -2,7 +2,9 @@
 
 `.github/workflows/ci.yml` runs on pull requests into `main`, pushes to `main`, and manual
 dispatch. There are no path filters: documentation and workflow changes also receive checks.
-Superseded runs for the same PR/ref are cancelled. Bryan authorized a dedicated CI runner on
+Superseded runs for the same event type and PR/ref are cancelled. Manual diagnostic CI uses
+a separate concurrency group and cannot cancel the push CI required for deployment. Only
+successful push CI on current main authorizes release. Bryan authorized a dedicated CI runner on
 saget on 2026-10-29 after GitHub-hosted jobs were blocked by account billing. Both jobs select
 `[self-hosted, Linux, X64, yama-ci]` with read-only repository permissions. The separate
 `saget-yama-ci` runner executes one job at a time; it has no deployment credential, Docker

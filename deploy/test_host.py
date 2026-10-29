@@ -47,10 +47,29 @@ class HostGate(unittest.TestCase):
         with patch.object(host, 'api', side_effect=self.responses()) as api:
             self.assertTrue(host.verify_ci(SHA, 'private-token'))
             self.assertIn('head_sha=' + SHA, api.call_args.args[0])
+            self.assertIn('event=push', api.call_args.args[0])
+
+    def test_manual_ci_cannot_cancel_deployable_push_ci(self):
+        workflow = Path(__file__).resolve().parents[1] / '.github/workflows/ci.yml'
+        group = re.search(r'^  group: (.+)$', workflow.read_text(), re.M).group(1)
+
+        def rendered(event, ref='refs/heads/main', pr=None, revision=SHA):
+            context = {'github.workflow': 'CI', 'github.event_name': event, 'github.sha': revision,
+                       'github.event.pull_request.number || github.ref': str(pr or ref)}
+            return re.sub(r'\$\{\{\s*(.*?)\s*\}\}', lambda m: context[m[1]], group)
+
+        # A later push still supersedes older push CI, but diagnostics and PRs
+        # cannot cancel the push that the production host requires.
+        push = rendered('push')
+        self.assertNotEqual(push, rendered('workflow_dispatch'))
+        self.assertNotEqual(push, rendered('pull_request', pr=23))
+        self.assertEqual(push, rendered('push', revision=OTHER))
+        self.assertEqual(rendered('pull_request', pr=23), rendered('pull_request', pr=23, revision=OTHER))
+        self.assertNotEqual(rendered('pull_request', pr=23), rendered('pull_request', pr=24))
 
     def test_failed_running_pr_foreign_and_wrong_workflow_ci_are_refused(self):
         for change in ({'conclusion': 'failure'}, {'status': 'in_progress'},
-                       {'event': 'pull_request'}, {'head_branch': 'feature'},
+                       {'event': 'pull_request'}, {'event': 'workflow_dispatch'}, {'head_branch': 'feature'},
                        {'head_sha': OTHER}, {'path': '.github/workflows/lab-worker.yml'},
                        {'head_repository': {'full_name': 'stranger/yama'}}):
             with self.subTest(change=change), patch.object(host, 'api', side_effect=self.responses({**self.good_run, **change})):
