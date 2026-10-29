@@ -191,11 +191,14 @@ def bootstrap_sidecars(directory):
         values[name] = {}
         for line in texts[name].splitlines():
             key, separator, value = line.partition('=')
-            if separator and key.strip() and not key.lstrip().startswith('#'):
+            # Compose accepts optional export prefixes; ignoring one could
+            # replace an existing encryption key or shared credential.
+            key = re.sub(r'^export\s+', '', key.strip())
+            if separator and key and not key.startswith('#'):
                 value = value.strip()
                 if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
                     value = value[1:-1]
-                values[name][key.strip()] = value
+                values[name][key] = value
 
     def add(name, key, value):
         if key not in values[name]:

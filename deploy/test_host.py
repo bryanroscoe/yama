@@ -330,6 +330,23 @@ class HostGate(unittest.TestCase):
         for p in self.app.glob('*.env'):
             self.assertEqual(p.stat().st_mode & 0o777, 0o600)
 
+    def test_bootstrap_preserves_exported_encryption_key_and_shared_credentials(self):
+        (self.app / 'yama.env').write_text(
+            'export YAMA_ADVISOR_KEY_SECRET=existing-encryption-key\n'
+            'export YAMA_ADVISOR_SECRET=existing-advisor-secret\n'
+            'export YAMA_FORGE_SECRET=existing-forge-secret\n')
+        (self.app / 'advisor.env').write_text('export ADVISOR_SECRET=existing-advisor-secret\n')
+        (self.app / 'forge.env').write_text('export FORGE_SECRET=existing-forge-secret\n')
+        host.bootstrap_sidecars(self.app)
+        yama = (self.app / 'yama.env').read_text()
+        for key, value in (('YAMA_ADVISOR_KEY_SECRET', 'existing-encryption-key'),
+                           ('YAMA_ADVISOR_SECRET', 'existing-advisor-secret'),
+                           ('YAMA_FORGE_SECRET', 'existing-forge-secret')):
+            self.assertIn('export ' + key + '=' + value + '\n', yama)
+            self.assertEqual(sum(line.startswith(key + '=') for line in yama.splitlines()), 0)
+        self.assertEqual((self.app / 'advisor.env').read_text(), 'export ADVISOR_SECRET=existing-advisor-secret\n')
+        self.assertEqual((self.app / 'forge.env').read_text(), 'export FORGE_SECRET=existing-forge-secret\n')
+
     def test_bootstrap_recovers_a_missing_partner_without_rotating_secrets(self):
         (self.app / 'advisor.env').write_text('ADVISOR_SECRET=existing-advisor-secret\n')
         (self.app / 'yama.env').write_text('YAMA_FORGE_SECRET=existing-forge-secret\nYAMA_ADVISOR_KEY_SECRET=existing-encryption-key\n')
