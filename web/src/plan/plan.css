@@ -835,6 +835,34 @@
 .review-deck-count {
   font-weight: 400;
 }
+.review-deck-count.has-open {
+  font-weight: 700;
+}
+/* Review's one sentence on what an answer does, and the to-do count under it. */
+.review-lede {
+  margin: 0 0 4px;
+  max-width: 60ch;
+}
+.review-todo {
+  margin: 0 0 12px;
+}
+.review-done {
+  margin: 8px 0 16px;
+  color: var(--good);
+}
+/* Answered proposals and planned swaps: closed sections under the to-do list. */
+.review-section-closed > summary {
+  cursor: pointer;
+}
+.review-section-about {
+  margin: 0 0 8px;
+}
+.review-group.review-section-closed {
+  margin-top: 8px;
+}
+.review-qrow-state.open {
+  color: var(--text);
+}
 .review-credit {
   margin: 16px 0 0;
 }

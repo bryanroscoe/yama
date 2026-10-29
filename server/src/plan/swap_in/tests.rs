@@ -272,3 +272,21 @@ async fn an_unlinked_plan_deck_is_refused() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert!(body["error"].as_str().unwrap().contains("isn't linked"), "{body}");
 }
+
+#[tokio::test]
+async fn a_plan_linked_to_a_configuration_swaps_into_its_main_deck() {
+    let (app, pool) = app().await;
+    seed(&pool).await;
+    let (a_id, a) = user(&pool, "a@example.com").await;
+    let (status, report) = send(&app, Method::POST, "/api/plan/import", Some(&a), Some(doc())).await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    let alpha = yama_deck(&app, &pool, &a_id, &a, "alpha", "Alpha Deck", vec![dc("o-acmd", "Alpha Commander", 1, Board::Commander), dc("o-forest", "Forest", 5, Board::Main)]).await;
+    // A stock configuration of it, linked to the plan instead: the main deck still holds the box.
+    let (status, made) = send(&app, Method::POST, &format!("/api/decks/{alpha}/configurations"), Some(&a), Some(json!({"configuration": "stock", "op_id": "cfg"}))).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let (status, _) = send(&app, Method::PATCH, "/api/plan/decks/alpha", Some(&a), Some(json!({"deck_id": made["id"]}))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, preview) = send(&app, Method::GET, "/api/plan/decks/alpha/swap-in", Some(&a), None).await;
+    assert_eq!(status, StatusCode::OK, "{preview}");
+    assert_eq!(preview["deck"]["deck_id"], alpha.as_str());
+}

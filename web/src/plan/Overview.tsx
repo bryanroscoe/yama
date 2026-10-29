@@ -76,7 +76,7 @@ export function Overview() {
           )}
 
           <div className="plan-figures">
-            <Link className="plan-figure" to="/decks/plan/review?show=proposed">
+            <Link className="plan-figure" to="/decks/plan/review">
               <b className={`num${totals.toReview ? " warn" : ""}`}>{totals.toReview}</b>
               <span>to review</span>
             </Link>

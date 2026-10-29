@@ -63,20 +63,29 @@ export interface InstalledState {
   on: boolean;
   /** The planner records it as skipped (and no newer tick here says otherwise): not waiting to go in. */
   skipped: boolean;
-  /** Where `on` comes from: your tick in Yama, the planner's own install record, or nothing yet. */
-  from: "yama" | "plan" | null;
+  /**
+   * Where `on` comes from: the deck's own current list (when the plan deck has a Yama deck), your
+   * tick in Yama, the planner's own install record, or nothing yet.
+   */
+  from: "deck" | "yama" | "plan" | null;
   /** The planner's record ("installed" or "skipped") when it has one, even when a newer tick wins. */
   planStatus: "installed" | "skipped" | null;
 }
 
 /**
- * Start from the planner's install record (commander-decks' data/upgrades.json, carried as
- * `swap.upgrade`), and let a Yama tick win when it is newer than the swap as last imported. A
- * status of planned or ordered says nothing about the deck, so any tick wins over it.
+ * The deck itself decides when the plan deck has a Yama deck (Bryan, 2026-10-28: installed status
+ * lives on the decks): `swap.deck_installed`, read from its current list. A swap that isn't in the
+ * deck stays "skipped" if the planner skipped it. With no Yama deck, start from the planner's
+ * install record (commander-decks' data/upgrades.json, carried as `swap.upgrade`), and let a Yama
+ * tick win when it is newer than the swap as last imported. A status of planned or ordered says
+ * nothing about the deck, so any tick wins over it.
  */
 export function installedState(s: Swap, m: Mark | undefined): InstalledState {
   const st = s.upgrade?.status;
   const planStatus = st === "installed" || st === "skipped" ? st : null;
+  if (s.stage === "planned" && s.deck_installed != null) {
+    return { on: s.deck_installed, skipped: !s.deck_installed && (planStatus === "skipped" || !!s.deck_superseded), from: "deck", planStatus };
+  }
   if (m && (!planStatus || !s.updated_at || m.at > s.updated_at)) return { on: !!m.value, skipped: false, from: "yama", planStatus };
   if (planStatus) return { on: planStatus === "installed", skipped: planStatus === "skipped", from: "plan", planStatus };
   return { on: false, skipped: false, from: null, planStatus: null };

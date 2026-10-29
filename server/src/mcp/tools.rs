@@ -116,7 +116,8 @@ const TOOLS: &[Tool] = &[
         name: "plan_deck",
         title: "One upgrade plan",
         description: "One upgrade plan: the stock list and the now and after lists as differences, every planned and \
-                      proposed swap with its reasons and their review answers, their shopping rules, the newest \
+                      proposed swap with its reasons and their review answers, whether each planned swap is installed \
+                      (read from their Yama deck's current list when the plan has one), their shopping rules, the newest \
                       paired lab run, and real games. Give the plan key from `overview`.",
         schema: || obj(&[("key", "string", "The plan key, for example \"riders-of-rohan\".")], &["key"]),
         does: Does::Read,
@@ -124,7 +125,7 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "review_queue",
         title: "Proposals to review",
-        description: "Every proposed swap still waiting for their answer, deck by deck.",
+        description: "Every proposed swap, deck by deck: the ones still waiting for their answer first, then the ones they answered.",
         schema: no_args,
         does: Does::Read,
     },
@@ -358,7 +359,7 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "mark_installed",
         title: "Mark a plan swap installed",
-        description: staged!("Mark a swap in one of their plans as installed in the real deck (value false clears it)."),
+        description: staged!("Mark a swap in one of their plans as installed in the real deck (value false clears it). This only decides for a plan deck with no Yama deck: with one, installed is read from that deck's current list, so change the deck instead."),
         schema: || {
             json!({
                 "type": "object",
