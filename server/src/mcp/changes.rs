@@ -948,7 +948,7 @@ async fn apply_lab_run(st: &AppState, user: &User, id: &str, p: &Value) -> AppRe
     let made = crate::lab::experiments::create_with(&st.pool, user, req, sim.as_ref(), &st.cfg.lab_quota, &st.lab.forge_access()).await?;
     st.lab.wake();
     st.lab.wake_forge();
-    Ok(json!({"label": format!("Lab run queued: {}", made.item.name), "link": format!("/decks/lab/runs/{}", made.item.id)}))
+    Ok(json!({"label": format!("Lab run queued: {}", made.item.name), "link": format!("/lab/runs/{}", made.item.id)}))
 }
 
 /// One of the caller's experiments as staging needs it.
@@ -1031,7 +1031,7 @@ async fn apply_more_games(st: &AppState, user: &User, p: &Value) -> AppResult<Va
     let d = crate::lab::experiments::more_with(&st.pool, user, id, games, seen, sim.as_ref(), &st.cfg.lab_quota, &st.lab.forge_access()).await?;
     st.lab.wake();
     st.lab.wake_forge();
-    Ok(json!({"label": format!("{games} more games queued: {}", d.item.name), "link": format!("/decks/lab/runs/{id}")}))
+    Ok(json!({"label": format!("{games} more games queued: {}", d.item.name), "link": format!("/lab/runs/{id}")}))
 }
 
 pub async fn run_lab_again(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
@@ -1059,7 +1059,7 @@ async fn apply_again(st: &AppState, user: &User, change: &str, p: &Value) -> App
     let d = crate::lab::experiments::again_with(&st.pool, user, id, games, Some(&op), sim.as_ref(), &st.cfg.lab_quota, &st.lab.forge_access()).await?;
     st.lab.wake();
     st.lab.wake_forge();
-    Ok(json!({"label": format!("Lab run queued: {}", d.item.name), "link": format!("/decks/lab/runs/{}", d.item.id)}))
+    Ok(json!({"label": format!("Lab run queued: {}", d.item.name), "link": format!("/lab/runs/{}", d.item.id)}))
 }
 
 pub async fn cancel_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
@@ -1079,7 +1079,7 @@ async fn apply_cancel(st: &AppState, user: &User, p: &Value) -> AppResult<Value>
     let d = crate::lab::experiments::cancel(&st.pool, &user.id, id, &|e: &str| lab.playing(e)).await?;
     lab.wake();
     let label = if d.item.status == "cancelled" { format!("Lab run cancelled: {}", d.item.name) } else { format!("{} was already {}", d.item.name, d.item.status) };
-    Ok(json!({"label": label, "link": format!("/decks/lab/runs/{id}")}))
+    Ok(json!({"label": label, "link": format!("/lab/runs/{id}")}))
 }
 
 // ── collection ──────────────────────────────────────────────────────────────

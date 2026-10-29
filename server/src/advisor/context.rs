@@ -280,8 +280,13 @@ struct SwapLine {
     why: Option<String>,
     why_out: Option<String>,
     when: Option<String>,
-    /// Installed in the real deck: a Yama tick, else the plan's own record (data/upgrades.json).
+    /// Installed in the real deck: read from the plan deck's Yama deck when it has one
+    /// (`plan::installed`), else a Yama tick, else the plan's own record (data/upgrades.json).
     installed: bool,
+    /// Whether `installed` was read from the Yama deck's current list.
+    from_deck: bool,
+    /// A stand-in out of the deck because its print is in.
+    superseded: bool,
 }
 
 async fn swaps_for(pool: &SqlitePool, owner: &str, deck_key: Option<&str>, stage: Option<&str>) -> AppResult<Vec<(String, SwapLine)>> {
@@ -301,10 +306,14 @@ async fn swaps_for(pool: &SqlitePool, owner: &str, deck_key: Option<&str>, stage
         .bind(stage)
         .fetch_all(pool)
         .await?;
+    let installs = crate::plan::installed::load(pool, owner).await?;
     Ok(rows
         .into_iter()
-        .map(|(deck, key, stage, role, src, in_name, out_name, tier, group, why, why_out, when, installed)| {
-            (deck, SwapLine { key, stage, role, src, in_name, out_name, tier, group, why, why_out, when, installed })
+        .map(|(deck, key, stage, role, src, in_name, out_name, tier, group, why, why_out, when, ticked)| {
+            let derived = installs.swaps.get(&key).copied();
+            let installed = derived.unwrap_or(ticked);
+            let superseded = installs.superseded.contains_key(&key);
+            (deck, SwapLine { key, stage, role, src, in_name, out_name, tier, group, why, why_out, when, installed, from_deck: derived.is_some(), superseded })
         })
         .collect())
 }
@@ -334,7 +343,16 @@ fn swap_text(sw: &SwapLine, answers: &Answers) -> String {
     tags.extend(sw.tier.clone());
     tags.extend(sw.group.clone());
     if sw.stage == "planned" {
-        tags.push(if sw.installed { "installed" } else { "not installed" }.into());
+        tags.push(
+            match (sw.installed, sw.from_deck) {
+                (true, true) => "installed (in the deck's list)",
+                (false, true) if sw.superseded => "out of the deck: its print is in",
+                (false, true) => "not installed (not in the deck's list)",
+                (true, false) => "installed",
+                (false, false) => "not installed",
+            }
+            .into(),
+        );
     }
     let _ = write!(line, " [{}]", tags.join(", "));
     if let Some(w) = sw.why.as_deref().filter(|w| !w.is_empty()) {
@@ -369,7 +387,7 @@ fn swap_text(sw: &SwapLine, answers: &Answers) -> String {
     line
 }
 
-async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<String> {
+pub(crate) async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<String> {
     #[allow(clippy::type_complexity)]
     let row: Option<(String, String, String, Option<String>, String, Option<String>, Option<String>, String, Option<String>)> = sqlx::query_as(
         "SELECT id, name, status, product, commander, color_identity, bracket, notes, deck_id FROM plan_decks WHERE owner_id = ? AND key = ?",
@@ -417,6 +435,21 @@ async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<Strin
         let _ = writeln!(out, "\nCurrent list:\n{}", card_list(after));
     }
 
+    let installs = crate::plan::installed::load(pool, owner).await?;
+    match installs.decks.get(&id) {
+        Some(d) => {
+            let _ = writeln!(
+                out,
+                "\nInstalled state is read from their Yama deck \"{}\" ({}, {}{}): a planned swap is installed when its card is in that list and the card it replaces is gone. Configurations hold other lists (stock, after prints); switching one in changes what counts as installed.",
+                d.name,
+                d.configuration.as_deref().map(|c| format!("main deck, \"{c}\"")).unwrap_or_else(|| "main deck".into()),
+                if d.linked { "linked to this plan" } else { "found by name" },
+                d.list_at.as_deref().map(|t| format!(", list saved {}", &t[..t.len().min(10)])).unwrap_or_default(),
+            );
+        }
+        None => out.push_str("\nNo Yama deck is linked to this plan, so installed state comes from their ticks and the plan's own record.\n"),
+    }
+
     let answers = reviews(pool, owner).await?;
     let swaps = swaps_for(pool, owner, Some(key), None).await?;
     let (planned, proposed): (Vec<_>, Vec<_>) = swaps.iter().partition(|(_, sw)| sw.stage == "planned");
@@ -426,9 +459,16 @@ async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<Strin
             let _ = writeln!(out, "{}", swap_text(sw, &answers));
         }
     }
-    if !proposed.is_empty() {
-        let _ = writeln!(out, "\nProposed swaps waiting for their answer ({}):", proposed.len());
-        for (_, sw) in proposed {
+    let (open, answered): (Vec<_>, Vec<_>) = proposed.into_iter().partition(|(_, sw)| !is_answered(&answers, &sw.key));
+    if !open.is_empty() {
+        let _ = writeln!(out, "\nProposed swaps waiting for their answer ({}):", open.len());
+        for (_, sw) in open {
+            let _ = writeln!(out, "{}", swap_text(sw, &answers));
+        }
+    }
+    if !answered.is_empty() {
+        let _ = writeln!(out, "\nProposed swaps they have answered ({}; want = move it into the plan, unsure or no = keep it out and read their note):", answered.len());
+        for (_, sw) in answered {
             let _ = writeln!(out, "{}", swap_text(sw, &answers));
         }
     }
@@ -518,21 +558,49 @@ async fn real_results(pool: &SqlitePool, owner: &str, deck_id: &str) -> AppResul
 
 // ── review ──────────────────────────────────────────────────────────────────
 
-async fn review(pool: &SqlitePool, owner: &str) -> AppResult<String> {
-    let mut out = String::from("They are on Review: proposed swaps for their plan decks, waiting for want, unsure or don't want.\n");
+/// A proposal has an answer once it has a decision; a note or a cut alone doesn't answer it.
+fn is_answered(answers: &Answers, key: &str) -> bool {
+    answers.get(key).is_some_and(|(d, _, _)| d.as_deref().is_some_and(|d| !d.is_empty()))
+}
+
+pub(crate) async fn review(pool: &SqlitePool, owner: &str) -> AppResult<String> {
+    let mut out = String::from(
+        "They are on Review: proposed swaps for their plan decks. Each needs want, unsure or don't want. \
+         Want means an agent moves the swap into the plan; unsure and don't want keep it out, and agents read their note. \
+         Planned swaps are already in the plan and aren't on this list.\n",
+    );
     out.push_str(&plan_settings(pool, owner).await?);
     let answers = reviews(pool, owner).await?;
     let swaps = swaps_for(pool, owner, None, Some("proposed")).await?;
     if swaps.is_empty() {
         out.push_str("\nNo proposed swaps right now.\n");
     }
-    let mut last = String::new();
+    // Deck by deck in plan order: the ones still waiting for an answer first, then the answered.
+    let mut decks: Vec<(&String, Vec<&SwapLine>)> = Vec::new();
     for (deck, sw) in &swaps {
-        if *deck != last {
-            let _ = writeln!(out, "\n{deck}:");
-            last = deck.clone();
+        if decks.last().is_some_and(|(d, _)| *d == deck) {
+            if let Some((_, list)) = decks.last_mut() {
+                list.push(sw);
+            }
+        } else {
+            decks.push((deck, vec![sw]));
         }
-        let _ = writeln!(out, "{}", swap_text(sw, &answers));
+    }
+    for (deck, list) in decks {
+        let (open, answered): (Vec<&SwapLine>, Vec<&SwapLine>) = list.into_iter().partition(|sw| !is_answered(&answers, &sw.key));
+        let _ = writeln!(out, "\n{deck}: {} waiting for an answer, {} answered", open.len(), answered.len());
+        if !open.is_empty() {
+            out.push_str("Waiting for an answer:\n");
+            for sw in open {
+                let _ = writeln!(out, "{}", swap_text(sw, &answers));
+            }
+        }
+        if !answered.is_empty() {
+            out.push_str("Already answered:\n");
+            for sw in answered {
+                let _ = writeln!(out, "{}", swap_text(sw, &answers));
+            }
+        }
     }
     Ok(out)
 }

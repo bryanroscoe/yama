@@ -9,7 +9,7 @@ import {
   isAnswer,
   opTime,
   REVIEW_FILTERS,
-  REVIEW_GROUPS,
+  REVIEW_SECTIONS,
   reviewItems,
   reviewRecord,
   swapSource,
@@ -25,7 +25,7 @@ import {
   type ReviewItem,
   type ReviewRecord,
 } from "@yama/core/plan";
-import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
@@ -43,8 +43,8 @@ const DECISIONS: { id: Decision; label: string; key: string }[] = [
 ];
 const DECISION_WORD: Record<Decision, string> = { want: "Want", unsure: "Unsure", no: "Don't want" };
 
-/** The filter chips in the order the design shows them. */
-const FILTER_ORDER: ReviewFilter[] = ["undecided", "want", "unsure", "no", "proposed", "all"];
+/** The filter chips in the order the design shows them. "To answer" counts only proposals with no decision, as the overview does. */
+const FILTER_ORDER: ReviewFilter[] = ["all", "undecided", "want", "unsure", "no"];
 
 /** Queue a full answer for a swap key. The page shows it at once; the outbox sends it. */
 function sendAnswer(userId: string, swapKey: string, deckKey: string | null, current: Answer | undefined, change: Partial<ReviewRecord>) {
@@ -68,7 +68,23 @@ function normalOf(url: string | null | undefined): string | null {
   return url ? url.replace("/small/", "/normal/") : null;
 }
 
-/** `/decks/plan/review`: answer every swap and proposal, deck by deck, on or offline (design: Review, ReviewWide). */
+/** What an answer does, in one sentence at the top of Review (Bryan, 2026-10-28: "I just don't know what the point of reviewing is"). */
+export const ANSWER_MEANING =
+  "Answer each proposal: Want means an agent moves the swap into your plan; Unsure and Don't want keep it out, and agents read your note.";
+
+/** The to-do line under it: how many proposals wait for an answer, over every deck. */
+export function toAnswerLine(decks: { sections: { open: number } }[]): string {
+  const open = decks.reduce((n, d) => n + d.sections.open, 0);
+  const with_ = decks.filter((d) => d.sections.open > 0).length;
+  if (!open) return "Nothing is waiting for your answer.";
+  return `${open === 1 ? "1 proposal is" : `${open} proposals are`} waiting for your answer${with_ > 1 ? `, in ${with_} decks` : ""}.`;
+}
+
+/**
+ * `/decks/plan/review`: one to-do list, deck by deck, on or offline (design: Review, ReviewWide).
+ * Proposals waiting for an answer come first; answered proposals and swaps already in the plan
+ * follow in closed sections, so nothing looks done when it isn't.
+ */
 export function Review() {
   const { view, userId } = usePlanOutlet();
   const [params, setParams] = useSearchParams();
@@ -81,7 +97,7 @@ export function Review() {
     for (const r of [...list.stores.flatMap((g) => g.rows), ...list.noPrice, ...list.elsewhere, ...list.declined]) if (r.check?.flags.length) m.set(r.swap.key, r.check.flags);
     return m;
   }, [view]);
-  const deckKey = params.get("deck") ?? decks.find((d) => d.counts.undecided > 0 && d.items.some((i) => i.swap.stage === "proposed"))?.deck.key ?? decks[0]?.deck.key;
+  const deckKey = params.get("deck") ?? decks.find((d) => d.sections.open > 0)?.deck.key ?? decks[0]?.deck.key;
   const current = decks.find((d) => d.deck.key === deckKey) ?? decks[0];
   const filter = (REVIEW_FILTERS.find((f) => f.id === params.get("show"))?.id ?? "all") as ReviewFilter;
   const [query, setQuery] = useState(params.get("q") ?? "");
@@ -91,31 +107,47 @@ export function Review() {
     else next.delete(key);
     setParams(next, { replace: true });
   };
-  const shown = current ? filterItems(current.items, filter, query) : [];
-  const ordered = REVIEW_GROUPS.flatMap((g) => shown.filter((i) => i.group === g.id));
+  // Already in section, group and plan order (reviewItems).
+  const ordered = current ? filterItems(current.items, filter, query) : [];
+  const sections = REVIEW_SECTIONS.map((g) => ({ ...g, items: ordered.filter((i) => i.section === g.id) }));
+  const openItems = sections[0]!.items;
   const imported = view.b.decks.some((d) => d.source === "import");
   const selKey = params.get("item");
-  const selected = ordered.find((i) => i.swap.key === selKey) ?? ordered[0] ?? null;
-  const selIndex = selected ? ordered.indexOf(selected) : -1;
+  const selected = ordered.find((i) => i.swap.key === selKey) ?? openItems[0] ?? ordered[0] ?? null;
   const select = (i: ReviewItem | undefined) => i && set("item", i.swap.key);
+  const positionOf = (i: ReviewItem) => {
+    const list = sections.find((g) => g.id === i.section)!.items;
+    return `${list.indexOf(i) + 1} of ${list.length}`;
+  };
+  /** Answer, and on laptops move on to the next proposal still waiting, so the to-do list empties as you go. */
+  const answer = (item: ReviewItem, change: Partial<ReviewRecord>) => {
+    sendAnswer(userId, item.swap.key, item.swap.deck, item.answer, change);
+    if (!wide || item.section !== "open" || !change.decision) return;
+    const at = openItems.indexOf(item);
+    const next = openItems[at + 1] ?? openItems[at - 1];
+    if (next) select(next);
+  };
 
   // Laptop keys: W, U and N answer the open proposal; J and K move through the queue.
-  const live = useRef({ selected, ordered, selIndex, userId, select });
-  live.current = { selected, ordered, selIndex, userId, select };
+  const live = useRef({ selected, ordered, select, answer });
+  live.current = { selected, ordered, select, answer };
+  // One function for every card, so the memoised cards don't all redraw after each answer.
+  const onAnswer = useCallback((item: ReviewItem, change: Partial<ReviewRecord>) => live.current.answer(item, change), []);
   useEffect(() => {
     if (!wide) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
       const t = e.target as HTMLElement | null;
       if (t?.closest("input, textarea, select, [contenteditable], [role=dialog]")) return;
-      const { selected: sel, ordered: list, selIndex: at, userId: uid, select: go } = live.current;
+      const { selected: sel, ordered: list, select: go, answer: decide } = live.current;
       const k = e.key.toLowerCase();
       const pick = DECISIONS.find((d) => d.key.toLowerCase() === k);
       if (pick && sel) {
         e.preventDefault();
-        sendAnswer(uid, sel.swap.key, sel.swap.deck, sel.answer, { decision: toggleDecision(sel.answer?.decision, pick.id) });
+        decide(sel, { decision: toggleDecision(sel.answer?.decision, pick.id) });
       } else if ((k === "j" || k === "k") && list.length) {
         e.preventDefault();
+        const at = sel ? list.indexOf(sel) : -1;
         go(list[Math.max(0, Math.min(list.length - 1, at + (k === "j" ? 1 : -1)))]);
       }
     };
@@ -123,7 +155,7 @@ export function Review() {
     return () => window.removeEventListener("keydown", onKey);
   }, [wide]);
 
-  const left = current ? current.counts.undecided : 0;
+  const left = current ? current.sections.open : 0;
   // Keep the chosen deck's chip in view when the row scrolls sideways.
   const chipsRef = useRef<HTMLDivElement>(null);
   const currentKey = current?.deck.key;
@@ -159,11 +191,21 @@ export function Review() {
       }}
     />
   );
+  const nothing = ordered.length === 0 && <p className="empty">Nothing here matches.</p>;
+  const allDone = current && current.sections.open === 0 && filter === "all" && !query && (
+    <p className="review-done">Nothing in {current.deck.name} is waiting for your answer.</p>
+  );
 
   return (
     <>
       <PlansHead title="Review" status={<SyncStatus view={view} userId={userId} />} action={<AskClaude context={{ kind: "review" }} about="your proposals" />} />
+      <p className="review-lede">{ANSWER_MEANING}</p>
+      <p className="small dim review-todo" role="status">{toAnswerLine(decks)}</p>
       <Details label="How review works">
+        <p>
+          Only proposals need an answer. Swaps already in the plan are listed last, closed: they were agreed earlier, and you only need to open them to change
+          your mind. Answers marked as coming from {view.app} were made there, not here.
+        </p>
         {imported && <p>
           Your answers go to your {view.app} inbox. A want joins the plan when the plan is updated there; a no on a planned swap changes nothing until you and
           your planner decide.
@@ -178,9 +220,7 @@ export function Review() {
             <button key={d.deck.key} role="tab" aria-selected={d.deck.key === current?.deck.key} onClick={() => set("deck", d.deck.key)}>
               {art ? <img src={art} alt="" className="review-deck-art" loading="lazy" /> : <span className="review-deck-art" />}
               {d.deck.name}
-              <span className="num review-deck-count">
-                {d.counts.undecided}/{d.counts.all}
-              </span>
+              <span className={`num review-deck-count${d.sections.open ? " has-open" : ""}`}>{d.sections.open ? `${d.sections.open} to answer` : "done"}</span>
             </button>
           );
         })}
@@ -191,19 +231,25 @@ export function Review() {
           <nav className="review-queue" aria-label="Proposals">
             {search}
             {filters}
-            {ordered.length === 0 && <p className="empty">Nothing here matches.</p>}
-            {REVIEW_GROUPS.map((g) => {
-              const items = ordered.filter((i) => i.group === g.id);
-              if (!items.length) return null;
-              return (
-                <div key={g.id} className="review-queue-group">
-                  <h2 className="review-queue-head">
-                    {g.label} <span className="num">{items.length}</span>
-                  </h2>
-                  {items.map((i) => (
-                    <QueueRow key={i.swap.key} item={i} view={view} current={i === selected} onPick={() => select(i)} />
-                  ))}
+            {nothing}
+            {allDone}
+            {sections.map((g) => {
+              if (!g.items.length) return null;
+              const rows = g.items.map((i) => <QueueRow key={i.swap.key} item={i} view={view} current={i === selected} onPick={() => select(i)} />);
+              const head = (
+                <>
+                  {g.label} <span className="num">{g.items.length}</span>
+                </>
+              );
+              return g.id === "open" ? (
+                <div key={g.id} className="review-queue-group review-section-open">
+                  <h2 className="review-queue-head">{head}</h2>
+                  {rows}
                 </div>
+              ) : (
+                <ClosedSection key={`${current.deck.key}-${g.id}`} head={head} about={g.about} queue reveal={selected?.section === g.id && !!selKey}>
+                  {rows}
+                </ClosedSection>
               );
             })}
             {ordered.length > 0 && <p className="small dim">{artCredits(ordered.map((i) => view.card(i.swap.in)?.artist))}</p>}
@@ -218,8 +264,9 @@ export function Review() {
                 userId={userId}
                 flags={flags.get(selected.swap.key)}
                 wide
-                position={`${selIndex + 1} of ${ordered.length}`}
+                position={positionOf(selected)}
                 left={left}
+                onAnswer={onAnswer}
               />
             ) : (
               <p className="empty">Pick a proposal.</p>
@@ -231,19 +278,28 @@ export function Review() {
         <>
           {filters}
           {search}
-          {ordered.length === 0 && <p className="empty">Nothing here matches.</p>}
-          {REVIEW_GROUPS.map((g) => {
-            const items = ordered.filter((i) => i.group === g.id);
-            if (!items.length) return null;
-            return (
-              <section key={g.id} className="review-group">
-                <h2 className="review-group-head">
-                  {g.label} <span className="num">{items.length}</span>
-                </h2>
-                {items.map((i) => (
-                  <ReviewCard key={i.swap.key} item={i} deck={current.deck} view={view} userId={userId} flags={flags.get(i.swap.key)} />
+          {nothing}
+          {allDone}
+          {sections.map((g) => {
+            if (!g.items.length) return null;
+            const head = (
+              <>
+                {g.label} <span className="num">{g.items.length}</span>
+              </>
+            );
+            return g.id === "open" ? (
+              <section key={g.id} className="review-group review-section-open">
+                <h2 className="review-group-head">{head}</h2>
+                {g.items.map((i) => (
+                  <ReviewCard key={i.swap.key} item={i} deck={current.deck} view={view} userId={userId} flags={flags.get(i.swap.key)} onAnswer={onAnswer} />
                 ))}
               </section>
+            ) : (
+              <ClosedSection key={`${current.deck.key}-${g.id}`} head={head} about={g.about}>
+                {g.items.map((i) => (
+                  <ReviewCard key={i.swap.key} item={i} deck={current.deck} view={view} userId={userId} flags={flags.get(i.swap.key)} onAnswer={onAnswer} />
+                ))}
+              </ClosedSection>
             );
           })}
           {ordered.length > 0 && <p className="small dim">Card images from Scryfall. ™ &amp; © Wizards of the Coast.</p>}
@@ -254,6 +310,28 @@ export function Review() {
         <p className="small dim review-credit">{artCredits(decks.map((d) => (view.art(d.deck) ? view.card(d.deck.commander[0])?.artist : null)))}</p>
       )}
     </>
+  );
+}
+
+/**
+ * A section that starts closed and draws its rows only once opened (a plan has dozens). `reveal`
+ * opens it when the item you picked is inside; `queue` is the laptop list's smaller heading.
+ */
+function ClosedSection({ head, about, children, queue = false, reveal = false }: { head: ReactNode; about: string; children: ReactNode; queue?: boolean; reveal?: boolean }) {
+  const [open, setOpen] = useState(reveal);
+  useEffect(() => {
+    if (reveal) setOpen(true);
+  }, [reveal]);
+  return (
+    <details
+      className={`${queue ? "review-queue-group" : "review-group"} review-section-closed`}
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className={queue ? "review-queue-head" : "review-group-head"}>{head}</summary>
+      <p className="small dim review-section-about">{about}</p>
+      {open && children}
+    </details>
   );
 }
 
@@ -322,7 +400,7 @@ function QueueRow({ item, view, current, onPick }: { item: ReviewItem; view: Pla
         <span className="review-qrow-in"><CardHover name={s.in} oracleId={view.oracleId(s.in)} image={view.card(s.in)?.image_normal}/></span>
         <span className="review-qrow-out">{s.out?<>for <CardHover name={s.out} oracleId={view.oracleId(s.out)} image={view.card(s.out)?.image_normal}/></>:"no slot"}</span>
       </span>
-      <span className={`review-qrow-state ${d ?? "open"}`}>{d ? DECISION_WORD[d] : "Open"}</span>
+      <span className={`review-qrow-state ${d ?? (item.section === "open" ? "open" : "planned")}`}>{d ? DECISION_WORD[d] : item.section === "open" ? "To answer" : "In the plan"}</span>
     </button>
   );
 }
@@ -336,6 +414,7 @@ const ReviewCard = memo(function ReviewCard({
   wide = false,
   position,
   left,
+  onAnswer,
 }: {
   item: ReviewItem;
   deck: PlanDeck;
@@ -345,6 +424,8 @@ const ReviewCard = memo(function ReviewCard({
   wide?: boolean;
   position?: string;
   left?: number;
+  /** Sends a decision (the page may move on to the next proposal); notes and cuts go straight out. */
+  onAnswer?: (item: ReviewItem, change: Partial<ReviewRecord>) => void;
 }) {
   const s = item.swap;
   const a = item.answer;
@@ -377,13 +458,14 @@ const ReviewCard = memo(function ReviewCard({
           <Title className="review-name"><CardRef name={s.in} oracleId={view.oracleId(s.in)} image={inCard?.image_normal}/></Title>
           <span className="dim">
             {s.out?<>for <CardRef name={s.out} oracleId={view.oracleId(s.out)} image={outCard?.image_normal}/></>:"No slot named"}
-            {position ? `. ${s.stage === "proposed" ? "Proposal" : "Swap"} ${position}` : ""}
-            {wide && left != null ? `, ${left} not decided in ${deck.name}` : ""}.
+            {position ? `. ${item.section === "open" ? "To answer" : item.section === "answered" ? "Answered" : "In the plan"}: ${position}` : ""}
+            {wide && left != null ? `; ${left} waiting for your answer in ${deck.name}` : ""}.
           </span>
         </div>
         <span className="review-pills">
           {status && <span className={`pill${status.tone === "plain" ? "" : ` ${status.tone}`}`}>{status.label}</span>}
-          {s.stage === "proposed" && <span className="pill quiet">Proposed</span>}
+          {item.section === "open" && <span className="pill warn">Waiting for your answer</span>}
+          {item.section === "planned" && <span className="pill quiet">Already in the plan</span>}
           {s.role === "standin" && <span className="pill">Stand-in</span>}
           {s.role === "optional" && <span className="pill">Optional</span>}
           {s.tier && <span className="pill quiet">{s.tier}</span>}
@@ -428,6 +510,9 @@ const ReviewCard = memo(function ReviewCard({
           </div>
         )}
 
+        {item.section === "planned" && !a?.decision && (
+          <p className="small dim">This swap is already in the plan, so it doesn't need an answer. Answer only if you've changed your mind.</p>
+        )}
         <div className="review-decide" role="group" aria-label={`Your answer for ${s.in}`}>
           {DECISIONS.map((d) => (
             <button
@@ -435,7 +520,7 @@ const ReviewCard = memo(function ReviewCard({
               className={`decide-${d.id}`}
               aria-pressed={a?.decision === d.id}
               aria-keyshortcuts={wide ? d.key : undefined}
-              onClick={() => send({ decision: toggleDecision(a?.decision, d.id) })}
+              onClick={() => (onAnswer ? onAnswer(item, { decision: toggleDecision(a?.decision, d.id) }) : send({ decision: toggleDecision(a?.decision, d.id) }))}
             >
               {d.id === "no" && !wide ? "Don't want" : d.label}
               {wide && <span className="review-key" aria-hidden="true">{d.key}</span>}

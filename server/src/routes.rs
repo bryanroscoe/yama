@@ -10,6 +10,17 @@ use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
+/// `/decks/lab/...` to `/lab/...`, query kept. The target always starts with `/lab`, so it can't
+/// point off the site.
+async fn old_lab(uri: axum::http::Uri) -> axum::response::Redirect {
+    let path = uri.path().strip_prefix("/decks").unwrap_or("/lab");
+    let to = match uri.query() {
+        Some(q) => format!("{path}?{q}"),
+        None => path.to_string(),
+    };
+    axum::response::Redirect::permanent(&to)
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: SqlitePool,
@@ -58,6 +69,9 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::mcp::router())
         .merge(crate::mcp::changes::router())
         .merge(crate::oauth::router())
+        // The Lab moved out of Decks to its own section (2026-10-28); old links keep working.
+        .route("/decks/lab", get(old_lab))
+        .route("/decks/lab/{*rest}", get(old_lab))
         // Unknown API paths are errors, not the web app.
         .route("/api/{*rest}", axum::routing::any(|| async { crate::error::AppError::NotFound("API route") }));
 

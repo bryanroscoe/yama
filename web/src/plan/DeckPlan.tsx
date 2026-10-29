@@ -240,7 +240,7 @@ function VersionsPanel({ deck, sim, compact = false }: { deck: PlanDeck; sim: Pl
   const max = winCeiling(sim.versions.map((v) => v.variant.wilson?.[1]));
   const level = sim.run.level ? `${Math.round(sim.run.level * 100)}%` : "90%";
   const stockAfter = sim.comparisons.find((c) => variantState(c.base, deck.key) === "stock" && variantState(c.variant, deck.key) === "after");
-  const tryHref = deck.deck_id ? `/decks/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/decks/lab/try";
+  const tryHref = deck.deck_id ? `/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/lab/try";
   const conf = worstConfidence(sim.versions.map((v) => v.variant.confidence));
   const method = sim.run.confidence?.method;
   return (
@@ -295,7 +295,7 @@ function LabTab({ deck, sim, loading, error }: { deck: PlanDeck; sim: PlanSim | 
         <p className="empty">No simulated runs for this plan yet.</p>
         <p className="small dim">Paired runs from your planner's batches show here once they're imported. You can also try a change yourself in the lab.</p>
         <div className="row">
-          <Link className="button" to={deck.deck_id ? `/decks/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/decks/lab/try"}>Try a change</Link>
+          <Link className="button" to={deck.deck_id ? `/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/lab/try"}>Try a change</Link>
         </div>
       </div>
     );
@@ -333,10 +333,10 @@ function LabTab({ deck, sim, loading, error }: { deck: PlanDeck; sim: PlanSim | 
         })}
         <p className="plan-panel-note">
           Run {sim.run.name}, analysed in your planner and imported {fmtDate(sim.run.imported_at)}. {simShort(sim.run)}. The lab's model win rates for these lists are on the{" "}
-          <Link to="/decks/lab">precon table</Link>; these are raw win rates.
+          <Link to="/lab">precon table</Link>; these are raw win rates.
         </p>
         <div className="row">
-          <Link className="button" to={`/decks/lab/runs/batch/${sim.run.id}`}>Open the run</Link>
+          <Link className="button" to={`/lab/runs/batch/${sim.run.id}`}>Open the run</Link>
         </div>
       </section>
     </div>
@@ -378,6 +378,22 @@ function CopyAfter({ deck }: { deck: PlanDeck }) {
 }
 
 // ── Changes ─────────────────────────────────────────────────────────────────
+
+/** Where "In the deck" comes from: the Yama deck's current list, else your ticks. */
+export function InstallSource({ deck }: { deck: PlanDeck }) {
+  const yd = deck.yama_deck;
+  if (!yd) {
+    return <p className="small dim plan-install-source">No Yama deck is linked to this plan, so tick each swap as you put it in. Link a deck and Yama reads it from the deck's list instead.</p>;
+  }
+  return (
+    <p className="small plan-install-source">
+      "In the deck" is read from <Link to={`/decks/${yd.id}`}>{yd.name}</Link>
+      {yd.list_at ? `, its list saved ${fmtDate(yd.list_at)}` : ""}
+      {yd.linked ? "" : " (found by its name; link a deck to this plan to choose another)"}: a swap is in when its card is in that list and the card it
+      replaces is gone. To try another build, put a configuration's list in the deck from the deck's page.
+    </p>
+  );
+}
 
 function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
   const { userId } = usePlanOutlet();
@@ -444,6 +460,7 @@ function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
           {(query || sort !== "plan" || show !== "all") && <button type="button" className="quiet" onClick={() => { setQuery(""); setSort("plan"); setShow("all"); }}>Reset</button>}
         </div>
         <p className="small dim" role="status">Showing {count} of {total} swaps. Sorted within each group.</p>
+        <InstallSource deck={deck} />
         {count === 0 && <p className="empty">No swaps match. Try another search or reset the filters.</p>}
       </>}
       {nothing && <p className="empty">No swaps or proposals for this deck yet.</p>}
@@ -466,7 +483,7 @@ function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
             Proposed, not in the plan <span className="num">{visible.proposed.reduce((n, g) => n + g.swaps.length, 0)}</span>
           </h2>
           <p className="small">
-            <Link to={`/decks/plan/review?deck=${encodeURIComponent(deck.key)}&show=proposed`}>Answer these in Review</Link>
+            <Link to={`/decks/plan/review?deck=${encodeURIComponent(deck.key)}`}>Answer these in Review</Link>
             {deck.source === "import" && <span className="dim">. Your answers go to your {view.app} inbox; a want joins the plan when the plan is updated there.</span>}
           </p>
           {c.proposed.length > 1 && deck.groups.length > 1 && <p className="dim small">Each group builds on the ones before it.</p>}

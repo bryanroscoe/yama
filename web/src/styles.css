@@ -491,14 +491,14 @@ label > span.hint {
   margin: 0;
 }
 
-/* Phones: a 76 px tab bar with six tabs. The active tab is text-colored, the rest dim. */
+/* Phones: a 76 px tab bar with seven tabs. The active tab is text-colored, the rest dim. */
 .nav {
   position: fixed;
   inset: auto 0 0 0;
   height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   background: var(--ground);
   border-top: 1px solid var(--line);
   z-index: 20;
@@ -526,13 +526,24 @@ label > span.hint {
 .nav .rail-foot {
   display: none;
 }
-/* Phones: the inner block steps aside, so the six links are the tab bar's grid items. */
+/* Phones: the inner block steps aside, so the seven links are the tab bar's grid items. */
 .nav-inner {
   display: contents;
 }
-/* The admin entry lives only in the laptop rail; on phones the tab bar keeps its six tabs. */
+/* The admin entry lives only in the laptop rail; on phones the tab bar keeps its seven tabs. */
 .nav a.nav-admin {
   display: none;
+}
+/* Seven labels fit a 360 px phone a little smaller and tighter. */
+@media (max-width: 430px) {
+  .nav a {
+    font-size: 0.6875rem;
+    letter-spacing: -0.02em;
+  }
+  .nav a svg {
+    width: 24px;
+    height: 24px;
+  }
 }
 
 /* Laptops: a left rail. The active item is a raised pill; your avatar and the sync status sit at

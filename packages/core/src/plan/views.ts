@@ -1,7 +1,12 @@
 // The review list (docs/planner-design.md section 7, `reviewItems`): every live swap of every deck,
-// grouped the way the review site groups them, with its answer, counts for the deck chips, the
-// filters and a search over reasons, stores and notes. Answers that reach no live swap are listed
-// by `answerIndex` as orphans; the page shows them in their own section.
+// with its answer, counts for the deck chips, the filters and a search over reasons, stores and
+// notes. Answers that reach no live swap are listed by `answerIndex` as orphans; the page shows
+// them in their own section.
+//
+// Review is one to-do list (Bryan, 2026-10-28: "a lot of them act like they're already reviewed.
+// Then I go into them and I haven't reviewed them"). Only a proposal with no decision needs an
+// answer. Answered proposals, and planned swaps (already in the plan), come after it in their own
+// sections, and no count calls a planned swap "not decided".
 
 import type { Tone } from "./changes";
 import type { Mark, PlanBundle, PlanDeck, Quote, Review, Swap } from "./types";
@@ -21,15 +26,35 @@ export type ReviewFilter = "undecided" | "proposed" | "want" | "unsure" | "no" |
 
 export const REVIEW_FILTERS: { id: ReviewFilter; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "undecided", label: "Not decided" },
-  { id: "proposed", label: "Proposed only" },
+  { id: "undecided", label: "To answer" },
+  { id: "proposed", label: "Proposals" },
   { id: "want", label: "Want" },
   { id: "unsure", label: "Unsure" },
   { id: "no", label: "Don't want" },
 ];
 
+/** Where an item sits on the page: the to-do list first, then the rest, collapsed. */
+export type ReviewSection = "open" | "answered" | "planned";
+
+export const REVIEW_SECTIONS: { id: ReviewSection; label: string; about: string }[] = [
+  { id: "open", label: "Waiting for your answer", about: "Proposals nobody has answered yet." },
+  { id: "answered", label: "You've answered", about: "Change an answer any time; agents read the newest one." },
+  {
+    id: "planned",
+    label: "Already in the plan",
+    about: "These swaps were agreed earlier, so they don't need an answer. Say no or add a note only if you've changed your mind.",
+  },
+];
+
+/** A proposal with no decision needs an answer; a note or a cut alone doesn't answer it. */
+export function reviewSectionOf(s: Swap, answer: Review | undefined): ReviewSection {
+  if (s.stage !== "proposed") return "planned";
+  return answer?.decision ? "answered" : "open";
+}
+
 export interface ReviewItem {
   swap: Swap;
+  section: ReviewSection;
   group: ReviewGroupId;
   answer: Review | undefined;
   /** Recorded market benchmarks and store stock checks for this swap, newest first. */
@@ -42,6 +67,7 @@ export interface ReviewDeck {
   deck: PlanDeck;
   items: ReviewItem[];
   counts: Record<ReviewFilter, number>;
+  sections: Record<ReviewSection, number>;
 }
 
 export function reviewGroupOf(s: Swap): ReviewGroupId {
@@ -57,7 +83,7 @@ export function matchesFilter(item: ReviewItem, filter: ReviewFilter): boolean {
     case "all":
       return true;
     case "undecided":
-      return !d;
+      return item.section === "open";
     case "proposed":
       return item.swap.stage === "proposed";
     default:
@@ -72,8 +98,8 @@ export function filterItems(items: ReviewItem[], filter: ReviewFilter, query: st
 }
 
 /**
- * One entry per deck that isn't archived, in plan order, with each live swap as an item in group
- * and plan order. `answers` is keyed by live swap key (aliases already followed), as `answerIndex`
+ * One entry per deck that isn't archived, in plan order, with each live swap as an item in
+ * section, group and plan order (proposals waiting for an answer first). `answers` is keyed by live swap key (aliases already followed), as `answerIndex`
  * returns it.
  */
 export function reviewItems(b: Pick<PlanBundle, "decks" | "swaps" | "quotes" | "stores">, answers: Map<string, Review>): ReviewDeck[] {
@@ -81,6 +107,7 @@ export function reviewItems(b: Pick<PlanBundle, "decks" | "swaps" | "quotes" | "
   const quotesOf = new Map<string, Quote[]>();
   for (const q of b.quotes) if (q.swap) quotesOf.set(q.swap, [...(quotesOf.get(q.swap) ?? []), q]);
   const order = new Map(REVIEW_GROUPS.map((g, i) => [g.id, i]));
+  const sectionOrder = new Map(REVIEW_SECTIONS.map((g, i) => [g.id, i]));
   return [...b.decks]
     .filter((d) => d.status !== "archived")
     .sort((a, b) => a.sort - b.sort)
@@ -95,13 +122,17 @@ export function reviewItems(b: Pick<PlanBundle, "decks" | "swaps" | "quotes" | "
             swap.listing, swap.tier, swap.group, answer?.note,
             ...quotes.flatMap((q) => [q.store_label, q.store ? storeName.get(q.store) : null, q.result, q.printing]),
           ];
-          return { swap, group: reviewGroupOf(swap), answer, quotes, haystack: text.filter(Boolean).join("\n").toLowerCase() };
+          return { swap, section: reviewSectionOf(swap, answer), group: reviewGroupOf(swap), answer, quotes, haystack: text.filter(Boolean).join("\n").toLowerCase() };
         })
-        .sort((x, y) => order.get(x.group)! - order.get(y.group)! || x.swap.sort - y.swap.sort);
+        .sort(
+          (x, y) =>
+            sectionOrder.get(x.section)! - sectionOrder.get(y.section)! || order.get(x.group)! - order.get(y.group)! || x.swap.sort - y.swap.sort,
+        );
       const counts = Object.fromEntries(
         (["all", "undecided", "proposed", "want", "unsure", "no"] as ReviewFilter[]).map((f) => [f, items.filter((i) => matchesFilter(i, f)).length]),
       ) as Record<ReviewFilter, number>;
-      return { deck, items, counts };
+      const sections = Object.fromEntries(REVIEW_SECTIONS.map((g) => [g.id, items.filter((i) => i.section === g.id).length])) as Record<ReviewSection, number>;
+      return { deck, items, counts, sections };
     });
 }
 

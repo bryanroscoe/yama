@@ -1189,3 +1189,173 @@ async fn the_cli_uses_the_same_import() {
     let err = import::import_file(&pool, &path, "bryan@example.com", false, false).await.unwrap_err();
     assert!(err.to_string().starts_with("format:"), "{err}");
 }
+
+// ── installed state from the deck, and Review order (2026-10-28) ───────────
+
+fn card(oracle_id: &str, name: &str, qty: i64, board: crate::decks::Board) -> crate::decks::DeckCard {
+    crate::decks::DeckCard { oracle_id: oracle_id.into(), name: name.into(), qty, board }
+}
+
+/// Alpha Deck's list with `third` and `fourth` in its two swap slots.
+fn alpha_deck(third: (&str, &str), fourth: (&str, &str)) -> Vec<crate::decks::DeckCard> {
+    use crate::decks::Board::{Commander, Main};
+    vec![
+        card("o-cmd", "Test Commander", 1, Commander),
+        card("o-sol", "Sol Ring", 1, Main),
+        card(third.0, third.1, 1, Main),
+        card(fourth.0, fourth.1, 1, Main),
+        card("o-forest", "Forest", 96, Main),
+    ]
+}
+
+fn swap_of<'a>(b: &'a Value, key: &str) -> &'a Value {
+    find(&b["swaps"], "key", key)
+}
+
+#[tokio::test]
+async fn installed_is_read_from_the_decks_current_list() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    let print = "plan|Alpha Deck|Print Card|Old Card";
+    let bought = "plan|Alpha Deck|Bought Card|Cut Card";
+    let stand = "standin|Alpha Deck|Stand Card";
+
+    // No Yama deck yet: nothing is derived, so the ticks and the plan's record still decide.
+    let b = bundle(&app, &token).await;
+    assert!(swap_of(&b, bought)["deck_installed"].is_null());
+    assert!(find(&b["decks"], "key", "alpha")["yama_deck"].is_null());
+
+    // A main deck with the plan deck's name holding the "now" list: the bought swap and the
+    // stand-in are in, the print isn't. Proposals are never judged.
+    let main = crate::decks::create_deck_with_cards(&pool, &owner, "Alpha Deck", None, alpha_deck(("o-stand", "Stand Card"), ("o-bought", "Bought Card"))).await.unwrap();
+    let b = bundle(&app, &token).await;
+    assert_eq!(swap_of(&b, bought)["deck_installed"], true);
+    assert_eq!(swap_of(&b, stand)["deck_installed"], true);
+    assert_eq!(swap_of(&b, print)["deck_installed"], false);
+    assert!(swap_of(&b, "alpha-idea")["deck_installed"].is_null());
+    let yd = &find(&b["decks"], "key", "alpha")["yama_deck"];
+    assert_eq!(yd["id"], main.as_str());
+    assert_eq!(yd["linked"], false);
+
+    // A stock configuration, linked to the plan: the plan still reads the main deck, the list in the box.
+    let (status, made) = send(&app, Method::POST, &format!("/api/decks/{main}/configurations"), Some(&token), Some(json!({"configuration": "stock", "op_id": "cfg-1"}))).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let stock = made["id"].as_str().unwrap().to_string();
+    crate::decks::insert_version(&pool, &stock, &alpha_deck(("o-old", "Old Card"), ("o-cut", "Cut Card")), Some("stock")).await.unwrap();
+    let (status, _) = send(&app, Method::PATCH, "/api/plan/decks/alpha", Some(&token), Some(json!({"deck_id": stock}))).await;
+    assert_eq!(status, StatusCode::OK);
+    let b = bundle(&app, &token).await;
+    let yd = &find(&b["decks"], "key", "alpha")["yama_deck"];
+    assert_eq!(yd["id"], main.as_str());
+    assert_eq!(yd["linked"], true);
+    assert_eq!(swap_of(&b, bought)["deck_installed"], true);
+
+    // Putting the stock list in the main deck takes every swap out, and the bundle key moves.
+    let rev_before = b["rev"].clone();
+    let (status, used) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": stock, "op_id": "use-1"}))).await;
+    assert_eq!(status, StatusCode::OK, "{used}");
+    assert_eq!(used["changed"], true);
+    let b = bundle(&app, &token).await;
+    assert_ne!(b["rev"], rev_before);
+    for k in [print, bought, stand] {
+        assert_eq!(swap_of(&b, k)["deck_installed"], false, "{k}");
+    }
+    let note: Option<String> = sqlx::query_scalar("SELECT v.note FROM decks d JOIN deck_versions v ON v.id = d.current_version_id WHERE d.id = ?")
+        .bind(&main)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(note.as_deref(), Some("Switched to stock"));
+
+    // A retry saves nothing new; the same list again saves nothing either.
+    let n = count_versions(&pool, &main).await;
+    let (_, again) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": stock, "op_id": "use-1"}))).await;
+    assert_eq!(again, used);
+    // The same op_id for another list is refused rather than replayed.
+    let (status, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"version": "whatever", "op_id": "use-1"}))).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (_, same) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": stock, "op_id": "use-2"}))).await;
+    assert_eq!(same["changed"], false);
+    assert_eq!(count_versions(&pool, &main).await, n);
+
+    // Restoring the first version (the "now" list) puts the swaps back.
+    let first: String = sqlx::query_scalar("SELECT id FROM deck_versions WHERE deck_id = ? ORDER BY created_at, rowid LIMIT 1").bind(&main).fetch_one(&pool).await.unwrap();
+    let (status, restored) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"version": first, "op_id": "use-3"}))).await;
+    assert_eq!(status, StatusCode::OK, "{restored}");
+    let b = bundle(&app, &token).await;
+    assert_eq!(swap_of(&b, bought)["deck_installed"], true);
+
+    // MCP plan_deck says where installed state comes from, and reads it from the deck.
+    let text = crate::advisor::context::plan_deck(&pool, &owner, "alpha").await.unwrap();
+    assert!(text.contains("Installed state is read from their Yama deck \"Alpha Deck\""), "{text}");
+    assert!(text.contains("Bought Card replacing Cut Card [buy, T1, installed (in the deck's list)]"), "{text}");
+    assert!(text.contains("Print Card replacing Old Card [print, T1, not installed (not in the deck's list)]"), "{text}");
+
+    assert_eq!(swap_of(&b, stand)["deck_superseded"], false);
+
+    // The print goes in where the stand-in was: the stand-in is out, but done, not waiting.
+    crate::decks::insert_version(&pool, &main, &alpha_deck(("o-print", "Print Card"), ("o-bought", "Bought Card")), Some("prints")).await.unwrap();
+    let b = bundle(&app, &token).await;
+    assert_eq!(swap_of(&b, print)["deck_installed"], true);
+    assert_eq!(swap_of(&b, stand)["deck_installed"], false);
+    assert_eq!(swap_of(&b, stand)["deck_superseded"], true);
+}
+
+async fn count_versions(pool: &SqlitePool, deck: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM deck_versions WHERE deck_id = ?").bind(deck).fetch_one(pool).await.unwrap()
+}
+
+#[tokio::test]
+async fn using_a_list_stays_inside_the_owners_configuration_group() {
+    let (app, pool, owner, token) = setup().await;
+    let main = crate::decks::create_deck_with_cards(&pool, &owner, "Alpha Deck", None, alpha_deck(("o-old", "Old Card"), ("o-cut", "Cut Card"))).await.unwrap();
+    let other = crate::decks::create_deck_with_cards(&pool, &owner, "Other Deck", None, alpha_deck(("o-stand", "Stand Card"), ("o-cut", "Cut Card"))).await.unwrap();
+    let (stranger, stranger_token) = user(&pool, "someone@example.com").await;
+    let theirs = crate::decks::create_deck_with_cards(&pool, &stranger, "Theirs", None, alpha_deck(("o-stand", "Stand Card"), ("o-cut", "Cut Card"))).await.unwrap();
+    // A deck outside the group, someone else's deck, and someone else using mine: all refused.
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": other, "op_id": "a"}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": theirs, "op_id": "b"}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&stranger_token), Some(json!({"from": theirs, "op_id": "c"}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let their_version: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&theirs).fetch_one(&pool).await.unwrap();
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"version": their_version, "op_id": "d"}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"op_id": "e"}))).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(count_versions(&pool, &main).await, 1);
+}
+
+#[tokio::test]
+async fn review_lists_unanswered_proposals_first_and_leaves_planned_swaps_out() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    // "alpha-idea" (Proposal Card) comes before "alpha-owned" (Spare Card) in plan order; answer it.
+    yama_answer(&pool, &owner, "alpha-idea", Some("want"), "2026-10-28T10:00:00Z").await;
+    let text = crate::advisor::context::review(&pool, &owner).await.unwrap();
+    assert!(text.contains("Want means an agent moves the swap into the plan"), "{text}");
+    assert!(text.contains("Alpha Deck: 1 waiting for an answer, 1 answered"), "{text}");
+    let open = text.find("- Spare Card").expect("unanswered proposal listed");
+    let answered = text.find("- Proposal Card").expect("answered proposal listed");
+    let heading = text.find("Already answered:").unwrap();
+    assert!(open < heading && heading < answered, "{text}");
+    // Planned swaps are in the plan already, so they aren't on the review list.
+    assert!(!text.contains("Bought Card"), "{text}");
+    // A note alone doesn't answer a proposal.
+    sqlx::query("UPDATE plan_reviews SET decision = NULL, note = 'thinking' WHERE owner_id = ? AND swap_key = 'alpha-idea'").bind(&owner).execute(&pool).await.unwrap();
+    let text = crate::advisor::context::review(&pool, &owner).await.unwrap();
+    assert!(text.contains("Alpha Deck: 2 waiting for an answer, 0 answered"), "{text}");
+    let deck = crate::advisor::context::plan_deck(&pool, &owner, "alpha").await.unwrap();
+    assert!(deck.contains("Proposed swaps waiting for their answer (2)"), "{deck}");
+}
+
+#[tokio::test]
+async fn old_lab_links_redirect_to_the_lab_section() {
+    let (app, _pool, _owner, _token) = setup().await;
+    for (from, to) in [("/decks/lab", "/lab"), ("/decks/lab/runs/abc", "/lab/runs/abc"), ("/decks/lab/try?deck=x%20y", "/lab/try?deck=x%20y")] {
+        let res = app.clone().oneshot(Request::builder().uri(from).body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::PERMANENT_REDIRECT, "{from}");
+        assert_eq!(res.headers()[header::LOCATION], to, "{from}");
+    }
+}
