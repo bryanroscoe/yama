@@ -21,7 +21,7 @@ export const NEWS: NewsEntry[] = [
       "In a head-to-head or tournament run, every deck's name opens its own page: how it placed, who it sat with and how it did against each, and every table it played at with the commanders' art.",
       "Open a table to see its four games one by one: who went first, the finishing order, the turn each deck was knocked out, and the life left when a game hit the cap.",
       "Head to head now says it in words, such as \"Lorehold Spirit finished higher than Fantastic Four in 3 of 4\", and marks pairs with too few games to tell.",
-      "Tournaments no longer seat two versions of the same deck (yours, the stock list, a variant) at one table when anyone else can take the seat.",
+      "New tournaments keep versions of the same deck (yours, the stock list, a variant) at separate tables while every deck still plays as often as the others. In a big field they never meet; in a very small field with several versions they sometimes have to.",
     ],
     link: { to: "/lab/runs", label: "Open my runs" },
   },
