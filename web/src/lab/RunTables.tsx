@@ -205,7 +205,7 @@ export function RunDeckPage() {
           <section>
             <h2>Who it sat with</h2>
             <p className="small dim">
-              Finish order between the two decks in the games they shared, whoever won. Under {FEW_GAMES} games a pair says very little: one table is {podOf(e)} games.
+              Finish order between the two decks in the games they shared, whoever won. Under {FEW_GAMES} untied games a pair says very little: one table is {podOf(e)} games.
             </p>
             {met.length > 8 && (
               <label className="small">
@@ -222,7 +222,7 @@ export function RunDeckPage() {
                       <b>{label(r.id)}</b>
                       <span className="small dim">
                         {rivalText(r, "them")}
-                        {r.games < FEW_GAMES ? ", too few to tell" : ""}
+                        {r.ahead + r.behind < FEW_GAMES ? ", too few to tell" : ""}
                       </span>
                     </span>
                     <span className="rt-score num" aria-hidden="true">

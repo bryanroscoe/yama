@@ -145,7 +145,7 @@ export function rivalText(r: Rival, them: string): string {
   return `Placed above ${them} in ${r.ahead} of ${r.games} ${r.games === 1 ? "game" : "games"}${level ? `, level in ${level}` : ""}`;
 }
 
-/** Fewer untied games than this between two decks and their head to head can't say much. */
+/** Fewer untied games than this between two decks (ties say nothing about who finished higher) and their head to head can't say much. */
 export const FEW_GAMES = 12;
 
 export type TableFilter = "all" | "won" | "lost";
