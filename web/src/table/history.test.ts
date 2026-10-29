@@ -2,7 +2,8 @@ import { replay, type LoggedEvent, type TableEvent, type TableSetup } from "@yam
 import { describe, expect, it } from "vitest";
 import { gameSummary, history } from "./history";
 import { setupFromServer } from "./GameDetail";
-import { pairing, rankByName, unionIdentity } from "./pickers";
+import { pairing, pairScope, rankByName, unionIdentity } from "./pickers";
+import { searchOffline, type OfflineCard } from "@yama/core";
 import { deckLabel } from "./store";
 import { uprightLayout } from "./TablePlay";
 import type { GameDetail } from "../api";
@@ -73,6 +74,23 @@ describe("partners", () => {
     // A Doctor's companion ability is on the companion, so the Doctor pairs by its type.
     expect(pairing({ oracle_text: "Whenever a creature you control deals combat damage...", type_line: "Legendary Creature — Time Lord Doctor" })).toBe("partner");
     expect(unionIdentity("WB", "RG")).toBe("WBRG");
+  });
+
+  it("searches only legal second commanders", () => {
+    const pir = "Partner with Toothy, Imaginary Friend (When this creature enters, target player may put Toothy into their hand from their library, then shuffle.)";
+    expect(pairScope({ oracle_text: `Flying\n${pir}` })).toBe('!"Toothy, Imaginary Friend"');
+    const card = (n: string, o: string): OfflineCard => ({
+      n, i: n, m: null, v: 0, t: "Legendary Creature — Human", o, c: "", ci: "", p: null, th: null, l: null, r: "rare", k: [],
+      f: { commander: "legal" }, y: "normal", img: null, e: null,
+    });
+    const pool = [
+      card("Tymna the Weaver", "Lifelink\nPartner (You can have two commanders if both have partner.)"),
+      card("Pir, Imaginative Rascal", `Flying\nPartner with Toothy, Imaginary Friend (When this creature enters...)`),
+      card("Toothy, Imaginary Friend", "Partner with Pir, Imaginative Rascal (When this creature enters...)"),
+    ];
+    const scope = pairScope({ oracle_text: "Partner (You can have two commanders if both have partner.)" });
+    expect(searchOffline(pool, scope).map((c) => c.n)).toEqual(["Tymna the Weaver"]);
+    expect(searchOffline(pool, pairScope({ oracle_text: pir })).map((c) => c.n)).toEqual(["Toothy, Imaginary Friend"]);
   });
 
   it("puts names that start with the search first", () => {

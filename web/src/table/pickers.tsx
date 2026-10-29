@@ -170,13 +170,17 @@ export function pairing(card: (Pick<Card, "oracle_text"> & Partial<Pick<Card, "t
 }
 
 /** Where to look for the second commander: cards with the same pairing keyword. */
-function pairScope(card: (Pick<Card, "oracle_text"> & Partial<Pick<Card, "type_line">>) | undefined): string {
+export function pairScope(card: (Pick<Card, "oracle_text"> & Partial<Pick<Card, "type_line">>) | undefined): string {
   const text = card?.oracle_text ?? "";
+  // "Partner with X" pairs with X and nothing else.
+  const named = partnerWith(card);
+  if (named) return `!"${named.replace(/"/g, "")}"`;
   if (/\bTime Lord Doctor\b/.test(card?.type_line ?? "")) return 'is:commander o:"doctor\'s companion"';
   if (/Choose a Background/i.test(text)) return "t:background";
   if (/^Friends forever\b/im.test(text)) return 'is:commander o:"friends forever"';
   if (/^Doctor's companion\b/im.test(text)) return 'is:commander t:doctor';
-  if (/\bPartner\b/.test(text)) return "is:commander o:partner";
+  // Plain Partner: any other card with plain Partner, not one tied to a named partner.
+  if (/\bPartner\b/.test(text)) return 'is:commander o:partner -o:"partner with"';
   return "is:commander";
 }
 
