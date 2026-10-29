@@ -150,12 +150,30 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
   void sync();
 }
 
+/**
+ * Carry on, on this device, with a game this account started elsewhere (the phone died, or the
+ * laptop takes over). Everything the server has is history: it can't be undone from here.
+ */
+export function resumeGame(setup: TableSetup, log: LoggedEvent[]) {
+  const through = log[log.length - 1]?.seq ?? 0;
+  setCurrent({ setup, log, redo: [], syncedThrough: through, frozenThrough: through });
+  void sync();
+}
+
 export function discardGame() {
   setCurrent(null);
 }
 
+/** The seat's label on the server: its commander, and its partner, so another device can rebuild the pair. */
+export function deckLabel(p: { deckLabel?: string; commanderName?: string; partnerName?: string }): string | null {
+  if (p.partnerName && p.commanderName && (!p.deckLabel || p.deckLabel === p.commanderName)) return `${p.commanderName} and ${p.partnerName}`;
+  return p.deckLabel ?? p.commanderName ?? null;
+}
+
 async function pushGame(g: LocalGame): Promise<number> {
   const s = g.setup;
+  // A seat that changed commanders mid-game uploads the one it has now.
+  const now = new Map(replay(s, g.log).players.map((p) => [p.seat, p]));
   await api("/api/games", {
     method: "POST",
     json: {
@@ -170,8 +188,8 @@ async function pushGame(g: LocalGame): Promise<number> {
         user_id: p.userId ?? null,
         guest_name: p.memberId || p.userId ? null : p.name,
         deck_version_id: p.deckVersionId ?? null,
-        deck_label: p.deckLabel ?? null,
-        commander_name: p.commanderName ?? null,
+        deck_label: deckLabel(now.get(p.seat) ?? p),
+        commander_name: now.get(p.seat)?.commanderName ?? null,
       })),
     },
   });
@@ -233,6 +251,9 @@ export function sync(): Promise<void> {
 
 if (typeof window !== "undefined") {
   window.addEventListener("online", () => void sync());
+  // A game or finished games left on this device from before (a reload, a phone that was off)
+  // go up straight away, so sharing and other devices can find them.
+  if (current || outbox.length) queueMicrotask(() => void sync());
   setInterval(() => {
     if (navigator.onLine && (current || outbox.length)) void sync();
   }, 20_000);

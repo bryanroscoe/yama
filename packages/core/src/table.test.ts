@@ -4,7 +4,7 @@ import {
   apply,
   commanderTax,
   initialState,
-  lossReason,
+  lossOf,
   record,
   replay,
   toServerEvents,
@@ -34,7 +34,31 @@ describe("table", () => {
     s = apply(s, { type: "commander_damage", seat: 1, source: "0", delta: 21 });
     const sam = s.players[1]!;
     expect(sam.life).toBe(19);
-    expect(lossReason(sam)).toBe("21 commander damage (0)");
+    expect(lossOf(s, sam)).toMatchObject({ kind: "commander_damage", bySeat: 0, key: "cd:0" });
+  });
+
+  it("names the commander that dealt lethal damage, partners included, and skips players already out", () => {
+    const pair: TableSetup = { ...setup, players: [{ ...setup.players[0]!, commanderName: "Tana", partnerName: "Tymna" }, setup.players[1]!, setup.players[2]!] };
+    let s = initialState(pair);
+    s = apply(s, { type: "commander_damage", seat: 1, source: "0b", delta: 20 });
+    expect(lossOf(s, s.players[1]!)).toBeNull();
+    s = apply(s, { type: "commander_damage", seat: 1, source: "0b", delta: 1 });
+    expect(lossOf(s, s.players[1]!)?.text).toBe("21 commander damage from Tymna");
+    s = apply(s, { type: "eliminate", seat: 1, bySeat: 0 });
+    expect(lossOf(s, s.players[1]!)).toBeNull();
+    s = apply(s, { type: "poison", seat: 2, delta: 10 });
+    expect(lossOf(s, s.players[2]!)).toMatchObject({ kind: "poison", key: "poison" });
+  });
+
+  it("a seat event swaps the commander and drops a partner it doesn't name", () => {
+    const pair: TableSetup = { ...setup, players: [{ ...setup.players[0]!, commanderName: "Tana", partnerName: "Tymna" }, setup.players[1]!] };
+    let s = initialState(pair);
+    s = apply(s, { type: "commander_damage", seat: 1, source: "0", delta: 4 });
+    s = apply(s, { type: "seat", seat: 0, commanderName: "Atraxa, Praetors' Voice", colorIdentity: "WUBG" });
+    expect(s.players[0]).toMatchObject({ commanderName: "Atraxa, Praetors' Voice", colorIdentity: "WUBG", deckLabel: "Atraxa, Praetors' Voice" });
+    expect(s.players[0]!.partnerName).toBeUndefined();
+    // Damage already dealt stays where it was.
+    expect(s.players[1]!.commanderDamage["0"]).toBe(4);
   });
 
   it("taps on the same counter coalesce, but not across the sync boundary", () => {

@@ -337,6 +337,16 @@ async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> AppResult<ser
                 if stored_group != g.playgroup_id || !stored.iter().map(StoredSeat::who).eq(sent.iter().map(|s| s.who())) {
                     return Err(AppError::Conflict("this game was already saved with different players".into()));
                 }
+                // The same players, but a seat may have changed commanders mid-game: keep the newest.
+                for s in &sent {
+                    sqlx::query("UPDATE game_seats SET deck_label = ?, commander_name = ? WHERE game_id = ? AND seat = ?")
+                        .bind(&s.deck_label)
+                        .bind(&s.commander_name)
+                        .bind(&g.id)
+                        .bind(s.seat)
+                        .execute(&mut *tx)
+                        .await?;
+                }
                 insert_events(&mut tx, &g.id, &g.events).await?;
             }
             true
@@ -520,6 +530,8 @@ struct GameDetail {
     #[serde(flatten)]
     game: GameRow,
     events: Vec<Event>,
+    /// This account started this in-person game, so it can carry on with it on another device.
+    can_continue: bool,
 }
 
 async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<GameDetail>> {
@@ -546,7 +558,8 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
             created_at: Some(created_at),
         })
         .collect();
-    Ok(Json(GameDetail { game, events }))
+    let can_continue = game.status == "in_progress" && can_write(&st.pool, &id, &user.id).await?;
+    Ok(Json(GameDetail { game, events, can_continue }))
 }
 
 async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
@@ -838,6 +851,24 @@ mod tests {
         assert!(r.is_ok() && winner.as_deref() == Some("Sam"), "retry returned {:?}; stored winner {winner:?}", r.map(|v| v.to_string()));
         let seats: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM game_seats WHERE game_id = ?").bind(id).fetch_one(&pool).await.unwrap();
         assert_eq!(seats, 2);
+    }
+
+    #[tokio::test]
+    async fn a_retry_keeps_a_commander_changed_mid_game() {
+        let pool = setup().await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0008";
+        create_game(&pool, "me", new_game(id, None)).await.unwrap();
+        let mut again = new_game(id, None);
+        again.seats[1].commander_name = Some("Atraxa, Praetors' Voice".into());
+        again.seats[1].deck_label = Some("Atraxa, Praetors' Voice".into());
+        assert_eq!(create_game(&pool, "me", again).await.unwrap()["existing"], true);
+        let stored: (Option<String>, Option<String>) = sqlx::query_as("SELECT commander_name, deck_label FROM game_seats WHERE game_id = ? AND seat = 1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(stored.0.as_deref(), Some("Atraxa, Praetors' Voice"));
+        assert_eq!(stored.1.as_deref(), Some("Atraxa, Praetors' Voice"));
     }
 
     #[tokio::test]

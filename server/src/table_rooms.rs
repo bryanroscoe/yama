@@ -12,6 +12,8 @@
 //!
 //! Access: only the game's creator may host. The host picks a random share key (it travels in
 //! the QR code's URL fragment, never in a page request), and guests must present the same key.
+//! The creator's own other devices (a laptop following the game on their phone) may join
+//! without it: it's their game.
 //!
 //! Memory: a room keeps its newest snapshot (at most [`MAX_MESSAGE`]) and a short backlog for slow
 //! guests, so anyone but an admin may host at most [`MAX_HOSTED`] tables at once.
@@ -23,7 +25,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::response::Response;
 use axum::routing::get;
-use axum::Router;
+use axum::{Json, Router};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -31,7 +33,9 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, mpsc};
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/api/table/{game_id}/ws", get(connect))
+    Router::new()
+        .route("/api/table/{game_id}/ws", get(connect))
+        .route("/api/table/{game_id}/live", get(live))
 }
 
 #[derive(Default)]
@@ -59,7 +63,23 @@ impl Room {
 #[derive(Deserialize)]
 struct ConnectParams {
     role: String,
+    #[serde(default)]
     key: String,
+}
+
+/// Whether the creator's phone is sharing this game right now, so their other devices can offer
+/// to follow it. Anyone else gets "no": a game's room is only found with its share key.
+async fn live(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(game_id): Path<String>) -> Json<serde_json::Value> {
+    let map = st.rooms.rooms.lock().unwrap();
+    let hosting = map.get(&game_id).is_some_and(|r| r.host_user.as_deref() == Some(user.id.as_str()) && r.host.is_some());
+    Json(serde_json::json!({ "hosting": hosting }))
+}
+
+/// A guest may join with the room's share key, or as the account hosting it.
+fn guest_may_join(room: Option<&Room>, user: &str, key: &str) -> bool {
+    let Some(room) = room else { return false };
+    let by_key = key.len() >= 16 && room.key.as_deref() == Some(key);
+    by_key || room.host_user.as_deref() == Some(user)
 }
 
 const MAX_MESSAGE: usize = 512 * 1024;
@@ -75,10 +95,10 @@ async fn connect(
     Query(p): Query<ConnectParams>,
     ws: WebSocketUpgrade,
 ) -> AppResult<Response> {
-    if p.key.len() < 16 {
+    let host = p.role == "host";
+    if host && p.key.len() < 16 {
         return Err(AppError::bad("missing share key"));
     }
-    let host = p.role == "host";
     if host {
         let creator: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ?")
             .bind(&game_id)
@@ -102,8 +122,7 @@ async fn connect(
         room.host_user = Some(user.id.clone());
     } else {
         let map = st.rooms.rooms.lock().unwrap();
-        let ok = map.get(&game_id).and_then(|r| r.key.as_deref()) == Some(p.key.as_str());
-        if !ok {
+        if !guest_may_join(map.get(&game_id), &user.id, &p.key) {
             return Err(AppError::Forbidden("that table link has expired; scan the code again".into()));
         }
     }
@@ -200,4 +219,32 @@ async fn run_guest(rooms: Arc<Rooms>, game_id: String, name: String, socket: Web
         }
     }
     forward.abort();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn room(key: &str, host: &str) -> Room {
+        let mut r = Room::new();
+        r.key = Some(key.into());
+        r.host_user = Some(host.into());
+        r
+    }
+
+    #[test]
+    fn guests_need_the_key_unless_its_the_hosts_own_account() {
+        let key = "0123456789abcdef0123";
+        let r = room(key, "bryan");
+        assert!(guest_may_join(Some(&r), "sam", key));
+        assert!(!guest_may_join(Some(&r), "sam", "0123456789abcdef9999"));
+        assert!(!guest_may_join(Some(&r), "sam", ""));
+        // The host following on their laptop, no key in hand.
+        assert!(guest_may_join(Some(&r), "bryan", ""));
+        // No room: nobody, not even the creator, joins a game that isn't being shared.
+        assert!(!guest_may_join(None, "bryan", key));
+        // A short key never matches, even a short stored one.
+        let short = room("abc", "bryan");
+        assert!(!guest_may_join(Some(&short), "sam", "abc"));
+    }
 }
