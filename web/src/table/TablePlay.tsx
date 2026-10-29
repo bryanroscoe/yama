@@ -496,6 +496,7 @@ export function Panel(props: {
               <span className="attack-hint">
                 {(p.commanderDamage[attackKey!] ?? 0) >= COMMANDER_LETHAL ? "Lethal" : `${COMMANDER_LETHAL - (p.commanderDamage[attackKey!] ?? 0)} more is lethal`}
               </span>
+              {attackArt?.art && <span className="attack-credit">{artCredit(attackArt.artist)}</span>}
             </div>
           )
         )}
@@ -755,7 +756,9 @@ function ChangeCommander({ p, onDone }: { p: PlayerState; onDone: () => void }) 
       partnerArt: draft.partnerName ? draft.partnerArt : undefined,
       partnerArtist: draft.partnerName ? draft.partnerArtist : undefined,
     };
-    dispatch({ type: "seat", seat: p.seat, ...pick });
+    // The same commander (a fix to its art or partner) is still the same deck.
+    const sameDeck = pick.commanderName === p.commanderName;
+    dispatch({ type: "seat", seat: p.seat, ...pick, deckVersionId: sameDeck ? p.deckVersionId : undefined, was: { commanderName: p.commanderName, partnerName: p.partnerName } });
     onDone();
   };
   return (

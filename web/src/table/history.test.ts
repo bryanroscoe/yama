@@ -96,6 +96,30 @@ describe("partners", () => {
   });
 });
 
+describe("a commander changed mid-game", () => {
+  it("rebuilds the history with the commander a seat started with", () => {
+    const detail = {
+      id: "g2", mode: "in_person", playgroup_id: null, format: "commander", starting_life: 40, status: "in_progress",
+      started_at: "2026-10-29T19:00:00Z", ended_at: null, turns: null, winner_seat: null, first_seat: null, win_condition: null, can_continue: true,
+      seats: [
+        { seat: 0, member_id: null, user_id: "me", guest_name: null, deck_version_id: null, deck_label: "Krenko, Mob Boss", commander_name: "Krenko, Mob Boss", final_life: null, eliminated_turn: null, eliminated_by_seat: null, fun: null, display_name: "Bryan" },
+        { seat: 1, member_id: null, user_id: null, guest_name: "Sam", deck_label: null, commander_name: null, final_life: null, eliminated_turn: null, eliminated_by_seat: null, fun: null, display_name: "Sam" },
+      ],
+      events: [
+        { seq: 1, actor_seat: 1, kind: "commander_damage", payload: { type: "commander_damage", seat: 1, source: "0", delta: 5 }, created_at: "2026-10-29T19:05:00Z" },
+        { seq: 2, actor_seat: 0, kind: "seat", payload: { type: "seat", seat: 0, commanderName: "Krenko, Mob Boss", colorIdentity: "R", was: { commanderName: "Edgar Markov" } }, created_at: "2026-10-29T19:06:00Z" },
+      ],
+    } satisfies GameDetail;
+    const { setup, log } = setupFromServer(detail);
+    expect(setup.players[0]!.commanderName).toBe("Edgar Markov");
+    expect(history(setup, log).map((l) => l.text)).toEqual([
+      "Sam took 5 commander damage from Edgar Markov, 5 in all.",
+      "Bryan is playing Krenko, Mob Boss now.",
+    ]);
+    expect(replay(setup, log).players[0]!.commanderName).toBe("Krenko, Mob Boss");
+  });
+});
+
 describe("upright layout", () => {
   it("puts every panel upright, two across, filling an odd last row", () => {
     const three = uprightLayout(3);

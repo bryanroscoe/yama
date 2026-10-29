@@ -191,6 +191,9 @@ function NewGame({ onStart }: { onStart: () => void }) {
     // With a playgroup chosen, your seat is your member row (see seats.ts), so wait for the list.
     if (groupId && !groups.data) return;
     applied.current = d.id;
+    // A deck page's deck is a Commander deck.
+    setFormat("commander");
+    setLife((l) => (FORMATS.some((f) => f.key !== "commander" && f.life === l) ? 40 : l));
     const myRow = groups.data?.find((g) => g.id === groupId)?.members.find((m) => m.user_id && m.user_id === me.data?.id);
     setSeats((all) => {
       const x = all[0]!;
@@ -225,20 +228,23 @@ function NewGame({ onStart }: { onStart: () => void }) {
   const setCount = (n: number) => setSeats((s) => (n > s.length ? [...s, ...Array.from({ length: n - s.length }, emptySeat)] : s.slice(0, n)));
 
   const start = () => {
+    // Only a Commander game names commanders and Commander decks; a 20-life game left with a
+    // seat's last commander would count toward that commander's and deck's results.
+    const cmdr = format === "commander";
     const players: PlayerSetup[] = seats.map((s, i) => ({
       seat: i,
       name: s.name.trim() || `Player ${i + 1}`,
       memberId: s.memberId,
       userId: s.userId,
-      deckVersionId: s.deckVersionId,
-      deckLabel: s.commanderName || undefined,
-      commanderName: s.commanderName || undefined,
-      partnerName: (format === "commander" && s.partnerName?.trim()) || undefined,
-      colorIdentity: s.colorIdentity,
-      art: s.art,
-      artist: s.artist,
-      partnerArt: s.partnerName ? s.partnerArt : undefined,
-      partnerArtist: s.partnerName ? s.partnerArtist : undefined,
+      deckVersionId: cmdr ? s.deckVersionId : undefined,
+      deckLabel: (cmdr && s.commanderName) || undefined,
+      commanderName: (cmdr && s.commanderName) || undefined,
+      partnerName: (cmdr && s.partnerName?.trim()) || undefined,
+      colorIdentity: cmdr ? s.colorIdentity : "",
+      art: cmdr ? s.art : undefined,
+      artist: cmdr ? s.artist : undefined,
+      partnerArt: cmdr && s.partnerName ? s.partnerArt : undefined,
+      partnerArtist: cmdr && s.partnerName ? s.partnerArtist : undefined,
     }));
     const setup: TableSetup = {
       id: crypto.randomUUID(),
@@ -465,6 +471,8 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
 }) {
   const me = useMe().data;
   const chosen = decks?.find((d) => d.id === seat.deckId);
+  // The deck picked last: a slower lookup for an earlier pick mustn't land on top of it.
+  const lastDeck = useRef<string | null>(null);
 
   const pickPerson = (p: Person) => {
     if (group && p.memberId) {
@@ -505,6 +513,7 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
                 value={seat.deckId ?? ""}
                 onChange={(e) => {
                   const d = decks.find((x) => x.id === e.target.value);
+                  lastDeck.current = d?.id ?? null;
                   if (!d) return onChange({ deckId: undefined, deckVersionId: undefined });
                   onChange({
                     deckId: d.id,
@@ -515,7 +524,7 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
                     art: d.commander_image ?? undefined,
                     artist: d.commander_artist ?? undefined,
                   });
-                  void deckCommanders(d).then((c) => c && onChange(c));
+                  void deckCommanders(d).then((c) => c && lastDeck.current === d.id && onChange(c));
                 }}
               >
                 <option value="">Not one of my decks</option>

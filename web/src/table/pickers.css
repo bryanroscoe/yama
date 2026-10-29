@@ -101,3 +101,9 @@
 .cmdr-add-partner {
   justify-self: start;
 }
+.combo-foot {
+  padding: 6px 8px 4px;
+  color: var(--dim);
+  font-size: var(--t-xs);
+  line-height: 1.35;
+}

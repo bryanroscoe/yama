@@ -31,7 +31,7 @@ export interface PlayerSetup {
 }
 
 /** The commander fields a seat can change mid-game (someone grabbed another deck, or a typo). */
-export type CommanderPick = Pick<PlayerSetup, "commanderName" | "partnerName" | "colorIdentity" | "art" | "artist" | "partnerArt" | "partnerArtist" | "deckLabel">;
+export type CommanderPick = Pick<PlayerSetup, "commanderName" | "partnerName" | "colorIdentity" | "art" | "artist" | "partnerArt" | "partnerArtist" | "deckLabel" | "deckVersionId">;
 
 export type TableFormat = "commander" | "standard" | "other";
 
@@ -99,7 +99,12 @@ export type TableEvent =
   | { type: "eliminate"; seat: Seat; bySeat?: Seat }
   | { type: "revive"; seat: Seat }
   /** The seat changed commanders (or the one picked at setup was wrong). History keeps the old one. */
-  | ({ type: "seat"; seat: Seat } & CommanderPick)
+  | ({
+      type: "seat";
+      seat: Seat;
+      /** What it was playing before, so the game's history can still name it (the server keeps only the newest). */
+      was?: { commanderName?: string; partnerName?: string };
+    } & CommanderPick)
   | ({ type: "finish"; winnerSeat: Seat | null; endedAt: string } & FinishDetails);
 
 export interface LoggedEvent {
@@ -226,7 +231,7 @@ export function apply(state: TableState, e: TableEvent): TableState {
     case "eliminate":
       return updatePlayer(state, e.seat, (p) => ({ ...p, eliminated: { turn: state.turn, bySeat: e.bySeat } }));
     case "seat": {
-      const { type: _, seat, ...pick } = e;
+      const { type: _, seat, was: __, ...pick } = e;
       // Every commander field is replaced, so dropping a partner clears it.
       return updatePlayer(state, seat, (p) => ({
         ...p,
@@ -238,6 +243,8 @@ export function apply(state: TableState, e: TableEvent): TableState {
         partnerArt: pick.partnerArt,
         partnerArtist: pick.partnerArtist,
         deckLabel: pick.deckLabel ?? pick.commanderName,
+        // Another commander is another deck: the seat keeps its deck only if the event says so.
+        deckVersionId: pick.deckVersionId,
       }));
     }
     case "revive":

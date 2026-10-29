@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { CommanderPick } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api, type Card, type SearchResult } from "../api";
+import { artCredits } from "../components/ArtPanel";
 import { Pips } from "../components/ui";
 import "./pickers.css";
 
@@ -44,6 +45,7 @@ export function Combobox<T>({
   empty,
   trailing,
   autoFocus = false,
+  footer,
 }: {
   label: string;
   text: string;
@@ -56,6 +58,8 @@ export function Combobox<T>({
   empty?: ReactNode;
   trailing?: ReactNode;
   autoFocus?: boolean;
+  /** A last line in the open list (the art credit for the crops shown). */
+  footer?: ReactNode;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -142,6 +146,7 @@ export function Combobox<T>({
               </li>
             ))}
             {options.length === 0 && <li className="combo-empty">{loading ? "Searching…" : empty}</li>}
+            {options.length > 0 && footer && <li className="combo-foot" aria-hidden="true">{footer}</li>}
           </ul>
         )}
       </span>
@@ -243,6 +248,8 @@ function CommanderSearch({ label, value, scope, suggest, onPick, onText, autoFoc
       loading={search.isFetching && !search.data?.length}
       autoFocus={autoFocus}
       trailing={trailing}
+      // Scryfall asks for the artist wherever an art crop shows.
+      footer={options.some((o) => o.art) ? artCredits(cards.slice(0, 8).filter((c) => c.image_art_crop).map((c) => c.artist)) : undefined}
       empty={search.isError ? "Can't search right now. The name you typed will still be used." : "No commander by that name."}
     />
   );

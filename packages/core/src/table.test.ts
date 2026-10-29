@@ -51,12 +51,14 @@ describe("table", () => {
   });
 
   it("a seat event swaps the commander and drops a partner it doesn't name", () => {
-    const pair: TableSetup = { ...setup, players: [{ ...setup.players[0]!, commanderName: "Tana", partnerName: "Tymna" }, setup.players[1]!] };
+    const pair: TableSetup = { ...setup, players: [{ ...setup.players[0]!, commanderName: "Tana", partnerName: "Tymna", deckVersionId: "v1" }, setup.players[1]!] };
     let s = initialState(pair);
     s = apply(s, { type: "commander_damage", seat: 1, source: "0", delta: 4 });
     s = apply(s, { type: "seat", seat: 0, commanderName: "Atraxa, Praetors' Voice", colorIdentity: "WUBG" });
     expect(s.players[0]).toMatchObject({ commanderName: "Atraxa, Praetors' Voice", colorIdentity: "WUBG", deckLabel: "Atraxa, Praetors' Voice" });
     expect(s.players[0]!.partnerName).toBeUndefined();
+    // Another commander isn't the deck the seat started with.
+    expect(s.players[0]!.deckVersionId).toBeUndefined();
     // Damage already dealt stays where it was.
     expect(s.players[1]!.commanderDamage["0"]).toBe(4);
   });

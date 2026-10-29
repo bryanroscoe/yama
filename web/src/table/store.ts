@@ -187,7 +187,7 @@ async function pushGame(g: LocalGame): Promise<number> {
         member_id: p.memberId ?? null,
         user_id: p.userId ?? null,
         guest_name: p.memberId || p.userId ? null : p.name,
-        deck_version_id: p.deckVersionId ?? null,
+        deck_version_id: (now.get(p.seat) ?? p).deckVersionId ?? null,
         deck_label: deckLabel(now.get(p.seat) ?? p),
         commander_name: now.get(p.seat)?.commanderName ?? null,
       })),

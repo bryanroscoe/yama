@@ -11,7 +11,8 @@ import { ErrorText } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
 import { cardNamed, unionIdentity } from "./pickers";
-import { resumeGame, useTable } from "./store";
+import { resumeGame, useOutbox, useTable } from "./store";
+import { isViewing } from "../viewingFlag";
 import "./home.css";
 
 const FORMAT_KEYS: TableFormat[] = ["commander", "standard", "other"];
@@ -28,6 +29,12 @@ const seatName = (s: GameSeat) => s.display_name ?? s.guest_name ?? `Player ${s.
 
 /** The game as this device's table keeps it, from what the server stored. Art and colors come later. */
 export function setupFromServer(g: GameDetail): { setup: TableSetup; log: LoggedEvent[] } {
+  const log: LoggedEvent[] = g.events
+    .filter((e) => !!e.payload && typeof e.payload === "object" && "type" in (e.payload as object))
+    .map((e) => ({ seq: e.seq, at: e.created_at ?? g.started_at, event: e.payload as TableEvent }));
+  // The server keeps a seat's newest commander; a seat that changed says what it started with.
+  const started = new Map<number, { commanderName?: string; partnerName?: string }>();
+  for (const { event: e } of log) if (e.type === "seat" && e.was && !started.has(e.seat)) started.set(e.seat, e.was);
   const setup: TableSetup = {
     id: g.id,
     startedAt: g.started_at,
@@ -35,23 +42,22 @@ export function setupFromServer(g: GameDetail): { setup: TableSetup; log: Logged
     startingLife: g.starting_life ?? 40,
     playgroupId: g.playgroup_id ?? undefined,
     players: g.seats.map((s) => {
-      const { commander, partner } = splitPair(s);
+      const now = splitPair(s);
+      const before = started.get(s.seat);
+      const { commander, partner } = before ? { commander: before.commanderName, partner: before.partnerName } : now;
       return {
         seat: s.seat,
         name: seatName(s),
         memberId: s.member_id ?? undefined,
         userId: s.user_id ?? undefined,
-        deckVersionId: s.deck_version_id ?? undefined,
-        deckLabel: s.deck_label ?? commander,
+        deckVersionId: before ? undefined : (s.deck_version_id ?? undefined),
+        deckLabel: before ? commander : (s.deck_label ?? commander),
         commanderName: commander,
         partnerName: partner,
         colorIdentity: "",
       };
     }),
   };
-  const log: LoggedEvent[] = g.events
-    .filter((e) => !!e.payload && typeof e.payload === "object" && "type" in (e.payload as object))
-    .map((e) => ({ seq: e.seq, at: e.created_at ?? g.started_at, event: e.payload as TableEvent }));
   return { setup, log };
 }
 
@@ -61,16 +67,21 @@ export function GameDetailPage() {
   const local = useTable();
   const game = useQuery({ queryKey: ["game", id], queryFn: () => api<GameDetail>(`/api/games/${id}`) });
   const g = game.data;
-  const going = g?.status === "in_progress";
+  const outbox = useOutbox();
+  const here = local.game?.setup.id === id;
+  const busyElsewhere = !!local.game && !here;
+  // Finished on this device and still uploading: it isn't going any more, whatever the server says.
+  const uploading = outbox.some((o) => o.setup.id === id);
+  const going = g?.status === "in_progress" && !uploading;
+  // Viewing as someone, nothing this device records is theirs to upload.
+  const mayContinue = !!g?.can_continue && !uploading && !isViewing();
   const live = useQuery({
     queryKey: ["table-live", id],
     queryFn: () => api<{ hosting: boolean }>(`/api/table/${id}/live`),
-    enabled: !!g?.can_continue,
+    enabled: mayContinue,
     refetchInterval: 15_000,
   });
   const art = useCardArt(g?.seats.flatMap((s) => [splitPair(s).commander]) ?? []);
-  const here = local.game?.setup.id === id;
-  const busyElsewhere = !!local.game && !here;
 
   const carryOn = useMutation({
     mutationFn: async () => {
@@ -142,7 +153,7 @@ export function GameDetailPage() {
         <section className="gd-going" aria-label="This game is still going">
           {here ? (
             <button className="primary" onClick={() => navigate("/table/play")}>Back to the table</button>
-          ) : g.can_continue ? (
+          ) : mayContinue ? (
             <>
               <div className="row">
                 {live.data?.hosting && (

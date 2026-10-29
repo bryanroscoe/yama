@@ -1409,3 +1409,11 @@
 .ps-counters-one {
   grid-template-columns: minmax(0, 1fr);
 }
+/* The attacker's art credit in the damage layer; the panel's own credit stays above the layer. */
+.attack-credit {
+  font-size: 10px;
+  color: var(--on-art-dim);
+}
+.panel-inner:has(> .attack-layer) > .panel-credit {
+  z-index: 5;
+}
