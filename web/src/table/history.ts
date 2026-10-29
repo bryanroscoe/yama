@@ -1,6 +1,6 @@
 // A table game told as it happened: one line per logged event, for the game's detail page.
 
-import { apply, commanderTax, formatLabel, initialState, winConditionLabel, type LoggedEvent, type TableEvent, type TableSetup, type TableState } from "@yama/core";
+import { apply, commanderTax, formatLabel, keySeat, sourceName, initialState, winConditionLabel, type LoggedEvent, type TableEvent, type TableSetup, type TableState } from "@yama/core";
 
 export interface HistoryLine {
   seq: number;
@@ -29,8 +29,8 @@ export function describe(before: TableState, after: TableState, e: TableEvent): 
     case "poison":
       return `${name(e.seat)} ${e.delta > 0 ? "got" : "lost"} ${plural(Math.abs(e.delta), "poison counter")}, now ${now(e.seat)?.poison}.`;
     case "commander_damage": {
-      const from = before.players.find((p) => p.seat === Number.parseInt(e.source, 10));
-      const cmdr = (e.source.endsWith("b") ? from?.partnerName : from?.commanderName) ?? `${from?.name ?? "a"}'s commander`;
+      const from = before.players.find((p) => p.seat === keySeat(e.source));
+      const cmdr = sourceName(before, e.source) ?? `${from?.name ?? "a"}'s commander`;
       const total = now(e.seat)?.commanderDamage[e.source] ?? 0;
       return e.delta > 0
         ? `${name(e.seat)} took ${e.delta} commander damage from ${cmdr}, ${total} in all.`

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { panelFills } from "./mana";
 import {
   apply,
+  commanderSources,
   commanderTax,
   initialState,
   lossOf,
@@ -59,8 +60,23 @@ describe("table", () => {
     expect(s.players[0]!.partnerName).toBeUndefined();
     // Another commander isn't the deck the seat started with.
     expect(s.players[0]!.deckVersionId).toBeUndefined();
-    // Damage already dealt stays where it was.
-    expect(s.players[1]!.commanderDamage["0"]).toBe(4);
+    // Damage Tana already dealt stays Tana's: Atraxa starts from 0.
+    expect(s.players[1]!.commanderDamage["0"]).toBeUndefined();
+    expect(s.players[1]!.commanderDamage["0~1"]).toBe(4);
+    expect(commanderSources(s, 1).map((c) => [c.key, c.name])).toEqual([["0", "Atraxa, Praetors' Voice"], ["0~1", "Tana"]]);
+  });
+
+  it("damage from a replaced commander never adds up with the new one's", () => {
+    let s = initialState({ ...setup, players: [{ ...setup.players[0]!, commanderName: "Edgar Markov" }, setup.players[1]!] });
+    s = apply(s, { type: "commander_damage", seat: 1, source: "0", delta: 20 });
+    s = apply(s, { type: "seat", seat: 0, commanderName: "Krenko, Mob Boss", colorIdentity: "R" });
+    s = apply(s, { type: "commander_damage", seat: 1, source: "0", delta: 1 });
+    expect(lossOf(s, s.players[1]!)).toBeNull();
+    s = apply(s, { type: "commander_damage", seat: 1, source: "0~1", delta: 1 });
+    expect(lossOf(s, s.players[1]!)?.text).toBe("21 commander damage from Edgar Markov");
+    // The same commander picked again (an art fix) keeps its damage where it is.
+    s = apply(s, { type: "seat", seat: 0, commanderName: "Krenko, Mob Boss", colorIdentity: "R", art: "x" });
+    expect(s.players[1]!.commanderDamage["0"]).toBe(1);
   });
 
   it("taps on the same counter coalesce, but not across the sync boundary", () => {

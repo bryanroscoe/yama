@@ -1,6 +1,8 @@
 import {
   commanderSources,
   commanderTax,
+  keySeat,
+  sourceName,
   COMMANDER_LETHAL,
   identityKeys,
   lossOf,
@@ -385,10 +387,12 @@ export function Panel(props: {
     .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
     .map(([key, v]) => {
       const partner = key.endsWith("b");
-      const seat = Number(key.replace("b", ""));
+      const seat = keySeat(key);
       const from = state.players.find((x) => x.seat === seat);
-      const name = (partner ? from?.partnerName : from?.commanderName) ?? from?.name ?? "a commander";
-      return { key, amount: v ?? 0, name, art: artFor?.(seat, partner)?.art ?? null, fill: MANA[identityKeys(from?.colorIdentity ?? "")[0]!].fill };
+      const name = sourceName(state, key) ?? from?.name ?? "a commander";
+      // A commander the seat stopped playing has no art here: the seat's art is its new one now.
+      const gone = !!state.retired?.[key];
+      return { key, amount: v ?? 0, name, art: gone ? null : (artFor?.(seat, partner)?.art ?? null), fill: MANA[identityKeys(from?.colorIdentity ?? "")[0]!].fill };
     });
   // Wider totals get a smaller face so the number stays clear of the − and + at the ends.
   const digits = String(p.life).length;
@@ -653,16 +657,16 @@ export function PlayerSheet({ state, seat, onClose, artFor, onAttack }: {
           <span className="small dim">{COMMANDER_LETHAL} from one knocks you out</span>
         </div>
         <div className="ps-rows">
-          {commanderSources(state, seat).map(({ key: k, seat: from, partner, name }) => {
+          {commanderSources(state, seat).map(({ key: k, seat: from, partner, name, retired }) => {
             const o = state.players.find((x) => x.seat === from)!;
             const value = p.commanderDamage[k] ?? 0;
-            const a = artFor?.(from, partner) ?? null;
+            const a = retired ? null : (artFor?.(from, partner) ?? null);
             return (
               <div key={k} className="ps-row">
                 <SeatDot art={a} colorIdentity={o.colorIdentity} className="ps-row-art" />
                 <span className="ps-row-text">
                   <span className="ps-row-name">{name}</span>
-                  <span className="small dim">{o.name}</span>
+                  <span className="small dim">{retired ? `${o.name}, before switching` : o.name}</span>
                 </span>
                 <Steps label={`${name} damage`} value={value} warn={value >= COMMANDER_LETHAL - 6} onChange={(d) => dispatch({ type: "commander_damage", seat, source: k, delta: d })} />
               </div>

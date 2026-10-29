@@ -5,8 +5,15 @@
 
 export type Seat = number;
 
-/** A commander that can deal commander damage: seat plus which of a pair (partners). */
-export type CommanderKey = `${number}` | `${number}b`;
+/**
+ * A commander that can deal commander damage: seat plus which of a pair (partners). A commander
+ * the seat stopped playing keeps its damage under a retired key ("0~1", "0b~2"), so a new one
+ * starts from 0 (it's a different commander, CR 704.6c).
+ */
+export type CommanderKey = `${number}` | `${number}b` | `${number}~${number}` | `${number}b~${number}`;
+
+/** The seat a commander key belongs to. */
+export const keySeat = (k: string): Seat => Number.parseInt(k, 10);
 
 export type CounterKind = "energy" | "experience" | "rad" | "tickets";
 
@@ -147,6 +154,8 @@ export interface TableState {
   initiative: Seat | null;
   dayNight: "day" | "night" | null;
   finished?: { winnerSeat: Seat | null; endedAt: string } & FinishDetails;
+  /** Commanders a seat stopped playing that had dealt damage, by retired key, with their names. */
+  retired?: Partial<Record<CommanderKey, { seat: Seat; partner: boolean; name: string }>>;
 }
 
 export function initialState(setup: TableSetup): TableState {
@@ -232,8 +241,29 @@ export function apply(state: TableState, e: TableEvent): TableState {
       return updatePlayer(state, e.seat, (p) => ({ ...p, eliminated: { turn: state.turn, bySeat: e.bySeat } }));
     case "seat": {
       const { type: _, seat, was: __, ...pick } = e;
+      const old = state.players.find((p) => p.seat === seat);
+      if (!old) return state;
+      // A commander replaced by a different one keeps the damage it dealt under its own name.
+      let next = state;
+      const retire = (partner: boolean, oldName: string | undefined, newName: string | undefined) => {
+        const live = `${seat}${partner ? "b" : ""}` as CommanderKey;
+        if (oldName === newName || !next.players.some((p) => (p.commanderDamage[live] ?? 0) > 0)) return;
+        const retiredKey = `${live}~${Object.keys(next.retired ?? {}).length + 1}` as CommanderKey;
+        next = {
+          ...next,
+          retired: { ...next.retired, [retiredKey]: { seat, partner, name: oldName ?? `${old.name}'s commander` } },
+          players: next.players.map((p) => {
+            const d = p.commanderDamage[live];
+            if (!d) return p;
+            const { [live]: _moved, ...rest } = p.commanderDamage;
+            return { ...p, commanderDamage: { ...rest, [retiredKey]: d } };
+          }),
+        };
+      };
+      retire(false, old.commanderName, pick.commanderName);
+      retire(true, old.partnerName, pick.partnerName);
       // Every commander field is replaced, so dropping a partner clears it.
-      return updatePlayer(state, seat, (p) => ({
+      return updatePlayer(next, seat, (p) => ({
         ...p,
         commanderName: pick.commanderName,
         partnerName: pick.partnerName,
@@ -327,8 +357,8 @@ export function lossOf(state: TableState, p: PlayerState): Loss | null {
   if (p.eliminated) return null;
   for (const [source, dmg] of Object.entries(p.commanderDamage) as [CommanderKey, number | undefined][]) {
     if ((dmg ?? 0) >= COMMANDER_LETHAL) {
-      const from = state.players.find((x) => x.seat === Number.parseInt(source, 10));
-      const name = (source.endsWith("b") ? from?.partnerName : from?.commanderName) ?? (from ? `${from.name}'s commander` : "one commander");
+      const from = state.players.find((x) => x.seat === keySeat(source));
+      const name = sourceName(state, source) ?? (from ? `${from.name}'s commander` : "one commander");
       return { kind: "commander_damage", text: `${dmg} commander damage from ${name}`, bySeat: from?.seat, key: `cd:${source}` };
     }
   }
@@ -337,14 +367,30 @@ export function lossOf(state: TableState, p: PlayerState): Loss | null {
   return null;
 }
 
-/** The commanders that can deal this player commander damage: each opponent's, partners too. */
-export function commanderSources(state: TableState, seat: Seat): { key: CommanderKey; seat: Seat; partner: boolean; name: string }[] {
-  return state.players
+/** The name of the commander behind a key, retired ones included; undefined if it has none. */
+export function sourceName(state: TableState, key: CommanderKey): string | undefined {
+  const gone = state.retired?.[key];
+  if (gone) return gone.name;
+  const from = state.players.find((x) => x.seat === keySeat(key));
+  return key.endsWith("b") ? from?.partnerName : from?.commanderName;
+}
+
+/**
+ * The commanders that can deal this player commander damage: each opponent's, partners too,
+ * then any a seat stopped playing that already dealt this player some (`retired`).
+ */
+export function commanderSources(state: TableState, seat: Seat): { key: CommanderKey; seat: Seat; partner: boolean; name: string; retired?: boolean }[] {
+  const live = state.players
     .filter((o) => o.seat !== seat)
     .flatMap((o) => {
       const main = { key: `${o.seat}` as CommanderKey, seat: o.seat, partner: false, name: o.commanderName ?? `${o.name}'s commander` };
       return o.partnerName ? [main, { key: `${o.seat}b` as CommanderKey, seat: o.seat, partner: true, name: o.partnerName }] : [main];
     });
+  const me = state.players.find((p) => p.seat === seat);
+  const gone = (Object.entries(state.retired ?? {}) as [CommanderKey, { seat: Seat; partner: boolean; name: string }][])
+    .filter(([k, r]) => r.seat !== seat && (me?.commanderDamage[k] ?? 0) > 0)
+    .map(([k, r]) => ({ key: k, seat: r.seat, partner: r.partner, name: r.name, retired: true }));
+  return [...live, ...gone];
 }
 
 export function commanderTax(p: PlayerState, partner = false): number {
