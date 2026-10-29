@@ -254,7 +254,23 @@ export function useTableArt(players: PlayerState[]): ArtFor {
  * and comes back. `onlySeat` limits it to one seat (a guest's own phone).
  */
 export function useLethalPrompt(state: TableState | null, onlySeat?: number | null) {
-  const [dismissed, setDismissed] = useState<string[]>([]);
+  // Kept per game on this device, so leaving the table (or a reload) doesn't ask again.
+  const gameId = state?.setup.id ?? null;
+  const [dismissed, setDismissedState] = useState<string[]>(() => readDismissed(gameId));
+  const loadedFor = useRef(gameId);
+  if (loadedFor.current !== gameId) {
+    loadedFor.current = gameId;
+    setDismissedState(readDismissed(gameId));
+  }
+  const setDismissed = (f: (d: string[]) => string[]) =>
+    setDismissedState((d) => {
+      const next = f(d);
+      if (gameId && next !== d) {
+        if (next.length) localStorage.setItem(dismissedKey(gameId), JSON.stringify(next));
+        else localStorage.removeItem(dismissedKey(gameId));
+      }
+      return next;
+    });
   const [ready, setReady] = useState<string | null>(null);
   // Every active cause, so dismissing one (21 from Atraxa) still lets a later one (10 poison) ask.
   const losses = (state?.players ?? [])
@@ -277,6 +293,17 @@ export function useLethalPrompt(state: TableState | null, onlySeat?: number | nu
     ask: pending && ready === pendingKey ? pending : null,
     dismiss: () => pendingKey && setDismissed((d) => [...d, pendingKey]),
   };
+}
+
+export const dismissedKey = (gameId: string) => `yama.table.dismissed.${gameId}`;
+function readDismissed(gameId: string | null): string[] {
+  if (!gameId) return [];
+  try {
+    const v = JSON.parse(localStorage.getItem(dismissedKey(gameId)) ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 const LOSS_RULE: Record<Loss["kind"], string> = {

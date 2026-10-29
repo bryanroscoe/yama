@@ -297,6 +297,8 @@ export function draftFromCard(c: Card): CommanderDraft {
  */
 export function CommanderFields({ value, onChange, autoFocus }: { value: CommanderDraft; onChange: (d: CommanderDraft) => void; autoFocus?: boolean }) {
   const [adding, setAdding] = useState(false);
+  // Each pick (or keystroke) gets a number; a slower partner check for an older pick is ignored.
+  const pickNo = useRef(0);
   const name = value.commanderName ?? "";
   // A pair that came from a deck or an earlier game: the second field shows without asking.
   const showPartner = !!value.partnerName || adding;
@@ -320,8 +322,9 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
           value={name}
           scope="is:commander"
           autoFocus={autoFocus}
-          onText={(t) => onChange({ ...value, commanderName: t, colorIdentity: value.partnerIdentity ?? "", ownIdentity: undefined, art: undefined, artist: undefined, pairs: undefined })}
+          onText={(t) => (pickNo.current++, onChange({ ...value, commanderName: t, colorIdentity: value.partnerIdentity ?? "", ownIdentity: undefined, art: undefined, artist: undefined, pairs: undefined }))}
           onPick={async (c) => {
+            const mine = ++pickNo.current;
             const next = draftFromCard(c);
             setAdding(false);
             const partner = value.partnerName;
@@ -334,6 +337,7 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
                 (r) => r.length > 0,
                 () => true,
               ));
+            if (mine !== pickNo.current) return;
             if (fits) {
               Object.assign(next, { partnerName: partner, partnerArt: value.partnerArt, partnerArtist: value.partnerArtist, partnerIdentity: value.partnerIdentity });
               next.colorIdentity = unionIdentity(next.ownIdentity, value.partnerIdentity);

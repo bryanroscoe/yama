@@ -146,6 +146,7 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
   log = record(log, { type: "finish", winnerSeat, endedAt: now.toISOString(), ...(winCondition ? { winCondition } : {}), ...(fun ? { fun } : {}) }, now, Infinity);
   // A finished game uploads whole: drop the in-flight mark so nothing is held back.
   outbox = [...outbox, { ...current, log, frozenThrough: undefined }];
+  forgetPrompts(current.setup.id);
   setCurrent(null);
   void sync();
 }
@@ -160,7 +161,13 @@ export function resumeGame(setup: TableSetup, log: LoggedEvent[]) {
   void sync();
 }
 
+/** The table's "not out" answers for a game that's over (TablePlay's useLethalPrompt). */
+function forgetPrompts(gameId: string) {
+  localStorage.removeItem(`yama.table.dismissed.${gameId}`);
+}
+
 export function discardGame() {
+  if (current) forgetPrompts(current.setup.id);
   setCurrent(null);
 }
 
