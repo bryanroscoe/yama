@@ -19,6 +19,23 @@ OTHER = 'b' * 40
 
 
 class HostGate(unittest.TestCase):
+    def test_opaque_legacy_jwt_and_long_tokens_round_trip_without_format_assumptions(self):
+        tokens = ('ghp_' + 'a' * 36,
+                  'ghs_123_' + 'header.payload-with_url_safe-punctuation.signature',
+                  'future-format:opaque/value+with=punctuation', 'long_' + 'a' * 2048)
+        for token in tokens:
+            for ending in ('\n', '\r\n', ''):
+                with self.subTest(length=len(token), ending=repr(ending)):
+                    self.assertEqual(host.read_token(io.StringIO(token + ending)), token)
+
+    def test_empty_oversized_and_unsafe_transport_tokens_are_rejected_without_echoing(self):
+        for token in ('', 'bad private token value', 'private\ttoken', 'private\x00token',
+                      'private\x1btoken', 'private\u00e9token', 'a' * (host.MAX_TOKEN_LENGTH + 1)):
+            with self.subTest(length=len(token)):
+                with self.assertRaises(host.Refused) as error:
+                    host.read_token(io.StringIO(token + '\n'))
+                self.assertNotIn('private', str(error.exception))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='yama-host-test-')
         self.addCleanup(self.temp.cleanup)

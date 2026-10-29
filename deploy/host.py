@@ -32,6 +32,7 @@ IMAGE_VARS = ('YAMA_IMAGE', 'YAMA_ADVISOR_IMAGE', 'YAMA_FORGE_IMAGE')
 LOCK_WAIT_SECONDS = 110 * 60
 RELEASE_SECONDS = 105 * 60
 COMMAND_DEADLINE = None
+MAX_TOKEN_LENGTH = 16_384
 
 
 class Refused(Exception):
@@ -466,13 +467,21 @@ def arguments(argv, original=None):
     return argv[0], argv[1]
 
 
+def read_token(stream):
+    # GitHub installation tokens are opaque and now include JWT punctuation.
+    # Bound transport size and reject whitespace/control characters; GitHub's
+    # API, rather than a provider-specific spelling regex, authenticates them.
+    token = stream.readline(MAX_TOKEN_LENGTH + 2).rstrip('\r\n')
+    if not token or len(token) > MAX_TOKEN_LENGTH or any(not 0x21 <= ord(c) <= 0x7e for c in token):
+        raise Refused('A GitHub read token is required on stdin')
+    return token
+
+
 def main():
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     try:
         mode, revision = arguments(sys.argv[1:], os.environ.get('SSH_ORIGINAL_COMMAND'))
-        token = sys.stdin.readline(4096).strip()
-        if not re.fullmatch(r'[A-Za-z0-9_]{20,1024}', token):
-            raise Refused('A GitHub read token is required on stdin')
+        token = read_token(sys.stdin)
         release(revision, token, mode == 'check')
     except (Refused, OSError, KeyError, ValueError) as error:
         log('Release refused: ' + str(error))
