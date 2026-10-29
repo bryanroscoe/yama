@@ -590,9 +590,6 @@ index 0000000..6130968
 +require the additional `CI_ENABLE_PUBLISHING == 'true'` opt-in, which is unset
 +for this fork. Registration and CI validation do not authorize publishing,
 +application deployment, upstream changes, or moving Yama's pinned engine revision.
--- 
-2.50.1 (Apple Git-155)
-
 
 From cb43f56649df0999be42b91dd87ba9d309b29a7e Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
@@ -771,9 +768,6 @@ index 6130968..e910f8f 100644
  require the additional `CI_ENABLE_PUBLISHING == 'true'` opt-in, which is unset
  for this fork. Registration and CI validation do not authorize publishing,
  application deployment, upstream changes, or moving Yama's pinned engine revision.
--- 
-2.50.1 (Apple Git-155)
-
 
 From 40b45dd7069a8343548eec96eaad1eb75a3e2537 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
@@ -797,6 +791,3 @@ index 39be49d..c15b2c3 100644
          echo 'CARGO_BUILD_JOBS=2' >> "$GITHUB_ENV"
          echo 'ANDROID_HOME=/ci-cache/android' >> "$GITHUB_ENV"
          echo 'ANDROID_SDK_ROOT=/ci-cache/android' >> "$GITHUB_ENV"
--- 
-2.50.1 (Apple Git-155)
-
