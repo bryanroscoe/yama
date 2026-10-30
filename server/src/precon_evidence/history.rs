@@ -55,6 +55,10 @@ pub struct History {
     pub trend_points_per_30_days: Option<f64>,
     /// What was set aside and why, in plain words.
     pub notes: Vec<String>,
+    /// Chains a falling game count ended, oldest first. Never shown or differenced against the
+    /// current chain; calibration reads them so a reset after its split keeps the held-out games.
+    #[serde(skip)]
+    pub earlier_chains: Vec<Vec<Snapshot>>,
 }
 
 fn days(a: DateTime<Utc>, b: DateTime<Utc>) -> f64 {
@@ -74,7 +78,7 @@ pub fn implied(a: &Snapshot, b: &Snapshot) -> f64 {
 /// that disagree are both set aside. A falling game count means the source redefined the list or
 /// reset its counts, so earlier snapshots can't be differenced against later ones: start again.
 /// A changed rate on the same games is a revision of the earlier number: keep the later one.
-pub fn clean(mut snaps: Vec<Snapshot>, as_of: DateTime<Utc>, notes: &mut Vec<String>) -> Vec<Snapshot> {
+pub fn clean(mut snaps: Vec<Snapshot>, as_of: DateTime<Utc>, notes: &mut Vec<String>, earlier: &mut Vec<Vec<Snapshot>>) -> Vec<Snapshot> {
     let before = snaps.len();
     snaps.retain(|s| s.as_of <= as_of && s.games > 0 && s.rate.is_finite() && (0.0..=100.0).contains(&s.rate));
     if snaps.len() < before {
@@ -116,7 +120,7 @@ pub fn clean(mut snaps: Vec<Snapshot>, as_of: DateTime<Utc>, notes: &mut Vec<Str
                     last.games,
                     s.games
                 ));
-                out.clear();
+                earlier.push(std::mem::take(&mut out));
                 out.push(s);
             }
             Some(last) if s.games == last.games => {
@@ -214,7 +218,8 @@ pub fn trend(intervals: &[Interval]) -> Option<f64> {
 
 pub fn history(snaps: Vec<Snapshot>, as_of: DateTime<Utc>, half_life_days: u32) -> History {
     let mut notes = Vec::new();
-    let snapshots = clean(snaps, as_of, &mut notes);
+    let mut earlier_chains = Vec::new();
+    let snapshots = clean(snaps, as_of, &mut notes, &mut earlier_chains);
     let intervals = intervals(&snapshots, MIN_INTERVAL_GAMES, &mut notes);
     History {
         recent: recent(&intervals, as_of, half_life_days),
@@ -222,6 +227,7 @@ pub fn history(snaps: Vec<Snapshot>, as_of: DateTime<Utc>, half_life_days: u32) 
         snapshots,
         intervals,
         notes,
+        earlier_chains,
     }
 }
 

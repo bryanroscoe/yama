@@ -810,10 +810,17 @@ async fn calibrate_with(
             .filter_map(|(s, e, c, h)| earlier.iter().find(|t| &t.0 == s && &t.1 == e && &t.2 == c).map(|t| (h, &t.3)))
             .collect();
         // Prefer a chain that runs unbroken across the split with later games on it.
-        let spans = |now: &History, then: &History| {
-            let split_latest = then.snapshots.last().unwrap();
-            now.snapshots.contains(split_latest) && now.snapshots.last().is_some_and(|l| l.games > split_latest.games)
+        // The newest snapshot on today's chain through the split's newest snapshot, if later games
+        // followed it. A count that fell after the split ended that chain; it's kept for this.
+        let after_split = |now: &'_ History, then: &History| -> Option<Snapshot> {
+            let split_latest = then.snapshots.last()?;
+            std::iter::once(&now.snapshots)
+                .chain(now.earlier_chains.iter())
+                .find(|chain| chain.contains(split_latest))
+                .and_then(|chain| chain.last().copied())
+                .filter(|last| last.games > split_latest.games)
         };
+        let spans = |now: &History, then: &History| after_split(now, then).is_some();
         let pair = matches.iter().find(|(h, t)| spans(h, t)).or_else(|| matches.first()).copied();
         let (now, then): (&History, Option<&History>) = match pair {
             Some((h, t)) => (h, Some(t)),
@@ -833,9 +840,9 @@ async fn calibrate_with(
             }
         });
         // Held out: the games after the split's newest snapshot, on the same unbroken chain.
-        let holdout = then.filter(|t| spans(now, t)).and_then(|t| {
-            let (first, last) = (t.snapshots.last().unwrap(), now.snapshots.last().unwrap());
-            let rate = history::implied(first, last);
+        let holdout = then.and_then(|t| {
+            let (first, last) = (t.snapshots.last()?, after_split(now, t)?);
+            let rate = history::implied(first, &last);
             (0.0..=100.0).contains(&rate).then_some((rate, last.games - first.games))
         });
         cases.push(calibration::Case {

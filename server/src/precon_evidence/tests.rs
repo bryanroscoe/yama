@@ -587,3 +587,23 @@ async fn calibration_finds_a_chain_in_the_splits_secondary_cohort() {
         "the long chain is found behind the split's newest cohort"
     );
 }
+
+#[tokio::test]
+async fn a_reset_after_the_split_keeps_the_held_out_games_before_it() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool, "bryan@example.com").await;
+    enable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    precon(&pool, "test-riders", "Riders of Rohan", None, None).await;
+    // Aug and Sep before the split, Oct 17 after it, then the count resets on Oct 25.
+    let mut records = rohan(SHA_A);
+    records.push(precon_obs("test-riders", "Riders of Rohan", "2026-10-25", 30, 25.0, SHA_A));
+    import(&pool, &owner, &document("playgroup-history", records)).await;
+    let today = load(&pool, at("2026-10-29")).await.unwrap();
+    assert_eq!(
+        today.by_precon["test-riders"].real.as_ref().unwrap().latest.games,
+        30,
+        "the page shows the new chain"
+    );
+    let report = calibrate(&pool, None, at("2026-09-15"), at("2026-10-29")).await.unwrap();
+    assert_eq!(report.precons_with_holdout, 1, "Sep 6 to Oct 17 is still the held-out set");
+}
