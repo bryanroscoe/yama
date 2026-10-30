@@ -1,5 +1,6 @@
 import type { PlanBundle, Slot } from "@yama/core/plan";
 import { bracketBuilds } from "@yama/core/plan";
+import { ownedBuildProblems } from "../research/availability";
 import type { ResearchBundle } from "../research/api";
 import type { DeckSummary } from "../api";
 
@@ -69,14 +70,15 @@ export function buildFamilies(research: ResearchBundle[], plan: PlanBundle | und
     const matches = anchors.filter((f) => aliases.get(f.key)?.has(deck.name));
     const f = matches.length === 1 ? matches[0]! : family(`research:${JSON.stringify([bundle.document.id, deck.key])}`, deck.name, `Research ${bundle.document.title} (${bundle.document.id}, ${deck.key})`);
     for (const b of deck.builds) {
+      const ownershipProblems = ownedBuildProblems(b);
       const isBracket = [2, 3, 4].includes(b.bracket ?? 0) && !["stock", "current"].includes(b.id);
       f.choices.push({
         id: `research:${bundle.document.id}:${deck.key}:${b.id}`, kind: isBracket ? "bracket" : "legacy",
-        track: b.acquisition?.track === "owned_now" ? "owned_now" : "aspirational",
-        bracket: isBracket ? b.bracket! : undefined, label: isBracket ? `[${b.bracket}] ${b.label.replace(/^(?:\[\d\]|(?:Bracket\s*|B)\d)\s*[—:-]?\s*/i, "") || "Research"}` : `Research starting snapshot (${bundle.updated_at.slice(0, 10)})`,
+        track: b.acquisition?.track === "owned_now" ? ownershipProblems.length ? "unverified" : "owned_now" : "aspirational",
+        bracket: isBracket ? b.bracket! : undefined, label: ownershipProblems.length ? `[${b.bracket ?? "?"}] Ownership not verified` : isBracket ? `[${b.bracket}] ${b.label.replace(/^(?:\[\d\]|(?:Bracket\s*|B)\d)\s*[—:-]?\s*/i, "") || "Research"}` : `Research starting snapshot (${bundle.updated_at.slice(0, 10)})`,
         list: b.list, source: `${bundle.document.title}, revision ${bundle.revision}, ${bundle.updated_at.slice(0, 10)}`,
         href: `/decks/research/${encodeURIComponent(bundle.document.id)}/${encodeURIComponent(deck.key)}?build=${encodeURIComponent(b.id)}`,
-        warnings: [...(b.prospective ? ["Future build: requires purchase or arrival; not an owned or installed deck."] : []), ...(b.risks ?? [])],
+        warnings: [...ownershipProblems, ...(b.prospective ? ["Future build: requires purchase or arrival; not an owned or installed deck."] : []), ...(b.risks ?? [])],
       });
     }
   }

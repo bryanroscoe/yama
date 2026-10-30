@@ -80,3 +80,5 @@ sum across independent decks; never allocate one physical copy to two decks. Unm
 is treated as aspirational in the Builds page. Existing plans remain availability-unchecked
 until an allocated research version is saved. Preserve the allocation scenario identifier and
 dated evidence in the report; selecting a track changes no cards, orders, or installation ticks.
+
+Builds and Research only display the owned badge when the declaration is internally consistent: no prospective flag, buys, new prints, sealed purchases or projected stock; an allocation scenario; explicit all-owned accounting; and positive, identified owned/basic quantities matching every card in the 100-card list. Contradictory or incomplete owned claims remain reviewable as availability-unchecked. This validates declared evidence, not live inventory or physical installation.

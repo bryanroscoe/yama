@@ -85,7 +85,7 @@ describe("build catalog", () => {
   });
   it("only marks explicitly allocated research as buildable now; bracket labels are not ownership proof", () => {
     const report = { document: { id: "owned", title: "Owned", decks: [{ key: "deck", name: "Deck", builds: [
-      { id: "b2", label: "Bracket 2", bracket: 2, list: list(), acquisition: { track: "owned_now" } },
+      { id: "b2", label: "Bracket 2", bracket: 2, list: list(), acquisition: { track: "owned_now", scenario: "reserve", owned: [{ card: "Leader", kind: "owned", qty: 1 }], basics: [{ card: "Plains", kind: "basic", qty: 99 }] }, accounting: { total: 100, commander: 1, main: 99, basics: 99, nonbasic: 1, unchanged: 100, added: 0, removed: 0, owned: 1, local_buys: 0, prints: 0 } },
       { id: "b3", label: "Bracket 3", bracket: 3, list: list() },
     ] }] }, revision: 1, updated_at: "2026-10-30" } as ResearchBundle;
     const f = buildFamilies([report], undefined, []);
