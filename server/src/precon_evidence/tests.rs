@@ -544,6 +544,7 @@ async fn conflicting_commander_figures_are_set_aside() {
             "playgroup-history",
             vec![
                 commander_obs(42, 180, "2026-10-28", 300, 27.5),
+                commander_obs(42, 180, "2026-10-01", 250, 26.0),
                 commander_obs(42, 365, "2026-10-28", 600, 26.0),
             ],
         ),
@@ -557,8 +558,8 @@ async fn conflicting_commander_figures_are_set_aside() {
     let c = ev.by_precon["new-deck"].commander.as_ref().unwrap();
     assert_eq!(
         (c.window_days, c.games),
-        (365, 600),
-        "the disputed 180-day figure gives way to the next window"
+        (180, 250),
+        "the disputed figure gives way to the window's earlier agreed one"
     );
 }
 

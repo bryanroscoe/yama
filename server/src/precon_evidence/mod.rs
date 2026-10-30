@@ -351,9 +351,8 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
         let mut entities: BTreeMap<String, Entity> = BTreeMap::new();
         // Commander entity → window → (as_of, rate, games, name, url), newest per window.
         type Window = (DateTime<Utc>, f64, u64, String, Option<String>);
-        let mut commanders: HashMap<String, HashMap<u32, Window>> = HashMap::new();
-        // (entity, window, date) where datasets disagree: set aside, like conflicting snapshots.
-        let mut conflicted: HashSet<(String, u32, DateTime<Utc>)> = HashSet::new();
+        // Every observation per commander and window; the newest undisputed one is chosen below.
+        let mut observed: HashMap<String, HashMap<u32, Vec<Window>>> = HashMap::new();
         for r in revisions {
             let partial: HashSet<&str> = r.metadata["sources"]
                 .as_array()
@@ -410,25 +409,31 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
                         if at > as_of || o.source_reported_games == 0 {
                             continue;
                         }
-                        let slot = commanders.entry(o.entity_id.clone()).or_default().entry(days).or_insert((
+                        observed.entry(o.entity_id.clone()).or_default().entry(days).or_default().push((
                             at,
                             o.value,
                             o.source_reported_games,
-                            name.clone(),
+                            name,
                             o.source_entity_url.clone(),
                         ));
-                        if at > slot.0 {
-                            *slot = (at, o.value, o.source_reported_games, name, o.source_entity_url);
-                        } else if at == slot.0 && ((slot.1 - o.value).abs() >= 0.005 || slot.2 != o.source_reported_games) {
-                            conflicted.insert((o.entity_id.clone(), days, at));
-                        }
                     }
                     _ => {}
                 }
             }
         }
-        for (entity, windows) in commanders.iter_mut() {
-            windows.retain(|days, w| !conflicted.contains(&(entity.clone(), *days, w.0)));
+        // Per window: the newest date whose observations agree. Disagreeing datasets set that date
+        // aside, like conflicting snapshots, and an earlier agreed figure stands instead.
+        let mut commanders: HashMap<String, HashMap<u32, Window>> = HashMap::new();
+        for (entity, windows) in observed {
+            for (days, mut obs) in windows {
+                obs.sort_by(|a, b| b.0.cmp(&a.0));
+                let chosen = obs
+                    .chunk_by(|a, b| a.0 == b.0)
+                    .find(|same| same.iter().all(|w| (w.1 - same[0].1).abs() < 0.005 && w.2 == same[0].2));
+                if let Some(same) = chosen {
+                    commanders.entry(entity.clone()).or_default().insert(days, same[0].clone());
+                }
+            }
         }
         report.entities += entities.len();
         report.source_labels.push(label.clone());
@@ -701,8 +706,11 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>, cutoff: Option<
             let spec: crate::lab::experiments::ExperimentSpec = serde_json::from_str(&spec).map_err(anyhow::Error::from)?;
             let entrants: Vec<(String, String)> = spec.entrants.iter().map(|l| (l.id.clone(), l.label.clone())).collect();
             // Summarised afresh, so runs stored before fitted strengths existed still count.
+            // One source per engine and exact build (engine version and card data), so a run that
+            // spans a deployment never pools two builds' games into one strength.
             let games: Vec<(String, Option<String>, String)> = sqlx::query_as(
-                "SELECT spec, result, engine FROM lab_experiment_games
+                "SELECT spec, result, engine || ' ' || IFNULL(json_extract(result, '$.engine'), 'unknown') || ', card data ' || IFNULL(substr(json_extract(result, '$.card_data'), 1, 16), 'unknown')
+                 FROM lab_experiment_games
                  WHERE experiment_id = ? AND result IS NOT NULL AND (? IS NULL OR finished_at <= ?) ORDER BY ord",
             )
             .bind(&id)
@@ -710,11 +718,11 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>, cutoff: Option<
             .bind(cutoff.map(|c| c.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)))
             .fetch_all(pool)
             .await?;
-            let engines: BTreeMap<&str, Vec<(String, Option<String>)>> = games.iter().fold(BTreeMap::new(), |mut m, (g, r, e)| {
+            let builds: BTreeMap<&str, Vec<(String, Option<String>)>> = games.iter().fold(BTreeMap::new(), |mut m, (g, r, e)| {
                 m.entry(e.as_str()).or_insert_with(Vec::new).push((g.clone(), r.clone()));
                 m
             });
-            for (label, part) in engines {
+            for (label, part) in builds {
                 let summary = crate::lab::stats::summarize_versus(&part, &entrants, spec.pod, true);
                 let label = label.to_string();
                 let Some(v) = summary.versus else { continue };
