@@ -63,6 +63,20 @@ GitHub checks happen before building, after building, and after backup immediate
 before switching the live Compose configuration. If GitHub or
 Phase cannot be freshly checked, deployment fails closed.
 
+After verifying successful CI, a release reserves the fleet's existing
+`/mnt/user/appdata/github-ci/slots/admission.lock` before waiting for exclusive
+`release.lock`. Admitted CI jobs finish normally; new jobs release partial reservations
+and wait. This prevents CI from starving a pending release without cancelling jobs or
+pausing containers. Both waits share the existing 110-minute deadline. If the fleet
+directory exists but its admission lock is missing, the request fails closed; a host
+without the fleet keeps the standalone release lock behavior. Check-only and unready
+requests never reserve priority. Never replace either lock file.
+
+The host prints a `YAMA_RELEASE_RESULT` outcome after finishing. GitHub's summary says
+whether the SHA was deployed, was already healthy, or was superseded without activation.
+Install the reviewed host entrypoint before using the updated workflow; a missing result
+is an error, not evidence of activation.
+
 Builds reuse saget's existing Docker/BuildKit cache. All three images get full-SHA tags;
 `latest` changes only after verification. Activation pins the corresponding immutable image IDs, so unchanged sidecars keep
 their Compose configuration and avoid needless restarts. It keeps `/mnt/user/appdata/yama/compose.override.yaml`, and runs

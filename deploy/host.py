@@ -5,7 +5,7 @@ A caller supplies an exact main SHA and an ephemeral GitHub read token on stdin.
 Only published main with successful push CI reaches Docker. Importing is inert.
 """
 import base64
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from datetime import datetime, timezone
 import fcntl
 import json
@@ -26,6 +26,7 @@ from urllib.request import Request, urlopen
 REPO = 'bryanroscoe/yama'
 BASE = Path('/mnt/user/appdata/yama-release')
 APP = Path('/mnt/user/appdata/yama')
+CI_ROOT = Path('/mnt/user/appdata/github-ci')
 ENTRYPOINT = str(BASE / 'host.py')
 SERVICES = ('yama', 'yama-advisor', 'yama-forge')
 IMAGE_VARS = ('YAMA_IMAGE', 'YAMA_ADVISOR_IMAGE', 'YAMA_FORGE_IMAGE')
@@ -110,17 +111,32 @@ def run(args, *, cwd=None, env=None, output=None, timeout=180):
 @contextmanager
 def release_lock():
     BASE.mkdir(parents=True, exist_ok=True)
-    with (BASE / 'release.lock').open('a') as lock:
-        log('Waiting for the production release lock…')
-        deadline = time.monotonic() + LOCK_WAIT_SECONDS
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+
+    def take(lock, description):
         while True:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
+                return
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise Refused('Timed out waiting for the production release lock')
+                    raise Refused('Timed out waiting for ' + description)
                 time.sleep(2)
+
+    with ExitStack() as held:
+        # CI takes release SH, then admission EX nonblocking; partial attempts
+        # release everything. Admitted jobs drop admission but keep release SH.
+        # Holding admission here therefore drains existing work without letting
+        # new CI jobs repeatedly get ahead of a pending production release.
+        # Never create/replace a missing pool lock: all callers need one inode.
+        if CI_ROOT.exists():
+            admission = held.enter_context((CI_ROOT / 'slots/admission.lock').open('r'))
+            log('Waiting to reserve production priority…')
+            take(admission, 'CI admission priority')
+            log('Production priority reserved; draining admitted CI jobs…')
+        lock = held.enter_context((BASE / 'release.lock').open('a'))
+        log('Waiting for the production release lock…')
+        take(lock, 'the production release lock')
         yield
 
 
@@ -377,14 +393,18 @@ def activate(source, revision, images, record, record_path, token):
 
 def release(revision, token, check_only=False):
     global COMMAND_DEADLINE
+    # Unready requests must not block the CI they need to become deployable.
+    if not verify_ci(revision, token):
+        log('Superseded: requested commit is no longer main; nothing deployed.')
+        return 'superseded'
+    if check_only:
+        log('Host gate passed: current main has successful push CI. No deployment performed.')
+        return 'ready'
     with release_lock():
         COMMAND_DEADLINE = time.monotonic() + RELEASE_SECONDS
         if not verify_ci(revision, token):
             log('Superseded: requested commit is no longer main; nothing deployed.')
-            return
-        if check_only:
-            log('Host gate passed: current main has successful push CI. No deployment performed.')
-            return
+            return 'superseded'
         history = BASE / 'history'
         history.mkdir(exist_ok=True)
         record_path = history / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.json')
@@ -399,14 +419,14 @@ def release(revision, token, check_only=False):
                 if saved.get('revision') == revision and healthy([saved['images'][s] for s in SERVICES]):
                     record['status'] = 'already_healthy'
                     log('Already deployed and healthy at ' + revision + '; nothing restarted.')
-                    return
+                    return 'already_healthy'
             record['stage'] = 'checkout'
             write_json(record_path, record)
             repo = checkout(revision, token)
             if repo is None:
                 record['status'] = 'superseded'
                 log('Superseded during fetch; nothing deployed.')
-                return
+                return 'superseded'
             record['stage'] = 'phase_checkout'
             write_json(record_path, record)
             phase, phase_rev = phase_checkout(repo)
@@ -447,14 +467,15 @@ def release(revision, token, check_only=False):
                 if not verify_ci(revision, token):
                     record['status'] = 'superseded'
                     log('Superseded during build; running production was preserved.')
-                    return
+                    return 'superseded'
                 record['stage'] = 'activate'
                 write_json(record_path, record)
                 if not activate(source, revision, images, record, record_path, token):
-                    return
+                    return 'superseded'
                 record.update(status='success', stage='complete')
                 write_json(BASE / 'current.json', record)
                 log('Production verified at ' + revision + '; HTTP health ok, all image IDs match.')
+                return 'success'
         except Exception as error:
             record['status'] = 'failed'
             # Refused messages are deliberately credential-free. Never persist
@@ -494,7 +515,8 @@ def main():
     try:
         mode, revision = arguments(sys.argv[1:], os.environ.get('SSH_ORIGINAL_COMMAND'))
         token = read_token(sys.stdin)
-        release(revision, token, mode == 'check')
+        result = release(revision, token, mode == 'check')
+        log('YAMA_RELEASE_RESULT=' + result)
     except (Refused, OSError, KeyError, ValueError) as error:
         log('Release refused: ' + str(error))
         return 1

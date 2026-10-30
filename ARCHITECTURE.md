@@ -159,7 +159,10 @@ before checkout so runner reporting and cancellation stay responsive. The
 personal-account CI fleet control plane lives in `bryanroscoe/sagetserver` with
 separate per-project state/cache, an aggregate four-CPU/12-GiB budget and two
 execution slots with root-selected memory reservations. CI shares the production
-release gate; production takes it exclusively. GitHub concurrency and one host lock serialize automated and
+release gate; production takes it exclusively. An authorized production request first holds the
+fleet admission lock so existing CI finishes while new jobs wait, preventing release starvation.
+GitHub summaries distinguish healthy activation from superseded requests.
+GitHub concurrency and one host lock serialize automated and
 manual deployments. Superseded builds do not activate; a final GitHub check follows
 backup and immediately precedes the live config switch. Missing sidecar configuration
 is bootstrapped once under the lock, preserving existing credentials. A mandatory SQLite

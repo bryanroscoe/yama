@@ -4,6 +4,7 @@ import io
 import json
 import os
 import re
+import select
 import sys
 from pathlib import Path
 import subprocess
@@ -48,7 +49,7 @@ class HostGate(unittest.TestCase):
             (self.app / name).write_text('PRIVATE=never-log-this\n')
         (self.app / 'compose.yaml').write_text('old compose\n')
         (self.app / 'data').mkdir()
-        for key, value in (('BASE', self.base), ('APP', self.app)):
+        for key, value in (('BASE', self.base), ('APP', self.app), ('CI_ROOT', self.root / 'ci')):
             p = patch.object(host, key, value)
             p.start()
             self.addCleanup(p.stop)
@@ -99,14 +100,32 @@ class HostGate(unittest.TestCase):
                 host.verify_ci(SHA, 'token')
 
     def test_superseded_request_never_checks_out_or_contacts_docker(self):
-        with patch.object(host, 'api', return_value={'object': {'sha': OTHER}}), patch.object(host, 'run') as run:
-            host.release(SHA, 'token')
+        with patch.object(host, 'api', return_value={'object': {'sha': OTHER}}), \
+             patch.object(host, 'release_lock') as lock, patch.object(host, 'run') as run:
+            self.assertEqual(host.release(SHA, 'token'), 'superseded')
             run.assert_not_called()
+            lock.assert_not_called()
+
+    def test_unready_ci_never_reserves_priority_or_blocks_its_own_tests(self):
+        with patch.object(host, 'verify_ci', side_effect=host.Refused('CI is pending')), \
+             patch.object(host, 'release_lock') as lock:
+            with self.assertRaisesRegex(host.Refused, 'CI is pending'):
+                host.release(SHA, 'token')
+            lock.assert_not_called()
+
+    def test_main_is_rechecked_after_waiting_for_priority(self):
+        with patch.object(host, 'verify_ci', side_effect=[True, False]) as verify, \
+             patch.object(host, 'checkout') as checkout:
+            self.assertEqual(host.release(SHA, 'token'), 'superseded')
+            self.assertEqual(verify.call_count, 2)
+            checkout.assert_not_called()
 
     def test_check_only_does_not_build_or_mutate_app(self):
-        with patch.object(host, 'api', side_effect=self.responses()), patch.object(host, 'run') as run:
-            host.release(SHA, 'token', check_only=True)
+        with patch.object(host, 'api', side_effect=self.responses()), \
+             patch.object(host, 'release_lock') as lock, patch.object(host, 'run') as run:
+            self.assertEqual(host.release(SHA, 'token', check_only=True), 'ready')
             run.assert_not_called()
+            lock.assert_not_called()
         self.assertEqual((self.app / 'compose.yaml').read_text(), 'old compose\n')
 
     def test_forced_ssh_command_cannot_execute_arbitrary_shell_or_use_short_sha(self):
@@ -218,12 +237,12 @@ class HostGate(unittest.TestCase):
         repo.mkdir()
         def export(repo, revision, destination, *paths):
             destination.mkdir()
-        with patch.object(host, 'verify_ci', side_effect=[True, False]), \
+        with patch.object(host, 'verify_ci', side_effect=[True, True, False]), \
              patch.object(host, 'checkout', return_value=repo), \
              patch.object(host, 'phase_checkout', return_value=(repo, OTHER)), \
              patch.object(host, 'export', side_effect=export), \
              patch.object(host, 'run', return_value='image-id'), patch.object(host, 'activate') as activate:
-            host.release(SHA, 'token')
+            self.assertEqual(host.release(SHA, 'token'), 'superseded')
             activate.assert_not_called()
         self.assertEqual(list((self.base / 'builds').iterdir()), [])
         records = list((self.base / 'history').glob('*.json'))
@@ -495,6 +514,126 @@ class HostGate(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
         result = subprocess.run(['python3', '-c', script, str(self.base / 'release.lock')], capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_fleet_admission_lock_fails_without_creating_another_inode(self):
+        host.CI_ROOT.mkdir()
+        with self.assertRaises(FileNotFoundError), host.release_lock():
+            self.fail('Missing fleet lock was accepted')
+        self.assertFalse((host.CI_ROOT / 'slots/admission.lock').exists())
+        self.assertFalse((self.base / 'release.lock').exists())
+
+    def test_pending_release_drains_existing_ci_and_excludes_new_ci_until_exit(self):
+        # Real processes and kernel locks, on temporary paths only. This follows
+        # the fleet protocol: release SH, admission EX nonblocking, release all
+        # partial acquisitions if admission is denied.
+        pool = host.CI_ROOT / 'slots'
+        pool.mkdir(parents=True)
+        admission_path = pool / 'admission.lock'
+        admission_path.touch()
+        release_path = self.base / 'release.lock'
+        ci_probe = '''import fcntl,sys
+with open(sys.argv[1], 'r') as release, open(sys.argv[2], 'r') as admission:
+    fcntl.flock(release, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    fcntl.flock(admission, fcntl.LOCK_EX | fcntl.LOCK_NB)
+'''
+        pending = '''import importlib.util,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('host',sys.argv[1])
+host=importlib.util.module_from_spec(spec); spec.loader.exec_module(host)
+host.BASE=Path(sys.argv[2]); host.CI_ROOT=Path(sys.argv[3])
+host.LOCK_WAIT_SECONDS=10
+with host.release_lock():
+    print('ENTERED',flush=True)
+    sys.stdin.readline()
+'''
+        def probe():
+            return subprocess.run([sys.executable, '-c', ci_probe, str(release_path), str(admission_path)],
+                                  capture_output=True, timeout=5)
+        with release_path.open('a') as admitted:
+            host.fcntl.flock(admitted, host.fcntl.LOCK_SH)
+            child = subprocess.Popen([sys.executable, '-u', '-c', pending,
+                str(Path(host.__file__)), str(self.base), str(host.CI_ROOT)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+            def line():
+                self.assertTrue(select.select([child.stdout], [], [], 5)[0], 'Release fixture stalled')
+                return child.stdout.readline().decode().strip()
+            try:
+                self.assertIn('reserve production priority', line())
+                self.assertIn('Production priority reserved', line())
+                self.assertIn('production release lock', line())
+                self.assertNotEqual(probe().returncode, 0)
+                host.fcntl.flock(admitted, host.fcntl.LOCK_UN)
+                self.assertEqual(line(), 'ENTERED')
+                self.assertNotEqual(probe().returncode, 0)
+                child.stdin.write(b'finish\n')
+                _, errors = child.communicate(timeout=5)
+                self.assertEqual(child.returncode, 0, errors)
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                child.communicate()
+        self.assertEqual(probe().returncode, 0)
+
+    def test_lock_timeout_releases_priority_for_ci(self):
+        pool = host.CI_ROOT / 'slots'
+        pool.mkdir(parents=True)
+        (pool / 'admission.lock').touch()
+        with (self.base / 'release.lock').open('a') as ci:
+            host.fcntl.flock(ci, host.fcntl.LOCK_SH)
+            with patch.object(host, 'LOCK_WAIT_SECONDS', 0):
+                with self.assertRaisesRegex(host.Refused, 'Timed out'), host.release_lock():
+                    self.fail('Release unexpectedly entered')
+        with (pool / 'admission.lock').open('r') as lock:
+            host.fcntl.flock(lock, host.fcntl.LOCK_EX | host.fcntl.LOCK_NB)
+
+    def test_workflow_reports_real_outcome_and_propagates_ssh_failure(self):
+        workflow = Path(__file__).resolve().parents[1] / '.github/workflows/deploy.yml'
+        script = workflow.read_text().split('        run: |\n', 1)[1]
+        script = '\n'.join(line[10:] for line in script.splitlines())
+        script = 'ssh() { /bin/sh "$FAKE_SSH" "$@"; }\n' + script
+        binary = self.root / 'bin'
+        binary.mkdir()
+        ssh = binary / 'ssh'
+        ssh.write_text('#!/bin/sh\ncat >/dev/null\nprintf "%s\\n" "$FAKE_HOST_RESULT"\nexit "$FAKE_SSH_EXIT"\n')
+        ssh.chmod(0o755)
+        summary = self.root / 'summary'
+        for result, exit_code, expected in (
+            ('success', 0, 'Deployed and health-verified'),
+            ('already_healthy', 0, 'nothing restarted'),
+            ('superseded', 0, 'did not activate production'),
+            ('unknown', 0, None), ('', 0, None), ('success', 23, None),
+        ):
+            summary.write_text('')
+            env = dict(os.environ, FAKE_SSH=str(ssh),
+                       GH_TOKEN='private-fixture-token', RELEASE_SHA=SHA,
+                       GITHUB_STEP_SUMMARY=str(summary), FAKE_HOST_RESULT='YAMA_RELEASE_RESULT=' + result,
+                       FAKE_SSH_EXIT=str(exit_code))
+            # The fixture must never contact a real host, including inside a CI image.
+            env.pop('BASH_ENV', None)
+            env.pop('ENV', None)
+            with self.subTest(result=result, ssh_exit=exit_code):
+                run = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, timeout=5)
+                self.assertEqual(run.returncode == 0, expected is not None, run.stdout + run.stderr)
+                if expected:
+                    self.assertIn(expected, summary.read_text())
+                else:
+                    self.assertEqual(summary.read_text(), '')
+                self.assertNotIn('private-fixture-token', run.stdout + run.stderr)
+
+    def test_entrypoint_emits_outcome_only_after_completed_request(self):
+        for outcome in ('success', 'already_healthy', 'superseded', 'ready'):
+            with self.subTest(outcome=outcome), patch.object(host.signal, 'signal'), \
+                 patch.object(host, 'arguments', return_value=('deploy', SHA)), \
+                 patch.object(host, 'read_token', return_value='private-fixture-token'), \
+                 patch.object(host, 'release', return_value=outcome), patch.object(host, 'log') as log:
+                self.assertEqual(host.main(), 0)
+                log.assert_called_once_with('YAMA_RELEASE_RESULT=' + outcome)
+        with patch.object(host.signal, 'signal'), \
+             patch.object(host, 'arguments', return_value=('deploy', SHA)), \
+             patch.object(host, 'read_token', return_value='private-fixture-token'), \
+             patch.object(host, 'release', side_effect=host.Refused('CI pending')), patch.object(host, 'log') as log:
+            self.assertEqual(host.main(), 1)
+            log.assert_called_once_with('Release refused: CI pending')
 
 
 if __name__ == '__main__':
