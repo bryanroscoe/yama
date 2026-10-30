@@ -14,10 +14,9 @@ ARG JAVA_IMAGE=eclipse-temurin:17-jre
 # Yama's Forge patch set (AI speed fixes; notes in forge-worker/README.md), overlaid on the release jar by
 # forge-worker/patch_jar.py. The compiled classes are Forge code (GPL-3.0), so they are kept out of Yama, in the
 # private forge-referee repo, and reach the build as a local image on saget that deploy/forge-patch.sh installs.
-# The build refuses a jar whose SHA-256 isn't this pin, or a name patch_jar.py's PATCH_SETS knows with another
-# SHA-256 (a new jar needs a new name). Without the image the release build fails for all three services and
-# production keeps running: install it before merging a new pin.
-# Results carry the engine label "forge <version>+<FORGE_PATCH>", so they are never pooled with stock Forge's.
+# The build refuses a jar whose SHA-256 isn't this pin. Without the image the release build fails for all three
+# services and production keeps running: install it before merging a new pin. Results carry the engine label
+# "forge <version>+<FORGE_PATCH>.<first 8 of the SHA-256>", never pooled with stock Forge or another patch jar.
 ARG FORGE_PATCH=yama1
 ARG FORGE_PATCH_SHA256=4c30ae81c06347c404d6011b8c4cb1489bfa98e9dd563789b05f1b03303b8b11
 ARG FORGE_PATCH_IMAGE=yama-forge-patch:${FORGE_PATCH}

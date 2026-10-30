@@ -4,8 +4,9 @@
 
 The patch jar (built and kept outside Yama, in forge-referee: Forge is GPL-3.0 and none of its code is in
 Yama) holds compiled classes only. This checks its SHA-256 against the pin, writes a copy of the release jar
-with those entries replaced (or added), and renames it forge-gui-desktop-<version>+<NAME>-jar-with-dependencies.jar,
-so the runner's engine label becomes "forge <version>+<NAME>" and patched results are never pooled with stock ones.
+with those entries replaced (or added), and renames it forge-gui-desktop-<version>+<NAME>.<sha8>-jar-with-dependencies.jar
+(<sha8>: the first 8 hex digits of the patch jar's SHA-256), so the runner's engine label becomes
+"forge <version>+<NAME>.<sha8>": patched results are never pooled with stock ones, nor with another patch jar's.
 The release jar is removed: the runner uses the only forge-gui-desktop jar it finds.
 """
 import hashlib
@@ -16,21 +17,12 @@ import zipfile
 from pathlib import Path
 
 JAR_RE = re.compile(r"forge-gui-desktop-(.+)-jar-with-dependencies\.jar")
-# Every patch set ever used, by name: a name labels results, so a rebuilt or changed jar needs a new name, never
-# a new SHA-256 under an old one (its games would be pooled with the old jar's). Add new sets; never edit one.
-PATCH_SETS = {
-    "yama1": "4c30ae81c06347c404d6011b8c4cb1489bfa98e9dd563789b05f1b03303b8b11",
-}
 
 
 def patch(forge_dir, patch_jar, sha256, name):
     forge_dir, patch_jar = Path(forge_dir), Path(patch_jar)
     if not re.fullmatch(r"[a-z0-9]+", name):
         raise SystemExit(f"patch name {name!r}: use lower-case letters and digits")
-    if name not in PATCH_SETS:
-        raise SystemExit(f"patch set {name!r} isn't in patch_jar.py's PATCH_SETS")
-    if PATCH_SETS[name] != sha256.lower():
-        raise SystemExit(f"patch set {name!r} is {PATCH_SETS[name]}, not {sha256}: a new jar needs a new name")
     got = hashlib.sha256(patch_jar.read_bytes()).hexdigest()
     if got != sha256.lower():
         raise SystemExit(f"{patch_jar}: SHA-256 {got}, expected {sha256}")
@@ -45,7 +37,7 @@ def patch(forge_dir, patch_jar, sha256, name):
         entries = {i.filename: pz.read(i) for i in pz.infolist() if not i.is_dir()}
     if not entries or any(not n.endswith(".class") for n in entries):
         raise SystemExit(f"{patch_jar}: a patch set holds compiled classes only")
-    out = forge_dir / f"forge-gui-desktop-{version}+{name}-jar-with-dependencies.jar"
+    out = forge_dir / f"forge-gui-desktop-{version}+{name}.{got[:8]}-jar-with-dependencies.jar"
     tmp = out.with_name(out.name + ".partial")
     with zipfile.ZipFile(release) as rz:
         names = {i.filename for i in rz.infolist()}

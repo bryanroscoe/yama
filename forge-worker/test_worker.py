@@ -165,31 +165,22 @@ class PatchJarTests(unittest.TestCase):
             z.writestr("forge/A.class", b"new A")
             z.writestr("forge/C.class", b"new C")
         self.sha = hashlib.sha256(self.patch.read_bytes()).hexdigest()
-        self.known = PJ.PATCH_SETS
-        PJ.PATCH_SETS = {"yama1": self.sha}
 
     def tearDown(self):
-        PJ.PATCH_SETS = self.known
         self.tmp.cleanup()
 
-    def known_as(self, name):
+    def sha_of_patch(self):
         import hashlib
-        PJ.PATCH_SETS = {name: hashlib.sha256(self.patch.read_bytes()).hexdigest()}
-        return PJ.PATCH_SETS[name]
+        return hashlib.sha256(self.patch.read_bytes()).hexdigest()
 
-    def test_the_dockerfile_pin_is_a_known_patch_set(self):
-        text = (Path(__file__).resolve().parent.parent / "deploy/Dockerfile.forge-worker").read_text()
-        pin = dict(line[len("ARG "):].split("=", 1) for line in text.splitlines()
-                   if line.startswith(("ARG FORGE_PATCH=", "ARG FORGE_PATCH_SHA256=")))
-        self.assertEqual(self.known.get(pin["FORGE_PATCH"]), pin["FORGE_PATCH_SHA256"])
-
-    def test_refuses_a_known_name_with_another_hash_and_unknown_names(self):
-        PJ.PATCH_SETS = {"yama1": "1" * 64}
-        with self.assertRaises(SystemExit):
-            PJ.patch(self.dir, self.patch, self.sha, "yama1")
-        with self.assertRaises(SystemExit):
-            PJ.patch(self.dir, self.patch, self.sha, "yama9")
-        self.assertTrue(self.release.exists())
+    def test_another_jar_under_the_same_name_gets_another_label(self):
+        import zipfile
+        first, _, _ = PJ.patch(self.dir, self.patch, self.sha, "yama1")
+        first.rename(self.release)  # back to an unpatched-looking release
+        with zipfile.ZipFile(self.patch, "w") as z:
+            z.writestr("forge/A.class", b"newer A")
+        second, _, _ = PJ.patch(self.dir, self.patch, self.sha_of_patch(), "yama1")
+        self.assertNotEqual(first.name, second.name)
 
     def test_refuses_a_class_whose_inner_classes_would_stay_old(self):
         import zipfile
@@ -202,7 +193,8 @@ class PatchJarTests(unittest.TestCase):
     def test_overlays_and_renames_so_the_label_changes(self):
         import zipfile
         out, replaced, added = PJ.patch(self.dir, self.patch, self.sha, "yama1")
-        self.assertEqual((out.name, replaced, added), ("forge-gui-desktop-2.0.15+yama1-jar-with-dependencies.jar", 1, 1))
+        tag = f"yama1.{self.sha[:8]}"
+        self.assertEqual((out.name, replaced, added), (f"forge-gui-desktop-2.0.15+{tag}-jar-with-dependencies.jar", 1, 1))
         self.assertFalse(self.release.exists())
         with zipfile.ZipFile(out) as z:
             self.assertEqual(z.read("forge/A.class"), b"new A")
@@ -213,7 +205,7 @@ class PatchJarTests(unittest.TestCase):
         (self.dir / "res/cardsfolder").mkdir(parents=True)
         (self.dir / "res/cardsfolder/cardsfolder.zip").write_bytes(b"")
         forge = F.Forge(self.dir, "java")
-        self.assertEqual((forge.engine, forge.card_data), ("forge 2.0.15+yama1", "forge res 2.0.15+yama1"))
+        self.assertEqual((forge.engine, forge.card_data), (f"forge 2.0.15+{tag}", f"forge res 2.0.15+{tag}"))
 
     def test_refuses_a_wrong_hash_and_keeps_the_release_jar(self):
         with self.assertRaises(SystemExit):
@@ -226,7 +218,7 @@ class PatchJarTests(unittest.TestCase):
         with zipfile.ZipFile(self.patch, "w") as z:
             z.writestr("forge/Z.class", b"z")
         with self.assertRaises(SystemExit):
-            PJ.patch(self.dir, self.patch, self.known_as("yama1"), "yama1")
+            PJ.patch(self.dir, self.patch, self.sha_of_patch(), "yama1")
         self.assertTrue(self.release.exists())
         self.assertEqual(len(list(self.dir.glob("forge-gui-desktop-*"))), 1)
 
@@ -236,7 +228,7 @@ class PatchJarTests(unittest.TestCase):
         with zipfile.ZipFile(self.patch, "w") as z:
             z.writestr("forge/A.class", b"a")
             z.writestr("res/x.txt", b"x")
-        sha = self.known_as("yama1")
+        sha = self.sha_of_patch()
         with self.assertRaises(SystemExit):
             PJ.patch(self.dir, self.patch, sha, "yama1")
         with self.assertRaises(SystemExit):

@@ -8,7 +8,7 @@ Forge as a second engine for Yama's Lab runs (server/src/lab/forge.rs, deploy/Do
   (`DECK_CACHE`, `WORK_ROOT`, the card index folder) and the seed it passes Forge.
 - `patch_jar.py`: overlays Yama's Forge patch set (compiled classes, kept in the private forge-referee repo because
   they are Forge code) on the release jar at image build, checks its SHA-256 pin and renames the jar, so results carry
-  `forge 2.0.15+<name>`. Current set `yama1` (forge-referee `patches/yama1/README.md`): skip the full static-ability
+  `forge 2.0.15+<name>.<first 8 of its SHA-256>`. Current set `yama1` (forge-referee `patches/yama1/README.md`): skip the full static-ability
   recompute for spells no stack-zone static affects; choose the preferred opponent (a combat simulation) only for a
   targeted curse.
 - `test_worker.py`: `python3 forge-worker/test_worker.py` (no Forge needed).
