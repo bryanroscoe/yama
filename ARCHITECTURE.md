@@ -920,9 +920,17 @@ Rating v2 (`evidence-weighted-v2`, `GET /api/precons/rating-v2`, the Lab precon 
 MCP `precon`) uses the datasets and the newest global run. The simulation counts beside real games
 only if that run passed the time-split test (v2's error interval below real-only's); otherwise
 real games stand alone and the simulation ranks only precons without them. Each estimate carries a
-90% interval, its share of weight from real games and a rank range from 1000 redraws. Public pages
-and the meta rank stay unchanged until Bryan asks for the switch
+90% interval, its share of weight from real games and a rank range from 1000 redraws
 ([proposal](https://claude.ai/artifact/7LrgZeGYy3dZLaFuRbsdmu)).
+
+**Public pages use rating v2 (Bryan, 2026-10-30).** Once a real-game source is enabled, `/precons`
+ranks by rating v2 by default. The public pages read only the published benchmark as their
+simulation, never an unpublished run, so publication stays a deliberate step. Every source's
+attribution and licence (Playgroup.gg's is CC BY 4.0) appears beside the ranks. A
+change to the inputs (an enabled source, a dataset's current revision, a link, a catalog import or a
+publication) re-derives the ranks on the next request; unchanged inputs are reused for 10 minutes.
+With no enabled source the pages fall back to meta rank v1, which stays documented on the
+methodology page.
 
 ## 11. Risks
 
