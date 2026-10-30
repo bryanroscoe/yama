@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SwapFace } from "./BuildChoices";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router";
+import { BuildChoicesPage, SwapFace } from "./BuildChoices";
 import { duplexPages, type BuildChoice } from "./buildCatalog";
+
+// Navigation uses browser-only outbox subscriptions; keep real auth/plan hooks for cache tests.
+vi.mock("../components/DeckTabs", () => ({ AreaHead: ({ title }: { title: string }) => <h1>{title}</h1> }));
 
 const from: BuildChoice = { id: "a", label: "[2] Plan", kind: "bracket", list: "", source: "Plan v27", href: "/", warnings: [] };
 const to: BuildChoice = { ...from, id: "b", label: "[3] Plan" };
@@ -19,5 +24,38 @@ describe("duplex card content", () => {
     expect(back.indexOf("Teferi")).toBeLessThan(back.indexOf("Clever Concealment"));
     expect(front).toContain('class="card-ref"');
     expect(front).toContain("Plan v27");
+  });
+});
+
+describe("build data privacy", () => {
+  it("uses the shared owner plan cache and loses it when device plan data is purged", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    qc.setQueryData(["me"], { id: "owner-a" });
+    qc.setQueryData(["research", "owner-a", "list"], []);
+    qc.setQueryData(["decks"], []);
+    const plan = { decks: [{ key: "private", name: "Private paid-price plan", states: {} }] };
+    qc.setQueryData(["plan", "owner-a"], plan);
+    const render = () => renderToStaticMarkup(<QueryClientProvider client={qc}><MemoryRouter><BuildChoicesPage /></MemoryRouter></QueryClientProvider>);
+    expect(render()).toContain("Private paid-price plan");
+    // The same prefix removals used by both Settings and failed-logout cleanup.
+    qc.removeQueries({ queryKey: ["plan"] });
+    qc.removeQueries({ queryKey: ["plan-cache"] });
+    expect(qc.getQueryCache().getAll().some((q) => q.state.data === plan)).toBe(false);
+    expect(render()).not.toContain("Private paid-price plan");
+    qc.clear();
+  });
+  it("does not reuse another owner's plan or research when the signed-in identity changes", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    qc.setQueryData(["me"], { id: "owner-b" });
+    qc.setQueryData(["decks"], []);
+    qc.setQueryData(["plan", "owner-a"], { decks: [{ key: "private", name: "Owner A private plan", states: {} }] });
+    qc.setQueryData(["research", "owner-a", "list"], [{ id: "private-report" }]);
+    qc.setQueryData(["research", "owner-a", "private-report"], { document: { decks: [{ name: "Owner A private research" }] } });
+    qc.setQueryData(["plan", "owner-b"], { decks: [] });
+    qc.setQueryData(["research", "owner-b", "list"], []);
+    const html = renderToStaticMarkup(<QueryClientProvider client={qc}><MemoryRouter><BuildChoicesPage /></MemoryRouter></QueryClientProvider>);
+    expect(html).not.toContain("Owner A private");
+    expect(html).toContain("No saved decks or researched bracket builds yet");
+    qc.clear();
   });
 });

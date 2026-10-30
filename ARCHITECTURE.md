@@ -1026,3 +1026,8 @@ in an unlinked research family scoped by report ID and deck key rather than merg
 or independent reports. Research and printer section headers accept optional trailing colons.
 Saved and plan entry links use
 IDs/keys; duplicate display names include a source/identity suffix in the deck selector.
+
+Builds reads the existing `usePlan(userId)` cache, including its abort/sign-out guard and
+owner-specific offline copy. It does not keep a second plan query outside the plan-clearing
+prefixes. Research index/detail queries use the same owner-specific keys as Research, so
+imports and review changes invalidate both surfaces consistently.
