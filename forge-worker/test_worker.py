@@ -165,9 +165,39 @@ class PatchJarTests(unittest.TestCase):
             z.writestr("forge/A.class", b"new A")
             z.writestr("forge/C.class", b"new C")
         self.sha = hashlib.sha256(self.patch.read_bytes()).hexdigest()
+        self.known = PJ.PATCH_SETS
+        PJ.PATCH_SETS = {"yama1": self.sha}
 
     def tearDown(self):
+        PJ.PATCH_SETS = self.known
         self.tmp.cleanup()
+
+    def known_as(self, name):
+        import hashlib
+        PJ.PATCH_SETS = {name: hashlib.sha256(self.patch.read_bytes()).hexdigest()}
+        return PJ.PATCH_SETS[name]
+
+    def test_the_dockerfile_pin_is_a_known_patch_set(self):
+        text = (Path(__file__).resolve().parent.parent / "deploy/Dockerfile.forge-worker").read_text()
+        pin = dict(line[len("ARG "):].split("=", 1) for line in text.splitlines()
+                   if line.startswith(("ARG FORGE_PATCH=", "ARG FORGE_PATCH_SHA256=")))
+        self.assertEqual(self.known.get(pin["FORGE_PATCH"]), pin["FORGE_PATCH_SHA256"])
+
+    def test_refuses_a_known_name_with_another_hash_and_unknown_names(self):
+        PJ.PATCH_SETS = {"yama1": "1" * 64}
+        with self.assertRaises(SystemExit):
+            PJ.patch(self.dir, self.patch, self.sha, "yama1")
+        with self.assertRaises(SystemExit):
+            PJ.patch(self.dir, self.patch, self.sha, "yama9")
+        self.assertTrue(self.release.exists())
+
+    def test_refuses_a_class_whose_inner_classes_would_stay_old(self):
+        import zipfile
+        with zipfile.ZipFile(self.release, "a") as z:
+            z.writestr("forge/A$1.class", b"old A$1")
+        with self.assertRaises(SystemExit):
+            PJ.patch(self.dir, self.patch, self.sha, "yama1")
+        self.assertEqual([p.name for p in self.dir.glob("forge-gui-desktop-*")], [self.release.name])
 
     def test_overlays_and_renames_so_the_label_changes(self):
         import zipfile
@@ -196,7 +226,7 @@ class PatchJarTests(unittest.TestCase):
         with zipfile.ZipFile(self.patch, "w") as z:
             z.writestr("forge/Z.class", b"z")
         with self.assertRaises(SystemExit):
-            PJ.patch(self.dir, self.patch, hashlib.sha256(self.patch.read_bytes()).hexdigest(), "yama1")
+            PJ.patch(self.dir, self.patch, self.known_as("yama1"), "yama1")
         self.assertTrue(self.release.exists())
         self.assertEqual(len(list(self.dir.glob("forge-gui-desktop-*"))), 1)
 
@@ -206,7 +236,7 @@ class PatchJarTests(unittest.TestCase):
         with zipfile.ZipFile(self.patch, "w") as z:
             z.writestr("forge/A.class", b"a")
             z.writestr("res/x.txt", b"x")
-        sha = hashlib.sha256(self.patch.read_bytes()).hexdigest()
+        sha = self.known_as("yama1")
         with self.assertRaises(SystemExit):
             PJ.patch(self.dir, self.patch, sha, "yama1")
         with self.assertRaises(SystemExit):

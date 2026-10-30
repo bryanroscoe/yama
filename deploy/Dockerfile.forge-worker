@@ -14,7 +14,9 @@ ARG JAVA_IMAGE=eclipse-temurin:17-jre
 # Yama's Forge patch set (AI speed fixes; notes in forge-worker/README.md), overlaid on the release jar by
 # forge-worker/patch_jar.py. The compiled classes are Forge code (GPL-3.0), so they are kept out of Yama, in the
 # private forge-referee repo, and reach the build as a local image on saget that deploy/forge-patch.sh installs.
-# The build refuses a jar whose SHA-256 isn't this pin, and fails (keeping production) if the image is missing.
+# The build refuses a jar whose SHA-256 isn't this pin, or a name patch_jar.py's PATCH_SETS knows with another
+# SHA-256 (a new jar needs a new name). Without the image the release build fails for all three services and
+# production keeps running: install it before merging a new pin.
 # Results carry the engine label "forge <version>+<FORGE_PATCH>", so they are never pooled with stock Forge's.
 ARG FORGE_PATCH=yama1
 ARG FORGE_PATCH_SHA256=4c30ae81c06347c404d6011b8c4cb1489bfa98e9dd563789b05f1b03303b8b11
@@ -37,20 +39,23 @@ RUN curl -fsSL --retry 3 -o /tmp/forge.tar.bz2 \
  && test -f "forge-gui-desktop-${FORGE_VERSION}-jar-with-dependencies.jar" \
  && test -f res/cardsfolder/cardsfolder.zip \
  && chmod -R a+rX /opt/forge
+# The patch step comes after the download, so a new patch set reuses the cached Forge layers.
+ARG FORGE_PATCH
+ARG FORGE_PATCH_SHA256
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+COPY patch_jar.py /tmp/patch_jar.py
+COPY --from=forgepatch /forge-patch.jar /tmp/forge-patch.jar
+RUN python3 /tmp/patch_jar.py "/opt/forge/forge-${FORGE_VERSION}" /tmp/forge-patch.jar "${FORGE_PATCH_SHA256}" "${FORGE_PATCH}" \
+ && rm /tmp/forge-patch.jar /tmp/patch_jar.py \
+ && chmod a+r /opt/forge/forge-${FORGE_VERSION}/forge-gui-desktop-*-jar-with-dependencies.jar
 
 FROM ${JAVA_IMAGE}
 ARG FORGE_VERSION=2.0.15
 # A passwd entry for uid 99 gives the JVM a real user.home (/work) instead of "?".
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/* \
  && useradd -u 99 -g 100 -M -d /work -s /usr/sbin/nologin forge
-ARG FORGE_PATCH
-ARG FORGE_PATCH_SHA256
 COPY --from=forge /opt/forge /opt/forge
-COPY common.py forge_runner.py worker.py patch_jar.py /opt/forge-worker/
-COPY --from=forgepatch /forge-patch.jar /tmp/forge-patch.jar
-RUN python3 /opt/forge-worker/patch_jar.py "/opt/forge/forge-${FORGE_VERSION}" /tmp/forge-patch.jar \
-      "${FORGE_PATCH_SHA256}" "${FORGE_PATCH}" \
- && rm /tmp/forge-patch.jar && chmod -R a+rX /opt/forge
+COPY common.py forge_runner.py worker.py /opt/forge-worker/
 ENV FORGE_DIR=/opt/forge/forge-${FORGE_VERSION} \
     FORGE_JAVA=/opt/java/openjdk/bin/java \
     FORGE_INDEX=/opt/forge-index \

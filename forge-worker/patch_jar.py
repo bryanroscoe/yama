@@ -9,18 +9,28 @@ so the runner's engine label becomes "forge <version>+<NAME>" and patched result
 The release jar is removed: the runner uses the only forge-gui-desktop jar it finds.
 """
 import hashlib
+import os
 import re
 import sys
 import zipfile
 from pathlib import Path
 
 JAR_RE = re.compile(r"forge-gui-desktop-(.+)-jar-with-dependencies\.jar")
+# Every patch set ever used, by name: a name labels results, so a rebuilt or changed jar needs a new name, never
+# a new SHA-256 under an old one (its games would be pooled with the old jar's). Add new sets; never edit one.
+PATCH_SETS = {
+    "yama1": "4c30ae81c06347c404d6011b8c4cb1489bfa98e9dd563789b05f1b03303b8b11",
+}
 
 
 def patch(forge_dir, patch_jar, sha256, name):
     forge_dir, patch_jar = Path(forge_dir), Path(patch_jar)
     if not re.fullmatch(r"[a-z0-9]+", name):
         raise SystemExit(f"patch name {name!r}: use lower-case letters and digits")
+    if name not in PATCH_SETS:
+        raise SystemExit(f"patch set {name!r} isn't in patch_jar.py's PATCH_SETS")
+    if PATCH_SETS[name] != sha256.lower():
+        raise SystemExit(f"patch set {name!r} is {PATCH_SETS[name]}, not {sha256}: a new jar needs a new name")
     got = hashlib.sha256(patch_jar.read_bytes()).hexdigest()
     if got != sha256.lower():
         raise SystemExit(f"{patch_jar}: SHA-256 {got}, expected {sha256}")
@@ -36,19 +46,34 @@ def patch(forge_dir, patch_jar, sha256, name):
     if not entries or any(not n.endswith(".class") for n in entries):
         raise SystemExit(f"{patch_jar}: a patch set holds compiled classes only")
     out = forge_dir / f"forge-gui-desktop-{version}+{name}-jar-with-dependencies.jar"
+    tmp = out.with_name(out.name + ".partial")
+    with zipfile.ZipFile(release) as rz:
+        names = {i.filename for i in rz.infolist()}
+    # A recompiled class's inner classes (Outer$1.class) must all come from the patch set, or old and new would mix.
+    for n in entries:
+        if n in names:
+            stem = n[:-len(".class")]
+            stale = sorted(m for m in names if m.startswith(stem + "$") and m.endswith(".class") and m not in entries)
+            if stale:
+                raise SystemExit(f"{patch_jar}: replaces {n} but not its inner classes {stale}")
     replaced = 0
-    with zipfile.ZipFile(release) as rz, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as oz:
-        for info in rz.infolist():
-            if info.filename in entries:
-                replaced += 1
-                oz.writestr(info, entries.pop(info.filename))
-            else:
-                oz.writestr(info, rz.read(info))
-        for n, data in sorted(entries.items()):  # classes the patch set adds
-            oz.writestr(zipfile.ZipInfo(n, (2026, 1, 1, 0, 0, 0)), data, zipfile.ZIP_DEFLATED)
+    try:
+        with zipfile.ZipFile(release) as rz, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as oz:
+            for info in rz.infolist():
+                if info.filename in entries:
+                    replaced += 1
+                    oz.writestr(info, entries.pop(info.filename))
+                else:
+                    oz.writestr(info, rz.read(info))
+            for n, data in sorted(entries.items()):  # classes the patch set adds
+                oz.writestr(zipfile.ZipInfo(n, (2026, 1, 1, 0, 0, 0)), data, zipfile.ZIP_DEFLATED)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     if replaced == 0:
-        out.unlink()
+        tmp.unlink()
         raise SystemExit(f"{patch_jar}: replaces no class of {release.name}; wrong Forge version?")
+    os.replace(tmp, out)
     release.unlink()
     return out, replaced, len(entries)
 
