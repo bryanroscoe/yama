@@ -1,0 +1,109 @@
+/* Player and commander search on the table's setup and in a game: a field with its matches in a
+   list under it. Commander rows lead with the card's art crop (never filtered), then the name. */
+
+.combo-wrap {
+  position: relative;
+  display: block;
+}
+.combo-wrap > input {
+  padding-right: 72px;
+}
+.combo-trailing {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  pointer-events: none;
+}
+.combo-trailing .pip {
+  width: 12px;
+  height: 12px;
+}
+.combo-list {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: min(22rem, 50vh);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  font-weight: 400;
+}
+.combo-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--target);
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.combo-option[aria-selected="true"] {
+  background: var(--raised);
+}
+.combo-art {
+  flex: none;
+  width: 52px;
+  height: 38px;
+  border-radius: 6px;
+  object-fit: cover;
+  display: block;
+}
+.combo-art-none {
+  background: var(--raised);
+}
+.combo-text {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+.combo-label {
+  font-weight: 700;
+  font-size: var(--t-base);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.combo-sub {
+  font-size: var(--t-sm);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.combo-empty {
+  padding: 10px 8px;
+  color: var(--dim);
+  font-size: var(--t-sm);
+}
+
+.cmdr-fields {
+  display: grid;
+  gap: 8px;
+}
+.cmdr-partner {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+.cmdr-partner > label {
+  justify-self: stretch;
+}
+.cmdr-add-partner {
+  justify-self: start;
+}
+.combo-foot {
+  padding: 6px 8px 4px;
+  color: var(--dim);
+  font-size: var(--t-xs);
+  line-height: 1.35;
+}

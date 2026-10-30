@@ -14,6 +14,15 @@ export interface SeatDraft {
   colorIdentity: string;
   art?: string;
   artist?: string;
+  partnerName?: string;
+  partnerArt?: string;
+  partnerArtist?: string;
+  /** The commander's and the partner's own colors (colorIdentity is both), from the cards picked. */
+  ownIdentity?: string;
+  partnerIdentity?: string;
+  pairs?: "partner" | "background" | null;
+  pairsWith?: string | null;
+  pairScope?: string;
 }
 
 export interface Me {

@@ -549,6 +549,7 @@ export interface GameSeat {
   guest_name: string | null;
   /** Set for a computer seat in an online game ("phase-ai easy"). */
   ai_kind?: string | null;
+  deck_version_id?: string | null;
   deck_label: string | null;
   commander_name: string | null;
   final_life: number | null;
@@ -562,6 +563,9 @@ export interface GameRow {
   id: string;
   mode: string;
   playgroup_id: string | null;
+  format?: string;
+  starting_life?: number;
+  note?: string | null;
   status: string;
   started_at: string;
   ended_at: string | null;
@@ -570,6 +574,12 @@ export interface GameRow {
   first_seat: number | null;
   win_condition: string | null;
   seats: GameSeat[];
+}
+
+/** GET /api/games/:id: a game, its logged events, and whether this account can carry it on. */
+export interface GameDetail extends GameRow {
+  events: { seq: number; actor_seat: number | null; kind: string; payload: unknown; created_at: string | null }[];
+  can_continue: boolean;
 }
 
 /** GET /api/decks/:id/results: finished games per deck version, newest version first. */

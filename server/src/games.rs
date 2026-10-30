@@ -337,6 +337,19 @@ async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> AppResult<ser
                 if stored_group != g.playgroup_id || !stored.iter().map(StoredSeat::who).eq(sent.iter().map(|s| s.who())) {
                     return Err(AppError::Conflict("this game was already saved with different players".into()));
                 }
+                // The same players, but a seat may have changed commanders mid-game: keep the newest,
+                // and the deck it's playing now (checked against its owner by resolve_seat; none
+                // once it isn't the deck it started with).
+                for s in &sent {
+                    sqlx::query("UPDATE game_seats SET deck_label = ?, commander_name = ?, deck_version_id = ? WHERE game_id = ? AND seat = ?")
+                        .bind(&s.deck_label)
+                        .bind(&s.commander_name)
+                        .bind(&s.deck_version_id)
+                        .bind(&g.id)
+                        .bind(s.seat)
+                        .execute(&mut *tx)
+                        .await?;
+                }
                 insert_events(&mut tx, &g.id, &g.events).await?;
             }
             true
@@ -354,7 +367,7 @@ async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> AppResult<ser
 async fn insert_events(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, game: &str, events: &[Event]) -> AppResult<u64> {
     let mut n = 0;
     for e in events {
-        n += sqlx::query(
+        let added = sqlx::query(
             "INSERT INTO game_events (game_id, seq, actor_seat, kind, payload, created_at) VALUES (?,?,?,?,?,?)
              ON CONFLICT(game_id, seq) DO NOTHING",
         )
@@ -367,6 +380,27 @@ async fn insert_events(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, game: &str,
         .execute(&mut **tx)
         .await?
         .rows_affected();
+        if added == 0 {
+            // A retry sends exactly what it sent before (the phone freezes events once handed to
+            // an upload). A different event under the same number means a second device is
+            // keeping this game too: refuse it rather than drop its taps without a word.
+            let (kind, payload, created_at): (String, String, String) = sqlx::query_as("SELECT kind, payload, created_at FROM game_events WHERE game_id = ? AND seq = ?")
+                .bind(game)
+                .bind(e.seq)
+                .fetch_one(&mut **tx)
+                .await?;
+            // The time travels with the event, so two devices making the same tap under the same
+            // number (both "life -1") still differ, and only an exact resend is a retry.
+            let same = kind == e.kind
+                && serde_json::from_str::<serde_json::Value>(&payload).ok().as_ref() == Some(&e.payload)
+                && e.created_at.as_ref().is_none_or(|t| *t == created_at);
+            if !same {
+                return Err(AppError::Conflict(
+                    "another device already saved different changes to this game. Keep the game going on one device".into(),
+                ));
+            }
+        }
+        n += added;
     }
     Ok(n)
 }
@@ -520,6 +554,8 @@ struct GameDetail {
     #[serde(flatten)]
     game: GameRow,
     events: Vec<Event>,
+    /// This account started this in-person game, so it can carry on with it on another device.
+    can_continue: bool,
 }
 
 async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<GameDetail>> {
@@ -546,7 +582,8 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
             created_at: Some(created_at),
         })
         .collect();
-    Ok(Json(GameDetail { game, events }))
+    let can_continue = game.status == "in_progress" && can_write(&st.pool, &id, &user.id).await?;
+    Ok(Json(GameDetail { game, events, can_continue }))
 }
 
 async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
@@ -838,6 +875,44 @@ mod tests {
         assert!(r.is_ok() && winner.as_deref() == Some("Sam"), "retry returned {:?}; stored winner {winner:?}", r.map(|v| v.to_string()));
         let seats: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM game_seats WHERE game_id = ?").bind(id).fetch_one(&pool).await.unwrap();
         assert_eq!(seats, 2);
+    }
+
+    #[tokio::test]
+    async fn a_retry_keeps_a_commander_changed_mid_game() {
+        let pool = setup().await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0008";
+        create_game(&pool, "me", new_game(id, None)).await.unwrap();
+        let mut again = new_game(id, None);
+        again.seats[1].commander_name = Some("Atraxa, Praetors' Voice".into());
+        again.seats[1].deck_label = Some("Atraxa, Praetors' Voice".into());
+        assert_eq!(create_game(&pool, "me", again).await.unwrap()["existing"], true);
+        let stored: (Option<String>, Option<String>) = sqlx::query_as("SELECT commander_name, deck_label FROM game_seats WHERE game_id = ? AND seat = 1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(stored.0.as_deref(), Some("Atraxa, Praetors' Voice"));
+        assert_eq!(stored.1.as_deref(), Some("Atraxa, Praetors' Voice"));
+    }
+
+    #[tokio::test]
+    async fn a_second_device_cant_quietly_lose_its_events() {
+        let pool = setup().await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0009";
+        create_game(&pool, "me", new_game(id, None)).await.unwrap();
+        let event = |delta: i64| -> Event {
+            serde_json::from_value(json!({ "seq": 1, "actor_seat": 0, "kind": "life", "payload": { "type": "life", "seat": 0, "delta": delta }, "created_at": "2026-10-29T19:00:00.000Z" })).unwrap()
+        };
+        let mut tx = pool.begin().await.unwrap();
+        assert_eq!(insert_events(&mut tx, id, &[event(-3)]).await.unwrap(), 1);
+        // The same event again (a retry) is fine and adds nothing.
+        assert_eq!(insert_events(&mut tx, id, &[event(-3)]).await.unwrap(), 0);
+        // A different event under the same number is another device: refused, not dropped.
+        assert!(matches!(insert_events(&mut tx, id, &[event(-5)]).await, Err(AppError::Conflict(_))));
+        // The same tap made on another device at another moment is another event too.
+        let mut twin = event(-3);
+        twin.created_at = Some("2026-10-29T19:00:04.000Z".into());
+        assert!(matches!(insert_events(&mut tx, id, &[twin]).await, Err(AppError::Conflict(_))));
     }
 
     #[tokio::test]
