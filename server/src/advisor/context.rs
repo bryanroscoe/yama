@@ -627,7 +627,10 @@ async fn deck(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<String> {
 // ── precon ──────────────────────────────────────────────────────────────────
 
 async fn precon(pool: &SqlitePool, id: &str) -> AppResult<String> {
-    let d = crate::lab::precon_detail(pool, id).await?;
+    // One read of the shared evidence serves both the precon and rating v2.
+    let now = chrono::Utc::now();
+    let evidence = crate::precon_evidence::load(pool, now).await?;
+    let d = crate::lab::precon_detail_with(pool, id, &evidence).await?;
     let v = serde_json::to_value(&d).map_err(anyhow::Error::from)?;
     let p = &v["precon"];
     let commanders: Vec<String> = serde_json::from_value(p["commanders"].clone()).unwrap_or_default();
@@ -649,7 +652,7 @@ async fn precon(pool: &SqlitePool, id: &str) -> AppResult<String> {
     if let Some(ev) = &d.precon.evidence {
         out.push_str(&evidence_text(ev));
     }
-    let v2 = crate::precon_evidence::rating_v2(pool, chrono::Utc::now()).await?;
+    let v2 = crate::precon_evidence::rating_v2_with(pool, now, evidence).await?;
     if let Some(e) = v2.precons.iter().find(|e| e.precon == id) {
         let _ = writeln!(
             out,

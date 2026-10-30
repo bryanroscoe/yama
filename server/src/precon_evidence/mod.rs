@@ -672,17 +672,19 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>, cutoff: Option<
     }
     let mut out = Vec::new();
     // The engine label carries the card data, as tournament partitions do, so each build is named exactly.
-    let runs: Vec<(String, String, Option<String>, Option<String>, String)> = sqlx::query_as(
-        "SELECT id, name, engine, card_data, COALESCE(analysed_at, created_at) FROM lab_runs WHERE owner_id IS NULL AND kind = 'precon-ratings'
+    type RunRow = (String, String, Option<String>, Option<String>, Option<String>, String);
+    let runs: Vec<RunRow> = sqlx::query_as(
+        "SELECT id, name, engine, card_data, difficulty, COALESCE(analysed_at, created_at) FROM lab_runs WHERE owner_id IS NULL AND kind = 'precon-ratings'
          ORDER BY created_at DESC LIMIT 10",
     )
     .fetch_all(pool)
     .await?;
-    for (id, name, engine, card_data, created_at) in runs {
+    for (id, name, engine, card_data, difficulty, created_at) in runs {
         let engine = format!(
-            "{}, card data {}",
+            "{}, card data {}, {} AI",
             engine.as_deref().unwrap_or("unknown"),
-            card_data.as_deref().map(|c| c.get(..16).unwrap_or(c)).unwrap_or("unknown")
+            card_data.as_deref().map(|c| c.get(..16).unwrap_or(c)).unwrap_or("unknown"),
+            difficulty.as_deref().unwrap_or("unknown")
         );
         let strengths: HashMap<String, f64> = crate::lab::ratings_for(pool, &id)
             .await?
@@ -730,7 +732,7 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>, cutoff: Option<
             });
             for (label, part) in builds {
                 let summary = crate::lab::stats::summarize_versus(&part, &entrants, spec.pod, true);
-                let label = label.to_string();
+                let label = format!("{label}, {} AI", spec.difficulty);
                 let Some(v) = summary.versus else { continue };
                 let mut strengths = HashMap::new();
                 for e in &v.entrants {
@@ -968,8 +970,13 @@ impl Normal {
 
 /// Rating v2 for every catalog precon with evidence, from the newest global run and the datasets.
 pub async fn rating_v2(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<RatingV2> {
-    let split = default_split(as_of);
     let loaded = load(pool, as_of).await?;
+    rating_v2_with(pool, as_of, loaded).await
+}
+
+/// Rating v2 from evidence already loaded as of `as_of`.
+pub async fn rating_v2_with(pool: &SqlitePool, as_of: DateTime<Utc>, loaded: Evidence) -> AppResult<RatingV2> {
+    let split = default_split(as_of);
     // Global runs only: a cutoff limits tournaments, which a shared rating never reads.
     let sims = sim_sources(pool, None, None).await?;
     let simulation = sims.first().cloned();

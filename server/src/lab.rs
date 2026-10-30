@@ -868,6 +868,12 @@ async fn matchups(pool: &SqlitePool, run_id: &str, lab_id: &str) -> AppResult<Op
 }
 
 pub async fn precon_detail(pool: &SqlitePool, id: &str) -> AppResult<PreconDetail> {
+    let evidence = crate::precon_evidence::load(pool, chrono::Utc::now()).await?;
+    precon_detail_with(pool, id, &evidence).await
+}
+
+/// `precon_detail` with the shared dataset evidence already loaded, for callers that reuse it.
+pub async fn precon_detail_with(pool: &SqlitePool, id: &str, evidence: &crate::precon_evidence::Evidence) -> AppResult<PreconDetail> {
     let row: PreconRow = sqlx::query_as(AssertSqlSafe(format!("SELECT {PRECON_COLUMNS} FROM {PRECON_FROM} WHERE p.id = ?")))
         .bind(id)
         .fetch_optional(pool)
@@ -885,7 +891,7 @@ pub async fn precon_detail(pool: &SqlitePool, id: &str) -> AppResult<PreconDetai
     let market_prices = crate::deck_prices::prices(pool).await?;
     precon.singles_value = crate::deck_prices::singles(&serde_json::from_str(&cards_json).map_err(anyhow::Error::from)?, &market_prices);
     precon.sealed_price = crate::deck_prices::sealed(pool).await?.remove(id);
-    precon.evidence = crate::precon_evidence::load(pool, chrono::Utc::now()).await?.by_precon.remove(id);
+    precon.evidence = evidence.by_precon.get(id).cloned();
 
     let cards: Vec<PreconCard> = serde_json::from_str(&cards_json).map_err(anyhow::Error::from)?;
     let reference_matches = crate::upgradeability::allows_reference_results(id, &cards);
