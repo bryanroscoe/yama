@@ -25,6 +25,12 @@ describe("EvidenceSection", () => {
     expect(html).toContain('href="https://playgroup.gg/sets/x/precons/riders-of-rohan"');
     expect(html).toContain("playgroup-history revision 2");
   });
+  it("shows every enabled source's history", () => {
+    const other = { ...evidence.real!, source: { ...evidence.real!.source, name: "Other tracker" }, latest: { ...evidence.real!.latest, games: 120 } };
+    const html = renderToStaticMarkup(<EvidenceSection evidence={{ ...evidence, also: [other] }} />);
+    expect(html).toContain("From Other tracker");
+    expect(html).toContain("over 120 games");
+  });
   it("shows a commander's figure apart, and nothing when there's no evidence", () => {
     const html = renderToStaticMarkup(<EvidenceSection evidence={{ real: null, commander: { source: "Playgroup.gg", entity: "playgroup:commander:1", name: "Test Commander", url: null, window_days: 180, rate: 27.5, games: 300, as_of: "2026-10-28T17:00:00Z", note: "Every list recorded under this commander." } }} />);
     expect(html).toContain("Commander, all lists: Test Commander won 27.5% of 300 games");

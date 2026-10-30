@@ -72,6 +72,12 @@ export function EvidenceSection({ evidence }: { evidence: PreconEvidence | null 
     <section className="lab-real">
       <h3>Real games over time</h3>
       {evidence.real && <History real={evidence.real} />}
+      {evidence.also?.map((other) => (
+        <div key={other.source.name} className="lab-evidence-other">
+          <h4>From {other.source.name}</h4>
+          <History real={other} />
+        </div>
+      ))}
       {evidence.commander && <Commander c={evidence.commander} />}
     </section>
   );
