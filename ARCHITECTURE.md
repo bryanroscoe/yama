@@ -882,7 +882,10 @@ interval over precons and held-out error weighted by held-out games. Sources are
 precon-ratings runs and, for the caller, their own tournaments, summarised afresh from their games
 and matched to catalog precons by stock-list fingerprint. A private tournament never feeds a
 shared page. A source made after the split is scored for description but can't pass the gate,
-since it could reflect what was learnt after the split. Each enabled source name is derived on its
+since it could reflect what was learnt after the split; a tournament counts only the games it had
+finished by the split. Global strengths count only for precons whose catalog list still matches
+the stock reference. Real-rate variance adds one pseudo-win and one pseudo-loss, so a 0% or 100%
+rate on few games is never treated as exact. Each enabled source name is derived on its
 own and keeps its own label; a precon shows the source with the newest snapshot, the others
 beside it.
 

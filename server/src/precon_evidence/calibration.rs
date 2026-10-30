@@ -29,8 +29,13 @@ pub struct Real {
 }
 impl Real {
     /// Sampling variance of the rate in squared points.
+    /// Sampling variance in squared points, with one pseudo-win and one pseudo-loss so a 0% or
+    /// 100% rate on few games is never treated as exact. The source's rates are normalised, so
+    /// this is a plug-in approximation, not measured precision.
     pub fn variance(&self) -> f64 {
-        (self.rate * (100.0 - self.rate) / self.effective_games.max(1.0)).max(1e-6)
+        let n = self.effective_games.max(1.0);
+        let p = (self.rate / 100.0 * n + 1.0) / (n + 2.0);
+        1e4 * p * (1.0 - p) / n
     }
 }
 
@@ -218,7 +223,9 @@ pub fn evaluate(all: &[Case]) -> Evaluation {
     let sim: Vec<f64> = cases.iter().map(|c| m.rate(c.sim.unwrap())).collect();
     let v2: Vec<f64> = cases.iter().map(|c| combine(c.train, c.sim, Some(&m)).unwrap().0).collect();
     // The meta rank's even split of percentiles, as ranks.
-    let (rr, rs) = (ranks(&real), ranks(&sim));
+    // The meta rank ranks raw strength, whatever direction the mapping fits.
+    let raw: Vec<f64> = cases.iter().map(|c| c.sim.unwrap()).collect();
+    let (rr, rs) = (ranks(&real), ranks(&raw));
     let v1: Vec<f64> = rr.iter().zip(&rs).map(|(a, b)| a + b).collect();
     let preds: [(&'static str, &Vec<f64>, bool); 4] = [
         ("real games only", &real, true),
@@ -319,10 +326,42 @@ mod tests {
             effective_games: 400.0,
         }; // variance 4
         let (rate, var) = combine(Some(real), Some(1.0), Some(&m)).unwrap();
-        assert!((rate - 22.5).abs() < 1e-9 && (var - 2.0).abs() < 1e-9);
+        assert!((rate - 22.5).abs() < 0.02 && (var - 2.0).abs() < 0.01, "{rate} {var}");
         assert_eq!(combine(None, Some(1.0), Some(&m)), Some((25.0, 4.0)));
-        assert_eq!(combine(Some(real), None, None), Some((20.0, 4.0)));
+        let (alone, v) = combine(Some(real), None, None).unwrap();
+        assert!(alone == 20.0 && (v - 4.0).abs() < 0.03);
         assert!(combine(None, None, None).is_none());
+    }
+
+    #[test]
+    fn a_boundary_rate_on_few_games_is_not_exact() {
+        let zero = Real {
+            rate: 0.0,
+            effective_games: 40.0,
+        };
+        // About 2.3 points of standard error, not ~0.
+        assert!(zero.variance().sqrt() > 2.0, "{}", zero.variance());
+        let full = Real { rate: 100.0, effective_games: 40.0 };
+        assert!((full.variance() - zero.variance()).abs() < 1e-9);
+    }
+
+    #[test]
+    fn meta_rank_v1_ranks_raw_strength_even_when_the_mapping_is_negative() {
+        // Real rates and simulated strengths run in opposite directions: v1's even split ties every deck.
+        let cases: Vec<Case> = (0..10)
+            .map(|i| Case {
+                precon: format!("p{i}"),
+                train: Some(Real {
+                    rate: 15.0 + i as f64,
+                    effective_games: 300.0,
+                }),
+                holdout: Some((15.0 + i as f64, 200)),
+                sim: Some(((9 - i) as f64 / 4.0).exp()),
+            })
+            .collect();
+        let e = evaluate(&cases);
+        let v1 = e.scores.iter().find(|s| s.predictor.starts_with("meta rank v1")).unwrap();
+        assert!(v1.spearman.is_none(), "every deck ties, so there's no ranking: {:?}", v1.spearman);
     }
 
     #[test]

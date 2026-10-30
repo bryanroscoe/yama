@@ -474,15 +474,16 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
                         .entry(p.id.clone())
                         .or_default()
                         .push((label.name.clone(), entity_id.to_string(), rules[best]));
-                    // The cohort with the newest snapshot speaks for the precon.
-                    let (cohort, snaps) = e
+                    // Each cohort is read as of the evaluation date; the one with the newest usable
+                    // snapshot then speaks for the precon.
+                    let best_cohort = e
                         .cohorts
                         .iter()
-                        .max_by_key(|(_, s)| s.iter().map(|x| x.as_of).max())
-                        .map(|(c, s)| (c.clone(), s.clone()))
-                        .unwrap_or_default();
-                    let h = history::history(snaps, as_of, HALF_LIFE_DAYS);
-                    if let Some(latest) = h.snapshots.last().copied() {
+                        .map(|(c, s)| (c.clone(), history::history(s.clone(), as_of, HALF_LIFE_DAYS)))
+                        .filter_map(|(c, h)| Some((h.snapshots.last()?.as_of, c, h)))
+                        .max_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
+                    if let Some((_, cohort, h)) = best_cohort {
+                        let latest = *h.snapshots.last().unwrap();
                         ev.real = Some(RealHistory {
                             source: label.clone(),
                             entity: entity_id.to_string(),
@@ -562,6 +563,7 @@ pub struct SimSource {
     pub name: String,
     pub engine: String,
     pub status: String,
+    /// When its results existed: a global run's analysis date (else its schedule date), a tournament's creation.
     pub created_at: String,
     /// Catalog precons it gives a strength.
     pub precons: usize,
@@ -599,14 +601,17 @@ regression fitted on pre-split real rates. Meta rank v1 adds the two percentile 
 the mapped simulation by their precision. Scores: rank correlation with the held-out rates (90% bootstrap interval over precons) and \
 the held-out error weighted by held-out games. Rating v2 passes only if its error beats real games alone with an interval clear of zero.";
 
-/// Strengths from the newest global precon-ratings runs and the caller's own tournaments.
-pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>) -> AppResult<Vec<SimSource>> {
+/// Strengths from the newest global precon-ratings runs and the caller's own tournaments. With a
+/// `cutoff`, a tournament counts only the games finished by then, so its strengths are frozen there.
+pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>, cutoff: Option<DateTime<Utc>>) -> AppResult<Vec<SimSource>> {
     let catalog: Vec<(String, String, String)> = sqlx::query_as("SELECT id, lab_id, cards FROM precons").fetch_all(pool).await?;
-    let by_lab: HashMap<&str, &str> = catalog.iter().map(|(id, lab, _)| (lab.as_str(), id.as_str())).collect();
+    // Only stock lists the catalog still matches take a stock list's simulated result.
+    let mut by_lab: HashMap<&str, &str> = HashMap::new();
     let mut by_sha: HashMap<String, Vec<String>> = HashMap::new();
-    for (id, _, cards) in &catalog {
+    for (id, lab, cards) in &catalog {
         if let Ok(cards) = serde_json::from_str::<Vec<crate::lab::PreconCard>>(cards) {
             if crate::upgradeability::allows_reference_results(id, &cards) {
+                by_lab.insert(lab.as_str(), id.as_str());
                 by_sha
                     .entry(crate::lab::experiments::precon_list_sha(cards))
                     .or_default()
@@ -616,7 +621,8 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>) -> AppResult<Ve
     }
     let mut out = Vec::new();
     let runs: Vec<(String, String, Option<String>, String)> = sqlx::query_as(
-        "SELECT id, name, engine, created_at FROM lab_runs WHERE owner_id IS NULL AND kind = 'precon-ratings' ORDER BY created_at DESC LIMIT 10",
+        "SELECT id, name, engine, COALESCE(analysed_at, created_at) FROM lab_runs WHERE owner_id IS NULL AND kind = 'precon-ratings'
+         ORDER BY created_at DESC LIMIT 10",
     )
     .fetch_all(pool)
     .await?;
@@ -650,9 +656,12 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>) -> AppResult<Ve
             let entrants: Vec<(String, String)> = spec.entrants.iter().map(|l| (l.id.clone(), l.label.clone())).collect();
             // Summarised afresh, so runs stored before fitted strengths existed still count.
             let games: Vec<(String, Option<String>, String)> = sqlx::query_as(
-                "SELECT spec, result, engine FROM lab_experiment_games WHERE experiment_id = ? AND result IS NOT NULL ORDER BY ord",
+                "SELECT spec, result, engine FROM lab_experiment_games
+                 WHERE experiment_id = ? AND result IS NOT NULL AND (? IS NULL OR finished_at <= ?) ORDER BY ord",
             )
             .bind(&id)
+            .bind(cutoff.map(|c| c.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)))
+            .bind(cutoff.map(|c| c.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)))
             .fetch_all(pool)
             .await?;
             let engines: BTreeMap<&str, Vec<(String, Option<String>)>> = games.iter().fold(BTreeMap::new(), |mut m, (g, r, e)| {
@@ -733,7 +742,7 @@ pub async fn calibrate(pool: &SqlitePool, owner: Option<&str>, split: DateTime<U
         .filter(|c| c.train.is_some() && c.holdout.is_some_and(|h| h.1 >= calibration::MIN_HOLDOUT_GAMES))
         .count();
     let mut sources = Vec::new();
-    for source in sim_sources(pool, owner).await? {
+    for source in sim_sources(pool, owner, Some(split)).await? {
         let with: Vec<calibration::Case> = cases
             .iter()
             .map(|c| calibration::Case {
@@ -854,7 +863,7 @@ impl Normal {
 pub async fn rating_v2(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<RatingV2> {
     let split = default_split(as_of);
     let evidence = load(pool, as_of).await?.by_precon;
-    let simulation = sim_sources(pool, None).await?.into_iter().next();
+    let simulation = sim_sources(pool, None, None).await?.into_iter().next();
     let report = calibrate(pool, None, split, as_of).await?;
     let calibration = simulation
         .as_ref()

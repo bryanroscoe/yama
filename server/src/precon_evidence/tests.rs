@@ -398,3 +398,32 @@ async fn each_enabled_source_is_derived_and_labelled_on_its_own() {
     assert_eq!(ev.report.source_labels.len(), 2);
     assert_eq!(ev.report.matched["test-riders"].len(), 2);
 }
+
+#[tokio::test]
+async fn a_changed_stock_list_keeps_no_simulated_result_in_rating_v2() {
+    let (_, pool) = app().await;
+    // riders-of-rohan is in the frozen upgradeability data; an empty list no longer matches it.
+    precon(&pool, "riders-of-rohan", "Riders of Rohan", None, None).await;
+    global_run(&pool, &[("riders-of-rohan", 2.0)]).await;
+    let sources = sim_sources(&pool, None, None).await.unwrap();
+    assert!(sources[0].strengths.is_empty());
+    assert!(rating_v2(&pool, at("2026-10-29")).await.unwrap().precons.is_empty());
+}
+
+#[tokio::test]
+async fn a_future_cohort_does_not_hide_todays_history() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool, "bryan@example.com").await;
+    enable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    precon(&pool, "test-riders", "Riders of Rohan", None, None).await;
+    let mut records = rohan(SHA_A);
+    let mut later = precon_obs("test-riders", "Riders of Rohan", "2026-12-01", 900, 30.0, SHA_A);
+    later["data"]["cohort"] = json!("https://playgroup.gg/commander/precons/180-days");
+    later["id"] = json!("later-cohort");
+    records.push(later);
+    import(&pool, &owner, &document("playgroup-history", records)).await;
+    let ev = load(&pool, at("2026-10-29")).await.unwrap();
+    let real = ev.by_precon["test-riders"].real.as_ref().unwrap();
+    assert_eq!(real.latest.games, 447);
+    assert_eq!(real.cohort, "https://playgroup.gg/commander/precons");
+}
