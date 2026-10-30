@@ -110,6 +110,10 @@ pub(crate) async fn resolve(pool: &SqlitePool, lines: &[ScanLine]) -> AppResult<
         if l.qty < 1 || l.name.trim().is_empty() || l.name.len() > 200 {
             return Err(AppError::bad("each card needs a name and at least one copy"));
         }
+        // Each line is capped first, so the sum can't overflow (at most MAX_LINES × MAX_COPIES).
+        if l.qty > MAX_COPIES {
+            return Err(AppError::bad(format!("a scan can have at most {MAX_COPIES} cards")));
+        }
         total += l.qty;
     }
     if total > MAX_COPIES {

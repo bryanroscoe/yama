@@ -261,6 +261,11 @@ async fn scans_are_refused_for_unknown_cards_and_other_peoples_decks() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _) = send(&app, Method::POST, &format!("/api/decks/{deck}/scan"), Some(&token), Some(json!({"op_id": "s", "cards": [{"name": "Forest", "qty": 0}], "make_current": true}))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+    // Quantities too large to add up are refused, not wrapped past the limit.
+    for cards in [json!([{"name": "Forest", "qty": i64::MAX}, {"name": "Sol Ring", "qty": 1}]), json!([{"name": "Forest", "qty": 200}, {"name": "Sol Ring", "qty": 101}])] {
+        let (status, r) = send(&app, Method::POST, &format!("/api/decks/{deck}/scan"), Some(&token), Some(json!({"op_id": "big", "cards": cards, "make_current": true, "based_on": first}))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{r}");
+    }
     let (status, _) = send(&app, Method::POST, &format!("/api/decks/{deck}/scan"), Some(&token), Some(json!({"op_id": "", "cards": scanned("New Card"), "make_current": true}))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
