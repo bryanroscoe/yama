@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { FunRating, PlayerSetup, TableSetup, WinCondition } from "@yama/core";
+import { FORMATS, formatLabel, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { api, type DeckSummary, type DeckVersionRow, type GameRow, type Playgroup, type SearchResult } from "../api";
+import { api, type DeckSummary, type DeckVersionRow, type GameRow, type Playgroup } from "../api";
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
@@ -16,6 +16,8 @@ import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, us
 import { layout } from "./TablePlay";
 import { panelArt, useShowArt } from "./art";
 import { recentGameText, winningSeat } from "./recent";
+import { cardNamed, CommanderFields, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type Person } from "./pickers";
+import { gameSummary } from "./history";
 import "./seats.css";
 import "./home.css";
 
@@ -46,7 +48,7 @@ export function seatWhere(i: number, n: number): string {
 /** "Riders of Rohan" or the commander, and the art credit line under a seat's fields. */
 function seatCredit(seat: SeatDraft, deckName?: string): string {
   if (!seat.commanderName) return "Pick a commander and their art fills this seat.";
-  if (!seat.art) return seat.commanderName;
+  if (!seat.art) return seat.partnerName ? `${seat.commanderName} and ${seat.partnerName}` : seat.commanderName;
   const by = seat.artist ? `Art by ${seat.artist}, © Wizards of the Coast.` : "Art © Wizards of the Coast.";
   return deckName ? `${seat.commanderName}. ${by}` : by;
 }
@@ -75,13 +77,15 @@ export function TableHome() {
         <section className="stack" style={{ marginBottom: "2rem" }}>
           <div className="page-head">
             <h1>Game in progress</h1>
+            <p className="dim" style={{ margin: 0 }}>{gameSummary(state)}</p>
           </div>
-          <ol className="ip-rows">
+          <ol className="ip-rows" aria-label="Tap anyone to go back to the table">
             {state.players.map((p) => {
               const art = showArt ? panelArt(p) : null;
               return (
                 <li key={p.seat}>
-                  <ArtPanel className="ip-row" art={art} artist={p.artist} wash="left" credit={false}>
+                  <button className="ip-row-btn" onClick={() => navigate("/table/play")} aria-label={`${p.name}, ${p.eliminated ? "out" : `${p.life} life`}. Back to the table`}>
+                  <ArtPanel as="span" className="ip-row" art={art} artist={p.artist} wash="left" credit={false}>
                     <span className="ip-text">
                       <span className="ip-name">
                         {p.name}
@@ -91,6 +95,7 @@ export function TableHome() {
                     </span>
                     <span className="ip-life num">{p.eliminated ? "Out" : p.life}</span>
                   </ArtPanel>
+                  </button>
                 </li>
               );
             })}
@@ -138,6 +143,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const [groupId, setGroupId] = useState<string>("");
   const [life, setLife] = useState(40);
+  const [format, setFormat] = useState<TableFormat>("commander");
   const wide = useWide();
   const [editing, setEditing] = useState<number | null>(null);
   // When the seats came back from the last game set up on this phone, and when that was.
@@ -168,6 +174,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
       const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
       if (saved?.groupId) setGroupId(saved.groupId);
       if (saved?.life) setLife(saved.life);
+      if (FORMATS.some((f) => f.key === saved?.format)) setFormat(saved.format);
     } catch {
       /* ignore */
     }
@@ -184,6 +191,9 @@ function NewGame({ onStart }: { onStart: () => void }) {
     // With a playgroup chosen, your seat is your member row (see seats.ts), so wait for the list.
     if (groupId && !groups.data) return;
     applied.current = d.id;
+    // A deck page's deck is a Commander deck.
+    setFormat("commander");
+    setLife((l) => (FORMATS.some((f) => f.key !== "commander" && f.life === l) ? 40 : l));
     const myRow = groups.data?.find((g) => g.id === groupId)?.members.find((m) => m.user_id && m.user_id === me.data?.id);
     setSeats((all) => {
       const x = all[0]!;
@@ -198,8 +208,10 @@ function NewGame({ onStart }: { onStart: () => void }) {
         colorIdentity: d.color_identity,
         art: d.commander_image ?? undefined,
         artist: d.commander_artist ?? undefined,
+        partnerName: d.commanders[1],
       });
     });
+    void deckCommanders(d).then((c) => c && setSeats((all) => (all[0]?.deckId === d.id ? patchSeat(all, 0, c) : all)));
     navigate(".", { replace: true, state: null });
   }, [wanted, decks.data, me.data, navigate, groupId, groups.data]);
 
@@ -209,30 +221,45 @@ function NewGame({ onStart }: { onStart: () => void }) {
     setGroupId(id);
     setSeats((s) => fitSeatsToGroup(s, groups.data?.find((g) => g.id === id), me.data));
   };
+  const chooseFormat = (f: TableFormat) => {
+    setFormat(f);
+    setLife(FORMATS.find((x) => x.key === f)!.life);
+  };
   const setCount = (n: number) => setSeats((s) => (n > s.length ? [...s, ...Array.from({ length: n - s.length }, emptySeat)] : s.slice(0, n)));
 
-  const start = () => {
-    const players: PlayerSetup[] = seats.map((s, i) => ({
+  const [starting, setStarting] = useState(false);
+  const start = async () => {
+    setStarting(true);
+    // Commanders typed but never picked from the list still get their cards' art and colors.
+    const ready = format === "commander" ? await Promise.all(seats.map((s) => (s.deckId ? s : resolveDraft(s as SeatDraft & CommanderDraft)))) : seats;
+    const seatsNow = ready as SeatDraft[];
+    // Only a Commander game names commanders and Commander decks; a 20-life game left with a
+    // seat's last commander would count toward that commander's and deck's results.
+    const cmdr = format === "commander";
+    const players: PlayerSetup[] = seatsNow.map((s, i) => ({
       seat: i,
       name: s.name.trim() || `Player ${i + 1}`,
       memberId: s.memberId,
       userId: s.userId,
-      deckVersionId: s.deckVersionId,
-      deckLabel: s.commanderName || undefined,
-      commanderName: s.commanderName || undefined,
-      colorIdentity: s.colorIdentity,
-      art: s.art,
-      artist: s.artist,
+      deckVersionId: cmdr ? s.deckVersionId : undefined,
+      deckLabel: (cmdr && s.commanderName) || undefined,
+      commanderName: (cmdr && s.commanderName) || undefined,
+      partnerName: (cmdr && s.partnerName?.trim()) || undefined,
+      colorIdentity: cmdr ? s.colorIdentity : "",
+      art: cmdr ? s.art : undefined,
+      artist: cmdr ? s.artist : undefined,
+      partnerArt: cmdr && s.partnerName ? s.partnerArt : undefined,
+      partnerArtist: cmdr && s.partnerName ? s.partnerArtist : undefined,
     }));
     const setup: TableSetup = {
       id: crypto.randomUUID(),
       startedAt: new Date().toISOString(),
-      format: "commander",
+      format,
       startingLife: life,
       playgroupId: groupId || undefined,
       players,
     };
-    localStorage.setItem(LAST_SETUP, JSON.stringify({ seats, groupId, life, at: new Date().toISOString() }));
+    localStorage.setItem(LAST_SETUP, JSON.stringify({ seats: seatsNow, groupId, life, format, at: new Date().toISOString() }));
     startGame(setup);
     onStart();
   };
@@ -258,9 +285,24 @@ function NewGame({ onStart }: { onStart: () => void }) {
       group,
       decks: s.userId && s.userId === me.data?.id ? decks.data : undefined,
       deckName: decks.data?.find((d) => d.id === s.deckId)?.name,
+      // Not someone already sitting elsewhere: the same member or account, or the same guest name.
+      people: people.filter(
+        (p) =>
+          !seats.some((o, j) =>
+            j === i
+              ? false
+              : p.memberId || p.userId
+                ? (!!p.memberId && o.memberId === p.memberId) || (!!p.userId && !p.memberId && o.userId === p.userId)
+                : !o.memberId && !o.userId && o.name.trim().toLowerCase() === p.name.toLowerCase(),
+          ),
+      ),
+      commander: format === "commander",
     };
   };
+  const startLabel = `Start the ${formatLabel(format)} game`;
+  const startSub = `${seats.length} ${seats.length === 1 ? "player" : "players"} at ${life} life`;
   const artists = seats.filter((s) => s.art).map((s) => s.artist);
+  const people = usePeople(group, groups.data);
 
   return (
     <section className="new-game2">
@@ -272,11 +314,15 @@ function NewGame({ onStart }: { onStart: () => void }) {
         {/* Phones: the playgroup sits beside the title, as a quiet picker. */}
         {!wide && groupSelect("ng-group-quiet", false)}
         {wide && (
-          <button className="primary" onClick={start}>Start the game</button>
+          <span className="ng-start-wide">
+            <button className="primary" onClick={() => void start()} disabled={starting}>{startLabel}</button>
+            <span className="small dim">{startSub}</span>
+          </span>
         )}
       </div>
       <div className="setup-controls">
         {wide && groupSelect("setup-group", true)}
+        <Choice label="Game" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
         <Choice label="Players" options={[1, 2, 3, 4, 5, 6]} value={seats.length} onChange={setCount} />
         <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
       </div>
@@ -297,15 +343,18 @@ function NewGame({ onStart }: { onStart: () => void }) {
           <ol className="ng-rows" aria-label="Seats, clockwise from you">
             {seats.map((s, i) => (
               <li key={i}>
-                <SeatRow index={i} seat={s} deckName={seatProps(i).deckName} onOpen={() => setEditing(i)} />
+                <SeatRow index={i} seat={s} deckName={seatProps(i).deckName} onOpen={() => setEditing(i)} commander={format === "commander"} />
               </li>
             ))}
           </ol>
           <p className="small dim ng-note">
-            Seats go clockwise from you. Tap a seat to change the player or commander.
+            Seats go clockwise from you. Tap a seat to change the player{format === "commander" ? " or commander" : ""}.
             {artists.length > 0 && ` ${artCredits(artists)}`}
           </p>
-          <button className="primary ng-start" onClick={start}>Start the game</button>
+          <button className="primary ng-start" onClick={() => void start()} disabled={starting}>
+            <span>{startLabel}</span>
+            <span className="ng-start-sub">{startSub}</span>
+          </button>
           {editing !== null && seats[editing] && (
             <Sheet label={`Seat ${editing + 1}`} onClose={() => setEditing(null)}>
               <div className="stack">
@@ -321,14 +370,14 @@ function NewGame({ onStart }: { onStart: () => void }) {
 }
 
 /** A short list of numbers as a segmented control, with its label beside it on phones and above it on laptops. */
-function Choice({ label, options, value, onChange }: { label: string; options: number[]; value: number; onChange: (n: number) => void }) {
+function Choice<T extends string | number>({ label, options, value, onChange, name = String }: { label: string; options: T[]; value: T; onChange: (n: T) => void; name?: (v: T) => string }) {
   const id = useId();
   return (
     <div className="setup-choice">
       <span id={id} className="field-label">{label}</span>
       <div className="segmented" role="group" aria-labelledby={id}>
         {options.map((n) => (
-          <button key={n} type="button" aria-pressed={n === value} onClick={() => onChange(n)}>{n}</button>
+          <button key={n} type="button" aria-pressed={n === value} onClick={() => onChange(n)}>{name(n)}</button>
         ))}
       </div>
     </div>
@@ -356,9 +405,10 @@ function PhoneSketch({ seats }: { seats: SeatDraft[] }) {
 }
 
 /** A seat on a phone: the commander art washed from the left, name and commander on it. Opens the seat's fields. */
-function SeatRow({ index, seat, deckName, onOpen }: { index: number; seat: SeatDraft; deckName?: string; onOpen: () => void }) {
+function SeatRow({ index, seat, deckName, onOpen, commander = true }: { index: number; seat: SeatDraft; deckName?: string; onOpen: () => void; commander?: boolean }) {
   const who = seat.name.trim() || `Player ${index + 1}`;
-  const what = seat.commanderName ? (deckName ? `${deckName}, ${seat.commanderName}` : seat.commanderName) : "Pick a commander";
+  const cmdr = seat.partnerName ? `${seat.commanderName} and ${seat.partnerName}` : seat.commanderName;
+  const what = !commander ? (deckName ?? "Tap to change") : seat.commanderName ? (deckName ? `${deckName}, ${cmdr}` : cmdr) : "Pick a commander";
   return (
     <button className="seat-row" onClick={onOpen} aria-label={`Seat ${index + 1}: ${who}, ${what}. Change`}>
       <ArtPanel as="span" className="seat-row-art" art={seat.art} artist={seat.artist} wash="left" empty={!seat.commanderName} credit={false}>
@@ -373,79 +423,108 @@ function SeatRow({ index, seat, deckName, onOpen }: { index: number; seat: SeatD
   );
 }
 
-function SeatEditor({ index, seat, onChange, group, decks, deckName, where }: { index: number; seat: SeatDraft; onChange: (p: Partial<SeatDraft>) => void; group?: Playgroup; decks?: DeckSummary[]; deckName?: string; where?: string }) {
-  const me = useMe().data;
-  const listId = useId();
-  const [error, setError] = useState<unknown>(null);
-  const chosen = decks?.find((d) => d.id === seat.deckId);
-  const suggestions = useQuery({
-    queryKey: ["autocomplete", seat.commanderName],
-    queryFn: () => api<string[]>(`/api/cards/autocomplete?q=${encodeURIComponent(seat.commanderName)}`),
-    enabled: seat.commanderName.length >= 3 && !seat.colorIdentity,
-  });
+/** A deck's commanders (and partner) as picked cards, with art and colors; null offline. */
+async function deckCommanders(d: DeckSummary): Promise<Partial<SeatDraft> | null> {
+  const [main, second] = await Promise.all([d.commanders[0] ? cardNamed(d.commanders[0]) : null, d.commanders[1] ? cardNamed(d.commanders[1]) : null]);
+  if (!main) return null;
+  const draft = draftFromCard(main);
+  return {
+    ...draft,
+    commanderName: main.name,
+    // A deck's own picture of its commander wins: it's the art its owner chose.
+    art: d.commander_image ?? draft.art,
+    artist: d.commander_image ? (d.commander_artist ?? undefined) : draft.artist,
+    colorIdentity: second ? unionIdentity(main.color_identity, second.color_identity) : main.color_identity,
+    ...(second
+      ? { partnerName: second.name, partnerArt: second.image_art_crop ?? undefined, partnerArtist: second.artist ?? undefined, partnerIdentity: second.color_identity }
+      : { partnerName: undefined, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined }),
+  };
+}
 
-  const pickCommander = async (name: string) => {
-    onChange({ commanderName: name });
-    try {
-      const r = await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(`!"${name}"`)}`);
-      const card = r.cards[0];
-      if (card) onChange({ commanderName: card.name, colorIdentity: card.color_identity, art: card.image_art_crop ?? undefined, artist: card.artist ?? undefined });
-      setError(null);
-    } catch (e) {
-      setError(e);
+/**
+ * People a seat can be: you, the chosen playgroup's members, then names from your other
+ * playgroups and your recent games (as guests, since only the chosen group's members can carry
+ * their account onto the game). Only people this account already shares groups or games with.
+ */
+function usePeople(group: Playgroup | undefined, groups: Playgroup[] | undefined): Person[] {
+  const me = useMe().data;
+  const games = useQuery({ queryKey: ["games"], queryFn: () => api<GameRow[]>("/api/games") });
+  const out: Person[] = [];
+  const names = new Set<string>();
+  const ids = new Set<string>();
+  // Members and accounts are told apart by id (two Alexes in a group are two people); a bare
+  // name (another group's member, someone from a past game) only if no one listed has it yet.
+  const add = (p: Person) => {
+    const name = p.name.trim().toLowerCase();
+    const id = p.memberId ?? p.userId;
+    if (!name || (id ? ids.has(id) : names.has(name))) return;
+    if (id) ids.add(id);
+    names.add(name);
+    out.push(p);
+  };
+  if (group) {
+    const mine = group.members.find((m) => me && m.user_id === me.id);
+    if (mine) add({ name: mine.display_name, memberId: mine.id, userId: me!.id, sub: "You" });
+    for (const m of group.members) add({ name: m.display_name, memberId: m.id, userId: m.user_id ?? undefined, sub: m.user_id ? group.name : `${group.name}, guest` });
+  } else if (me) {
+    add({ name: me.display_name, userId: me.id, sub: "You" });
+  }
+  for (const g of groups ?? []) if (g.id !== group?.id) for (const m of g.members) add({ name: m.display_name, sub: g.name });
+  for (const g of games.data ?? []) {
+    const day = new Date(g.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    for (const seat of g.seats) if (seat.display_name && !seat.ai_kind) add({ name: seat.display_name, sub: `Played ${day}` });
+  }
+  return out;
+}
+
+function SeatEditor({ index, seat, onChange, group, decks, deckName, where, people = [], commander = true }: {
+  index: number;
+  seat: SeatDraft;
+  onChange: (p: Partial<SeatDraft>) => void;
+  group?: Playgroup;
+  decks?: DeckSummary[];
+  deckName?: string;
+  where?: string;
+  people?: Person[];
+  /** A Commander game: the seat names its commander. */
+  commander?: boolean;
+}) {
+  const me = useMe().data;
+  const chosen = decks?.find((d) => d.id === seat.deckId);
+  // The deck picked last: a slower lookup for an earlier pick mustn't land on top of it.
+  const lastDeck = useRef<string | null>(null);
+
+  const pickPerson = (p: Person) => {
+    if (group && p.memberId) {
+      const m = group.members.find((x) => x.id === p.memberId);
+      if (!m) return;
+      // Your deck stays only on your own seat.
+      onChange({ ...NOT_AN_ACCOUNT, memberId: m.id, userId: m.user_id ?? undefined, name: m.display_name, ...(m.user_id && m.user_id === seat.userId ? { deckId: seat.deckId, deckVersionId: seat.deckVersionId } : {}) });
+    } else if (!group && me && p.userId === me.id) {
+      onChange({ userId: me.id, name: me.display_name, memberId: undefined });
+    } else {
+      onChange({ ...NOT_AN_ACCOUNT, memberId: undefined, name: p.name });
     }
+  };
+  const typeName = (t: string) => {
+    // Typing over a playgroup member makes the seat a guest of that name.
+    if (seat.memberId) onChange({ ...NOT_AN_ACCOUNT, memberId: undefined, name: t });
+    else onChange(renameSeat(seat, t, me));
   };
 
   const who = seat.name.trim() || `Player ${index + 1}`;
   const pips = seat.colorIdentity ? <span className="field-pips"><Pips identity={seat.colorIdentity} /></span> : null;
+  const isMe = !!me && seat.userId === me.id;
   return (
     <fieldset className="seat seat-card2">
       <legend className="visually-hidden">Seat {index + 1}</legend>
       {/* Commander art once a commander is picked; a raised block until then. The credit is the line under the fields. */}
       <ArtPanel className="seat-head2" art={seat.art} artist={seat.artist} wash="bottom" credit={false}>
-        <span className="seat-name">{who}</span>
+        <span className="seat-name">{who}{isMe ? <span className="seat-you"> (you)</span> : null}</span>
         <span className="seat-where">Seat {index + 1}{where ? `, ${where}` : ""}</span>
       </ArtPanel>
       <div className="seat-fields2">
-        <div className="seat-player">
-          <label>
-            Player
-            {group ? (
-              <select
-                value={seat.memberId ?? ""}
-                onChange={(e) => {
-                  const m = group.members.find((x) => x.id === e.target.value);
-                  // Your deck stays only on your own seat.
-                  if (m) onChange({ ...NOT_AN_ACCOUNT, memberId: m.id, userId: m.user_id ?? undefined, name: m.display_name, ...(m.user_id && m.user_id === seat.userId ? { deckId: seat.deckId, deckVersionId: seat.deckVersionId } : {}) });
-                  else onChange({ ...NOT_AN_ACCOUNT, memberId: undefined, name: "" });
-                }}
-              >
-                <option value="">Someone else</option>
-                {group.members.map((m) => (
-                  <option key={m.id} value={m.id}>{m.display_name}{me && m.user_id === me.id ? " (you)" : ""}</option>
-                ))}
-              </select>
-            ) : (
-              <input value={seat.name} onChange={(e) => onChange(renameSeat(seat, e.target.value, me))} placeholder={`Player ${index + 1}`} />
-            )}
-          </label>
-          {!group && me && (
-            <label className="check-row seat-me">
-              <input
-                type="checkbox"
-                checked={seat.userId === me.id}
-                onChange={(e) => onChange(e.target.checked ? { userId: me.id, name: me.display_name } : NOT_AN_ACCOUNT)}
-              />
-              This is me
-            </label>
-          )}
-        </div>
-        {group && !seat.memberId && (
-          <label>
-            Name
-            <input value={seat.name} onChange={(e) => onChange(renameSeat(seat, e.target.value, me))} placeholder="Guest" />
-          </label>
-        )}
+        <PlayerSearch text={seat.name} people={people} onText={typeName} onPick={pickPerson} placeholder={group ? "Search the playgroup or type a name" : "Search or type a name"} />
         {decks && decks.length > 0 && (
           <label>
             Deck
@@ -454,15 +533,18 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where }: { 
                 value={seat.deckId ?? ""}
                 onChange={(e) => {
                   const d = decks.find((x) => x.id === e.target.value);
+                  lastDeck.current = d?.id ?? null;
                   if (!d) return onChange({ deckId: undefined, deckVersionId: undefined });
                   onChange({
                     deckId: d.id,
                     deckVersionId: d.current_version_id ?? undefined,
+                    commanderName: d.commanders[0] ?? "",
+                    partnerName: d.commanders[1],
                     colorIdentity: d.color_identity,
                     art: d.commander_image ?? undefined,
                     artist: d.commander_artist ?? undefined,
                   });
-                  if (d.commanders[0]) void pickCommander(d.commanders[0]);
+                  void deckCommanders(d).then((c) => c && lastDeck.current === d.id && onChange(c));
                 }}
               >
                 <option value="">Not one of my decks</option>
@@ -473,29 +555,14 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where }: { 
           </label>
         )}
         {/* With one of your decks chosen, the deck names the commander. */}
-        {!chosen && (
-          <label>
-            Commander
-            <span className="field-wrap">
-              <input
-                list={listId}
-                value={seat.commanderName}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  onChange({ commanderName: v, colorIdentity: "", art: undefined, artist: undefined });
-                  if (suggestions.data?.includes(v)) void pickCommander(v);
-                }}
-                onBlur={() => seat.commanderName && !seat.colorIdentity && void pickCommander(seat.commanderName)}
-                placeholder="Search for a commander"
-              />
-              {pips}
-            </span>
-            <datalist id={listId}>{suggestions.data?.map((n) => <option key={n} value={n} />)}</datalist>
-          </label>
+        {commander && !chosen && (
+          <CommanderFields
+            value={seat as CommanderDraft}
+            onChange={(d) => onChange({ ...d, commanderName: d.commanderName ?? "", colorIdentity: d.colorIdentity ?? "" })}
+          />
         )}
-        <span className="seat-credit">{seatCredit(seat, chosen ? deckName : undefined)}</span>
+        {commander && <span className="seat-credit">{seatCredit(seat, chosen ? deckName : undefined)}</span>}
         {chosen && (chosen.bracket != null || chosen.estimate) && <BracketChips declared={chosen.bracket} estimate={chosen.estimate} />}
-        <ErrorText error={error} />
       </div>
     </fieldset>
   );
@@ -539,7 +606,9 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
           const text = recentGameText(g);
           const day = new Date(g.started_at);
           return (
-            <li key={g.id} className="rg-row">
+            <li key={g.id}>
+              {/* An online game keeps its replay with the online board; a table game has its own page. */}
+              <Link className="rg-row" to={g.mode === "in_person" ? `/table/games/${g.id}` : `/play/${g.id}`} aria-label={`${text.title}${text.with ? ` with ${text.with}` : ""}, ${day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}. Details`}>
               {winner ? (
                 <span className="rg-art">{a?.art && <img src={a.art} alt="" loading="lazy" />}</span>
               ) : (
@@ -558,8 +627,9 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
                   <span className="rg-weekday">{day.toLocaleDateString("en-US", { weekday: "short" })}, </span>
                   {day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                 </span>
-                {g.turns ? <span className="rg-turns">{g.turns} turns</span> : null}
+                {g.turns ? <span className="rg-turns">{g.turns} turns</span> : g.status === "in_progress" ? <span className="rg-turns rg-live">Still going</span> : null}
               </span>
+              </Link>
             </li>
           );
         })}
@@ -591,6 +661,7 @@ function LogGame({ onClose }: { onClose: () => void }) {
     ...Array.from({ length: 3 }, emptySeat),
   ]);
   const group = groups.data?.find((g) => g.id === groupId);
+  const people = usePeople(group, groups.data);
   const update = (i: number, patch: Partial<SeatDraft>) => setSeats((s) => patchSeat(s, i, patch));
   const chooseGroup = (id: string) => {
     setGroupId(id);
@@ -675,7 +746,7 @@ function LogGame({ onClose }: { onClose: () => void }) {
         <p className="small dim" style={{ margin: 0 }}>List the players clockwise, so turn order counts from whoever went first.</p>
         {seats.map((s, i) => (
           <div key={i} className="stack" style={{ gap: "0.4rem" }}>
-            <SeatEditor index={i} seat={s} onChange={(p) => update(i, p)} group={group} decks={s.userId && s.userId === me.data?.id ? decks.data : undefined} />
+            <SeatEditor index={i} seat={s} onChange={(p) => update(i, p)} group={group} decks={s.userId && s.userId === me.data?.id ? decks.data : undefined} people={people} />
             <label className="check-row">
               <input type="radio" name="winner" checked={winner === i} onChange={() => setWinner(i)} />
               Won this game

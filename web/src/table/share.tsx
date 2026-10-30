@@ -29,7 +29,7 @@ export function shareKey(gameId: string): string {
 
 /** Guests may adjust the table, but only the host's phone ends the game. */
 const GUEST_EVENTS = new Set<TableEvent["type"]>([
-  "life", "poison", "commander_damage", "counter", "commander_cast", "monarch", "initiative", "day_night", "pass_turn", "eliminate", "revive",
+  "life", "poison", "commander_damage", "counter", "commander_cast", "monarch", "initiative", "day_night", "pass_turn", "eliminate", "revive", "seat",
 ]);
 
 /** Links people open on their own phones always point at the web app. */
