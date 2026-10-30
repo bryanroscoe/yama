@@ -42,6 +42,7 @@ import { PlanSettings } from "./plan/Settings";
 import { Spares } from "./plan/Spares";
 import { SwapSheetPage } from "./plan/SwapSheet";
 import { GuestTable } from "./table/GuestTable";
+import { GameDetailPage } from "./table/GameDetail";
 import { TableHome } from "./table/TableHome";
 import { TablePlay } from "./table/TablePlay";
 import { PlayGame } from "./play/PlayGame";
@@ -128,6 +129,7 @@ export function App() {
       <Route path="/play/watch/:id" element={<WatchGame />} />
       <Route element={<Shell />}>
         <Route index element={<TableHome />} />
+        <Route path="table/games/:id" element={<GameDetailPage />} />
         <Route path="play" element={<PlayHome />} />
         <Route path="play/watch" element={<WatchHome />} />
         <Route path="cards" element={<CardsPage />} />

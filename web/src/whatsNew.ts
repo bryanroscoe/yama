@@ -25,6 +25,21 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/decks", label: "Open your decks" },
   },
   {
+    id: "2026-10-29-table-pass",
+    date: "2026-10-29",
+    title: "A better table: search, partners, a knock-out check and two phone views",
+    items: [
+      "New game searches for players (you, your playgroups and people from your recent games) and for commanders, with their art in the list. Partners and Backgrounds get their own field, and a deck with two commanders brings both.",
+      "Pick the game first: Commander at 40, a 20-life game, or something else. Start says what it starts.",
+      "When someone reaches 0 life, 10 poison or 21 damage from one commander, the table asks whether they're out and who did it. A card that keeps them in? Say not out.",
+      "Tap the swords on a panel to deal that commander's damage: every other panel turns into its counter. Life comes off too.",
+      "A seat can change commanders mid-game from its player sheet. Energy, experience and rad sit under Other counters, with what uses each.",
+      "Following on your phone: switch between My seat and Whole table, and tap anyone to see or change their totals.",
+      "Recent games open to their details and a turn-by-turn history. A game still going can be followed live or carried on from your laptop. On a laptop the panels face the screen; the table menu switches it.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
     id: "2026-10-28-review-installs-lab",
     date: "2026-10-28",
     title: "A clearer Review, installs read from your decks, and a Lab tab",

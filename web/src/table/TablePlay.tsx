@@ -1,14 +1,21 @@
 import {
+  commanderSources,
   commanderTax,
+  keySeat,
+  sourceName,
+  COMMANDER_LETHAL,
   identityKeys,
-  lossReason,
+  lossOf,
+  lossesOf,
   MANA,
   panelFills,
   remaining,
   type ManaKey,
   COALESCE_MS,
   type CommanderKey,
+  type CommanderPick,
   type CounterKind,
+  type Loss,
   type FunRating,
   type LoggedEvent,
   type PlayerState,
@@ -16,13 +23,14 @@ import {
   type TableState,
   type WinCondition,
 } from "@yama/core";
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { Pips, Sheet } from "../components/ui";
 import { useCardArt, type CardArt } from "../components/useCardArt";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
-import { panelArt, setShowArt, useShowArt } from "./art";
+import { panelArt, setFacing, setShowArt, useFacing, useShowArt, type Facing } from "./art";
+import { CommanderFields, resolveDraft, type CommanderDraft } from "./pickers";
 import { ShareCard } from "./share";
 import { canUndo, discardGame, dispatch, finishGame, redo, undo, useSyncStatus, useTable } from "./store";
 
@@ -32,6 +40,24 @@ import "./table.css";
 import "./art-panel.css";
 
 /** Rotation for each seat so every player reads their own panel. Seats go clockwise. */
+/** Every panel upright, facing this screen: a grid, two across (three from five players). */
+export function uprightLayout(n: number): { cols: number; rows: number; cells: { seat: number; rot: number; area: string }[] } {
+  const cols = n <= 1 ? 1 : n <= 4 ? 2 : 3;
+  const rows = Math.ceil(n / cols);
+  const cells = Array.from({ length: n }, (_, i) => {
+    // An odd last panel spans what's left of its row, so the grid has no hole.
+    const r = Math.floor(i / cols) + 1;
+    const c = (i % cols) + 1;
+    const last = i === n - 1 && c < cols;
+    return { seat: i, rot: 0, area: last ? `${r} / ${c} / ${r + 1} / ${cols + 1}` : `${r} / ${c}` };
+  });
+  return { cols, rows, cells };
+}
+
+export function tableLayout(n: number, facing: Facing) {
+  return facing === "upright" ? uprightLayout(n) : layout(n);
+}
+
 export function layout(n: number): { cols: number; rows: number; cells: { seat: number; rot: number; area: string }[] } {
   switch (n) {
     case 1:
@@ -68,7 +94,10 @@ export function TablePlay() {
   const [knockSeat, setKnockSeat] = useState<number | null>(null);
   /** The winner being recorded (null = a draw), while the finish questions are open. */
   const [finishing, setFinishing] = useState<{ winner: number | null } | null>(null);
+  /** The commander dealing damage right now: tap each player it hit. */
+  const [attack, setAttack] = useState<{ seat: number; partner: boolean } | null>(null);
   const navigate = useNavigate();
+  const facing = useFacing();
 
   // Keep the screen on during a game where supported.
   useEffect(() => {
@@ -79,14 +108,15 @@ export function TablePlay() {
   }, []);
 
   const artFor = useTableArt(state?.players ?? []);
+  const lethal = useLethalPrompt(state);
 
   if (!game || !state) return <Navigate to="/" replace />;
-  const { cols, rows, cells } = layout(state.players.length);
+  const { cols, rows, cells } = tableLayout(state.players.length, facing);
   const alive = remaining(state);
   const fills = panelFills(state.players.map((p) => p.colorIdentity));
 
   return (
-    <div className="table" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
+    <div className={`table${attack ? " attacking" : ""}`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
       {cells.map(({ seat, rot, area }) => {
         const p = state.players.find((x) => x.seat === seat);
         if (!p) return null;
@@ -103,12 +133,20 @@ export function TablePlay() {
             artFor={artFor}
             onOpen={() => setSheetSeat(seat)}
             onKnockOut={() => setKnockSeat(seat)}
+            attack={attack}
+            onAttack={(partner) => setAttack(attack?.seat === seat && attack.partner === partner ? null : { seat, partner })}
           />
         );
       })}
-      <button className="hub" onClick={() => setMenu(true)} aria-label={`Turn ${state.turn}. Open table menu`}>
-        <span>{state.turn}</span>
-      </button>
+      {attack ? (
+        <button className="hub hub-done" onClick={() => setAttack(null)} aria-label="Done dealing commander damage">
+          <span>Done</span>
+        </button>
+      ) : (
+        <button className="hub" onClick={() => setMenu(true)} aria-label={`Turn ${state.turn}. Open table menu`}>
+          <span>{state.turn}</span>
+        </button>
+      )}
 
       {menu && (
         <Sheet label="Table menu" onClose={() => setMenu(false)}>
@@ -128,7 +166,16 @@ export function TablePlay() {
       )}
       {sheetSeat !== null && (
         <Sheet label="Player" onClose={() => setSheetSeat(null)}>
-          <PlayerSheet state={state} seat={sheetSeat} onClose={() => setSheetSeat(null)} artFor={artFor} />
+          <PlayerSheet
+            state={state}
+            seat={sheetSeat}
+            onClose={() => setSheetSeat(null)}
+            artFor={artFor}
+            onAttack={(partner) => {
+              setAttack({ seat: sheetSeat, partner });
+              setSheetSeat(null);
+            }}
+          />
         </Sheet>
       )}
       {knockSeat !== null && (
@@ -147,6 +194,11 @@ export function TablePlay() {
               navigate("/");
             }}
           />
+        </Sheet>
+      )}
+      {lethal.ask && !menu && !finishing && !attack && sheetSeat === null && knockSeat === null && (
+        <Sheet label="Out of the game?" onClose={lethal.dismiss}>
+          <LethalSheet state={state} seat={lethal.ask.seat} loss={lethal.ask.loss} onDone={lethal.dismiss} />
         </Sheet>
       )}
       {alive.length === 1 && state.players.length > 1 && !menu && !finishing && (
@@ -175,7 +227,8 @@ export type ArtFor = (seat: number, partner?: boolean) => CardArt | null;
 export function useTableArt(players: PlayerState[]): ArtFor {
   const showArt = useShowArt();
   const fromSetup = (p: PlayerState) => panelArt(p);
-  const looked = useCardArt(showArt ? players.flatMap((p) => [fromSetup(p) ? null : p.commanderName, p.partnerName]) : []);
+  const partnerFromSetup = (p: PlayerState) => panelArt({ art: p.partnerArt, artist: p.partnerArtist });
+  const looked = useCardArt(showArt ? players.flatMap((p) => [fromSetup(p) ? null : p.commanderName, partnerFromSetup(p) ? null : p.partnerName]) : []);
   const checked = (a: CardArt | null | undefined): CardArt | null => {
     const art = a ? panelArt({ art: a.art ?? undefined, artist: a.artist ?? undefined }) : null;
     return art ? { art, artist: a!.artist } : null;
@@ -184,11 +237,115 @@ export function useTableArt(players: PlayerState[]): ArtFor {
     if (!showArt) return null;
     const p = players.find((x) => x.seat === seat);
     if (!p) return null;
-    if (partner) return p.partnerName ? checked(looked.get(p.partnerName)) : null;
+    if (partner) {
+      if (!p.partnerName) return null;
+      const own = partnerFromSetup(p);
+      return own ? { art: own, artist: p.partnerArtist ?? null } : checked(looked.get(p.partnerName));
+    }
     const own = fromSetup(p);
     if (own) return { art: own, artist: p.artist ?? null };
     return p.commanderName ? checked(looked.get(p.commanderName)) : null;
   };
+}
+
+/**
+ * Ask whether a player is out once they reach a loss (0 life, 10 poison, 21 from one commander).
+ * It waits for the taps to settle, asks once per cause, and asks again if the cause goes away
+ * and comes back. `onlySeat` limits it to one seat (a guest's own phone).
+ */
+export function useLethalPrompt(state: TableState | null, onlySeat?: number | null) {
+  // Kept per game on this device, so leaving the table (or a reload) doesn't ask again.
+  const gameId = state?.setup.id ?? null;
+  const [dismissed, setDismissedState] = useState<string[]>(() => readDismissed(gameId));
+  const loadedFor = useRef(gameId);
+  if (loadedFor.current !== gameId) {
+    loadedFor.current = gameId;
+    setDismissedState(readDismissed(gameId));
+  }
+  const setDismissed = (f: (d: string[]) => string[]) =>
+    setDismissedState((d) => {
+      const next = f(d);
+      if (gameId && next !== d) {
+        if (next.length) localStorage.setItem(dismissedKey(gameId), JSON.stringify(next));
+        else localStorage.removeItem(dismissedKey(gameId));
+      }
+      return next;
+    });
+  const [ready, setReady] = useState<string | null>(null);
+  // Every active cause, so dismissing one (21 from Atraxa) still lets a later one (10 poison) ask.
+  const everyLoss = (state?.players ?? []).flatMap((p) => (state ? lossesOf(state, p) : []).map((loss) => ({ seat: p.seat, loss })));
+  const losses = everyLoss.filter((x) => onlySeat === undefined || x.seat === onlySeat);
+  // Answers are forgotten only when their cause is gone from the table, not when a guest's phone
+  // looks at another seat.
+  const live = everyLoss.map((x) => `${x.seat}:${x.loss.key}`);
+  const liveKey = live.join("|");
+  const pending = losses.find((x) => !dismissed.includes(`${x.seat}:${x.loss.key}`));
+  const pendingKey = pending ? `${pending.seat}:${pending.loss.key}` : null;
+  useEffect(() => {
+    setDismissed((d) => (d.every((k) => liveKey.split("|").includes(k)) ? d : d.filter((k) => liveKey.split("|").includes(k))));
+  }, [liveKey]);
+  useEffect(() => {
+    if (!pendingKey) return setReady(null);
+    // Every change restarts the wait, so a burst of taps (or lifelink right after) finishes first.
+    const t = window.setTimeout(() => setReady(pendingKey), 900);
+    return () => window.clearTimeout(t);
+  }, [pendingKey, state]);
+  return {
+    ask: pending && ready === pendingKey ? pending : null,
+    dismiss: () => pendingKey && setDismissed((d) => [...d, pendingKey]),
+  };
+}
+
+export const dismissedKey = (gameId: string) => `yama.table.dismissed.${gameId}`;
+function readDismissed(gameId: string | null): string[] {
+  if (!gameId) return [];
+  try {
+    const v = JSON.parse(localStorage.getItem(dismissedKey(gameId)) ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+const LOSS_RULE: Record<Loss["kind"], string> = {
+  commander_damage: `${COMMANDER_LETHAL} combat damage from one commander knocks a player out.`,
+  life: "A player at 0 life or less loses.",
+  poison: "Ten poison counters knock a player out.",
+};
+
+/** "Is Sam out?" with the cause, the rule, and who did it. */
+export function LethalSheet({ state, seat, loss, onDone }: { state: TableState; seat: number; loss: Loss; onDone: () => void }) {
+  const dispatch = useContext(DispatchContext);
+  const p = state.players.find((x) => x.seat === seat)!;
+  const others = state.players.filter((x) => x.seat !== seat && !x.eliminated);
+  const by = loss.bySeat === undefined ? undefined : state.players.find((x) => x.seat === loss.bySeat);
+  const out = (bySeat?: number) => {
+    dispatch(bySeat === undefined ? { type: "eliminate", seat } : { type: "eliminate", seat, bySeat });
+    onDone();
+  };
+  return (
+    <div className="stack lethal">
+      <div className="sheet-head">
+        <h2>Is {p.name} out?</h2>
+      </div>
+      <p className="lethal-cause">{loss.text}.</p>
+      <p className="small dim" style={{ margin: 0 }}>{LOSS_RULE[loss.kind]} Some cards keep a player in; if one does, keep playing.</p>
+      {by ? (
+        <button className="primary" onClick={() => out(by.seat)}>Yes, {by.name} knocked {p.name} out</button>
+      ) : (
+        <>
+          <p className="small" style={{ margin: 0 }}>Who knocked {p.name} out?</p>
+          <div className="row">
+            {others.map((o) => (
+              <button key={o.seat} onClick={() => out(o.seat)}>{o.name}</button>
+            ))}
+            <button className="outline" onClick={() => out()}>No one, or not sure</button>
+          </div>
+        </>
+      )}
+      <button className="quiet" onClick={onDone}>Not out, keep playing</button>
+    </div>
+  );
 }
 
 /** The running total of the current tap burst, for the little "−3" next to the number. */
@@ -223,8 +380,12 @@ export function Panel(props: {
   onKnockOut: () => void;
   /** A guest's own tall panel: + on the top half, − on the bottom half. */
   vertical?: boolean;
+  /** The commander dealing damage now, if any: other panels turn into its damage counters. */
+  attack?: { seat: number; partner: boolean } | null;
+  /** Start (or switch, or stop) dealing commander damage with this seat's commander. */
+  onAttack?: (partner: boolean) => void;
 }) {
-  const { p, rot, area, active, pending, onOpen, onKnockOut, state, fill, artFor, vertical = false } = props;
+  const { p, rot, area, active, pending, onOpen, onKnockOut, state, fill, artFor, vertical = false, attack = null, onAttack } = props;
   useTick(pending !== null); // clear the bubble once the burst ends
   const dispatch = useContext(DispatchContext);
   const showArt = useShowArt();
@@ -236,7 +397,12 @@ export function Panel(props: {
   const keys = identityKeys(p.colorIdentity);
   const base = MANA[fill];
   const out = !!p.eliminated;
-  const reason = out ? null : lossReason(p);
+  const loss = lossOf(state, p);
+  const commanderGame = state.setup.format === "commander" && state.players.length > 1;
+  const attacker = attack ? state.players.find((x) => x.seat === attack.seat) : undefined;
+  const attackKey = attack ? (`${attack.seat}${attack.partner ? "b" : ""}` as CommanderKey) : null;
+  const attackName = attacker ? ((attack!.partner ? attacker.partnerName : attacker.commanderName) ?? `${attacker.name}'s commander`) : "";
+  const attackArt = attack ? (artFor?.(attack.seat, attack.partner) ?? null) : null;
   const style = {
     gridArea: area,
     "--fill": base.fill,
@@ -250,10 +416,12 @@ export function Panel(props: {
     .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
     .map(([key, v]) => {
       const partner = key.endsWith("b");
-      const seat = Number(key.replace("b", ""));
+      const seat = keySeat(key);
       const from = state.players.find((x) => x.seat === seat);
-      const name = (partner ? from?.partnerName : from?.commanderName) ?? from?.name ?? "a commander";
-      return { key, amount: v ?? 0, name, art: artFor?.(seat, partner)?.art ?? null, fill: MANA[identityKeys(from?.colorIdentity ?? "")[0]!].fill };
+      const name = sourceName(state, key) ?? from?.name ?? "a commander";
+      // A commander the seat stopped playing has no art here: the seat's art is its new one now.
+      const gone = !!state.retired?.[key];
+      return { key, amount: v ?? 0, name, art: gone ? null : (artFor?.(seat, partner)?.art ?? null), fill: MANA[identityKeys(from?.colorIdentity ?? "")[0]!].fill };
     });
   // Wider totals get a smaller face so the number stays clear of the − and + at the ends.
   const digits = String(p.life).length;
@@ -272,7 +440,7 @@ export function Panel(props: {
 
   return (
     <section
-      className={`panel${active ? " active" : ""}${out ? " out" : ""}${art ? " has-art" : ""}${noArt ? " no-art" : ""}${!p.colorIdentity ? " no-identity" : ""}`}
+      className={`panel${active ? " active" : ""}${out ? " out" : ""}${attack?.seat === p.seat ? " attacker" : ""}${art ? " has-art" : ""}${noArt ? " no-art" : ""}${!p.colorIdentity ? " no-identity" : ""}`}
       style={style}
       aria-label={`${p.name}, ${p.life} life`}
     >
@@ -296,6 +464,9 @@ export function Panel(props: {
             {state.initiative === p.seat && <span className="badge">Initiative</span>}
             {p.poison > 0 && <span className="badge">{p.poison} poison</span>}
             {p.commanderCasts > 0 && <span className="badge">Tax +{commanderTax(p)}</span>}
+            {COUNTERS.filter((c) => (p.counters[c.kind] ?? 0) > 0).map((c) => (
+              <span key={c.kind} className="badge">{p.counters[c.kind]} {c.short}</span>
+            ))}
           </div>
           {damage.length > 0 && (
             <div className="cmdr-pills">
@@ -317,12 +488,51 @@ export function Panel(props: {
         </button>
         {/* Scryfall asks for the artist and copyright wherever an art crop shows. */}
         {art && <span className="panel-credit">{artCredit(art.artist)}</span>}
-        {reason && (
+        {loss && !attack && (
           <button className="out-prompt" onClick={onKnockOut}>
-            Out? {reason}
+            Out? {loss.text}
           </button>
         )}
         {out && <div className="out-label">Out on turn {p.eliminated!.turn}</div>}
+        {onAttack && commanderGame && !out && !attack && (
+          <button className="attack-btn" onClick={() => onAttack(false)} aria-label={`Deal commander damage with ${p.commanderName ?? `${p.name}'s commander`}`} title="Commander damage">
+            <SwordsIcon />
+          </button>
+        )}
+        {attack && attacker && !out && (
+          attack.seat === p.seat ? (
+            <div className="attack-layer is-attacker">
+              <span className="attack-title">{attackName} is dealing damage</span>
+              <span className="attack-hint">Tap + on each player it hit. Life comes off too.</span>
+              <span className="attack-actions">
+                {p.partnerName && (
+                  <button onClick={() => onAttack?.(!attack.partner)}>Switch to {attack.partner ? (p.commanderName ?? "commander") : p.partnerName}</button>
+                )}
+                <button className="primary" onClick={() => onAttack?.(attack.partner)}>Done</button>
+              </span>
+            </div>
+          ) : (
+            <div className="attack-layer">
+              <span className="attack-from">
+                {attackArt?.art ? <img src={attackArt.art} alt="" /> : <span className="cmdr-dot" style={{ background: MANA[identityKeys(attacker.colorIdentity)[0]!].fill }} />}
+                From {attackName}
+              </span>
+              <span className="attack-steps">
+                <Hold className="attack-step" label={`Take back 1 damage from ${attackName}`} onStep={(n) => dispatch({ type: "commander_damage", seat: p.seat, source: attackKey!, delta: -n })}>
+                  <span aria-hidden="true">−</span>
+                </Hold>
+                <span className={`attack-amount num${(p.commanderDamage[attackKey!] ?? 0) >= COMMANDER_LETHAL - 5 ? " warn" : ""}`} aria-live="polite">{p.commanderDamage[attackKey!] ?? 0}</span>
+                <Hold className="attack-step" label={`${p.name} takes 1 damage from ${attackName}`} onStep={(n) => dispatch({ type: "commander_damage", seat: p.seat, source: attackKey!, delta: n })}>
+                  <span aria-hidden="true">+</span>
+                </Hold>
+              </span>
+              <span className="attack-hint">
+                {(p.commanderDamage[attackKey!] ?? 0) >= COMMANDER_LETHAL ? "Lethal" : `${COMMANDER_LETHAL - (p.commanderDamage[attackKey!] ?? 0)} more is lethal`}
+              </span>
+              {attackArt?.art && <span className="attack-credit">{artCredit(attackArt.artist)}</span>}
+            </div>
+          )
+        )}
       </div>
     </section>
   );
@@ -376,6 +586,21 @@ function Hold({ onStep, className, label, children }: { onStep: (n: number) => v
   );
 }
 
+/** The rarer player counters, with a line on what uses each, behind "Other counters". */
+const COUNTERS: { kind: CounterKind; label: string; short: string; about: string }[] = [
+  { kind: "energy", label: "Energy", short: "energy", about: "Kaladesh-style cards give energy and spend it on their abilities." },
+  { kind: "experience", label: "Experience", short: "experience", about: "Commanders like Meren and Mizzix get stronger with each one." },
+  { kind: "rad", label: "Rad", short: "rad", about: "Fallout cards: at your first main phase, mill that many and lose 1 life per nonland." },
+];
+
+/** One sword: "this commander attacks". */
+const SwordsIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14.5 17.5 3 6V3h3l11.5 11.5" />
+    <path d="m13 19 6-6M16 16l4 4M19 21l2-2" />
+  </svg>
+);
+
 /** − value +, the steppers on the player sheet. Round buttons in rows, square ones on tiles. */
 function Steps({ label, value, onChange, shape = "round", warn = false }: { label: string; value: number; onChange: (d: number) => void; shape?: "round" | "square"; warn?: boolean }) {
   return (
@@ -387,14 +612,23 @@ function Steps({ label, value, onChange, shape = "round", warn = false }: { labe
   );
 }
 
-export function PlayerSheet({ state, seat, onClose, artFor }: { state: TableState; seat: number; onClose: () => void; artFor?: ArtFor }) {
+export function PlayerSheet({ state, seat, onClose, artFor, onAttack }: {
+  state: TableState;
+  seat: number;
+  onClose: () => void;
+  artFor?: ArtFor;
+  /** Deal commander damage with this seat's commander, tapping each player it hit. */
+  onAttack?: (partner: boolean) => void;
+}) {
   const dispatch = useContext(DispatchContext);
   const showArt = useShowArt();
   const [knocking, setKnocking] = useState(false);
+  const [changing, setChanging] = useState(false);
   const p = state.players.find((x) => x.seat === seat)!;
-  const opponents = state.players.filter((x) => x.seat !== seat);
-  const counters: CounterKind[] = ["energy", "experience", "rad"];
+  const commanderGame = state.setup.format === "commander";
   if (knocking) return <KnockOut state={state} seat={seat} onDone={onClose} onCancel={() => setKnocking(false)} />;
+  if (changing) return <ChangeCommander p={p} onDone={() => setChanging(false)} />;
+  const otherCounters = COUNTERS.some((c) => (p.counters[c.kind] ?? 0) > 0);
   const art = artFor ? artFor(seat) : showArt && panelArt(p) ? { art: p.art!, artist: p.artist ?? null } : null;
   const partnerArt = artFor?.(seat, true) ?? null;
   const tax = (partner: boolean) => {
@@ -427,64 +661,84 @@ export function PlayerSheet({ state, seat, onClose, artFor }: { state: TableStat
           <span className="ps-life art-big num" aria-label={`${p.life} life`}>{p.life}</span>
         </span>
       </ArtPanel>
+      <div className="ps-actions">
+        <span className="ps-actions-row">
+          {[-10, -5, 5, 10].map((d) => (
+            <button key={d} className="ps-jump" onClick={() => dispatch({ type: "life", seat, delta: d })} aria-label={`${d > 0 ? "Gain" : "Lose"} ${Math.abs(d)} life`}>
+              {d > 0 ? `+${d}` : `−${-d}`}
+            </button>
+          ))}
+        </span>
+        <span className="ps-actions-row">
+          {commanderGame && onAttack && state.players.length > 1 && !p.eliminated && (
+            <button className="outline" onClick={() => onAttack(false)}>
+              <SwordsIcon /> Deal commander damage
+            </button>
+          )}
+          {commanderGame && <button className="outline" onClick={() => setChanging(true)}>{p.commanderName ? "Change commander" : "Pick a commander"}</button>}
+        </span>
+      </div>
 
+      {commanderGame && state.players.length > 1 && (
       <section className="ps-section" aria-labelledby="ps-dmg">
         <div className="ps-section-head">
           <h2 id="ps-dmg">Commander damage taken</h2>
-          <span className="small dim">21 from one knocks you out</span>
+          <span className="small dim">{COMMANDER_LETHAL} from one knocks you out</span>
         </div>
         <div className="ps-rows">
-          {opponents.map((o) => {
-            const keys: CommanderKey[] = o.partnerName ? [`${o.seat}`, `${o.seat}b`] : [`${o.seat}`];
-            return keys.map((k) => {
-              const partner = k.endsWith("b");
-              const name = partner ? `${o.partnerName}` : (o.commanderName ?? "Their commander");
-              const value = p.commanderDamage[k] ?? 0;
-              const a = artFor?.(o.seat, partner) ?? null;
-              return (
-                <div key={k} className="ps-row">
-                  <SeatDot art={a} colorIdentity={o.colorIdentity} className="ps-row-art" />
-                  <span className="ps-row-text">
-                    <span className="ps-row-name">{name}</span>
-                    <span className="small dim">{o.name}</span>
-                  </span>
-                  <Steps label={`${name} damage`} value={value} warn={value >= 15} onChange={(d) => dispatch({ type: "commander_damage", seat, source: k, delta: d })} />
-                </div>
-              );
-            });
-          })}
-        </div>
-        <p className="small dim ps-note">Commander damage also comes off your life.</p>
-      </section>
-
-      <section className="ps-section" aria-labelledby="ps-counters">
-        <h2 id="ps-counters">Counters</h2>
-        <div className="ps-counters">
-          <div className="ps-counter">
-            <span className="ps-counter-text">
-              <span className="small dim">Poison</span>
-              <b className="num">{p.poison}</b>
-            </span>
-            <Steps label="Poison" value={p.poison} shape="square" onChange={(d) => dispatch({ type: "poison", seat, delta: d })} />
-          </div>
-          {counters.map((c) => {
-            const label = c[0]!.toUpperCase() + c.slice(1);
-            const v = p.counters[c] ?? 0;
+          {commanderSources(state, seat).map(({ key: k, seat: from, partner, name, retired }) => {
+            const o = state.players.find((x) => x.seat === from)!;
+            const value = p.commanderDamage[k] ?? 0;
+            const a = retired ? null : (artFor?.(from, partner) ?? null);
             return (
-              <div key={c} className="ps-counter">
-                <span className="ps-counter-text">
-                  <span className="small dim">{label}</span>
-                  <b className="num">{v}</b>
+              <div key={k} className="ps-row">
+                <SeatDot art={a} colorIdentity={o.colorIdentity} className="ps-row-art" />
+                <span className="ps-row-text">
+                  <span className="ps-row-name">{name}</span>
+                  <span className="small dim">{retired ? `${o.name}, before switching` : o.name}</span>
                 </span>
-                <Steps label={label} value={v} shape="square" onChange={(d) => dispatch({ type: "counter", seat, counter: c, delta: d })} />
+                <Steps label={`${name} damage`} value={value} warn={value >= COMMANDER_LETHAL - 6} onChange={(d) => dispatch({ type: "commander_damage", seat, source: k, delta: d })} />
               </div>
             );
           })}
         </div>
+        <p className="small dim ps-note">Commander damage also comes off your life.</p>
+      </section>
+      )}
+
+      <section className="ps-section" aria-labelledby="ps-counters">
+        <h2 id="ps-counters">Poison</h2>
+        <div className="ps-counters ps-counters-one">
+          <div className="ps-counter">
+            <span className="ps-counter-text">
+              <span className="small dim">Ten knocks you out</span>
+              <b className={`num${p.poison >= 7 ? " warn" : ""}`}>{p.poison}</b>
+            </span>
+            <Steps label="Poison" value={p.poison} shape="square" onChange={(d) => dispatch({ type: "poison", seat, delta: d })} />
+          </div>
+        </div>
       </section>
 
-      {tax(false)}
-      {p.partnerName && tax(true)}
+      {commanderGame && tax(false)}
+      {commanderGame && p.partnerName && tax(true)}
+
+      <OpenDetails label="Other counters" open={otherCounters} className="ps-more">
+        <p className="small dim" style={{ margin: "0 0 8px" }}>Only some cards use these. Leave them at 0 unless one does.</p>
+        <div className="ps-counters">
+          {COUNTERS.map((c) => {
+            const v = p.counters[c.kind] ?? 0;
+            return (
+              <div key={c.kind} className="ps-counter ps-counter-about">
+                <span className="ps-counter-text">
+                  <span className="small"><b>{c.label}</b> <span className="dim">{c.about}</span></span>
+                  <b className="num">{v}</b>
+                </span>
+                <Steps label={c.label} value={v} shape="square" onChange={(d) => dispatch({ type: "counter", seat, counter: c.kind, delta: d })} />
+              </div>
+            );
+          })}
+        </div>
+      </OpenDetails>
 
       <div className="ps-marks">
         <button className="outline" aria-pressed={state.monarch === seat} onClick={() => dispatch({ type: "monarch", seat: state.monarch === seat ? null : seat })}>
@@ -503,13 +757,68 @@ export function PlayerSheet({ state, seat, onClose, artFor }: { state: TableStat
   );
 }
 
+/** A disclosure that starts open when it holds something worth seeing. */
+function OpenDetails({ label, open, className, children }: { label: string; open: boolean; className?: string; children: ReactNode }) {
+  return (
+    <details className={`details-fold${className ? ` ${className}` : ""}`} open={open || undefined}>
+      <summary>{label}</summary>
+      <div className="details-body">{children}</div>
+    </details>
+  );
+}
+
+/** Mid-game: this seat is playing a different commander (or the one at setup was wrong). */
+function ChangeCommander({ p, onDone }: { p: PlayerState; onDone: () => void }) {
+  const dispatch = useContext(DispatchContext);
+  const [typed, setDraft] = useState<CommanderDraft>({
+    commanderName: p.commanderName,
+    partnerName: p.partnerName,
+    colorIdentity: p.colorIdentity,
+    art: p.art,
+    artist: p.artist,
+    partnerArt: p.partnerArt,
+    partnerArtist: p.partnerArtist,
+  });
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    // A name typed but never picked from the list still gets its card's art and colors.
+    const draft = await resolveDraft(typed);
+    const pick: CommanderPick = {
+      commanderName: draft.commanderName?.trim() || undefined,
+      partnerName: draft.partnerName?.trim() || undefined,
+      colorIdentity: draft.colorIdentity ?? "",
+      art: draft.art,
+      artist: draft.artist,
+      partnerArt: draft.partnerName ? draft.partnerArt : undefined,
+      partnerArtist: draft.partnerName ? draft.partnerArtist : undefined,
+    };
+    // The same commander (a fix to its art or partner) is still the same deck.
+    const sameDeck = pick.commanderName === p.commanderName;
+    dispatch({ type: "seat", seat: p.seat, ...pick, deckVersionId: sameDeck ? p.deckVersionId : undefined, was: { commanderName: p.commanderName, partnerName: p.partnerName } });
+    onDone();
+  };
+  return (
+    <div className="stack">
+      <div className="sheet-head">
+        <h2>{p.name}'s commander</h2>
+        <button className="quiet" onClick={onDone}>Cancel</button>
+      </div>
+      <CommanderFields value={typed} onChange={setDraft} autoFocus />
+      <p className="small dim" style={{ margin: 0 }}>Damage already dealt and taken stays as it is.</p>
+      <div className="row">
+        <button className="primary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+      </div>
+    </div>
+  );
+}
+
 /** Who knocked a player out, for the playgroup's rivalries. Suggests the commander that dealt 21. */
 export function KnockOut({ state, seat, onDone, onCancel }: { state: TableState; seat: number; onDone: () => void; onCancel?: () => void }) {
   const dispatch = useContext(DispatchContext);
   const p = state.players.find((x) => x.seat === seat)!;
   const others = state.players.filter((x) => x.seat !== seat && !x.eliminated);
-  const lethal = Object.entries(p.commanderDamage).find(([, d]) => (d ?? 0) >= 21)?.[0];
-  const suggested = lethal === undefined ? null : Number.parseInt(lethal, 10);
+  const suggested = lossOf(state, p)?.bySeat ?? null;
   const out = (bySeat?: number) => {
     dispatch(bySeat === undefined ? { type: "eliminate", seat } : { type: "eliminate", seat, bySeat });
     onDone();
@@ -743,6 +1052,7 @@ function TableMenu({ state, onClose, onLeave, onFinish, aliveCount, artFor, turn
           </div>
         </div>
       )}
+      <FacingChoice />
       {/* Offered while art is showing, and always once it's switched off, so it can come back. */}
       {(artists.length > 0 || !showArt) && (
         <button className="quiet small tm-art-toggle" onClick={() => setShowArt(!showArt)}>
@@ -756,6 +1066,20 @@ function TableMenu({ state, onClose, onLeave, onFinish, aliveCount, artFor, turn
         <button className="tm-link" onClick={onLeave}>Leave it running</button>
       </div>
       {artists.length > 0 && <p className="tm-credit">Commander art: {artCredits(artists)}</p>}
+    </div>
+  );
+}
+
+/** Which way the panels face on this device. */
+function FacingChoice() {
+  const facing = useFacing();
+  return (
+    <div className="tm-facing setup-choice">
+      <span id="tm-facing" className="field-label">Panels</span>
+      <div className="segmented" role="group" aria-labelledby="tm-facing">
+        <button type="button" aria-pressed={facing === "around"} onClick={() => setFacing("around")}>Face each player</button>
+        <button type="button" aria-pressed={facing === "upright"} onClick={() => setFacing("upright")}>All face this screen</button>
+      </div>
     </div>
   );
 }
