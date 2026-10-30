@@ -219,7 +219,8 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(self.jvm().started, 1)
 
     def test_a_jvm_is_replaced_after_a_game_at_forges_time_limit(self):
-        self.game("capped")
+        r = self.game("capped")  # the fake prints a win: the JVM's "timeout" decides
+        self.assertEqual((r["end"], r["winner"]), ("time_cap", None))
         self.assertFalse(self.jvm().alive)
         self.assertEqual(self.game("g1")["end"], "win")
         self.assertEqual(self.jvm().started, 2)

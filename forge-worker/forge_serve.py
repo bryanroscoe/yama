@@ -42,6 +42,7 @@ START_TIMEOUT = 100
 RECYCLE_GAMES = 200
 RECYCLE_HEAP = 0.8
 ERR_TAIL = 3
+STOPPING = "Stopping slow match as draw"  # what Forge prints when a game hits its time limit
 
 
 def serve_jar(forge):
@@ -211,13 +212,15 @@ def play(jvm, job, forge, decks, runner_label, profile, max_seconds=None):
     cap = max_seconds or int(job["max_seconds"])
     t0 = time.monotonic()
     try:
-        stdout, stderr, _status = jvm.run(job["game"], F.java_long(job["seed"]), cap, profile,
-                                          [d.dck_rel for d in order], cap + F.KILL_GRACE)
+        stdout, stderr, status = jvm.run(job["game"], F.java_long(job["seed"]), cap, profile,
+                                         [d.dck_rel for d in order], cap + F.KILL_GRACE)
     except JvmFailed as e:
         res["error"] = str(e)
         res["ms"] = int((time.monotonic() - t0) * 1000)
         return res
     wall = time.monotonic() - t0
+    if status == "timeout" and STOPPING not in stdout.splitlines():
+        stdout += f"\n{STOPPING}\n"  # the JVM says Forge hit its time limit: score it as forge_runner would (time_cap)
     info = F.parse_game(stdout, stderr, n, rotation, int(job["max_turns"]))
     for k in ("first_seat", "winner", "placements", "eliminations", "end", "turns", "final_life"):
         if k in info:
