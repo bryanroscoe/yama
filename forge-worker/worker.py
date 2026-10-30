@@ -88,6 +88,8 @@ class Worker:
             self.jvms = queue.SimpleQueue()
             for n in range(slots):
                 self.jvms.put(S.ServeJvm(forge, jar, n, xmx=xmx, jvm_cpus=jvm_cpus))
+        else:  # games may play differently from long-lived JVMs (warm JIT, AI time-outs): never pool the two
+            self.label += " one-jvm-per-game"
         self.lock = threading.Lock()
         self.playing = {}  # key -> threading.Event
         self.answers = OrderedDict()  # key -> result, newest last
@@ -229,7 +231,8 @@ class Worker:
             return
         def start(jvm):
             try:
-                jvm.start()
+                if not jvm.alive:
+                    jvm.start()
             except Exception as e:  # the game that gets this JVM starts it again and reports the failure
                 print(f"forge-worker: JVM {jvm.n} didn't start: {e}", file=sys.stderr)
                 jvm.stop()

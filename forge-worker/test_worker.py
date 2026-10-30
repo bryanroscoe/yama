@@ -3,6 +3,7 @@
   python3 forge-worker/test_worker.py
 """
 import json
+import os
 import re
 import sys
 import tempfile
@@ -149,7 +150,9 @@ class HttpTests(unittest.TestCase):
 
 
 FAKE_SERVE = r'''
-import sys, time
+import os, sys, time
+if os.path.exists(os.environ.get("FAKE_FAIL_START", "/nonexistent")):
+    os.remove(os.environ["FAKE_FAIL_START"]); sys.stderr.write("Error: Could not find or load main class\n"); sys.exit(1)
 print("Forge prints its card loading here", flush=True)
 print("ready", flush=True)
 for line in sys.stdin:
@@ -159,6 +162,12 @@ for line in sys.stdin:
         sys.stderr.write("java.lang.OutOfMemoryError: Java heap space\n"); sys.stderr.flush(); sys.exit(3)
     if game == "hang":
         time.sleep(60)
+    if game == "liar":
+        print("done\tsomething-else\tok\t1", flush=True); continue
+    if game == "setup":
+        open(out, "w").write("Simulation mode\n")
+        open(out + ".err", "w").write("java.lang.IllegalStateException: no deck\n")
+        print(f"done\t{game}\terror\t1", flush=True); continue
     names = [f"Ai({i + 1})-{d.split('/')[-1][:-4]}" for i, d in enumerate(decks)]
     log = ["Simulation mode", f"Turn: Turn 1 ({names[0]})"]
     log += [f"Game Outcome: {names[0]} has won because all opponents have lost"]
@@ -184,6 +193,8 @@ class ServeTests(unittest.TestCase):
         java.chmod(0o755)
         self.forge = SimpleNamespace(engine="forge 9.9", card_data="forge res 9.9", version="9.9", dir=t / "forge",
                                      res=t / "forge/res", jar=t / "forge/forge.jar", java=str(java))
+        self.fail_start = t / "fail-start"
+        os.environ["FAKE_FAIL_START"] = str(self.fail_start)
         self.w = W.Worker(self.forge, NAMES, slots=1)
 
     def tearDown(self):
@@ -226,9 +237,51 @@ class ServeTests(unittest.TestCase):
             jvm.run("hang", 1, 900, "Default", ["a.dck", "b.dck"], timeout=1)
         self.assertFalse(jvm.alive)
 
+    def test_a_hung_game_is_an_error_result_and_the_next_game_gets_a_new_jvm(self):
+        jvm = self.jvm()
+        grace = F.KILL_GRACE
+        F.KILL_GRACE = 1
+        try:
+            decks = {d: F.Deck(d, [(1, "Ghave, Guru of Spores")], [(99, "Forest")], f"{d}.dck") for d in ("base", "o1")}
+            job = {"game": "hang", "seed": 7, "decks": ["base", "o1"], "max_turns": 120, "max_seconds": 1}
+            r = S.play(jvm, job, self.forge, decks, "label", "Default")
+        finally:
+            F.KILL_GRACE = grace
+        self.assertEqual(r["end"], "error")
+        self.assertIn("killed: Forge still running 2s after the game was sent", r["error"])
+        self.assertEqual(self.game("g1")["end"], "win")
+        self.assertEqual(jvm.started, 2)
+
+    def test_a_reply_for_another_game_fails_that_game(self):
+        r = self.game("liar")
+        self.assertIn("Forge answered for another game", r["error"])
+        self.assertEqual(self.game("g1")["end"], "win")
+
+    def test_a_game_whose_setup_threw_reports_the_exception_and_replaces_the_jvm(self):
+        r = self.game("setup")
+        self.assertEqual(r["end"], "error")
+        self.assertIn("IllegalStateException: no deck", r["error"])
+        self.assertFalse(self.jvm().alive)
+
+    def test_warm_starts_the_jvms_and_a_failed_start_is_retried_by_the_first_game(self):
+        self.fail_start.write_text("")
+        self.w.warm()
+        jvm = self.w.jvms.get()  # back in the queue once its start finished (failed)
+        self.w.jvms.put(jvm)
+        self.assertFalse(jvm.alive)
+        self.assertFalse(self.fail_start.exists())
+        self.assertEqual(self.game("g1")["end"], "win")
+        self.w.warm()  # a running JVM isn't started twice
+        jvm = self.w.jvms.get()
+        self.w.jvms.put(jvm)
+        self.assertEqual((jvm.alive, jvm.started), (True, 2))
+
     def test_without_yama_serve_jar_or_with_serve_off_every_game_gets_its_own_jvm(self):
         self.assertIsNone(W.Worker(FORGE, NAMES).jvms)
-        self.assertIsNone(W.Worker(self.forge, NAMES, serve=False).jvms)
+        off = W.Worker(self.forge, NAMES, serve=False)
+        self.assertIsNone(off.jvms)
+        self.assertTrue(off.label.endswith(" one-jvm-per-game"))
+        self.assertFalse(self.w.label.endswith(" one-jvm-per-game"))
 
     def test_xmx_sizes(self):
         self.assertEqual([S.xmx_mb(x) for x in ("1536m", "2g", "2048k", str(2**30))], [1536, 2048, 2, 1024])

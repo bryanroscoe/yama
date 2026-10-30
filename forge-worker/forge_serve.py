@@ -7,11 +7,12 @@ start the game with, so a game plays move for move as it does in its own JVM, an
 forge_runner.parse_game reads it.
 
   stdin:  game \t seed \t capSeconds \t outFile \t profile \t deckDir \t deck1.dck ...
-  stdout: "ready" once the card database is loaded, then "done \t game \t ok|timeout \t heapUsedMB" per game.
+  stdout: "ready" once the card database is loaded, then "done \t game \t ok|timeout|error \t heapUsedMB" per game
+          (the heap after a full GC; "error": an exception escaped the game's setup, its trace in the game's stderr).
           Anything else on stdout (a Forge thread printing between games) is ignored.
 
 A JVM is replaced after a game that hit Forge's own time limit (Forge only interrupts that game's thread, which may
-still be running), after RECYCLE_GAMES games, when its heap is past RECYCLE_HEAP of -Xmx after a game, and when it
+still be running) or whose setup threw, after RECYCLE_GAMES games, when its heap is past RECYCLE_HEAP of -Xmx after a game, and when it
 dies or is killed. The game that was playing when a JVM died or was killed gets an error result, as in one-JVM-per-
 game mode.
 
@@ -34,7 +35,10 @@ import forge_runner as F  # noqa: E402
 
 SERVE_JAR = "yama-serve.jar"
 SERVE_CLASS = "yama.serve.Serve"
-START_TIMEOUT = 300  # seconds to load the card database (about 5 s normally)
+# Seconds to load the card database (about 5 s normally). A JVM that died is restarted inside the next game's /play,
+# so this plus the game's cap plus forge_runner.KILL_GRACE must stay under the server's wait (cap + PLAY_GRACE, 300 s
+# in server/src/lab/forge.rs).
+START_TIMEOUT = 100
 RECYCLE_GAMES = 200
 RECYCLE_HEAP = 0.8
 ERR_TAIL = 3
@@ -93,14 +97,19 @@ class ServeJvm:
         (w / "forge.profile.properties").write_text(f"userDir={w}/userdata/\ncacheDir={w}/cache/\n")
         self.dir = w
         self.err = open(w / "jvm.err", "wb")
-        self.proc = subprocess.Popen(self._cmd(), cwd=w, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=self.err, start_new_session=os.name == "posix", text=True,
-                                     encoding="utf-8", errors="replace", bufsize=1)
+        try:
+            self.proc = subprocess.Popen(self._cmd(), cwd=w, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                         stderr=self.err, start_new_session=os.name == "posix", text=True,
+                                         encoding="utf-8", errors="replace", bufsize=1)
+        except OSError as e:
+            self.err.close()
+            self.stop()
+            raise JvmFailed(f"Forge didn't start: {e}") from None
         self.replies = queue.Queue()
         threading.Thread(target=self._read, args=(self.proc, self.replies), daemon=True).start()
         self.games = 0
         self.started += 1
-        reply = self._reply(START_TIMEOUT)
+        reply = self._reply(START_TIMEOUT, "killed: Forge hadn't loaded its cards {timeout}s after it started")
         if reply != "ready":
             raise JvmFailed(f"Forge didn't start: {reply}")
 
@@ -113,13 +122,13 @@ class ServeJvm:
         finally:
             replies.put(None)
 
-    def _reply(self, timeout):
+    def _reply(self, timeout, late="killed: Forge still running {timeout}s after the game was sent"):
         """The JVM's next reply line; JvmFailed if it exits or doesn't answer in time (then it's stopped)."""
         try:
             reply = self.replies.get(timeout=timeout)
         except queue.Empty:
             self.stop()
-            raise JvmFailed(f"killed: Forge still running {timeout}s after the game was sent") from None
+            raise JvmFailed(late.format(timeout=timeout)) from None
         if reply is None:
             code = self.proc.wait()
             tail = self._err_tail()

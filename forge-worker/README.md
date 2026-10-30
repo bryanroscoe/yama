@@ -13,7 +13,7 @@ Forge as a second engine for Yama's Lab runs (server/src/lab/forge.rs, deploy/Do
   (`DECK_CACHE`, `WORK_ROOT`, the card index folder) and the seed it passes Forge.
 - Forge itself is Yama's own build, not a release: `deploy/Dockerfile.forge-worker` unpacks a pinned tarball
   (forge-referee `dist/build-dist.sh`; current build `yama3`: yama2's Forge, master 3ead7e68 with AI speed fixes, see
-  forge-referee `patches/yama2/README.md`, plus `yama-serve.jar`). Results carry its label, `forge 2.0.16-745401a4+yama3.5bddec19`.
+  forge-referee `patches/yama2/README.md`, plus `yama-serve.jar`). Results carry its label, `forge 2.0.16-745401a4+yama3.54567890`.
 - `test_worker.py`: `python3 forge-worker/test_worker.py` (no Forge needed).
 
 Forge (https://github.com/Card-Forge/forge) is GPL-3.0 and runs as separate programs (its own JVMs). None of

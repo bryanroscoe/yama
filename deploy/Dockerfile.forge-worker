@@ -19,10 +19,10 @@ ARG JAVA_IMAGE=eclipse-temurin:17-jre
 # deploy/forge-dist.sh installs it on saget as the local image yama-forge-dist:<FORGE_DIST>. The build refuses a
 # tarball whose SHA-256 isn't this pin. Without the image the release build fails for all three services and
 # production keeps running: install it before merging a new pin. The jar is renamed to end in the first 8 digits
-# of that SHA-256, so results carry "forge <version>.<sha8>" (forge 2.0.16-745401a4+yama3.5bddec19: the Forge
+# of that SHA-256, so results carry "forge <version>.<sha8>" (forge 2.0.16-745401a4+yama3.54567890: the Forge
 # branch commit, the build's name and the tarball): another tarball never shares a label.
 ARG FORGE_DIST=yama3
-ARG FORGE_DIST_SHA256=5bddec1962df8f39d1a6f4d0c428e2707d046c69922c63d9aed642363d753fa5
+ARG FORGE_DIST_SHA256=54567890aa6641b61c02ea5d3b613fb33fa0ccf24a46858e67f4278dec9caac3
 ARG FORGE_DIST_IMAGE=yama-forge-dist:${FORGE_DIST}
 
 FROM ${FORGE_DIST_IMAGE} AS forgedist
@@ -40,6 +40,7 @@ RUN echo "${FORGE_DIST_SHA256}  /tmp/forge-dist.tar.gz" | sha256sum -c - \
  && test -f /opt/forge/current/res/cardsfolder/cardsfolder.zip \
  && cd /opt/forge/current \
  && test "$(ls forge-gui-desktop-*-jar-with-dependencies.jar | wc -l)" = 1 \
+ && test -f yama-serve.jar \
  && j=$(ls forge-gui-desktop-*-jar-with-dependencies.jar) && v=${j#forge-gui-desktop-} && v=${v%-jar-with-dependencies.jar} \
  && mv "$j" "forge-gui-desktop-$v.$(echo "${FORGE_DIST_SHA256}" | cut -c1-8)-jar-with-dependencies.jar" \
  && chmod -R a+rX /opt/forge
