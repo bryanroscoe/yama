@@ -46,7 +46,17 @@ export function SwapCardsPage() {
     check();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(check);
     observer?.observe(root);
-    return () => observer?.disconnect();
+    // The cards are a fixed size, so a web font that loads late and wraps more text doesn't resize
+    // anything: check again when fonts finish loading.
+    const fonts = root.ownerDocument.fonts;
+    let live = true;
+    void fonts?.ready.then(() => live && check());
+    fonts?.addEventListener("loadingdone", check);
+    return () => {
+      live = false;
+      observer?.disconnect();
+      fonts?.removeEventListener("loadingdone", check);
+    };
   }, [cards]);
 
   const title = deckKey ? `${deck?.name ?? "Deck"} swap card` : "Swap cards";
