@@ -78,7 +78,10 @@ pub fn clean(mut snaps: Vec<Snapshot>, as_of: DateTime<Utc>, notes: &mut Vec<Str
     let before = snaps.len();
     snaps.retain(|s| s.as_of <= as_of && s.games > 0 && s.rate.is_finite() && (0.0..=100.0).contains(&s.rate));
     if snaps.len() < before {
-        notes.push(format!("{} snapshot(s) dated after the evaluation date or out of range were left out", before - snaps.len()));
+        notes.push(format!(
+            "{} snapshot(s) dated after the evaluation date or out of range were left out",
+            before - snaps.len()
+        ));
     }
     snaps.sort_by(|a, b| a.as_of.cmp(&b.as_of).then(a.games.cmp(&b.games)));
     let mut same_time: Vec<Snapshot> = Vec::new();
@@ -89,10 +92,17 @@ pub fn clean(mut snaps: Vec<Snapshot>, as_of: DateTime<Utc>, notes: &mut Vec<Str
             j += 1;
         }
         let group = &snaps[i..j];
-        if group.iter().all(|s| s.games == group[0].games && (s.rate - group[0].rate).abs() < 0.005) {
+        if group
+            .iter()
+            .all(|s| s.games == group[0].games && (s.rate - group[0].rate).abs() < 0.005)
+        {
             same_time.push(group[0]);
         } else {
-            notes.push(format!("{} conflicting snapshots at {} were left out", group.len(), group[0].as_of.date_naive()));
+            notes.push(format!(
+                "{} conflicting snapshots at {} were left out",
+                group.len(),
+                group[0].as_of.date_naive()
+            ));
         }
         i = j;
     }
@@ -136,7 +146,10 @@ pub fn intervals(snaps: &[Snapshot], min_games: u64, notes: &mut Vec<String>) ->
             *cuts.last_mut().unwrap() = last;
         } else {
             cuts.push(last);
-            notes.push(format!("only {} new games across the snapshots, under the {min_games} an interval normally needs", snaps[last].games - snaps[0].games));
+            notes.push(format!(
+                "only {} new games across the snapshots, under the {min_games} an interval normally needs",
+                snaps[last].games - snaps[0].games
+            ));
         }
     }
     let mut out = Vec::new();
@@ -144,10 +157,19 @@ pub fn intervals(snaps: &[Snapshot], min_games: u64, notes: &mut Vec<String>) ->
         let (a, b) = (&snaps[w[0]], &snaps[w[1]]);
         let rate = implied(a, b);
         if !(0.0..=100.0).contains(&rate) {
-            notes.push(format!("the implied rate from {} to {} was out of range ({rate:.1}%) and was left out", a.as_of.date_naive(), b.as_of.date_naive()));
+            notes.push(format!(
+                "the implied rate from {} to {} was out of range ({rate:.1}%) and was left out",
+                a.as_of.date_naive(),
+                b.as_of.date_naive()
+            ));
             continue;
         }
-        out.push(Interval { from: a.as_of, to: b.as_of, games: b.games - a.games, rate });
+        out.push(Interval {
+            from: a.as_of,
+            to: b.as_of,
+            games: b.games - a.games,
+            rate,
+        });
     }
     out
 }
@@ -162,7 +184,14 @@ pub fn recent(intervals: &[Interval], as_of: DateTime<Utc>, half_life_days: u32)
         sum += w * i.rate;
         games += i.games;
     }
-    (weight > 0.0).then(|| Recent { rate: sum / weight, games, effective_games: weight, from: first.from, to: last.to, half_life_days })
+    (weight > 0.0).then(|| Recent {
+        rate: sum / weight,
+        games,
+        effective_games: weight,
+        from: first.from,
+        to: last.to,
+        half_life_days,
+    })
 }
 
 /// Games-weighted least-squares slope of the interval rates against their midpoints.
@@ -171,7 +200,10 @@ pub fn trend(intervals: &[Interval]) -> Option<f64> {
         return None;
     }
     let origin = intervals[0].from;
-    let pts: Vec<(f64, f64, f64)> = intervals.iter().map(|i| (days(origin, midpoint(i.from, i.to)), i.rate, i.games as f64)).collect();
+    let pts: Vec<(f64, f64, f64)> = intervals
+        .iter()
+        .map(|i| (days(origin, midpoint(i.from, i.to)), i.rate, i.games as f64))
+        .collect();
     let w: f64 = pts.iter().map(|p| p.2).sum();
     let mx = pts.iter().map(|p| p.0 * p.2).sum::<f64>() / w;
     let my = pts.iter().map(|p| p.1 * p.2).sum::<f64>() / w;
@@ -201,7 +233,11 @@ mod tests {
         format!("{day}T16:00:00Z").parse().unwrap()
     }
     fn snap(day: &str, games: u64, rate: f64) -> Snapshot {
-        Snapshot { as_of: at(day), games, rate }
+        Snapshot {
+            as_of: at(day),
+            games,
+            rate,
+        }
     }
     /// Riders of Rohan's recorded playgroup.gg snapshots (dataset playgroup-history-20261028).
     fn rohan() -> Vec<Snapshot> {
@@ -241,7 +277,12 @@ mod tests {
 
     #[test]
     fn a_falling_count_restarts_the_chain_and_future_snapshots_wait() {
-        let s = vec![snap("2026-06-01", 500, 25.0), snap("2026-07-01", 100, 20.0), snap("2026-08-01", 200, 22.0), snap("2026-12-01", 300, 30.0)];
+        let s = vec![
+            snap("2026-06-01", 500, 25.0),
+            snap("2026-07-01", 100, 20.0),
+            snap("2026-08-01", 200, 22.0),
+            snap("2026-12-01", 300, 30.0),
+        ];
         let h = history(s, at("2026-10-29"), 180);
         assert_eq!(h.snapshots.len(), 2);
         assert_eq!(h.intervals.len(), 1);
@@ -251,7 +292,11 @@ mod tests {
 
     #[test]
     fn same_games_with_a_new_rate_is_a_revision() {
-        let s = vec![snap("2026-08-01", 100, 20.0), snap("2026-08-02", 100, 21.0), snap("2026-09-01", 200, 22.0)];
+        let s = vec![
+            snap("2026-08-01", 100, 20.0),
+            snap("2026-08-02", 100, 21.0),
+            snap("2026-09-01", 200, 22.0),
+        ];
         let h = history(s, at("2026-10-29"), 180);
         assert_eq!(h.snapshots.len(), 2);
         assert!((h.intervals[0].rate - 23.0).abs() < 1e-9);
@@ -259,7 +304,11 @@ mod tests {
 
     #[test]
     fn too_few_new_games_stand_alone_with_a_note() {
-        let h = history(vec![snap("2026-08-01", 100, 20.0), snap("2026-09-01", 110, 20.5)], at("2026-10-29"), 180);
+        let h = history(
+            vec![snap("2026-08-01", 100, 20.0), snap("2026-09-01", 110, 20.5)],
+            at("2026-10-29"),
+            180,
+        );
         assert_eq!(h.intervals.len(), 1);
         assert_eq!(h.intervals[0].games, 10);
         assert!(h.notes[0].contains("only 10 new games"));
@@ -269,7 +318,11 @@ mod tests {
     #[test]
     fn out_of_range_intervals_are_left_out() {
         // 100 games at 50% then 140 at 10%: the 40 new games would imply −90%.
-        let h = history(vec![snap("2026-08-01", 100, 50.0), snap("2026-09-01", 140, 10.0)], at("2026-10-29"), 180);
+        let h = history(
+            vec![snap("2026-08-01", 100, 50.0), snap("2026-09-01", 140, 10.0)],
+            at("2026-10-29"),
+            180,
+        );
         assert!(h.intervals.is_empty());
         assert!(h.recent.is_none());
         assert!(h.notes[0].contains("out of range"));
@@ -277,7 +330,12 @@ mod tests {
 
     #[test]
     fn recency_favours_newer_intervals_and_trend_has_a_sign() {
-        let s = vec![snap("2026-01-01", 100, 30.0), snap("2026-03-01", 200, 30.0), snap("2026-05-01", 300, 26.666_666_666_666_668), snap("2026-07-01", 400, 25.0)];
+        let s = vec![
+            snap("2026-01-01", 100, 30.0),
+            snap("2026-03-01", 200, 30.0),
+            snap("2026-05-01", 300, 26.666_666_666_666_668),
+            snap("2026-07-01", 400, 25.0),
+        ];
         // Intervals: 30%, then 20%, then 20%.
         let h = history(s, at("2026-07-01"), 180);
         let rates: Vec<String> = h.intervals.iter().map(|i| format!("{:.1}", i.rate)).collect();
@@ -286,6 +344,9 @@ mod tests {
         assert!(r.rate < 100.0 * 70.0 / 300.0 && r.rate > 20.0, "{}", r.rate);
         assert!(h.trend_points_per_30_days.unwrap() < 0.0);
         let long = recent(&h.intervals, at("2026-07-01"), 3650).unwrap();
-        assert!((long.rate - 70.0 / 3.0).abs() < 0.2, "a long half-life is close to the plain games-weighted mean");
+        assert!(
+            (long.rate - 70.0 / 3.0).abs() < 0.2,
+            "a long half-life is close to the plain games-weighted mean"
+        );
     }
 }

@@ -56,10 +56,10 @@ export function periodLabel(value: unknown): string {
 /** What the shared precon pages take from datasets (admin only, server/src/precon_evidence). */
 export interface PreconEvidenceReport {
   sources: { owner: string; source_name: string; enabled_at: string }[];
-  source_label: { name: string; datasets: { id: string; revision: number; imported_at: string }[] } | null;
+  source_labels: { name: string; datasets: { id: string; revision: number; imported_at: string }[] }[];
   entities: number; catalog_precons: number; catalog_without_real_games: number;
-  matched: Record<string, [string, string]>;
-  unmatched: { entity: string; name: string; url: string | null; reason: string }[];
+  matched: Record<string, [string, string, string][]>;
+  unmatched: { source: string; entity: string; name: string; url: string | null; reason: string }[];
 }
 export const preconEvidence = () => api<PreconEvidenceReport>("/api/admin/precon-evidence");
 export const setPreconEvidence = (source: string, on: boolean) =>

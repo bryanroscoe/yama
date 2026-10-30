@@ -45,7 +45,9 @@ fn rohan(source: &str) -> Vec<Value> {
 }
 
 async fn import(pool: &SqlitePool, owner: &str, doc: &Value) {
-    crate::datasets::import(pool, owner, &serde_json::to_vec(doc).unwrap(), false).await.unwrap();
+    crate::datasets::import(pool, owner, &serde_json::to_vec(doc).unwrap(), false)
+        .await
+        .unwrap();
 }
 
 async fn precon(pool: &SqlitePool, id: &str, name: &str, playgroup: Option<(&str, &str)>, playgroup_id: Option<i64>) {
@@ -96,14 +98,28 @@ async fn a_new_revision_or_a_second_dataset_updates_the_history() {
     precon(&pool, "test-riders", "Riders of Rohan", None, None).await;
     enable(&pool, &owner, "Playgroup.gg").await.unwrap();
     import(&pool, &owner, &document("playgroup-history", rohan(SHA_A))).await;
-    let before = load(&pool, at("2026-10-29")).await.unwrap().by_precon.remove("test-riders").unwrap().real.unwrap();
+    let before = load(&pool, at("2026-10-29"))
+        .await
+        .unwrap()
+        .by_precon
+        .remove("test-riders")
+        .unwrap()
+        .real
+        .unwrap();
     assert_eq!(before.latest.games, 447);
 
     // A later upload of the same dataset adds a snapshot: the history follows the active revision.
     let mut newer = rohan(SHA_A);
     newer.push(precon_obs("test-riders", "Riders of Rohan", "2026-10-28", 477, 19.81, SHA_A));
     import(&pool, &owner, &document("playgroup-history", newer)).await;
-    let after = load(&pool, at("2026-10-29")).await.unwrap().by_precon.remove("test-riders").unwrap().real.unwrap();
+    let after = load(&pool, at("2026-10-29"))
+        .await
+        .unwrap()
+        .by_precon
+        .remove("test-riders")
+        .unwrap()
+        .real
+        .unwrap();
     assert_eq!(after.latest.games, 477);
     assert_eq!(after.source.datasets[0].revision, 2);
     assert_eq!(after.history.recent.as_ref().unwrap().games, 214);
@@ -114,7 +130,14 @@ async fn a_new_revision_or_a_second_dataset_updates_the_history() {
         precon_obs("test-riders", "Riders of Rohan", "2026-12-01", 600, 19.0, SHA_A),
     ];
     import(&pool, &owner, &document("playgroup-december", later)).await;
-    let merged = load(&pool, at("2026-12-02")).await.unwrap().by_precon.remove("test-riders").unwrap().real.unwrap();
+    let merged = load(&pool, at("2026-12-02"))
+        .await
+        .unwrap()
+        .by_precon
+        .remove("test-riders")
+        .unwrap()
+        .real
+        .unwrap();
     assert_eq!(merged.latest.games, 600);
     assert_eq!(merged.history.snapshots.len(), 5);
     assert_eq!(merged.source.datasets.len(), 2);
@@ -126,7 +149,14 @@ async fn links_prefer_the_source_url_then_name_and_operators_can_correct_them() 
     let (owner, _) = user(&pool, "bryan@example.com").await;
     enable(&pool, &owner, "Playgroup.gg").await.unwrap();
     // The catalog's own playgroup.gg URL links it, whatever its slug.
-    precon(&pool, "rohan-ltc", "Riders of Rohan", Some(("Riders of Rohan", "https://playgroup.gg/sets/test-set/precons/test-riders/")), None).await;
+    precon(
+        &pool,
+        "rohan-ltc",
+        "Riders of Rohan",
+        Some(("Riders of Rohan", "https://playgroup.gg/sets/test-set/precons/test-riders/")),
+        None,
+    )
+    .await;
     // Two catalog decks share a name: matching that name alone is ambiguous.
     precon(&pool, "limit-break-a", "Limit Break", None, None).await;
     precon(&pool, "limit-break-b", "Limit Break", None, None).await;
@@ -147,16 +177,38 @@ async fn links_prefer_the_source_url_then_name_and_operators_can_correct_them() 
     assert!(!ev.by_precon.contains_key("limit-break-a"));
     assert_eq!(ev.by_precon["odd-slug"].real.as_ref().unwrap().matched_by, "slug");
     let reasons: Vec<(&str, &str)> = ev.report.unmatched.iter().map(|u| (u.entity.as_str(), u.reason.as_str())).collect();
-    assert!(reasons.iter().any(|(e, r)| *e == "playgroup:precon:limit-break" && r.contains("fits 2 catalog precons")), "{reasons:?}");
-    assert!(reasons.iter().any(|(e, r)| *e == "playgroup:precon:unknown-deck" && r.contains("no catalog precon")), "{reasons:?}");
+    assert!(
+        reasons
+            .iter()
+            .any(|(e, r)| *e == "playgroup:precon:limit-break" && r.contains("fits 2 catalog precons")),
+        "{reasons:?}"
+    );
+    assert!(
+        reasons
+            .iter()
+            .any(|(e, r)| *e == "playgroup:precon:unknown-deck" && r.contains("no catalog precon")),
+        "{reasons:?}"
+    );
 
-    set_link(&pool, "limit-break-b", "playgroup:precon:limit-break", Some("manual"), Some("FINAL FANTASY VII")).await.unwrap();
-    set_link(&pool, "rohan-ltc", "playgroup:precon:test-riders", Some("exclude"), None).await.unwrap();
+    set_link(
+        &pool,
+        "limit-break-b",
+        "playgroup:precon:limit-break",
+        Some("manual"),
+        Some("FINAL FANTASY VII"),
+    )
+    .await
+    .unwrap();
+    set_link(&pool, "rohan-ltc", "playgroup:precon:test-riders", Some("exclude"), None)
+        .await
+        .unwrap();
     let ev = load(&pool, at("2026-10-29")).await.unwrap();
     assert_eq!(ev.by_precon["limit-break-b"].real.as_ref().unwrap().matched_by, "manual");
     assert!(!ev.by_precon.contains_key("rohan-ltc"));
     assert!(set_link(&pool, "no-such-precon", "x", Some("manual"), None).await.is_err());
-    set_link(&pool, "rohan-ltc", "playgroup:precon:test-riders", None, None).await.unwrap();
+    set_link(&pool, "rohan-ltc", "playgroup:precon:test-riders", None, None)
+        .await
+        .unwrap();
     assert!(load(&pool, at("2026-10-29")).await.unwrap().by_precon.contains_key("rohan-ltc"));
 }
 
@@ -176,21 +228,49 @@ async fn precons_without_real_games_get_their_commanders_figure_separately() {
     let c = ev.by_precon["new-deck"].commander.as_ref().unwrap();
     assert_eq!((c.window_days, c.games), (180, 300), "the 180-day window is preferred");
     assert!(ev.by_precon["new-deck"].real.is_none());
-    assert!(ev.by_precon["test-riders"].commander.is_none(), "a precon with its own games doesn't show the commander's");
+    assert!(
+        ev.by_precon["test-riders"].commander.is_none(),
+        "a precon with its own games doesn't show the commander's"
+    );
 }
 
 #[tokio::test]
 async fn sources_are_admin_only_and_owned_by_the_admin() {
     let (app, pool) = app().await;
     let (admin, admin_token) = user(&pool, "admin@example.com").await;
-    sqlx::query("UPDATE users SET is_admin = 1 WHERE id = ?").bind(&admin).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE users SET is_admin = 1 WHERE id = ?")
+        .bind(&admin)
+        .execute(&pool)
+        .await
+        .unwrap();
     let (_, token) = user(&pool, "pat@example.com").await;
-    let (status, _) = send(&app, Method::PUT, "/api/admin/precon-evidence/sources/Playgroup.gg", Some(&token), None).await;
+    let (status, _) = send(
+        &app,
+        Method::PUT,
+        "/api/admin/precon-evidence/sources/Playgroup.gg",
+        Some(&token),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    let (status, body) = send(&app, Method::PUT, "/api/admin/precon-evidence/sources/Playgroup.gg", Some(&admin_token), None).await;
+    let (status, body) = send(
+        &app,
+        Method::PUT,
+        "/api/admin/precon-evidence/sources/Playgroup.gg",
+        Some(&admin_token),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["sources"][0]["owner"], "admin@example.com");
-    let (status, body) = send(&app, Method::DELETE, "/api/admin/precon-evidence/sources/Playgroup.gg", Some(&admin_token), None).await;
+    let (status, body) = send(
+        &app,
+        Method::DELETE,
+        "/api/admin/precon-evidence/sources/Playgroup.gg",
+        Some(&admin_token),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["sources"].as_array().unwrap().len(), 0);
 }
@@ -243,7 +323,14 @@ async fn calibration_and_rating_v2_follow_the_snapshots_and_the_run() {
         records.push(precon_obs(slug, slug, "2026-09-01", 400, rate, SHA_A));
         // 200 later games at the deck's true rate minus the early noise.
         let later = rate - 1.0;
-        records.push(precon_obs(slug, slug, "2026-10-20", 600, (400.0 * rate + 200.0 * later) / 600.0, SHA_A));
+        records.push(precon_obs(
+            slug,
+            slug,
+            "2026-10-20",
+            600,
+            (400.0 * rate + 200.0 * later) / 600.0,
+            SHA_A,
+        ));
         strengths.push((slug.as_str(), ((rate - 20.0) / 6.0f64).exp()));
     }
     // One precon the source doesn't rate: only the simulation speaks for it.
@@ -255,10 +342,18 @@ async fn calibration_and_rating_v2_follow_the_snapshots_and_the_run() {
     let report = calibrate(&pool, None, at("2026-09-15"), at("2026-10-29")).await.unwrap();
     assert_eq!(report.precons_with_holdout, 12);
     let source = &report.sources[0];
+    // The run was made on 1 Oct, after the split: scored, but it can't pass the gate.
+    assert!(!source.predates_split && !source.evaluation.gate_passed);
+    assert!(source.evaluation.verdict.starts_with("Made after the split"));
+    assert!(calibrate(&pool, None, at("2026-10-02"), at("2026-10-29")).await.unwrap().sources[0].predates_split);
     assert_eq!(source.source.kind, "global run");
     assert_eq!(source.source.precons, 13);
     assert_eq!(source.evaluation.cases, 12);
-    assert!(source.evaluation.scores[1].spearman.unwrap() > 0.99, "{:?}", source.evaluation.scores);
+    assert!(
+        source.evaluation.scores[1].spearman.unwrap() > 0.99,
+        "{:?}",
+        source.evaluation.scores
+    );
     assert!(source.spearman_all_time.unwrap() > 0.99);
     assert!(calibrate(&pool, None, at("2026-10-29"), at("2026-10-29")).await.is_err());
 
@@ -272,4 +367,34 @@ async fn calibration_and_rating_v2_follow_the_snapshots_and_the_run() {
     if !v2.gate_passed {
         assert_eq!(top.real_share, 1.0, "without a passed gate real games stand alone");
     }
+}
+
+#[tokio::test]
+async fn each_enabled_source_is_derived_and_labelled_on_its_own() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool, "bryan@example.com").await;
+    enable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    enable(&pool, &owner, "Other tracker").await.unwrap();
+    precon(&pool, "test-riders", "Riders of Rohan", None, None).await;
+    import(&pool, &owner, &document("playgroup-history", rohan(SHA_A))).await;
+    // Another source using the same entity id with its own, newer and incompatible counts.
+    let mut other = document(
+        "other-history",
+        vec![
+            precon_obs("test-riders", "Riders of Rohan", "2026-10-01", 50, 40.0, SHA_A),
+            precon_obs("test-riders", "Riders of Rohan", "2026-10-25", 120, 35.0, SHA_A),
+        ],
+    );
+    other["source"] = json!({"name":"Other tracker","url":"https://example.com","attribution":"Other tracker","license":"Private"});
+    import(&pool, &owner, &other).await;
+    let ev = load(&pool, at("2026-10-29")).await.unwrap();
+    let e = &ev.by_precon["test-riders"];
+    let real = e.real.as_ref().unwrap();
+    assert_eq!(real.source.name, "Other tracker", "the newest snapshot speaks first");
+    assert_eq!(real.history.snapshots.len(), 2, "the sources' snapshots never mix");
+    assert_eq!(e.also.len(), 1);
+    assert_eq!(e.also[0].source.name, "Playgroup.gg");
+    assert_eq!(e.also[0].latest.games, 447);
+    assert_eq!(ev.report.source_labels.len(), 2);
+    assert_eq!(ev.report.matched["test-riders"].len(), 2);
 }

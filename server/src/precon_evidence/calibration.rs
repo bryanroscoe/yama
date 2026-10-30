@@ -99,7 +99,12 @@ pub fn mapping(cases: &[Case]) -> Option<Mapping> {
     let n = pts.len() as f64;
     let residual = pts.iter().map(|p| (p.1 - intercept - slope * p.0).powi(2)).sum::<f64>() / (n - 2.0).max(1.0);
     let noise = pts.iter().map(|p| p.3).sum::<f64>() / n;
-    Some(Mapping { intercept, slope, sim_variance: (residual - noise).max(MIN_SIM_VARIANCE), precons: pts.len() })
+    Some(Mapping {
+        intercept,
+        slope,
+        sim_variance: (residual - noise).max(MIN_SIM_VARIANCE),
+        precons: pts.len(),
+    })
 }
 
 /// Average ranks (ties share the mean rank).
@@ -182,14 +187,30 @@ fn percentile(xs: &mut [f64], q: f64) -> f64 {
 /// Score every predictor on the precons that have all three pieces.
 pub fn evaluate(all: &[Case]) -> Evaluation {
     let mapping = mapping(all);
-    let cases: Vec<&Case> = all.iter().filter(|c| c.train.is_some() && c.sim.is_some() && c.holdout.is_some_and(|h| h.1 >= MIN_HOLDOUT_GAMES)).collect();
+    let cases: Vec<&Case> = all
+        .iter()
+        .filter(|c| c.train.is_some() && c.sim.is_some() && c.holdout.is_some_and(|h| h.1 >= MIN_HOLDOUT_GAMES))
+        .collect();
     let held_out_games = cases.iter().map(|c| c.holdout.unwrap().1).sum();
-    let empty = |verdict: String| Evaluation { cases: cases.len(), held_out_games, mapping, scores: vec![], v2_minus_real: None, gate_passed: false, verdict };
+    let empty = |verdict: String| Evaluation {
+        cases: cases.len(),
+        held_out_games,
+        mapping,
+        scores: vec![],
+        v2_minus_real: None,
+        gate_passed: false,
+        verdict,
+    };
     let Some(m) = mapping else {
-        return empty(format!("Too few precons have both a real rate and a simulated strength to map one onto the other (needs {MIN_CASES})."));
+        return empty(format!(
+            "Too few precons have both a real rate and a simulated strength to map one onto the other (needs {MIN_CASES})."
+        ));
     };
     if cases.len() < MIN_CASES {
-        return empty(format!("Only {} precons have held-out games after the split; the test needs {MIN_CASES}.", cases.len()));
+        return empty(format!(
+            "Only {} precons have held-out games after the split; the test needs {MIN_CASES}.",
+            cases.len()
+        ));
     }
     let y: Vec<f64> = cases.iter().map(|c| c.holdout.unwrap().0).collect();
     let w: Vec<f64> = cases.iter().map(|c| c.holdout.unwrap().1 as f64).collect();
@@ -199,7 +220,12 @@ pub fn evaluate(all: &[Case]) -> Evaluation {
     // The meta rank's even split of percentiles, as ranks.
     let (rr, rs) = (ranks(&real), ranks(&sim));
     let v1: Vec<f64> = rr.iter().zip(&rs).map(|(a, b)| a + b).collect();
-    let preds: [(&'static str, &Vec<f64>, bool); 4] = [("real games only", &real, true), ("simulation only", &sim, true), ("meta rank v1 (even split)", &v1, false), ("rating v2 candidate", &v2, true)];
+    let preds: [(&'static str, &Vec<f64>, bool); 4] = [
+        ("real games only", &real, true),
+        ("simulation only", &sim, true),
+        ("meta rank v1 (even split)", &v1, false),
+        ("rating v2 candidate", &v2, true),
+    ];
 
     let mut rng = Rng(0x2545_f491_4f6c_dd1d);
     let n = cases.len();
@@ -230,13 +256,30 @@ pub fn evaluate(all: &[Case]) -> Evaluation {
     let ci = [percentile(&mut boot_diff, 0.05), percentile(&mut boot_diff, 0.95)];
     let gate_passed = ci[1] < 0.0;
     let verdict = if gate_passed {
-        format!("Rating v2 predicted the held-out games better than real games alone (error {diff:+.2} squared points, 90% interval {:+.2} to {:+.2}).", ci[0], ci[1])
+        format!(
+            "Rating v2 predicted the held-out games better than real games alone (error {diff:+.2} squared points, 90% interval {:+.2} to {:+.2}).",
+            ci[0], ci[1]
+        )
     } else if ci[0] > 0.0 {
-        format!("Adding the simulation made predictions worse than real games alone (error {diff:+.2} squared points, 90% interval {:+.2} to {:+.2}).", ci[0], ci[1])
+        format!(
+            "Adding the simulation made predictions worse than real games alone (error {diff:+.2} squared points, 90% interval {:+.2} to {:+.2}).",
+            ci[0], ci[1]
+        )
     } else {
-        format!("Adding the simulation made no clear difference to real games alone (error {diff:+.2} squared points, 90% interval {:+.2} to {:+.2}).", ci[0], ci[1])
+        format!(
+            "Adding the simulation made no clear difference to real games alone (error {diff:+.2} squared points, 90% interval {:+.2} to {:+.2}).",
+            ci[0], ci[1]
+        )
     };
-    Evaluation { cases: n, held_out_games, mapping: Some(m), scores, v2_minus_real: Some((diff, ci)), gate_passed, verdict }
+    Evaluation {
+        cases: n,
+        held_out_games,
+        mapping: Some(m),
+        scores,
+        v2_minus_real: Some((diff, ci)),
+        gate_passed,
+        verdict,
+    }
 }
 
 #[cfg(test)]
@@ -244,7 +287,15 @@ mod tests {
     use super::*;
 
     fn case(i: usize, truth: f64, noise: f64, sim: f64) -> Case {
-        Case { precon: format!("p{i}"), train: Some(Real { rate: truth + noise, effective_games: 300.0 }), holdout: Some((truth - noise, 200)), sim: Some(sim) }
+        Case {
+            precon: format!("p{i}"),
+            train: Some(Real {
+                rate: truth + noise,
+                effective_games: 300.0,
+            }),
+            holdout: Some((truth - noise, 200)),
+            sim: Some(sim),
+        }
     }
 
     #[test]
@@ -257,8 +308,16 @@ mod tests {
 
     #[test]
     fn combine_weights_by_precision() {
-        let m = Mapping { intercept: 25.0, slope: 10.0, sim_variance: 4.0, precons: 10 };
-        let real = Real { rate: 20.0, effective_games: 400.0 }; // variance 4
+        let m = Mapping {
+            intercept: 25.0,
+            slope: 10.0,
+            sim_variance: 4.0,
+            precons: 10,
+        };
+        let real = Real {
+            rate: 20.0,
+            effective_games: 400.0,
+        }; // variance 4
         let (rate, var) = combine(Some(real), Some(1.0), Some(&m)).unwrap();
         assert!((rate - 22.5).abs() < 1e-9 && (var - 2.0).abs() < 1e-9);
         assert_eq!(combine(None, Some(1.0), Some(&m)), Some((25.0, 4.0)));
@@ -269,11 +328,15 @@ mod tests {
     #[test]
     fn an_informative_simulation_passes_and_noise_does_not() {
         // Pre-split real rates are noisy; a simulation that tracks the truth should help.
-        let noise = [3.0, -3.0, 2.5, -2.5, 3.5, -3.5, 2.0, -2.0, 3.0, -3.0, 2.5, -2.5, 3.5, -3.5, 2.0, -2.0];
-        let good: Vec<Case> = (0..16).map(|i| {
-            let truth = 15.0 + i as f64;
-            case(i, truth, noise[i], ((truth - 25.0) / 8.0).exp())
-        }).collect();
+        let noise = [
+            3.0, -3.0, 2.5, -2.5, 3.5, -3.5, 2.0, -2.0, 3.0, -3.0, 2.5, -2.5, 3.5, -3.5, 2.0, -2.0,
+        ];
+        let good: Vec<Case> = (0..16)
+            .map(|i| {
+                let truth = 15.0 + i as f64;
+                case(i, truth, noise[i], ((truth - 25.0) / 8.0).exp())
+            })
+            .collect();
         let e = evaluate(&good);
         assert_eq!(e.cases, 16);
         assert!(e.gate_passed, "{}", e.verdict);
@@ -285,7 +348,15 @@ mod tests {
         let bad: Vec<Case> = (0..16)
             .map(|i| {
                 let truth = 15.0 + i as f64;
-                Case { precon: format!("p{i}"), train: Some(Real { rate: truth, effective_games: 300.0 }), holdout: Some((truth + noise[i], 200)), sim: Some(((scrambled[i] as f64 - 8.0) / 8.0).exp()) }
+                Case {
+                    precon: format!("p{i}"),
+                    train: Some(Real {
+                        rate: truth,
+                        effective_games: 300.0,
+                    }),
+                    holdout: Some((truth + noise[i], 200)),
+                    sim: Some(((scrambled[i] as f64 - 8.0) / 8.0).exp()),
+                }
             })
             .collect();
         let e = evaluate(&bad);

@@ -44,7 +44,10 @@ const COMMANDER_WINDOWS: [u32; 3] = [180, 365, 90];
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/admin/precon-evidence", get(report_route))
-        .route("/api/admin/precon-evidence/sources/{source}", put(enable_route).delete(disable_route))
+        .route(
+            "/api/admin/precon-evidence/sources/{source}",
+            put(enable_route).delete(disable_route),
+        )
         .route("/api/admin/precon-calibration", get(calibration_route))
         .route("/api/precons/rating-v2", get(rating_v2_route))
 }
@@ -98,12 +101,16 @@ pub struct CommanderObservation {
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct PreconEvidence {
+    /// The source with the newest snapshot; any other enabled source's history is in `also`.
     pub real: Option<RealHistory>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<RealHistory>,
     pub commander: Option<CommanderObservation>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Unmatched {
+    pub source: String,
     pub entity: String,
     pub name: String,
     pub url: Option<String>,
@@ -114,9 +121,11 @@ pub struct Unmatched {
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct Report {
     pub sources: Vec<Value>,
-    pub source_label: Option<SourceLabel>,
+    /// One per enabled source name, each with its own datasets, attribution and licence.
+    pub source_labels: Vec<SourceLabel>,
     pub entities: usize,
-    pub matched: BTreeMap<String, (String, &'static str)>,
+    /// Catalog precon → (source, entity, rule) for each source that links it.
+    pub matched: BTreeMap<String, Vec<(String, String, &'static str)>>,
     pub unmatched: Vec<Unmatched>,
     pub catalog_precons: usize,
     pub catalog_without_real_games: usize,
@@ -206,7 +215,13 @@ async fn enabled_revisions(pool: &SqlitePool) -> AppResult<Vec<Enabled>> {
     .await?;
     rows.into_iter()
         .map(|(revision_id, dataset, revision, imported_at, meta)| {
-            Ok(Enabled { revision_id, dataset, revision, imported_at, metadata: serde_json::from_str(&meta).map_err(anyhow::Error::from)? })
+            Ok(Enabled {
+                revision_id,
+                dataset,
+                revision,
+                imported_at,
+                metadata: serde_json::from_str(&meta).map_err(anyhow::Error::from)?,
+            })
         })
         .collect()
 }
@@ -231,200 +246,309 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
     .map(|(id, name, playgroup_name, playgroup_url, playgroup_id, cards)| {
         let reference_matches = serde_json::from_str::<Vec<crate::lab::PreconCard>>(&cards)
             .is_ok_and(|c| crate::upgradeability::allows_reference_results(&id, &c));
-        CatalogPrecon { id, name, playgroup_name, playgroup_url, playgroup_id, reference_matches }
+        CatalogPrecon {
+            id,
+            name,
+            playgroup_name,
+            playgroup_url,
+            playgroup_id,
+            reference_matches,
+        }
     })
     .collect();
-    let mut report = Report { sources, catalog_precons: catalog.len(), ..Default::default() };
+    let mut report = Report {
+        sources,
+        catalog_precons: catalog.len(),
+        ..Default::default()
+    };
     if revisions.is_empty() {
         report.catalog_without_real_games = catalog.len();
-        return Ok(Evidence { by_precon: HashMap::new(), report });
+        return Ok(Evidence {
+            by_precon: HashMap::new(),
+            report,
+        });
     }
 
-    // One label for the whole source: the datasets feeding it, newest import first.
-    let first = &revisions[0].metadata["source"];
-    let mut datasets: Vec<DatasetLabel> =
-        revisions.iter().map(|r| DatasetLabel { id: r.dataset.clone(), revision: r.revision, imported_at: r.imported_at.clone() }).collect();
-    datasets.sort_by(|a, b| b.imported_at.cmp(&a.imported_at).then(a.id.cmp(&b.id)));
-    let label = SourceLabel {
-        name: first["name"].as_str().unwrap_or_default().into(),
-        attribution: first["attribution"].as_str().unwrap_or_default().into(),
-        license: first["license"].as_str().unwrap_or_default().into(),
-        datasets,
-    };
-
-    let commander_entities: Vec<String> = catalog.iter().filter_map(|p| p.playgroup_id).map(|id| format!("{COMMANDER_PREFIX}{id}")).collect();
-    let commander_json = serde_json::to_string(&commander_entities).map_err(anyhow::Error::from)?;
-    let mut entities: BTreeMap<String, Entity> = BTreeMap::new();
-    // Commander entity → window → (as_of, rate, games, name, url), newest per window.
-    type Window = (DateTime<Utc>, f64, u64, String, Option<String>);
-    let mut commanders: HashMap<String, HashMap<u32, Window>> = HashMap::new();
-    for r in &revisions {
-        let partial: HashSet<&str> = r.metadata["sources"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|s| s["flags"].as_array().is_some_and(|f| !f.is_empty()))
-            .filter_map(|s| s["sha256"].as_str())
-            .collect();
-        let rows: Vec<String> = sqlx::query_scalar(
-            "SELECT document FROM evidence_dataset_records WHERE revision_id = ? AND kind = 'performance'
-               AND (json_extract(document, '$.data.entity_kind') = 'precon' OR entity IN (SELECT value FROM json_each(?)))
-             ORDER BY id",
-        )
-        .bind(&r.revision_id)
-        .bind(&commander_json)
+    let links: Vec<(String, String, String)> = sqlx::query_as("SELECT precon_id, entity, rule FROM precon_evidence_links")
         .fetch_all(pool)
         .await?;
-        for row in rows {
-            let record: Value = serde_json::from_str(&row).map_err(anyhow::Error::from)?;
-            if record["sources"].as_array().into_iter().flatten().filter_map(Value::as_str).any(|s| partial.contains(s)) {
-                continue;
-            }
-            let Ok(o) = serde_json::from_value::<Observation>(record["data"].clone()) else { continue };
-            if !usable_rate(&o) {
-                continue;
-            }
-            let Some(at) = o.observation_period.source_as_of else { continue };
-            let name = o.entity_name.clone().unwrap_or_else(|| o.entity_id.clone());
-            match (o.entity_kind.as_str(), o.observation_period.kind.as_str()) {
-                ("precon", "cumulative_snapshot") => {
-                    let e = entities.entry(o.entity_id.clone()).or_default();
-                    e.name = name;
-                    if o.source_entity_url.is_some() {
-                        e.url = o.source_entity_url.clone();
-                    }
-                    e.cohorts.entry(o.cohort.clone()).or_default().push(Snapshot { as_of: at, games: o.source_reported_games, rate: o.value });
+    let manual: HashSet<(&str, &str)> = links
+        .iter()
+        .filter(|l| l.2 == "manual")
+        .map(|l| (l.0.as_str(), l.1.as_str()))
+        .collect();
+    let excluded: HashSet<(&str, &str)> = links
+        .iter()
+        .filter(|l| l.2 == "exclude")
+        .map(|l| (l.0.as_str(), l.1.as_str()))
+        .collect();
+    let commander_entities: Vec<String> = catalog
+        .iter()
+        .filter_map(|p| p.playgroup_id)
+        .map(|id| format!("{COMMANDER_PREFIX}{id}"))
+        .collect();
+    let commander_json = serde_json::to_string(&commander_entities).map_err(anyhow::Error::from)?;
+    // Each source name is derived on its own: its datasets merge, other sources never do.
+    let mut groups: BTreeMap<String, Vec<&Enabled>> = BTreeMap::new();
+    for r in &revisions {
+        groups
+            .entry(r.metadata["source"]["name"].as_str().unwrap_or_default().to_string())
+            .or_default()
+            .push(r);
+    }
+    let mut by_precon: HashMap<String, PreconEvidence> = HashMap::new();
+    for revisions in groups.values() {
+        // One label per source: the datasets feeding it, newest import first.
+        let first = &revisions[0].metadata["source"];
+        let mut datasets: Vec<DatasetLabel> = revisions
+            .iter()
+            .map(|r| DatasetLabel {
+                id: r.dataset.clone(),
+                revision: r.revision,
+                imported_at: r.imported_at.clone(),
+            })
+            .collect();
+        datasets.sort_by(|a, b| b.imported_at.cmp(&a.imported_at).then(a.id.cmp(&b.id)));
+        let label = SourceLabel {
+            name: first["name"].as_str().unwrap_or_default().into(),
+            attribution: first["attribution"].as_str().unwrap_or_default().into(),
+            license: first["license"].as_str().unwrap_or_default().into(),
+            datasets,
+        };
+
+        let mut entities: BTreeMap<String, Entity> = BTreeMap::new();
+        // Commander entity → window → (as_of, rate, games, name, url), newest per window.
+        type Window = (DateTime<Utc>, f64, u64, String, Option<String>);
+        let mut commanders: HashMap<String, HashMap<u32, Window>> = HashMap::new();
+        for r in revisions {
+            let partial: HashSet<&str> = r.metadata["sources"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|s| s["flags"].as_array().is_some_and(|f| !f.is_empty()))
+                .filter_map(|s| s["sha256"].as_str())
+                .collect();
+            let rows: Vec<String> = sqlx::query_scalar(
+                "SELECT document FROM evidence_dataset_records WHERE revision_id = ? AND kind = 'performance'
+               AND (json_extract(document, '$.data.entity_kind') = 'precon' OR entity IN (SELECT value FROM json_each(?)))
+             ORDER BY id",
+            )
+            .bind(&r.revision_id)
+            .bind(&commander_json)
+            .fetch_all(pool)
+            .await?;
+            for row in rows {
+                let record: Value = serde_json::from_str(&row).map_err(anyhow::Error::from)?;
+                if record["sources"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .any(|s| partial.contains(s))
+                {
+                    continue;
                 }
-                ("commander", "rolling_window") => {
-                    let Some(days) = o.observation_period.lookback_days.filter(|d| COMMANDER_WINDOWS.contains(d)) else { continue };
-                    if at > as_of || o.source_reported_games == 0 {
-                        continue;
-                    }
-                    let slot = commanders.entry(o.entity_id.clone()).or_default().entry(days).or_insert((at, o.value, o.source_reported_games, name.clone(), o.source_entity_url.clone()));
-                    if at > slot.0 {
-                        *slot = (at, o.value, o.source_reported_games, name, o.source_entity_url);
-                    }
+                let Ok(o) = serde_json::from_value::<Observation>(record["data"].clone()) else {
+                    continue;
+                };
+                if !usable_rate(&o) {
+                    continue;
                 }
-                _ => {}
+                let Some(at) = o.observation_period.source_as_of else { continue };
+                let name = o.entity_name.clone().unwrap_or_else(|| o.entity_id.clone());
+                match (o.entity_kind.as_str(), o.observation_period.kind.as_str()) {
+                    ("precon", "cumulative_snapshot") => {
+                        let e = entities.entry(o.entity_id.clone()).or_default();
+                        e.name = name;
+                        if o.source_entity_url.is_some() {
+                            e.url = o.source_entity_url.clone();
+                        }
+                        e.cohorts.entry(o.cohort.clone()).or_default().push(Snapshot {
+                            as_of: at,
+                            games: o.source_reported_games,
+                            rate: o.value,
+                        });
+                    }
+                    ("commander", "rolling_window") => {
+                        let Some(days) = o.observation_period.lookback_days.filter(|d| COMMANDER_WINDOWS.contains(d)) else {
+                            continue;
+                        };
+                        if at > as_of || o.source_reported_games == 0 {
+                            continue;
+                        }
+                        let slot = commanders.entry(o.entity_id.clone()).or_default().entry(days).or_insert((
+                            at,
+                            o.value,
+                            o.source_reported_games,
+                            name.clone(),
+                            o.source_entity_url.clone(),
+                        ));
+                        if at > slot.0 {
+                            *slot = (at, o.value, o.source_reported_games, name, o.source_entity_url);
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
-    }
-    report.entities = entities.len();
-    report.source_label = Some(label.clone());
+        report.entities += entities.len();
+        report.source_labels.push(label.clone());
 
-    let links: Vec<(String, String, String)> = sqlx::query_as("SELECT precon_id, entity, rule FROM precon_evidence_links").fetch_all(pool).await?;
-    let manual: HashSet<(&str, &str)> = links.iter().filter(|l| l.2 == "manual").map(|l| (l.0.as_str(), l.1.as_str())).collect();
-    let excluded: HashSet<(&str, &str)> = links.iter().filter(|l| l.2 == "exclude").map(|l| (l.0.as_str(), l.1.as_str())).collect();
-
-    // Each entity's best rule and the precons it names; then each precon keeps its best entity.
-    let rules: [&'static str; 4] = ["manual", "url", "name", "slug"];
-    let mut claims: HashMap<&str, Vec<(usize, &str)>> = HashMap::new();
-    for (entity_id, e) in &entities {
-        let slug = entity_id.strip_prefix(PRECON_PREFIX).unwrap_or(entity_id);
-        let test = |rule: &str, p: &CatalogPrecon| match rule {
-            "manual" => manual.contains(&(p.id.as_str(), entity_id.as_str())),
-            "url" => matches!((&p.playgroup_url, &e.url), (Some(a), Some(b)) if norm_url(a) == norm_url(b)),
-            "name" => !e.name.is_empty() && norm_name(p.playgroup_name.as_deref().unwrap_or(&p.name)) == norm_name(&e.name),
-            _ => p.id == slug,
-        };
-        let mut found = false;
-        for (priority, rule) in rules.iter().enumerate() {
-            let hits: Vec<&CatalogPrecon> =
-                catalog.iter().filter(|p| !excluded.contains(&(p.id.as_str(), entity_id.as_str())) && test(rule, p)).collect();
-            if hits.is_empty() {
-                continue;
-            }
-            // A name or slug that fits several precons is ambiguous; a shared link or manual choice isn't.
-            if hits.len() > 1 && priority >= 2 {
-                report.unmatched.push(Unmatched {
-                    entity: entity_id.clone(),
-                    name: e.name.clone(),
-                    url: e.url.clone(),
-                    reason: format!("its {rule} fits {} catalog precons: {}", hits.len(), hits.iter().map(|p| p.id.as_str()).collect::<Vec<_>>().join(", ")),
-                });
+        // Each entity's best rule and the precons it names; then each precon keeps its best entity.
+        let rules: [&'static str; 4] = ["manual", "url", "name", "slug"];
+        let mut claims: HashMap<&str, Vec<(usize, &str)>> = HashMap::new();
+        for (entity_id, e) in &entities {
+            let slug = entity_id.strip_prefix(PRECON_PREFIX).unwrap_or(entity_id);
+            let test = |rule: &str, p: &CatalogPrecon| match rule {
+                "manual" => manual.contains(&(p.id.as_str(), entity_id.as_str())),
+                "url" => matches!((&p.playgroup_url, &e.url), (Some(a), Some(b)) if norm_url(a) == norm_url(b)),
+                "name" => !e.name.is_empty() && norm_name(p.playgroup_name.as_deref().unwrap_or(&p.name)) == norm_name(&e.name),
+                _ => p.id == slug,
+            };
+            let mut found = false;
+            for (priority, rule) in rules.iter().enumerate() {
+                let hits: Vec<&CatalogPrecon> = catalog
+                    .iter()
+                    .filter(|p| !excluded.contains(&(p.id.as_str(), entity_id.as_str())) && test(rule, p))
+                    .collect();
+                if hits.is_empty() {
+                    continue;
+                }
+                // A name or slug that fits several precons is ambiguous; a shared link or manual choice isn't.
+                if hits.len() > 1 && priority >= 2 {
+                    report.unmatched.push(Unmatched {
+                        source: label.name.clone(),
+                        entity: entity_id.clone(),
+                        name: e.name.clone(),
+                        url: e.url.clone(),
+                        reason: format!(
+                            "its {rule} fits {} catalog precons: {}",
+                            hits.len(),
+                            hits.iter().map(|p| p.id.as_str()).collect::<Vec<_>>().join(", ")
+                        ),
+                    });
+                    found = true;
+                    break;
+                }
+                for p in hits {
+                    claims.entry(p.id.as_str()).or_default().push((priority, entity_id.as_str()));
+                }
                 found = true;
                 break;
             }
-            for p in hits {
-                claims.entry(p.id.as_str()).or_default().push((priority, entity_id.as_str()));
+            if !found {
+                report.unmatched.push(Unmatched {
+                    source: label.name.clone(),
+                    entity: entity_id.clone(),
+                    name: e.name.clone(),
+                    url: e.url.clone(),
+                    reason: "no catalog precon matched".into(),
+                });
             }
-            found = true;
-            break;
         }
-        if !found {
-            report.unmatched.push(Unmatched { entity: entity_id.clone(), name: e.name.clone(), url: e.url.clone(), reason: "no catalog precon matched".into() });
+        for p in &catalog {
+            let mut ev = PreconEvidence::default();
+            if let Some(c) = claims.get(p.id.as_str()) {
+                let best = c.iter().map(|x| x.0).min().unwrap();
+                let top: Vec<&str> = c.iter().filter(|x| x.0 == best).map(|x| x.1).collect();
+                if top.len() > 1 {
+                    for entity in &top {
+                        let e = &entities[*entity];
+                        report.unmatched.push(Unmatched {
+                            source: label.name.clone(),
+                            entity: entity.to_string(),
+                            name: e.name.clone(),
+                            url: e.url.clone(),
+                            reason: format!(
+                                "{} is also claimed by {}",
+                                p.id,
+                                top.iter().filter(|x| x != &entity).copied().collect::<Vec<_>>().join(", ")
+                            ),
+                        });
+                    }
+                } else if p.reference_matches {
+                    let entity_id = top[0];
+                    let e = &entities[entity_id];
+                    report
+                        .matched
+                        .entry(p.id.clone())
+                        .or_default()
+                        .push((label.name.clone(), entity_id.to_string(), rules[best]));
+                    // The cohort with the newest snapshot speaks for the precon.
+                    let (cohort, snaps) = e
+                        .cohorts
+                        .iter()
+                        .max_by_key(|(_, s)| s.iter().map(|x| x.as_of).max())
+                        .map(|(c, s)| (c.clone(), s.clone()))
+                        .unwrap_or_default();
+                    let h = history::history(snaps, as_of, HALF_LIFE_DAYS);
+                    if let Some(latest) = h.snapshots.last().copied() {
+                        ev.real = Some(RealHistory {
+                            source: label.clone(),
+                            entity: entity_id.to_string(),
+                            entity_name: e.name.clone(),
+                            url: e.url.clone(),
+                            matched_by: rules[best],
+                            cohort,
+                            latest,
+                            history: h,
+                            as_of,
+                            method: METHOD,
+                        });
+                    }
+                }
+            }
+            if ev.real.is_none() && p.reference_matches {
+                let entity = p.playgroup_id.map(|id| format!("{COMMANDER_PREFIX}{id}"));
+                if let Some((entity, windows)) = entity.as_ref().and_then(|e| commanders.get(e).map(|w| (e, w))) {
+                    if let Some((days, w)) = COMMANDER_WINDOWS.iter().find_map(|d| windows.get(d).map(|w| (*d, w))) {
+                        ev.commander = Some(CommanderObservation {
+                            source: label.name.clone(),
+                            entity: entity.clone(),
+                            name: w.3.clone(),
+                            url: w.4.clone(),
+                            window_days: days,
+                            rate: w.1,
+                            games: w.2,
+                            as_of: w.0,
+                            note: COMMANDER_NOTE,
+                        });
+                    }
+                }
+            }
+            if ev.real.is_none() && ev.commander.is_none() {
+                continue;
+            }
+            let merged = by_precon.entry(p.id.clone()).or_default();
+            if let Some(real) = ev.real {
+                match merged.real.take() {
+                    Some(old) if old.latest.as_of >= real.latest.as_of => {
+                        merged.real = Some(old);
+                        merged.also.push(real);
+                    }
+                    Some(old) => {
+                        merged.also.push(old);
+                        merged.real = Some(real);
+                    }
+                    None => merged.real = Some(real),
+                }
+            }
+            if merged.commander.is_none() {
+                merged.commander = ev.commander;
+            }
         }
     }
-    let mut by_precon: HashMap<String, PreconEvidence> = HashMap::new();
-    for p in &catalog {
-        let mut ev = PreconEvidence::default();
-        if let Some(c) = claims.get(p.id.as_str()) {
-            let best = c.iter().map(|x| x.0).min().unwrap();
-            let top: Vec<&str> = c.iter().filter(|x| x.0 == best).map(|x| x.1).collect();
-            if top.len() > 1 {
-                for entity in &top {
-                    let e = &entities[*entity];
-                    report.unmatched.push(Unmatched {
-                        entity: entity.to_string(),
-                        name: e.name.clone(),
-                        url: e.url.clone(),
-                        reason: format!("{} is also claimed by {}", p.id, top.iter().filter(|x| x != &entity).copied().collect::<Vec<_>>().join(", ")),
-                    });
-                }
-            } else if p.reference_matches {
-                let entity_id = top[0];
-                let e = &entities[entity_id];
-                report.matched.insert(p.id.clone(), (entity_id.to_string(), rules[best]));
-                // The cohort with the newest snapshot speaks for the precon.
-                let (cohort, snaps) = e
-                    .cohorts
-                    .iter()
-                    .max_by_key(|(_, s)| s.iter().map(|x| x.as_of).max())
-                    .map(|(c, s)| (c.clone(), s.clone()))
-                    .unwrap_or_default();
-                let h = history::history(snaps, as_of, HALF_LIFE_DAYS);
-                if let Some(latest) = h.snapshots.last().copied() {
-                    ev.real = Some(RealHistory {
-                        source: label.clone(),
-                        entity: entity_id.to_string(),
-                        entity_name: e.name.clone(),
-                        url: e.url.clone(),
-                        matched_by: rules[best],
-                        cohort,
-                        latest,
-                        history: h,
-                        as_of,
-                        method: METHOD,
-                    });
-                }
-            }
-        }
-        if ev.real.is_none() && p.reference_matches {
-            let entity = p.playgroup_id.map(|id| format!("{COMMANDER_PREFIX}{id}"));
-            if let Some((entity, windows)) = entity.as_ref().and_then(|e| commanders.get(e).map(|w| (e, w))) {
-                if let Some((days, w)) = COMMANDER_WINDOWS.iter().find_map(|d| windows.get(d).map(|w| (*d, w))) {
-                    ev.commander = Some(CommanderObservation {
-                        source: label.name.clone(),
-                        entity: entity.clone(),
-                        name: w.3.clone(),
-                        url: w.4.clone(),
-                        window_days: days,
-                        rate: w.1,
-                        games: w.2,
-                        as_of: w.0,
-                        note: COMMANDER_NOTE,
-                    });
-                }
-            }
-        }
-        if ev.real.is_none() {
-            report.catalog_without_real_games += 1;
-        }
-        if ev.real.is_some() || ev.commander.is_some() {
-            by_precon.insert(p.id.clone(), ev);
+    // A commander's figure only stands in when no source rates the precon itself.
+    for ev in by_precon.values_mut() {
+        if ev.real.is_some() {
+            ev.commander = None;
         }
     }
-    report.unmatched.sort_by(|a, b| a.entity.cmp(&b.entity));
+    report.catalog_without_real_games = catalog
+        .iter()
+        .filter(|p| by_precon.get(&p.id).is_none_or(|e| e.real.is_none()))
+        .count();
+    report.unmatched.sort_by(|a, b| (&a.source, &a.entity).cmp(&(&b.source, &b.entity)));
     report.unmatched.dedup();
     Ok(Evidence { by_precon, report })
 }
@@ -449,6 +573,9 @@ pub struct SimSource {
 #[derive(Debug, Clone, Serialize)]
 pub struct SourceCalibration {
     pub source: SimSource,
+    /// Whether the source was made before the split. One made later could reflect what was learnt
+    /// after it, so it's scored for description but can't pass the gate.
+    pub predates_split: bool,
     pub evaluation: calibration::Evaluation,
     /// Descriptive: rank correlation with today's all-time real rates, over every precon with both.
     pub spearman_all_time: Option<f64>,
@@ -459,7 +586,7 @@ pub struct SourceCalibration {
 pub struct CalibrationReport {
     pub split: DateTime<Utc>,
     pub as_of: DateTime<Utc>,
-    pub real_source: Option<SourceLabel>,
+    pub real_sources: Vec<SourceLabel>,
     /// Precons with a pre-split real rate and enough games after the split.
     pub precons_with_holdout: usize,
     pub sources: Vec<SourceCalibration>,
@@ -480,7 +607,10 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>) -> AppResult<Ve
     for (id, _, cards) in &catalog {
         if let Ok(cards) = serde_json::from_str::<Vec<crate::lab::PreconCard>>(cards) {
             if crate::upgradeability::allows_reference_results(id, &cards) {
-                by_sha.entry(crate::lab::experiments::precon_list_sha(cards)).or_default().push(id.clone());
+                by_sha
+                    .entry(crate::lab::experiments::precon_list_sha(cards))
+                    .or_default()
+                    .push(id.clone());
             }
         }
     }
@@ -496,7 +626,16 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>) -> AppResult<Ve
             .into_iter()
             .filter_map(|(deck, r)| Some((by_lab.get(deck.as_str())?.to_string(), r.strength.filter(|s| *s > 0.0)?)))
             .collect();
-        out.push(SimSource { kind: "global run", id, name, engine: engine.unwrap_or_default(), status: "done".into(), created_at, precons: strengths.len(), strengths });
+        out.push(SimSource {
+            kind: "global run",
+            id,
+            name,
+            engine: engine.unwrap_or_default(),
+            status: "done".into(),
+            created_at,
+            precons: strengths.len(),
+            strengths,
+        });
     }
     if let Some(owner) = owner {
         let rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
@@ -510,11 +649,12 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>) -> AppResult<Ve
             let spec: crate::lab::experiments::ExperimentSpec = serde_json::from_str(&spec).map_err(anyhow::Error::from)?;
             let entrants: Vec<(String, String)> = spec.entrants.iter().map(|l| (l.id.clone(), l.label.clone())).collect();
             // Summarised afresh, so runs stored before fitted strengths existed still count.
-            let games: Vec<(String, Option<String>, String)> =
-                sqlx::query_as("SELECT spec, result, engine FROM lab_experiment_games WHERE experiment_id = ? AND result IS NOT NULL ORDER BY ord")
-                    .bind(&id)
-                    .fetch_all(pool)
-                    .await?;
+            let games: Vec<(String, Option<String>, String)> = sqlx::query_as(
+                "SELECT spec, result, engine FROM lab_experiment_games WHERE experiment_id = ? AND result IS NOT NULL ORDER BY ord",
+            )
+            .bind(&id)
+            .fetch_all(pool)
+            .await?;
             let engines: BTreeMap<&str, Vec<(String, Option<String>)>> = games.iter().fold(BTreeMap::new(), |mut m, (g, r, e)| {
                 m.entry(e.as_str()).or_insert_with(Vec::new).push((g.clone(), r.clone()));
                 m
@@ -525,13 +665,24 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>) -> AppResult<Ve
                 let Some(v) = summary.versus else { continue };
                 let mut strengths = HashMap::new();
                 for e in &v.entrants {
-                    let (Some(list), Some(f)) = (spec.entrants.iter().find(|l| l.id == e.id), e.strength) else { continue };
+                    let (Some(list), Some(f)) = (spec.entrants.iter().find(|l| l.id == e.id), e.strength) else {
+                        continue;
+                    };
                     for precon in by_sha.get(&list.sha256).into_iter().flatten() {
                         strengths.insert(precon.clone(), f.strength);
                     }
                 }
                 if !strengths.is_empty() {
-                    out.push(SimSource { kind: "tournament", id: id.clone(), name: name.clone(), engine: label, status: status.clone(), created_at: created_at.clone(), precons: strengths.len(), strengths });
+                    out.push(SimSource {
+                        kind: "tournament",
+                        id: id.clone(),
+                        name: name.clone(),
+                        engine: label,
+                        status: status.clone(),
+                        created_at: created_at.clone(),
+                        precons: strengths.len(),
+                        strengths,
+                    });
                 }
             }
         }
@@ -553,31 +704,75 @@ pub async fn calibrate(pool: &SqlitePool, owner: Option<&str>, split: DateTime<U
         all_time.insert(id.clone(), now.latest.rate);
         let then = before.get(id).and_then(|e| e.real.as_ref());
         let train = then.map(|t| match &t.history.recent {
-            Some(r) => calibration::Real { rate: r.rate, effective_games: r.effective_games },
-            None => calibration::Real { rate: t.latest.rate, effective_games: t.latest.games as f64 },
+            Some(r) => calibration::Real {
+                rate: r.rate,
+                effective_games: r.effective_games,
+            },
+            None => calibration::Real {
+                rate: t.latest.rate,
+                effective_games: t.latest.games as f64,
+            },
         });
         // Held out: the games after the split's newest snapshot, on the same unbroken chain.
-        let holdout = then.filter(|t| now.history.snapshots.contains(&t.latest) && now.latest.games > t.latest.games).and_then(|t| {
-            let rate = history::implied(&t.latest, &now.latest);
-            (0.0..=100.0).contains(&rate).then_some((rate, now.latest.games - t.latest.games))
+        let holdout = then
+            .filter(|t| now.history.snapshots.contains(&t.latest) && now.latest.games > t.latest.games)
+            .and_then(|t| {
+                let rate = history::implied(&t.latest, &now.latest);
+                (0.0..=100.0).contains(&rate).then_some((rate, now.latest.games - t.latest.games))
+            });
+        cases.push(calibration::Case {
+            precon: id.clone(),
+            train,
+            holdout,
+            sim: None,
         });
-        cases.push(calibration::Case { precon: id.clone(), train, holdout, sim: None });
     }
     cases.sort_by(|a, b| a.precon.cmp(&b.precon));
-    let precons_with_holdout = cases.iter().filter(|c| c.train.is_some() && c.holdout.is_some_and(|h| h.1 >= calibration::MIN_HOLDOUT_GAMES)).count();
+    let precons_with_holdout = cases
+        .iter()
+        .filter(|c| c.train.is_some() && c.holdout.is_some_and(|h| h.1 >= calibration::MIN_HOLDOUT_GAMES))
+        .count();
     let mut sources = Vec::new();
     for source in sim_sources(pool, owner).await? {
-        let with: Vec<calibration::Case> = cases.iter().map(|c| calibration::Case { sim: source.strengths.get(&c.precon).copied(), ..c.clone() }).collect();
-        let pairs: Vec<(f64, f64)> = source.strengths.iter().filter_map(|(p, s)| Some((s.ln(), *all_time.get(p)?))).collect();
+        let with: Vec<calibration::Case> = cases
+            .iter()
+            .map(|c| calibration::Case {
+                sim: source.strengths.get(&c.precon).copied(),
+                ..c.clone()
+            })
+            .collect();
+        let pairs: Vec<(f64, f64)> = source
+            .strengths
+            .iter()
+            .filter_map(|(p, s)| Some((s.ln(), *all_time.get(p)?)))
+            .collect();
         let (xs, ys): (Vec<f64>, Vec<f64>) = pairs.iter().copied().unzip();
+        let predates_split = DateTime::parse_from_rfc3339(&source.created_at).is_ok_and(|t| t.with_timezone(&Utc) <= split);
+        let mut evaluation = calibration::evaluate(&with);
+        if !predates_split {
+            evaluation.gate_passed = false;
+            evaluation.verdict = format!(
+                "Made after the split ({}), so this is descriptive only and can't pass the gate. {}",
+                source.created_at.get(..10).unwrap_or(&source.created_at),
+                evaluation.verdict
+            );
+        }
         sources.push(SourceCalibration {
-            evaluation: calibration::evaluate(&with),
+            predates_split,
+            evaluation,
             spearman_all_time: calibration::spearman(&xs, &ys),
             all_time_precons: pairs.len(),
             source,
         });
     }
-    Ok(CalibrationReport { split, as_of, real_source: after.report.source_label, precons_with_holdout, sources, method: CALIBRATION_METHOD })
+    Ok(CalibrationReport {
+        split,
+        as_of,
+        real_sources: after.report.source_labels,
+        precons_with_holdout,
+        sources,
+        method: CALIBRATION_METHOD,
+    })
 }
 
 #[derive(Deserialize)]
@@ -590,9 +785,16 @@ fn default_split(as_of: DateTime<Utc>) -> DateTime<Utc> {
     as_of - Duration::days(42)
 }
 
-async fn calibration_route(State(st): State<AppState>, AdminUser(user): AdminUser, Query(q): Query<CalibrationQuery>) -> AppResult<Json<CalibrationReport>> {
+async fn calibration_route(
+    State(st): State<AppState>,
+    AdminUser(user): AdminUser,
+    Query(q): Query<CalibrationQuery>,
+) -> AppResult<Json<CalibrationReport>> {
     let as_of = Utc::now();
-    let split = q.split.map(|d| d.and_hms_opt(23, 59, 59).unwrap().and_utc()).unwrap_or_else(|| default_split(as_of));
+    let split = q
+        .split
+        .map(|d| d.and_hms_opt(23, 59, 59).unwrap().and_utc())
+        .unwrap_or_else(|| default_split(as_of));
     Ok(Json(calibrate(&st.pool, Some(&user.id), split, as_of).await?))
 }
 
@@ -654,7 +856,10 @@ pub async fn rating_v2(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Rat
     let evidence = load(pool, as_of).await?.by_precon;
     let simulation = sim_sources(pool, None).await?.into_iter().next();
     let report = calibrate(pool, None, split, as_of).await?;
-    let calibration = simulation.as_ref().and_then(|s| report.sources.iter().find(|c| c.source.id == s.id)).map(|c| c.evaluation.clone());
+    let calibration = simulation
+        .as_ref()
+        .and_then(|s| report.sources.iter().find(|c| c.source.id == s.id))
+        .map(|c| c.evaluation.clone());
     let gate_passed = calibration.as_ref().is_some_and(|c| c.gate_passed);
     // The mapping for today's estimates is fitted on today's real rates.
     let current: Vec<calibration::Case> = evidence
@@ -662,10 +867,21 @@ pub async fn rating_v2(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Rat
         .filter_map(|(id, ev)| {
             let real = ev.real.as_ref()?;
             let train = Some(match &real.history.recent {
-                Some(r) => calibration::Real { rate: r.rate, effective_games: r.effective_games },
-                None => calibration::Real { rate: real.latest.rate, effective_games: real.latest.games as f64 },
+                Some(r) => calibration::Real {
+                    rate: r.rate,
+                    effective_games: r.effective_games,
+                },
+                None => calibration::Real {
+                    rate: real.latest.rate,
+                    effective_games: real.latest.games as f64,
+                },
             });
-            Some(calibration::Case { precon: id.clone(), train, holdout: None, sim: simulation.as_ref().and_then(|s| s.strengths.get(id).copied()) })
+            Some(calibration::Case {
+                precon: id.clone(),
+                train,
+                holdout: None,
+                sim: simulation.as_ref().and_then(|s| s.strengths.get(id).copied()),
+            })
         })
         .collect();
     let mapping = calibration::mapping(&current);
@@ -681,7 +897,9 @@ pub async fn rating_v2(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Rat
         let sim = simulation.as_ref().and_then(|s| s.strengths.get(id).copied());
         // Without a passed gate, the simulation only speaks for precons real games don't cover.
         let sim = if gate_passed || real.is_none() { sim } else { None };
-        let Some((rate, var)) = calibration::combine(real, sim, mapping.as_ref()) else { continue };
+        let Some((rate, var)) = calibration::combine(real, sim, mapping.as_ref()) else {
+            continue;
+        };
         let real_share = match (real, sim.is_some() && mapping.is_some()) {
             (Some(r), true) => (1.0 / r.variance()) / (1.0 / var),
             (Some(_), false) => 1.0,
@@ -718,7 +936,18 @@ pub async fn rating_v2(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Rat
         })
         .collect();
     precons.sort_by(|a, b| a.rank.cmp(&b.rank).then(a.precon.cmp(&b.precon)));
-    Ok(RatingV2 { method: V2_METHOD, as_of, simulation, mapping, gate_passed, calibration, split, ranked: precons.len(), precons, note: V2_NOTE })
+    Ok(RatingV2 {
+        method: V2_METHOD,
+        as_of,
+        simulation,
+        mapping,
+        gate_passed,
+        calibration,
+        split,
+        ranked: precons.len(),
+        precons,
+        note: V2_NOTE,
+    })
 }
 
 /// Let `owner`'s datasets from `source_name` feed the shared precon pages.
@@ -737,13 +966,20 @@ pub async fn enable(pool: &SqlitePool, owner: &str, source_name: &str) -> AppRes
 }
 
 pub async fn disable(pool: &SqlitePool, owner: &str, source_name: &str) -> AppResult<()> {
-    sqlx::query("DELETE FROM precon_evidence_sources WHERE owner_id = ? AND source_name = ?").bind(owner).bind(source_name.trim()).execute(pool).await?;
+    sqlx::query("DELETE FROM precon_evidence_sources WHERE owner_id = ? AND source_name = ?")
+        .bind(owner)
+        .bind(source_name.trim())
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
 /// Record an operator's correction: `manual` links a precon to an entity, `exclude` forbids the pair.
 pub async fn set_link(pool: &SqlitePool, precon: &str, entity: &str, rule: Option<&str>, note: Option<&str>) -> AppResult<()> {
-    let known: Option<String> = sqlx::query_scalar("SELECT id FROM precons WHERE id = ?").bind(precon).fetch_optional(pool).await?;
+    let known: Option<String> = sqlx::query_scalar("SELECT id FROM precons WHERE id = ?")
+        .bind(precon)
+        .fetch_optional(pool)
+        .await?;
     if known.is_none() {
         return Err(AppError::NotFound("precon"));
     }
@@ -752,7 +988,11 @@ pub async fn set_link(pool: &SqlitePool, precon: &str, entity: &str, rule: Optio
     }
     match rule {
         None => {
-            sqlx::query("DELETE FROM precon_evidence_links WHERE precon_id = ? AND entity = ?").bind(precon).bind(entity).execute(pool).await?;
+            sqlx::query("DELETE FROM precon_evidence_links WHERE precon_id = ? AND entity = ?")
+                .bind(precon)
+                .bind(entity)
+                .execute(pool)
+                .await?;
         }
         Some(rule @ ("manual" | "exclude")) => {
             sqlx::query(
@@ -829,7 +1069,12 @@ pub async fn cli(pool: &SqlitePool, args: &[String]) -> anyhow::Result<()> {
         (Some(cmd @ ("use" | "stop")), [source]) => {
             let email = flag("--owner").ok_or_else(|| anyhow::anyhow!("--owner EMAIL is required"))?;
             let owner = crate::decks::cli::owner_id(pool, &email).await?;
-            if cmd == "use" { enable(pool, &owner, source).await } else { disable(pool, &owner, source).await }.map_err(err)?;
+            if cmd == "use" {
+                enable(pool, &owner, source).await
+            } else {
+                disable(pool, &owner, source).await
+            }
+            .map_err(err)?;
         }
         (Some(cmd @ ("link" | "exclude" | "unlink")), [precon, entity]) => {
             let rule = match cmd {

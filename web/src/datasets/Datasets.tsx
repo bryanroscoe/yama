@@ -67,9 +67,9 @@ export function SharedPreconEvidence({ owner, names }: { owner: string; names: s
       Use my {name} datasets on the precon pages
     </label>)}
     <ErrorText error={toggle.error} />
-    {r.source_label && <p className="dim">{matched} of {r.catalog_precons} catalog precons linked to {count(r.entities)} source precons; {r.catalog_without_real_games} have no real-game history.</p>}
+    {r.source_labels.length > 0 && <p className="dim">{matched} of {r.catalog_precons} catalog precons linked to {count(r.entities)} source precons; {r.catalog_without_real_games} have no real-game history.</p>}
     {r.unmatched.length > 0 && <Details label={`Source precons not linked (${r.unmatched.length})`}>
-      <ul>{r.unmatched.map((u) => <li key={`${u.entity}-${u.reason}`}><SourceLink url={u.url}>{u.name}</SourceLink> ({u.entity}): {u.reason}</li>)}</ul>
+      <ul>{r.unmatched.map((u) => <li key={`${u.source}-${u.entity}-${u.reason}`}><SourceLink url={u.url}>{u.name}</SourceLink> ({u.source}, {u.entity}): {u.reason}</li>)}</ul>
       <p>Link or exclude one with <code>yama-server precon-evidence link PRECON ENTITY</code> or <code>exclude</code>.</p>
     </Details>}
   </section>;

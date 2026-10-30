@@ -881,7 +881,10 @@ residual beyond the real rates' sampling noise). Scores are rank correlation wit
 interval over precons and held-out error weighted by held-out games. Sources are the newest global
 precon-ratings runs and, for the caller, their own tournaments, summarised afresh from their games
 and matched to catalog precons by stock-list fingerprint. A private tournament never feeds a
-shared page.
+shared page. A source made after the split is scored for description but can't pass the gate,
+since it could reflect what was learnt after the split. Each enabled source name is derived on its
+own and keeps its own label; a precon shows the source with the newest snapshot, the others
+beside it.
 
 Rating v2 (`evidence-weighted-v2`, `GET /api/precons/rating-v2`, the Lab precon page, Ask Claude and
 MCP `precon`) uses the datasets and the newest global run. The simulation counts beside real games

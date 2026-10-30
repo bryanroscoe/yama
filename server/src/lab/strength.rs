@@ -98,7 +98,11 @@ pub fn fit(n: usize, pods: &[Pod]) -> Vec<Option<Strength>> {
             let var = (cov[i][i] - 2.0 * row / m + all / (m * m)).max(0.0);
             let centre = s[i].ln() - mean_log;
             let half = Z90 * var.sqrt();
-            Some(Strength { strength: centre.exp(), lo: (centre - half).exp(), hi: (centre + half).exp() })
+            Some(Strength {
+                strength: centre.exp(),
+                lo: (centre - half).exp(),
+                hi: (centre + half).exp(),
+            })
         })
         .collect()
 }
@@ -178,7 +182,11 @@ mod tests {
         let mut pods = Vec::new();
         for g in 0..6000 {
             // Deck 0 meets the strong half more often.
-            let mut decks: Vec<usize> = if g % 3 == 0 { vec![0, 1, 2, 3] } else { (0..4).map(|k| (g + k * 3) % 8).collect() };
+            let mut decks: Vec<usize> = if g % 3 == 0 {
+                vec![0, 1, 2, 3]
+            } else {
+                (0..4).map(|k| (g + k * 3) % 8).collect()
+            };
             decks.sort();
             decks.dedup();
             let total: f64 = decks.iter().map(|&d| truth[d]).sum();
@@ -207,7 +215,12 @@ mod tests {
 
     #[test]
     fn a_deck_that_never_wins_stays_finite_and_unplayed_decks_are_none() {
-        let pods: Vec<Pod> = (0..40).map(|g| Pod { decks: vec![0, 1, 2], winner: g % 2 }).collect();
+        let pods: Vec<Pod> = (0..40)
+            .map(|g| Pod {
+                decks: vec![0, 1, 2],
+                winner: g % 2,
+            })
+            .collect();
         let fit = fit(4, &pods);
         let never = fit[2].unwrap();
         assert!(never.strength > 0.0 && never.strength < fit[0].unwrap().strength);
@@ -218,7 +231,14 @@ mod tests {
 
     #[test]
     fn more_games_narrow_the_interval() {
-        let pods = |k: usize| -> Vec<Pod> { (0..k).map(|g| Pod { decks: vec![0, 1, 2, 3], winner: [0, 0, 1, 2, 3][g % 5] }).collect() };
+        let pods = |k: usize| -> Vec<Pod> {
+            (0..k)
+                .map(|g| Pod {
+                    decks: vec![0, 1, 2, 3],
+                    winner: [0, 0, 1, 2, 3][g % 5],
+                })
+                .collect()
+        };
         let small = fit(4, &pods(50))[0].unwrap();
         let large = fit(4, &pods(2000))[0].unwrap();
         assert!(large.hi / large.lo < small.hi / small.lo);
