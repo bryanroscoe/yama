@@ -242,12 +242,23 @@ pub fn evaluate(all: &[Case]) -> Evaluation {
         let pick: Vec<usize> = (0..n).map(|_| rng.below(n)).collect();
         let sub = |v: &Vec<f64>| pick.iter().map(|&i| v[i]).collect::<Vec<f64>>();
         let (ys, ws) = (sub(&y), sub(&w));
+        // Refit the mapping on the resample, so the interval carries the mapping's own uncertainty.
+        let resampled: Vec<Case> = pick.iter().map(|&i| cases[i].clone()).collect();
+        let Some(mb) = crate::precon_evidence::calibration::mapping(&resampled) else { continue };
+        let v2b: Vec<f64> = resampled.iter().map(|c| combine(c.train, c.sim, Some(&mb)).unwrap().0).collect();
         for (k, (_, p, _)) in preds.iter().enumerate() {
-            if let Some(r) = spearman(&sub(p), &ys) {
+            let p = if k == 3 { v2b.clone() } else { sub(p) };
+            if let Some(r) = spearman(&p, &ys) {
                 boot_rho[k].push(r);
             }
         }
-        boot_diff.push(mse(&sub(&v2), &ys, &ws) - mse(&sub(&real), &ys, &ws));
+        boot_diff.push(mse(&v2b, &ys, &ws) - mse(&sub(&real), &ys, &ws));
+    }
+    if boot_diff.len() < BOOTSTRAP / 2 {
+        return empty(format!(
+            "Too few resamples could refit the mapping ({} of {BOOTSTRAP}); the test needs more precons with all three pieces.",
+            boot_diff.len()
+        ));
     }
     let scores = preds
         .iter()
