@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFamilies, buildTargets, resolveBuildFamily, configurationLabel, duplexPages, exactChanges, familyKey, legacyConfiguration, printList, slotsText } from "./buildCatalog";
+import { buildFamilies, buildTargets, resolveBuildFamily, configurationLabel, duplexPages, exactChanges, legacyConfiguration, printList, slotsText } from "./buildCatalog";
 import type { ResearchBundle } from "../research/api";
 import type { DeckSummary } from "../api";
 
@@ -81,7 +81,6 @@ describe("build catalog", () => {
     for (const label of [null, "stock", "original", "[2]", "Bracket 4", "budget"]) expect(legacyConfiguration(label)).toBe(false);
     expect(configurationLabel("stock")).toBe("Original");
     expect(configurationLabel(null, true)).toBe("Current");
-    expect(familyKey("Scions & Spellcraft")).not.toBe(familyKey("Scions Spellcraft"));
   });
   it("preserves unequal family names and resolves a renamed linked deck by saved id", () => {
     const report = { document: { id: "audit", title: "Audit", decks: ["Scions & Spellcraft", "Scions Spellcraft"].map((name) => ({ key: name, name, builds: [{ id: "b2", bracket: 2, label: "[2] Buildable now", list: list() }] })) }, revision: 1, updated_at: "2026-10-30" } as ResearchBundle;
@@ -105,6 +104,34 @@ describe("build catalog", () => {
     const planChoice = { ...choices[1]!, id: "plan:deck:b2", savedDeck: undefined };
     expect(buildTargets([planChoice], "saved")).toEqual([planChoice]);
     expect(buildTargets([planChoice], "owned_now")).toEqual([]);
+  });
+  it("keeps same-name saved roots and their configurations separate, with ambiguous research unlinked", () => {
+    const decks = [
+      { id: "a", name: "Twins", parent_id: null }, { id: "b", name: "Twins", parent_id: null },
+      { id: "a2", name: "Twins [2]", parent_id: "a", configuration: "[2]" },
+    ].map((d) => ({ configuration: null, updated_at: "2026-10-30", ...d })) as DeckSummary[];
+    const report = { document: { id: "audit", title: "Audit", decks: [{ key: "twins", name: "Twins", builds: [{ id: "b2", bracket: 2, label: "B2", list: list() }] }] }, revision: 1, updated_at: "2026-10-30" } as ResearchBundle;
+    const families = buildFamilies([report], undefined, decks);
+    expect(families).toHaveLength(3);
+    expect(resolveBuildFamily(families, null, "a")?.choices.map((c) => c.savedDeck)).toEqual(["a", "a2"]);
+    expect(resolveBuildFamily(families, null, "b")?.choices.map((c) => c.savedDeck)).toEqual(["b"]);
+    expect(resolveBuildFamily(families, "Twins", null)).toBeUndefined();
+    expect(families.find((f) => f.key.startsWith("research:"))?.choices).toHaveLength(1);
+    expect(buildFamilies([report], undefined, [...decks].reverse()).map((f) => f.key)).toEqual(families.map((f) => f.key));
+  });
+  it("follows explicit plan links among duplicate names and keeps unlinked plans distinct", () => {
+    const decks = ["a", "b"].map((id) => ({ id, name: "Twins", parent_id: null, configuration: null, updated_at: "2026-10-30" })) as DeckSummary[];
+    const plan = { decks: [
+      { key: "first", name: "Twins", yama_deck: { id: "a" }, states: {} },
+      { key: "second", name: "Twins", deck_id: "b", states: {} },
+      { key: "unlinked", name: "Twins", states: {} },
+    ] } as unknown as Parameters<typeof buildFamilies>[1];
+    const families = buildFamilies([], plan, decks);
+    expect(families).toHaveLength(3);
+    expect(resolveBuildFamily(families, null, null, "first")?.key).toBe("saved:a");
+    expect(resolveBuildFamily(families, null, null, "second")?.key).toBe("saved:b");
+    expect(resolveBuildFamily(families, null, null, "unlinked")?.key).toBe("plan:unlinked");
+    expect(resolveBuildFamily(families, "Twins", null)).toBeUndefined();
   });
   it("serializes the full list including all basic copies", () => {
     expect(printList(slotsText([{ name: "Leader", qty: 1, board: "commander" }, { name: "Plains", qty: 99, board: "main" }]))).toHaveLength(100);

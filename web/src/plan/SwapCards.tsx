@@ -2,7 +2,6 @@ import { swapCard, swapCardPages, swapCards, type SwapCard } from "@yama/core/pl
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
-import { familyKey } from "../decks/buildCatalog";
 import "./swapcards.css";
 
 /** The page box for the cards: three 2.5 inch columns and three 3.5 inch rows fit only inside 0.25 inch margins. */
@@ -65,7 +64,7 @@ export function SwapCardsPage() {
     <div className="swap-cards">
       <div className="sc-controls">
         <PlansHead title={title} />
-        <p><Link to={`/decks/builds${deck ? `?deck=${encodeURIComponent(familyKey(deck.name))}` : ""}`}>Choose two versions and print double-sided swap cards</Link></p>
+        <p><Link to={`/decks/builds${deck ? `?planKey=${encodeURIComponent(deck.key)}` : ""}`}>Choose two versions and print double-sided swap cards</Link></p>
         <p className="small">
           {deckKey ? "A card for the deck box" : "A card for each deck box"}: which cards to swap to change bracket. Each card is 2.5 by 3.5 inches,
           nine to a US-letter page. Print at actual size (100%, no fit to page) with headers and footers off, then cut on the dashed lines.

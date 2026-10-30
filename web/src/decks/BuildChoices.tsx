@@ -20,7 +20,8 @@ export function BuildChoicesPage() {
   const families = buildFamilies(bundles, plan.data && "decks" in plan.data ? plan.data : undefined, decks.data ?? []);
   const key = params.get("deck");
   const savedDeck = params.get("savedDeck");
-  const family = resolveBuildFamily(families, key, savedDeck);
+  const planKey = params.get("planKey");
+  const family = resolveBuildFamily(families, key, savedDeck, planKey);
   const loading = index.isPending || plan.isPending || decks.isPending || notes.some((r) => r.isPending);
   return <main className="page build-choices">
     <div className="bc-controls">
@@ -28,10 +29,10 @@ export function BuildChoicesPage() {
       <p>Choose two complete versions to see the exact changes and print a reversible card for the deck box. Current stays separate from proposed builds. Original lists and older snapshots remain available.</p>
       <ErrorText error={index.error || plan.error || decks.error || notes.find((r) => r.error)?.error} />
       {loading ? <p>Loading your saved builds…</p> : <label>Deck <select value={family?.key ?? ""} onChange={(e) => setParams({ deck: e.target.value })}>
-        {!family && <option value="">Choose a deck</option>}{families.map((f) => <option key={f.key} value={f.key}>{f.name}</option>)}
+        {!family && <option value="">Choose a deck</option>}{families.map((f) => <option key={f.key} value={f.key}>{f.name}{families.filter((other) => other.name === f.name).length > 1 ? ` — ${f.detail}` : ""}</option>)}
       </select></label>}
       {!loading && !families.length && <p>No saved decks or researched bracket builds yet.</p>}
-      {!loading && (key || savedDeck) && !family && <p>That deck has no build choices. Select another deck above.</p>}
+      {!loading && (key || savedDeck || planKey) && !family && <p>That deck has no build choices. Select another deck above.</p>}
     </div>
     {!loading && family && <FamilyChoices key={family.key} family={family} />}
   </main>;

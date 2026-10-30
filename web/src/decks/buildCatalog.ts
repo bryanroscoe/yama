@@ -9,16 +9,20 @@ export interface BuildChoice {
   track?: "owned_now" | "aspirational" | "unverified";
   list?: string; savedDeck?: string; source: string; href: string; warnings: string[];
 }
-export interface BuildFamily { key: string; name: string; choices: BuildChoice[] }
+export interface BuildFamily { key: string; name: string; choices: BuildChoice[]; planKeys?: string[]; detail?: string }
 export type BuildTrack = "owned_now" | "aspirational" | "saved";
 export function buildTargets(choices: BuildChoice[], track: BuildTrack) {
   return choices.filter((c) => track === "saved" ? c.kind !== "bracket" || c.track === "unverified" : c.kind === "bracket" && c.track === track);
 }
-// Preserve punctuation, case and Unicode: unequal names must not silently merge.
-export const familyKey = (name: string) => name;
-export function resolveBuildFamily(families: BuildFamily[], key: string | null, savedDeck: string | null) {
+export function resolveBuildFamily(families: BuildFamily[], key: string | null, savedDeck: string | null, planKey?: string | null) {
   if (savedDeck) return families.find((f) => f.choices.some((c) => c.savedDeck === savedDeck));
-  return key ? families.find((f) => f.key === key) : families[0];
+  if (planKey) return families.find((f) => f.planKeys?.includes(planKey));
+  if (!key) return families[0];
+  const exact = families.find((f) => f.key === key);
+  if (exact) return exact;
+  // Compatibility for earlier name-based links: ambiguity must require an explicit choice.
+  const named = families.filter((f) => f.name === key);
+  return named.length === 1 ? named[0] : undefined;
 }
 export function slotsText(cards: Pick<Slot, "name" | "qty" | "board">[]): string {
   return ["commander", "main"].map((board) => `${board === "main" ? "Deck" : "Commander"}\n${cards.filter((c) => c.board === board).map((c) => `${c.qty} ${c.name}`).join("\n")}`).join("\n\n");
@@ -36,13 +40,33 @@ export function configurationLabel(label: string | null, main = false): string {
  * interchangeable. No title or bracket label changes an installed list or research approval. */
 export function buildFamilies(research: ResearchBundle[], plan: PlanBundle | undefined, decks: DeckSummary[]): BuildFamily[] {
   const families = new Map<string, BuildFamily>();
-  const family = (key: string, name: string) => {
-    if (!families.has(key)) families.set(key, { key, name, choices: [] });
+  const aliases = new Map<string, Set<string>>();
+  const family = (key: string, name: string, detail?: string) => {
+    if (!families.has(key)) families.set(key, { key, name, detail, choices: [], planKeys: [] });
+    const names = aliases.get(key) ?? new Set<string>(); names.add(name); aliases.set(key, names);
     return families.get(key)!;
   };
+  const byId = new Map(decks.map((d) => [d.id, d]));
+  const rootOf = (id: string) => { const d = byId.get(id); return d?.parent_id ? byId.get(d.parent_id) : d; };
+  const roots = decks.filter((d) => !d.parent_id);
+  for (const root of roots) family(`saved:${root.id}`, root.name, `Saved deck ${root.id}`);
+  const plans = (plan?.decks ?? []).filter((d) => d.status !== "archived");
+  const planFamilies = new Map<string, BuildFamily>();
+  for (const deck of plans) {
+    const explicit = deck.yama_deck?.id ?? deck.deck_id;
+    const sameName = roots.filter((d) => d.name === deck.name);
+    // Explicit links outrank names. Never guess when either side has duplicate names.
+    const root = explicit ? rootOf(explicit) : sameName.length === 1 && plans.filter((p) => p.name === deck.name).length === 1 ? sameName[0] : undefined;
+    const f = family(root ? `saved:${root.id}` : `plan:${deck.key}`, deck.name, `Plan ${deck.key}`);
+    f.name = deck.name; f.planKeys!.push(deck.key); planFamilies.set(deck.key, f);
+  }
+  // Only these saved/plan identities are candidates for name-based research association.
+  // Ambiguous research remains independent; it never combines two live saved decks.
+  const anchors = [...families.values()];
   for (const bundle of research) for (const deck of bundle.document.decks) {
     if (!deck.builds.some((b) => [2, 3, 4].includes(b.bracket ?? 0))) continue;
-    const f = family(familyKey(deck.name), deck.name);
+    const matches = anchors.filter((f) => aliases.get(f.key)?.has(deck.name));
+    const f = matches.length === 1 ? matches[0]! : family(`research:${JSON.stringify([deck.key, deck.name])}`, deck.name, `Unlinked research ${deck.key}`);
     for (const b of deck.builds) {
       const isBracket = [2, 3, 4].includes(b.bracket ?? 0) && !["stock", "current"].includes(b.id);
       f.choices.push({
@@ -55,9 +79,8 @@ export function buildFamilies(research: ResearchBundle[], plan: PlanBundle | und
       });
     }
   }
-  for (const deck of plan?.decks ?? []) {
-    if (deck.status === "archived") continue;
-    const f = family(familyKey(deck.name), deck.name);
+  for (const deck of plans) {
+    const f = planFamilies.get(deck.key)!;
     const href = `/decks/plan/d/${encodeURIComponent(deck.key)}`;
     for (const state of ["stock", "now", "after"] as const) {
       const s = deck.states[state]; if (!s) continue;
@@ -71,17 +94,15 @@ export function buildFamilies(research: ResearchBundle[], plan: PlanBundle | und
       }
     }
   }
-  const byId = new Map(decks.map((d) => [d.id, d]));
   for (const deck of decks) {
     const root = deck.parent_id ? byId.get(deck.parent_id) : deck;
     if (!root) continue;
-    const linked = plan?.decks.find((p) => p.yama_deck?.id === root.id || p.deck_id === root.id);
-    const f = family(familyKey(linked?.name ?? root.name), linked?.name ?? root.name);
+    const f = families.get(`saved:${root.id}`)!;
     const original = /^(stock|original)$/i.test(deck.configuration ?? "");
     const legacy = !!deck.parent_id && legacyConfiguration(deck.configuration);
     f.choices.push({ id: `saved:${deck.id}`, label: !deck.parent_id ? "Current (saved deck)" : original ? "Original" : legacy ? `Legacy: ${deck.configuration}` : deck.configuration ?? deck.name, kind: !deck.parent_id ? "current" : original ? "original" : legacy ? "legacy" : "bracket", bracket: deck.bracket ?? undefined, track: "unverified", savedDeck: deck.id, source: `Saved ${deck.updated_at.slice(0, 10)}`, href: `/decks/${deck.id}`, warnings: [] });
   }
-  return [...families.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...families.values()].sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
 }
 
 export interface CardCopy { name: string; board: "commander" | "main" }
