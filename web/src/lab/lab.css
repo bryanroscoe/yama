@@ -58,6 +58,23 @@
 .lab-real h3 {
   margin: 0 0 0.25rem;
 }
+.lab-real + .lab-real {
+  margin-top: 0.75rem;
+}
+.lab-evidence {
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+  margin: 0.5rem 0;
+}
+.lab-evidence th,
+.lab-evidence td {
+  padding: 0.25rem 0.75rem 0.25rem 0;
+  text-align: left;
+}
+.lab-evidence .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .lab-note {
   color: var(--dim);
   font-size: var(--t-sm);

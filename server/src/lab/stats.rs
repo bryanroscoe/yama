@@ -506,7 +506,7 @@ pub fn solo_verdict(stats: &ListStats, pod: usize, is_final: bool) -> Verdict {
 
 // ── head to head (mode "versus") ─────────────────────────────────────────────
 
-pub const TOURNAMENT_METHOD: &str = "A shared tournament field plays balanced randomized four-player pods. Each quartet rotates through every seat with fresh seeds. Every participant is scored, including benchmark precons. Win rates use only the games that deck played and carry Wilson 90% intervals. Head-to-head rates use only shared scored games, excluding tied finishes. Equal appearances reduce opponent-selection imbalance but do not guarantee identical opponents or remove AI/card-support bias. Small samples and overlapping intervals do not establish a power ranking. Timeouts, crashes and errors are unscored; turn/action caps are scored with no winner.";
+pub const TOURNAMENT_METHOD: &str = "A shared tournament field plays balanced randomized four-player pods. Each quartet rotates through every seat with fresh seeds. Every participant is scored, including benchmark precons. Win rates use only the games that deck played and carry Wilson 90% intervals. Head-to-head rates use only shared scored games, excluding tied finishes. Equal appearances reduce opponent-selection imbalance but do not guarantee identical opponents or remove AI/card-support bias. Small samples and overlapping intervals do not establish a power ranking. Timeouts, crashes and errors are unscored; turn/action caps are scored with no winner. Strength is fitted to who won each pod given who sat in it (multiplayer Bradley–Terry): 1 is the field's geometric mean, a strength-2 deck is twice as likely as a strength-1 deck to win a pod they share, and it accounts for uneven tables that raw win rates don't. Its 90% interval comes from the fit's curvature and treats games as independent.";
 
 pub const VERSUS_METHOD: &str = "Each of your decks plays the others directly, every deck rotated through every seat so \
 going first evens out. Win share: the games each deck won, with a Wilson 90% interval; in a pod of four a deck with no \
@@ -514,7 +514,10 @@ edge wins about one in four (one in two in 1v1). Head to head: of the games two 
 ahead of the other (ties left out). With two decks, the verdict goes by that head-to-head share and its Wilson 90% \
 interval: a deck is ahead only when the interval is clear of 50% by a whole point. Precons filling empty seats count as \
 opponents, not as entrants. Games that ran out of CPU time, crashed or failed aren't scored; games that reached the turn \
-or action cap count as games nobody won.";
+or action cap count as games nobody won. With three or more decks, strength is fitted to who won each pod given who \
+sat in it (multiplayer Bradley–Terry): 1 is the field's geometric mean, and a deck of strength 2 is twice as likely as a \
+strength-1 deck to win a pod they share. It accounts for uneven tables, which raw win shares don't. Its 90% interval comes \
+from the fit's curvature; pods with a precon filling a seat or with no winner aren't used.";
 
 /// One deck in a head-to-head experiment.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -529,6 +532,9 @@ pub struct Entrant {
     pub avg_place: Option<f64>,
     /// Games it went first in (seat 0), scored or not.
     pub first: u32,
+    /// Fitted strength in the shared field (lab/strength.rs): pods of entrants only, with a winner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strength: Option<super::strength::Strength>,
 }
 
 /// Two entrants who sat in the same scored games.
@@ -577,6 +583,7 @@ pub fn summarize_versus(rows: &[(String, Option<String>)], entrants: &[(String, 
         }
     }
     let mut place_sum = vec![0.0f64; n];
+    let mut pods: Vec<super::strength::Pod> = Vec::new();
     let mut turns = Vec::new();
     let mut builds: Vec<BuildGames> = Vec::new();
     let mut unscored = Unscored::default();
@@ -646,6 +653,12 @@ pub fn summarize_versus(rows: &[(String, Option<String>)], entrants: &[(String, 
             }
         }
         let present: Vec<usize> = place.iter().enumerate().filter_map(|(i, p)| p.map(|_| i)).collect();
+        // Only pods whose every seat is an entrant, won by one of them, inform the fitted strength.
+        if r.end == End::Win && winner_is_entrant && present.len() == spec.decks.len() {
+            if let Some(w) = seats.iter().position(|s| *s == r.winner) {
+                pods.push(super::strength::Pod { decks: present.clone(), winner: w });
+            }
+        }
         for (at, &a) in present.iter().enumerate() { for &b in &present[at + 1..] {
             let index = a * (2 * n - a - 1) / 2 + b - a - 1;
             let m = &mut meetings[index];
@@ -661,6 +674,12 @@ pub fn summarize_versus(rows: &[(String, Option<String>)], entrants: &[(String, 
             e.win_rate = Some(f64::from(e.wins) / f64::from(e.games));
             e.wilson = wilson(e.wins, e.games);
             e.avg_place = Some(place_sum[i] / f64::from(e.games));
+        }
+    }
+    // A fitted strength needs a field: three or more decks.
+    if n >= 3 {
+        for (e, f) in v.entrants.iter_mut().zip(super::strength::fit(n, &pods)) {
+            e.strength = f;
         }
     }
     for m in meetings.iter_mut() {

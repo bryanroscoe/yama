@@ -270,6 +270,11 @@ pub fn list_text(cards: &[LabCard]) -> String {
     format!("Commander\n{commanders}\nDeck\n{main}")
 }
 
+/// The fingerprint a precon's stock list has as a lab list, to recognise it among a run's entrants.
+pub fn precon_list_sha(cards: Vec<PreconCard>) -> String {
+    sha256_hex(&list_text(&normalize(from_precon_cards(cards))))
+}
+
 fn make_list(id: &str, label: &str, source: Value, cards: Vec<LabCard>) -> LabList {
     let cards = normalize(cards);
     LabList { id: id.into(), label: label.into(), source, sha256: sha256_hex(&list_text(&cards)), cards }

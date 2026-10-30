@@ -842,6 +842,55 @@ collectors, explicit dataset publication, public commander ranks
 and outcome-to-list upgrade analysis remain follow-ons. Format, limits, APIs,
 attribution and the exact recency method are in [docs/datasets.md](docs/datasets.md).
 
+### Precon evidence from datasets (2026-10-29)
+
+Bryan approved combining the datasets with the precon pages, with the requirement that new
+uploads flow through. `precon_evidence/` and migration 0039 add that first step. An admin
+switches a source on for their own datasets (`precon_evidence_sources`, the Datasets page or
+`yama-server precon-evidence use SOURCE --owner EMAIL`). That row is the explicit choice that
+derived per-precon figures may show on the signed-in precon pages; the datasets stay private.
+Nothing is copied: every read derives the figures from the active revision of each dataset with
+that source name. A new revision, or another dataset from the same source, updates them, and a
+snapshot two datasets share counts once.
+
+Each catalog precon links to one source precon by an operator's manual link, then the catalog's
+own source URL, then its name, then its slug. A name or slug that fits several precons is
+refused and reported, never guessed; `exclude` forbids a pair. Bryan accepted differencing the
+source's cumulative precon snapshots, labelled approximate: consecutive snapshots imply the rate
+over the games between them, pooled to at least 40 new games, then weighted by games and the
+180-day half-life at each interval's midpoint for a recent rate, with a games-weighted trend from
+three intervals. A falling game count restarts the chain; conflicting, partial-capture, flagged,
+future and out-of-range figures are left out with a note. Precons the source doesn't rate show
+the commander's 180-day figure separately, labelled as all lists; it never enters the precon's
+real-game rate. The Lab precon page, Ask Claude and MCP `precon` show this with the source,
+attribution, licence and dataset revisions.
+
+Tournament summaries add a fitted strength (`lab/strength.rs`) for three or more decks: the
+multiplayer Bradley–Terry (Luce) model of who won each pod given who sat in it, fitted by
+minorize–maximize with one half-won pseudo-game per deck against a strength-1 deck, scaled so the
+field's geometric mean is 1, with a 90% interval from the observed information on log strength.
+Pods with a filler seat or no winner aren't used. Win shares and meetings are unchanged.
+
+`precon_evidence/calibration.rs` is the time-split test (admin `GET /api/admin/precon-calibration`,
+`yama-server precon-evidence calibrate [--split DATE] [--owner EMAIL]`; default split six weeks
+back). Everything known at the split predicts each precon's implied rate on the later games:
+real games alone, the simulation alone (log strength mapped to a rate by games-weighted least
+squares on pre-split rates), the meta rank's even split (ranks only) and rating v2 (the real rate
+and mapped simulation weighted by precision, the simulation's variance being the mapping's
+residual beyond the real rates' sampling noise). Scores are rank correlation with a 90% bootstrap
+interval over precons and held-out error weighted by held-out games. Sources are the newest global
+precon-ratings runs and, for the caller, their own tournaments, summarised afresh from their games
+and matched to catalog precons by stock-list fingerprint. A private tournament never feeds a
+shared page.
+
+Rating v2 (`evidence-weighted-v2`, `GET /api/precons/rating-v2`, the Lab precon page, Ask Claude and
+MCP `precon`) uses the datasets and the newest global run. The simulation counts beside real games
+only if that run passed the time-split test (v2's error interval below real-only's); otherwise
+real games stand alone and the simulation ranks only precons without them. Each estimate carries a
+90% interval, its share of weight from real games and a rank range from 1000 redraws. Public pages
+and the meta rank stay unchanged until Bryan asks for the switch
+([proposal](https://claude.ai/artifact/7LrgZeGYy3dZLaFuRbsdmu)).
+
 ## 11. Risks
 
 - **Legal and IP:**

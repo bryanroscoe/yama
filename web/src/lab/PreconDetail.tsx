@@ -8,12 +8,13 @@ import { Link, useParams } from "react-router";
 import { api, usd, priceSource } from "../api";
 import { CardImage, Details, ErrorText, ManaCost, Pips } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
-import type { Matchup, PreconDetail, PreconItem, RunLabel } from "./api";
+import type { Matchup, PreconDetail, PreconItem, RatingV2, RunLabel } from "./api";
 import { ConfidenceNote } from "./confidence";
 import { cantJudge, caveat, fmtDate, grouped, linScale, logScale, pct, pctRange, strengthDomain, strengthText } from "./logic";
 import { ArtPanel, IntervalBar } from "./parts";
 import { RunLine, usePrecons } from "./Precons";
 import { AskClaude } from "../advisor/AskClaude";
+import { EvidenceSection, RatingV2Section } from "./Evidence";
 import { LabHead } from "./LabLayout";
 
 interface EngineSupport {
@@ -33,6 +34,7 @@ export function PreconDetailPage() {
 function PreconDetailBody({ id }: { id: string | undefined }) {
   const detail = useQuery({ queryKey: ["lab", "precon", id], queryFn: () => api<PreconDetail>(`/api/precons/${id}`) });
   const list = usePrecons();
+  const v2 = useQuery({ queryKey: ["lab", "rating-v2"], queryFn: () => api<RatingV2>("/api/precons/rating-v2"), staleTime: 5 * 60_000 });
   const [open, setOpen] = useState<string | null>(null);
 
   if (detail.error) {
@@ -91,6 +93,9 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
           </p></Details>
         </section>
       )}
+
+      <EvidenceSection evidence={p.evidence} />
+      <RatingV2Section v2={v2.data} id={p.id} />
 
       <section>
         <h2>EDHREC reviews and upgrades</h2>

@@ -53,6 +53,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::decks::router())
         .merge(crate::deck_research::router())
         .merge(crate::datasets::router())
+        .merge(crate::precon_evidence::router())
         .merge(crate::deck_import::router())
         .merge(crate::playgroups::router())
         .merge(crate::games::router())

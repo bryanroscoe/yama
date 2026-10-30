@@ -52,3 +52,15 @@ export function periodLabel(value: unknown): string {
   if (p.kind === "cumulative_snapshot") return `Cumulative snapshot${p.source_as_of ? ` as of ${text(p.source_as_of).slice(0, 10)}` : ""}`;
   return "Period unknown";
 }
+
+/** What the shared precon pages take from datasets (admin only, server/src/precon_evidence). */
+export interface PreconEvidenceReport {
+  sources: { owner: string; source_name: string; enabled_at: string }[];
+  source_label: { name: string; datasets: { id: string; revision: number; imported_at: string }[] } | null;
+  entities: number; catalog_precons: number; catalog_without_real_games: number;
+  matched: Record<string, [string, string]>;
+  unmatched: { entity: string; name: string; url: string | null; reason: string }[];
+}
+export const preconEvidence = () => api<PreconEvidenceReport>("/api/admin/precon-evidence");
+export const setPreconEvidence = (source: string, on: boolean) =>
+  api<PreconEvidenceReport>(`/api/admin/precon-evidence/sources/${encodeURIComponent(source)}`, { method: on ? "PUT" : "DELETE" });
