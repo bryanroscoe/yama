@@ -1,7 +1,7 @@
 From ccbcc40e6f9d5e30fec2c59f099ab879b839bc88 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:04:43 -0500
-Subject: [PATCH 01/12] Adapt private fork CI to the isolated saget worker
+Subject: [PATCH 01/13] Adapt private fork CI to the isolated saget worker
 
 ---
  .github/actions/prepare-private-ci/action.yml |  28 ++++
@@ -594,7 +594,7 @@ index 00000000..61309682
 From 9df05c6b5d06cb93c5adb6dbcb75d3aa42232a77 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:07:07 -0500
-Subject: [PATCH 02/12] fork: scope private automation to CI and pin stable
+Subject: [PATCH 02/13] fork: scope private automation to CI and pin stable
  Rust
 
 ---
@@ -773,7 +773,7 @@ index 61309682..e910f8ff 100644
 From 84c6f2c0b3e466c3e9eea56d8c3ed96ec6ffad4e Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:10:01 -0500
-Subject: [PATCH 03/12] fork: rely on tool-cache configuration before listener
+Subject: [PATCH 03/13] fork: rely on tool-cache configuration before listener
  startup
 
 ---
@@ -796,7 +796,7 @@ index 39be49d6..c15b2c3c 100644
 From 0bcebcbca5c9f9c8b7a5ef059c17b1262e5c2939 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:20:01 -0500
-Subject: [PATCH 04/12] fork: extract each test shard outside the persistent
+Subject: [PATCH 04/13] fork: extract each test shard outside the persistent
  target cache
 
 ---
@@ -839,7 +839,7 @@ index e910f8ff..29429712 100644
 From 7a2930b2108f3c402f22f6dcb24f48e26792ab32 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:27:29 -0500
-Subject: [PATCH 05/12] fork: retain nightly for the libtest JSON archive
+Subject: [PATCH 05/13] fork: retain nightly for the libtest JSON archive
  workload
 
 ---
@@ -888,7 +888,7 @@ index 29429712..df808356 100644
 From a4eadf41b3055cfbdd5f00ebff6a7120e31d4e82 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 18:17:25 -0500
-Subject: [PATCH 06/12] fork: install stable lint components explicitly
+Subject: [PATCH 06/13] fork: install stable lint components explicitly
 
 ---
  .github/workflows/ci.yml | 1 +
@@ -910,7 +910,7 @@ index 51982276..4cdf6379 100644
 From 90acc71a5ccd310811f2f2d5090e3ab92c09efb0 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 22:08:58 -0500
-Subject: [PATCH 07/12] fork: preserve the protocol checkout history assertion
+Subject: [PATCH 07/13] fork: preserve the protocol checkout history assertion
 
 ---
  .github/workflows/ci.yml | 2 +-
@@ -934,7 +934,7 @@ index 4cdf6379..f52f8146 100644
 From a6c70dfeccd6618e64a28d33d3fa0549d932c15e Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 23:37:24 -0500
-Subject: [PATCH 08/12] fork: satisfy stable Clippy with equivalent expressions
+Subject: [PATCH 08/13] fork: satisfy stable Clippy with equivalent expressions
 
 ---
  crates/engine/src/game/payment_transaction.rs | 21 +++++++++----------
@@ -999,7 +999,7 @@ index 34b69bcb..3491dcf2 100644
 From 9ad87af2d3c23978fd5ed3e4861bd21101e57adc Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Fri, 30 Oct 2026 01:57:40 -0500
-Subject: [PATCH 09/12] fork: wait for CI capacity in cancellable workflow
+Subject: [PATCH 09/13] fork: wait for CI capacity in cancellable workflow
  steps
 
 ---
@@ -1287,7 +1287,7 @@ index df808356..0d365610 100644
 From 219fa4cbd2499596bae53339f4ad0688a3f5cdc0 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Fri, 30 Oct 2026 03:44:29 -0500
-Subject: [PATCH 10/12] fork: use slice fill for stable Rust lint
+Subject: [PATCH 10/13] fork: use slice fill for stable Rust lint
 
 ---
  crates/draft-core/src/types.rs | 4 +---
@@ -1312,7 +1312,7 @@ index 0df207c2..6ada8591 100644
 From 8afc05e5d72105d01599f29773b6ec4697badc26 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Fri, 30 Oct 2026 11:57:39 -0500
-Subject: [PATCH 11/12] fork: preserve private parse baselines without public
+Subject: [PATCH 11/13] fork: preserve private parse baselines without public
  publishing
 
 ---
@@ -1981,7 +1981,7 @@ index 00000000..1a153868
 From 35662293d8b0a88519a365fb567d57604b41171b Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Fri, 30 Oct 2026 12:06:37 -0500
-Subject: [PATCH 12/12] fork: use checked-out merge parents without refetching
+Subject: [PATCH 12/13] fork: use checked-out merge parents without refetching
  private origin
 
 ---
@@ -2076,3 +2076,42 @@ index 1a153868..06966f7a 100644
  
  if __name__ == "__main__":
      unittest.main()
+
+From 1946e2e3fc7b1877d5245dd6d546f92b771ef572 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Fri, 30 Oct 2026 12:36:36 -0500
+Subject: [PATCH 13/13] fork: cancel superseded AI gate runs before they block
+ current CI
+
+---
+ .github/workflows/ai-gate.yml | 6 ++++++
+ docs/private-ci.md            | 2 ++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/.github/workflows/ai-gate.yml b/.github/workflows/ai-gate.yml
+index c948fea2..1e4f8b41 100644
+--- a/.github/workflows/ai-gate.yml
++++ b/.github/workflows/ai-gate.yml
+@@ -14,6 +14,12 @@ on:
+     - cron: "0 9 * * *"
+   workflow_dispatch:
+ 
++# Obsolete PR workloads must not occupy the private worker ahead of the latest
++# commit. Manual and scheduled suites retain separate concurrency groups.
++concurrency:
++  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
++  cancel-in-progress: true
++
+ permissions:
+   contents: read
+   issues: write
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index 5d9a7894..f803994a 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -63,3 +63,5 @@ and export; it uses existing CI capacity and private Actions storage quotas.
+ 
+ On saget, the first workflow step waits for CI capacity before checkout. The pre-job hook returns promptly so GitHub can report and cancel queued work. This step runs from RUNNER_TEMP, which exists before checkout, and verifies the runner supports the step-slot protocol. Install/adopt the reviewed sagetserver hooks before running these adapters. Hosted jobs skip this step.
+ The Rust summary job still reports failed dependencies, but skips a cancelled workflow so obsolete runs cannot hold the CI concurrency group.
++AI gates also cancel superseded runs of the same PR. Manual and scheduled suites
++use separate groups so a PR update does not displace those workloads.
