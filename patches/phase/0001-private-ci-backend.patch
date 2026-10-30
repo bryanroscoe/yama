@@ -1,7 +1,7 @@
 From ccbcc40e6f9d5e30fec2c59f099ab879b839bc88 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:04:43 -0500
-Subject: [PATCH 01/11] Adapt private fork CI to the isolated saget worker
+Subject: [PATCH 01/12] Adapt private fork CI to the isolated saget worker
 
 ---
  .github/actions/prepare-private-ci/action.yml |  28 ++++
@@ -594,7 +594,7 @@ index 00000000..61309682
 From 9df05c6b5d06cb93c5adb6dbcb75d3aa42232a77 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:07:07 -0500
-Subject: [PATCH 02/11] fork: scope private automation to CI and pin stable
+Subject: [PATCH 02/12] fork: scope private automation to CI and pin stable
  Rust
 
 ---
@@ -773,7 +773,7 @@ index 61309682..e910f8ff 100644
 From 84c6f2c0b3e466c3e9eea56d8c3ed96ec6ffad4e Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:10:01 -0500
-Subject: [PATCH 03/11] fork: rely on tool-cache configuration before listener
+Subject: [PATCH 03/12] fork: rely on tool-cache configuration before listener
  startup
 
 ---
@@ -796,7 +796,7 @@ index 39be49d6..c15b2c3c 100644
 From 0bcebcbca5c9f9c8b7a5ef059c17b1262e5c2939 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:20:01 -0500
-Subject: [PATCH 04/11] fork: extract each test shard outside the persistent
+Subject: [PATCH 04/12] fork: extract each test shard outside the persistent
  target cache
 
 ---
@@ -839,7 +839,7 @@ index e910f8ff..29429712 100644
 From 7a2930b2108f3c402f22f6dcb24f48e26792ab32 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:27:29 -0500
-Subject: [PATCH 05/11] fork: retain nightly for the libtest JSON archive
+Subject: [PATCH 05/12] fork: retain nightly for the libtest JSON archive
  workload
 
 ---
@@ -888,7 +888,7 @@ index 29429712..df808356 100644
 From a4eadf41b3055cfbdd5f00ebff6a7120e31d4e82 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 18:17:25 -0500
-Subject: [PATCH 06/11] fork: install stable lint components explicitly
+Subject: [PATCH 06/12] fork: install stable lint components explicitly
 
 ---
  .github/workflows/ci.yml | 1 +
@@ -910,7 +910,7 @@ index 51982276..4cdf6379 100644
 From 90acc71a5ccd310811f2f2d5090e3ab92c09efb0 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 22:08:58 -0500
-Subject: [PATCH 07/11] fork: preserve the protocol checkout history assertion
+Subject: [PATCH 07/12] fork: preserve the protocol checkout history assertion
 
 ---
  .github/workflows/ci.yml | 2 +-
@@ -934,7 +934,7 @@ index 4cdf6379..f52f8146 100644
 From a6c70dfeccd6618e64a28d33d3fa0549d932c15e Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 23:37:24 -0500
-Subject: [PATCH 08/11] fork: satisfy stable Clippy with equivalent expressions
+Subject: [PATCH 08/12] fork: satisfy stable Clippy with equivalent expressions
 
 ---
  crates/engine/src/game/payment_transaction.rs | 21 +++++++++----------
@@ -999,7 +999,7 @@ index 34b69bcb..3491dcf2 100644
 From 9ad87af2d3c23978fd5ed3e4861bd21101e57adc Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Fri, 30 Oct 2026 01:57:40 -0500
-Subject: [PATCH 09/11] fork: wait for CI capacity in cancellable workflow
+Subject: [PATCH 09/12] fork: wait for CI capacity in cancellable workflow
  steps
 
 ---
@@ -1287,7 +1287,7 @@ index df808356..0d365610 100644
 From 219fa4cbd2499596bae53339f4ad0688a3f5cdc0 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Fri, 30 Oct 2026 03:44:29 -0500
-Subject: [PATCH 10/11] fork: use slice fill for stable Rust lint
+Subject: [PATCH 10/12] fork: use slice fill for stable Rust lint
 
 ---
  crates/draft-core/src/types.rs | 4 +---
@@ -1312,7 +1312,7 @@ index 0df207c2..6ada8591 100644
 From 8afc05e5d72105d01599f29773b6ec4697badc26 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Fri, 30 Oct 2026 11:57:39 -0500
-Subject: [PATCH 11/11] fork: preserve private parse baselines without public
+Subject: [PATCH 11/12] fork: preserve private parse baselines without public
  publishing
 
 ---
@@ -1977,3 +1977,102 @@ index 00000000..1a153868
 +
 +if __name__ == "__main__":
 +    unittest.main()
+
+From 35662293d8b0a88519a365fb567d57604b41171b Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Fri, 30 Oct 2026 12:06:37 -0500
+Subject: [PATCH 12/12] fork: use checked-out merge parents without refetching
+ private origin
+
+---
+ .github/workflows/ci.yml                |  5 +--
+ scripts/private_parse_baseline_tests.py | 44 +++++++++++++++++++++++++
+ 2 files changed, 47 insertions(+), 2 deletions(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index a299c740..0c199116 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -508,7 +508,8 @@ jobs:
+           BASE=HEAD
+           if [ "$EVENT_NAME" = pull_request ]; then
+             BASE="$(./scripts/parse-diff-base.sh "$PR_HEAD")"
+-            git fetch --no-tags --depth=1 origin "$BASE"
++            # checkout's depth 2 already contains both merge parents and trees;
++            # persist-credentials:false deliberately removes later Git auth.
+           fi
+           python3 scripts/private_parse_baseline.py identify --ref "$BASE" >> "$GITHUB_OUTPUT"
+ 
+@@ -719,7 +720,7 @@ jobs:
+             echo "produced=true" >> "$GITHUB_OUTPUT"
+             exit 0
+           fi
+-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
++          # The depth-2 checkout already supplies this parent and its full tree.
+           BASE_HASH="$(./scripts/engine-source-hash.sh "$BASE_SHA")"
+           HEAD_HASH="$(./scripts/engine-source-hash.sh HEAD)"
+           if [ "$BASE_HASH" = "$HEAD_HASH" ]; then
+diff --git a/scripts/private_parse_baseline_tests.py b/scripts/private_parse_baseline_tests.py
+index 1a153868..06966f7a 100644
+--- a/scripts/private_parse_baseline_tests.py
++++ b/scripts/private_parse_baseline_tests.py
+@@ -4,8 +4,10 @@
+ import json
+ import os
+ from pathlib import Path
++import shutil
+ import subprocess
+ import tempfile
++import textwrap
+ import unittest
+ from unittest.mock import patch
+ 
+@@ -167,6 +169,48 @@ print('rustc fixture NIGHTLY' if pathlib.Path.cwd().name == 'private-parse-basel
+             self.build()
+         self.assertEqual(evidence.read_text(), "preserve")
+ 
++    def test_shipped_steps_use_shallow_merge_parents_without_origin_credentials(self):
++        # A docs-only PR and a parallel main commit produce a real synthetic
++        # merge. Clone it as checkout does, with only the merge and two parents.
++        self.source.write_text("BASE")
++        self.git("add", ".")
++        self.git("commit", "-qm", "docs-only PR")
++        head = self.git("rev-parse", "HEAD")
++        self.git("checkout", "-q", "--detach", self.base)
++        (self.repo / "main-note").write_text("parallel main change")
++        self.git("add", ".")
++        self.git("commit", "-qm", "main")
++        main = self.git("rev-parse", "HEAD")
++        self.git("merge", "--no-ff", "-qm", "synthetic PR merge", head)
++        self.git("branch", "synthetic-merge")
++        checkout = self.root / "shallow"
++        subprocess.run(["git", "clone", "--quiet", "--depth", "2", "--branch",
++                        "synthetic-merge", self.repo.as_uri(), str(checkout)], check=True)
++        # Any later fetch fails. No credentials or private repository needed.
++        subprocess.run(["git", "remote", "set-url", "origin", str(self.root / "no-origin")],
++                       cwd=checkout, check=True)
++        scripts = checkout / "scripts"
++        scripts.mkdir()
++        origin_scripts = Path(__file__).resolve().parent
++        for name in ("private_parse_baseline.py", "engine-source-hash.sh", "parse-diff-base.sh"):
++            shutil.copy2(origin_scripts / name, scripts / name)
++        data = checkout / "data/mtgjson"
++        data.mkdir(parents=True)
++        shutil.copy2(self.atomic, data / "AtomicCards.json")
++        output = self.root / "step-output"
++        output.touch()
++        env = dict(os.environ, EVENT_NAME="pull_request", PR_HEAD=head, HEAD_SHA=head,
++                   PR_NUMBER="8", PRIVATE_CI="true", GITHUB_OUTPUT=str(output))
++        workflow = (origin_scripts.parent / ".github/workflows/ci.yml").read_text()
++        for name in ("Identify private parse baseline", "Parse-detail diff vs base baseline"):
++            step = workflow.split("      - name: " + name + "\n", 1)[1].split("\n      - ", 1)[0]
++            shell = textwrap.dedent(step.split("        run: |\n", 1)[1])
++            subprocess.run(["bash", "-c", shell], cwd=checkout, env=env,
++                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
++        self.assertIn("base_sha=" + main, output.read_text())
++        self.assertIn("cache_key=private-parse-baseline-v1-", output.read_text())
++        self.assertIn("produced=false", output.read_text())
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
