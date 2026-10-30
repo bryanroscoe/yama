@@ -1311,13 +1311,6 @@ async fn recheck(
 /// (before the first import that reads it): a count then would be a guess.
 pub fn game_changers(cards: &[DeckCard], info: &HashMap<String, Card>) -> Option<Vec<String>> {
     let mut names = Vec::new();
-    // Copies of a card across the commander and main deck (a commander scanned or listed twice
-    // is one commander row and one main row): singleton counts them together, reported once.
-    let mut copies: HashMap<&str, i64> = HashMap::new();
-    for c in cards.iter().filter(|c| c.board != Board::Side) {
-        *copies.entry(c.oracle_id.as_str()).or_insert(0) += c.qty;
-    }
-    let mut reported: Vec<&str> = Vec::new();
     for c in cards.iter().filter(|c| c.board != Board::Side) {
         let Some(card) = info.get(&c.oracle_id) else { continue };
         if card.game_changer? {
@@ -1409,6 +1402,13 @@ pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation 
     if v.total != 100 {
         v.errors.push(format!("{} cards; Commander decks have exactly 100 including the commander", v.total));
     }
+    // Copies of a card across the commander and main deck (a commander scanned or listed twice
+    // is one commander row and one main row): singleton counts them together, reported once.
+    let mut copies: HashMap<&str, i64> = HashMap::new();
+    for c in cards.iter().filter(|c| c.board != Board::Side) {
+        *copies.entry(c.oracle_id.as_str()).or_insert(0) += c.qty;
+    }
+    let mut reported: Vec<&str> = Vec::new();
     for c in cards.iter().filter(|c| c.board != Board::Side) {
         let Some(card) = info.get(&c.oracle_id) else {
             v.warnings.push(format!("{} isn't in the card data", c.name));
@@ -1654,6 +1654,14 @@ mod tests {
         assert!(v.errors.iter().any(|e| e.contains("Jeweled Lotus is banned")));
         assert!(!v.errors.iter().any(|e| e.contains("Forest")));
         assert!(!v.errors.iter().any(|e| e.contains("100"))); // 1 + 2 + 1 + 1 + 95 = 100
+
+        // The commander listed again in the main deck: one row each, counted together, said once.
+        let twice = vec![dc("Omo", 1, Board::Commander), dc("Omo", 1, Board::Main), dc("Forest", 98, Board::Main)];
+        let v = validate(&twice, &info);
+        assert_eq!(v.errors.iter().filter(|e| e.contains("singleton")).collect::<Vec<_>>(), ["2 × Omo: Commander is singleton"]);
+        // Basics and "any number" cards still may repeat across rows.
+        let rats = vec![dc("Omo", 1, Board::Commander), dc("Relentless Rats", 30, Board::Main), dc("Relentless Rats", 2, Board::Main), dc("Forest", 67, Board::Main)];
+        assert!(!validate(&rats, &info).errors.iter().any(|e| e.contains("singleton")));
     }
 }
 
