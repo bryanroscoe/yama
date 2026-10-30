@@ -1,0 +1,907 @@
+From d7f62af3f93983e14fcd565a7aa9b8c8e1a25a78 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:04:43 -0500
+Subject: [PATCH 1/6] Adapt private fork CI to the isolated saget worker
+
+---
+ .github/actions/prepare-private-ci/action.yml |  28 ++++
+ .github/workflows/action-pin-audit.yml        |  14 +-
+ .github/workflows/ai-gate.yml                 |  44 ++++--
+ .github/workflows/ci.yml                      | 126 +++++++++++++-----
+ docs/private-ci.md                            |  40 ++++++
+ 5 files changed, 200 insertions(+), 52 deletions(-)
+ create mode 100644 .github/actions/prepare-private-ci/action.yml
+ create mode 100644 docs/private-ci.md
+
+diff --git a/.github/actions/prepare-private-ci/action.yml b/.github/actions/prepare-private-ci/action.yml
+new file mode 100644
+index 0000000..39be49d
+--- /dev/null
++++ b/.github/actions/prepare-private-ci/action.yml
+@@ -0,0 +1,28 @@
++name: Prepare private CI worker
++description: Configure dedicated writable tools and build outputs on the private runner.
++runs:
++  using: composite
++  steps:
++    - name: Prepare saget caches
++      if: runner.environment == 'self-hosted'
++      shell: bash
++      run: |
++        set -euo pipefail
++        test "$GITHUB_REPOSITORY" = bryanroscoe/yama-phase
++        mkdir -p /ci-cache/tools /ci-cache/target /ci-cache/android /ci-cache/gradle /ci-cache/sccache
++        # Preserve scripts/artifact paths while compiling into one dedicated cache.
++        for path in target client/src-tauri/target; do
++          if [ -e "$path" ] || [ -L "$path" ]; then
++            test "$(readlink "$path")" = /ci-cache/target
++          else
++            mkdir -p "$(dirname "$path")"
++            ln -s /ci-cache/target "$path"
++          fi
++        done
++        echo 'RUNNER_TOOL_CACHE=/ci-cache/tools' >> "$GITHUB_ENV"
++        echo 'CARGO_BUILD_JOBS=2' >> "$GITHUB_ENV"
++        echo 'ANDROID_HOME=/ci-cache/android' >> "$GITHUB_ENV"
++        echo 'ANDROID_SDK_ROOT=/ci-cache/android' >> "$GITHUB_ENV"
++        echo 'GRADLE_USER_HOME=/ci-cache/gradle' >> "$GITHUB_ENV"
++        echo 'SCCACHE_DIR=/ci-cache/sccache' >> "$GITHUB_ENV"
++        echo 'SCCACHE_CACHE_SIZE=2G' >> "$GITHUB_ENV"
+diff --git a/.github/workflows/action-pin-audit.yml b/.github/workflows/action-pin-audit.yml
+index b09d67c..4941d57 100644
+--- a/.github/workflows/action-pin-audit.yml
++++ b/.github/workflows/action-pin-audit.yml
+@@ -33,11 +33,11 @@ permissions: {}
+ jobs:
+   audit:
+     name: Audit action pins from base
+-    # 246030356 is .github/workflows/ci.yml. Opaque, but a pull request can
++    # 398415720 is .github/workflows/ci.yml. Opaque, but a pull request can
+     # rename that workflow and cannot renumber it.
+-    if: github.event.workflow_run.workflow_id == 246030356
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 5
++    if: github.event.workflow_run.workflow_id == 398415720
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 5 }}
+     # Read-only. This job handles the untrusted tree.
+     permissions:
+       contents: read
+@@ -93,9 +93,9 @@ jobs:
+   report:
+     name: Report the audit result
+     needs: audit
+-    if: always() && github.event.workflow_run.workflow_id == 246030356
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 5
++    if: always() && github.event.workflow_run.workflow_id == 398415720
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 5 }}
+     # The only job with a write token, and it never fetches or reads the
+     # evaluated tree -- it publishes a verdict the audit job already reached.
+     permissions:
+diff --git a/.github/workflows/ai-gate.yml b/.github/workflows/ai-gate.yml
+index 390fd3c..46db6df 100644
+--- a/.github/workflows/ai-gate.yml
++++ b/.github/workflows/ai-gate.yml
+@@ -21,20 +21,25 @@ permissions:
+ jobs:
+   ai-gate:
+     name: Paired-seed AI gate
+-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+-    runs-on: ubuntu-latest
++    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # 30m was too tight and flaked out on slow runners. Measured budget on a
+     # cache miss: ~6.5m for the "Generate card data" step (5m `tool` build + gen)
+     # + a cold debug build + the debug run itself (30 games at ~1.1m/game on a
+     # slow runner ≈ 34m). Hosted-runner speed varies ~2x, so a fast runner
+     # finishes well under 30m while a slow one overruns. 60m preserves the full
+     # `--games 10` coverage; the ceiling only bills the failure case.
+-    timeout-minutes: 60
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+       - name: Restore AI card data caches
+@@ -51,8 +56,8 @@ jobs:
+ 
+   ai-gate-nightly:
+     name: Nightly AI gate drift monitor
+-    if: github.event_name == 'schedule'
+-    runs-on: ubuntu-latest
++    if: ${{ (github.event_name == 'schedule') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # The gate's workload flags MUST equal the corresponding fields in
+     # crates/phase-ai/baselines/suite-baseline.json. The comparator refuses a pair
+     # whose workloads disagree, so a divergent value here makes this job incapable
+@@ -63,12 +68,17 @@ jobs:
+     # registry, plus mirror classification at a low-power band — not a drift gate
+     # at the band a larger per-matchup sample would give. The ceiling only bills
+     # the failure case; a job that finishes early stops early.
+-    timeout-minutes: 300
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 300 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+       - name: Restore AI card data caches
+@@ -115,20 +125,25 @@ jobs:
+ 
+   ai-perf-gate:
+     name: Decision-cost perf gate
+-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+-    runs-on: ubuntu-latest
++    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # Same runner-variance overrun as the paired gate above. Measured budget on
+     # a cache miss: ~6.5m card-data gen + cold debug build + the perf suite
+     # (PERF_SAMPLE_COUNT=5 cold child processes × 3 scenarios × PERF_ACTION_CAP
+     # 3000 actions ≈ 21m in debug on a slow runner). The per-counter median
+     # assertion (#4878) is variance-robust; the wall-clock is not. 60m gives
+     # headroom without changing the fixed workload.
+-    timeout-minutes: 60
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+       - name: Restore AI card data caches
+@@ -151,14 +166,19 @@ jobs:
+ 
+   ai-perf-gate-nightly:
+     name: Nightly decision-cost perf drift monitor
+-    if: github.event_name == 'schedule'
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 30
++    if: ${{ (github.event_name == 'schedule') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+       - name: Restore AI card data caches
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 1f8709c..931006e 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -33,18 +33,23 @@ permissions:
+ jobs:
+   rust-lint:
+     name: Rust lint (fmt, clippy, parser gate)
+-    runs-on: ubuntu-latest
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # Clippy can consume the former 15-minute ceiling on a cold hosted cache;
+     # retain a bounded job while leaving room for the remaining lint gates.
+-    timeout-minutes: 60
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
+       - uses: actions/checkout@v4
+         with:
++          persist-credentials: false
+           # Full history so the parser-combinator gate can diff against origin/main.
+           fetch-depth: 0
+ 
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+ 
+@@ -52,7 +57,7 @@ jobs:
+ 
+       - name: Enable sccache
+         run: |
+-          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
++          echo "SCCACHE_GHA_ENABLED=${{ runner.environment == 'github-hosted' }}" >> "$GITHUB_ENV"
+           echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+           echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+ 
+@@ -214,12 +219,18 @@ jobs:
+ 
+   rust-test-build:
+     name: Rust tests (build archive)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 60
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - name: Free runner disk for Rust test linking
++        if: runner.environment == 'github-hosted'
+         # Build the workspace's test binaries once. Keep the Rust caches intact
+         # and reclaim only unused hosted-image payloads before setup-rust-toolchain
+         # restores/saves Cargo state.
+@@ -243,6 +254,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+ 
+@@ -250,7 +262,7 @@ jobs:
+ 
+       - name: Enable sccache
+         run: |
+-          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
++          echo "SCCACHE_GHA_ENABLED=${{ runner.environment == 'github-hosted' }}" >> "$GITHUB_ENV"
+           echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+           echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+ 
+@@ -299,20 +311,25 @@ jobs:
+   rust-test:
+     name: Rust tests (shard ${{ matrix.shard }}/4)
+     needs: rust-test-build
+-    runs-on: ubuntu-latest
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # Archive downloads can consume over 10 minutes before tests begin.
+     # Keep a bounded job with time for each shard to finish its tests.
+-    timeout-minutes: 30
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     strategy:
+       fail-fast: false
+       matrix:
+         shard: [1, 2, 3, 4, 5]
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
+ 
+       # Some snapshot tests query Cargo metadata at runtime. This makes Cargo
+       # available but does not build test binaries; those come from the archive.
+       # Do not restore or save a Rust target cache: the archive is the cache.
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
+           target: wasm32-unknown-unknown
+@@ -352,16 +369,21 @@ jobs:
+ 
+   card-data-gate:
+     name: Card data (generate, validate, coverage)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 30
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
+       - uses: actions/checkout@v4
+         with:
++          persist-credentials: false
+           # Parse-diff reads both parents of GitHub's synthetic PR merge commit.
+           fetch-depth: 2
+ 
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+ 
+@@ -369,7 +391,7 @@ jobs:
+ 
+       - name: Enable sccache
+         run: |
+-          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
++          echo "SCCACHE_GHA_ENABLED=${{ runner.environment == 'github-hosted' }}" >> "$GITHUB_ENV"
+           echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+           echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+ 
+@@ -700,7 +722,7 @@ jobs:
+           jq --arg h "$HASH" '. + {card_data_hash: $h}' data/coverage-data.json > data/coverage-data.stamped.json
+ 
+       - name: Upload data to R2 (preview)
+-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
++        if: vars.CI_ENABLE_PUBLISHING == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+         env:
+           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+@@ -728,7 +750,7 @@ jobs:
+         # bounded by distinct parser states, not commit count. best-effort
+         # (continue-on-error): a missed publish just defers a PR's comment to
+         # "baseline pending" until the next main push, never wedges main.
+-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
++        if: vars.CI_ENABLE_PUBLISHING == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+         continue-on-error: true
+         env:
+           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+@@ -749,14 +771,19 @@ jobs:
+     # Its output (draft-pools.json) is not consumed by ci.yml — this is a
+     # main-only smoke test that draft-pool-gen still compiles and runs.
+     name: Draft pools (smoke)
+-    runs-on: ubuntu-latest
+-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+-    timeout-minutes: 20
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 20 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           # No wasm32 target: draft-pool-gen is a native binary. The target list
+           # isn't part of the rust-cache key, so omitting it still shares the
+           # rust-debug cache with card-data-gate.
+@@ -799,13 +826,19 @@ jobs:
+ 
+   wasm-check:
+     name: WASM compile check
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 10
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 10 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+ 
+@@ -817,13 +850,18 @@ jobs:
+     # consumes this job's entire 15-minute timeout.
+     if: ${{ false }}
+     name: Tauri compile check + tests
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 15
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 15 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-tauri
+           cache-workspaces: |
+             . -> target
+@@ -862,10 +900,15 @@ jobs:
+ 
+   android-debug-apk:
+     name: Android debug APK (ARM64)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 30
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - name: Validate Gradle wrapper
+         uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+@@ -898,6 +941,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: aarch64-linux-android
+           cache-shared-key: rust-tauri-android-arm64
+           cache-workspaces: client/src-tauri -> target
+@@ -971,8 +1015,8 @@ jobs:
+ 
+   rust-check:
+     name: Rust (fmt, clippy, test, coverage-gate)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 5
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 5 }}
+     needs:
+       - rust-lint
+       - rust-test-build
+@@ -982,7 +1026,7 @@ jobs:
+       - wasm-check
+       - tauri-check
+       - android-debug-apk
+-    if: always()
++    if: ${{ (always()) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+     steps:
+       - name: Check split Rust jobs
+         env:
+@@ -1010,11 +1054,16 @@ jobs:
+ 
+   lobby-worker-test:
+     name: Lobby worker (pnpm test)
+-    runs-on: ubuntu-latest
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # Cache-hit npm ci runs have exceeded five minutes; leave room for the measured slow tail.
+-    timeout-minutes: 10
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 10 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: pnpm/action-setup@v4
+         with:
+@@ -1034,14 +1083,17 @@ jobs:
+ 
+   card-bot-test:
+     name: Card bot (bun test)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 5
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 5 }}
+     steps:
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+         with:
+           # The tests never touch git; don't leave the token in .git/config.
+           persist-credentials: false
+ 
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+         with:
+           # Tracks deploy/card-bot.Dockerfile's oven/bun:1.3 runtime.
+@@ -1057,13 +1109,17 @@ jobs:
+ 
+   frontend:
+     name: Frontend (lint, type-check, test)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 15
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 15 }}
+     steps:
+       - uses: actions/checkout@v4
+         with:
++          persist-credentials: false
+           fetch-depth: 0
+ 
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: pnpm/action-setup@v4
+         with:
+           version: 9
+@@ -1121,15 +1177,19 @@ jobs:
+ 
+   draft-match-wasm-proof:
+     name: Draft match proof (real WASM)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 30
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+         with:
+           persist-credentials: false
+ 
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-wasm
+           rustflags: ""
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+new file mode 100644
+index 0000000..6130968
+--- /dev/null
++++ b/docs/private-ci.md
+@@ -0,0 +1,40 @@
++# Private fork CI
++
++The `bryanroscoe/yama-phase` fork can run its core CI, game-AI gates and trusted
++action-pin audit on saget. These remain GitHub Actions workflows with their
++existing test commands, test shards, WASM/Android checks and AI workloads.
++`CI_LINUX_RUNNER` selects JSON runner labels; unset retains GitHub-hosted Linux.
++The audit follows this fork's CI workflow ID, not the upstream repository's ID.
++
++From the `bryanroscoe/sagetserver` checkout:
++
++```sh
++python3 scripts/ci_runners.py register --repo yama-phase
++python3 scripts/ci_runners.py switch saget --repo yama-phase --apply
++python3 scripts/ci_runners.py switch github --repo yama-phase --apply
++```
++
++The saget value is `["self-hosted","Linux","X64","saget-ci"]`; hosted is
++`["ubuntu-24.04"]`. Omit `--apply` to preview. Newly scheduled jobs use the
++selection; assigned jobs finish on their original runner. Hosted private jobs
++need available account minutes. Existing GitHub artifact/data-cache transfers
++remain subject to the account's storage quota even with self-hosted compute.
++
++The private `saget-yama-phase-ci` worker has its own container, network, runner
++state, Cargo/tool/Android/Gradle caches and no Docker socket or production mounts.
++Fork PR execution must remain disabled at repository level. Tools install into
++writable project caches; checkout target symlinks preserve existing script/artifact
++paths. Rust target cache and bounded local sccache stay on saget instead of being
++uploaded as GitHub Cargo caches. Hosted-only disk pruning never runs here.
++
++All private workers share a two-CPU/12-GiB parent and a whole-job slot with Yama
++production builds. Local job budgets include that wait. This changes throughput
++and wall-clock timing; it does not reduce test/game counts or establish comparable
++performance evidence between hosted and saget hardware. Temporary checkouts are
++removed after jobs, while useful tools/dependency caches remain.
++
++Inherited release/deployment/maintenance workflows keep their existing hosted
++routing and are outside this CI migration. The two core-CI R2 publishing steps
++require the additional `CI_ENABLE_PUBLISHING == 'true'` opt-in, which is unset
++for this fork. Registration and CI validation do not authorize publishing,
++application deployment, upstream changes, or moving Yama's pinned engine revision.
+
+From cb43f56649df0999be42b91dd87ba9d309b29a7e Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:07:07 -0500
+Subject: [PATCH 2/6] fork: scope private automation to CI and pin stable Rust
+
+---
+ .github/workflows/ai-gate.yml | 4 ++++
+ .github/workflows/ci.yml      | 9 +++++++++
+ CLAUDE.md                     | 2 +-
+ docs/YAMA.md                  | 7 +++++--
+ docs/private-ci.md            | 6 ++++--
+ 5 files changed, 23 insertions(+), 5 deletions(-)
+
+diff --git a/.github/workflows/ai-gate.yml b/.github/workflows/ai-gate.yml
+index 46db6df..2e025a3 100644
+--- a/.github/workflows/ai-gate.yml
++++ b/.github/workflows/ai-gate.yml
+@@ -39,6 +39,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+@@ -78,6 +79,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+@@ -143,6 +145,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+@@ -178,6 +181,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 931006e..13f2d89 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -49,6 +49,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+@@ -254,6 +255,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+@@ -332,6 +334,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           target: wasm32-unknown-unknown
+           cache: false
+ 
+@@ -383,6 +386,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+@@ -783,6 +787,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           # No wasm32 target: draft-pool-gen is a native binary. The target list
+           # isn't part of the rust-cache key, so omitting it still shares the
+@@ -838,6 +843,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+@@ -861,6 +867,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-tauri
+           cache-workspaces: |
+@@ -941,6 +948,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: aarch64-linux-android
+           cache-shared-key: rust-tauri-android-arm64
+@@ -1189,6 +1197,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-wasm
+diff --git a/CLAUDE.md b/CLAUDE.md
+index dc30a05..fcfa9d7 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -7,7 +7,7 @@ repository and `upstream` is `phase-rs/phase`. Read [the fork guide](docs/YAMA.m
+ plus a short stack of Yama commits, kept current by rebasing. Publishing upstream PRs or enabling
+ upstream release/deployment workflows needs Bryan's instruction. The upstream rules below apply to
+ every upstream candidate. On Bryan's Mac use `cargo +stable`, `CARGO_BUILD_JOBS=1`, and keep the
+-machine's compiler guard (`~/.config/agent-hygiene/BUILD-LIMITS.md`). GitHub Actions is disabled here.
++machine's compiler guard (`~/.config/agent-hygiene/BUILD-LIMITS.md`). Only the reviewed private CI workflows run here; inherited release/deployment workflows remain disabled.
+ 
+ This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+ 
+diff --git a/docs/YAMA.md b/docs/YAMA.md
+index fdec877..db0e924 100644
+--- a/docs/YAMA.md
++++ b/docs/YAMA.md
+@@ -65,5 +65,8 @@ Comprehensive Rules.
+ 
+ ## Automation
+ 
+-GitHub Actions is disabled here; the inherited workflows target upstream's infrastructure. Do
+-not enable upstream's release or deployment workflows.
++Bryan requested private-project CI on saget on 2026-10-29. Only core CI, the game-AI gates
++and trusted action-pin audit are enabled for this fork; all other inherited workflows stay
++disabled. The inherited workflows target upstream infrastructure. Do not enable upstream's
++release or deployment workflows. See [private CI](private-ci.md) for the backend switch,
++stable Rust toolchain and isolation boundaries.
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index 6130968..e910f8f 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -5,6 +5,7 @@ action-pin audit on saget. These remain GitHub Actions workflows with their
+ existing test commands, test shards, WASM/Android checks and AI workloads.
+ `CI_LINUX_RUNNER` selects JSON runner labels; unset retains GitHub-hosted Linux.
+ The audit follows this fork's CI workflow ID, not the upstream repository's ID.
++CI explicitly installs stable Rust 1.98.1, matching the fork's stable-build policy.
+ 
+ From the `bryanroscoe/sagetserver` checkout:
+ 
+@@ -33,8 +34,9 @@ and wall-clock timing; it does not reduce test/game counts or establish comparab
+ performance evidence between hosted and saget hardware. Temporary checkouts are
+ removed after jobs, while useful tools/dependency caches remain.
+ 
+-Inherited release/deployment/maintenance workflows keep their existing hosted
+-routing and are outside this CI migration. The two core-CI R2 publishing steps
++Only `ci.yml`, `ai-gate.yml` and `action-pin-audit.yml` are enabled at GitHub.
++All inherited release/deployment/maintenance workflows remain disabled and keep
++their existing hosted routing; they are outside this CI migration. The two core-CI R2 publishing steps
+ require the additional `CI_ENABLE_PUBLISHING == 'true'` opt-in, which is unset
+ for this fork. Registration and CI validation do not authorize publishing,
+ application deployment, upstream changes, or moving Yama's pinned engine revision.
+
+From 40b45dd7069a8343548eec96eaad1eb75a3e2537 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:10:01 -0500
+Subject: [PATCH 3/6] fork: rely on tool-cache configuration before listener
+ startup
+
+---
+ .github/actions/prepare-private-ci/action.yml | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/.github/actions/prepare-private-ci/action.yml b/.github/actions/prepare-private-ci/action.yml
+index 39be49d..c15b2c3 100644
+--- a/.github/actions/prepare-private-ci/action.yml
++++ b/.github/actions/prepare-private-ci/action.yml
+@@ -19,7 +19,6 @@ runs:
+             ln -s /ci-cache/target "$path"
+           fi
+         done
+-        echo 'RUNNER_TOOL_CACHE=/ci-cache/tools' >> "$GITHUB_ENV"
+         echo 'CARGO_BUILD_JOBS=2' >> "$GITHUB_ENV"
+         echo 'ANDROID_HOME=/ci-cache/android' >> "$GITHUB_ENV"
+         echo 'ANDROID_SDK_ROOT=/ci-cache/android' >> "$GITHUB_ENV"
+
+From b9ba0f649658cae3890843beeb2b87ba2c659449 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:20:01 -0500
+Subject: [PATCH 4/6] fork: extract each test shard outside the persistent
+ target cache
+
+---
+ .github/workflows/ci.yml | 6 +++++-
+ docs/private-ci.md       | 3 ++-
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 13f2d89..980f065 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -368,7 +368,11 @@ jobs:
+         # caught before it lands on the branch that feeds staging/preview.
+         env:
+           PROPTEST_CASES: ${{ github.event_name == 'pull_request' && '32' || '256' }}
+-        run: cargo-nextest nextest run --profile ci --partition count:${{ matrix.shard }}/5 --archive-file nextest-archive.tar.zst --extract-to target --status-level fail --final-status-level fail
++        run: |
++          # Each shard gets a fresh archive extraction. The persistent target
++          # cache is shared between jobs and must not hold nested archive output.
++          nextest_extract="$(mktemp -d "$RUNNER_TEMP/nextest.XXXXXX")"
++          cargo-nextest nextest run --profile ci --partition count:${{ matrix.shard }}/5 --archive-file nextest-archive.tar.zst --extract-to "$nextest_extract" --status-level fail --final-status-level fail
+ 
+   card-data-gate:
+     name: Card data (generate, validate, coverage)
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index e910f8f..2942971 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -25,7 +25,8 @@ The private `saget-yama-phase-ci` worker has its own container, network, runner
+ state, Cargo/tool/Android/Gradle caches and no Docker socket or production mounts.
+ Fork PR execution must remain disabled at repository level. Tools install into
+ writable project caches; checkout target symlinks preserve existing script/artifact
+-paths. Rust target cache and bounded local sccache stay on saget instead of being
++paths. Each Nextest shard extracts its archive under disposable RUNNER_TEMP,
++so repeated shards cannot collide inside the persistent target cache. Rust target cache and bounded local sccache stay on saget instead of being
+ uploaded as GitHub Cargo caches. Hosted-only disk pruning never runs here.
+ 
+ All private workers share a two-CPU/12-GiB parent and a whole-job slot with Yama
+
+From 8b6f0491e713ef035aaaef59048c588376eaf924 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:27:29 -0500
+Subject: [PATCH 5/6] fork: retain nightly for the libtest JSON archive
+ workload
+
+---
+ .github/workflows/ci.yml | 4 ++--
+ docs/private-ci.md       | 4 +++-
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 980f065..5198227 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -255,7 +255,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
+-          toolchain: '1.98.1'
++          toolchain: 'nightly-2026-04-19'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+@@ -334,7 +334,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
+-          toolchain: '1.98.1'
++          toolchain: 'nightly-2026-04-19'
+           target: wasm32-unknown-unknown
+           cache: false
+ 
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index 2942971..df80835 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -5,7 +5,9 @@ action-pin audit on saget. These remain GitHub Actions workflows with their
+ existing test commands, test shards, WASM/Android checks and AI workloads.
+ `CI_LINUX_RUNNER` selects JSON runner labels; unset retains GitHub-hosted Linux.
+ The audit follows this fork's CI workflow ID, not the upstream repository's ID.
+-CI explicitly installs stable Rust 1.98.1, matching the fork's stable-build policy.
++Production/lint/WASM/AI builds use stable Rust 1.98.1, matching the fork's
++stable-build policy. The test archive and shards retain pinned nightly-2026-04-19
++because probe-pin's existing libtest JSON tests require nightly; no tests are skipped.
+ 
+ From the `bryanroscoe/sagetserver` checkout:
+ 
+
+From 0f30b3a639a6b5df3720a9c7c9ebd43d1669caaa Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 18:17:25 -0500
+Subject: [PATCH 6/6] fork: install stable lint components explicitly
+
+---
+ .github/workflows/ci.yml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 5198227..4cdf637 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -50,6 +50,7 @@ jobs:
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
+           toolchain: '1.98.1'
++          components: rustfmt, clippy
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug

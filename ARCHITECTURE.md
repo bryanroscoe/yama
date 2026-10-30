@@ -131,16 +131,41 @@ should be enabled for the repository. An unavailable cloud reviewer is disclosed
 by an independent Codex agent review. Event-driven PR monitoring resumes pending work through
 merge rather than leaving an unmonitored handoff. See `AGENTS.md` and `deploy/RELEASING.md`.
 
-**Test CI (2026-10-27):** `.github/workflows/ci.yml` runs automatically for PRs into main and
-main pushes, with a manual trigger for diagnosis. GitHub-hosted Ubuntu jobs run the locked Rust
-workspace and Python regressions, plus clean-installed web tests/typecheck/build. Rust builds
-the exact private Phase pin through a dedicated read-only deploy key, using the real sibling
-Cargo paths. The Rust job adds 4 GiB of ephemeral swap and logs build resource usage for
-the large cold engine build. Both jobs must pass on the PR before merge. This is separate from
-the opt-in lab simulation workflow and production deployment. Setup and evidence boundaries:
-`docs/ci.md`.
+**Test CI (Bryan, 2026-10-29):** `.github/workflows/ci.yml` runs automatically for PRs into
+main and main pushes, with a manual trigger for diagnosis. Concurrency groups include the
+event type so manual diagnostics cannot cancel deployment-authorizing push CI. Both jobs run on the separate
+`saget-yama-ci` container after hosted jobs hit an account billing block. It runs one job at a
+time, capped at two CPUs/12 GiB, with preinstalled Rust 1.98.1 and Node 22. Locked Rust and
+Python regressions plus clean-installed web tests/typecheck/build retain the same acceptance
+checks. Rust builds the exact private Phase pin through a read-only deploy key and real sibling
+Cargo paths. A dedicated persistent Cargo/npm cache is separate from production; job checkouts,
+dependencies and temporary files are removed after post-actions. No Docker socket, production
+mounts or deployment key enter CI. Both jobs must pass on the actual PR before merge. Successful
+main-push CI gates automatic production deployment; the opt-in hosted lab simulation workflow
+remains separate. Setup, maintenance and evidence boundaries: `docs/ci.md`.
 
-**Release process (Bryan, 2026-10-25):** integrate completed changes only after fetching GitHub's current branches, merge the intended release into main, run the required checks on that merged result and publish main. Production builds come only from clean main at the same commit as freshly fetched `origin/main`, never from a feature branch, detached HEAD or unpublished local commits. `deploy/check-release.sh` enforces this before server access; `deploy/deploy.sh --check` also verifies the pinned engine commit without contacting saget. Source, engine pin, Forge source label and compose configuration all come from the verified commit. The operating guide is `deploy/RELEASING.md`. Pushes, merges and deployment remain separate actions within Bryan's requested scope.
+**Automatic deployment (Bryan, 2026-10-28):** successful push CI on current GitHub main
+triggers `.github/workflows/deploy.yml` on the dedicated saget production runner. Merging
+reviewed work to main now requests production release. The runner has no Docker socket,
+production data/env mounts or general server shell. A restricted SSH command invokes the
+server-owned `deploy/host.py`, which independently verifies current main and successful
+push CI, fetches a dedicated clean main checkout and the published Phase pin, and builds
+committed exports on saget. CI jobs can select saget or GitHub-hosted Linux using the repository
+`CI_LINUX_RUNNER` JSON variable; both run the same checks. The personal-account
+CI fleet control plane lives in `bryanroscoe/sagetserver` with separate per-project
+state/cache, an aggregate two-CPU/12-GiB budget and a whole-job lock shared with
+this production release gate. GitHub concurrency and one host lock serialize automated and
+manual deployments. Superseded builds do not activate; a final GitHub check follows
+backup and immediately precedes the live config switch. Missing sidecar configuration
+is bootstrapped once under the lock, preserving existing credentials. A mandatory SQLite
+backup precedes activation of an existing database; only a genuinely empty first
+installation can initialize without one; full-SHA image tags, the preserved server-local Compose override, all three
+container health checks and exact image IDs plus plain-text HTTP health determine success.
+Secrets/data stay server-local; prior images/config and backup provenance remain available
+for deliberate recovery. Host entrypoint updates are separately installed after review.
+`deploy/deploy.sh --check` still checks clean freshly fetched local main and Phase without
+contacting saget; manual deployment calls the same server gate. See `deploy/RUNNER.md` and
+`deploy/RELEASING.md`.
 
 ```
  Phone app (Capacitor)  ─┐                ┌─────────────────────────────────────────────┐
@@ -771,6 +796,7 @@ Bryan (2026-10-22): "we also need to allow more engines for running rules. Maybe
 - **A worker that's down:** nothing is claimed while it doesn't answer, so its games wait; the run page says "Forge worker offline". A game whose request fails goes back in the queue; after 3 failed tries it is written off as an error labelled as Forge.
 - **Cards Forge doesn't know:** the worker checks names against Forge's card scripts (`/check`); Yama keeps the answers per worker version. A tested list with such cards is refused, and precons with them are left out of a Forge field (as phase's unknown cards are). `POST /api/lab/engines/check` shows both engines' gaps before a run.
 - **Build label:** Forge results carry `yama forge-worker <tree>-<hash>`: the git tree of `forge-worker/` and a hash of its Python files, so a deploy that doesn't change the worker keeps the label and doesn't split the pods of a run playing across it (it carried Yama's commit until 2026-10-24).
+- **Patch set (Bryan, 2026-10-29: "patch the server"):** the worker runs Forge 2.0.15 with Yama's speed fixes overlaid on the release jar (`forge-worker/patch_jar.py`), engine label `forge 2.0.15+yama1.4c30ae81` (the patch set's name and the first 8 digits of its jar's SHA-256). yama1 skips Forge's full static-ability recompute for a spell no stack-zone static can affect (convoke/cascade grants made it 50-60% of a game's CPU) and picks the AI's preferred opponent, a full combat simulation, only when a targeted curse needs it. The first replays stock games exactly; the second keeps every decision but shifts Forge's random stream. Measured on pilot games: up to 1.8x on affected games, one big-board game 411 s to 106 s. The compiled classes are Forge code, so they stay in the private forge-referee repo and reach the build as a local image on saget (`deploy/forge-patch.sh install`); the Dockerfile pins their SHA-256, and a changed jar gets a new label on its own. When the label changes during a run, nothing is cleared or replayed: paired differences leave out pods split across the two Forge builds (games in flight at the restart split theirs), while per-list rates and tournament standings combine both builds and list each.
 - **Seeds:** Yama's seeds are 64-bit; the worker hands Forge the low 63 bits (a negative Java long reads as a flag on Forge's command line) and the result keeps Yama's seed.
 - **Limits:** a Forge game counts as 2 against the daily allowance (`FORGE_WEIGHT`); a "both" run counts 1 + 2 per pod game.
 - **Admin, Server** shows the worker: answering or not, engine, slots, games playing and waiting.

@@ -2,10 +2,18 @@
 
 Fetch GitHub before merging, integrate the completed work into `main`, verify and publish `main`, then deploy that exact commit. Production deploys require a clean `main` matching freshly fetched `origin/main`.
 
-This guide records Bryan's release process (2026-10-25) and default PR completion workflow
-(2026-10-27). Requested repository changes have standing authorization for scoped feature pushes,
-PRs, reviews, fixes and merge. Deployment, new accounts and spending remain separately authorized.
+This guide records Bryan's release process (2026-10-25), default PR completion workflow
+(2026-10-27), and automatic main deployment authorization (2026-10-28). Requested repository changes have standing authorization for scoped feature pushes,
+PRs, reviews, fixes and merge. Automatic deployment after successful main CI is now authorized; new accounts and spending remain separately authorized.
 Do not stop at a local commit or leave a pending PR unmonitored.
+
+## Automatic production deployment
+
+Bryan authorized the saget deployment runner on 2026-10-28. A successful push CI on
+current main now automatically deploys that exact revision through the serialized
+server gate. Merging reviewed work into main is therefore a production release decision.
+See [runner setup, operation and recovery](RUNNER.md). Do not race it with an old
+branch's deployment script. Stop the runner to pause releases without stopping CI.
 
 ## Default PR completion
 
@@ -26,7 +34,7 @@ Do not stop at a local commit or leave a pending PR unmonitored.
    that handles failures/findings and carries the PR through merge. Waiting is a tracked state,
    not completion. Report the merged SHA and the independent deployment state.
 
-The local main integration/export procedure below still governs deployments. Feature PRs normally
+The local main integration procedure below still governs manual release preparation. Feature PRs normally
 merge on GitHub; fetch and fast-forward the clean main checkout to that reviewed merge before
 running the deployment readiness check.
 
@@ -74,7 +82,7 @@ Resolve conflicts deliberately and review the result, including migrations, `ARC
 Run the project's required checks on the final combined code, not only on the individual branches:
 
 ```sh
-CARGO_BUILD_JOBS=4 cargo test
+CARGO_BUILD_JOBS=1 cargo test
 npm test
 npm run typecheck
 npm run build
@@ -117,6 +125,12 @@ The check does not merge, push, contact saget, build images or restart anything.
 ./deploy/deploy.sh
 ```
 
-The script repeats the checks, then exports the verified commit and pinned engine. Source, compose configuration and build labels all use that same commit. It builds on saget, backs up the database before restarting, and recreates only Yama's containers. Server configuration and secrets remain on saget.
+The script repeats the source checks, then requests the same server-owned release gate
+as GitHub Actions. The server independently verifies current main and push CI, holds a
+single production lock, fetches its dedicated checkout and pinned engine, builds the
+committed exports, requires a database backup and verifies all exact-image health checks.
+Server configuration, the local Compose override and secrets remain on saget. Normally
+the automatic workflow already handles this after main CI passes; a manual call is for
+an explicitly requested retry. `--check` still makes no server calls.
 
 Record the deployed revision, check `curl -fsS http://<saget-lan-address>:8099/api/health`, confirm the revision in Admin, Server, and smoke-test the changed feature on the live site. See [the deployment notes](README.md) for logs and rollback. A rollback of an existing production image is a separate recovery action, not permission to deploy a feature branch.

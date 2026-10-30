@@ -1,4 +1,6 @@
 #!/bin/sh
+# Fixed client-side paths/hashes intentionally expand into the remote commands.
+# shellcheck disable=SC2029
 # One-time server setup for Yama on saget. Changes the server: run only with Bryan's go.
 set -eu
 HOST=root@<saget-lan-address>
@@ -12,7 +14,7 @@ if ssh "$HOST" "test -f $DIR/yama.env"; then
   echo "yama.env already on the server; leaving it."
 else
   scp -q yama.env.example "$HOST:$DIR/yama.env"
-  echo "Copied yama.env.example to $DIR/yama.env; fill in the Cloudflare Access values there."
+  echo "Copied yama.env.example to $DIR/yama.env; configure the verified Google sign-in values there."
 fi
 # The rules engine's card data, pinned by hash. Since 2026-10-25 it's built by Yama's own pinned
 # parser (deploy/phase-rev), so it isn't on data.phase-rs.dev: copy it from this checkout's
@@ -23,4 +25,4 @@ if ! ssh "$HOST" "cd $DIR/data/engine && echo '$SHA  $CARD_DATA' | sha256sum -c 
   ssh "$HOST" "cd $DIR/data/engine && echo '$SHA  $CARD_DATA' | sha256sum -c"
 fi
 ssh "$HOST" "chown 99:100 $DIR/data/engine/$CARD_DATA"
-echo "Server prepared. Next: ./deploy.sh"
+echo "Server prepared. Configure yama.env, then follow deploy/RUNNER.md to enable current-main CI deployments."

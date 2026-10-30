@@ -1,0 +1,49 @@
+name: Deploy production
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+# Finish an active release; only the newest pending release matters. The host
+# lock also covers manual releases and survives runner/SSH disconnections.
+concurrency:
+  group: yama-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: [self-hosted, Linux, X64, yama-production]
+    # Covers the host lock wait (110m), release deadline (105m), and cleanup.
+    timeout-minutes: 240
+    steps:
+      # No checkout, Docker socket, production env files, persistent PAT, or
+      # downloaded PR artifacts. SSH can invoke only the host release gate.
+      - name: Deploy the successful main revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          printf '%s\n' "$GH_TOKEN" | ssh -T \
+            -i /run/yama-deploy/id_ed25519 \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=/run/yama-deploy/known_hosts \
+            root@<saget-lan-address> \
+            "/mnt/user/appdata/yama-release/host.py deploy $RELEASE_SHA"
+          printf 'Release request for %s completed. See the host result above.\n' "$RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"

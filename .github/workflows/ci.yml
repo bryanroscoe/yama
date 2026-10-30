@@ -11,22 +11,29 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A manual diagnostic run must never cancel the push CI that authorizes release.
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   web:
     name: Web checks
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 15 }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - name: Install Node on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
-          cache: npm
+      - name: Check Node
+        run: |
+          node --version
+          test "$(node -p 'process.versions.node.split(".")[0]')" = 22
       - run: npm ci --no-audit --no-fund
       - run: npm test
       - run: npm run typecheck
@@ -34,13 +41,14 @@ jobs:
 
   rust:
     name: Rust and Python tests
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 90 }}
     defaults:
       run:
         working-directory: yama
     env:
-      CARGO_BUILD_JOBS: '4'
+      CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
       CARGO_INCREMENTAL: '0'
@@ -74,31 +82,27 @@ jobs:
           path: yama-phase
           ssh-key: ${{ secrets.YAMA_PHASE_DEPLOY_KEY }}
           persist-credentials: false
-      - name: Set up Rust
+      - name: Prepare GitHub-hosted Rust and build memory
+        if: runner.environment == 'github-hosted'
         run: |
           rustup toolchain install 1.98.1 --profile minimal
-          rustup default 1.98.1
-          rustc --version
-      - name: Cache Rust dependencies and build output
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            yama/target
-          key: rust-ubuntu24-1.98.1-${{ hashFiles('yama/Cargo.lock', 'yama/deploy/phase-rev') }}-v1
-          restore-keys: |
-            rust-ubuntu24-1.98.1-
-      - name: Add temporary build swap
+          echo 'RUSTUP_TOOLCHAIN=1.98.1' >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/cargo-target"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
+          # Only the disposable hosted VM may create swap. Saget has no sudo.
+          sudo fallocate -l 8G /swapfile-yama-ci
+          sudo chmod 600 /swapfile-yama-ci
+          sudo mkswap /swapfile-yama-ci
+          sudo swapon /swapfile-yama-ci
+      - name: Check Rust and dedicated cache
         run: |
+          test "${RUSTUP_TOOLCHAIN:-}" = 1.98.1
+          if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
+            test "${CARGO_TARGET_DIR:-}" = /ci-cache/target
+          fi
+          rustc --version
           free -h
-          df -h . "$RUNNER_TEMP"
-          swap_file="$RUNNER_TEMP/yama-ci.swap"
-          sudo fallocate -l 4G "$swap_file"
-          sudo chmod 600 "$swap_file"
-          sudo mkswap "$swap_file"
-          sudo swapon "$swap_file"
-          swapon --show
+          df -h . "$CARGO_TARGET_DIR/.."
       - name: Test the Rust workspace
         run: |
           git log -1 --format='Tested Yama revision: %H'
@@ -120,9 +124,13 @@ jobs:
             fi
           done
       - name: Test release guards
-        run: python3 deploy/test_release.py
+        run: |
+          python3 deploy/test_release.py
+          python3 deploy/test_host.py
       - name: Test portable workers and build identity
         run: python3 -m unittest discover -s tools -p 'test_lab*.py'
+      - name: Test the Forge worker and its patch overlay
+        run: python3 forge-worker/test_worker.py
       - name: Test commander evidence and list validation
         run: python3 -m unittest discover -s scripts/research -p 'test_*.py'
       - name: Test dataset recovery conversion

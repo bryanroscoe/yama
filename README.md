@@ -154,7 +154,8 @@ npm test              # packages/core
 npm run typecheck     # core + web
 ```
 
-Releases follow [deploy/RELEASING.md](deploy/RELEASING.md): fetch GitHub before merging, integrate the completed work into main, verify and publish main, then deploy that same commit from a clean main checkout. `./deploy/deploy.sh --check` checks readiness without contacting saget.
+Successful CI on merged `main` automatically deploys through the dedicated saget runner
+([operation and recovery](deploy/RUNNER.md)). Releases follow [deploy/RELEASING.md](deploy/RELEASING.md): fetch GitHub before merging, integrate the completed work into main, verify and publish main, then deploy that same commit from a clean main checkout. `./deploy/deploy.sh --check` checks readiness without contacting saget.
 
 `cargo test` includes the per-card tests (play/src/card_tests/): a smoke test for every card in Bryan's decks and specific tests for the commanders, the cards the decks are built around and the cards phase only partly implements or parses with warnings. What phase supports for each card, and the engine bugs the tests found, are in [docs/card-coverage.md](docs/card-coverage.md); regenerate it, and the tests' card fixture, with `cargo run -p yama-play --bin coverage -- data/engine/card-data-1e5608e61683de41.json ../commander-decks --fixture play/tests/fixtures/deck-cards.json --smoke play/src/card_tests/smoke_cards.rs`.
 

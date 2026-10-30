@@ -1,0 +1,21 @@
+services:
+  runner:
+    image: yama-ci-runner:2.338.2-rust1.98.1-node22
+    container_name: yama-ci-runner
+    restart: unless-stopped
+    user: "1001:1001"
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 2
+    mem_limit: 12g
+    memswap_limit: 12g
+    pids_limit: 1024
+    volumes:
+      - ./state:/runner-state
+      - ./cache:/ci-cache
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

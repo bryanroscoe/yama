@@ -1,0 +1,4 @@
+self-hosted-runner:
+  labels:
+    - yama-production
+    - yama-ci
