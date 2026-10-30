@@ -20,8 +20,8 @@
 //!   (`/check`). Yama keeps the answers per worker version ([`ForgeCards`]) and uses them like
 //!   phase's unknown cards: a tested list with such cards is refused, and precons with them are
 //!   left out of a Forge field.
-//! - **Labels.** Forge results carry the worker's engine label ("forge 2.0.15+yama1.4c30ae81": the release with
-//!   Yama's patch set, forge-worker/patch_jar.py), card data and runner, so they are never pooled with
+//! - **Labels.** Forge results carry the worker's engine label ("forge 2.0.16-745401a4+yama2": Yama's Forge
+//!   build, deploy/Dockerfile.forge-worker), card data and runner, so they are never pooled with
 //!   phase results or another Forge build. A "both" experiment keeps two summaries.
 
 use super::experiments::LabCard;

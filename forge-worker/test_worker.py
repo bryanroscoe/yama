@@ -3,6 +3,7 @@
   python3 forge-worker/test_worker.py
 """
 import json
+import re
 import sys
 import tempfile
 import threading
@@ -16,7 +17,6 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import forge_runner as F  # noqa: E402
-import patch_jar as PJ  # noqa: E402
 import worker as W  # noqa: E402
 
 # Deck files go to a scratch folder, never next to a checkout.
@@ -147,92 +147,28 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.call("POST", "/nowhere", {})[0], 404)
 
 
-class PatchJarTests(unittest.TestCase):
-    """patch_jar.py on a fake Forge release jar."""
+class ForgeDistTests(unittest.TestCase):
+    """The worker image's Forge: Yama's own build, pinned in deploy/Dockerfile.forge-worker."""
 
-    def setUp(self):
-        import hashlib
-        import zipfile
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-        self.release = self.dir / "forge-gui-desktop-2.0.15-jar-with-dependencies.jar"
-        with zipfile.ZipFile(self.release, "w") as z:
-            z.writestr("META-INF/MANIFEST.MF", "Main-Class: forge.view.Main\n")
-            z.writestr("forge/A.class", b"old A")
-            z.writestr("forge/B.class", b"old B")
-        self.patch = self.dir / "p.jar"
-        with zipfile.ZipFile(self.patch, "w") as z:
-            z.writestr("forge/A.class", b"new A")
-            z.writestr("forge/C.class", b"new C")
-        self.sha = hashlib.sha256(self.patch.read_bytes()).hexdigest()
+    def test_the_runner_reads_a_dist_folder_and_its_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "forge-2.0.16-745401a4+yama2"
+            (d / "res/cardsfolder").mkdir(parents=True)
+            (d / "res/cardsfolder/cardsfolder.zip").write_bytes(b"")
+            (d / "forge-gui-desktop-2.0.16-745401a4+yama2-jar-with-dependencies.jar").write_bytes(b"")
+            current = Path(tmp) / "current"
+            current.symlink_to(d)  # the image's FORGE_DIR is /opt/forge/current
+            forge = F.Forge(current, "java")
+            self.assertEqual((forge.engine, forge.card_data),
+                             ("forge 2.0.16-745401a4+yama2", "forge res 2.0.16-745401a4+yama2"))
 
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def sha_of_patch(self):
-        import hashlib
-        return hashlib.sha256(self.patch.read_bytes()).hexdigest()
-
-    def test_another_jar_under_the_same_name_gets_another_label(self):
-        import zipfile
-        first, _, _ = PJ.patch(self.dir, self.patch, self.sha, "yama1")
-        first.rename(self.release)  # back to an unpatched-looking release
-        with zipfile.ZipFile(self.patch, "w") as z:
-            z.writestr("forge/A.class", b"newer A")
-        second, _, _ = PJ.patch(self.dir, self.patch, self.sha_of_patch(), "yama1")
-        self.assertNotEqual(first.name, second.name)
-
-    def test_refuses_a_class_whose_inner_classes_would_stay_old(self):
-        import zipfile
-        with zipfile.ZipFile(self.release, "a") as z:
-            z.writestr("forge/A$1.class", b"old A$1")
-        with self.assertRaises(SystemExit):
-            PJ.patch(self.dir, self.patch, self.sha, "yama1")
-        self.assertEqual([p.name for p in self.dir.glob("forge-gui-desktop-*")], [self.release.name])
-
-    def test_overlays_and_renames_so_the_label_changes(self):
-        import zipfile
-        out, replaced, added = PJ.patch(self.dir, self.patch, self.sha, "yama1")
-        tag = f"yama1.{self.sha[:8]}"
-        self.assertEqual((out.name, replaced, added), (f"forge-gui-desktop-2.0.15+{tag}-jar-with-dependencies.jar", 1, 1))
-        self.assertFalse(self.release.exists())
-        with zipfile.ZipFile(out) as z:
-            self.assertEqual(z.read("forge/A.class"), b"new A")
-            self.assertEqual(z.read("forge/B.class"), b"old B")
-            self.assertEqual(z.read("forge/C.class"), b"new C")
-            self.assertIn("Main-Class", z.read("META-INF/MANIFEST.MF").decode())
-        # The runner reads the label from the only jar left.
-        (self.dir / "res/cardsfolder").mkdir(parents=True)
-        (self.dir / "res/cardsfolder/cardsfolder.zip").write_bytes(b"")
-        forge = F.Forge(self.dir, "java")
-        self.assertEqual((forge.engine, forge.card_data), (f"forge 2.0.15+{tag}", f"forge res 2.0.15+{tag}"))
-
-    def test_refuses_a_wrong_hash_and_keeps_the_release_jar(self):
-        with self.assertRaises(SystemExit):
-            PJ.patch(self.dir, self.patch, "0" * 64, "yama1")
-        self.assertTrue(self.release.exists())
-
-    def test_refuses_a_patch_that_replaces_nothing(self):
-        import hashlib
-        import zipfile
-        with zipfile.ZipFile(self.patch, "w") as z:
-            z.writestr("forge/Z.class", b"z")
-        with self.assertRaises(SystemExit):
-            PJ.patch(self.dir, self.patch, self.sha_of_patch(), "yama1")
-        self.assertTrue(self.release.exists())
-        self.assertEqual(len(list(self.dir.glob("forge-gui-desktop-*"))), 1)
-
-    def test_refuses_non_class_entries_and_bad_names(self):
-        import hashlib
-        import zipfile
-        with zipfile.ZipFile(self.patch, "w") as z:
-            z.writestr("forge/A.class", b"a")
-            z.writestr("res/x.txt", b"x")
-        sha = self.sha_of_patch()
-        with self.assertRaises(SystemExit):
-            PJ.patch(self.dir, self.patch, sha, "yama1")
-        with self.assertRaises(SystemExit):
-            PJ.patch(self.dir, self.patch, sha, "Yama 1")
+    def test_the_dockerfile_pins_one_dist_by_sha256(self):
+        text = (Path(__file__).resolve().parent.parent / "deploy/Dockerfile.forge-worker").read_text()
+        name = re.findall(r"^ARG FORGE_DIST=([a-z0-9]+)$", text, re.M)
+        sha = re.findall(r"^ARG FORGE_DIST_SHA256=([0-9a-f]{64})$", text, re.M)
+        self.assertEqual((len(name), len(sha)), (1, 1))
+        self.assertIn("ENV FORGE_DIR=/opt/forge/current", text)
+        self.assertNotIn("releases/download", text)  # no unpinned Forge download
 
 
 if __name__ == "__main__":

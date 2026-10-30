@@ -128,12 +128,12 @@ Checks (read-only): `ssh root@<saget-lan-address> 'docker logs --tail 20 yama-ad
 
 ## Forge (a second engine for Lab runs)
 
-- The deployment host gate builds `yama-forge` (deploy/Dockerfile.forge-worker; the first build downloads Forge 2.0.15, about 250 MB, and checks its SHA-256) and makes `forge.env` on saget once (`FORGE_SECRET`, mode 0600, never printed), adding `YAMA_FORGE_SECRET` and `YAMA_FORGE_URL=http://yama-forge:8791` to `yama.env`.
+- The deployment host gate builds `yama-forge` (deploy/Dockerfile.forge-worker, from Yama's pinned Forge build: see below) and makes `forge.env` on saget once (`FORGE_SECRET`, mode 0600, never printed), adding `YAMA_FORGE_SECRET` and `YAMA_FORGE_URL=http://yama-forge:8791` to `yama.env`.
 - The worker sits on the internal `yama_forge` network with yama only: no published port, no internet. Read-only, every capability dropped, `/work` and `/tmp` as tmpfs.
 - Size: `FORGE_SLOTS` games at once (3 in compose.yaml), each a JVM of `FORGE_XMX` (1536m) with 2 CPUs; the container gets 6 CPUs at a low share and 7 GB. Change all three together.
 - Without the worker (or without `YAMA_FORGE_URL`/`YAMA_FORGE_SECRET`), the Lab offers phase only. With the worker down, Forge games wait and the run page says so; Admin, Server shows its state.
 - Forge is GPL-3.0 and runs as a separate program; none of its code is in Yama. Private use.
-- Patch set: the image overlays Yama's Forge fixes (`ARG FORGE_PATCH`/`FORGE_PATCH_SHA256` in the Dockerfile; label `forge 2.0.15+<name>.<first 8 of its SHA-256>`). The jar lives in the private forge-referee repo (`patches/<name>/`) and reaches the build as the local image `yama-forge-patch:<name>` on saget: `deploy/forge-patch.sh install` before merging a new pin (`status` to check). Without that image the release build fails for every service, not just Forge (Yama and the advisor don't deploy either), and production keeps running. Don't `docker image prune -a` it away. A rebuilt jar gets a new label on its own.
+- Forge build: the image unpacks Yama's own Forge build (`ARG FORGE_DIST`/`FORGE_DIST_SHA256` in the Dockerfile; label `forge <version>`, e.g. `forge 2.0.16-745401a4+yama2`, naming the Forge commit and patch set). The tarball is Forge code: forge-referee's `dist/build-dist.sh <name> <forge checkout>` builds it (to `~/Developer/forge-engine/`), and it reaches the build as the local image `yama-forge-dist:<name>` on saget: `deploy/forge-dist.sh install` before merging a new pin (`status` to check). Without that image the release build fails for every service, not just Forge (Yama and the advisor don't deploy either), and production keeps running. Don't `docker image prune -a` it away.
 
 ## Claude's tools from outside Yama (OAuth sign-in)
 
