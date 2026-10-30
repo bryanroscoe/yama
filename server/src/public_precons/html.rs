@@ -139,7 +139,56 @@ fn simulation_panel(source: &Publication, r: Option<&Rating>, rating_status: &st
     body
 }
 
+fn trend_words(points: f64) -> String {
+    if points.abs() < 0.5 {
+        "steady".into()
+    } else if points > 0.0 {
+        format!("rising {points:.1} points a month")
+    } else {
+        format!("falling {:.1} points a month", -points)
+    }
+}
+
+fn rating_v2(v: &v2::Row, detailed: bool) -> String {
+    let mut out = format!(
+        "<span class=\"meta-rank\">#{}</span><small>{:.1}% est. ({:.1}–{:.1}%)</small>",
+        v.rank, v.rate, v.lo, v.hi
+    );
+    if detailed {
+        write!(
+            out,
+            "<details><summary>How this rank is made</summary><p>Estimated four-player win rate {:.1}%, 90% interval {:.1}–{:.1}%. Rank range {}–{}.</p><p>{:.0}% of the estimate’s weight is real games; the rest is the published simulation.</p>",
+            v.rate, v.lo, v.hi, v.rank_lo, v.rank_hi, 100.0 * v.real_share
+        )
+        .unwrap();
+        if let Some(r) = &v.real {
+            write!(out, "<p>{}: all-time {:.1}% over {} games", e(&r.source), r.all_time, count(r.games as i64)).unwrap();
+            if let (Some(recent), Some(games)) = (r.recent, r.recent_games) {
+                write!(out, "; recent {:.1}% over {} newer games", recent, count(games as i64)).unwrap();
+            }
+            if let Some(t) = r.trend_points_per_30_days {
+                write!(out, "; {}", trend_words(t)).unwrap();
+            }
+            write!(out, ". Snapshot of {}.</p>", when(&r.as_of.format("%Y-%m-%d").to_string())).unwrap();
+        }
+        out.push_str("<p><a href=\"/precons/methodology#v2\">How rating v2 works ↗</a></p></details>");
+    }
+    out
+}
+
+/// Each real-game source with its attribution and licence, as its licence asks.
+fn sources_line(info: &v2::Info) -> String {
+    info.sources
+        .iter()
+        .map(|s| format!("{} ({}; {})", e(&s.name), e(&s.attribution), e(&s.license)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn meta(p: &Precon, detailed: bool) -> String {
+    if let Some(v) = &p.v2 {
+        return rating_v2(v, detailed);
+    }
     let Some(m) = &p.meta else {
         return "<span class=\"dim\">Not ranked</span><small>Needs shared evidence</small>".into();
     };
@@ -561,12 +610,13 @@ pub(super) async fn index(
     let mut body = format!(
         "<section class=\"public-hero\"><div class=\"hero-copy\"><p class=\"eyebrow\">Commander precons</p><h1>Compare Commander<br>precons.</h1><p class=\"lede\">Stock lists, recorded games, simulation results and upgrade evidence.</p><p class=\"dim\">{total} Commander precons. Free to explore.</p></div>"
     );
-    if let Some(p) = data
-        .precons
-        .iter()
-        .filter(|p| p.meta.is_some())
-        .min_by_key(|p| p.meta.as_ref().unwrap().rank)
-    {
+    let featured_rank = |p: &Precon| p.v2.as_ref().map(|v| v.rank).or(p.meta.as_ref().map(|m| m.rank));
+    let featured = if data.rating_v2.is_some() {
+        data.precons.iter().filter(|p| p.v2.is_some()).min_by_key(|p| p.v2.as_ref().unwrap().rank)
+    } else {
+        data.precons.iter().filter(|p| p.meta.is_some()).min_by_key(|p| p.meta.as_ref().unwrap().rank)
+    };
+    if let Some(p) = featured {
         write!(
             body,
             "<a class=\"featured\" href=\"/precons/{}\">",
@@ -581,7 +631,7 @@ pub(super) async fn index(
             )
             .unwrap();
         }
-        write!(body,"<div class=\"featured-copy\"><span class=\"source-chip\">Experimental meta #{}</span><h2>{}</h2><p>{}</p>{}<span class=\"featured-link\">Explore this deck <span aria-hidden=\"true\">↗</span></span><small class=\"feature-credit\">{}</small></div></a>",p.meta.as_ref().unwrap().rank,e(&p.name),e(&p.commanders.join(" and ")),if p.meta.as_ref().is_some_and(|m|m.flagged){"<small class=\"featured-caution\">Simulation limitations apply</small>"}else{""},credit(p)).unwrap();
+        write!(body,"<div class=\"featured-copy\"><span class=\"source-chip\">Experimental rank #{}</span><h2>{}</h2><p>{}</p>{}<span class=\"featured-link\">Explore this deck <span aria-hidden=\"true\">↗</span></span><small class=\"feature-credit\">{}</small></div></a>",featured_rank(p).unwrap_or_default(),e(&p.name),e(&p.commanders.join(" and ")),if p.meta.as_ref().is_some_and(|m|m.flagged)||p.v2.as_ref().is_some_and(|v|v.real_share==0.0){"<small class=\"featured-caution\">Simulation limitations apply</small>"}else{""},credit(p)).unwrap();
     } else {
         body.push_str("<div class=\"hero-note\"><h2>Compare the available results.</h2><p>Compare simulation results, real-game evidence and dated market prices. Every stock list stays browsable, even when evidence is missing.</p><a href=\"/precons/methodology\">How we rank ↗</a></div>");
     }
@@ -595,8 +645,21 @@ pub(super) async fn index(
         )
         .unwrap();
     }
-    write!(body,"<span class=\"source-chip\">Playgroup.gg</span>{}</div><div class=\"rank-intro\"><div><h2>The rankings</h2><span class=\"source-chip\">Experimental meta</span></div><details class=\"ranking-help\"><summary>About these results</summary><div class=\"details-body\">",run_line(data.publication.as_ref())).unwrap();
-    if data.meta_cohort >= 4 {
+    write!(body,"<span class=\"source-chip\">Playgroup.gg</span>{}</div><div class=\"rank-intro\"><div><h2>The rankings</h2><span class=\"source-chip\">Experimental</span></div><details class=\"ranking-help\"><summary>About these results</summary><div class=\"details-body\">",run_line(data.publication.as_ref())).unwrap();
+    if let Some(info) = &data.rating_v2 {
+        write!(
+            body,
+            "<p>Rating v2 ranks {} precons by estimated four-player win rate, from recent real games ({}) and the published simulation. {}</p>",
+            info.ranked,
+            sources_line(info),
+            if info.gate_passed {
+                "The published simulation passed the time-split test against later real games, so it is weighed beside them."
+            } else {
+                "The published simulation has not passed the time-split test against later real games, so it only ranks precons without real games."
+            }
+        )
+        .unwrap();
+    } else if data.meta_cohort >= 4 {
         write!(
             body,
             "<p>Half real-game ordering, half simulation ordering across {} shared decks.</p>",
@@ -608,10 +671,10 @@ pub(super) async fn index(
             "<p>Meta ranks await enough shared evidence. Browse the available source results.</p>",
         );
     }
-    body.push_str("<p>Meta scores summarise source orderings, not a chance of winning. Decks missing shared data stay unranked. Win rates describe different fields; the dashed mark shows the 25% equal-deck baseline.</p><p>Upgradeability shows the highest supported in-box grade and the configurations assessed. Unassessed commanders may be stronger. Open a deck for its reasoning, source dates and the 1–5 rubric.</p><a href=\"/precons/methodology\">Sources and methodology ↗</a></div></details></div>");
+    body.push_str("<p>Ranks summarise evidence, not a forecast for your table. Decks missing evidence stay unranked. Win rates describe different fields; the dashed mark shows the 25% equal-deck baseline.</p><p>Upgradeability shows the highest supported in-box grade and the configurations assessed. Unassessed commanders may be stronger. Open a deck for its reasoning, source dates and the 1–5 rubric.</p><a href=\"/precons/methodology\">Sources and methodology ↗</a></div></details></div>");
     write!(body,"<form class=\"public-filters\" method=\"get\" action=\"/precons\" aria-label=\"Filter precons\"><label class=\"search\"><span class=\"sr-only\">Search</span><input type=\"search\" name=\"q\" value=\"{}\" maxlength=\"200\" placeholder=\"Search deck, commander or set\"></label><label><span class=\"sr-only\">Sort</span><select name=\"s\">",e(&filters.q)).unwrap();
     for (value, label) in [
-        ("meta", "Meta rank"),
+        ("meta", "Rank"),
         ("rank", "Primary sim rank"),
         ("real", "Real-game win rate"),
         ("upgradeability", "Upgradeability"),
@@ -689,7 +752,7 @@ pub(super) async fn index(
     if matched == 0 {
         body.push_str("<div class=\"empty-state\"><h2>No matching precons</h2><p>Try a commander, a different color or <a href=\"/precons\">clear the filters</a>.</p></div>");
     } else {
-        body.push_str("<div class=\"public-table-wrap\"><table class=\"public-table\"><caption class=\"sr-only\">Stock precon comparison</caption><thead><tr><th scope=\"col\">Stock deck</th><th scope=\"col\">Meta rank</th>");
+        body.push_str("<div class=\"public-table-wrap\"><table class=\"public-table\"><caption class=\"sr-only\">Stock precon comparison</caption><thead><tr><th scope=\"col\">Stock deck</th><th scope=\"col\">Rank</th>");
         for source in &sources {
             write!(
                 body,
@@ -701,7 +764,7 @@ pub(super) async fn index(
         body.push_str("<th scope=\"col\">Real games</th><th scope=\"col\"><a href=\"/precons/methodology#upgradeability\">Upgradeability</a></th><th scope=\"col\">Sealed market</th></tr></thead><tbody>");
         for p in data.precons.iter().skip(start).take(24) {
             let thumb=p.art.as_ref().map(|a|format!("<img class=\"deck-thumb\" src=\"{}\" alt=\"\" loading=\"lazy\" width=\"64\" height=\"76\">",e(&a.url))).unwrap_or_default();
-            write!(body,"<tr><th scope=\"row\"><a class=\"deck-link\" href=\"/precons/{}\">{thumb}<span><strong>{}</strong><small>{}</small><span class=\"deck-meta\">{}<span>{} / {}</span></span></span></a><small class=\"thumb-credit\">{}</small></th><td class=\"meta-cell\" data-label=\"Meta rank\">{}</td>",e(&p.id),e(&p.name),e(&p.commanders.join(" and ")),colors(p),e(&p.set_code),e(p.released.as_deref().and_then(|s|s.get(..4)).unwrap_or("—")),credit(p),meta(p,false)).unwrap();
+            write!(body,"<tr><th scope=\"row\"><a class=\"deck-link\" href=\"/precons/{}\">{thumb}<span><strong>{}</strong><small>{}</small><span class=\"deck-meta\">{}<span>{} / {}</span></span></span></a><small class=\"thumb-credit\">{}</small></th><td class=\"meta-cell\" data-label=\"Rank\">{}</td>",e(&p.id),e(&p.name),e(&p.commanders.join(" and ")),colors(p),e(&p.set_code),e(p.released.as_deref().and_then(|s|s.get(..4)).unwrap_or("—")),credit(p),meta(p,false)).unwrap();
             for source in &sources {
                 let r = p
                     .simulations
@@ -786,7 +849,7 @@ pub(super) async fn detail(
         .unwrap();
     }
     write!(body,"<div class=\"art-heading\"><h1>{}</h1><p>{}</p><div class=\"deck-meta\">{}<span>{} / {} / {} cards</span></div></div><p class=\"art-credit\">{}</p></section><div class=\"public-actions\"><a class=\"button primary\" href=\"/precons/{}/decklist.txt\">Download stock list</a><a class=\"button\" href=\"/lab/p/{}\">Save to my decks</a><a class=\"text-action\" href=\"/lab/try?precon={}\">Try a change ↗</a></div>",e(&p.name),e(&p.commanders.join(" and ")),colors(p),e(p.set_name.as_deref().unwrap_or(&p.set_code)),when(p.released.as_deref().unwrap_or("")),p.card_count,credit(p),e(&p.id),e(&p.id),e(&p.id)).unwrap();
-    body.push_str("<section class=\"evidence-heading\"><div><h2>How it compares</h2></div><a href=\"/precons/methodology\">Sources &amp; method ↗</a></section><div class=\"public-evidence\"><section class=\"public-panel meta-panel\"><span class=\"source-chip\">Experimental</span><h3>Meta rank</h3>");
+    body.push_str("<section class=\"evidence-heading\"><div><h2>How it compares</h2></div><a href=\"/precons/methodology\">Sources &amp; method ↗</a></section><div class=\"public-evidence\"><section class=\"public-panel meta-panel\"><span class=\"source-chip\">Experimental</span><h3>Rank</h3>");
     body.push_str(&meta(p, true));
     body.push_str("</section><section class=\"public-panel\"><p class=\"eyebrow\">Human tables</p><h3>Real-game win rate</h3>");
     body.push_str(&real(p, true));
@@ -857,11 +920,30 @@ pub(super) async fn methodology(
 ) -> AppResult<Response> {
     limit(&st, address)?;
     let snapshot = snapshot(&st.pool).await?;
+    let rating = catalog(&st.pool).await?.rating_v2;
     let mut body = String::from(
-        "<div class=\"public-intro\"><p class=\"eyebrow\">Sources and methods</p><h1>Precon methodology</h1><p class=\"lede\">How results, upgrade assessments and market references are collected.</p></div><nav class=\"method-nav\" aria-label=\"Methodology sections\"><a class=\"button\" href=\"#upgradeability\">Upgradeability</a><a class=\"button\" href=\"#meta\">Meta rank</a><a class=\"button\" href=\"#simulation\">Simulation</a><a class=\"button\" href=\"#real\">Real games</a><a class=\"button\" href=\"#sources\">Sources</a></nav><div class=\"public-prose\"><section id=\"upgradeability\"><h2>Upgradeability</h2><p>Upgradeability is Yama’s judgment of improvements that retain the precon’s main theme. Each commander configuration has its own assessment, including in-box alternatives and supported on-theme commander swaps. A replacement strategy is a separate deck build. Each grade needs a published guide covering that commander, at least two checked nonstock card examples, and written reasons covering card support, commander payoff and restrictions. The guide supplies evidence; Yama assigns the grade. Reviewer grades remain in their original scales. The old unsupported estimates were withdrawn on 27 October 2026.</p></section><section id=\"meta\"><p class=\"eyebrow\">Experimental / v1</p><h2>What the meta rank means</h2><p>Meta means agreement across evidence sources, rather than a forecast for your local playgroup. We use only stock lists with at least 20 real games and 20 simulated appearances in every published engine. At least four decks must qualify. Unranked decks remain browsable.</p><div class=\"formula\">Meta score = ½ real-game percentile<br>+ ½ mean simulation percentile</div><p>We re-rank each source within that same shared cohort. Higher is better: the lowest value scores 0, the highest 100, with tied values given their average rank. For n decks, percentile = 100 × (number below + (number equal − 1) / 2) / (n − 1). Real games use the reported four-player-normalised win rate; each engine uses its fitted strength. The score’s descending order gives the meta rank; tied scores share a rank. Filtering this page never changes the cohort or rank.</p><p>The two evidence groups have equal editorial weight. Phase and Forge, when both published, share the simulation half; extra runs from one engine cannot add votes. These weights have not been optimised or validated as a win prediction. Prices, popularity and reviewer opinion have no weight. Sources are dated but not age-weighted, so older results need care.</p><p>Engine confidence warnings remain visible and do not change the score or select the cohort: some warnings already use disagreement with real games, so filtering by those warnings would favour agreement by construction. The meta score has no probability interpretation or confidence interval. Large source disagreements and wide simulation intervals remain reasons to inspect a deck.</p><h3>Why there is no blended win-rate forecast yet</h3><p>A simulation’s opponents are a closed precon field; real games have different opponents, pilots and selection effects. Averaging those percentages would hide those differences. We show the separate model and observed win rates. A future forecast needs a declared target field, validation against held-out real results, and an interval that includes calibration error. More simulated games alone cannot establish real-world accuracy.</p></section><section id=\"simulation\"><p class=\"eyebrow\">The lab</p><h2>What simulation measures</h2><p>Four-player stock-precon pods are fitted with a Plackett–Luce finishing-order model, including turn-position effects. The model win rate estimates a deck’s chance against three random opponents from that run’s field. A 25% baseline represents four equally strong decks. Observed wins are the raw fraction of scored appearances won; they can differ because opponents and seats differ.</p><p>Intervals use the published game-cluster bootstrap and their stated coverage level. They describe sampling uncertainty within this simulation, not AI or rules accuracy. Rank ranges can be wide and overlapping. Known engine/AI limitations remain attached to their deck. An unreliable simulation is evidence to investigate, not a reliable power judgment.</p><p>Failures and timeouts are excluded, not counted as losses. Turn/action-cap finishes retained by the analysis have no winner. Legacy imports may carry a generic difficulty label without recording the Forge profile; that profile remains unverified unless the reviewed source notes document it. Each engine keeps its own field, scoring, build and dates; percentiles on a shared subset make orderings comparable, but cannot remove differences in their original opponent fields.</p>",
+        "<div class=\"public-intro\"><p class=\"eyebrow\">Sources and methods</p><h1>Precon methodology</h1><p class=\"lede\">How results, upgrade assessments and market references are collected.</p></div><nav class=\"method-nav\" aria-label=\"Methodology sections\"><a class=\"button\" href=\"#upgradeability\">Upgradeability</a><a class=\"button\" href=\"#v2\">Rating v2</a><a class=\"button\" href=\"#meta\">Meta rank v1</a><a class=\"button\" href=\"#simulation\">Simulation</a><a class=\"button\" href=\"#real\">Real games</a><a class=\"button\" href=\"#sources\">Sources</a></nav><div class=\"public-prose\"><section id=\"upgradeability\"><h2>Upgradeability</h2><p>Upgradeability is Yama’s judgment of improvements that retain the precon’s main theme. Each commander configuration has its own assessment, including in-box alternatives and supported on-theme commander swaps. A replacement strategy is a separate deck build. Each grade needs a published guide covering that commander, at least two checked nonstock card examples, and written reasons covering card support, commander payoff and restrictions. The guide supplies evidence; Yama assigns the grade. Reviewer grades remain in their original scales. The old unsupported estimates were withdrawn on 27 October 2026.</p></section><section id=\"meta\"><p class=\"eyebrow\">Experimental / v1</p><h2>What the meta rank means</h2><p>Meta means agreement across evidence sources, rather than a forecast for your local playgroup. We use only stock lists with at least 20 real games and 20 simulated appearances in every published engine. At least four decks must qualify. Unranked decks remain browsable.</p><div class=\"formula\">Meta score = ½ real-game percentile<br>+ ½ mean simulation percentile</div><p>We re-rank each source within that same shared cohort. Higher is better: the lowest value scores 0, the highest 100, with tied values given their average rank. For n decks, percentile = 100 × (number below + (number equal − 1) / 2) / (n − 1). Real games use the reported four-player-normalised win rate; each engine uses its fitted strength. The score’s descending order gives the meta rank; tied scores share a rank. Filtering this page never changes the cohort or rank.</p><p>The two evidence groups have equal editorial weight. Phase and Forge, when both published, share the simulation half; extra runs from one engine cannot add votes. These weights have not been optimised or validated as a win prediction. Prices, popularity and reviewer opinion have no weight. Sources are dated but not age-weighted, so older results need care.</p><p>Engine confidence warnings remain visible and do not change the score or select the cohort: some warnings already use disagreement with real games, so filtering by those warnings would favour agreement by construction. The meta score has no probability interpretation or confidence interval. Large source disagreements and wide simulation intervals remain reasons to inspect a deck.</p><h3>Why there is no blended win-rate forecast yet</h3><p>A simulation’s opponents are a closed precon field; real games have different opponents, pilots and selection effects. Averaging those percentages would hide those differences. We show the separate model and observed win rates. A future forecast needs a declared target field, validation against held-out real results, and an interval that includes calibration error. More simulated games alone cannot establish real-world accuracy.</p></section><section id=\"simulation\"><p class=\"eyebrow\">The lab</p><h2>What simulation measures</h2><p>Four-player stock-precon pods are fitted with a Plackett–Luce finishing-order model, including turn-position effects. The model win rate estimates a deck’s chance against three random opponents from that run’s field. A 25% baseline represents four equally strong decks. Observed wins are the raw fraction of scored appearances won; they can differ because opponents and seats differ.</p><p>Intervals use the published game-cluster bootstrap and their stated coverage level. They describe sampling uncertainty within this simulation, not AI or rules accuracy. Rank ranges can be wide and overlapping. Known engine/AI limitations remain attached to their deck. An unreliable simulation is evidence to investigate, not a reliable power judgment.</p><p>Failures and timeouts are excluded, not counted as losses. Turn/action-cap finishes retained by the analysis have no winner. Legacy imports may carry a generic difficulty label without recording the Forge profile; that profile remains unverified unless the reviewed source notes document it. Each engine keeps its own field, scoring, build and dates; percentiles on a shared subset make orderings comparable, but cannot remove differences in their original opponent fields.</p>",
+    );
+    let v2_section = format!(
+        "<section id=\"v2\"><p class=\"eyebrow\">Experimental / v2</p><h2>Rating v2: the default rank</h2><p>Rating v2 estimates each stock precon’s four-player win rate from real games, read over time. A real-game source reports cumulative snapshots; the games played between two snapshots give that period’s rate. Periods are pooled to at least 40 games and weighted towards recent play with a 180-day half-life, and a precon’s trend is the change in those rates per month. Uploading a new dataset revision updates every rank within minutes.</p><p>The published simulation joins in only on merit. Every few minutes the rating rebuilds a test: freeze everything known six weeks ago, predict each precon’s real games since, and compare. The simulation gets weight beside real games only when that combined prediction beats real games alone, with a 90% interval clear of zero. Until then it ranks only precons with no real games, mapped onto the real-game scale. Each estimated win rate shows a 90% interval, and each rank a range drawn from that uncertainty; the share of weight from real games is on each deck’s page.</p><p>{}</p><p>Real-game results come from different pilots, opponents and selection effects than our simulation, and none of this is a forecast for your table. Decks with neither real games nor a published simulation stay unranked.</p></section>",
+        match &rating {
+            Some(info) => format!(
+                "Currently {} precons, as of {}. Real-game sources: {}. {}",
+                info.ranked,
+                when(&info.as_of.format("%Y-%m-%d").to_string()),
+                sources_line(info),
+                if info.gate_passed {
+                    "The published simulation passed the test and is weighed beside real games."
+                } else {
+                    "The published simulation has not passed the test, so real games alone rank every precon they cover."
+                }
+            ),
+            None => "No real-game source is enabled, so the pages fall back to meta rank v1 below.".into(),
+        }
     );
     let rubric = upgradeability_rubric();
     body=body.replacen("</p></section><section id=\"meta\">", &format!("</p>{rubric}<h3>Commander results and other sources</h3><p>{}</p><p>Commander counts come from each Playgroup API endpoint, fetched and attributed separately from stock-precon results. We never mix bulk and individual endpoint counts. Zero games has no rate. Samples below 20 games are marked small. No attempt is made to correct these commander rates for pilot skill or selection effects.</p><p><a href=\"https://edhtop16.com\">EDHTop16</a> reports competitive tournament entries and conversion rates. Conversion measures advancement, not game wins, and does not describe a stock precon. <a href=\"https://edhrec.com/faq\">EDHREC</a> deck inclusion measures card choices, not outcomes. Those measures are not pooled with Playgroup win rates or used as automatic upgrade scores. Dated reviews from named authors provide qualitative evidence. Upgraded-versus-stock trials for these assessments have not been run.</p><p>Coverage: 174 packages with 619 stock-compatible commander configurations inventoried. Eighteen configurations have supported upgrade grades; unassessed options may be stronger. Six configurations need banned stock cards replaced, and three require pregame colour-choice input not yet supported by the simulation list format. There are 611 prepared lists including Koma’s outside-commander option, and 575 separately scoped commander observations. The package summary names the highest supported in-box upgrade grade and shows assessed/total coverage; outside commanders cannot supply that grade. A guide using another commander supports that configuration, not the original commander’s grade. New or changed lists need their own matching assessment. Prepared commander lists use separate command zones and identities; they do not inherit the reference list’s simulation results. Upgradeability and commander observations have no weight in the stock meta rank.</p></section><section id=\"meta\">", e(crate::upgradeability::COMMANDER_CAVEAT)),1);
+    body = body.replacen("<section id=\"meta\">", &format!("{v2_section}<section id=\"meta\">"), 1);
     if let Some(s) = &snapshot {
         for source in std::iter::once(s).chain(s.comparisons.iter()) {
             let p = &source.publication;

@@ -983,10 +983,20 @@ pub async fn rating_v2(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Rat
 
 /// Rating v2 from evidence already loaded as of `as_of`.
 pub async fn rating_v2_with(pool: &SqlitePool, as_of: DateTime<Utc>, loaded: Evidence) -> AppResult<RatingV2> {
-    let split = default_split(as_of);
     // Global runs only: a cutoff limits tournaments, which a shared rating never reads.
     let sims = sim_sources(pool, None, None).await?;
-    let simulation = sims.first().cloned();
+    rating_v2_from(pool, as_of, loaded, sims.into_iter().next()).await
+}
+
+/// Rating v2 with a chosen simulation source, or none. The public pages pass the published benchmark.
+pub async fn rating_v2_from(
+    pool: &SqlitePool,
+    as_of: DateTime<Utc>,
+    loaded: Evidence,
+    simulation: Option<SimSource>,
+) -> AppResult<RatingV2> {
+    let split = default_split(as_of);
+    let sims: Vec<SimSource> = simulation.iter().cloned().collect();
     let report = calibrate_with(pool, split, as_of, &loaded, sims).await?;
     let evidence = loaded.by_precon;
     let calibration = simulation
