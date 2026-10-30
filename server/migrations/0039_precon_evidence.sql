@@ -11,11 +11,13 @@ CREATE TABLE precon_evidence_sources (
 
 -- Operator corrections to the automatic precon-to-entity match: `manual` links a catalog precon
 -- to a source entity, `exclude` forbids the pair. Not tied to a dataset revision.
+-- `source_name` '' applies to every source; a name limits it to that source.
 CREATE TABLE precon_evidence_links (
-    precon_id  TEXT NOT NULL,
-    entity     TEXT NOT NULL,
-    rule       TEXT NOT NULL CHECK (rule IN ('manual', 'exclude')),
-    note       TEXT,
-    created_at TEXT NOT NULL,
-    PRIMARY KEY (precon_id, entity)
+    source_name TEXT NOT NULL DEFAULT '',
+    precon_id   TEXT NOT NULL,
+    entity      TEXT NOT NULL,
+    rule        TEXT NOT NULL CHECK (rule IN ('manual', 'exclude')),
+    note        TEXT,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (source_name, precon_id, entity)
 );

@@ -192,6 +192,7 @@ async fn links_prefer_the_source_url_then_name_and_operators_can_correct_them() 
 
     set_link(
         &pool,
+        None,
         "limit-break-b",
         "playgroup:precon:limit-break",
         Some("manual"),
@@ -199,14 +200,33 @@ async fn links_prefer_the_source_url_then_name_and_operators_can_correct_them() 
     )
     .await
     .unwrap();
-    set_link(&pool, "rohan-ltc", "playgroup:precon:test-riders", Some("exclude"), None)
-        .await
-        .unwrap();
+    // An exclusion scoped to another source changes nothing here.
+    set_link(
+        &pool,
+        Some("Other tracker"),
+        "rohan-ltc",
+        "playgroup:precon:test-riders",
+        Some("exclude"),
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(load(&pool, at("2026-10-29")).await.unwrap().by_precon.contains_key("rohan-ltc"));
+    set_link(
+        &pool,
+        Some("Playgroup.gg"),
+        "rohan-ltc",
+        "playgroup:precon:test-riders",
+        Some("exclude"),
+        None,
+    )
+    .await
+    .unwrap();
     let ev = load(&pool, at("2026-10-29")).await.unwrap();
     assert_eq!(ev.by_precon["limit-break-b"].real.as_ref().unwrap().matched_by, "manual");
     assert!(!ev.by_precon.contains_key("rohan-ltc"));
-    assert!(set_link(&pool, "no-such-precon", "x", Some("manual"), None).await.is_err());
-    set_link(&pool, "rohan-ltc", "playgroup:precon:test-riders", None, None)
+    assert!(set_link(&pool, None, "no-such-precon", "x", Some("manual"), None).await.is_err());
+    set_link(&pool, Some("Playgroup.gg"), "rohan-ltc", "playgroup:precon:test-riders", None, None)
         .await
         .unwrap();
     assert!(load(&pool, at("2026-10-29")).await.unwrap().by_precon.contains_key("rohan-ltc"));
@@ -429,4 +449,26 @@ async fn a_future_cohort_does_not_hide_todays_history() {
     let real = ev.by_precon["test-riders"].real.as_ref().unwrap();
     assert_eq!(real.latest.games, 447);
     assert_eq!(real.cohort, "https://playgroup.gg/commander/precons");
+}
+
+#[tokio::test]
+async fn calibration_follows_a_cohort_that_spans_the_split() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool, "bryan@example.com").await;
+    enable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    precon(&pool, "test-riders", "Riders of Rohan", None, None).await;
+    let mut records = rohan(SHA_A);
+    // A new cohort begins after the split and is newer today.
+    let mut newer = precon_obs("test-riders", "Riders of Rohan", "2026-10-25", 90, 30.0, SHA_A);
+    newer["data"]["cohort"] = json!("https://playgroup.gg/commander/precons/new-method");
+    newer["id"] = json!("new-cohort");
+    records.push(newer);
+    import(&pool, &owner, &document("playgroup-history", records)).await;
+    let ev = load(&pool, at("2026-10-29")).await.unwrap();
+    assert_eq!(
+        ev.by_precon["test-riders"].real.as_ref().unwrap().cohort,
+        "https://playgroup.gg/commander/precons/new-method"
+    );
+    let report = calibrate(&pool, None, at("2026-09-15"), at("2026-10-29")).await.unwrap();
+    assert_eq!(report.precons_with_holdout, 1, "the old cohort's later games are the held-out set");
 }

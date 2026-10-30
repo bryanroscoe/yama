@@ -81,6 +81,9 @@ pub struct RealHistory {
     pub latest: Snapshot,
     #[serde(flatten)]
     pub history: History,
+    /// The entity's other cohorts as of the same date, for calibration across a cohort change.
+    #[serde(skip)]
+    pub other_cohorts: Vec<(String, History)>,
     pub as_of: DateTime<Utc>,
     pub method: &'static str,
 }
@@ -269,19 +272,24 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
         });
     }
 
-    let links: Vec<(String, String, String)> = sqlx::query_as("SELECT precon_id, entity, rule FROM precon_evidence_links")
-        .fetch_all(pool)
-        .await?;
-    let manual: HashSet<(&str, &str)> = links
+    // (source, precon, entity); an empty source applies to every source.
+    let links: Vec<(String, String, String, String)> =
+        sqlx::query_as("SELECT source_name, precon_id, entity, rule FROM precon_evidence_links")
+            .fetch_all(pool)
+            .await?;
+    let manual: HashSet<(&str, &str, &str)> = links
         .iter()
-        .filter(|l| l.2 == "manual")
-        .map(|l| (l.0.as_str(), l.1.as_str()))
+        .filter(|l| l.3 == "manual")
+        .map(|l| (l.0.as_str(), l.1.as_str(), l.2.as_str()))
         .collect();
-    let excluded: HashSet<(&str, &str)> = links
+    let excluded: HashSet<(&str, &str, &str)> = links
         .iter()
-        .filter(|l| l.2 == "exclude")
-        .map(|l| (l.0.as_str(), l.1.as_str()))
+        .filter(|l| l.3 == "exclude")
+        .map(|l| (l.0.as_str(), l.1.as_str(), l.2.as_str()))
         .collect();
+    let has = |set: &HashSet<(&str, &str, &str)>, source: &str, precon: &str, entity: &str| {
+        set.contains(&("", precon, entity)) || set.contains(&(source, precon, entity))
+    };
     let commander_entities: Vec<String> = catalog
         .iter()
         .filter_map(|p| p.playgroup_id)
@@ -400,7 +408,7 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
         for (entity_id, e) in &entities {
             let slug = entity_id.strip_prefix(PRECON_PREFIX).unwrap_or(entity_id);
             let test = |rule: &str, p: &CatalogPrecon| match rule {
-                "manual" => manual.contains(&(p.id.as_str(), entity_id.as_str())),
+                "manual" => has(&manual, &label.name, &p.id, entity_id),
                 "url" => matches!((&p.playgroup_url, &e.url), (Some(a), Some(b)) if norm_url(a) == norm_url(b)),
                 "name" => !e.name.is_empty() && norm_name(p.playgroup_name.as_deref().unwrap_or(&p.name)) == norm_name(&e.name),
                 _ => p.id == slug,
@@ -409,7 +417,7 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
             for (priority, rule) in rules.iter().enumerate() {
                 let hits: Vec<&CatalogPrecon> = catalog
                     .iter()
-                    .filter(|p| !excluded.contains(&(p.id.as_str(), entity_id.as_str())) && test(rule, p))
+                    .filter(|p| !has(&excluded, &label.name, &p.id, entity_id) && test(rule, p))
                     .collect();
                 if hits.is_empty() {
                     continue;
@@ -476,13 +484,16 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
                         .push((label.name.clone(), entity_id.to_string(), rules[best]));
                     // Each cohort is read as of the evaluation date; the one with the newest usable
                     // snapshot then speaks for the precon.
-                    let best_cohort = e
+                    let mut readable: Vec<(DateTime<Utc>, String, History)> = e
                         .cohorts
                         .iter()
                         .map(|(c, s)| (c.clone(), history::history(s.clone(), as_of, HALF_LIFE_DAYS)))
                         .filter_map(|(c, h)| Some((h.snapshots.last()?.as_of, c, h)))
-                        .max_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
-                    if let Some((_, cohort, h)) = best_cohort {
+                        .collect();
+                    readable.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+                    let mut readable = readable.into_iter();
+                    if let Some((_, cohort, h)) = readable.next() {
+                        let other_cohorts = readable.map(|(_, c, h)| (c, h)).collect();
                         let latest = *h.snapshots.last().unwrap();
                         ev.real = Some(RealHistory {
                             source: label.clone(),
@@ -493,6 +504,7 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
                             cohort,
                             latest,
                             history: h,
+                            other_cohorts,
                             as_of,
                             method: METHOD,
                         });
@@ -717,15 +729,24 @@ pub async fn calibrate(pool: &SqlitePool, owner: Option<&str>, split: DateTime<U
             .get(id)
             .map(|e| e.real.iter().chain(e.also.iter()).collect())
             .unwrap_or_default();
-        let pair = ev.real.iter().chain(ev.also.iter()).find_map(|n| {
+        // Every cohort today's histories hold, newest source first, each with its own history.
+        let today: Vec<(&RealHistory, &str, &History)> = ev
+            .real
+            .iter()
+            .chain(ev.also.iter())
+            .flat_map(|n| {
+                std::iter::once((n, n.cohort.as_str(), &n.history)).chain(n.other_cohorts.iter().map(move |(c, h)| (n, c.as_str(), h)))
+            })
+            .collect();
+        let pair = today.iter().find_map(|(n, cohort, h)| {
             earlier
                 .iter()
-                .find(|t| t.source.name == n.source.name && t.entity == n.entity)
-                .map(|t| (n, *t))
+                .find(|t| t.source.name == n.source.name && t.entity == n.entity && t.cohort == *cohort)
+                .map(|t| (*h, *t))
         });
-        let (now, then) = match pair {
-            Some((n, t)) => (n, Some(t)),
-            None => (primary, None),
+        let (now, then): (&History, Option<&RealHistory>) = match pair {
+            Some((h, t)) => (h, Some(t)),
+            None => (&primary.history, None),
         };
         let train = then.map(|t| match &t.history.recent {
             Some(r) => calibration::Real {
@@ -739,10 +760,11 @@ pub async fn calibrate(pool: &SqlitePool, owner: Option<&str>, split: DateTime<U
         });
         // Held out: the games after the split's newest snapshot, on the same unbroken chain.
         let holdout = then
-            .filter(|t| now.history.snapshots.contains(&t.latest) && now.latest.games > t.latest.games)
-            .and_then(|t| {
-                let rate = history::implied(&t.latest, &now.latest);
-                (0.0..=100.0).contains(&rate).then_some((rate, now.latest.games - t.latest.games))
+            .zip(now.snapshots.last())
+            .filter(|(t, last)| now.snapshots.contains(&t.latest) && last.games > t.latest.games)
+            .and_then(|(t, last)| {
+                let rate = history::implied(&t.latest, last);
+                (0.0..=100.0).contains(&rate).then_some((rate, last.games - t.latest.games))
             });
         cases.push(calibration::Case {
             precon: id.clone(),
@@ -999,7 +1021,19 @@ pub async fn disable(pool: &SqlitePool, owner: &str, source_name: &str) -> AppRe
 }
 
 /// Record an operator's correction: `manual` links a precon to an entity, `exclude` forbids the pair.
-pub async fn set_link(pool: &SqlitePool, precon: &str, entity: &str, rule: Option<&str>, note: Option<&str>) -> AppResult<()> {
+/// `source` limits it to one source name; `None` applies it to every source.
+pub async fn set_link(
+    pool: &SqlitePool,
+    source: Option<&str>,
+    precon: &str,
+    entity: &str,
+    rule: Option<&str>,
+    note: Option<&str>,
+) -> AppResult<()> {
+    let source = source.map(str::trim).unwrap_or_default();
+    if source.len() > 240 {
+        return Err(AppError::bad("source name must be at most 240 bytes"));
+    }
     let known: Option<String> = sqlx::query_scalar("SELECT id FROM precons WHERE id = ?")
         .bind(precon)
         .fetch_optional(pool)
@@ -1012,7 +1046,8 @@ pub async fn set_link(pool: &SqlitePool, precon: &str, entity: &str, rule: Optio
     }
     match rule {
         None => {
-            sqlx::query("DELETE FROM precon_evidence_links WHERE precon_id = ? AND entity = ?")
+            sqlx::query("DELETE FROM precon_evidence_links WHERE source_name = ? AND precon_id = ? AND entity = ?")
+                .bind(source)
                 .bind(precon)
                 .bind(entity)
                 .execute(pool)
@@ -1020,9 +1055,10 @@ pub async fn set_link(pool: &SqlitePool, precon: &str, entity: &str, rule: Optio
         }
         Some(rule @ ("manual" | "exclude")) => {
             sqlx::query(
-                "INSERT INTO precon_evidence_links(precon_id, entity, rule, note, created_at) VALUES (?,?,?,?,?)
-                 ON CONFLICT(precon_id, entity) DO UPDATE SET rule = excluded.rule, note = excluded.note, created_at = excluded.created_at",
+                "INSERT INTO precon_evidence_links(source_name, precon_id, entity, rule, note, created_at) VALUES (?,?,?,?,?,?)
+                 ON CONFLICT(source_name, precon_id, entity) DO UPDATE SET rule = excluded.rule, note = excluded.note, created_at = excluded.created_at",
             )
+            .bind(source)
             .bind(precon)
             .bind(entity)
             .bind(rule)
@@ -1055,7 +1091,7 @@ async fn disable_route(State(st): State<AppState>, AdminUser(user): AdminUser, P
 }
 
 /// `yama-server precon-evidence report | use SOURCE --owner EMAIL | stop SOURCE --owner EMAIL |
-/// link PRECON ENTITY [--note TEXT] | exclude PRECON ENTITY [--note TEXT] | unlink PRECON ENTITY`
+/// link PRECON ENTITY [--source NAME] [--note TEXT] | exclude PRECON ENTITY [--source NAME] [--note TEXT] | unlink PRECON ENTITY [--source NAME]`
 pub async fn cli(pool: &SqlitePool, args: &[String]) -> anyhow::Result<()> {
     let flag = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
     let positional: Vec<&String> = {
@@ -1073,7 +1109,7 @@ pub async fn cli(pool: &SqlitePool, args: &[String]) -> anyhow::Result<()> {
         out
     };
     let err = |e: AppError| anyhow::anyhow!("{e}");
-    const USAGE: &str = "usage: yama-server precon-evidence report | calibrate [--split YYYY-MM-DD] [--owner EMAIL] | use SOURCE --owner EMAIL | stop SOURCE --owner EMAIL | link PRECON ENTITY [--note TEXT] | exclude PRECON ENTITY [--note TEXT] | unlink PRECON ENTITY";
+    const USAGE: &str = "usage: yama-server precon-evidence report | calibrate [--split YYYY-MM-DD] [--owner EMAIL] | use SOURCE --owner EMAIL | stop SOURCE --owner EMAIL | link PRECON ENTITY [--source NAME] [--note TEXT] | exclude PRECON ENTITY [--source NAME] [--note TEXT] | unlink PRECON ENTITY [--source NAME]";
     match (args.first().map(String::as_str), positional.as_slice()) {
         (Some("report"), []) => {}
         (Some("calibrate"), []) => {
@@ -1106,7 +1142,9 @@ pub async fn cli(pool: &SqlitePool, args: &[String]) -> anyhow::Result<()> {
                 "exclude" => Some("exclude"),
                 _ => None,
             };
-            set_link(pool, precon, entity, rule, flag("--note").as_deref()).await.map_err(err)?;
+            set_link(pool, flag("--source").as_deref(), precon, entity, rule, flag("--note").as_deref())
+                .await
+                .map_err(err)?;
         }
         _ => anyhow::bail!(USAGE),
     }

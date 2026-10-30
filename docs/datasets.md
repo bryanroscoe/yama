@@ -155,7 +155,7 @@ Datasets page's "Shared precon evidence" switch, `PUT`/`DELETE
 ./target/debug/yama-server precon-evidence use Playgroup.gg --owner you@example.com
 ./target/debug/yama-server precon-evidence report
 ./target/debug/yama-server precon-evidence link PRECON ENTITY --note "why"
-./target/debug/yama-server precon-evidence exclude PRECON ENTITY
+./target/debug/yama-server precon-evidence exclude PRECON ENTITY --source Playgroup.gg
 ./target/debug/yama-server precon-evidence unlink PRECON ENTITY
 ./target/debug/yama-server precon-evidence calibrate --split 2026-09-15 --owner you@example.com
 ```
