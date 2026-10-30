@@ -184,7 +184,7 @@ pub(crate) fn compare(before: &[DeckCard], after: &[DeckCard]) -> Comparison {
     out.commanders_before = commanders(before);
     out.commanders_after = commanders(after);
     let ids = |list: &[DeckCard]| {
-        let mut ids: Vec<&str> = list.iter().filter(|c| c.board == Board::Commander).map(|c| c.oracle_id.as_str()).collect();
+        let mut ids: Vec<String> = list.iter().filter(|c| c.board == Board::Commander).map(|c| c.oracle_id.clone()).collect();
         ids.sort();
         ids
     };
