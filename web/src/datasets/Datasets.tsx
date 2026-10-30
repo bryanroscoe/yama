@@ -5,7 +5,7 @@ import { api, apiBlob } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { Details, ErrorText } from "../components/ui";
-import { KINDS, count, dataset, datasets, object, percent, periodLabel, recordName, sourceUrl, text, type Dataset, type DatasetRead, type EvidenceRecord, type Source } from "./api";
+import { KINDS, count, dataset, datasets, object, percent, periodLabel, preconEvidence, recordName, setPreconEvidence, sourceUrl, text, type Dataset, type DatasetRead, type EvidenceRecord, type Source } from "./api";
 import "./datasets.css";
 
 function SourceLink({ url, children }: { url: unknown; children: ReactNode }) {
@@ -47,6 +47,33 @@ function UploadDataset() {
     </form>
   </Details>;
 }
+/** Admins choose which of their sources feed the shared precon pages; the figures follow new uploads. */
+export function SharedPreconEvidence({ owner, names }: { owner: string; names: string[] }) {
+  const client = useQueryClient();
+  const report = useQuery({ queryKey: ["precon-evidence"], queryFn: preconEvidence });
+  const toggle = useMutation({
+    mutationFn: ({ name, on }: { name: string; on: boolean }) => setPreconEvidence(name, on),
+    onSuccess: (r) => { client.setQueryData(["precon-evidence"], r); void client.invalidateQueries({ queryKey: ["lab"] }); },
+  });
+  const r = report.data;
+  if (!r || names.length === 0) return <ErrorText error={report.error} />;
+  const on = new Set(r.sources.filter((s) => s.owner === owner).map((s) => s.source_name));
+  const matched = Object.keys(r.matched).length;
+  return <section className="dataset-card">
+    <h2>Shared precon evidence</h2>
+    <p>Precon pages show real-game history derived from the sources switched on here. They use each dataset's newest revision, so a new upload updates them. The datasets themselves stay private.</p>
+    {names.map((name) => <label key={name} className="dataset-toggle">
+      <input type="checkbox" checked={on.has(name)} disabled={toggle.isPending} onChange={(e) => toggle.mutate({ name, on: e.target.checked })} />
+      Use my {name} datasets on the precon pages
+    </label>)}
+    <ErrorText error={toggle.error} />
+    {r.source_labels.length > 0 && <p className="dim">{matched} of {r.catalog_precons} catalog precons linked to {count(r.entities)} source precons; {r.catalog_without_real_games} have no real-game history.</p>}
+    {r.unmatched.length > 0 && <Details label={`Source precons not linked (${r.unmatched.length})`}>
+      <ul>{r.unmatched.map((u) => <li key={`${u.source}-${u.entity}-${u.reason}`}><SourceLink url={u.url}>{u.name}</SourceLink> ({u.source}, {u.entity}): {u.reason}</li>)}</ul>
+      <p>Link or exclude one with <code>yama-server precon-evidence link PRECON ENTITY</code> or <code>exclude</code>.</p>
+    </Details>}
+  </section>;
+}
 export function DatasetsPage() {
   const { id } = useParams();
   return id ? <DatasetDetail key={id} id={id} /> : <DatasetIndex />;
@@ -62,6 +89,7 @@ function DatasetIndex() {
     {list.data?.length === 0 && <p>No datasets have been imported into your account yet.</p>}
     {list.data?.map((d) => <DatasetCard key={d.id} d={d} />)}
     {me.data?.is_admin && !me.data.viewing && <UploadDataset />}
+    {me.data?.is_admin && !me.data.viewing && list.data && <SharedPreconEvidence owner={me.data.email} names={[...new Set(list.data.map((d) => d.source.name))]} />}
   </main>;
 }
 function SourceCard({ source }: { source: Source }) {

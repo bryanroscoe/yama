@@ -678,6 +678,7 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
               <b>{pct(x.win_rate)}</b> won, {x.wins} of {x.games}
               {x.wilson ? ` (${level} interval ${pctRange(x.wilson[0], x.wilson[1])})` : ""}
               {x.avg_place != null ? `, average place ${x.avg_place.toFixed(2)}` : ""}
+              {x.strength ? `, strength ${x.strength.strength.toFixed(2)} (${level} interval ${x.strength.lo.toFixed(2)} to ${x.strength.hi.toFixed(2)})` : ""}
             </>
           ),
         }))}
@@ -687,6 +688,7 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
       />
       <p className="lab-note">
         The line marks {v.pod === 2 ? "a half" : "a quarter"}: what a deck with no edge would win.
+        {v.entrants.some((x) => x.strength) ? " Strength accounts for who each deck sat with: 1 is the field's average, and a strength-2 deck is twice as likely as a strength-1 deck to win a pod they share." : ""}
         {v.filler_wins > 0 ? ` Precons filling empty seats won ${v.filler_wins} games.` : ""}
         {rounds != null ? ` Games lasted about ${Math.round(rounds)} rounds (${v.avg_turns!.toFixed(0)} turns counting every player's).` : ""}
       </p>

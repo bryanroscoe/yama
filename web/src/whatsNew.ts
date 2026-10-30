@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-29-precon-real-history",
+    date: "2026-10-29",
+    title: "Precon pages show real games over time",
+    items: [
+      "A precon's page now shows its playgroup.gg results over time: the all-time win rate, the rate in the games played since the earliest snapshot, and whether it's rising or falling.",
+      "Precons playgroup.gg doesn't rate show their commander's own figure instead, labelled as every list under that commander.",
+      "An experimental rating v2 combines real games with the simulation, but only gives the simulation weight if it has proved it predicts later real games. Tournaments in the Lab also show each deck's fitted strength, which accounts for who it sat with.",
+    ],
+    link: { to: "/lab", label: "Open the precons" },
+  },
+  {
     id: "2026-10-29-swap-cards",
     date: "2026-10-29",
     title: "Bracket swap cards for your deck boxes",
