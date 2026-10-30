@@ -709,6 +709,7 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
     assert!(!info.gate_passed);
     assert_eq!(v.real_share, 1.0);
     assert_eq!(c.precons[0].id, "island-deck", "the default order follows rating v2");
+    assert!(c.precons.iter().all(|p| p.meta.is_none()), "no v1 ranks beside v2");
 
     let app = crate::routes::app(st);
     let (_, _, html) = request(&app, "/precons", &[]).await;

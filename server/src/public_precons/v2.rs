@@ -195,8 +195,13 @@ pub(super) async fn assign(
         }
     };
     let (info, by_id) = &*table;
+    let active = info.ranked > 0;
     for row in rows.iter_mut() {
         row.v2 = by_id.get(&row.id).cloned();
+        // One rank per page: while v2 is active, a deck it doesn't rank is unranked, not v1-ranked.
+        if active {
+            row.meta = None;
+        }
     }
     Ok((info.ranked > 0).then(|| info.clone()))
 }
