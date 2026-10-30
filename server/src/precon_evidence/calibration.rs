@@ -235,26 +235,36 @@ pub fn evaluate(all: &[Case]) -> Evaluation {
     ];
 
     let mut rng = Rng(0x2545_f491_4f6c_dd1d);
-    let n = cases.len();
+    // Resample the population the reported mapping was fitted on, refit it, then score the
+    // resample's held-out members, so the interval describes the same statistic as the gate.
+    let fit: Vec<&Case> = all.iter().filter(|c| c.train.is_some() && c.sim.is_some()).collect();
     let mut boot_rho: Vec<Vec<f64>> = vec![Vec::with_capacity(BOOTSTRAP); 4];
     let mut boot_diff = Vec::with_capacity(BOOTSTRAP);
     for _ in 0..BOOTSTRAP {
-        let pick: Vec<usize> = (0..n).map(|_| rng.below(n)).collect();
-        let sub = |v: &Vec<f64>| pick.iter().map(|&i| v[i]).collect::<Vec<f64>>();
-        let (ys, ws) = (sub(&y), sub(&w));
-        // Refit the mapping on the resample, so the interval carries the mapping's own uncertainty.
-        let resampled: Vec<Case> = pick.iter().map(|&i| cases[i].clone()).collect();
+        let resampled: Vec<Case> = (0..fit.len()).map(|_| fit[rng.below(fit.len())].clone()).collect();
         let Some(mb) = crate::precon_evidence::calibration::mapping(&resampled) else {
             continue;
         };
-        let v2b: Vec<f64> = resampled.iter().map(|c| combine(c.train, c.sim, Some(&mb)).unwrap().0).collect();
-        for (k, (_, p, _)) in preds.iter().enumerate() {
-            let p = if k == 3 { v2b.clone() } else { sub(p) };
-            if let Some(r) = spearman(&p, &ys) {
+        let test: Vec<&Case> = resampled
+            .iter()
+            .filter(|c| c.holdout.is_some_and(|h| h.1 >= MIN_HOLDOUT_GAMES))
+            .collect();
+        if test.len() < 3 {
+            continue;
+        }
+        let ys: Vec<f64> = test.iter().map(|c| c.holdout.unwrap().0).collect();
+        let ws: Vec<f64> = test.iter().map(|c| c.holdout.unwrap().1 as f64).collect();
+        let realb: Vec<f64> = test.iter().map(|c| c.train.unwrap().rate).collect();
+        let simb: Vec<f64> = test.iter().map(|c| mb.rate(c.sim.unwrap())).collect();
+        let rawb: Vec<f64> = test.iter().map(|c| c.sim.unwrap()).collect();
+        let v1b: Vec<f64> = ranks(&realb).iter().zip(ranks(&rawb)).map(|(a, b)| a + b).collect();
+        let v2b: Vec<f64> = test.iter().map(|c| combine(c.train, c.sim, Some(&mb)).unwrap().0).collect();
+        for (k, p) in [&realb, &simb, &v1b, &v2b].into_iter().enumerate() {
+            if let Some(r) = spearman(p, &ys) {
                 boot_rho[k].push(r);
             }
         }
-        boot_diff.push(mse(&v2b, &ys, &ws) - mse(&sub(&real), &ys, &ws));
+        boot_diff.push(mse(&v2b, &ys, &ws) - mse(&realb, &ys, &ws));
     }
     if boot_diff.len() < BOOTSTRAP / 2 {
         return empty(format!(
@@ -292,7 +302,7 @@ pub fn evaluate(all: &[Case]) -> Evaluation {
         )
     };
     Evaluation {
-        cases: n,
+        cases: cases.len(),
         held_out_games,
         mapping: Some(m),
         scores,

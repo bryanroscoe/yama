@@ -671,13 +671,19 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>, cutoff: Option<
         }
     }
     let mut out = Vec::new();
-    let runs: Vec<(String, String, Option<String>, String)> = sqlx::query_as(
-        "SELECT id, name, engine, COALESCE(analysed_at, created_at) FROM lab_runs WHERE owner_id IS NULL AND kind = 'precon-ratings'
+    // The engine label carries the card data, as tournament partitions do, so each build is named exactly.
+    let runs: Vec<(String, String, Option<String>, Option<String>, String)> = sqlx::query_as(
+        "SELECT id, name, engine, card_data, COALESCE(analysed_at, created_at) FROM lab_runs WHERE owner_id IS NULL AND kind = 'precon-ratings'
          ORDER BY created_at DESC LIMIT 10",
     )
     .fetch_all(pool)
     .await?;
-    for (id, name, engine, created_at) in runs {
+    for (id, name, engine, card_data, created_at) in runs {
+        let engine = format!(
+            "{}, card data {}",
+            engine.as_deref().unwrap_or("unknown"),
+            card_data.as_deref().map(|c| c.get(..16).unwrap_or(c)).unwrap_or("unknown")
+        );
         let strengths: HashMap<String, f64> = crate::lab::ratings_for(pool, &id)
             .await?
             .into_iter()
@@ -687,7 +693,7 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>, cutoff: Option<
             kind: "global run",
             id,
             name,
-            engine: engine.unwrap_or_default(),
+            engine,
             status: "done".into(),
             created_at,
             precons: strengths.len(),
