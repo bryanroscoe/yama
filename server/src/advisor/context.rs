@@ -934,7 +934,7 @@ fn cap(s: &str) -> String {
 /// A precon's dataset-derived real-game history, in words a model reads (crate::precon_evidence).
 fn evidence_text(ev: &crate::precon_evidence::PreconEvidence) -> String {
     let mut out = String::new();
-    if let Some(r) = &ev.real {
+    for r in ev.real.iter().chain(ev.also.iter()) {
         let datasets: Vec<String> = r.source.datasets.iter().map(|d| format!("{} revision {}", d.id, d.revision)).collect();
         let _ = write!(
             out,

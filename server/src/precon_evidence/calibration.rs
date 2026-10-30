@@ -341,7 +341,10 @@ mod tests {
         };
         // About 2.3 points of standard error, not ~0.
         assert!(zero.variance().sqrt() > 2.0, "{}", zero.variance());
-        let full = Real { rate: 100.0, effective_games: 40.0 };
+        let full = Real {
+            rate: 100.0,
+            effective_games: 40.0,
+        };
         assert!((full.variance() - zero.variance()).abs() < 1e-9);
     }
 

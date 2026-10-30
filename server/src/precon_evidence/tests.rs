@@ -397,6 +397,9 @@ async fn each_enabled_source_is_derived_and_labelled_on_its_own() {
     assert_eq!(e.also[0].latest.games, 447);
     assert_eq!(ev.report.source_labels.len(), 2);
     assert_eq!(ev.report.matched["test-riders"].len(), 2);
+    // Calibration pairs the split's history with later games from the same source.
+    let report = calibrate(&pool, None, at("2026-09-15"), at("2026-10-29")).await.unwrap();
+    assert_eq!(report.precons_with_holdout, 1);
 }
 
 #[tokio::test]

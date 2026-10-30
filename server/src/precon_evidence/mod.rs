@@ -709,9 +709,24 @@ pub async fn calibrate(pool: &SqlitePool, owner: Option<&str>, split: DateTime<U
     let mut cases: Vec<calibration::Case> = Vec::new();
     let mut all_time: HashMap<String, f64> = HashMap::new();
     for (id, ev) in &after.by_precon {
-        let Some(now) = &ev.real else { continue };
-        all_time.insert(id.clone(), now.latest.rate);
-        let then = before.get(id).and_then(|e| e.real.as_ref());
+        let Some(primary) = &ev.real else { continue };
+        all_time.insert(id.clone(), primary.latest.rate);
+        // Train and held-out games come from one source: the first of today's histories (newest
+        // first) that the split also had from the same source and entity.
+        let earlier: Vec<&RealHistory> = before
+            .get(id)
+            .map(|e| e.real.iter().chain(e.also.iter()).collect())
+            .unwrap_or_default();
+        let pair = ev.real.iter().chain(ev.also.iter()).find_map(|n| {
+            earlier
+                .iter()
+                .find(|t| t.source.name == n.source.name && t.entity == n.entity)
+                .map(|t| (n, *t))
+        });
+        let (now, then) = match pair {
+            Some((n, t)) => (n, Some(t)),
+            None => (primary, None),
+        };
         let train = then.map(|t| match &t.history.recent {
             Some(r) => calibration::Real {
                 rate: r.rate,
