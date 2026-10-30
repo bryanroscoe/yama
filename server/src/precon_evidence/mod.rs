@@ -352,6 +352,8 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
         // Commander entity → window → (as_of, rate, games, name, url), newest per window.
         type Window = (DateTime<Utc>, f64, u64, String, Option<String>);
         let mut commanders: HashMap<String, HashMap<u32, Window>> = HashMap::new();
+        // (entity, window, date) where datasets disagree: set aside, like conflicting snapshots.
+        let mut conflicted: HashSet<(String, u32, DateTime<Utc>)> = HashSet::new();
         for r in revisions {
             let partial: HashSet<&str> = r.metadata["sources"]
                 .as_array()
@@ -417,11 +419,16 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
                         ));
                         if at > slot.0 {
                             *slot = (at, o.value, o.source_reported_games, name, o.source_entity_url);
+                        } else if at == slot.0 && ((slot.1 - o.value).abs() >= 0.005 || slot.2 != o.source_reported_games) {
+                            conflicted.insert((o.entity_id.clone(), days, at));
                         }
                     }
                     _ => {}
                 }
             }
+        }
+        for (entity, windows) in commanders.iter_mut() {
+            windows.retain(|days, w| !conflicted.contains(&(entity.clone(), *days, w.0)));
         }
         report.entities += entities.len();
         report.source_labels.push(label.clone());
@@ -743,8 +750,20 @@ pub async fn calibrate(pool: &SqlitePool, owner: Option<&str>, split: DateTime<U
     if split >= as_of {
         return Err(AppError::bad("the split must be before the evaluation date"));
     }
-    let before = load(pool, split).await?.by_precon;
     let after = load(pool, as_of).await?;
+    let sims = sim_sources(pool, owner, Some(split)).await?;
+    calibrate_with(pool, split, as_of, &after, sims).await
+}
+
+/// The time-split test with today's evidence and the simulation sources already loaded.
+async fn calibrate_with(
+    pool: &SqlitePool,
+    split: DateTime<Utc>,
+    as_of: DateTime<Utc>,
+    after: &Evidence,
+    sims: Vec<SimSource>,
+) -> AppResult<CalibrationReport> {
+    let before = load(pool, split).await?.by_precon;
     let mut cases: Vec<calibration::Case> = Vec::new();
     let mut all_time: HashMap<String, f64> = HashMap::new();
     for (id, ev) in &after.by_precon {
@@ -813,7 +832,7 @@ pub async fn calibrate(pool: &SqlitePool, owner: Option<&str>, split: DateTime<U
         .filter(|c| c.train.is_some() && c.holdout.is_some_and(|h| h.1 >= calibration::MIN_HOLDOUT_GAMES))
         .count();
     let mut sources = Vec::new();
-    for source in sim_sources(pool, owner, Some(split)).await? {
+    for source in sims {
         let with: Vec<calibration::Case> = cases
             .iter()
             .map(|c| calibration::Case {
@@ -848,7 +867,7 @@ pub async fn calibrate(pool: &SqlitePool, owner: Option<&str>, split: DateTime<U
     Ok(CalibrationReport {
         split,
         as_of,
-        real_sources: after.report.source_labels,
+        real_sources: after.report.source_labels.clone(),
         precons_with_holdout,
         sources,
         method: CALIBRATION_METHOD,
@@ -933,9 +952,12 @@ impl Normal {
 /// Rating v2 for every catalog precon with evidence, from the newest global run and the datasets.
 pub async fn rating_v2(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<RatingV2> {
     let split = default_split(as_of);
-    let evidence = load(pool, as_of).await?.by_precon;
-    let simulation = sim_sources(pool, None, None).await?.into_iter().next();
-    let report = calibrate(pool, None, split, as_of).await?;
+    let loaded = load(pool, as_of).await?;
+    // Global runs only: a cutoff limits tournaments, which a shared rating never reads.
+    let sims = sim_sources(pool, None, None).await?;
+    let simulation = sims.first().cloned();
+    let report = calibrate_with(pool, split, as_of, &loaded, sims).await?;
+    let evidence = loaded.by_precon;
     let calibration = simulation
         .as_ref()
         .and_then(|s| report.sources.iter().find(|c| c.source.id == s.id))

@@ -530,3 +530,34 @@ async fn the_newest_commander_figure_across_sources_stands_in() {
     assert_eq!((c.source.name.as_str(), c.games), ("Other tracker", 120));
     assert_eq!(c.source.license, "Private", "the stand-in carries its source's provenance");
 }
+
+#[tokio::test]
+async fn conflicting_commander_figures_are_set_aside() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool, "bryan@example.com").await;
+    enable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    precon(&pool, "new-deck", "New Deck", None, Some(42)).await;
+    import(
+        &pool,
+        &owner,
+        &document(
+            "playgroup-history",
+            vec![
+                commander_obs(42, 180, "2026-10-28", 300, 27.5),
+                commander_obs(42, 365, "2026-10-28", 600, 26.0),
+            ],
+        ),
+    )
+    .await;
+    // Same source, same window and date, different figure.
+    let mut clash = commander_obs(42, 180, "2026-10-28", 310, 29.0);
+    clash["id"] = json!("clash");
+    import(&pool, &owner, &document("playgroup-other", vec![clash])).await;
+    let ev = load(&pool, at("2026-10-29")).await.unwrap();
+    let c = ev.by_precon["new-deck"].commander.as_ref().unwrap();
+    assert_eq!(
+        (c.window_days, c.games),
+        (365, 600),
+        "the disputed 180-day figure gives way to the next window"
+    );
+}
