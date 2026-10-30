@@ -30,6 +30,7 @@ import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
 import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
+import { familyKey, legacyConfiguration, configurationLabel } from "../decks/buildCatalog";
 import { groupConfigurations } from "../decks/configurations";
 import { DeckLists } from "../decks/DeckLists";
 
@@ -94,6 +95,7 @@ export function DecksPage() {
         {groupConfigurations(decks.data ?? []).map(({ main, configurations }) => (
           <li key={main.id} className={configurations.length ? "has-configs" : undefined}>
             <DeckTile d={main} />
+            <div className="deck-configs"><Link to={`/decks/builds?deck=${familyKey(main.name)}`}>[2] · [3] · [4] builds and swap cards</Link></div>
             {configurations.length > 0 && <ConfigurationList main={main} configurations={configurations} />}
           </li>
         ))}
@@ -148,7 +150,7 @@ function ConfigurationList({ main, configurations }: { main: DeckSummary; config
   return (
     <nav className="deck-configs" aria-label={`Configurations of ${main.name}`}>
       <ul className="deck-configs-list">
-        {[main, ...configurations].map((c, i) => {
+        {[main, ...configurations.filter((c) => !legacyConfiguration(c.configuration))].map((c, i) => {
           const own = ownership(c.owned, c.card_count, c.proxies ?? 0);
           const shared = SHARED_LABEL[c.visibility];
           return (
@@ -159,7 +161,7 @@ function ConfigurationList({ main, configurations }: { main: DeckSummary; config
                 onFocus={() => prefetch(c.id)}
                 title={[own?.text, shared].filter(Boolean).join(". ") || undefined}
               >
-                <b>{c.configuration ?? (i === 0 ? "Main" : c.name)}</b>
+                <b>{configurationLabel(c.configuration, i === 0)}</b>
                 <span className="dim small">
                   {i === 0 ? "In the deck. " : ""}
                   {own ? own.short : `${c.card_count} cards`}
@@ -169,6 +171,7 @@ function ConfigurationList({ main, configurations }: { main: DeckSummary; config
           );
         })}
       </ul>
+      {configurations.some((c) => legacyConfiguration(c.configuration)) && <details><summary>Legacy</summary><ul>{configurations.filter((c) => legacyConfiguration(c.configuration)).map((c) => <li key={c.id}><Link to={`/decks/${c.id}`}>{c.configuration ?? c.name}</Link></li>)}</ul></details>}
     </nav>
   );
 }
@@ -305,6 +308,7 @@ export function DeckPage() {
       <button className="on-art" onClick={() => setExporting(true)}>Export</button>
       <button className="on-art" onClick={() => setHistory(true)}>History</button>
       <button className="on-art" onClick={() => setConfiguring(true)}>New configuration</button>
+      <Link className="button on-art" to={`/decks/builds?deck=${familyKey(d.configurations[0]?.name ?? d.name)}`}>[2] / [3] / [4] and swap cards</Link>
       <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
       <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
     </>
@@ -357,8 +361,8 @@ export function DeckPage() {
           {d.configurations.length > 1 && (
             <nav className="hero-configs" aria-label="Configurations of this deck" aria-busy={deck.isPlaceholderData}>
               <span className="hero-configs-label">Configurations</span>
-              {d.configurations.map((c, i) => {
-                const label = c.configuration ?? (i === 0 ? "Main" : c.name);
+              {d.configurations.filter((c, i) => i === 0 || !legacyConfiguration(c.configuration)).map((c, i) => {
+                const label = configurationLabel(c.configuration, i === 0);
                 const loading = deck.isPlaceholderData && c.id === id;
                 return (
                   <Link
@@ -375,6 +379,7 @@ export function DeckPage() {
                   </Link>
                 );
               })}
+              {d.configurations.some((c, i) => i > 0 && legacyConfiguration(c.configuration)) && <details open={legacyConfiguration(d.configuration)}><summary>Legacy</summary>{d.configurations.filter((c, i) => i > 0 && legacyConfiguration(c.configuration)).map((c) => <Link key={c.id} className="on-art" to={`/decks/${c.id}`}>{c.configuration ?? c.name}</Link>)}</details>}
             </nav>
           )}
           <div className="hero-row">

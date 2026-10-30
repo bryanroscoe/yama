@@ -713,6 +713,23 @@ swap differences, and acquisition supply including projected sealed stock. Gamep
 and GC slot reasons replace unexplained numeric power ranges. Sealed purchase prerequisites
 stay separate from singles quotes and print requirements.
 
+#### Bracket build choices and reversible inserts (2026-10-30)
+
+`/decks/builds` brings owner-scoped saved decks, plan bracket builds and full research lists
+into one selector. Brackets 2/3/4 are explicit choices; different plans and playgroup modes keep
+their source, date/revision and guide links. A research starting snapshot is Legacy, never the
+current sleeved deck. Current is loaded from the live saved list. Original/stock stays visible;
+old now/after-prints configurations are collapsed under Legacy without deleting versions,
+changing games, changing sharing, or marking installs. No source lists or approvals are mutated.
+
+Two selected complete lists produce quantity- and board-aware differences (including repeated
+basics and commander moves). The print view is a portrait US-Letter duplex sheet: 2.5 × 3.5 inch
+inserts, nine slots on each side, .5 inch horizontal and .25 inch vertical margins. Fronts show
+A to B; backs reverse each row and mirror columns for long-edge flipping. Partial sheets retain
+blank slots. Long changes continue on numbered inserts at 3–6 swaps per insert; detected overflow
+blocks printing. Source revisions and saved version identifiers travel on the inserts. Labels
+remain assessments from their source, not a fresh legality, combo or physical-install assertion.
+
 #### Commander research and workflow parity (2026-10-27)
 
 Bryan asked to bring the useful capabilities of other Magic MCPs into Yama, using independently

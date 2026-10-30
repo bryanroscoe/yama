@@ -10,6 +10,7 @@ import "./deck-area.css";
  *  tab since 2026-10-28; Research is labelled as what it is, notes agents keep for themselves. */
 export const DECK_SECTIONS: { to: string; label: string; end?: boolean }[] = [
   { to: "/decks", label: "Decks", end: true },
+  { to: "/decks/builds", label: "Builds" },
   { to: "/decks/plan", label: "Plans" },
   { to: "/decks/research", label: "Agent notes" },
   { to: "/decks/datasets", label: "Datasets" },

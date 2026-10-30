@@ -1,5 +1,7 @@
 # Yama
 
+Bracket builds and reversible deck-box inserts: `/decks/builds` brings saved Current/Original lists, plan bracket builds and researched alternatives together. Older now/after-prints snapshots remain under Legacy. Choose two complete lists for 2.5 × 3.5 inch duplex swap cards.
+
 Yet Another Magic App: a free Magic: The Gathering app with a public precon reference and private accounts for playing and tracking Commander. It has a life counter for game night, card search, a collection (with Mythic Tools import), decks that know what you own, and playgroup stats. Online play against friends and AI is the next big piece; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 The engine is maintained in the private [Yama Phase repository](https://github.com/bryanroscoe/yama-phase).

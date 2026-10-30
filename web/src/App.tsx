@@ -6,6 +6,7 @@ import { PeoplePage } from "./admin/People";
 import { ServerPage } from "./admin/Server";
 import { UsagePage } from "./admin/Usage";
 import { ChangesPage } from "./advisor/Changes";
+import { BuildChoicesPage } from "./decks/BuildChoices";
 import { ResearchPage } from "./research/Research";
 import { DatasetsPage } from "./datasets/Datasets";
 import { Login, useMe } from "./auth";
@@ -136,6 +137,7 @@ export function App() {
         <Route path="cards" element={<CardsPage />} />
         <Route path="collection" element={<CollectionPage />} />
         <Route path="decks" element={<DecksPage />} />
+        <Route path="decks/builds" element={<BuildChoicesPage />} />
         <Route path="decks/research" element={<ResearchPage />} />
         <Route path="decks/research/:reportId" element={<ResearchPage />} />
         <Route path="decks/research/:reportId/:deckKey" element={<ResearchPage />} />

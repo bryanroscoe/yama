@@ -18,7 +18,7 @@ describe("the Lab is its own section", () => {
   });
 
   it("leaves the Decks sections and names Research as agent notes", () => {
-    expect(DECK_SECTIONS.map((s) => s.label)).toEqual(["Decks", "Plans", "Agent notes", "Datasets"]);
+    expect(DECK_SECTIONS.map((s) => s.label)).toEqual(["Decks", "Builds", "Plans", "Agent notes", "Datasets"]);
     expect(DECK_SECTIONS.some((s) => s.to.includes("lab"))).toBe(false);
   });
 
