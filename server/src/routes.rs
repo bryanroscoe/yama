@@ -51,6 +51,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::calendar::router())
         .merge(crate::collection::router())
         .merge(crate::decks::router())
+        .merge(crate::deck_scan::router())
         .merge(crate::deck_research::router())
         .merge(crate::datasets::router())
         .merge(crate::deck_import::router())

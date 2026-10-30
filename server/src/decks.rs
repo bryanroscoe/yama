@@ -385,16 +385,7 @@ pub(crate) async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[De
 /// As `insert_version`, inside the caller's transaction (no wake: the caller wakes the check
 /// worker once it commits).
 pub(crate) async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
-    let vid = new_id();
-    let stamp = now();
-    sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at) VALUES (?,?,?,?,?)")
-        .bind(&vid)
-        .bind(deck_id)
-        .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
-        .bind(note)
-        .bind(&stamp)
-        .execute(&mut *conn)
-        .await?;
+    let (vid, stamp) = insert_saved_version_in(conn, deck_id, cards, note).await?;
     sqlx::query("UPDATE decks SET current_version_id = ?, updated_at = ? WHERE id = ?")
         .bind(&vid)
         .bind(&stamp)
@@ -405,12 +396,30 @@ pub(crate) async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str
     Ok(vid)
 }
 
+/// Save a version without making it current: it waits in History, where "Restore this list"
+/// can put it in the deck later (a scanned list the owner didn't switch to). No outside check is
+/// queued for it; restoring saves it again as a current version, which is checked then.
+/// Returns the version's id and timestamp.
+pub(crate) async fn insert_saved_version_in(conn: &mut SqliteConnection, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<(String, String)> {
+    let vid = new_id();
+    let stamp = now();
+    sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at) VALUES (?,?,?,?,?)")
+        .bind(&vid)
+        .bind(deck_id)
+        .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
+        .bind(note)
+        .bind(&stamp)
+        .execute(&mut *conn)
+        .await?;
+    Ok((vid, stamp))
+}
+
 pub async fn load_version_cards(pool: &SqlitePool, version_id: &str) -> AppResult<Vec<DeckCard>> {
     let json: String = sqlx::query_scalar("SELECT cards FROM deck_versions WHERE id = ?").bind(version_id).fetch_one(pool).await?;
     Ok(serde_json::from_str(&json).map_err(anyhow::Error::from)?)
 }
 
-async fn owned_deck(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<(String, Option<String>, Option<String>)> {
+pub(crate) async fn owned_deck(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<(String, Option<String>, Option<String>)> {
     sqlx::query_as("SELECT name, current_version_id, container_id FROM decks WHERE id = ? AND owner_id = ?")
         .bind(id)
         .bind(owner)
@@ -1337,7 +1346,7 @@ pub(crate) const BASICS: [&str; 11] = [
     "Snow-Covered Plains", "Snow-Covered Island", "Snow-Covered Swamp", "Snow-Covered Mountain", "Snow-Covered Forest",
 ];
 
-fn is_basic(name: &str) -> bool {
+pub(crate) fn is_basic(name: &str) -> bool {
     BASICS.contains(&name)
 }
 

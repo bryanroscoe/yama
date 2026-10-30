@@ -17,6 +17,7 @@ import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
 import { readCloseup, readCollectorLine, scanFrame, SURE } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
+import { NameEntry } from "./NameEntry";
 import { choosePrinting, printingOptions } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { createServerCatalog } from "./serverCatalog";
@@ -45,6 +46,7 @@ export interface ScannerViewProps {
   /**
    * Keep adding: a card whose printing the scanner settled itself (the only one, or read from the
    * collector line) is added at once, one copy, and scanning goes on. Anything less still waits.
+   * With `identityOnly`, any card the camera found is added unless it might be another card.
    */
   autoAdd?: boolean;
   /** Stop reading the camera (something is shown over the scanner). */
@@ -762,9 +764,9 @@ export function ScannerView({
     tapRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [tapNeeded]);
   useEffect(() => {
-    if (!autoAdd || !onAccept || paused || identityOnly || phase !== "found" || !found || !addsItself(found)) return;
-    const c = found.chosen!;
-    const label = `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})`;
+    if (!autoAdd || !onAccept || paused || phase !== "found" || !found || !(identityOnly ? addsByIdentity(found) : addsItself(found))) return;
+    const c = identityOnly ? null : found.chosen!;
+    const label = c ? `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})` : found.name;
     const saved = onAccept(candidateOf(found, c), 1, true);
     // The card stays in the session list either way (a failed save can be tried again there), so
     // scanning goes on; "Added" waits for the save.
@@ -1044,6 +1046,15 @@ export function addsItself(f: Pick<Found, "sure" | "chosen" | "method" | "confid
   return !!f.sure && !!f.chosen && !typed;
 }
 
+/**
+ * Keep adding when only the card matters (scanning a deck): a card the camera found is added by
+ * itself unless the art looks like another card too. A typed name waits for Add.
+ */
+export function addsByIdentity(f: Pick<Found, "method" | "confidence" | "others">): boolean {
+  const typed = f.method === "name" && f.confidence === 1;
+  return !typed && f.others.length === 0;
+}
+
 function explain(f: Found, identityOnly: boolean): string {
   const by = f.method === "art" ? "Recognized by its art" : f.method === "name" ? (f.confidence === 1 ? "Typed by name" : "Read from the card's name") : "Read from the collector number";
   if (identityOnly) return `${by}. Check the card name.`;
@@ -1060,46 +1071,4 @@ function explain(f: Found, identityOnly: boolean): string {
       if (f.options.length === 0) return `${by}. Yama's card data has no printing of it.`;
       return f.sameArt ? `${by}. ${f.options.length} printings share this art: pick yours.` : `${by}. Pick the printing.`;
   }
-}
-
-/** Type a card's name instead of scanning it. */
-function NameEntry({ onPick }: { onPick: (name: string) => void }) {
-  const [q, setQ] = useState("");
-  const [names, setNames] = useState<string[]>([]);
-  useEffect(() => {
-    const t = q.trim();
-    if (t.length < 2) return setNames([]);
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      api<string[]>(`/api/cards/autocomplete?q=${encodeURIComponent(t)}`)
-        .then((r) => !cancelled && setNames(r.slice(0, 6)))
-        .catch(() => undefined);
-    }, 180);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [q]);
-  return (
-    <div className="scan-name">
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Or type the name" aria-label="Card name" autoComplete="off" />
-      {names.length > 0 && (
-        <ul className="scan-name-list">
-          {names.map((n) => (
-            <li key={n}>
-              <button
-                onClick={() => {
-                  setQ("");
-                  setNames([]);
-                  onPick(n);
-                }}
-              >
-                {n}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
 }

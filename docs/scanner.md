@@ -191,6 +191,8 @@ import { ScannerView } from "./scanner";
 
 `card` is a `ScanCandidate`: `{ name, set?, number?, lang?, scryfall_id?, image?, confidence, method }`. `method` is `"art"`, `"collector+name"`, `"collector"` or `"name"`. Unless `identityOnly` is set, `onAccept` is only offered once the printing is settled, so `scryfall_id` is always there.
 
+`identityOnly` is for uses where only the card matters: the plan's swap check, and scanning a whole deck (`web/src/decks/DeckScanPage.tsx`, `/decks/:id/scan`). It looks up no printings. With `autoAdd` (Keep adding) it adds any card the camera found unless the art also looks like another card (`addsByIdentity`); a typed name still waits for Add. `NameEntry.tsx` is the type-a-name box, also used by the deck scan page.
+
 For other uses, the pipeline is pure:
 
 ```ts
@@ -219,6 +221,7 @@ Files, all under `web/src/scanner/`:
 | `printings.test.ts` | unit tests for the printing choice and the recognizer's pure parts |
 | `serverCatalog.ts` | `ScanCatalog` on the server API and the offline card bundle |
 | `ScannerView.tsx`, `scanner.css` | camera screen |
+| `NameEntry.tsx` | type a card's name (autocomplete) instead of scanning it |
 | `dev.html`, `dev.tsx` | stand-alone page: `http://localhost:5173/src/scanner/dev.html` |
 | `scanner.test.ts` | unit tests, part of `npm test` |
 | `eval/` | accuracy harness: fixtures, scene simulator, DB catalog, `eval.test.ts` (OCR), `recognizer.test.ts` (art, free-hand), `embedding.test.ts` (the 2026-10-18 spike) |

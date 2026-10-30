@@ -299,6 +299,7 @@ export function DeckPage() {
       <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
       <button className="on-art" onClick={() => setEditing(true)}>Edit deck</button>
       <Link className="button on-art" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+      <Link className="button on-art" to={`/decks/${d.id}/scan`}>Scan this deck</Link>
       <button className="on-art" onClick={() => setCollecting(true)}>Add to my collection</button>
       <button className="on-art" onClick={() => setSharing(true)}>Share</button>
       <button className="on-art" onClick={() => setExporting(true)}>Export</button>
@@ -412,6 +413,7 @@ export function DeckPage() {
             <summary>More actions</summary>
             <div className="deck-extra-actions">
               <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+              <Link className="button outline" to={`/decks/${d.id}/scan`}>Scan this deck</Link>
               <button className="outline" onClick={() => setCollecting(true)}>Add to my collection</button>
               <button className="outline" onClick={() => setSharing(true)}>Share</button>
               <button className="outline" onClick={() => setExporting(true)}>Export</button>
