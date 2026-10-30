@@ -398,6 +398,9 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
             names.add(bag.get("in").and_then(Value::as_str));
             names.add(bag.get("out").and_then(Value::as_str));
         }
+        for n in model::bracket_extras(Some(&bracket)) {
+            names.add(Some(n));
+        }
     }
 
     // Swaps, with their links as keys (owners checked on every SET NULL link)
