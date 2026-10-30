@@ -715,6 +715,27 @@ swap differences, and acquisition supply including projected sealed stock. Gamep
 and GC slot reasons replace unexplained numeric power ranges. Sealed purchase prerequisites
 stay separate from singles quotes and print requirements.
 
+#### Bracket build choices and reversible inserts (2026-10-30)
+
+`/decks/builds` brings owner-scoped saved decks, plan bracket builds and full research lists
+into one selector. Buildable now (the default) and Aspirational are separate tracks. Only research
+with an explicit `acquisition.track: owned_now` allocation is shown as buildable now; old plans
+without that audit remain available under Other saved versions, explicitly availability unchecked;
+that mode also permits Original, Current and Legacy as destinations. Arrived prints count once, planned
+orders do not. Brackets 2/3/4 are explicit choices; different plans and playgroup modes keep
+their source, date/revision and guide links. A research starting snapshot is Legacy, never the
+current sleeved deck. Current is loaded from the live saved list. Original/stock stays visible;
+old now/after-prints configurations are collapsed under Legacy without deleting versions,
+changing games, changing sharing, or marking installs. No source lists or approvals are mutated.
+
+Two selected complete lists produce quantity- and board-aware differences (including repeated
+basics and commander moves). The print view is a portrait US-Letter duplex sheet: 2.5 × 3.5 inch
+inserts, nine slots on each side, .5 inch horizontal and .25 inch vertical margins. Fronts show
+A to B; backs reverse each row and mirror columns for long-edge flipping. Partial sheets retain
+blank slots. Long changes continue on numbered inserts at 3–6 swaps per insert; detected overflow
+blocks printing. Source revisions and saved version identifiers travel on the inserts. Labels
+remain assessments from their source, not a fresh legality, combo or physical-install assertion.
+
 #### Commander research and workflow parity (2026-10-27)
 
 Bryan asked to bring the useful capabilities of other Magic MCPs into Yama, using independently
@@ -997,3 +1018,16 @@ Precons separately show the sealed deck's TCGplayer market via TCGCSV. The backe
 Public reference, private Lab and MCP share commander-specific assessments plus a complete in-box inventory. Method v4 inventories 619 colour-compatible configurations across 174 frozen stock lists, including explicitly checked commander-pair rules. Six configurations contain banned stock cards and three require a pregame colour-choice input not yet represented by the simulator list format; 610 in-box lists plus the outside Koma option are prepared inputs. Runtime derives inventory-only alternatives only when the roster's reference fingerprint matches the frozen assessment input; it assigns no inherited grade, rationale or audit date. Eighteen configurations have supported grades. Whole-package summaries name the highest supported in-box grade and show assessed/total coverage; outside swaps are excluded and unassessed commanders may be stronger. Individual grades, source dates, whole-box publisher reviews, raw commander observations and exact-list game results remain separate. No private data, card images or rules documents are bundled. See [rubric, inventory and refresh procedure](docs/precon-upgradeability.md).
 
 MCP `start_lab_run` accepts labelled pasted `entrant_lists` in tournament/versus mode, combined with named entrants under the existing total entrant cap. This allows commander-specific stock configurations in one frozen shared field without creating saved decks. Applying retains normal list validation, owner isolation, budget charging, duplicate-list collapsing and engine/seed provenance. Prepared or queued lists do not become results or influence published stock ranks.
+
+Build catalog identity: saved roots use their stable deck IDs, and configurations follow their
+parent ID. Explicit plan links resolve to those roots; unlinked plans have their own plan key.
+Exact-name fallback is allowed only when unambiguous. Research with an ambiguous name stays
+in an unlinked research family scoped by report ID and deck key rather than merging live decks
+or independent reports. Research and printer section headers accept optional trailing colons.
+Saved and plan entry links use
+IDs/keys; duplicate display names include a source/identity suffix in the deck selector.
+
+Builds reads the existing `usePlan(userId)` cache, including its abort/sign-out guard and
+owner-specific offline copy. It does not keep a second plan query outside the plan-clearing
+prefixes. Research index/detail queries use the same owner-specific keys as Research, so
+imports and review changes invalidate both surfaces consistently.

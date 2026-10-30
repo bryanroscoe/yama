@@ -64,6 +64,7 @@ export function SwapCardsPage() {
     <div className="swap-cards">
       <div className="sc-controls">
         <PlansHead title={title} />
+        <p><Link to={`/decks/builds${deck ? `?planKey=${encodeURIComponent(deck.key)}` : ""}`}>Choose two versions and print double-sided swap cards</Link></p>
         <p className="small">
           {deckKey ? "A card for the deck box" : "A card for each deck box"}: which cards to swap to change bracket. Each card is 2.5 by 3.5 inches,
           nine to a US-letter page. Print at actual size (100%, no fit to page) with headers and footers off, then cut on the dashed lines.

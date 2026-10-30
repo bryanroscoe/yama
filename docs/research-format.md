@@ -68,3 +68,17 @@ Stale target hashes or review versions conflict. An explicit null is a retained 
 Reviews survive imports; changed evidence is flagged and removed targets stay in a retired
 answers section. Writes acknowledge only after saving online; failed edits are never labeled
 saved. MCP reads include all these answers for the next planning pass.
+
+### Acquisition tracks
+
+Optional `build.acquisition.track` is `owned_now` or `aspirational`. It is descriptive source
+metadata, not an inventory operation. Writers must only use `owned_now` after validating the
+complete portfolio against real, individually allocated copies and confirmed arrived prints,
+including counted basic lands and donor-release dependencies. Every target has zero required
+buys, new prints or future stock. Reserve the union across a deck’s bracket alternatives, then
+sum across independent decks; never allocate one physical copy to two decks. Unmarked research
+is treated as aspirational in the Builds page. Existing plans remain availability-unchecked
+until an allocated research version is saved. Preserve the allocation scenario identifier and
+dated evidence in the report; selecting a track changes no cards, orders, or installation ticks.
+
+Builds and Research only display the owned badge when the declaration is internally consistent: no prospective flag, buys, new prints, sealed purchases or projected stock; an allocation scenario; explicit all-owned accounting; and positive, identified owned/basic quantities matching every card in the 100-card list. Contradictory or incomplete owned claims remain reviewable as availability-unchecked. This validates declared evidence, not live inventory or physical installation.

@@ -7,6 +7,7 @@ import { ErrorText } from "../components/ui";
 import { CardRef, CardText } from "../components/CardRef";
 import { AccountingSummary, CompleteList, Gameplay, buildAccounting, listEntries, resolvedCombos } from "./details";
 import { changedAnswer, importReport, money, report, reports, safeUrl, saveReview, targetForSwap, type Build, type Combo, type Item, type Power, type ResearchBundle, type ResearchDeck, type ReviewOp, type Scenario, type Source } from "./api";
+import { isOwnedBuild, ownedBuildProblems } from "./availability";
 import { AgentNotesAbout, DeckChanged } from "./about";
 import "./research.css";
 
@@ -99,6 +100,8 @@ function BuildView({ bundle, deck, build }: { bundle: ResearchBundle; deck: Rese
     <section className="research-build-head">
       <div>
         <h2>{build.label}</h2>
+        {isOwnedBuild(build) && <p className="pill">Buildable now: allocated real cards and arrived prints</p>}
+        {ownedBuildProblems(build).length > 0 && <p className="warn">Ownership not verified: {ownedBuildProblems(build).join(" ")}</p>}
         {build.prospective && <p className="warn">Proposed future build. Its stock cards become available only after the product is bought and arrives. Any unreleased-card legality limit remains in the guide.</p>}
         <p><CardText text={build.why??""} names={names}/></p>
         {build.option_swap && <p className="research-option"><b>Optional change from base Bracket 4:</b> add <CardName name={build.option_swap.card_in??build.option_swap.inn??"Unnamed"}/>; cut <CardName name={build.option_swap.card_out??build.option_swap.out??"Unnamed"}/>. The exact changes below compare with the current reference.</p>}
