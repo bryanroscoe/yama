@@ -129,7 +129,9 @@ async fn a_new_revision_or_a_second_dataset_updates_the_history() {
         precon_obs("test-riders", "Riders of Rohan", "2026-10-28", 477, 19.81, SHA_A),
         precon_obs("test-riders", "Riders of Rohan", "2026-12-01", 600, 19.0, SHA_A),
     ];
-    import(&pool, &owner, &document("playgroup-december", later)).await;
+    let mut december = document("playgroup-december", later);
+    december["source"]["license"] = json!("CC BY 4.0 (December terms)");
+    import(&pool, &owner, &december).await;
     let merged = load(&pool, at("2026-12-02"))
         .await
         .unwrap()
@@ -141,6 +143,10 @@ async fn a_new_revision_or_a_second_dataset_updates_the_history() {
     assert_eq!(merged.latest.games, 600);
     assert_eq!(merged.history.snapshots.len(), 5);
     assert_eq!(merged.source.datasets.len(), 2);
+    assert_eq!(
+        merged.source.license, "CC BY 4.0 (December terms); CC BY 4.0",
+        "every dataset's licence is kept"
+    );
 }
 
 #[tokio::test]

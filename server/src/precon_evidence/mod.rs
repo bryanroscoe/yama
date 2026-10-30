@@ -330,10 +330,21 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
             })
             .collect();
         datasets.sort_by(|a, b| b.imported_at.cmp(&a.imported_at).then(a.id.cmp(&b.id)));
+        // Every distinct attribution and licence the merged datasets declare, in dataset order.
+        let distinct = |key: &str| {
+            let mut seen: Vec<&str> = Vec::new();
+            for r in revisions {
+                let v = r.metadata["source"][key].as_str().unwrap_or_default().trim();
+                if !v.is_empty() && !seen.contains(&v) {
+                    seen.push(v);
+                }
+            }
+            seen.join("; ")
+        };
         let label = SourceLabel {
             name: first["name"].as_str().unwrap_or_default().into(),
-            attribution: first["attribution"].as_str().unwrap_or_default().into(),
-            license: first["license"].as_str().unwrap_or_default().into(),
+            attribution: distinct("attribution"),
+            license: distinct("license"),
             datasets,
         };
 
