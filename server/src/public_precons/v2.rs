@@ -67,13 +67,16 @@ pub struct Row {
 
 type Table = Arc<(Info, HashMap<String, Row>)>;
 static CACHE: Mutex<Option<(Instant, String, Table)>> = Mutex::new(None);
+/// One rebuild at a time: requests arriving during it wait for its result rather than repeat it.
+static REBUILD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Everything the rating reads, so any change is seen on the next request.
 async fn fingerprint(pool: &SqlitePool, publication: Option<&Publication>) -> AppResult<String> {
     let inputs: String = sqlx::query_scalar(
-        "SELECT (SELECT IFNULL(group_concat(owner_id || ':' || source_name || ':' || enabled_at, '|'), '') FROM precon_evidence_sources)
-             || '#' || (SELECT IFNULL(group_concat(id || ':' || IFNULL(current_revision_id, ''), '|'), '') FROM evidence_datasets)
-             || '#' || (SELECT IFNULL(group_concat(source_name || ':' || precon_id || ':' || entity || ':' || rule || ':' || created_at, '|'), '') FROM precon_evidence_links)
+        "SELECT (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT owner_id || ':' || source_name || ':' || enabled_at AS k FROM precon_evidence_sources ORDER BY k))
+             || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT id || ':' || IFNULL(current_revision_id, '') AS k FROM evidence_datasets
+                    WHERE owner_id IN (SELECT owner_id FROM precon_evidence_sources) ORDER BY k))
+             || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT source_name || ':' || precon_id || ':' || entity || ':' || rule || ':' || created_at AS k FROM precon_evidence_links ORDER BY k))
              || '#' || (SELECT IFNULL(max(imported_at), '') || ':' || count(*) FROM precons)",
     )
     .fetch_one(pool)
@@ -191,25 +194,41 @@ async fn derive(pool: &SqlitePool, rows: &[Precon], publication: Option<&Publica
     Ok(Arc::new((info, table)))
 }
 
-/// Attach rating v2 to every row it ranks. `None` when no real-game source is enabled.
+fn cached(key: &str) -> Option<Table> {
+    CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .filter(|(at, k, _)| k == key && at.elapsed() < FRESH)
+        .map(|(_, _, t)| t.clone())
+}
+
+async fn table(pool: &SqlitePool, rows: &[Precon], publication: Option<&Publication>) -> AppResult<Table> {
+    let key = fingerprint(pool, publication).await?;
+    if let Some(t) = cached(&key) {
+        return Ok(t);
+    }
+    let _rebuilding = REBUILD.lock().await;
+    if let Some(t) = cached(&key) {
+        return Ok(t);
+    }
+    let t = derive(pool, rows, publication).await?;
+    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), key, t.clone()));
+    Ok(t)
+}
+
+/// Attach rating v2 to every row it ranks. `None` when no real-game source is enabled, or when
+/// the rating can't be derived: the pages then keep meta rank v1 rather than fail.
 pub(super) async fn assign(
     pool: &SqlitePool,
     rows: &mut [Precon],
     publication: Option<&Publication>,
 ) -> AppResult<Option<Info>> {
-    let key = fingerprint(pool, publication).await?;
-    let cached = CACHE
-        .lock()
-        .unwrap()
-        .as_ref()
-        .filter(|(at, k, _)| *k == key && at.elapsed() < FRESH)
-        .map(|(_, _, t)| t.clone());
-    let table = match cached {
-        Some(t) => t,
-        None => {
-            let t = derive(pool, rows, publication).await?;
-            *CACHE.lock().unwrap() = Some((Instant::now(), key, t.clone()));
-            t
+    let table = match table(pool, rows, publication).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(error = ?e, "public rating v2 unavailable; showing meta rank v1");
+            return Ok(None);
         }
     };
     let (info, by_id) = &*table;

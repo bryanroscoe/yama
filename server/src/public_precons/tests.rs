@@ -684,7 +684,7 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
             "observation_period":{"kind":"cumulative_snapshot","source_as_of":format!("{day}T16:00:00Z"),"start":null},"quality_flags":[]}})
     };
     let doc = json!({"schema":"yama-dataset/1","id":"playgroup-history","title":"Playgroup history","generated_at":"2026-10-28T00:00:00Z",
-        "source":{"name":"Playgroup.gg","url":"https://playgroup.gg/research","attribution":"Playgroup.gg / Arcane Digital B.V.","license":"CC BY 4.0"},
+        "source":{"name":"Playgroup.gg","url":"https://playgroup.gg/research","attribution":"Playgroup.gg / Arcane Digital B.V. <script>x</script>","license":"CC BY 4.0"},
         "method":"Recovered dated aggregate snapshots","coverage":{},
         "sources":[{"sha256":sha,"url":"https://playgroup.gg/commander/precons","retrieved_at":"2026-10-28T00:00:00Z","source_as_of":null,"captured_at":null,"flags":[],"transformation":null,"original_response_sha256":null}],
         "records":[snapshot("2026-08-06", 263, 23.81), snapshot("2026-09-06", 331, 22.02), snapshot("2026-10-17", 447, 20.47)]});
@@ -711,15 +711,22 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
     assert_eq!(c.precons[0].id, "island-deck", "the default order follows rating v2");
     assert!(c.precons.iter().all(|p| p.meta.is_none()), "no v1 ranks beside v2");
 
+    let pool = st.pool.clone();
     let app = crate::routes::app(st);
     let (_, _, json) = request(&app, "/api/public/precons", &[]).await;
     assert!(json.contains("CC BY 4.0"));
     assert!(!json.contains("playgroup-history"), "private dataset ids stay private");
+    assert!(!json.contains("bryan@example.com"), "the owner stays private");
     let (_, _, html) = request(&app, "/precons", &[]).await;
     assert!(html.contains("Rating v2 ranks"));
-    assert!(html.contains("Playgroup.gg / Arcane Digital B.V.; CC BY 4.0"));
+    assert!(html.contains("Playgroup.gg / Arcane Digital B.V. &lt;script&gt;x&lt;/script&gt;; CC BY 4.0"));
+    assert!(!html.contains("<script>x"));
     let (_, _, html) = request(&app, "/precons/island-deck", &[]).await;
     assert!(html.contains("all-time 20.5% over 447 games"));
     let (_, _, html) = request(&app, "/precons/methodology", &[]).await;
     assert!(html.contains("id=\"v2\""));
+
+    // Stopping the source is seen on the next request, despite the cache.
+    crate::precon_evidence::disable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    assert!(catalog(&pool).await.unwrap().rating_v2.is_none());
 }
