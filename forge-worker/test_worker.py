@@ -18,6 +18,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import forge_runner as F  # noqa: E402
 import worker as W  # noqa: E402
+import forge_serve as S  # noqa: E402
 
 # Deck files go to a scratch folder, never next to a checkout.
 _SCRATCH = tempfile.TemporaryDirectory()
@@ -147,6 +148,92 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.call("POST", "/nowhere", {})[0], 404)
 
 
+FAKE_SERVE = r'''
+import sys, time
+print("Forge prints its card loading here", flush=True)
+print("ready", flush=True)
+for line in sys.stdin:
+    j = line.rstrip("\n").split("\t")
+    game, out, decks = j[0], j[3], j[6:]
+    if game == "crash":
+        sys.stderr.write("java.lang.OutOfMemoryError: Java heap space\n"); sys.stderr.flush(); sys.exit(3)
+    if game == "hang":
+        time.sleep(60)
+    names = [f"Ai({i + 1})-{d.split('/')[-1][:-4]}" for i, d in enumerate(decks)]
+    log = ["Simulation mode", f"Turn: Turn 1 ({names[0]})"]
+    log += [f"Game Outcome: {names[0]} has won because all opponents have lost"]
+    log += [f"Game Outcome: {n} has lost because life total reached 0" for n in names[1:]]
+    log += ["", f"Game Result: Game 1 ended in 1234 ms. {names[0]} has won!"]
+    open(out, "w").write("\n".join(log) + "\n")
+    open(out + ".err", "w").write("")
+    print("a Forge thread printing between games", flush=True)
+    print(f"done\t{game}\t{'timeout' if game == 'capped' else 'ok'}\t100", flush=True)
+'''
+
+
+class ServeTests(unittest.TestCase):
+    """Long-lived JVMs (forge_serve), with a fake `java` that speaks yama-serve.jar's protocol."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        t = Path(self.tmp.name)
+        (t / "forge/res/cardsfolder").mkdir(parents=True)
+        (t / "forge/yama-serve.jar").write_bytes(b"")
+        java = t / "java"
+        java.write_text(f"#!{sys.executable}\n" + FAKE_SERVE)
+        java.chmod(0o755)
+        self.forge = SimpleNamespace(engine="forge 9.9", card_data="forge res 9.9", version="9.9", dir=t / "forge",
+                                     res=t / "forge/res", jar=t / "forge/forge.jar", java=str(java))
+        self.w = W.Worker(self.forge, NAMES, slots=1)
+
+    def tearDown(self):
+        jvm = self.w.jvms.get()
+        jvm.stop()
+        self.tmp.cleanup()
+
+    def game(self, name):
+        return self.w.play({"key": name + str(time.monotonic()), "spec": spec(name), "decks": [deck("base", GOOD), deck("o1", GOOD)]})
+
+    def jvm(self):
+        jvm = self.w.jvms.get()
+        self.w.jvms.put(jvm)
+        return jvm
+
+    def test_games_reuse_one_jvm_and_are_read_like_forge_sim_output(self):
+        self.assertIsNotNone(self.w.jvms)
+        rotation, _ = F.seat_rotation(W.forge_seed(7), [99, 99])
+        for g in ("g1", "g2", "g3"):
+            r = self.game(g)
+            self.assertEqual((r["end"], r["winner"], r["ms"], r["error"]), ("win", (0 - rotation) % 2, 1234, None))
+        self.assertEqual(self.jvm().started, 1)
+
+    def test_a_jvm_is_replaced_after_a_game_at_forges_time_limit(self):
+        self.game("capped")
+        self.assertFalse(self.jvm().alive)
+        self.assertEqual(self.game("g1")["end"], "win")
+        self.assertEqual(self.jvm().started, 2)
+
+    def test_a_jvm_that_dies_fails_only_its_game(self):
+        r = self.game("crash")
+        self.assertEqual(r["end"], "error")
+        self.assertIn("Forge exited (exit 3)", r["error"])
+        self.assertIn("OutOfMemoryError", r["error"])
+        self.assertEqual(self.game("g1")["end"], "win")
+
+    def test_a_jvm_that_doesnt_answer_is_killed(self):
+        jvm = self.jvm()
+        with self.assertRaises(S.JvmFailed):
+            jvm.run("hang", 1, 900, "Default", ["a.dck", "b.dck"], timeout=1)
+        self.assertFalse(jvm.alive)
+
+    def test_without_yama_serve_jar_or_with_serve_off_every_game_gets_its_own_jvm(self):
+        self.assertIsNone(W.Worker(FORGE, NAMES).jvms)
+        self.assertIsNone(W.Worker(self.forge, NAMES, serve=False).jvms)
+
+    def test_xmx_sizes(self):
+        self.assertEqual([S.xmx_mb(x) for x in ("1536m", "2g", "2048k", str(2**30))], [1536, 2048, 2, 1024])
+
+
 class ForgeDistTests(unittest.TestCase):
     """The worker image's Forge: Yama's own build, pinned in deploy/Dockerfile.forge-worker."""
 
@@ -170,6 +257,14 @@ class ForgeDistTests(unittest.TestCase):
         self.assertIn("ENV FORGE_DIR=/opt/forge/current", text)
         self.assertIn('cut -c1-8)-jar-with-dependencies.jar"', text)  # the tarball's hash is in the label
         self.assertNotIn("releases/download", text)  # no unpinned Forge download
+
+    def test_the_image_has_every_file_the_worker_runs(self):
+        here = Path(__file__).resolve().parent
+        text = (here.parent / "deploy/Dockerfile.forge-worker").read_text()
+        copied = set(re.search(r"^COPY (.+) /opt/forge-worker/$", text, re.M).group(1).split())
+        self.assertEqual(copied, {p.name for p in here.glob("*.py")} - {"test_worker.py"})
+        hashed = re.search(r'for name in \((.+?)\):', (here / "worker.py").read_text()).group(1)
+        self.assertEqual(set(re.findall(r'"([\w.]+)"', hashed)), copied)  # a change to any of them is a new runner label
 
 
 if __name__ == "__main__":

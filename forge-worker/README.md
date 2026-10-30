@@ -3,17 +3,22 @@
 Forge as a second engine for Yama's Lab runs (server/src/lab/forge.rs, deploy/Dockerfile.forge-worker).
 
 - `worker.py`: Yama's HTTP front, called by the yama server only (private network, `x-forge-secret`).
+- `forge_serve.py`: one long-lived Forge JVM per slot, playing its games one after another (the build's
+  `yama-serve.jar`, from forge-referee `serve/`). The card database loads once and the JIT stays warm: about half
+  the CPU per game, the same games (8 of 9 pilot games identical to one JVM per game; the ninth also varies between
+  two fresh JVMs). A JVM is replaced after a game at Forge's time limit, a crash or a kill, and every 200 games.
+  `FORGE_SERVE=0`, or a Forge build without the jar, plays one JVM per game as before.
 - `forge_runner.py`, `common.py`: copies of commander-decks `scripts/sim/forge_runner.py` and `common.py`
   (commit 689dbc5). Keep them identical to those files; the worker only overrides where they write
   (`DECK_CACHE`, `WORK_ROOT`, the card index folder) and the seed it passes Forge.
 - Forge itself is Yama's own build, not a release: `deploy/Dockerfile.forge-worker` unpacks a pinned tarball
-  (forge-referee `dist/build-dist.sh`; current build `yama2`, Forge master 3ead7e68 with AI speed fixes, see
-  forge-referee `patches/yama2/README.md`). Results carry its label, `forge 2.0.16-745401a4+yama2.5aca6b2e`.
+  (forge-referee `dist/build-dist.sh`; current build `yama3`: yama2's Forge, master 3ead7e68 with AI speed fixes, see
+  forge-referee `patches/yama2/README.md`, plus `yama-serve.jar`). Results carry its label, `forge 2.0.16-745401a4+yama3.5bddec19`.
 - `test_worker.py`: `python3 forge-worker/test_worker.py` (no Forge needed).
 
-Forge (https://github.com/Card-Forge/forge) is GPL-3.0 and runs as a separate program, one JVM per game. None of
+Forge (https://github.com/Card-Forge/forge) is GPL-3.0 and runs as separate programs (its own JVMs). None of
 its code is here. Private use.
 
-Locally: `FORGE_SECRET=<32+ chars> FORGE_DIR=<a Forge folder, e.g. one unpacked from forge-dist-yama2.tar.gz>
+Locally: `FORGE_SECRET=<32+ chars> FORGE_DIR=<a Forge folder, e.g. one unpacked from forge-dist-yama3.tar.gz>
 FORGE_JAVA=/opt/homebrew/opt/openjdk@17/bin/java FORGE_WORK=/tmp/fw FORGE_INDEX=/tmp/fw-index python3
 forge-worker/worker.py`, then start Yama with `YAMA_FORGE_URL=http://127.0.0.1:8791` and the same secret.
