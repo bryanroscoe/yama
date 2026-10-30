@@ -161,7 +161,7 @@ function ConfigurationList({ main, configurations }: { main: DeckSummary; config
                 onFocus={() => prefetch(c.id)}
                 title={[own?.text, shared].filter(Boolean).join(". ") || undefined}
               >
-                <b>{configurationLabel(c.configuration, i === 0)}</b>
+                <b>{configurationLabel(c.configuration, c.name, i === 0)}</b>
                 <span className="dim small">
                   {i === 0 ? "In the deck. " : ""}
                   {own ? own.short : `${c.card_count} cards`}
@@ -362,7 +362,7 @@ export function DeckPage() {
             <nav className="hero-configs" aria-label="Configurations of this deck" aria-busy={deck.isPlaceholderData}>
               <span className="hero-configs-label">Configurations</span>
               {d.configurations.filter((c, i) => i === 0 || !legacyConfiguration(c.configuration)).map((c, i) => {
-                const label = configurationLabel(c.configuration, i === 0);
+                const label = configurationLabel(c.configuration, c.name, i === 0);
                 const loading = deck.isPlaceholderData && c.id === id;
                 return (
                   <Link

@@ -88,8 +88,15 @@ describe("build catalog", () => {
     expect(legacyConfiguration("after prints")).toBe(true);
     expect(legacyConfiguration("Legacy: October upgrades")).toBe(true);
     for (const label of [null, "stock", "original", "[2]", "Bracket 4", "budget"]) expect(legacyConfiguration(label)).toBe(false);
-    expect(configurationLabel("stock")).toBe("Original");
-    expect(configurationLabel(null, true)).toBe("Current");
+    expect(configurationLabel("stock", "Deck")).toBe("Original");
+    expect(configurationLabel(null, "Deck", true)).toBe("Current");
+  });
+  it("preserves distinct deck names after child configuration labels are cleared", () => {
+    expect(["Combat version", "Combo version"].map((name) => configurationLabel(null, name))).toEqual(["Combat version", "Combo version"]);
+    expect(configurationLabel("", "Combat version")).toBe("Combat version");
+    expect(configurationLabel("   ", "Combat version")).toBe("Combat version");
+    expect(configurationLabel("[3]", "Combat version")).toBe("[3]");
+    expect(configurationLabel(null, "Main deck", true)).toBe("Current");
   });
   it("preserves unequal family names and resolves a renamed linked deck by saved id", () => {
     const report = { document: { id: "audit", title: "Audit", decks: ["Scions & Spellcraft", "Scions Spellcraft"].map((name) => ({ key: name, name, builds: [{ id: "b2", bracket: 2, label: "[2] Buildable now", list: list() }] })) }, revision: 1, updated_at: "2026-10-30" } as ResearchBundle;

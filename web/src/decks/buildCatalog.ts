@@ -30,10 +30,11 @@ export function slotsText(cards: Pick<Slot, "name" | "qty" | "board">[]): string
 export function legacyConfiguration(label: string | null): boolean {
   return /^(legacy(?:\b|:)|after[ -]prints$|now$)/i.test(label?.trim() ?? "");
 }
-export function configurationLabel(label: string | null, main = false): string {
-  if (main) return label ?? "Current";
-  if (/^(stock|original)$/i.test(label ?? "")) return "Original";
-  return label ?? "Build";
+export function configurationLabel(label: string | null, name: string, main = false): string {
+  const text = label?.trim();
+  if (main) return text || "Current";
+  if (/^(stock|original)$/i.test(text ?? "")) return "Original";
+  return text || name;
 }
 
 /** Keep sources distinct: an approved plan, independent research, and the sleeved list are not
