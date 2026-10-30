@@ -385,7 +385,7 @@ pub(crate) async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[De
 /// As `insert_version`, inside the caller's transaction (no wake: the caller wakes the check
 /// worker once it commits).
 pub(crate) async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
-    let (vid, stamp) = insert_saved_version_in(conn, deck_id, cards, note).await?;
+    let (vid, stamp) = insert_saved_version_in(conn, deck_id, cards, note, false).await?;
     sqlx::query("UPDATE decks SET current_version_id = ?, updated_at = ? WHERE id = ?")
         .bind(&vid)
         .bind(&stamp)
@@ -396,19 +396,26 @@ pub(crate) async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str
     Ok(vid)
 }
 
-/// Save a version without making it current: it waits in History, where "Restore this list"
-/// can put it in the deck later (a scanned list the owner didn't switch to). No outside check is
-/// queued for it; restoring saves it again as a current version, which is checked then.
+/// Save a version row without making it current. With `history_only` it waits in History, where
+/// "Restore this list" can put it in the deck later as a new version (a scanned list the owner
+/// didn't switch to), so it is never the deck's list itself; no outside check is queued for it.
 /// Returns the version's id and timestamp.
-pub(crate) async fn insert_saved_version_in(conn: &mut SqliteConnection, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<(String, String)> {
+pub(crate) async fn insert_saved_version_in(
+    conn: &mut SqliteConnection,
+    deck_id: &str,
+    cards: &[DeckCard],
+    note: Option<&str>,
+    history_only: bool,
+) -> AppResult<(String, String)> {
     let vid = new_id();
     let stamp = now();
-    sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at) VALUES (?,?,?,?,?)")
+    sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at, history_only) VALUES (?,?,?,?,?,?)")
         .bind(&vid)
         .bind(deck_id)
         .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
         .bind(note)
         .bind(&stamp)
+        .bind(history_only)
         .execute(&mut *conn)
         .await?;
     Ok((vid, stamp))
@@ -1185,13 +1192,16 @@ struct VersionRow {
     id: String,
     note: Option<String>,
     created_at: String,
+    /// Saved for History only (a scan not made the list): never the deck's list.
+    #[sqlx(default)]
+    history_only: bool,
 }
 
 async fn list_versions(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Vec<VersionRow>>> {
     owned_deck(&st.pool, &user.id, &id).await?;
     Ok(Json(
         // rowid breaks ties between versions saved in the same second.
-        sqlx::query_as("SELECT id, note, created_at FROM deck_versions WHERE deck_id = ? ORDER BY created_at DESC, rowid DESC")
+        sqlx::query_as("SELECT id, note, created_at, history_only FROM deck_versions WHERE deck_id = ? ORDER BY created_at DESC, rowid DESC")
             .bind(&id)
             .fetch_all(&st.pool)
             .await?,
@@ -1301,6 +1311,13 @@ async fn recheck(
 /// (before the first import that reads it): a count then would be a guess.
 pub fn game_changers(cards: &[DeckCard], info: &HashMap<String, Card>) -> Option<Vec<String>> {
     let mut names = Vec::new();
+    // Copies of a card across the commander and main deck (a commander scanned or listed twice
+    // is one commander row and one main row): singleton counts them together, reported once.
+    let mut copies: HashMap<&str, i64> = HashMap::new();
+    for c in cards.iter().filter(|c| c.board != Board::Side) {
+        *copies.entry(c.oracle_id.as_str()).or_insert(0) += c.qty;
+    }
+    let mut reported: Vec<&str> = Vec::new();
     for c in cards.iter().filter(|c| c.board != Board::Side) {
         let Some(card) = info.get(&c.oracle_id) else { continue };
         if card.game_changer? {
@@ -1404,8 +1421,10 @@ pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation 
             .zip([7, 9])
             .find(|(phrase, _)| text.contains(&format!("a deck can have {phrase} cards named")))
             .map(|(_, n)| n);
-        if c.qty > 1 && !is_basic(&c.name) && !any_number && up_to.is_none_or(|n| c.qty > n) {
-            v.errors.push(format!("{} × {}: Commander is singleton", c.qty, c.name));
+        let qty = copies[c.oracle_id.as_str()];
+        if qty > 1 && !is_basic(&c.name) && !any_number && up_to.is_none_or(|n| qty > n) && !reported.contains(&c.oracle_id.as_str()) {
+            reported.push(c.oracle_id.as_str());
+            v.errors.push(format!("{} × {}: Commander is singleton", qty, c.name));
         }
         if !commanders.is_empty() {
             if let Some(outside) = card.color_identity.chars().find(|ch| !v.color_identity.contains(*ch)) {

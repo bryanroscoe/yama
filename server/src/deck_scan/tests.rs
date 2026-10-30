@@ -94,6 +94,10 @@ fn compare_counts_copies_in_out_and_unchanged() {
     assert_eq!(show(&c.unchanged), ["Forest 97>95", "Sol Ring 1>1", "Test Commander 1>1"]);
     assert!(!c.same());
     assert!(compare(&before, &before).same());
+    // The commander is compared by card: an old version's spelling of its name doesn't count.
+    let mut renamed = before.clone();
+    renamed[0].name = "Test Commander (old spelling)".into();
+    assert!(compare(&renamed, &before).same());
     // A different commander is a change even with the same cards.
     let mut swapped = before.clone();
     swapped[0].board = Board::Main;
@@ -230,6 +234,10 @@ async fn saving_without_making_it_current_leaves_the_deck_alone() {
     let (_, history) = send(&app, Method::GET, &format!("/api/decks/{deck}/versions"), Some(&token), None).await;
     assert_eq!(history.as_array().unwrap().len(), 2);
     let scan = saved["version_id"].as_str().unwrap();
+    // Marked as never the deck's list, so logging a game doesn't credit it (web versionOn).
+    for v in history.as_array().unwrap() {
+        assert_eq!(v["history_only"], v["id"] == scan, "{v}");
+    }
     let queued: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deck_version_checks WHERE version_id = ?").bind(scan).fetch_one(&pool).await.unwrap();
     assert_eq!(queued, 0);
     // Restoring it later makes it the list.

@@ -1047,12 +1047,14 @@ export function addsItself(f: Pick<Found, "sure" | "chosen" | "method" | "confid
 }
 
 /**
- * Keep adding when only the card matters (scanning a deck): a card the camera found is added by
- * itself unless the art looks like another card too. A typed name waits for Add.
+ * Keep adding when only the card matters (scanning a deck): a card the camera found by its art is
+ * added by itself unless the art looks like another card too; one read as text only when the read
+ * was sure. A typed name, or a less certain read, waits for Add.
  */
 export function addsByIdentity(f: Pick<Found, "method" | "confidence" | "others">): boolean {
   const typed = f.method === "name" && f.confidence === 1;
-  return !typed && f.others.length === 0;
+  if (typed) return false;
+  return f.method === "art" ? f.others.length === 0 : f.confidence >= SURE;
 }
 
 function explain(f: Found, identityOnly: boolean): string {

@@ -21,8 +21,10 @@ describe("Keep adding when only the card matters (scanning a deck)", () => {
     expect(addsByIdentity({ method: "art", confidence: 0.7, others: [] })).toBe(true);
     expect(addsByIdentity({ method: "name", confidence: 0.9, others: [] })).toBe(true); // name read up close
   });
-  it("waits for a tap on a typed name or art that looks like another card", () => {
+  it("waits for a tap on a typed name, an unsure text read, or art that looks like another card", () => {
     expect(addsByIdentity({ method: "name", confidence: 1, others: [] })).toBe(false);
+    expect(addsByIdentity({ method: "name", confidence: 0.65, others: [] })).toBe(false); // read the same way twice, not sure
+    expect(addsByIdentity({ method: "collector", confidence: 0.7, others: [] })).toBe(false);
     expect(addsByIdentity({ method: "art", confidence: 0.7, others: [{ name: "Other" } as never] })).toBe(false);
   });
 });

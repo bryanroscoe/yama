@@ -71,6 +71,7 @@ export function DeckHistory({ deckId, currentVersionId, onClose }: { deckId: str
                     <span>
                       {v.note || (i === list.length - 1 ? "First version" : "No note")}
                       {v.id === currentVersionId && <span className="dim"> (current)</span>}
+                      {v.history_only && <span className="dim"> (saved, not used yet)</span>}
                       <br />
                       <span className="when">{when(v.created_at)}</span>
                     </span>

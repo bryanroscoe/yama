@@ -140,6 +140,24 @@ export function storeDraft(d: ScanDraft, storage: Pick<Storage, "setItem" | "rem
   }
 }
 
+/** A setting kept on this device ("1"/"0"), or the default when storage isn't there. */
+export function deviceFlag(key: string, fallback: boolean, storage: Pick<Storage, "getItem"> | null = local()): boolean {
+  try {
+    const v = storage?.getItem(key);
+    return v == null ? fallback : v === "1";
+  } catch {
+    return fallback;
+  }
+}
+
+export function setDeviceFlag(key: string, on: boolean, storage: Pick<Storage, "setItem"> | null = local()): void {
+  try {
+    storage?.setItem(key, on ? "1" : "0");
+  } catch {
+    // Not kept; see local().
+  }
+}
+
 export function clearDraft(deckId: string, storage: Pick<Storage, "removeItem"> | null = local()): void {
   try {
     storage?.removeItem(KEY(deckId));
@@ -166,6 +184,7 @@ export interface ScanCheck {
   unchanged: ScanChange[];
   commanders_before: string[];
   commanders_after: string[];
+  commander_changed: boolean;
   same: boolean;
   kept_sideboard: number;
   validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[] };

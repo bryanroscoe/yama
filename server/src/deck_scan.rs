@@ -72,11 +72,14 @@ pub(crate) struct Comparison {
     unchanged: Vec<Change>,
     commanders_before: Vec<String>,
     commanders_after: Vec<String>,
+    /// The commander's cards differ (by oracle ID).
+    commander_changed: bool,
 }
 
 impl Comparison {
+    /// Compared by card, not by name: an older version may spell a card's name differently.
     fn same(&self) -> bool {
-        self.added.is_empty() && self.removed.is_empty() && self.commanders_before == self.commanders_after
+        self.added.is_empty() && self.removed.is_empty() && !self.commander_changed
     }
 }
 
@@ -180,6 +183,12 @@ pub(crate) fn compare(before: &[DeckCard], after: &[DeckCard]) -> Comparison {
     };
     out.commanders_before = commanders(before);
     out.commanders_after = commanders(after);
+    let ids = |list: &[DeckCard]| {
+        let mut ids: Vec<&str> = list.iter().filter(|c| c.board == Board::Commander).map(|c| c.oracle_id.as_str()).collect();
+        ids.sort();
+        ids
+    };
+    out.commander_changed = ids(before) != ids(after);
     for list in [&mut out.added, &mut out.removed, &mut out.unchanged] {
         list.sort_by(|x, y| x.name.cmp(&y.name));
     }
@@ -295,7 +304,7 @@ async fn save(
             let vid = crate::decks::insert_version_in(&mut tx, &id, &cards, Some(&note)).await?;
             Saved { version_id: Some(vid), changed: true, current: true }
         } else {
-            let (vid, _) = crate::decks::insert_saved_version_in(&mut tx, &id, &cards, Some(&note)).await?;
+            let (vid, _) = crate::decks::insert_saved_version_in(&mut tx, &id, &cards, Some(&note), true).await?;
             Saved { version_id: Some(vid), changed: true, current: false }
         }
     };

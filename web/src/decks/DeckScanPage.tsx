@@ -10,7 +10,7 @@ import { Details, ErrorText, Sheet } from "../components/ui";
 import { NameEntry } from "../scanner/NameEntry";
 import type { ScanCatalog } from "../scanner";
 import {
-  addCard, changeText, clearDraft, copies, DECK_SIZE, fixCard, groups, loadDraft, newDraft, progress, removeCard, scanLines, storeDraft, toggleCommander,
+  addCard, changeText, clearDraft, copies, DECK_SIZE, deviceFlag, fixCard, groups, loadDraft, newDraft, progress, removeCard, scanLines, setDeviceFlag, storeDraft, toggleCommander,
   type ScanChange, type ScanCheck, type ScanDraft, type ScanSaved,
 } from "./deckScan";
 import "../scanner/scanner.css";
@@ -31,6 +31,9 @@ export function DeckScanPage() {
   const [step, setStep] = useState<"scan" | "review" | "saved">("scan");
   const [camera, setCamera] = useState(false);
   const [saved, setSaved] = useState<ScanSaved | null>(null);
+  // One op id per list, choice and checked version, kept across Back and Check again: a save
+  // whose answer was lost (a phone dropping off wifi) is retried as the same op.
+  const ops = useRef(new Map<string, string>());
   const setDraft: SetDraft = (next) =>
     setKept((cur) => {
       const base = cur ?? draft;
@@ -75,6 +78,7 @@ export function DeckScanPage() {
         <Review
           deck={d}
           draft={draft}
+          ops={ops.current}
           onBack={() => setStep("scan")}
           onSaved={(s) => {
             clearDraft(id);
@@ -191,7 +195,7 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
   const [catalog, setCatalog] = useState<ScanCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
-  const [keepAdding, setKeepAdding] = useState(() => localStorage.getItem(KEEP_ADDING) !== "0");
+  const [keepAdding, setKeepAdding] = useState(() => deviceFlag(KEEP_ADDING, true));
   const names = useRef(deck.cards.map((c) => c.name));
   useEffect(() => {
     let cancelled = false;
@@ -219,7 +223,7 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
           checked={keepAdding}
           onChange={(e) => {
             setKeepAdding(e.target.checked);
-            localStorage.setItem(KEEP_ADDING, e.target.checked ? "1" : "0");
+            setDeviceFlag(KEEP_ADDING, e.target.checked);
           }}
         />
         <span>
@@ -268,7 +272,7 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
   );
 }
 
-function Review({ deck, draft, onBack, onSaved }: { deck: DeckView; draft: ScanDraft; onBack: () => void; onSaved: (s: ScanSaved) => void }) {
+function Review({ deck, draft, ops, onBack, onSaved }: { deck: DeckView; draft: ScanDraft; ops: Map<string, string>; onBack: () => void; onSaved: (s: ScanSaved) => void }) {
   const qc = useQueryClient();
   const lines = scanLines(draft);
   const key = JSON.stringify(lines);
@@ -279,12 +283,10 @@ function Review({ deck, draft, onBack, onSaved }: { deck: DeckView; draft: ScanD
     gcTime: 0,
   });
   const [makeCurrent, setMakeCurrent] = useState(true);
-  // One op id per list and choice: a retry of the same save reuses it.
-  const ops = useRef(new Map<string, string>());
   const save = useMutation({
     mutationFn: () => {
       const op = `${key}|${makeCurrent}|${check.data?.based_on ?? ""}`;
-      const op_id = ops.current.get(op) ?? ops.current.set(op, crypto.randomUUID()).get(op)!;
+      const op_id = ops.get(op) ?? ops.set(op, crypto.randomUUID()).get(op)!;
       return api<ScanSaved>(`/api/decks/${deck.id}/scan`, { method: "POST", json: { op_id, cards: lines, make_current: makeCurrent, based_on: check.data?.based_on ?? null } });
     },
     onSuccess: (s) => {
@@ -314,7 +316,7 @@ function Review({ deck, draft, onBack, onSaved }: { deck: DeckView; draft: ScanD
             <p>The scan matches the deck's current list. There's nothing to save.</p>
           ) : (
             <>
-              {c.commanders_before.join() !== c.commanders_after.join() && (
+              {c.commander_changed && (
                 <p>
                   Commander: {c.commanders_before.join(" and ") || "none"} becomes {c.commanders_after.join(" and ") || "none"}.
                 </p>
