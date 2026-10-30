@@ -1330,6 +1330,28 @@ async fn installed_is_read_from_the_decks_current_list() {
     assert_eq!(swap_of(&b, stand)["deck_superseded"], true);
 }
 
+/// A scan of the physical deck saved as a new version (deck_scan.rs) moves installs only when it
+/// becomes the deck's list.
+#[tokio::test]
+async fn a_scanned_list_marks_installs_only_once_it_is_current() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    let bought = "plan|Alpha Deck|Bought Card|Cut Card";
+    let main = crate::decks::create_deck_with_cards(&pool, &owner, "Alpha Deck", None, alpha_deck(("o-old", "Old Card"), ("o-cut", "Cut Card"))).await.unwrap();
+    assert_eq!(swap_of(&bundle(&app, &token).await, bought)["deck_installed"], false);
+    let scan = json!([
+        {"name": "Test Commander", "qty": 1, "commander": true}, {"name": "Sol Ring", "qty": 1},
+        {"name": "Old Card", "qty": 1}, {"name": "Bought Card", "qty": 1}, {"name": "Forest", "qty": 96},
+    ]);
+    let based_on: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&main).fetch_one(&pool).await.unwrap();
+    let (status, saved) = send(&app, Method::POST, &format!("/api/decks/{main}/scan"), Some(&token), Some(json!({"op_id": "scan-a", "cards": scan, "make_current": false, "based_on": based_on}))).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(swap_of(&bundle(&app, &token).await, bought)["deck_installed"], false);
+    let (status, saved) = send(&app, Method::POST, &format!("/api/decks/{main}/scan"), Some(&token), Some(json!({"op_id": "scan-b", "cards": scan, "make_current": true, "based_on": based_on}))).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(swap_of(&bundle(&app, &token).await, bought)["deck_installed"], true);
+}
+
 async fn count_versions(pool: &SqlitePool, deck: &str) -> i64 {
     sqlx::query_scalar("SELECT COUNT(*) FROM deck_versions WHERE deck_id = ?").bind(deck).fetch_one(pool).await.unwrap()
 }

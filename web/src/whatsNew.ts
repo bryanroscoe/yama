@@ -24,6 +24,17 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/decks/plan/swap-cards", label: "See your swap cards" },
   },
   {
+    id: "2026-10-29-scan-a-deck",
+    date: "2026-10-29",
+    title: "Scan a deck into Yama",
+    items: [
+      "On a deck, Scan this deck (under More actions on a phone) scans the physical deck card after card with the camera. A typed name or a photo works too. It counts toward 100, shows whether the commander is in, and lets you fix a misread card or remove one scanned twice.",
+      "Before saving you see the cards going in and out, what stays, and the Commander checks: 100 cards, singleton, colors and legality.",
+      "The scan is saved as a new version. Choose whether it becomes the deck's list (which your plan reads installs from); the old list stays in History to switch back to.",
+    ],
+    link: { to: "/decks", label: "Open your decks" },
+  },
+  {
     id: "2026-10-29-table-pass",
     date: "2026-10-29",
     title: "A better table: search, partners, a knock-out check and two phone views",

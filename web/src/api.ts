@@ -439,6 +439,8 @@ export interface DeckVersionRow {
   id: string;
   note: string | null;
   created_at: string;
+  /** Saved for History only (a deck scan not made the deck's list): never the deck's list itself. */
+  history_only?: boolean;
 }
 
 export interface DeckVersion extends DeckVersionRow {
