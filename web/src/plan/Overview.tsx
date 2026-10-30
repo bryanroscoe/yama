@@ -145,6 +145,12 @@ export function Overview() {
                 <DeckTile key={d.key} deck={d} view={view} counts={counts[i]!} buy={buy} />
               ))}
             </div>
+            {live.some((d) => d.bracket) && (
+              <div className="row plan-swap-cards">
+                <Link className="button outline" to="/decks/plan/swap-cards">Print all swap cards</Link>
+                <span className="small dim">A card for each deck box: the swaps to change bracket.</span>
+              </div>
+            )}
             {artists.some(Boolean) && <p className="small dim art-credits">{artCredits(artists)}</p>}
           </section>
 

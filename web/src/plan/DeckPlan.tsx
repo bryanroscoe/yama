@@ -343,6 +343,9 @@ function LabTab({ deck, sim, loading, error }: { deck: PlanDeck; sim: PlanSim | 
   );
 }
 
+/** The deck's bracket swap card, ready to print. */
+const swapCardHref = (deck: PlanDeck) => `/decks/plan/swap-cards?deck=${encodeURIComponent(deck.key)}`;
+
 /** What each bracket bag does, with a link to the Brackets tab. */
 function BagsPanel({ deck, onOpen }: { deck: PlanDeck; onOpen: () => void }) {
   const builds = useMemo(() => bracketBuilds(deck.states.after?.cards ?? [], deck.bracket), [deck]);
@@ -360,6 +363,7 @@ function BagsPanel({ deck, onOpen }: { deck: PlanDeck; onOpen: () => void }) {
         </span>
       ))}
       <button className="quiet small plan-panel-link" onClick={onOpen}>See the bags</button>
+      <Link className="small plan-panel-link" to={swapCardHref(deck)}>Print swap card</Link>
     </section>
   );
 }
@@ -808,6 +812,12 @@ function BracketsTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
   }
   return (
     <div className="stack">
+      {deck.bracket && (
+        <div className="row">
+          <Link className="button outline" to={swapCardHref(deck)}>Print swap card</Link>
+          <span className="small dim">A card for the deck box: which cards to swap to change bracket.</span>
+        </div>
+      )}
       {deck.bracket?.keep_note && <p>{deck.bracket.keep_note}</p>}
       {deck.bracket?.callouts?.map((c) => (
         <p key={c} className="plan-callout small">{c}</p>

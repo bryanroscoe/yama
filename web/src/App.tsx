@@ -40,6 +40,7 @@ import { Review } from "./plan/Review";
 import { PlanSettings } from "./plan/Settings";
 import { Spares } from "./plan/Spares";
 import { SwapSheetPage } from "./plan/SwapSheet";
+import { SwapCardsPage } from "./plan/SwapCards";
 import { GuestTable } from "./table/GuestTable";
 import { GameDetailPage } from "./table/GameDetail";
 import { TableHome } from "./table/TableHome";
@@ -146,6 +147,7 @@ export function App() {
           <Route path="buy" element={<Buy />} />
           <Route path="prints" element={<Prints />} />
           <Route path="prints/swap" element={<SwapSheetPage />} />
+          <Route path="swap-cards" element={<SwapCardsPage />} />
           <Route path="spares" element={<Spares />} />
           <Route path="settings" element={<PlanSettings />} />
           <Route path="d/:key" element={<DeckPlan />} />

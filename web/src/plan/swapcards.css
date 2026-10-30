@@ -1,0 +1,166 @@
+/* Bracket swap cards (SwapCards.tsx). Every size inside a card is in em of the card's font size,
+   so the card keeps its 2.5 x 3.5 inch proportions: 1em is 0.1 inch on paper, and on screen
+   whatever fits the width (at most 14px), so a phone shows one card across at a readable size. */
+
+.sc-controls > p {
+  max-width: 60ch;
+}
+.sc-controls .row {
+  margin-bottom: 16px;
+}
+
+.sc-sheet {
+  container-type: inline-size;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.sc-page {
+  display: contents;
+}
+
+.sc-card {
+  box-sizing: border-box;
+  width: 25em;
+  height: 35em;
+  padding: 1.2em;
+  overflow: hidden;
+  font-size: min(14px, 100cqi / 25);
+  line-height: 1.2;
+  color: var(--ground);
+  background: var(--paper);
+  border: 1px dashed var(--dim);
+  border-radius: 4px;
+}
+.sc-card p,
+.sc-card h2,
+.sc-card h3,
+.sc-card table {
+  margin: 0;
+}
+.sc-title {
+  font-size: 1.39em;
+  font-weight: 700;
+  line-height: 1.15;
+}
+.sc-cmdr {
+  margin-bottom: 0.4em !important;
+  font-size: 0.97em;
+  color: #555;
+}
+.sc-box {
+  margin-bottom: 0.55em !important;
+  padding: 0.28em 0.55em;
+  font-size: 0.97em;
+  background: #e4e1da;
+  border-radius: 0.3em;
+}
+.sc-h {
+  margin: 0.55em 0 0.15em !important;
+  font-size: 1.04em;
+  font-weight: 700;
+  border-bottom: 1px solid #333;
+}
+.sc-card table {
+  width: 100%;
+  font-size: 1.04em;
+  border-collapse: collapse;
+}
+.sc-card th {
+  font-size: 0.87em;
+  font-weight: 400;
+  color: #555;
+  text-align: left;
+}
+.sc-card td {
+  padding: 0.12em 0;
+  vertical-align: top;
+  border-bottom: 1px solid #ccc;
+}
+.sc-card td.sc-arrow,
+.sc-card th:nth-child(2) {
+  width: 1.4em;
+  color: #666;
+}
+.sc-s {
+  font-size: 0.97em;
+}
+.sc-foot {
+  margin-top: 0.55em !important;
+  font-size: 0.83em;
+  color: #555;
+}
+.sc-gc {
+  padding: 0 0.2em;
+  font-size: 0.73em;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  border: 1px solid currentColor;
+  border-radius: 0.2em;
+}
+
+/* Paper: only the cards, at exact size, three by three to a page. Everything that isn't a card or
+   holds one is left out (not just hidden), so the app's layout can't add blank pages, and the
+   elements that hold the cards lose their padding so the grid starts at the page margin. */
+@page swap-cards {
+  size: letter;
+  margin: 0.25in;
+}
+@media print {
+  body:has(.sc-sheet) :not(:has(.sc-sheet)):not(.sc-sheet):not(.sc-sheet *) {
+    display: none !important;
+  }
+  html:has(.sc-sheet),
+  body:has(.sc-sheet),
+  body:has(.sc-sheet) :has(.sc-sheet) {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+  :root:has(.sc-sheet) {
+    color-scheme: light !important;
+  }
+  /* The swap sheet's print rule hides every element in the app (body * is visibility: hidden). */
+  .sc-sheet,
+  .sc-sheet * {
+    visibility: visible !important;
+  }
+  .sc-sheet {
+    container-type: normal;
+    display: block;
+    page: swap-cards;
+  }
+  .sc-page {
+    display: grid;
+    grid-template-columns: repeat(3, 2.5in);
+    grid-auto-rows: 3.5in;
+    break-after: page;
+  }
+  .sc-page:last-child {
+    break-after: auto;
+  }
+  .sc-card {
+    font-size: 0.1in;
+    color: #111;
+    background: #fff;
+    border-color: #999;
+    border-radius: 0;
+    break-inside: avoid;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .sc-box {
+    background: #eee;
+  }
+}
