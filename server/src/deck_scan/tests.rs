@@ -240,6 +240,16 @@ async fn saving_without_making_it_current_leaves_the_deck_alone() {
     }
     let queued: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deck_version_checks WHERE version_id = ?").bind(scan).fetch_one(&pool).await.unwrap();
     assert_eq!(queued, 0);
+    // A stale check is refused for a History-only save too: its sideboard comes from the list checked.
+    let (status, _) = send(
+        &app,
+        Method::POST,
+        &format!("/api/decks/{deck}/scan"),
+        Some(&token),
+        Some(json!({"op_id": "scan-stale", "cards": scanned("Red Card"), "make_current": false, "based_on": "not-the-current-one"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
     // Restoring it later makes it the list.
     let (status, _) = send(&app, Method::POST, &format!("/api/decks/{deck}/use"), Some(&token), Some(json!({"version": scan, "op_id": "use-1"}))).await;
     assert_eq!(status, StatusCode::OK);

@@ -10,7 +10,7 @@
 //!   list it replaces stays in History ("Restore this list" switches back). Without, it is saved
 //!   in History only and the deck, its plan and its outside check are untouched. A list the same
 //!   as the current one saves nothing. If the deck's list changed since the check (`based_on`),
-//!   making the scan current is refused (409) rather than replacing a list nobody compared.
+//!   saving is refused (409) rather than replacing, or building on, a list nobody compared.
 //! - The scan covers the commander and main deck only; the current version's sideboard is kept.
 //! - Idempotent by `op_id` (`applied_ops`, kind `deck.scan`): a retry gets the first answer, the
 //!   same op_id for another list is refused.
@@ -291,7 +291,9 @@ async fn save(
         .bind(&user.id)
         .fetch_one(&mut *tx)
         .await?;
-    if body.make_current && current_id != body.based_on {
+    // Either way the new version is built from the current list (its sideboard), so it must be
+    // the list the person compared the scan with.
+    if current_id != body.based_on {
         return Err(AppError::Conflict("This deck's list changed since you checked the scan. Check the changes again before saving.".into()));
     }
     let current = current_list(&mut tx, current_id.as_deref()).await?;
