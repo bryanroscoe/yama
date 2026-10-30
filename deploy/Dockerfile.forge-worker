@@ -11,6 +11,16 @@
 # Read-only friendly: the worker writes only to /work (tmpfs: deck files and one Forge user dir per game) and
 # /tmp (tmpfs, for the JVMs). Forge's card index is built here, at image build, into /opt/forge-index.
 ARG JAVA_IMAGE=eclipse-temurin:17-jre
+# Yama's Forge patch set (AI speed fixes; notes in forge-worker/README.md), overlaid on the release jar by
+# forge-worker/patch_jar.py. The compiled classes are Forge code (GPL-3.0), so they are kept out of Yama, in the
+# private forge-referee repo, and reach the build as a local image on saget that deploy/forge-patch.sh installs.
+# The build refuses a jar whose SHA-256 isn't this pin, and fails (keeping production) if the image is missing.
+# Results carry the engine label "forge <version>+<FORGE_PATCH>", so they are never pooled with stock Forge's.
+ARG FORGE_PATCH=yama1
+ARG FORGE_PATCH_SHA256=4c30ae81c06347c404d6011b8c4cb1489bfa98e9dd563789b05f1b03303b8b11
+ARG FORGE_PATCH_IMAGE=yama-forge-patch:${FORGE_PATCH}
+
+FROM ${FORGE_PATCH_IMAGE} AS forgepatch
 
 FROM ${JAVA_IMAGE} AS forge
 ARG FORGE_VERSION=2.0.15
@@ -33,8 +43,14 @@ ARG FORGE_VERSION=2.0.15
 # A passwd entry for uid 99 gives the JVM a real user.home (/work) instead of "?".
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/* \
  && useradd -u 99 -g 100 -M -d /work -s /usr/sbin/nologin forge
+ARG FORGE_PATCH
+ARG FORGE_PATCH_SHA256
 COPY --from=forge /opt/forge /opt/forge
-COPY common.py forge_runner.py worker.py /opt/forge-worker/
+COPY common.py forge_runner.py worker.py patch_jar.py /opt/forge-worker/
+COPY --from=forgepatch /forge-patch.jar /tmp/forge-patch.jar
+RUN python3 /opt/forge-worker/patch_jar.py "/opt/forge/forge-${FORGE_VERSION}" /tmp/forge-patch.jar \
+      "${FORGE_PATCH_SHA256}" "${FORGE_PATCH}" \
+ && rm /tmp/forge-patch.jar && chmod -R a+rX /opt/forge
 ENV FORGE_DIR=/opt/forge/forge-${FORGE_VERSION} \
     FORGE_JAVA=/opt/java/openjdk/bin/java \
     FORGE_INDEX=/opt/forge-index \

@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import forge_runner as F  # noqa: E402
+import patch_jar as PJ  # noqa: E402
 import worker as W  # noqa: E402
 
 # Deck files go to a scratch folder, never next to a checkout.
@@ -144,6 +145,72 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.call("POST", "/check", {"names": "Forest"})[0], 400)
         self.assertEqual(self.call("POST", "/play", {"key": "k"})[0], 400)
         self.assertEqual(self.call("POST", "/nowhere", {})[0], 404)
+
+
+class PatchJarTests(unittest.TestCase):
+    """patch_jar.py on a fake Forge release jar."""
+
+    def setUp(self):
+        import hashlib
+        import zipfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.release = self.dir / "forge-gui-desktop-2.0.15-jar-with-dependencies.jar"
+        with zipfile.ZipFile(self.release, "w") as z:
+            z.writestr("META-INF/MANIFEST.MF", "Main-Class: forge.view.Main\n")
+            z.writestr("forge/A.class", b"old A")
+            z.writestr("forge/B.class", b"old B")
+        self.patch = self.dir / "p.jar"
+        with zipfile.ZipFile(self.patch, "w") as z:
+            z.writestr("forge/A.class", b"new A")
+            z.writestr("forge/C.class", b"new C")
+        self.sha = hashlib.sha256(self.patch.read_bytes()).hexdigest()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_overlays_and_renames_so_the_label_changes(self):
+        import zipfile
+        out, replaced, added = PJ.patch(self.dir, self.patch, self.sha, "yama1")
+        self.assertEqual((out.name, replaced, added), ("forge-gui-desktop-2.0.15+yama1-jar-with-dependencies.jar", 1, 1))
+        self.assertFalse(self.release.exists())
+        with zipfile.ZipFile(out) as z:
+            self.assertEqual(z.read("forge/A.class"), b"new A")
+            self.assertEqual(z.read("forge/B.class"), b"old B")
+            self.assertEqual(z.read("forge/C.class"), b"new C")
+            self.assertIn("Main-Class", z.read("META-INF/MANIFEST.MF").decode())
+        # The runner reads the label from the only jar left.
+        (self.dir / "res/cardsfolder").mkdir(parents=True)
+        (self.dir / "res/cardsfolder/cardsfolder.zip").write_bytes(b"")
+        forge = F.Forge(self.dir, "java")
+        self.assertEqual((forge.engine, forge.card_data), ("forge 2.0.15+yama1", "forge res 2.0.15+yama1"))
+
+    def test_refuses_a_wrong_hash_and_keeps_the_release_jar(self):
+        with self.assertRaises(SystemExit):
+            PJ.patch(self.dir, self.patch, "0" * 64, "yama1")
+        self.assertTrue(self.release.exists())
+
+    def test_refuses_a_patch_that_replaces_nothing(self):
+        import hashlib
+        import zipfile
+        with zipfile.ZipFile(self.patch, "w") as z:
+            z.writestr("forge/Z.class", b"z")
+        with self.assertRaises(SystemExit):
+            PJ.patch(self.dir, self.patch, hashlib.sha256(self.patch.read_bytes()).hexdigest(), "yama1")
+        self.assertTrue(self.release.exists())
+        self.assertEqual(len(list(self.dir.glob("forge-gui-desktop-*"))), 1)
+
+    def test_refuses_non_class_entries_and_bad_names(self):
+        import hashlib
+        import zipfile
+        with zipfile.ZipFile(self.patch, "w") as z:
+            z.writestr("forge/A.class", b"a")
+            z.writestr("res/x.txt", b"x")
+        sha = hashlib.sha256(self.patch.read_bytes()).hexdigest()
+        with self.assertRaises(SystemExit):
+            PJ.patch(self.dir, self.patch, sha, "yama1")
+        with self.assertRaises(SystemExit):
+            PJ.patch(self.dir, self.patch, sha, "Yama 1")
 
 
 if __name__ == "__main__":
