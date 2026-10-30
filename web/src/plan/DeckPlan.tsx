@@ -802,9 +802,17 @@ function BracketsTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
     const found = gameChangersIn(cards, gc.names);
     return found.length ? `${found.length} Game ${found.length === 1 ? "Changer" : "Changers"}: ${found.join(", ")}.` : "No Game Changers.";
   };
+  // Any bracket plan has a card, even one with only a box bracket or extras and no bags.
+  const printCard = deck.bracket && (
+    <div className="row">
+      <Link className="button outline" to={swapCardHref(deck)}>Print swap card</Link>
+      <span className="small dim">A card for the deck box: which cards to swap to change bracket.</span>
+    </div>
+  );
   if (builds.length === 1 && bracketGroups.length === 0) {
     return (
       <div className="stack">
+        {printCard}
         <p className="dim">This plan has no bracket builds.</p>
         {gc && <p className="small">After prints: {gcLine(after)} <span className="faint">{checked}</span></p>}
       </div>
@@ -812,12 +820,7 @@ function BracketsTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
   }
   return (
     <div className="stack">
-      {deck.bracket && (
-        <div className="row">
-          <Link className="button outline" to={swapCardHref(deck)}>Print swap card</Link>
-          <span className="small dim">A card for the deck box: which cards to swap to change bracket.</span>
-        </div>
-      )}
+      {printCard}
       {deck.bracket?.keep_note && <p>{deck.bracket.keep_note}</p>}
       {deck.bracket?.callouts?.map((c) => (
         <p key={c} className="plan-callout small">{c}</p>
