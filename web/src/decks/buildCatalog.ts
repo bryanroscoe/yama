@@ -6,10 +6,20 @@ import type { DeckSummary } from "../api";
 export type BuildKind = "current" | "original" | "bracket" | "legacy";
 export interface BuildChoice {
   id: string; label: string; kind: BuildKind; bracket?: number;
+  track?: "owned_now" | "aspirational" | "unverified";
   list?: string; savedDeck?: string; source: string; href: string; warnings: string[];
 }
 export interface BuildFamily { key: string; name: string; choices: BuildChoice[] }
-export const familyKey = (name: string) => name.toLowerCase().replace(/&/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+export type BuildTrack = "owned_now" | "aspirational" | "saved";
+export function buildTargets(choices: BuildChoice[], track: BuildTrack) {
+  return choices.filter((c) => track === "saved" ? c.kind !== "bracket" || c.track === "unverified" : c.kind === "bracket" && c.track === track);
+}
+// Preserve punctuation, case and Unicode: unequal names must not silently merge.
+export const familyKey = (name: string) => name;
+export function resolveBuildFamily(families: BuildFamily[], key: string | null, savedDeck: string | null) {
+  if (savedDeck) return families.find((f) => f.choices.some((c) => c.savedDeck === savedDeck));
+  return key ? families.find((f) => f.key === key) : families[0];
+}
 export function slotsText(cards: Pick<Slot, "name" | "qty" | "board">[]): string {
   return ["commander", "main"].map((board) => `${board === "main" ? "Deck" : "Commander"}\n${cards.filter((c) => c.board === board).map((c) => `${c.qty} ${c.name}`).join("\n")}`).join("\n\n");
 }
@@ -37,7 +47,8 @@ export function buildFamilies(research: ResearchBundle[], plan: PlanBundle | und
       const isBracket = [2, 3, 4].includes(b.bracket ?? 0) && !["stock", "current"].includes(b.id);
       f.choices.push({
         id: `research:${bundle.document.id}:${deck.key}:${b.id}`, kind: isBracket ? "bracket" : "legacy",
-        bracket: isBracket ? b.bracket! : undefined, label: isBracket ? `[${b.bracket}] ${b.label.replace(/^(?:Bracket\s*|B)\d\s*[—:-]?\s*/i, "") || "Research"}` : `Research starting snapshot (${bundle.updated_at.slice(0, 10)})`,
+        track: b.acquisition?.track === "owned_now" ? "owned_now" : "aspirational",
+        bracket: isBracket ? b.bracket! : undefined, label: isBracket ? `[${b.bracket}] ${b.label.replace(/^(?:\[\d\]|(?:Bracket\s*|B)\d)\s*[—:-]?\s*/i, "") || "Research"}` : `Research starting snapshot (${bundle.updated_at.slice(0, 10)})`,
         list: b.list, source: `${bundle.document.title}, revision ${bundle.revision}, ${bundle.updated_at.slice(0, 10)}`,
         href: `/decks/research/${encodeURIComponent(bundle.document.id)}/${encodeURIComponent(deck.key)}?build=${encodeURIComponent(b.id)}`,
         warnings: [...(b.prospective ? ["Future build: requires purchase or arrival; not an owned or installed deck."] : []), ...(b.risks ?? [])],
@@ -56,7 +67,7 @@ export function buildFamilies(research: ResearchBundle[], plan: PlanBundle | und
       for (const b of bracketBuilds(deck.states.after.cards, deck.bracket)) {
         // A bag with the same number as the full target is not another build.
         if (f.choices.some((c) => c.id === `plan:${deck.key}:b${b.bracket}`)) continue;
-        f.choices.push({ id: `plan:${deck.key}:b${b.bracket}`, label: `[${b.bracket}] Plan`, kind: "bracket", bracket: b.bracket, list: slotsText(b.cards), source: `Plan v${plan?.head?.guide_version ?? "?"}`, href: `${href}?tab=brackets`, warnings: [...b.warnings, ...(deck.bracket.callouts ?? [])] });
+        f.choices.push({ id: `plan:${deck.key}:b${b.bracket}`, label: `[${b.bracket}] Plan (availability unchecked)`, kind: "bracket", track: "unverified", bracket: b.bracket, list: slotsText(b.cards), source: `Plan v${plan?.head?.guide_version ?? "?"}`, href: `${href}?tab=brackets`, warnings: [...b.warnings, ...(deck.bracket.callouts ?? [])] });
       }
     }
   }
@@ -68,7 +79,7 @@ export function buildFamilies(research: ResearchBundle[], plan: PlanBundle | und
     const f = family(familyKey(linked?.name ?? root.name), linked?.name ?? root.name);
     const original = /^(stock|original)$/i.test(deck.configuration ?? "");
     const legacy = !!deck.parent_id && legacyConfiguration(deck.configuration);
-    f.choices.push({ id: `saved:${deck.id}`, label: !deck.parent_id ? "Current (saved deck)" : original ? "Original" : legacy ? `Legacy: ${deck.configuration}` : deck.configuration ?? deck.name, kind: !deck.parent_id ? "current" : original ? "original" : legacy ? "legacy" : "bracket", bracket: deck.bracket ?? undefined, savedDeck: deck.id, source: `Saved ${deck.updated_at.slice(0, 10)}`, href: `/decks/${deck.id}`, warnings: [] });
+    f.choices.push({ id: `saved:${deck.id}`, label: !deck.parent_id ? "Current (saved deck)" : original ? "Original" : legacy ? `Legacy: ${deck.configuration}` : deck.configuration ?? deck.name, kind: !deck.parent_id ? "current" : original ? "original" : legacy ? "legacy" : "bracket", bracket: deck.bracket ?? undefined, track: "unverified", savedDeck: deck.id, source: `Saved ${deck.updated_at.slice(0, 10)}`, href: `/decks/${deck.id}`, warnings: [] });
   }
   return [...families.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -92,7 +103,8 @@ export function printList(text: string): CardCopy[] {
   if (cards.length !== 100 || commanders < 1 || commanders > 2) throw new Error(`This list has ${cards.length} cards and ${commanders} commanders. Use a complete 100-card build.`);
   return cards;
 }
-const copyKey = (c: CardCopy) => `${c.board}\0${c.name}`;
+// Research uses canonical multiface names; plan/saved sources may use only the front.
+const copyKey = (c: CardCopy) => `${c.board}\0${c.name.split(" // ")[0]!.trim()}`;
 export function exactChanges(from: CardCopy[], to: CardCopy[]): { out: CardCopy; in: CardCopy }[] {
   const subtract = (left: CardCopy[], right: CardCopy[]) => {
     const counts = new Map<string, number>();

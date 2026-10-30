@@ -716,7 +716,11 @@ stay separate from singles quotes and print requirements.
 #### Bracket build choices and reversible inserts (2026-10-30)
 
 `/decks/builds` brings owner-scoped saved decks, plan bracket builds and full research lists
-into one selector. Brackets 2/3/4 are explicit choices; different plans and playgroup modes keep
+into one selector. Buildable now (the default) and Aspirational are separate tracks. Only research
+with an explicit `acquisition.track: owned_now` allocation is shown as buildable now; old plans
+without that audit remain available under Other saved versions, explicitly availability unchecked;
+that mode also permits Original, Current and Legacy as destinations. Arrived prints count once, planned
+orders do not. Brackets 2/3/4 are explicit choices; different plans and playgroup modes keep
 their source, date/revision and guide links. A research starting snapshot is Legacy, never the
 current sleeved deck. Current is loaded from the live saved list. Original/stock stays visible;
 old now/after-prints configurations are collapsed under Legacy without deleting versions,

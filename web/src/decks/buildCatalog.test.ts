@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFamilies, configurationLabel, duplexPages, exactChanges, familyKey, legacyConfiguration, printList, slotsText } from "./buildCatalog";
+import { buildFamilies, buildTargets, resolveBuildFamily, configurationLabel, duplexPages, exactChanges, familyKey, legacyConfiguration, printList, slotsText } from "./buildCatalog";
 import type { ResearchBundle } from "../research/api";
 import type { DeckSummary } from "../api";
 
@@ -28,6 +28,12 @@ describe("exact reversible swap cards", () => {
   });
   it("ignores printing differences, and accepts canonical multiface names", () => {
     expect(exactChanges(printList(list("Leader (TST) 1", 98, "1 Front // Back (TST) 2 *F*")), printList(list("Leader", 98, "1 Front // Back")))).toEqual([]);
+  });
+  it("treats front-only and canonical multiface names as the same physical card", () => {
+    const front = printList(list("Leader", 97, "1 Fable of the Mirror-Breaker\n1 Ojer Taq, Deepest Foundation"));
+    const both = printList(list("Leader", 97, "1 Fable of the Mirror-Breaker // Reflection of Kiki-Jiki\n1 Ojer Taq, Deepest Foundation // Temple of Civilization"));
+    expect(exactChanges(front, both)).toEqual([]);
+    expect(exactChanges(both, front)).toEqual([]);
   });
   it("mirrors columns, preserves blank slots and pairs every continuation across multiple sheets", () => {
     const swaps = exactChanges(printList(list()), printList(`Commander\n1 Leader\nDeck\n99 Island`));
@@ -60,13 +66,45 @@ describe("build catalog", () => {
     expect(f[0]?.choices.filter((c) => c.kind === "legacy")).toHaveLength(2);
     expect(JSON.stringify(research)).toBe(before);
   });
+  it("only marks explicitly allocated research as buildable now; bracket labels are not ownership proof", () => {
+    const report = { document: { id: "owned", title: "Owned", decks: [{ key: "deck", name: "Deck", builds: [
+      { id: "b2", label: "Bracket 2", bracket: 2, list: list(), acquisition: { track: "owned_now" } },
+      { id: "b3", label: "Bracket 3", bracket: 3, list: list() },
+    ] }] }, revision: 1, updated_at: "2026-10-30" } as ResearchBundle;
+    const f = buildFamilies([report], undefined, []);
+    expect(f[0]?.choices.map((c) => c.track)).toEqual(["owned_now", "aspirational"]);
+  });
+
   it("only hides historical labels, never the original or an arbitrary named build", () => {
     expect(legacyConfiguration("after prints")).toBe(true);
     expect(legacyConfiguration("Legacy: October upgrades")).toBe(true);
     for (const label of [null, "stock", "original", "[2]", "Bracket 4", "budget"]) expect(legacyConfiguration(label)).toBe(false);
     expect(configurationLabel("stock")).toBe("Original");
     expect(configurationLabel(null, true)).toBe("Current");
-    expect(familyKey("Scions & Spellcraft")).toBe("scions-spellcraft");
+    expect(familyKey("Scions & Spellcraft")).not.toBe(familyKey("Scions Spellcraft"));
+  });
+  it("preserves unequal family names and resolves a renamed linked deck by saved id", () => {
+    const report = { document: { id: "audit", title: "Audit", decks: ["Scions & Spellcraft", "Scions Spellcraft"].map((name) => ({ key: name, name, builds: [{ id: "b2", bracket: 2, label: "[2] Buildable now", list: list() }] })) }, revision: 1, updated_at: "2026-10-30" } as ResearchBundle;
+    const saved = { id: "saved-1", name: "My renamed deck", parent_id: null, configuration: null, updated_at: "2026-10-30" } as DeckSummary;
+    const plan = { decks: [{ key: "scions", name: "Scions & Spellcraft", yama_deck: { id: saved.id }, states: {} }] } as unknown as Parameters<typeof buildFamilies>[1];
+    const families = buildFamilies([report], plan, [saved]);
+    expect(families).toHaveLength(2);
+    expect(resolveBuildFamily(families, null, saved.id)?.name).toBe("Scions & Spellcraft");
+    expect(resolveBuildFamily(families, "Scions Spellcraft", null)?.choices).toHaveLength(1);
+    expect(families[0]?.choices[0]?.label).toBe("[2] Buildable now");
+  });
+  it("keeps plan-only and saved-only targets available without claiming ownership", () => {
+    const decks = [
+      { id: "root", name: "Deck", parent_id: null, configuration: null, updated_at: "2026-10-30" },
+      { id: "b2", name: "Deck [2]", parent_id: "root", configuration: "[2]", bracket: 2, updated_at: "2026-10-30" },
+    ] as DeckSummary[];
+    const choices = buildFamilies([], undefined, decks)[0]!.choices;
+    expect(buildTargets(choices, "owned_now")).toEqual([]);
+    expect(buildTargets(choices, "aspirational")).toEqual([]);
+    expect(buildTargets(choices, "saved").map((c) => c.savedDeck)).toEqual(["root", "b2"]);
+    const planChoice = { ...choices[1]!, id: "plan:deck:b2", savedDeck: undefined };
+    expect(buildTargets([planChoice], "saved")).toEqual([planChoice]);
+    expect(buildTargets([planChoice], "owned_now")).toEqual([]);
   });
   it("serializes the full list including all basic copies", () => {
     expect(printList(slotsText([{ name: "Leader", qty: 1, board: "commander" }, { name: "Plains", qty: 99, board: "main" }]))).toHaveLength(100);

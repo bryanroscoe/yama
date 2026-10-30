@@ -99,6 +99,7 @@ function BuildView({ bundle, deck, build }: { bundle: ResearchBundle; deck: Rese
     <section className="research-build-head">
       <div>
         <h2>{build.label}</h2>
+        {build.acquisition?.track === "owned_now" && <p className="pill">Buildable now: allocated real cards and arrived prints</p>}
         {build.prospective && <p className="warn">Proposed future build. Its stock cards become available only after the product is bought and arrives. Any unreleased-card legality limit remains in the guide.</p>}
         <p><CardText text={build.why??""} names={names}/></p>
         {build.option_swap && <p className="research-option"><b>Optional change from base Bracket 4:</b> add <CardName name={build.option_swap.card_in??build.option_swap.inn??"Unnamed"}/>; cut <CardName name={build.option_swap.card_out??build.option_swap.out??"Unnamed"}/>. The exact changes below compare with the current reference.</p>}

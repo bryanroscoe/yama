@@ -28,7 +28,7 @@ export interface Combo {
 export interface Build {
   id: string; label: string; bracket?: number | null; prospective?: boolean; power?: Power; why?: string;
   risks?: string[]; game_changers?: string[]; stats?: Record<string, unknown>; list: string;
-  swaps?: Swap[]; acquisition?: { scenario?: string; note?: string; owned?: Item[]; buys?: Item[]; prints?: Item[]; basics?: Item[] };
+  swaps?: Swap[]; acquisition?: { track?: "owned_now" | "aspirational"; scenario?: string; note?: string; owned?: Item[]; buys?: Item[]; prints?: Item[]; basics?: Item[] };
   combos?: Combo[];
   gameplay_profile?: GameplayProfile; accounting?: Accounting;
   gc_choices?: { card: string; reason: string; cut?: string }[];

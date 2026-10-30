@@ -7,7 +7,7 @@ import { AreaHead } from "../components/DeckTabs";
 import { ErrorText } from "../components/ui";
 import { fetchBundle } from "../plan/api";
 import { report, reports } from "../research/api";
-import { buildFamilies, duplexPages, exactChanges, printList, slotsText, type BuildChoice, type BuildFamily, type DuplexFace } from "./buildCatalog";
+import { buildFamilies, buildTargets, resolveBuildFamily, duplexPages, exactChanges, printList, slotsText, type BuildChoice, type BuildFamily, type DuplexFace } from "./buildCatalog";
 import "./build-choices.css";
 
 export function BuildChoicesPage() {
@@ -19,7 +19,8 @@ export function BuildChoicesPage() {
   const bundles = notes.flatMap((r) => r.data ? [r.data] : []);
   const families = buildFamilies(bundles, plan.data && "decks" in plan.data ? plan.data : undefined, decks.data ?? []);
   const key = params.get("deck");
-  const family = families.find((f) => f.key === key) ?? (!key ? families[0] : undefined);
+  const savedDeck = params.get("savedDeck");
+  const family = resolveBuildFamily(families, key, savedDeck);
   const loading = index.isPending || plan.isPending || decks.isPending || notes.some((r) => r.isPending);
   return <main className="page build-choices">
     <div className="bc-controls">
@@ -30,7 +31,7 @@ export function BuildChoicesPage() {
         {!family && <option value="">Choose a deck</option>}{families.map((f) => <option key={f.key} value={f.key}>{f.name}</option>)}
       </select></label>}
       {!loading && !families.length && <p>No saved decks or researched bracket builds yet.</p>}
-      {!loading && key && !family && <p>That deck has no build choices. Select another deck above.</p>}
+      {!loading && (key || savedDeck) && !family && <p>That deck has no build choices. Select another deck above.</p>}
     </div>
     {!loading && family && <FamilyChoices key={family.key} family={family} />}
   </main>;
@@ -50,12 +51,16 @@ function useChoiceList(choice?: BuildChoice) {
   return { text, error: saved.error, version: saved.data?.version_id };
 }
 function preferred(choices: BuildChoice[], bracket: number) {
-  return choices.find((c) => c.bracket === bracket && c.id.startsWith("plan:")) ?? choices.find((c) => c.bracket === bracket && /lower.friction/i.test(c.label)) ?? choices.find((c) => c.bracket === bracket);
+  return choices.find((c) => c.bracket === bracket && /lower.friction/i.test(c.label)) ?? choices.find((c) => c.bracket === bracket);
 }
 function FamilyChoices({ family }: { family: BuildFamily }) {
   const [params, setParams] = useSearchParams();
-  const from = family.choices.find((c) => c.id === params.get("from")) ?? preferred(family.choices, 2) ?? family.choices[0];
-  const to = family.choices.find((c) => c.id === params.get("to")) ?? preferred(family.choices, 3) ?? family.choices.find((c) => c.id !== from?.id) ?? from;
+  const track = params.get("track") === "aspirational" ? "aspirational" : params.get("track") === "saved" ? "saved" : "owned_now";
+  const targets = buildTargets(family.choices, track);
+  const references = family.choices.filter((c) => c.kind !== "bracket");
+  const available = family.choices;
+  const from = available.find((c) => c.id === params.get("from")) ?? preferred(targets, 2) ?? references.find((c) => c.kind === "current") ?? available[0];
+  const to = targets.find((c) => c.id === params.get("to")) ?? preferred(targets, 3) ?? preferred(targets, 2) ?? targets[0];
   const left = useChoiceList(from), right = useChoiceList(to);
   const comparison = useMemo(() => {
     if (!left.text || !right.text) return {};
@@ -67,7 +72,7 @@ function FamilyChoices({ family }: { family: BuildFamily }) {
   const sheet = useRef<HTMLDivElement>(null);
   const [overflow, setOverflow] = useState(false);
   const [fontsReady, setFontsReady] = useState(false);
-  const choose = (side: "from" | "to", value: string) => setParams({ deck: family.key, from: from?.id ?? "", to: to?.id ?? "", [side]: value });
+  const choose = (side: "from" | "to", value: string) => setParams({ deck: family.key, track, from: from?.id ?? "", to: to?.id ?? "", [side]: value });
   useEffect(() => {
     const style = document.createElement("style"); style.textContent = "@page { size: letter; margin: 0.25in 0.5in; }"; document.head.appendChild(style);
     return () => style.remove();
@@ -81,18 +86,26 @@ function FamilyChoices({ family }: { family: BuildFamily }) {
     document.fonts.addEventListener("loadingdone", check);
     return () => { live = false; observer?.disconnect(); document.fonts.removeEventListener("loadingdone", check); };
   }, [pages, from, to]);
-  if (!from || !to) return null;
+  const trackControls = <div className="row" aria-label="Cards used by these builds">
+    <button className={track === "owned_now" ? "primary" : "outline"} onClick={() => setParams({ deck: family.key, track: "owned_now", from: from?.id ?? "" })}>Buildable now</button>
+    <button className={track === "aspirational" ? "primary" : "outline"} onClick={() => setParams({ deck: family.key, track: "aspirational", from: from?.id ?? "" })}>Aspirational</button>
+    <button className={track === "saved" ? "primary" : "outline"} onClick={() => setParams({ deck: family.key, track: "saved", from: from?.id ?? "" })}>Other saved versions</button>
+  </div>;
+  if (!from || !to) return <div className="bc-controls stack">{trackControls}<p>{track === "owned_now" ? "No verified owned-card build is saved for this deck yet. Future purchases and prints do not count as available copies." : track === "aspirational" ? "No aspirational bracket build is saved for this deck yet." : "No other saved versions are available for this deck yet."}</p></div>;
   const parts = Math.max(1, Math.ceil((comparison.swaps?.length ?? 0) / rows));
   return <>
     <div className="bc-controls stack">
+      {trackControls}
+      <p>{track === "owned_now" ? "Buildable-now targets use real cards and arrived prints already at home. Cross-deck moves follow the saved allocation scenario; install donor replacements before taking their cards." : track === "aspirational" ? "Upgrade targets may require buying cards, receiving precons or ordering more prints. Review the source for exact missing copies and dated offers." : "These saved lists, plans and historical references have no current portfolio availability audit. Comparing or printing them does not establish that their cards are available."}</p>
       <div className="row">{[2, 3, 4].map((b) => {
-        const c = preferred(family.choices, b); return c ? <button key={b} className={to.bracket === b ? "primary" : "outline"} onClick={() => choose("to", c.id)}>[{b}] Bracket {b}</button> : <span key={b}>[{b}] No build saved yet</span>;
+        const c = preferred(targets, b); return c ? <button key={b} className={to.bracket === b ? "primary" : "outline"} onClick={() => choose("to", c.id)}>[{b}] Bracket {b}</button> : <span key={b}>[{b}] No build saved yet</span>;
       })}</div>
       <div className="bc-selects">
-        <label>From<select value={from.id} onChange={(e) => choose("from", e.target.value)}><Choices choices={family.choices} /></select></label>
-        <label>To<select value={to.id} onChange={(e) => choose("to", e.target.value)}><Choices choices={family.choices} /></select></label>
+        <label>From<select value={from.id} onChange={(e) => choose("from", e.target.value)}><Choices choices={available} /></select></label>
+        <label>To<select value={to.id} onChange={(e) => choose("to", e.target.value)}><Choices choices={targets} /></select></label>
       </div>
       <div className="bc-selects">{[from, to].map((c, i) => <section key={i}><h2>{c.label}</h2><p className="small">{c.source}</p><Link to={c.href}>Review full list, guide and source</Link>{c.warnings.length > 0 && <details><summary>Build notes and limits ({c.warnings.length})</summary><ul>{c.warnings.map((w, j) => <li key={j}>{w}</li>)}</ul></details>}</section>)}</div>
+      {family.choices.some((c) => c.kind === "bracket" && c.track === "unverified") && <details><summary>Other saved plans (availability not audited)</summary><ul>{family.choices.filter((c) => c.kind === "bracket" && c.track === "unverified").map((c) => <li key={c.id}><Link to={c.href}>{c.label}</Link></li>)}</ul></details>}
       <p className="small">Bracket labels are saved assessments, not a fresh legality or combo check. Plan builds and research alternatives retain their own sources. Selecting or printing one does not mark a physical swap as installed.</p>
       <ErrorText error={left.error || right.error} />
       {comparison.error && <p role="alert" className="error">{comparison.error}</p>}

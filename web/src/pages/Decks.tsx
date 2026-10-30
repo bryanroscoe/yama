@@ -30,7 +30,7 @@ import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
 import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
-import { familyKey, legacyConfiguration, configurationLabel } from "../decks/buildCatalog";
+import { legacyConfiguration, configurationLabel } from "../decks/buildCatalog";
 import { groupConfigurations } from "../decks/configurations";
 import { DeckLists } from "../decks/DeckLists";
 
@@ -95,7 +95,7 @@ export function DecksPage() {
         {groupConfigurations(decks.data ?? []).map(({ main, configurations }) => (
           <li key={main.id} className={configurations.length ? "has-configs" : undefined}>
             <DeckTile d={main} />
-            <div className="deck-configs"><Link to={`/decks/builds?deck=${familyKey(main.name)}`}>[2] · [3] · [4] builds and swap cards</Link></div>
+            <div className="deck-configs"><Link to={`/decks/builds?savedDeck=${encodeURIComponent(main.id)}`}>[2] · [3] · [4] builds and swap cards</Link></div>
             {configurations.length > 0 && <ConfigurationList main={main} configurations={configurations} />}
           </li>
         ))}
@@ -308,7 +308,7 @@ export function DeckPage() {
       <button className="on-art" onClick={() => setExporting(true)}>Export</button>
       <button className="on-art" onClick={() => setHistory(true)}>History</button>
       <button className="on-art" onClick={() => setConfiguring(true)}>New configuration</button>
-      <Link className="button on-art" to={`/decks/builds?deck=${familyKey(d.configurations[0]?.name ?? d.name)}`}>[2] / [3] / [4] and swap cards</Link>
+      <Link className="button on-art" to={`/decks/builds?savedDeck=${encodeURIComponent(d.id)}`}>[2] / [3] / [4] and swap cards</Link>
       <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
       <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
     </>
