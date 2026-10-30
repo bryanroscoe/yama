@@ -155,12 +155,12 @@ class ForgeDistTests(unittest.TestCase):
             d = Path(tmp) / "forge-2.0.16-745401a4+yama2"
             (d / "res/cardsfolder").mkdir(parents=True)
             (d / "res/cardsfolder/cardsfolder.zip").write_bytes(b"")
-            (d / "forge-gui-desktop-2.0.16-745401a4+yama2-jar-with-dependencies.jar").write_bytes(b"")
+            (d / "forge-gui-desktop-2.0.16-745401a4+yama2.5aca6b2e-jar-with-dependencies.jar").write_bytes(b"")
             current = Path(tmp) / "current"
             current.symlink_to(d)  # the image's FORGE_DIR is /opt/forge/current
             forge = F.Forge(current, "java")
             self.assertEqual((forge.engine, forge.card_data),
-                             ("forge 2.0.16-745401a4+yama2", "forge res 2.0.16-745401a4+yama2"))
+                             ("forge 2.0.16-745401a4+yama2.5aca6b2e", "forge res 2.0.16-745401a4+yama2.5aca6b2e"))
 
     def test_the_dockerfile_pins_one_dist_by_sha256(self):
         text = (Path(__file__).resolve().parent.parent / "deploy/Dockerfile.forge-worker").read_text()
@@ -168,6 +168,7 @@ class ForgeDistTests(unittest.TestCase):
         sha = re.findall(r"^ARG FORGE_DIST_SHA256=([0-9a-f]{64})$", text, re.M)
         self.assertEqual((len(name), len(sha)), (1, 1))
         self.assertIn("ENV FORGE_DIR=/opt/forge/current", text)
+        self.assertIn('cut -c1-8)-jar-with-dependencies.jar"', text)  # the tarball's hash is in the label
         self.assertNotIn("releases/download", text)  # no unpinned Forge download
 
 
