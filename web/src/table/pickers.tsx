@@ -327,6 +327,14 @@ export async function resolveDraft<T extends CommanderDraft>(d: T): Promise<T> {
       return { ...next, colorIdentity: next.ownIdentity ?? "" };
     }
   }
+  if (partner && !main) {
+    // The commander was already picked: the typed partner must still be one it can pair with.
+    const scope = d.pairScope ?? (d.commanderName ? (await cardNamed(d.commanderName.trim()).then((c) => (c ? draftFromCard(c).pairScope : undefined))) : undefined);
+    if (!(await partnerFits(scope, partner.name))) {
+      next = { ...next, partnerName: undefined, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined };
+      return { ...next, colorIdentity: next.ownIdentity ?? d.colorIdentity };
+    }
+  }
   if (partner) next = { ...next, partnerName: partner.name, partnerArt: partner.image_art_crop ?? undefined, partnerArtist: partner.artist ?? undefined, partnerIdentity: partner.color_identity };
   next.colorIdentity = unionIdentity(next.ownIdentity ?? d.colorIdentity, next.partnerName ? next.partnerIdentity : undefined);
   return next;

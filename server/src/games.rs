@@ -384,12 +384,16 @@ async fn insert_events(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, game: &str,
             // A retry sends exactly what it sent before (the phone freezes events once handed to
             // an upload). A different event under the same number means a second device is
             // keeping this game too: refuse it rather than drop its taps without a word.
-            let (kind, payload): (String, String) = sqlx::query_as("SELECT kind, payload FROM game_events WHERE game_id = ? AND seq = ?")
+            let (kind, payload, created_at): (String, String, String) = sqlx::query_as("SELECT kind, payload, created_at FROM game_events WHERE game_id = ? AND seq = ?")
                 .bind(game)
                 .bind(e.seq)
                 .fetch_one(&mut **tx)
                 .await?;
-            let same = kind == e.kind && serde_json::from_str::<serde_json::Value>(&payload).ok().as_ref() == Some(&e.payload);
+            // The time travels with the event, so two devices making the same tap under the same
+            // number (both "life -1") still differ, and only an exact resend is a retry.
+            let same = kind == e.kind
+                && serde_json::from_str::<serde_json::Value>(&payload).ok().as_ref() == Some(&e.payload)
+                && e.created_at.as_ref().is_none_or(|t| *t == created_at);
             if !same {
                 return Err(AppError::Conflict(
                     "another device already saved different changes to this game. Keep the game going on one device".into(),
@@ -897,7 +901,7 @@ mod tests {
         let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0009";
         create_game(&pool, "me", new_game(id, None)).await.unwrap();
         let event = |delta: i64| -> Event {
-            serde_json::from_value(json!({ "seq": 1, "actor_seat": 0, "kind": "life", "payload": { "type": "life", "seat": 0, "delta": delta } })).unwrap()
+            serde_json::from_value(json!({ "seq": 1, "actor_seat": 0, "kind": "life", "payload": { "type": "life", "seat": 0, "delta": delta }, "created_at": "2026-10-29T19:00:00.000Z" })).unwrap()
         };
         let mut tx = pool.begin().await.unwrap();
         assert_eq!(insert_events(&mut tx, id, &[event(-3)]).await.unwrap(), 1);
@@ -905,6 +909,10 @@ mod tests {
         assert_eq!(insert_events(&mut tx, id, &[event(-3)]).await.unwrap(), 0);
         // A different event under the same number is another device: refused, not dropped.
         assert!(matches!(insert_events(&mut tx, id, &[event(-5)]).await, Err(AppError::Conflict(_))));
+        // The same tap made on another device at another moment is another event too.
+        let mut twin = event(-3);
+        twin.created_at = Some("2026-10-29T19:00:04.000Z".into());
+        assert!(matches!(insert_events(&mut tx, id, &[twin]).await, Err(AppError::Conflict(_))));
     }
 
     #[tokio::test]

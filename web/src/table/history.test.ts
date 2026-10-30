@@ -111,6 +111,10 @@ describe("partners", () => {
     const pair = await resolveDraft({ commanderName: "atraxa, praetors' voice", colorIdentity: "WB", partnerName: "Tymna the Weaver", partnerIdentity: "WB", partnerArt: "y" });
     expect(pair.partnerName).toBeUndefined();
     expect(pair.colorIdentity).toBe("WUBG");
+    // A partner typed in full must still be one the picked commander can pair with.
+    const doctor = await resolveDraft({ commanderName: "The Tenth Doctor", colorIdentity: "URG", ownIdentity: "URG", art: "d", pairScope: 'is:commander o:"doctor\'s companion"', partnerName: "atraxa, praetors' voice" });
+    expect(doctor.partnerName).toBeUndefined();
+    expect(doctor.colorIdentity).toBe("URG");
     const unknown = { commanderName: "Not a card", colorIdentity: "" };
     expect(await resolveDraft(unknown)).toBe(unknown);
     spy.mockRestore();
