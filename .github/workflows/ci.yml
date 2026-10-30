@@ -22,6 +22,12 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 15 }}
     steps:
+      - name: Wait for saget CI capacity
+        if: runner.environment == 'self-hosted'
+        working-directory: ${{ runner.temp }}
+        run: |
+          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
+          python3 /run/saget-ci/slot.py --step
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -54,6 +60,12 @@ jobs:
       CARGO_INCREMENTAL: '0'
       RUST_BACKTRACE: '1'
     steps:
+      - name: Wait for saget CI capacity
+        if: runner.environment == 'self-hosted'
+        working-directory: ${{ runner.temp }}
+        run: |
+          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
+          python3 /run/saget-ci/slot.py --step
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           path: yama
