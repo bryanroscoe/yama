@@ -5,7 +5,7 @@ dispatch. There are no path filters: documentation and workflow changes also rec
 Superseded runs for the same event type and PR/ref are cancelled. Manual diagnostic CI uses
 a separate concurrency group and cannot cancel the push CI required for deployment. Only
 successful push CI on current main authorizes release. Bryan authorized a dedicated CI runner on
-saget on 2026-10-29 after GitHub-hosted jobs were blocked by account billing. Both jobs select
+saget on 2026-10-29 after GitHub-hosted jobs were blocked by account billing. Both jobs default to
 `[self-hosted, Linux, X64, yama-ci]` with read-only repository permissions. The separate
 `saget-yama-ci` runner executes one job at a time; it has no deployment credential, Docker
 socket, production data/env mounts, or production runner state. Only its own runner state and
@@ -36,23 +36,49 @@ post-actions. It retains the single warm compiler/dependency cache to avoid repe
 Check cache size after the first run and during maintenance; investigate growth beyond the
 single workspace profile before retaining more. Stop the runner before any scoped cache cleanup.
 
-To provision/update on saget, build `deploy/ci-runner/Dockerfile` as
-`yama-ci-runner:2.338.2-rust1.98.1-node22`, copy its Compose file into the server directory,
-and create `state`/`cache` with UID/GID 1001 and mode 0700. Register once from an authenticated
-admin terminal (preserve pipeline errors with `set -o pipefail`):
+## Choose the CI backend
+
+Both jobs select the JSON labels in the repository Actions variable
+`CI_LINUX_RUNNER`. An unset variable keeps the current saget default. The
+`sagetserver` control CLI changes routing without a workflow edit:
 
 ```sh
-gh api --method POST repos/bryanroscoe/yama/actions/runners/registration-token --jq .token |
-  ssh root@<saget-lan-address> 'cd /mnt/user/appdata/yama-ci-runner && docker compose run --rm -T runner configure'
-ssh root@<saget-lan-address> 'cd /mnt/user/appdata/yama-ci-runner && docker compose up -d'
+python3 scripts/ci_runners.py switch saget --repo yama --apply
+python3 scripts/ci_runners.py switch github --repo yama --apply
 ```
 
-Verify runner name/labels, mounts, resource/capability limits and both real GitHub jobs.
-Docker restarts the service after reboot; logs are capped at three 10 MB files. Replace the
-image deliberately to refresh toolchains/OS packages; the GitHub runner application can
-update within its own state. If CI is compromised, stop this runner and rotate its registration
-and the read-only Phase key before rebuilding its state/cache. Keep the deployment runner
-separate. GitHub-hosted lab simulation workflows remain opt-in and unchanged.
+Run these commands from the `sagetserver` repository. Omit `--apply` to preview;
+`--all` selects every configured private project. The values are
+`["self-hosted","Linux","X64","yama-ci"]` and `["ubuntu-24.04"]` respectively.
+Newly scheduled jobs use the selected backend. Existing jobs finish on their
+assigned runner. GitHub-hosted private CI needs available account minutes/billing;
+changing the variable does not clear a billing block.
+
+Hosted jobs install Node 22 and Rust 1.98.1, with eight GiB of swap on their
+one-use VM for the engine compiler. Saget uses its preinstalled tools and persistent
+cache, with no sudo or host swap changes. Tests and deployment authorization are
+identical on both backends. The local job budget includes time waiting for the
+shared compute slot; hosted job budgets retain their previous limits.
+
+## Manage saget workers
+
+The shared controller in `bryanroscoe/sagetserver` owns registration, immutable
+profile images, restart reconciliation and resource budgets. Its runbook is
+`ci/README.md`; use `scripts/ci_runners.py register --repo yama --wait` there.
+Do not start a second standalone worker from the legacy Compose example while
+the fleet controller owns this worker. Its state/cache stay at
+`/mnt/user/appdata/yama-ci-runner`; the deployment runner remains separate.
+
+Pooled CI has an aggregate two-CPU/12-GiB limit and a whole-job lock shared with
+Yama's host release gate. Each repository has separate state, cache and network.
+Only read-only hooks, nonsecret settings and the empty coordination lock are
+added to the original CI mounts. The controller restarts stopped workers after
+reboot and never recreates running workers or changes production containers.
+
+Verify runner name/labels, mounts, limits and real GitHub jobs after changes.
+Image IDs are immutable; refresh tools/OS packages through reviewed profile
+changes. If CI is compromised, stop this worker and rotate its registration and
+read-only Phase key before rebuilding its state/cache.
 
 Rust CI checks out Yama and the private `bryanroscoe/yama-phase` side by side, at the exact
 40-character revision in `deploy/phase-rev`. It uses the real Cargo manifests and lockfile;

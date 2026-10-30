@@ -19,13 +19,18 @@ jobs:
   web:
     name: Web checks
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, X64, yama-ci]
-    timeout-minutes: 15
+    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 15 }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Check preinstalled Node
+      - name: Install Node on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - name: Check Node
         run: |
           node --version
           test "$(node -p 'process.versions.node.split(".")[0]')" = 22
@@ -37,8 +42,8 @@ jobs:
   rust:
     name: Rust and Python tests
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, X64, yama-ci]
-    timeout-minutes: 90
+    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 90 }}
     defaults:
       run:
         working-directory: yama
@@ -77,10 +82,24 @@ jobs:
           path: yama-phase
           ssh-key: ${{ secrets.YAMA_PHASE_DEPLOY_KEY }}
           persist-credentials: false
-      - name: Check preinstalled Rust and dedicated cache
+      - name: Prepare GitHub-hosted Rust and build memory
+        if: runner.environment == 'github-hosted'
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          echo 'RUSTUP_TOOLCHAIN=1.98.1' >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/cargo-target"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
+          # Only the disposable hosted VM may create swap. Saget has no sudo.
+          sudo fallocate -l 8G /swapfile-yama-ci
+          sudo chmod 600 /swapfile-yama-ci
+          sudo mkswap /swapfile-yama-ci
+          sudo swapon /swapfile-yama-ci
+      - name: Check Rust and dedicated cache
         run: |
           test "${RUSTUP_TOOLCHAIN:-}" = 1.98.1
-          test "${CARGO_TARGET_DIR:-}" = /ci-cache/target
+          if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
+            test "${CARGO_TARGET_DIR:-}" = /ci-cache/target
+          fi
           rustc --version
           free -h
           df -h . "$CARGO_TARGET_DIR/.."
