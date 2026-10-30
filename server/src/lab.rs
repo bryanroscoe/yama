@@ -764,7 +764,8 @@ pub async fn precon_list(pool: &SqlitePool) -> AppResult<PreconList> {
     let lists: HashMap<String, String> = sqlx::query_as::<_, (String, String)>("SELECT id, cards FROM precons").fetch_all(pool).await?.into_iter().collect();
     let mut evidence = crate::precon_evidence::load(pool, chrono::Utc::now()).await?.by_precon;
     for p in &mut precons {
-        p.evidence = evidence.remove(&p.id);
+        // The list carries each precon's summary; its page has the full history.
+        p.evidence = evidence.remove(&p.id).map(crate::precon_evidence::PreconEvidence::summary);
         p.singles_value = crate::deck_prices::singles(&serde_json::from_str(&lists[&p.id]).map_err(anyhow::Error::from)?, &prices);
         p.sealed_price = sealed.remove(&p.id);
     }

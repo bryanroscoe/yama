@@ -102,6 +102,19 @@ pub struct CommanderObservation {
     pub note: &'static str,
 }
 
+impl PreconEvidence {
+    /// The same evidence without each history's snapshots, intervals and notes, for lists.
+    pub fn summary(mut self) -> Self {
+        for r in self.real.iter_mut().chain(self.also.iter_mut()) {
+            r.history.snapshots.clear();
+            r.history.intervals.clear();
+            r.history.notes.clear();
+            r.other_cohorts.clear();
+        }
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct PreconEvidence {
     /// The source with the newest snapshot; any other enabled source's history is in `also`.
@@ -738,12 +751,19 @@ pub async fn calibrate(pool: &SqlitePool, owner: Option<&str>, split: DateTime<U
                 std::iter::once((n, n.cohort.as_str(), &n.history)).chain(n.other_cohorts.iter().map(move |(c, h)| (n, c.as_str(), h)))
             })
             .collect();
-        let pair = today.iter().find_map(|(n, cohort, h)| {
-            earlier
-                .iter()
-                .find(|t| t.source.name == n.source.name && t.entity == n.entity && t.cohort == *cohort)
-                .map(|t| (*h, *t))
-        });
+        let matches: Vec<(&History, &RealHistory)> = today
+            .iter()
+            .filter_map(|(n, cohort, h)| {
+                earlier
+                    .iter()
+                    .find(|t| t.source.name == n.source.name && t.entity == n.entity && t.cohort == *cohort)
+                    .map(|t| (*h, *t))
+            })
+            .collect();
+        // Prefer a chain that runs unbroken across the split with later games on it.
+        let spans =
+            |h: &History, t: &RealHistory| h.snapshots.contains(&t.latest) && h.snapshots.last().is_some_and(|l| l.games > t.latest.games);
+        let pair = matches.iter().find(|(h, t)| spans(h, t)).or_else(|| matches.first()).copied();
         let (now, then): (&History, Option<&RealHistory>) = match pair {
             Some((h, t)) => (h, Some(t)),
             None => (&primary.history, None),

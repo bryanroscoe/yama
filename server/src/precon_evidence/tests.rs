@@ -303,7 +303,11 @@ async fn the_lab_precon_pages_carry_the_evidence() {
     precon(&pool, "test-riders", "Riders of Rohan", None, None).await;
     import(&pool, &owner, &document("playgroup-history", rohan(SHA_A))).await;
     let list = crate::lab::precon_list(&pool).await.unwrap();
-    assert!(list.precons[0].evidence.as_ref().unwrap().real.is_some());
+    let summary = list.precons[0].evidence.as_ref().unwrap().real.as_ref().unwrap();
+    assert!(
+        summary.history.snapshots.is_empty() && summary.history.recent.is_some(),
+        "the list carries the summary only"
+    );
     let detail = crate::lab::precon_detail(&pool, "test-riders").await.unwrap();
     assert_eq!(detail.precon.evidence.as_ref().unwrap().real.as_ref().unwrap().latest.games, 447);
 }
@@ -471,4 +475,30 @@ async fn calibration_follows_a_cohort_that_spans_the_split() {
     );
     let report = calibrate(&pool, None, at("2026-09-15"), at("2026-10-29")).await.unwrap();
     assert_eq!(report.precons_with_holdout, 1, "the old cohort's later games are the held-out set");
+}
+
+#[tokio::test]
+async fn calibration_prefers_a_chain_that_spans_the_split() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool, "bryan@example.com").await;
+    enable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    enable(&pool, &owner, "Other tracker").await.unwrap();
+    precon(&pool, "test-riders", "Riders of Rohan", None, None).await;
+    import(&pool, &owner, &document("playgroup-history", rohan(SHA_A))).await;
+    // The other source had a pre-split history but reset its counts after the split, and is newer.
+    let mut other = document(
+        "other-history",
+        vec![
+            precon_obs("test-riders", "Riders of Rohan", "2026-08-01", 300, 30.0, SHA_A),
+            precon_obs("test-riders", "Riders of Rohan", "2026-09-01", 400, 30.0, SHA_A),
+            precon_obs("test-riders", "Riders of Rohan", "2026-10-25", 60, 25.0, SHA_A),
+        ],
+    );
+    other["source"] = json!({"name":"Other tracker","url":"https://example.com","attribution":"Other tracker","license":"Private"});
+    import(&pool, &owner, &other).await;
+    let report = calibrate(&pool, None, at("2026-09-15"), at("2026-10-29")).await.unwrap();
+    assert_eq!(
+        report.precons_with_holdout, 1,
+        "Playgroup.gg's unbroken chain supplies the held-out games"
+    );
 }
