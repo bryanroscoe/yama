@@ -570,8 +570,11 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
                     None => merged.real = Some(real),
                 }
             }
-            if merged.commander.is_none() {
-                merged.commander = ev.commander;
+            // The newest commander figure across sources stands in.
+            if let Some(c) = ev.commander {
+                if merged.commander.as_ref().is_none_or(|m| c.as_of > m.as_of) {
+                    merged.commander = Some(c);
+                }
             }
         }
     }

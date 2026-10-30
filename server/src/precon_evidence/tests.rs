@@ -508,3 +508,24 @@ async fn calibration_prefers_a_chain_that_spans_the_split() {
         "Playgroup.gg's unbroken chain supplies the held-out games"
     );
 }
+
+#[tokio::test]
+async fn the_newest_commander_figure_across_sources_stands_in() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool, "bryan@example.com").await;
+    enable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    enable(&pool, &owner, "Other tracker").await.unwrap();
+    precon(&pool, "new-deck", "New Deck", None, Some(42)).await;
+    import(
+        &pool,
+        &owner,
+        &document("playgroup-history", vec![commander_obs(42, 180, "2026-10-01", 300, 27.5)]),
+    )
+    .await;
+    let mut other = document("other-history", vec![commander_obs(42, 180, "2026-10-28", 120, 31.0)]);
+    other["source"] = json!({"name":"Other tracker","url":"https://example.com","attribution":"Other tracker","license":"Private"});
+    import(&pool, &owner, &other).await;
+    let ev = load(&pool, at("2026-10-29")).await.unwrap();
+    let c = ev.by_precon["new-deck"].commander.as_ref().unwrap();
+    assert_eq!((c.source.as_str(), c.games), ("Other tracker", 120));
+}
