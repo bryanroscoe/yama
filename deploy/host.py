@@ -184,8 +184,10 @@ def phase_checkout(repo):
         try:
             run(['git', '-C', phase, 'merge-base', '--is-ancestor', revision, ref])
             return phase, revision
-        except Refused:
-            continue
+        except Refused as refused:
+            # Exit 1 only means "not an ancestor"; a timeout, deadline or broken object stays its own error.
+            if str(refused) != 'Command failed: git (exit 1)':
+                raise
     raise Refused('Engine pin is not on the engine repository\'s main or an archive/* tag')
 
 

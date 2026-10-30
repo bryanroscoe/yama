@@ -464,17 +464,24 @@ class HostGate(unittest.TestCase):
             git('add', '.'); git('commit', '-m', message)
             return git('rev-parse', 'HEAD')
         archived = commit('engine before the rebase')
-        git('tag', 'archive/pre-sync-test'); git('tag', 'preview-test', commit('other tag'))
+        git('tag', '-a', '-m', 'archive', 'archive/pre-sync-test'); git('tag', 'preview-test', commit('other tag'))
+        withdrawn = commit('archived then withdrawn')
+        git('tag', 'archive/withdrawn-test')
         git('checkout', '--orphan', 'rebuilt'); on_main = commit('rebuilt main')
-        git('push', remote, 'rebuilt:main', 'refs/tags/archive/pre-sync-test', 'refs/tags/preview-test')
+        git('push', remote, 'rebuilt:main', 'refs/tags/archive/pre-sync-test', 'refs/tags/preview-test',
+            'refs/tags/archive/withdrawn-test')
         unpublished = commit('never pushed')
         env = dict(os.environ, GIT_CONFIG_COUNT='1',
                    GIT_CONFIG_KEY_0='url.' + str(remote) + '.insteadOf',
                    GIT_CONFIG_VALUE_0='git@github.com:bryanroscoe/yama-phase.git')
         with patch.dict(os.environ, env):
-            for revision in (on_main, archived):
+            for revision in (on_main, archived, withdrawn):
                 (repo / 'deploy/phase-rev').write_text(revision + '\n')
                 self.assertEqual(host.phase_checkout(repo), (self.base / 'yama-phase', revision))
+            # Deleting a tag withdraws what only it published.
+            git('push', remote, ':refs/tags/archive/withdrawn-test')
+            with self.assertRaisesRegex(host.Refused, 'not on the engine repository'):
+                host.phase_checkout(repo)
             git('fetch', writer, 'HEAD', cwd=self.base / 'yama-phase')
             for revision in (unpublished, git('rev-parse', 'preview-test')):
                 (repo / 'deploy/phase-rev').write_text(revision + '\n')
