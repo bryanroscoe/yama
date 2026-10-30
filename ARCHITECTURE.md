@@ -151,10 +151,13 @@ production data/env mounts or general server shell. A restricted SSH command inv
 server-owned `deploy/host.py`, which independently verifies current main and successful
 push CI, fetches a dedicated clean main checkout and the published Phase pin, and builds
 committed exports on saget. CI jobs can select saget or GitHub-hosted Linux using the repository
-`CI_LINUX_RUNNER` JSON variable; both run the same checks. The personal-account
-CI fleet control plane lives in `bryanroscoe/sagetserver` with separate per-project
-state/cache, an aggregate two-CPU/12-GiB budget and a whole-job lock shared with
-this production release gate. GitHub concurrency and one host lock serialize automated and
+`CI_LINUX_RUNNER` JSON variable; both run the same checks. On saget, a fast pre-job
+hook records the reservation; the first normal workflow step waits for capacity
+before checkout so runner reporting and cancellation stay responsive. The
+personal-account CI fleet control plane lives in `bryanroscoe/sagetserver` with
+separate per-project state/cache, an aggregate four-CPU/12-GiB budget and two
+execution slots with root-selected memory reservations. CI shares the production
+release gate; production takes it exclusively. GitHub concurrency and one host lock serialize automated and
 manual deployments. Superseded builds do not activate; a final GitHub check follows
 backup and immediately precedes the live config switch. Missing sidecar configuration
 is bootstrapped once under the lock, preserving existing credentials. A mandatory SQLite

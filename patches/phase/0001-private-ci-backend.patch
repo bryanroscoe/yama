@@ -1,7 +1,7 @@
 From d7f62af3f93983e14fcd565a7aa9b8c8e1a25a78 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:04:43 -0500
-Subject: [PATCH 1/6] Adapt private fork CI to the isolated saget worker
+Subject: [PATCH 1/9] Adapt private fork CI to the isolated saget worker
 
 ---
  .github/actions/prepare-private-ci/action.yml |  28 ++++
@@ -594,7 +594,7 @@ index 0000000..6130968
 From cb43f56649df0999be42b91dd87ba9d309b29a7e Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:07:07 -0500
-Subject: [PATCH 2/6] fork: scope private automation to CI and pin stable Rust
+Subject: [PATCH 2/9] fork: scope private automation to CI and pin stable Rust
 
 ---
  .github/workflows/ai-gate.yml | 4 ++++
@@ -772,7 +772,7 @@ index 6130968..e910f8f 100644
 From 40b45dd7069a8343548eec96eaad1eb75a3e2537 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:10:01 -0500
-Subject: [PATCH 3/6] fork: rely on tool-cache configuration before listener
+Subject: [PATCH 3/9] fork: rely on tool-cache configuration before listener
  startup
 
 ---
@@ -795,7 +795,7 @@ index 39be49d..c15b2c3 100644
 From b9ba0f649658cae3890843beeb2b87ba2c659449 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:20:01 -0500
-Subject: [PATCH 4/6] fork: extract each test shard outside the persistent
+Subject: [PATCH 4/9] fork: extract each test shard outside the persistent
  target cache
 
 ---
@@ -838,7 +838,7 @@ index e910f8f..2942971 100644
 From 8b6f0491e713ef035aaaef59048c588376eaf924 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:27:29 -0500
-Subject: [PATCH 5/6] fork: retain nightly for the libtest JSON archive
+Subject: [PATCH 5/9] fork: retain nightly for the libtest JSON archive
  workload
 
 ---
@@ -887,7 +887,7 @@ index 2942971..df80835 100644
 From 0f30b3a639a6b5df3720a9c7c9ebd43d1669caaa Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 18:17:25 -0500
-Subject: [PATCH 6/6] fork: install stable lint components explicitly
+Subject: [PATCH 6/9] fork: install stable lint components explicitly
 
 ---
  .github/workflows/ci.yml | 1 +
@@ -905,3 +905,379 @@ index 5198227..4cdf637 100644
            cache: ${{ runner.environment == 'github-hosted' }}
            target: wasm32-unknown-unknown
            cache-shared-key: rust-debug
+
+From 9f880ae57ae1e526940320d5c4acf8b371af6d23 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 22:08:58 -0500
+Subject: [PATCH 7/9] fork: preserve the protocol checkout history assertion
+
+---
+ .github/workflows/ci.yml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 4cdf637..f52f814 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -1128,8 +1128,8 @@ jobs:
+     steps:
+       - uses: actions/checkout@v4
+         with:
+-          persist-credentials: false
+           fetch-depth: 0
++          persist-credentials: false
+ 
+       - uses: ./.github/actions/prepare-private-ci
+ 
+
+From 4fa2d6cc48c0f00dbec4228f4e348853812572ec Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 23:37:24 -0500
+Subject: [PATCH 8/9] fork: satisfy stable Clippy with equivalent expressions
+
+---
+ crates/engine/src/game/payment_transaction.rs | 21 +++++++++----------
+ .../src/parser/oracle_effect/conditions.rs    |  4 ++--
+ 2 files changed, 12 insertions(+), 13 deletions(-)
+
+diff --git a/crates/engine/src/game/payment_transaction.rs b/crates/engine/src/game/payment_transaction.rs
+index d8f7aa2..32cbc04 100644
+--- a/crates/engine/src/game/payment_transaction.rs
++++ b/crates/engine/src/game/payment_transaction.rs
+@@ -254,17 +254,16 @@ fn settle_canonical_tail(
+         return Ok(());
+     };
+     engine::resume_pending_continuation_if_priority(state, events)?;
+-    let completed = Some(carrier).filter(|_| {
+-        state.resolving_stack_entry.is_none()
+-            && matches!(
+-                state.waiting_for,
+-                crate::types::game_state::WaitingFor::Priority { .. }
+-            )
+-            && state.game_end.is_none()
+-            && state.payment_transaction.is_none()
+-            && !state.payment_transaction_replay
+-            && !triggers::is_pending_trigger_construction_active(state)
+-    });
++    let completed = (state.resolving_stack_entry.is_none()
++        && matches!(
++            state.waiting_for,
++            crate::types::game_state::WaitingFor::Priority { .. }
++        )
++        && state.game_end.is_none()
++        && state.payment_transaction.is_none()
++        && !state.payment_transaction_replay
++        && !triggers::is_pending_trigger_construction_active(state))
++    .then_some(carrier);
+     let default_wf = state.waiting_for.clone();
+     let waiting_for = engine_priority::run_post_action_pipeline_for_canonical_tail(
+         state,
+diff --git a/crates/engine/src/parser/oracle_effect/conditions.rs b/crates/engine/src/parser/oracle_effect/conditions.rs
+index 73bb9fa..b03af65 100644
+--- a/crates/engine/src/parser/oracle_effect/conditions.rs
++++ b/crates/engine/src/parser/oracle_effect/conditions.rs
+@@ -2059,7 +2059,7 @@ fn parse_its_a_card_type_gate_body<'a>(
+         }
+     }
+     let type_word = type_str.rsplit(' ').next().unwrap_or(type_str);
+-    let capitalized = format!("{}{}", &type_word[..1].to_uppercase(), &type_word[1..]);
++    let capitalized = format!("{}{}", type_word[..1].to_uppercase(), &type_word[1..]);
+     // CR 608.2c: "permanent" is not a CoreType (it spans CR 110.1's permanent card
+     // types). Build the condition via the existing parse_type_phrase_folding building block —
+     // "permanent card" → TargetFilter::Typed(TypeFilter::Permanent) — and gate on it
+@@ -3201,7 +3201,7 @@ pub(super) fn try_parse_type_setting(text: &str) -> Option<AbilityDefinition> {
+         .ok()?;
+ 
+     let type_name = type_name.trim();
+-    let capitalized = format!("{}{}", &type_name[..1].to_uppercase(), &type_name[1..]);
++    let capitalized = format!("{}{}", type_name[..1].to_uppercase(), &type_name[1..]);
+     CoreType::from_str(&capitalized).ok()?;
+ 
+     let mut remove_types = Vec::new();
+
+From c3ea3259e0be8426f043a1bb4616d3d26c7b729d Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Fri, 30 Oct 2026 01:57:40 -0500
+Subject: [PATCH 9/9] fork: wait for CI capacity in cancellable workflow steps
+
+---
+ .github/workflows/action-pin-audit.yml | 12 ++++
+ .github/workflows/ai-gate.yml          | 24 ++++++++
+ .github/workflows/ci.yml               | 81 +++++++++++++++++++++++++-
+ docs/private-ci.md                     |  3 +
+ 4 files changed, 119 insertions(+), 1 deletion(-)
+
+diff --git a/.github/workflows/action-pin-audit.yml b/.github/workflows/action-pin-audit.yml
+index 4941d57..508fd2b 100644
+--- a/.github/workflows/action-pin-audit.yml
++++ b/.github/workflows/action-pin-audit.yml
+@@ -42,6 +42,12 @@ jobs:
+     permissions:
+       contents: read
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       # No `ref:` on purpose: the default is the default branch, which is what
+       # makes the checker below the reviewed one.
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+@@ -101,6 +107,12 @@ jobs:
+     permissions:
+       statuses: write
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - name: Publish the commit status
+         env:
+           GH_TOKEN: ${{ github.token }}
+diff --git a/.github/workflows/ai-gate.yml b/.github/workflows/ai-gate.yml
+index 2e025a3..c948fea 100644
+--- a/.github/workflows/ai-gate.yml
++++ b/.github/workflows/ai-gate.yml
+@@ -31,6 +31,12 @@ jobs:
+     # `--games 10` coverage; the ceiling only bills the failure case.
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -71,6 +77,12 @@ jobs:
+     # the failure case; a job that finishes early stops early.
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 300 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -137,6 +149,12 @@ jobs:
+     # headroom without changing the fixed workload.
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -173,6 +191,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index f52f814..0b29c68 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -39,6 +39,12 @@ jobs:
+     # retain a bounded job while leaving room for the remaining lint gates.
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -225,6 +231,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -324,6 +336,12 @@ jobs:
+       matrix:
+         shard: [1, 2, 3, 4, 5]
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -381,6 +399,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -784,6 +808,12 @@ jobs:
+     if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 20 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -840,6 +870,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 10 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -864,6 +900,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 15 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -916,6 +958,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+         with:
+           persist-credentials: false
+@@ -1039,8 +1087,15 @@ jobs:
+       - wasm-check
+       - tauri-check
+       - android-debug-apk
+-    if: ${{ (always()) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    # Report failures, but let superseded workflow cancellation finish.
++    if: ${{ (!cancelled()) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - name: Check split Rust jobs
+         env:
+           RUST_LINT_RESULT: ${{ needs.rust-lint.result }}
+@@ -1072,6 +1127,12 @@ jobs:
+     # Cache-hit npm ci runs have exceeded five minutes; leave room for the measured slow tail.
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 10 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -1100,6 +1161,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 5 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+         with:
+           # The tests never touch git; don't leave the token in .git/config.
+@@ -1126,6 +1193,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 15 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           fetch-depth: 0
+@@ -1194,6 +1267,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+         with:
+           persist-credentials: false
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index df80835..0d36561 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -43,3 +43,6 @@ their existing hosted routing; they are outside this CI migration. The two core-
+ require the additional `CI_ENABLE_PUBLISHING == 'true'` opt-in, which is unset
+ for this fork. Registration and CI validation do not authorize publishing,
+ application deployment, upstream changes, or moving Yama's pinned engine revision.
++
++On saget, the first workflow step waits for CI capacity before checkout. The pre-job hook returns promptly so GitHub can report and cancel queued work. This step runs from RUNNER_TEMP, which exists before checkout, and verifies the runner supports the step-slot protocol. Install/adopt the reviewed sagetserver hooks before running these adapters. Hosted jobs skip this step.
++The Rust summary job still reports failed dependencies, but skips a cancelled workflow so obsolete runs cannot hold the CI concurrency group.

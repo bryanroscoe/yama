@@ -69,9 +69,10 @@ Do not start a second standalone worker from the legacy Compose example while
 the fleet controller owns this worker. Its state/cache stay at
 `/mnt/user/appdata/yama-ci-runner`; the deployment runner remains separate.
 
-Pooled CI has an aggregate two-CPU/12-GiB limit and a whole-job lock shared with
-Yama's host release gate. Each repository has separate state, cache and network.
-Only read-only hooks, nonsecret settings and the empty coordination lock are
+Pooled CI has an aggregate four-CPU/12-GiB limit and two execution slots, with
+root-selected memory reservations. It shares Yama's host release gate; production
+takes that gate exclusively. Each repository has separate state, cache and network.
+Only read-only hooks, nonsecret settings and empty coordination locks are
 added to the original CI mounts. The controller restarts stopped workers after
 reboot and never recreates running workers or changes production containers.
 
@@ -103,3 +104,5 @@ Default `cargo test` deliberately skips ignored full-data gameplay tests. CI doe
 full-game correctness or cross-machine performance from those passing checks; follow
 [gameplay validation](gameplay-validation.md) for that separate acceptance. The manual
 [lab worker workflow](lab-workers.md) runs leased simulations and remains separate from CI.
+
+On saget, the first workflow step waits for CI capacity before checkout. The pre-job hook returns promptly so GitHub can report and cancel queued work. This step runs from RUNNER_TEMP, which exists before checkout, and verifies the runner supports the step-slot protocol. Install/adopt the reviewed sagetserver hooks before running these adapters. Hosted jobs skip this step.
