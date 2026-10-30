@@ -117,7 +117,7 @@ This requires all of the following before any saget call:
 
 - The current branch is `main`, with no tracked edits or untracked files. Detached HEAD and feature branches are refused.
 - A fresh fetch of GitHub main succeeds, and the local commit equals `origin/main` exactly. Ahead, behind and diverged main checkouts are refused.
-- A fresh fetch of the repository in `deploy/phase-repo` succeeds, and `deploy/phase-rev` is a full commit SHA reachable from its published `main`. The engine checkout defaults to `../yama-phase`; `YAMA_PHASE_DIR` can select another checkout without changing its remotes or working files.
+- A fresh fetch of the repository in `deploy/phase-repo` succeeds, and `deploy/phase-rev` is a full commit SHA reachable from its published `main` or from a published `archive/*` tag (rebasing the fork's main keeps the previous line under such a tag, so the deployed engine stays releasable until Yama bumps the pin; the server gate applies the same rule). The engine checkout defaults to `../yama-phase`; `YAMA_PHASE_DIR` can select another checkout without changing its remotes or working files.
 
 The check does not merge, push, contact saget, build images or restart anything. Once it passes and deployment is requested:
 

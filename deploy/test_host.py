@@ -447,6 +447,40 @@ class HostGate(unittest.TestCase):
                 host.checkout(second, 'token')
             self.assertEqual((repo / 'file').read_text(), 'preserve me')
 
+    def test_engine_pin_is_published_on_main_or_an_archive_tag_only(self):
+        remote = self.root / 'phase.git'
+        writer = self.root / 'phase-writer'
+        repo = self.root / 'yama-checkout'
+        (repo / 'deploy').mkdir(parents=True)
+        (repo / 'deploy/phase-repo').write_text('https://github.com/bryanroscoe/yama-phase.git\n')
+        def git(*args, cwd=writer):
+            return subprocess.check_output(['git', '-c', 'commit.gpgsign=false', *map(str, args)],
+                cwd=cwd, stderr=subprocess.DEVNULL, text=True).strip()
+        git('init', '--bare', '--initial-branch=main', remote, cwd=self.root)
+        git('init', '--initial-branch=main', writer, cwd=self.root)
+        git('config', 'user.name', 'Test'); git('config', 'user.email', 'test@example.invalid')
+        def commit(message):
+            (writer / 'file').write_text(message)
+            git('add', '.'); git('commit', '-m', message)
+            return git('rev-parse', 'HEAD')
+        archived = commit('engine before the rebase')
+        git('tag', 'archive/pre-sync-test'); git('tag', 'preview-test', commit('other tag'))
+        git('checkout', '--orphan', 'rebuilt'); on_main = commit('rebuilt main')
+        git('push', remote, 'rebuilt:main', 'refs/tags/archive/pre-sync-test', 'refs/tags/preview-test')
+        unpublished = commit('never pushed')
+        env = dict(os.environ, GIT_CONFIG_COUNT='1',
+                   GIT_CONFIG_KEY_0='url.' + str(remote) + '.insteadOf',
+                   GIT_CONFIG_VALUE_0='git@github.com:bryanroscoe/yama-phase.git')
+        with patch.dict(os.environ, env):
+            for revision in (on_main, archived):
+                (repo / 'deploy/phase-rev').write_text(revision + '\n')
+                self.assertEqual(host.phase_checkout(repo), (self.base / 'yama-phase', revision))
+            git('fetch', writer, 'HEAD', cwd=self.base / 'yama-phase')
+            for revision in (unpublished, git('rev-parse', 'preview-test')):
+                (repo / 'deploy/phase-rev').write_text(revision + '\n')
+                with self.assertRaisesRegex(host.Refused, 'not on the engine repository'):
+                    host.phase_checkout(repo)
+
     def test_lock_cannot_be_acquired_by_another_process_until_release(self):
         script = 'import fcntl,sys; f=open(sys.argv[1],"a"); fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)'
         with host.release_lock():

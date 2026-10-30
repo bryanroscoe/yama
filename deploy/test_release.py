@@ -177,6 +177,29 @@ exit 97
         self.git(self.repo, "push", "origin", "main")
         self.rejected("not published", wrapper=True)
 
+    def test_engine_commit_on_an_archive_tag_is_published(self):
+        (self.phase / "archived").write_text("Engine line kept after main was rebased\n")
+        self.commit(self.phase, "Archived engine")
+        revision = self.git(self.phase, "rev-parse", "HEAD")
+        self.git(self.phase, "tag", "archive/pre-sync-test", revision)
+        self.git(self.phase, "push", "origin", "refs/tags/archive/pre-sync-test")
+        (self.repo / "deploy" / "phase-rev").write_text(revision + "\n")
+        self.commit(self.repo, "Pin archived engine")
+        self.git(self.repo, "push", "origin", "main")
+        result = self.check(wrapper=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_engine_commit_on_another_tag_is_refused(self):
+        (self.phase / "tagged").write_text("Tagged outside archive/\n")
+        self.commit(self.phase, "Other tag")
+        revision = self.git(self.phase, "rev-parse", "HEAD")
+        self.git(self.phase, "tag", "preview-test", revision)
+        self.git(self.phase, "push", "origin", "refs/tags/preview-test")
+        (self.repo / "deploy" / "phase-rev").write_text(revision + "\n")
+        self.commit(self.repo, "Pin other tag")
+        self.git(self.repo, "push", "origin", "main")
+        self.rejected("not published", wrapper=True)
+
     def test_abbreviated_engine_pin_is_refused(self):
         (self.repo / "deploy" / "phase-rev").write_text("1234567\n")
         self.commit(self.repo, "Abbreviated engine pin")
