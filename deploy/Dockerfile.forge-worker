@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # The Forge worker: Forge as a second engine for Yama's Lab runs (server/src/lab/forge.rs). Forge
-# (https://github.com/Card-Forge/forge, GPL-3.0) is downloaded and run as a separate program, one JVM per
-# game; none of its code is in Yama. forge-worker/ is Yama's own HTTP front for the deck lab's batch runner
+# (https://github.com/Card-Forge/forge, GPL-3.0) runs as a separate program, one JVM per game; none of its
+# code is in Yama. forge-worker/ is Yama's own HTTP front for the deck lab's batch runner
 # (forge_runner.py, a copy of commander-decks scripts/sim/forge_runner.py). Private use.
 #
 # Built by deploy/deploy.sh with the context yama/forge-worker. Java 17, not 21: when one of Forge's AI
@@ -11,51 +11,44 @@
 # Read-only friendly: the worker writes only to /work (tmpfs: deck files and one Forge user dir per game) and
 # /tmp (tmpfs, for the JVMs). Forge's card index is built here, at image build, into /opt/forge-index.
 ARG JAVA_IMAGE=eclipse-temurin:17-jre
-# Yama's Forge patch set (AI speed fixes; notes in forge-worker/README.md), overlaid on the release jar by
-# forge-worker/patch_jar.py. The compiled classes are Forge code (GPL-3.0), so they are kept out of Yama, in the
-# private forge-referee repo, and reach the build as a local image on saget that deploy/forge-patch.sh installs.
-# The build refuses a jar whose SHA-256 isn't this pin. Without the image the release build fails for all three
-# services and production keeps running: install it before merging a new pin. Results carry the engine label
-# "forge <version>+<FORGE_PATCH>.<first 8 of the SHA-256>", never pooled with stock Forge or another patch jar.
-ARG FORGE_PATCH=yama1
-ARG FORGE_PATCH_SHA256=4c30ae81c06347c404d6011b8c4cb1489bfa98e9dd563789b05f1b03303b8b11
-ARG FORGE_PATCH_IMAGE=yama-forge-patch:${FORGE_PATCH}
+# Forge is Yama's own build (yama2, 2026-10-29: Card-Forge/forge master 3ead7e68 with AI speed fixes; notes in
+# forge-worker/README.md), not a release download. The build is Forge code (GPL-3.0), so it stays out of Yama:
+# forge-referee's dist/build-dist.sh makes the tarball (a release's layout: the desktop jar and res/), and
+# deploy/forge-dist.sh installs it on saget as the local image yama-forge-dist:<FORGE_DIST>. The build refuses a
+# tarball whose SHA-256 isn't this pin. Without the image the release build fails for all three services and
+# production keeps running: install it before merging a new pin. The jar is renamed to end in the first 8 digits
+# of that SHA-256, so results carry "forge <version>.<sha8>" (forge 2.0.16-745401a4+yama2.5aca6b2e: the yama2
+# branch commit, the patch set and the tarball): another tarball never shares a label.
+ARG FORGE_DIST=yama2
+ARG FORGE_DIST_SHA256=5aca6b2e03f86bc578780464db20ada08e76cacfb59c357d531d1c5d3bee1bed
+ARG FORGE_DIST_IMAGE=yama-forge-dist:${FORGE_DIST}
 
-FROM ${FORGE_PATCH_IMAGE} AS forgepatch
+FROM ${FORGE_DIST_IMAGE} AS forgedist
 
 FROM ${JAVA_IMAGE} AS forge
-ARG FORGE_VERSION=2.0.15
-ARG FORGE_SHA256=4468f182b60f6ca62d89697baa208981085af744f116781af751c611826db600
-RUN apt-get update && apt-get install -y --no-install-recommends bzip2 && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL --retry 3 -o /tmp/forge.tar.bz2 \
-      "https://github.com/Card-Forge/forge/releases/download/forge-${FORGE_VERSION}/forge-installer-${FORGE_VERSION}.tar.bz2" \
- && echo "${FORGE_SHA256}  /tmp/forge.tar.bz2" | sha256sum -c - \
- && mkdir -p "/opt/forge/forge-${FORGE_VERSION}" \
- && tar -xjf /tmp/forge.tar.bz2 -C "/opt/forge/forge-${FORGE_VERSION}" --no-same-owner --no-same-permissions \
- && rm /tmp/forge.tar.bz2 \
- && cd "/opt/forge/forge-${FORGE_VERSION}" \
- && rm -rf docs ./*.exe ./*.cmd ./*.command adventure-editor* forge-gui-mobile-dev-*.jar gdx-particle-editor.jar \
- && test -f "forge-gui-desktop-${FORGE_VERSION}-jar-with-dependencies.jar" \
- && test -f res/cardsfolder/cardsfolder.zip \
+ARG FORGE_DIST_SHA256
+COPY --from=forgedist /forge-dist.tar.gz /tmp/forge-dist.tar.gz
+# One forge-<version> folder; /opt/forge/current points at it, so nothing else needs the version.
+RUN echo "${FORGE_DIST_SHA256}  /tmp/forge-dist.tar.gz" | sha256sum -c - \
+ && mkdir -p /opt/forge \
+ && tar -xzf /tmp/forge-dist.tar.gz -C /opt/forge --no-same-owner --no-same-permissions \
+ && rm /tmp/forge-dist.tar.gz \
+ && test "$(ls -d /opt/forge/forge-* | wc -l)" = 1 \
+ && ln -s "$(ls -d /opt/forge/forge-*)" /opt/forge/current \
+ && test -f /opt/forge/current/res/cardsfolder/cardsfolder.zip \
+ && cd /opt/forge/current \
+ && test "$(ls forge-gui-desktop-*-jar-with-dependencies.jar | wc -l)" = 1 \
+ && j=$(ls forge-gui-desktop-*-jar-with-dependencies.jar) && v=${j#forge-gui-desktop-} && v=${v%-jar-with-dependencies.jar} \
+ && mv "$j" "forge-gui-desktop-$v.$(echo "${FORGE_DIST_SHA256}" | cut -c1-8)-jar-with-dependencies.jar" \
  && chmod -R a+rX /opt/forge
-# The patch step comes after the download, so a new patch set reuses the cached Forge layers.
-ARG FORGE_PATCH
-ARG FORGE_PATCH_SHA256
-RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
-COPY patch_jar.py /tmp/patch_jar.py
-COPY --from=forgepatch /forge-patch.jar /tmp/forge-patch.jar
-RUN python3 /tmp/patch_jar.py "/opt/forge/forge-${FORGE_VERSION}" /tmp/forge-patch.jar "${FORGE_PATCH_SHA256}" "${FORGE_PATCH}" \
- && rm /tmp/forge-patch.jar /tmp/patch_jar.py \
- && chmod a+r /opt/forge/forge-${FORGE_VERSION}/forge-gui-desktop-*-jar-with-dependencies.jar
 
 FROM ${JAVA_IMAGE}
-ARG FORGE_VERSION=2.0.15
 # A passwd entry for uid 99 gives the JVM a real user.home (/work) instead of "?".
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/* \
  && useradd -u 99 -g 100 -M -d /work -s /usr/sbin/nologin forge
 COPY --from=forge /opt/forge /opt/forge
 COPY common.py forge_runner.py worker.py /opt/forge-worker/
-ENV FORGE_DIR=/opt/forge/forge-${FORGE_VERSION} \
+ENV FORGE_DIR=/opt/forge/current \
     FORGE_JAVA=/opt/java/openjdk/bin/java \
     FORGE_INDEX=/opt/forge-index \
     FORGE_WORK=/work \

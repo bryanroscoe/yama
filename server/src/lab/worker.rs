@@ -668,7 +668,7 @@ impl LabWorker {
         if live.online() { live.cards.clone() } else { None }
     }
 
-    /// The online Forge worker's engine label ("forge 2.0.15").
+    /// The online Forge worker's engine label ("forge 2.0.16-745401a4+yama2.5aca6b2e").
     pub fn forge_engine(&self) -> Option<String> {
         let live = lock(&self.forge_live);
         if live.online() { live.status.as_ref().map(|s| s.engine.clone()) } else { None }
