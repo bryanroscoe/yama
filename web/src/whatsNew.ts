@@ -25,6 +25,16 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/lab", label: "Open the precons" },
   },
   {
+    id: "2026-10-29-swap-cards",
+    date: "2026-10-29",
+    title: "Bracket swap cards for your deck boxes",
+    items: [
+      "Print a card-sized note for each deck box: the bracket it's kept at, what comes out and goes in for each step down, with Game Changers marked. Going up, do the swaps in reverse.",
+      "Print all swap cards is under Your plans, nine to a page with cut lines. A deck's own card is on its Brackets tab and in its Bracket bags panel. Print at actual size from a computer; on a phone the cards are easy to read.",
+    ],
+    link: { to: "/decks/plan/swap-cards", label: "See your swap cards" },
+  },
+  {
     id: "2026-10-29-scan-a-deck",
     date: "2026-10-29",
     title: "Scan a deck into Yama",

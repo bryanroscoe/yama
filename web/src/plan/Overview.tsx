@@ -1,5 +1,5 @@
 import { identityName } from "@yama/core";
-import { buyList, daysBetween, deckCounts, deckWarnings, fmtDate, opTime, overviewCounts, STALE_DAYS, usd, type BuyList, type PlanDeck } from "@yama/core/plan";
+import { buyList, daysBetween, deckCounts, deckWarnings, fmtDate, opTime, overviewCounts, STALE_DAYS, swapCards, usd, type BuyList, type PlanDeck } from "@yama/core/plan";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
@@ -145,6 +145,12 @@ export function Overview() {
                 <DeckTile key={d.key} deck={d} view={view} counts={counts[i]!} buy={buy} />
               ))}
             </div>
+            {swapCards(b).length > 0 && (
+              <div className="row plan-swap-cards">
+                <Link className="button outline" to="/decks/plan/swap-cards">Print all swap cards</Link>
+                <span className="small dim">A card for each deck box: the swaps to change bracket.</span>
+              </div>
+            )}
             {artists.some(Boolean) && <p className="small dim art-credits">{artCredits(artists)}</p>}
           </section>
 

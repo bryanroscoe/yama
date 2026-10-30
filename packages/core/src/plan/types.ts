@@ -71,9 +71,15 @@ export interface Bag {
 
 export interface Bracket {
   target?: number | null;
+  /** Optional: the bracket the deck is kept at in its box, when that isn't `target`. */
+  box?: number | null;
   keep_note?: string | null;
   callouts?: string[];
   bags?: Record<string, Bag[]>;
+  /** Optional: cards kept for Bracket 4 that are in no build. */
+  extras?: string[] | null;
+  /** An export extra (not part of the format): the Game Changers in each bracket's build. */
+  game_changers?: Record<string, string[]> | null;
 }
 
 export interface PlanGroup {

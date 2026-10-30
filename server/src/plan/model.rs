@@ -623,6 +623,9 @@ pub fn check(plan: &Plan) -> AppResult<Checked> {
         for (j, n) in d.notes.iter().enumerate() {
             check_note(|| format!("plan.decks[{i}].notes[{j}]"), n)?;
         }
+        if let Some(b) = d.bracket.as_ref().filter(|b| !b.is_null()) {
+            check_bracket(i, b)?;
+        }
         for (name, st) in &d.states {
             let sp = || format!("plan.decks[{i}].states.{name}");
             one_of(sp, name, &STATES)?;
@@ -875,6 +878,33 @@ pub fn check(plan: &Plan) -> AppResult<Checked> {
     Ok(out)
 }
 
+/// The optional parts of a deck's `bracket` that the swap card reads: `box`, the bracket the deck
+/// is kept at (1 to 5), and `extras`, cards kept for Bracket 4 that are in no build.
+fn check_bracket(i: usize, b: &Value) -> AppResult<()> {
+    if let Some(v) = b.get("box").filter(|v| !v.is_null())
+        && !v.as_i64().is_some_and(|n| (1..=5).contains(&n))
+    {
+        return Err(bad(format!("plan.decks[{i}].bracket.box"), "must be a bracket from 1 to 5"));
+    }
+    match b.get("extras") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(list)) => {
+            for (j, n) in list.iter().enumerate() {
+                if !n.as_str().is_some_and(|n| !n.trim().is_empty()) {
+                    return Err(bad(format!("plan.decks[{i}].bracket.extras[{j}]"), "must be a card name"));
+                }
+            }
+        }
+        Some(_) => return Err(bad(format!("plan.decks[{i}].bracket.extras"), "must be a list of card names")),
+    }
+    Ok(())
+}
+
+/// The card names in a deck's `bracket.extras`.
+pub fn bracket_extras(bracket: Option<&Value>) -> impl Iterator<Item = &str> {
+    bracket.and_then(|b| b.get("extras")).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str)
+}
+
 fn check_note(path: impl Fn() -> String, n: &Value) -> AppResult<()> {
     let kind = n.get("kind").and_then(Value::as_str);
     let text = n.get("text").and_then(Value::as_str);
@@ -1024,6 +1054,9 @@ pub fn card_names(plan: &Plan) -> BTreeMap<String, Vec<String>> {
                     add(n, format!("{}: bracket {bracket} bag", d.name));
                 }
             }
+        }
+        for n in bracket_extras(d.bracket.as_ref()) {
+            add(n, format!("{}: Bracket 4 extras", d.name));
         }
         for (state, st) in &d.states {
             for c in &st.cards {

@@ -725,6 +725,31 @@ async fn unknown_names_and_printings_are_kept_and_reported() {
 }
 
 #[tokio::test]
+async fn a_bracket_box_and_extras_reach_the_pages_and_are_optional() {
+    let (app, _pool, _owner, token) = setup().await;
+    // Without them (the fixture has neither), the bracket comes back as it was sent.
+    import(&app, &token, &doc()).await;
+    let b = bundle(&app, &token).await;
+    let alpha = find(&b["decks"], "key", "alpha");
+    assert_eq!(alpha["bracket"]["target"], 3);
+    assert!(alpha["bracket"].get("box").is_none() && alpha["bracket"].get("extras").is_none());
+
+    let mut d = doc();
+    d["plan"]["decks"][0]["bracket"]["box"] = json!(2);
+    d["plan"]["decks"][0]["bracket"]["extras"] = json!(["Sol Ring", "Extra Future Card"]);
+    let r = import(&app, &token, &d).await;
+    let unknown = r["unknown_cards"].as_array().unwrap();
+    let extra = unknown.iter().find(|u| u["name"] == "Extra Future Card").expect("an unknown extra is reported");
+    assert!(extra["where"].as_array().unwrap().iter().any(|w| w == "Alpha Deck: Bracket 4 extras"), "{extra}");
+    let b = bundle(&app, &token).await;
+    let alpha = find(&b["decks"], "key", "alpha");
+    assert_eq!(alpha["bracket"]["box"], 2);
+    assert_eq!(alpha["bracket"]["extras"], json!(["Sol Ring", "Extra Future Card"]));
+    assert_eq!(b["names"]["Sol Ring"], "o-sol");
+    assert!(b["unresolved"].as_array().unwrap().iter().any(|n| n == "Extra Future Card"), "extras are resolved like other plan names");
+}
+
+#[tokio::test]
 async fn a_card_added_later_resolves_without_a_new_import() {
     let (app, pool, owner, token) = setup().await;
     import(&app, &token, &doc()).await;
@@ -831,6 +856,10 @@ async fn bad_documents_get_400_naming_the_json_path() {
         ("plan.decks[0].states.later:", Box::new(|d| d["plan"]["decks"][0]["states"]["later"] = json!({"cards": []}))),
         ("plan.decks[0].states.now.cards[2].qty: invalid type", Box::new(|d| d["plan"]["decks"][0]["states"]["now"]["cards"][2]["qty"] = json!("one"))),
         ("plan.decks[1].key: \"alpha\" appears twice", Box::new(|d| d["plan"]["decks"][1]["key"] = json!("alpha"))),
+        ("plan.decks[0].bracket.box: must be a bracket", Box::new(|d| d["plan"]["decks"][0]["bracket"]["box"] = json!(6))),
+        ("plan.decks[0].bracket.box: must be a bracket", Box::new(|d| d["plan"]["decks"][0]["bracket"]["box"] = json!("2"))),
+        ("plan.decks[0].bracket.extras: must be a list", Box::new(|d| d["plan"]["decks"][0]["bracket"]["extras"] = json!("Sol Ring"))),
+        ("plan.decks[0].bracket.extras[1]: must be a card name", Box::new(|d| d["plan"]["decks"][0]["bracket"]["extras"] = json!(["Sol Ring", " "]))),
         ("plan.reviews[\"alpha-idea\"].at:", Box::new(|d| d["plan"]["reviews"] = json!({"alpha-idea": {"decision": "want", "at": "2026-10-19 01:00"}}))),
         ("plan.reviews[\"alpha-idea\"].decision:", Box::new(|d| d["plan"]["reviews"] = json!({"alpha-idea": {"decision": "maybe", "at": "2026-10-19T01:00:00Z"}}))),
     ];
