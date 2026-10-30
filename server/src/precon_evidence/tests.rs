@@ -561,3 +561,28 @@ async fn conflicting_commander_figures_are_set_aside() {
         "the disputed 180-day figure gives way to the next window"
     );
 }
+
+#[tokio::test]
+async fn calibration_finds_a_chain_in_the_splits_secondary_cohort() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool, "bryan@example.com").await;
+    enable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    precon(&pool, "test-riders", "Riders of Rohan", None, None).await;
+    // At the split a short-lived cohort is newest; it stops before today, when the long chain is newest again.
+    let mut records = rohan(SHA_A);
+    let mut brief = precon_obs("test-riders", "Riders of Rohan", "2026-09-10", 50, 30.0, SHA_A);
+    brief["data"]["cohort"] = json!("https://playgroup.gg/commander/precons/brief");
+    brief["id"] = json!("brief");
+    records.push(brief);
+    import(&pool, &owner, &document("playgroup-history", records)).await;
+    let at_split = load(&pool, at("2026-09-15")).await.unwrap();
+    assert_eq!(
+        at_split.by_precon["test-riders"].real.as_ref().unwrap().cohort,
+        "https://playgroup.gg/commander/precons/brief"
+    );
+    let report = calibrate(&pool, None, at("2026-09-15"), at("2026-10-29")).await.unwrap();
+    assert_eq!(
+        report.precons_with_holdout, 1,
+        "the long chain is found behind the split's newest cohort"
+    );
+}

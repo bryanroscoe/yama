@@ -771,54 +771,57 @@ async fn calibrate_with(
         all_time.insert(id.clone(), primary.latest.rate);
         // Train and held-out games come from one source: the first of today's histories (newest
         // first) that the split also had from the same source and entity.
-        let earlier: Vec<&RealHistory> = before
-            .get(id)
-            .map(|e| e.real.iter().chain(e.also.iter()).collect())
-            .unwrap_or_default();
-        // Every cohort today's histories hold, newest source first, each with its own history.
-        let today: Vec<(&RealHistory, &str, &History)> = ev
-            .real
+        // Every (source, entity, cohort) history on each side, so a chain is found whichever cohort
+        // each side happened to show first.
+        let cohorts = |e: &'_ PreconEvidence| -> Vec<(String, String, String, History)> {
+            e.real
+                .iter()
+                .chain(e.also.iter())
+                .flat_map(|r| {
+                    std::iter::once((r.source.name.clone(), r.entity.clone(), r.cohort.clone(), r.history.clone())).chain(
+                        r.other_cohorts
+                            .iter()
+                            .map(|(c, h)| (r.source.name.clone(), r.entity.clone(), c.clone(), h.clone())),
+                    )
+                })
+                .filter(|c| !c.3.snapshots.is_empty())
+                .collect()
+        };
+        let earlier = before.get(id).map(cohorts).unwrap_or_default();
+        let today = cohorts(ev);
+        let matches: Vec<(&History, &History)> = today
             .iter()
-            .chain(ev.also.iter())
-            .flat_map(|n| {
-                std::iter::once((n, n.cohort.as_str(), &n.history)).chain(n.other_cohorts.iter().map(move |(c, h)| (n, c.as_str(), h)))
-            })
-            .collect();
-        let matches: Vec<(&History, &RealHistory)> = today
-            .iter()
-            .filter_map(|(n, cohort, h)| {
-                earlier
-                    .iter()
-                    .find(|t| t.source.name == n.source.name && t.entity == n.entity && t.cohort == *cohort)
-                    .map(|t| (*h, *t))
-            })
+            .filter_map(|(s, e, c, h)| earlier.iter().find(|t| &t.0 == s && &t.1 == e && &t.2 == c).map(|t| (h, &t.3)))
             .collect();
         // Prefer a chain that runs unbroken across the split with later games on it.
-        let spans =
-            |h: &History, t: &RealHistory| h.snapshots.contains(&t.latest) && h.snapshots.last().is_some_and(|l| l.games > t.latest.games);
+        let spans = |now: &History, then: &History| {
+            let split_latest = then.snapshots.last().unwrap();
+            now.snapshots.contains(split_latest) && now.snapshots.last().is_some_and(|l| l.games > split_latest.games)
+        };
         let pair = matches.iter().find(|(h, t)| spans(h, t)).or_else(|| matches.first()).copied();
-        let (now, then): (&History, Option<&RealHistory>) = match pair {
+        let (now, then): (&History, Option<&History>) = match pair {
             Some((h, t)) => (h, Some(t)),
             None => (&primary.history, None),
         };
-        let train = then.map(|t| match &t.history.recent {
+        let train = then.map(|t| match &t.recent {
             Some(r) => calibration::Real {
                 rate: r.rate,
                 effective_games: r.effective_games,
             },
-            None => calibration::Real {
-                rate: t.latest.rate,
-                effective_games: t.latest.games as f64,
-            },
+            None => {
+                let last = t.snapshots.last().unwrap();
+                calibration::Real {
+                    rate: last.rate,
+                    effective_games: last.games as f64,
+                }
+            }
         });
         // Held out: the games after the split's newest snapshot, on the same unbroken chain.
-        let holdout = then
-            .zip(now.snapshots.last())
-            .filter(|(t, last)| now.snapshots.contains(&t.latest) && last.games > t.latest.games)
-            .and_then(|(t, last)| {
-                let rate = history::implied(&t.latest, last);
-                (0.0..=100.0).contains(&rate).then_some((rate, last.games - t.latest.games))
-            });
+        let holdout = then.filter(|t| spans(now, t)).and_then(|t| {
+            let (first, last) = (t.snapshots.last().unwrap(), now.snapshots.last().unwrap());
+            let rate = history::implied(first, last);
+            (0.0..=100.0).contains(&rate).then_some((rate, last.games - first.games))
+        });
         cases.push(calibration::Case {
             precon: id.clone(),
             train,

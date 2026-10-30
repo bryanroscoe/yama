@@ -244,7 +244,9 @@ pub fn evaluate(all: &[Case]) -> Evaluation {
         let (ys, ws) = (sub(&y), sub(&w));
         // Refit the mapping on the resample, so the interval carries the mapping's own uncertainty.
         let resampled: Vec<Case> = pick.iter().map(|&i| cases[i].clone()).collect();
-        let Some(mb) = crate::precon_evidence::calibration::mapping(&resampled) else { continue };
+        let Some(mb) = crate::precon_evidence::calibration::mapping(&resampled) else {
+            continue;
+        };
         let v2b: Vec<f64> = resampled.iter().map(|c| combine(c.train, c.sim, Some(&mb)).unwrap().0).collect();
         for (k, (_, p, _)) in preds.iter().enumerate() {
             let p = if k == 3 { v2b.clone() } else { sub(p) };
