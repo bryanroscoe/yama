@@ -20,7 +20,7 @@
 //!   (`/check`). Yama keeps the answers per worker version ([`ForgeCards`]) and uses them like
 //!   phase's unknown cards: a tested list with such cards is refused, and precons with them are
 //!   left out of a Forge field.
-//! - **Labels.** Forge results carry the worker's engine label ("forge 2.0.16-745401a4+yama2.5aca6b2e": Yama's Forge
+//! - **Labels.** Forge results carry the worker's engine label ("forge 2.0.16-745401a4+yama3.54567890": Yama's Forge
 //!   build, deploy/Dockerfile.forge-worker), card data and runner, so they are never pooled with
 //!   phase results or another Forge build. A "both" experiment keeps two summaries.
 
@@ -120,7 +120,7 @@ pub fn canonical_profile(s: Option<&str>) -> Result<String, String> {
 /// What the worker says about itself (`GET /status`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ForgeStatus {
-    /// Its engine label, "forge 2.0.16-745401a4+yama2.5aca6b2e": what its result lines carry.
+    /// Its engine label, "forge 2.0.16-745401a4+yama3.54567890": what its result lines carry.
     pub engine: String,
     #[serde(default)]
     pub card_data: String,
@@ -346,7 +346,7 @@ pub struct ForgeAccess {
     pub client: Option<Arc<dyn ForgeClient>>,
     /// Its answers about card names so far, while it is online.
     pub cards: Option<Arc<ForgeCards>>,
-    /// Its engine label while it is online ("forge 2.0.16-745401a4+yama2.5aca6b2e").
+    /// Its engine label while it is online ("forge 2.0.16-745401a4+yama3.54567890").
     pub engine: Option<String>,
 }
 
