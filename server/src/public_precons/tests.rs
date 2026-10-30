@@ -712,6 +712,9 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
     assert!(c.precons.iter().all(|p| p.meta.is_none()), "no v1 ranks beside v2");
 
     let app = crate::routes::app(st);
+    let (_, _, json) = request(&app, "/api/public/precons", &[]).await;
+    assert!(json.contains("CC BY 4.0"));
+    assert!(!json.contains("playgroup-history"), "private dataset ids stay private");
     let (_, _, html) = request(&app, "/precons", &[]).await;
     assert!(html.contains("Rating v2 ranks"));
     assert!(html.contains("Playgroup.gg / Arcane Digital B.V.; CC BY 4.0"));

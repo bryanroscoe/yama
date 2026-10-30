@@ -3,7 +3,7 @@
 //! link, catalog import or publication changes, and at least every few minutes for recency.
 use super::{Precon, Publication};
 use crate::error::AppResult;
-use crate::precon_evidence::{self, SimSource, SourceLabel};
+use crate::precon_evidence::{self, SimSource};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -24,8 +24,17 @@ pub struct Info {
     /// The simulation it reads, when one is published.
     pub simulation: Option<String>,
     pub ranked: usize,
-    pub sources: Vec<SourceLabel>,
+    pub sources: Vec<Source>,
     pub note: &'static str,
+}
+
+/// A real-game source as the public sees it: its credit and licence only. The datasets behind it
+/// (their ids, revisions and import times) belong to an account and stay private.
+#[derive(Clone, Serialize)]
+pub struct Source {
+    pub name: String,
+    pub attribution: String,
+    pub license: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -104,7 +113,16 @@ fn published(rows: &[Precon], publication: Option<&Publication>) -> Option<SimSo
 async fn derive(pool: &SqlitePool, rows: &[Precon], publication: Option<&Publication>) -> AppResult<Table> {
     let as_of = Utc::now();
     let loaded = precon_evidence::load(pool, as_of).await?;
-    let sources = loaded.report.source_labels.clone();
+    let sources: Vec<Source> = loaded
+        .report
+        .source_labels
+        .iter()
+        .map(|s| Source {
+            name: s.name.clone(),
+            attribution: s.attribution.clone(),
+            license: s.license.clone(),
+        })
+        .collect();
     let real: HashMap<String, Real> = loaded
         .by_precon
         .iter()
