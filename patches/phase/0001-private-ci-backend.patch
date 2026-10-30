@@ -1,7 +1,7 @@
 From d7f62af3f93983e14fcd565a7aa9b8c8e1a25a78 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:04:43 -0500
-Subject: [PATCH 1/9] Adapt private fork CI to the isolated saget worker
+Subject: [PATCH 01/10] Adapt private fork CI to the isolated saget worker
 
 ---
  .github/actions/prepare-private-ci/action.yml |  28 ++++
@@ -594,7 +594,8 @@ index 0000000..6130968
 From cb43f56649df0999be42b91dd87ba9d309b29a7e Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:07:07 -0500
-Subject: [PATCH 2/9] fork: scope private automation to CI and pin stable Rust
+Subject: [PATCH 02/10] fork: scope private automation to CI and pin stable
+ Rust
 
 ---
  .github/workflows/ai-gate.yml | 4 ++++
@@ -772,7 +773,7 @@ index 6130968..e910f8f 100644
 From 40b45dd7069a8343548eec96eaad1eb75a3e2537 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:10:01 -0500
-Subject: [PATCH 3/9] fork: rely on tool-cache configuration before listener
+Subject: [PATCH 03/10] fork: rely on tool-cache configuration before listener
  startup
 
 ---
@@ -795,7 +796,7 @@ index 39be49d..c15b2c3 100644
 From b9ba0f649658cae3890843beeb2b87ba2c659449 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:20:01 -0500
-Subject: [PATCH 4/9] fork: extract each test shard outside the persistent
+Subject: [PATCH 04/10] fork: extract each test shard outside the persistent
  target cache
 
 ---
@@ -838,7 +839,7 @@ index e910f8f..2942971 100644
 From 8b6f0491e713ef035aaaef59048c588376eaf924 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 16:27:29 -0500
-Subject: [PATCH 5/9] fork: retain nightly for the libtest JSON archive
+Subject: [PATCH 05/10] fork: retain nightly for the libtest JSON archive
  workload
 
 ---
@@ -887,7 +888,7 @@ index 2942971..df80835 100644
 From 0f30b3a639a6b5df3720a9c7c9ebd43d1669caaa Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 18:17:25 -0500
-Subject: [PATCH 6/9] fork: install stable lint components explicitly
+Subject: [PATCH 06/10] fork: install stable lint components explicitly
 
 ---
  .github/workflows/ci.yml | 1 +
@@ -909,7 +910,7 @@ index 5198227..4cdf637 100644
 From 9f880ae57ae1e526940320d5c4acf8b371af6d23 Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 22:08:58 -0500
-Subject: [PATCH 7/9] fork: preserve the protocol checkout history assertion
+Subject: [PATCH 07/10] fork: preserve the protocol checkout history assertion
 
 ---
  .github/workflows/ci.yml | 2 +-
@@ -933,7 +934,7 @@ index 4cdf637..f52f814 100644
 From 4fa2d6cc48c0f00dbec4228f4e348853812572ec Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Thu, 29 Oct 2026 23:37:24 -0500
-Subject: [PATCH 8/9] fork: satisfy stable Clippy with equivalent expressions
+Subject: [PATCH 08/10] fork: satisfy stable Clippy with equivalent expressions
 
 ---
  crates/engine/src/game/payment_transaction.rs | 21 +++++++++----------
@@ -998,7 +999,8 @@ index 73bb9fa..b03af65 100644
 From c3ea3259e0be8426f043a1bb4616d3d26c7b729d Mon Sep 17 00:00:00 2001
 From: Bryan Roscoe <bryanroscoe@gmail.com>
 Date: Fri, 30 Oct 2026 01:57:40 -0500
-Subject: [PATCH 9/9] fork: wait for CI capacity in cancellable workflow steps
+Subject: [PATCH 09/10] fork: wait for CI capacity in cancellable workflow
+ steps
 
 ---
  .github/workflows/action-pin-audit.yml | 12 ++++
@@ -1281,3 +1283,28 @@ index df80835..0d36561 100644
 +
 +On saget, the first workflow step waits for CI capacity before checkout. The pre-job hook returns promptly so GitHub can report and cancel queued work. This step runs from RUNNER_TEMP, which exists before checkout, and verifies the runner supports the step-slot protocol. Install/adopt the reviewed sagetserver hooks before running these adapters. Hosted jobs skip this step.
 +The Rust summary job still reports failed dependencies, but skips a cancelled workflow so obsolete runs cannot hold the CI concurrency group.
+
+From 83b72a1c1d3a5a9e9ff66f8b4625e4bb5aced999 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Fri, 30 Oct 2026 03:44:29 -0500
+Subject: [PATCH 10/10] fork: use slice fill for stable Rust lint
+
+---
+ crates/draft-core/src/types.rs | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/crates/draft-core/src/types.rs b/crates/draft-core/src/types.rs
+index 0df207c..6ada859 100644
+--- a/crates/draft-core/src/types.rs
++++ b/crates/draft-core/src/types.rs
+@@ -1384,9 +1384,7 @@ impl SeatFlags {
+     }
+ 
+     pub fn clear(&mut self) {
+-        for flag in &mut self.0 {
+-            *flag = false;
+-        }
++        self.0.fill(false);
+     }
+ 
+     pub fn len(&self) -> usize {
