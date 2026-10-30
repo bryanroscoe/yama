@@ -125,8 +125,8 @@ export function printList(text: string): CardCopy[] {
   if (cards.length !== 100 || commanders < 1 || commanders > 2) throw new Error(`This list has ${cards.length} cards and ${commanders} commanders. Use a complete 100-card build.`);
   return cards;
 }
-// Research uses canonical multiface names; plan/saved sources may use only the front.
-const copyKey = (c: CardCopy) => `${c.board}\0${c.name.split(" // ")[0]!.trim()}`;
+// Match case-insensitively across canonical multiface and front-only names; retain display text.
+const copyKey = (c: CardCopy) => `${c.board}\0${c.name.split(" // ")[0]!.trim().toLowerCase()}`;
 export function exactChanges(from: CardCopy[], to: CardCopy[]): { out: CardCopy; in: CardCopy }[] {
   const subtract = (left: CardCopy[], right: CardCopy[]) => {
     const counts = new Map<string, number>();

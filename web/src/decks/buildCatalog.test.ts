@@ -44,6 +44,14 @@ describe("exact reversible swap cards", () => {
     expect(exactChanges(front, both)).toEqual([]);
     expect(exactChanges(both, front)).toEqual([]);
   });
+  it("matches mixed capitalization while retaining display spelling and copy quantities", () => {
+    const upper = printList(list("Leader", 97, "1 Sol Ring\n1 Fable of the Mirror-Breaker // Reflection of Kiki-Jiki"));
+    const lower = printList("Commander\n1 leader\nDeck\n97 plains\n1 sol ring\n1 fable of the mirror-breaker");
+    expect(exactChanges(upper, lower)).toEqual([]);
+    expect(exactChanges(lower, upper)).toEqual([]);
+    const changed = printList("Commander\n1 leader\nDeck\n96 plains\n1 sol ring\n1 fable of the mirror-breaker\n1 Lightning Bolt");
+    expect(exactChanges(upper, changed)).toEqual([{ out: { name: "Plains", board: "main" }, in: { name: "Lightning Bolt", board: "main" } }]);
+  });
   it("mirrors columns, preserves blank slots and pairs every continuation across multiple sheets", () => {
     const swaps = exactChanges(printList(list()), printList(`Commander\n1 Leader\nDeck\n99 Island`));
     const pages = duplexPages(swaps);
