@@ -13,8 +13,8 @@ describe("duplex card content", () => {
     const back = renderToStaticMarkup(<SwapFace face={pages[1]![2]!} name="Lorehold Spirit" from={from} to={to} parts={1} versions={[]} />);
     expect(front).toContain("[2] Plan → [3] Plan");
     expect(back).toContain("[3] Plan → [2] Plan");
-    expect(front).toContain("Front · Part 1 of 1");
-    expect(back).toContain("Back · Part 1 of 1");
+    expect(front).toContain("Front, part 1 of 1");
+    expect(back).toContain("Back, part 1 of 1");
     expect(front.indexOf("Clever Concealment")).toBeLessThan(front.indexOf("Teferi"));
     expect(back.indexOf("Teferi")).toBeLessThan(back.indexOf("Clever Concealment"));
     expect(front).toContain('class="card-ref"');

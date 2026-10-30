@@ -126,7 +126,7 @@ function FamilyChoices({ family }: { family: BuildFamily }) {
 export function SwapFace({ face, name, from, to, parts, versions }: { face: DuplexFace; name: string; from: BuildChoice; to: BuildChoice; parts: number; versions: (string | null | undefined)[] }) {
   const a = face.reverse ? to : from, b = face.reverse ? from : to;
   return <article className="bc-card">
-    <h2>{name}</h2><p className="bc-direction">{a.label} → {b.label}</p><p className="bc-part">{face.reverse ? "Back" : "Front"} · Part {face.part} of {parts}</p>
+    <h2>{name}</h2><p className="bc-direction">{a.label} → {b.label}</p><p className="bc-part">{face.reverse ? "Back" : "Front"}, part {face.part} of {parts}</p>
     <table><thead><tr><th>Out</th><th>In</th></tr></thead><tbody>{face.swaps.map((s, i) => <tr key={i}><td><CardRef name={s.out.name} />{s.out.board === "commander" && <small>Commander</small>}</td><td><CardRef name={s.in.name} />{s.in.board === "commander" && <small>Commander</small>}</td></tr>)}</tbody></table>
     {!face.swaps.length && <p>No card changes.</p>}
     <footer>{from.source}<br />{to.source}{versions.some(Boolean) && <><br />Saved list: {versions.filter(Boolean).map((v) => v!.slice(0, 8)).join(" / ")}</>}<br />Complete all {parts} parts. Reverse side undoes these swaps.</footer>
