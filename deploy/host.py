@@ -173,10 +173,22 @@ def phase_checkout(repo):
     env = dict(os.environ, GIT_TERMINAL_PROMPT='0', GIT_SSH_COMMAND=(
         'ssh -i ' + str(BASE / 'phase_ed25519') + ' -o IdentitiesOnly=yes'
         ' -o StrictHostKeyChecking=yes -o UserKnownHostsFile=' + str(BASE / 'github_known_hosts')))
-    run(['git', '-C', phase, 'fetch', '--no-tags', 'git@github.com:bryanroscoe/yama-phase.git',
-         '+refs/heads/main:refs/remotes/origin/main'], env=env)
-    run(['git', '-C', phase, 'merge-base', '--is-ancestor', revision, 'origin/main'])
-    return phase, revision
+    # Rebasing the fork's main keeps the previous line under an archive/* tag; a pin on
+    # either is published, so the deployed engine stays releasable until Yama bumps it.
+    run(['git', '-C', phase, 'fetch', '--no-tags', '--prune', 'git@github.com:bryanroscoe/yama-phase.git',
+         '+refs/heads/main:refs/remotes/origin/main',
+         '+refs/tags/archive/*:refs/remotes/origin/archive/*'], env=env)
+    archives = run(['git', '-C', phase, 'for-each-ref', '--format=%(refname)',
+                    'refs/remotes/origin/archive/']).split()
+    for ref in ['refs/remotes/origin/main', *archives]:
+        try:
+            run(['git', '-C', phase, 'merge-base', '--is-ancestor', revision, ref])
+            return phase, revision
+        except Refused as refused:
+            # Exit 1 only means "not an ancestor"; a timeout, deadline or broken object stays its own error.
+            if str(refused) != 'Command failed: git (exit 1)':
+                raise
+    raise Refused('Engine pin is not on the engine repository\'s main or an archive/* tag')
 
 
 def bootstrap_sidecars(directory):

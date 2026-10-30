@@ -74,7 +74,9 @@ Today Yama is in no public store, which keeps it lower-profile for the legal sid
 `bryanroscoe/yama-phase` repository with upstream history and licenses preserved. Its `origin`
 is the private fork and `upstream` is `phase-rs/phase`. Yama's patch-export workflow is retired.
 Development uses adjacent checkouts; releases fetch the repository in `deploy/phase-repo`,
-require the full `deploy/phase-rev` SHA on its published main, and archive that exact commit.
+require the full `deploy/phase-rev` SHA on its published main or on a published `archive/*` tag,
+and archive that exact commit. (2026-10-30: rebasing the fork's main keeps the previous line under
+an `archive/*` tag, so the deployed engine stays releasable until Yama bumps the pin.)
 `YAMA_PHASE_DIR` can select another release checkout without changing its remotes or files.
 Performance work targets 2–3× Forge throughput on matched workloads and resources while
 preserving legal decisions, seeded results and honest failure counts; that target is not yet

@@ -16,7 +16,8 @@ Current releases use the separate full commit pin described below.
 The engine now lives in the private [Yama Phase repository](https://github.com/bryanroscoe/yama-phase).
 Clone that repository beside Yama as `../yama-phase`, then check out the full SHA in
 `deploy/phase-rev`. `deploy/phase-repo` records the source; release checks fetch it and require
-the pin to be published on its `main` before exporting the engine. `YAMA_PHASE_DIR` can select
+the pin to be published on its `main` or on a published `archive/*` tag (where a rebase of
+main keeps the previous line) before exporting the engine. `YAMA_PHASE_DIR` can select
 another checkout for release exports. The old patch files are retired; the initial fork preserves
 their complete source and upstream history. The [recovery report](engine-recovery-2026-10-25.md)
 remains historical validation evidence, not a claim that every current game succeeds.
