@@ -938,9 +938,10 @@ fn evidence_text(ev: &crate::precon_evidence::PreconEvidence) -> String {
         let datasets: Vec<String> = r.source.datasets.iter().map(|d| format!("{} revision {}", d.id, d.revision)).collect();
         let _ = write!(
             out,
-            "Real-game history from {} ({}; datasets {}): all-time {:.2}% wins over {} games as of {}.",
+            "Real-game history from {} ({}; licence {}; datasets {}): all-time {:.2}% wins over {} games as of {}.",
             r.source.name,
             r.source.attribution,
+            r.source.license,
             datasets.join(", "),
             r.latest.rate,
             r.latest.games,
@@ -965,8 +966,11 @@ fn evidence_text(ev: &crate::precon_evidence::PreconEvidence) -> String {
     if let Some(c) = &ev.commander {
         let _ = writeln!(
             out,
-            "Commander figure from {} ({} days to {}): {} won {:.2}% of {} games. {}",
-            c.source,
+            "Commander figure from {} ({}; licence {}; datasets {}; {} days to {}): {} won {:.2}% of {} games. {}",
+            c.source.name,
+            c.source.attribution,
+            c.source.license,
+            c.source.datasets.iter().map(|d| format!("{} revision {}", d.id, d.revision)).collect::<Vec<_>>().join(", "),
             c.window_days,
             c.as_of.date_naive(),
             c.name,

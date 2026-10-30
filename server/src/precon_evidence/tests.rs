@@ -527,5 +527,6 @@ async fn the_newest_commander_figure_across_sources_stands_in() {
     import(&pool, &owner, &other).await;
     let ev = load(&pool, at("2026-10-29")).await.unwrap();
     let c = ev.by_precon["new-deck"].commander.as_ref().unwrap();
-    assert_eq!((c.source.as_str(), c.games), ("Other tracker", 120));
+    assert_eq!((c.source.name.as_str(), c.games), ("Other tracker", 120));
+    assert_eq!(c.source.license, "Private", "the stand-in carries its source's provenance");
 }

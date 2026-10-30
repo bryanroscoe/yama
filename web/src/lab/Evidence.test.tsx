@@ -32,8 +32,9 @@ describe("EvidenceSection", () => {
     expect(html).toContain("over 120 games");
   });
   it("shows a commander's figure apart, and nothing when there's no evidence", () => {
-    const html = renderToStaticMarkup(<EvidenceSection evidence={{ real: null, commander: { source: "Playgroup.gg", entity: "playgroup:commander:1", name: "Test Commander", url: null, window_days: 180, rate: 27.5, games: 300, as_of: "2026-10-28T17:00:00Z", note: "Every list recorded under this commander." } }} />);
+    const html = renderToStaticMarkup(<EvidenceSection evidence={{ real: null, commander: { source: { name: "Playgroup.gg", attribution: "Playgroup.gg / Arcane Digital B.V.", license: "CC BY 4.0", datasets: [] }, entity: "playgroup:commander:1", name: "Test Commander", url: null, window_days: 180, rate: 27.5, games: 300, as_of: "2026-10-28T17:00:00Z", note: "Every list recorded under this commander." } }} />);
     expect(html).toContain("Commander, all lists: Test Commander won 27.5% of 300 games");
+    expect(html).toContain("CC BY 4.0");
     expect(renderToStaticMarkup(<EvidenceSection evidence={null} />)).toBe("");
   });
   it("words trends", () => {

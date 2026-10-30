@@ -60,7 +60,7 @@ function History({ real }: { real: RealHistory }) {
 function Commander({ c }: { c: CommanderObservation }) {
   return (
     <p className="lab-note">
-      Commander, all lists: {c.url ? <a href={c.url} target="_blank" rel="noreferrer">{c.name}</a> : c.name} won {rate(c.rate)} of {c.games.toLocaleString()} games on {c.source} in the {c.window_days} days to {fmtDate(c.as_of)}. {c.note}
+      Commander, all lists: {c.url ? <a href={c.url} target="_blank" rel="noreferrer">{c.name}</a> : c.name} won {rate(c.rate)} of {c.games.toLocaleString()} games on {c.source.name} in the {c.window_days} days to {fmtDate(c.as_of)}. {c.note} {c.source.attribution}, {c.source.license}.
     </p>
   );
 }

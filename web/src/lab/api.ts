@@ -102,7 +102,7 @@ export interface RealHistory {
   trend_points_per_30_days: number | null; notes: string[]; as_of: string; method: string;
 }
 export interface CommanderObservation {
-  source: string; entity: string; name: string; url: string | null; window_days: number; rate: number; games: number; as_of: string; note: string;
+  source: RealHistory["source"]; entity: string; name: string; url: string | null; window_days: number; rate: number; games: number; as_of: string; note: string;
 }
 export interface PreconEvidence { real: RealHistory | null; also?: RealHistory[]; commander: CommanderObservation | null }
 export interface CalibrationScore { predictor: string; spearman: number | null; spearman_ci: [number, number] | null; mse: number | null }

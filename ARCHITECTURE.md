@@ -893,7 +893,9 @@ shared page. A source made after the split is scored for description but can't p
 since it could reflect what was learnt after the split; a tournament counts only the games it had
 finished by the split. Global strengths count only for precons whose catalog list still matches
 the stock reference. Real-rate variance adds one pseudo-win and one pseudo-loss, so a 0% or 100%
-rate on few games is never treated as exact. Each enabled source name is derived on its
+rate on few games is never treated as exact. Real snapshots are dated by the source's own
+`source_as_of`, not by when a dataset was imported: recovered archives are what the source had
+published before the split, so a later import of them is still pre-split evidence. Each enabled source name is derived on its
 own and keeps its own label; a precon shows the source with the newest snapshot, the others
 beside it.
 

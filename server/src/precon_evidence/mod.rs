@@ -91,7 +91,7 @@ pub struct RealHistory {
 /// The commander's own figure, for precons the source doesn't rate as a stock list.
 #[derive(Debug, Clone, Serialize)]
 pub struct CommanderObservation {
-    pub source: String,
+    pub source: SourceLabel,
     pub entity: String,
     pub name: String,
     pub url: Option<String>,
@@ -540,7 +540,7 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
                 if let Some((entity, windows)) = entity.as_ref().and_then(|e| commanders.get(e).map(|w| (e, w))) {
                     if let Some((days, w)) = COMMANDER_WINDOWS.iter().find_map(|d| windows.get(d).map(|w| (*d, w))) {
                         ev.commander = Some(CommanderObservation {
-                            source: label.name.clone(),
+                            source: label.clone(),
                             entity: entity.clone(),
                             name: w.3.clone(),
                             url: w.4.clone(),
