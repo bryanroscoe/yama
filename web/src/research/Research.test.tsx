@@ -89,3 +89,8 @@ describe("deck research evidence", () => {
   });
 
 });
+
+it("counts a colon-suffixed research commander in the same board as the printer", () => {
+  const rows = listEntries("Commander:\n1 Leader\nDeck:\n99 Plains");
+  expect(rows).toEqual([{ name: "Leader", qty: 1, commander: true }, { name: "Plains", qty: 99, commander: false }]);
+});

@@ -66,7 +66,7 @@ export function buildFamilies(research: ResearchBundle[], plan: PlanBundle | und
   for (const bundle of research) for (const deck of bundle.document.decks) {
     if (!deck.builds.some((b) => [2, 3, 4].includes(b.bracket ?? 0))) continue;
     const matches = anchors.filter((f) => aliases.get(f.key)?.has(deck.name));
-    const f = matches.length === 1 ? matches[0]! : family(`research:${JSON.stringify([deck.key, deck.name])}`, deck.name, `Unlinked research ${deck.key}`);
+    const f = matches.length === 1 ? matches[0]! : family(`research:${JSON.stringify([bundle.document.id, deck.key])}`, deck.name, `Research ${bundle.document.title} (${bundle.document.id}, ${deck.key})`);
     for (const b of deck.builds) {
       const isBracket = [2, 3, 4].includes(b.bracket ?? 0) && !["stock", "current"].includes(b.id);
       f.choices.push({
@@ -112,8 +112,8 @@ export function printList(text: string): CardCopy[] {
   const cards: CardCopy[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim(); if (!line) continue;
-    if (/^commander$/i.test(line)) { board = "commander"; continue; }
-    if (/^(deck|mainboard)$/i.test(line)) { board = "main"; continue; }
+    if (/^commander:?$/i.test(line)) { board = "commander"; continue; }
+    if (/^(deck|mainboard):?$/i.test(line)) { board = "main"; continue; }
     const m = line.match(/^(\d+)\s+(.+)$/);
     if (!m || !board) throw new Error(`Cannot read this deck line: ${line}`);
     const qty = Number(m[1]); if (qty < 1 || qty > 100) throw new Error("Invalid card quantity.");

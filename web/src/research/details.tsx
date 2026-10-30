@@ -8,7 +8,7 @@ export function listEntries(list: string): ListEntry[] {
   let section = "";
   return list.split(/\r?\n/).flatMap((raw) => {
     const line = raw.trim();
-    if (/^(commander|deck|mainboard)$/i.test(line)) { section = line.toLowerCase(); return []; }
+    if (/^(commander|deck|mainboard):?$/i.test(line)) { section = line.replace(/:$/, "").toLowerCase(); return []; }
     const match = line.match(/^(\d+)\s+(.+)$/);
     if (!match) return [];
     return [{ name: match[2]!.replace(/\s+\([A-Z0-9]+\)\s+\S+(?:\s+\*[FE]\*)?$/i, ""), qty: Number(match[1]), commander: section === "commander" }];

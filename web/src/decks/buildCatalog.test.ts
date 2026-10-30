@@ -26,6 +26,15 @@ describe("exact reversible swap cards", () => {
   it("blocks incomplete or unrecognised lists instead of silently dropping lines", () => {
     for (const text of [list("Leader", 98), list() + "\nSideboard\n1 Card", list() + "\ninvalid", "1 Leader\n99 Plains", list("Leader", 0)]) expect(() => printList(text)).toThrow();
   });
+  it("accepts colon-suffixed research sections without relaxing unknown-line or count checks", () => {
+    const plain = printList(list());
+    for (const deck of ["Deck:", "Mainboard:"]) {
+      expect(printList(`Commander:\n1 Leader\n${deck}\n99 Plains`)).toEqual(plain);
+    }
+    expect(() => printList("Commander:\n1 Leader\nDeck:\n98 Plains")).toThrow();
+    expect(() => printList(list() + "\nUnexpected:")).toThrow();
+    expect(() => printList(list() + "\nSideboard:\n1 Card")).toThrow();
+  });
   it("ignores printing differences, and accepts canonical multiface names", () => {
     expect(exactChanges(printList(list("Leader (TST) 1", 98, "1 Front // Back (TST) 2 *F*")), printList(list("Leader", 98, "1 Front // Back")))).toEqual([]);
   });
@@ -132,6 +141,15 @@ describe("build catalog", () => {
     expect(resolveBuildFamily(families, null, null, "second")?.key).toBe("saved:b");
     expect(resolveBuildFamily(families, null, null, "unlinked")?.key).toBe("plan:unlinked");
     expect(resolveBuildFamily(families, "Twins", null)).toBeUndefined();
+  });
+  it("scopes unlinked research by report even when names and deck keys are identical", () => {
+    const report = (id: string) => ({ document: { id, title: "Same title", decks: [{ key: "same-key", name: "Same name", builds: [{ id: "b2", label: "B2", bracket: 2, list: list(id) }] }] }, revision: 1, updated_at: "2026-10-30" }) as ResearchBundle;
+    const families = buildFamilies([report("first"), report("second")], undefined, []);
+    expect(families).toHaveLength(2);
+    expect(new Set(families.map((f) => f.detail)).size).toBe(2);
+    expect(families.map((f) => f.choices.length)).toEqual([1, 1]);
+    expect(resolveBuildFamily(families, "Same name", null)).toBeUndefined();
+    for (const family of families) expect(resolveBuildFamily(families, family.key, null)).toBe(family);
   });
   it("serializes the full list including all basic copies", () => {
     expect(printList(slotsText([{ name: "Leader", qty: 1, board: "commander" }, { name: "Plains", qty: 99, board: "main" }]))).toHaveLength(100);

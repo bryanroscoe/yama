@@ -1021,5 +1021,7 @@ MCP `start_lab_run` accepts labelled pasted `entrant_lists` in tournament/versus
 Build catalog identity: saved roots use their stable deck IDs, and configurations follow their
 parent ID. Explicit plan links resolve to those roots; unlinked plans have their own plan key.
 Exact-name fallback is allowed only when unambiguous. Research with an ambiguous name stays
-in an unlinked research family rather than merging live decks. Saved and plan entry links use
+in an unlinked research family scoped by report ID and deck key rather than merging live decks
+or independent reports. Research and printer section headers accept optional trailing colons.
+Saved and plan entry links use
 IDs/keys; duplicate display names include a source/identity suffix in the deck selector.
