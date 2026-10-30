@@ -10,6 +10,7 @@ mod datasets;
 mod deck_checks;
 mod deck_prices;
 mod deck_research;
+mod deck_scan;
 mod deck_stats;
 mod deck_import;
 mod decks;
