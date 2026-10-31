@@ -6,7 +6,8 @@
     "dev": "npm run dev -w web",
     "build": "npm run build -w web",
     "test": "vitest run",
-    "typecheck": "tsc -p packages/core && tsc -p web"
+    "typecheck": "tsc -p packages/core && tsc -p web",
+    "polish": "npm run polish -w web --"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
