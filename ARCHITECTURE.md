@@ -973,6 +973,10 @@ pages rank with real games alone; the signed-in Lab falls back to the newest glo
 published benchmark still shows as its own simulation result. Rating v2 ranks by the low end of each
 precon's 90% interval (Bryan, same day), so a precon with a few lucky games can't top the list.
 
+### Polish runs (2026-10-31)
+
+`npm run polish` (`web/scripts/polish/`, docs/polish.md) screenshots every page at laptop, tablet and phone sizes, scrolling down each one and opening its menus, sheets, tabs and disclosures, and checks layout and copy as it goes (overflow, clipped or overlapping text, small targets, the Night table rules, copy slips, off-scale spacing). It's for Claude's polish passes and for Bryan to page through. A run is read-only: writes are blocked at the browser, so it can run on production as Bryan with a short session minted on the server (`yama-server user session`).
+
 ## 11. Risks
 
 - **Legal and IP:**

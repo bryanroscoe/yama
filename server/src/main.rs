@@ -135,6 +135,9 @@ USAGE:
   yama-server user enable EMAIL              Turn it back on
   yama-server user list                      Every account, how it signs in, and whether
                                              it's invited or turned off
+  yama-server user session EMAIL [--hours N]  Print a session token for EMAIL's existing
+                                             account, good for N hours (default 2, at most
+                                             24), for the polish screenshots (docs/polish.md)
   yama-server advisor share EMAIL [--daily N] [--by ADMIN_EMAIL]
                                              Let EMAIL ask Claude on the shared API key
                                              (advisor/shared.rs), N questions a day (else
@@ -341,6 +344,14 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     println!("there's no account for {email}");
                 }
+                Ok(())
+            }
+            Some("session") => {
+                let email = args.get(2).filter(|a| !a.starts_with("--")).context("usage: yama-server user session EMAIL [--hours N]")?;
+                let hours = flag_value(&args, "--hours").map(|h| h.parse::<i64>()).transpose().context("--hours takes a whole number")?.unwrap_or(2);
+                // Only the token on stdout, so a script can read it (web/scripts/polish).
+                println!("{}", auth::cli_session(&pool, email, hours).await?);
+                eprintln!("A session for {email}, good for {hours} hours. It signs in as them: keep it private.");
                 Ok(())
             }
             Some("list") => auth::list_users(&pool).await,
