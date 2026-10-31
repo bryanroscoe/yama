@@ -409,15 +409,15 @@ fn a_deck_matches_a_plan_list_by_cards_not_label() {
 
 fn note() -> serde_json::Value {
     json!({
-        "schema": "yama-research/1", "id": "easy", "title": "Easy builds for Justin", "generated_at": "2026-10-31T00:00:00Z",
-        "summary": "Upgrades that play themselves.",
+        "schema": "yama-research/1", "id": "upgrades", "title": "Precon upgrade notes", "generated_at": "2026-10-31T00:00:00Z",
+        "summary": "Stronger builds for the stock lists.",
         "scenarios": [{"id": "shop", "label": "Secret shopping list", "buys": [{"card": "Sol Ring", "store": "Secret Store", "price": 1.25}]}],
         "decks": [{
             "key": "party", "name": "Party Time", "commander": "Nalia de'Arnise", "recommended_build": "b3",
             "ownership": "Owner holds a secret binder", "installed_state": "Installed secretly",
             "pilot": "Play a party member every turn.",
             "builds": [{
-                "id": "b3", "label": "Bracket 3 · easy+", "bracket": 3, "why": "Cleaner removal.",
+                "id": "b3", "label": "Bracket 3 · Upgraded", "bracket": 3, "why": "Cleaner removal.",
                 "list": "Commander\n1 Nalia de'Arnise\nDeck\n1 Swords to Plowshares\n98 Plains",
                 "acquisition": {"buys": [{"card": "Swords to Plowshares", "store": "Hidden Hobby Shop", "price": 3.5}]},
                 "swaps": [{"id": "stp", "card_in": "Swords to Plowshares", "card_out": "Stick Together", "why": "One-mana exile.", "why_out": "Symmetrical.",
@@ -434,7 +434,7 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     let (_, other) = user(&pool, "other@example.com").await;
     sqlx::query("UPDATE users SET handle = 'saget' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
     crate::deck_research::save(&pool, &bryan, &note()).await.unwrap();
-    let (s, _) = send(&app, Method::POST, "/api/research/easy/reviews", Some(&bt), Some(json!({
+    let (s, _) = send(&app, Method::POST, "/api/research/upgrades/reviews", Some(&bt), Some(json!({
         "op_id": "op1", "target": "swap:party:b3:stp", "decision": "want", "note": "my private review note",
         "expected_version": 0,
         "target_hash": crate::util::sha256_hex(&note()["decks"][0]["builds"][0]["swaps"][0].to_string())
@@ -447,19 +447,19 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     assert!(list[0]["share_token"].is_null());
 
     // Someone else can't share it; it isn't theirs.
-    let (s, _) = send(&app, Method::PUT, "/api/research/easy/sharing", Some(&other), Some(json!({"visibility": "public"}))).await;
+    let (s, _) = send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&other), Some(json!({"visibility": "public"}))).await;
     assert_eq!(s, StatusCode::NOT_FOUND);
-    let (s, _) = send(&app, Method::PUT, "/api/research/easy/sharing", Some(&bt), Some(json!({"visibility": "everyone"}))).await;
+    let (s, _) = send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&bt), Some(json!({"visibility": "everyone"}))).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
 
     // Link: the note, its deck page and the download work signed out; the profile doesn't list it.
-    let (s, shared) = send(&app, Method::PUT, "/api/research/easy/sharing", Some(&bt), Some(json!({"visibility": "link"}))).await;
+    let (s, shared) = send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&bt), Some(json!({"visibility": "link"}))).await;
     assert_eq!(s, StatusCode::OK);
     let token = shared["share_token"].as_str().unwrap().to_string();
     assert_eq!(shared["link"], format!("/r/{token}"));
     let (status, headers, body) = page(&app, &format!("/r/{token}")).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("Easy builds for Justin") && body.contains("Party Time") && body.contains("@saget"));
+    assert!(body.contains("Precon upgrade notes") && body.contains("Party Time") && body.contains("@saget"));
     assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
     let (status, _, deck) = page(&app, &format!("/r/{token}/party")).await;
     assert_eq!(status, StatusCode::OK);
@@ -489,17 +489,17 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     assert!(!page(&app, "/u/saget").await.2.contains(&format!("/r/{token}")));
 
     // Public: listed on the profile. Refreshing the note keeps its sharing and link.
-    send(&app, Method::PUT, "/api/research/easy/sharing", Some(&bt), Some(json!({"visibility": "public"}))).await;
+    send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&bt), Some(json!({"visibility": "public"}))).await;
     assert!(page(&app, "/u/saget").await.2.contains(&format!("/r/{token}")));
     let mut changed = note();
-    changed["title"] = json!("Easy builds, revised");
+    changed["title"] = json!("Upgrades, revised");
     crate::deck_research::save(&pool, &bryan, &changed).await.unwrap();
-    let (_, bundle) = send(&app, Method::GET, "/api/research/easy", Some(&bt), None).await;
+    let (_, bundle) = send(&app, Method::GET, "/api/research/upgrades", Some(&bt), None).await;
     assert_eq!((bundle["visibility"].as_str(), bundle["share_token"].as_str()), (Some("public"), Some(token.as_str())));
-    assert!(page(&app, &format!("/r/{token}")).await.2.contains("Easy builds, revised"));
+    assert!(page(&app, &format!("/r/{token}")).await.2.contains("Upgrades, revised"));
 
     // A new link ends the old one; private ends both; a disabled account shares nothing.
-    let (_, reset) = send(&app, Method::POST, "/api/research/easy/share-link", Some(&bt), None).await;
+    let (_, reset) = send(&app, Method::POST, "/api/research/upgrades/share-link", Some(&bt), None).await;
     let fresh_token = reset["share_token"].as_str().unwrap().to_string();
     assert_ne!(fresh_token, token);
     assert_eq!(page(&app, &format!("/r/{token}")).await.0, StatusCode::NOT_FOUND);
@@ -507,10 +507,10 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     sqlx::query("UPDATE users SET disabled_at = 'now' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
     assert_eq!(page(&app, &format!("/r/{fresh_token}")).await.0, StatusCode::NOT_FOUND);
     sqlx::query("UPDATE users SET disabled_at = NULL WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
-    send(&app, Method::PUT, "/api/research/easy/sharing", Some(&bt), Some(json!({"visibility": "private"}))).await;
+    send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&bt), Some(json!({"visibility": "private"}))).await;
     let (status, _, body) = page(&app, &format!("/r/{fresh_token}")).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(!body.contains("Easy builds"));
+    assert!(!body.contains("Precon upgrade notes"));
     assert!(!page(&app, "/u/saget").await.2.contains("/r/"));
 }
 
