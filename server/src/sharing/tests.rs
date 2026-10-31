@@ -411,6 +411,7 @@ fn note() -> serde_json::Value {
     json!({
         "schema": "yama-research/1", "id": "upgrades", "title": "Precon upgrade notes", "generated_at": "2026-10-31T00:00:00Z",
         "summary": "Stronger builds for the stock lists.",
+        "method": ["Buy locally under $2; secret price ceiling."],
         "scenarios": [{"id": "shop", "label": "Secret shopping list", "buys": [{"card": "Sol Ring", "store": "Secret Store", "price": 1.25}]}],
         "decks": [{
             "key": "party", "name": "Party Time", "commander": "Nalia de'Arnise", "recommended_build": "b3",
@@ -466,7 +467,7 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     for shown in ["Cleaner removal.", "Play a party member every turn.", "One-mana exile.", "Symmetrical.", "Swords to Plowshares", "Stick Together"] {
         assert!(deck.contains(shown), "{shown}");
     }
-    for hidden in ["my private review note", "Secret Store", "Hidden Hobby Shop", "Secret shopping list", "secret binder", "Installed secretly", "3.5"] {
+    for hidden in ["my private review note", "secret price ceiling", "Secret Store", "Hidden Hobby Shop", "Secret shopping list", "secret binder", "Installed secretly", "3.5"] {
         assert!(!body.contains(hidden) && !deck.contains(hidden), "{hidden}");
     }
     let (status, _, file) = page(&app, &format!("/r/{token}/party/b3-names.txt")).await;
@@ -518,7 +519,7 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
 fn the_public_view_of_a_note_is_an_allow_list() {
     let view = crate::deck_research::public_view(&note());
     let text = view.to_string();
-    for hidden in ["scenarios", "acquisition", "ownership", "installed_state", "Hidden Hobby Shop", "Secret"] {
+    for hidden in ["scenarios", "acquisition", "ownership", "installed_state", "method", "Hidden Hobby Shop", "Secret"] {
         assert!(!text.contains(hidden), "{hidden}");
     }
     assert_eq!(view["decks"][0]["builds"][0]["swaps"][0]["why"], "One-mana exile.");

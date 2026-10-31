@@ -36,7 +36,7 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
         <span className="hint">{c.hint}</span>
       </label>)}
     </fieldset>
-    <p className="small dim">A shared note shows its decks, builds, changes, full lists and how to pilot them. Your answers and notes on it, what you own, store prices and shopping lists stay private.</p>
+    <p className="small dim">A shared note shows its title and summaries, decks, builds, changes with their reasons, full lists and how to pilot them, as written, so read them before sharing. Your answers and notes on it, its ownership and acquisition fields, method notes, store quotes and shopping lists stay private.</p>
     {visibility !== "private" && link && <div className="stack share-link">
       <label>Link<input readOnly value={link} onFocus={(e) => e.currentTarget.select()} /></label>
       <div className="row">

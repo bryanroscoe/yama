@@ -106,5 +106,5 @@ it("shows a shared note's link and says what stays private", () => {
   vi.unstubAllGlobals();
   expect(html).toContain("Share this note (anyone with the link)");
   expect(html).toContain("https://yama.ing/r/0123456789abcdef01234567");
-  expect(html).toContain("Your answers and notes on it, what you own, store prices and shopping lists stay private.");
+  expect(html).toContain("as written, so read them before sharing");
 });

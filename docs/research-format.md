@@ -17,12 +17,13 @@ from "Share this note" on the note's page, `PUT /api/research/{id}/sharing {visi
 `yama-server research share --owner EMAIL --id ID --visibility link [--reset-link]` on the
 server. `POST /api/research/{id}/share-link` makes a new link and ends the old one. Refreshing
 a note keeps its visibility and link. The public pages show only the guide part of the
-document, through an allow-list (`deck_research::public_view`): title, summary, method, and per
+document, through an allow-list (`deck_research::public_view`): title, summary, and per
 deck its name, commander, summary, warnings, mechanics, sources, recommended build, pilot notes
 and builds (label, bracket, why, risks, Game Changers and their reasons, gameplay profile, swaps
 with their reasons, and the full list). Review answers and notes, ownership, installed state,
-acquisition evidence, scenarios, accounting, local checks, combos and any other field stay
-private. Each deck page shows one build (`/r/<token>/<deck>?build=<id>`) with its changes as a
+acquisition evidence, scenarios, accounting, local checks, `method` (which often carries
+acquisition rules and price ceilings), combos and any other field stay private. Free text in the
+fields shown is published as written, so an owner should read summaries before sharing. Each deck page shows one build (`/r/<token>/<deck>?build=<id>`) with its changes as a
 table and the list as stacks or a list; `/r/<token>/<deck>/<build>-{names,moxfield}.txt`
 downloads it.
 

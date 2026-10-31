@@ -46,11 +46,12 @@ fn scryfall_image(u: Option<String>) -> Option<String> {
     u.filter(|u| u.starts_with("https://cards.scryfall.io/"))
 }
 
-/// A commander's art (crop, artist, name) and color identity, for the page and tile headers.
+/// A commander's art (crop, artist, name) and its color identity as pips, for the page and tile
+/// headers. A commander Yama doesn't know gets no pips: an empty identity would read colorless.
 async fn commander_art(pool: &SqlitePool, name: &str) -> AppResult<(Option<(String, Option<String>, String)>, String)> {
     let Some((_, _, _, _, ci, crop, artist)) = card_by_name(pool, name).await? else { return Ok((None, String::new())) };
     let art = scryfall_image(crop).filter(|_| artist.is_some()).map(|u| (u, artist, name.to_string()));
-    Ok((art, "WUBRG".chars().filter(|c| ci.contains(*c)).collect()))
+    Ok((art, pips(&"WUBRG".chars().filter(|c| ci.contains(*c)).collect::<String>())))
 }
 
 /// The most lines of a build's list a shared page reads. A Commander list is about 100 lines;
@@ -155,14 +156,6 @@ pub(super) async fn note(State(st): State<AppState>, address: ClientAddress, hea
         when(&saved),
     )
     .unwrap();
-    let method = strings(&doc, "method");
-    if !method.is_empty() {
-        body.push_str("<details class=\"share-note-method\"><summary>How these builds were made</summary><ul>");
-        for m in &method {
-            write!(body, "<li>{}</li>", e(m)).unwrap();
-        }
-        body.push_str("</ul></details>");
-    }
     body.push_str("<ul class=\"share-decks\">");
     let mut arts = Vec::new();
     for d in &decks {
@@ -178,7 +171,7 @@ pub(super) async fn note(State(st): State<AppState>, address: ClientAddress, hea
         write!(
             body,
             "<span class=\"share-deck-copy\">{}<b>{}</b><span>{}</span><small>{}</small></span></a>",
-            pips(&identity),
+            identity,
             e(text(d, "name")),
             e(text(d, "commander")),
             match recommended {
@@ -273,7 +266,7 @@ pub(super) async fn deck(
         by(&handle),
         e(name),
         e(commander),
-        pips(&identity),
+        identity,
         e(text(b, "label")),
         when(&saved),
         credit(&art),
@@ -296,8 +289,11 @@ pub(super) async fn deck(
     if let Some(l) = bracket_label(b) {
         write!(body, "<span class=\"pill\">{}</span>", e(&l)).unwrap();
     }
+    // Only when the note lists them: a missing list isn't zero Game Changers.
     let gcs = strings(b, "game_changers");
-    write!(body, "<span class=\"pill\">{} Game Changer{}</span>", gcs.len(), if gcs.len() == 1 { "" } else { "s" }).unwrap();
+    if b.get("game_changers").is_some_and(Value::is_array) {
+        write!(body, "<span class=\"pill\">{} Game Changer{}</span>", gcs.len(), if gcs.len() == 1 { "" } else { "s" }).unwrap();
+    }
     let swaps = b["swaps"].as_array().cloned().unwrap_or_default();
     write!(body, "<a class=\"pill dashed\" href=\"#changes-head\">{} changes from the starting list</a>", swaps.len()).unwrap();
     body.push_str("</div>");

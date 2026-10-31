@@ -795,7 +795,9 @@ async fn sharing_state(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Va
 /// What a shared note shows the public: an allow-list of the guide fields, so a field added to
 /// the format later stays private until it is added here. Never review answers or notes,
 /// ownership or installed state, acquisition evidence (store quotes, owned copies, prints),
-/// shopping scenarios, accounting, local checks or anything else the format carries.
+/// shopping scenarios, accounting, local checks, `method` (where notes keep acquisition rules,
+/// price ceilings and print preferences) or anything else the format carries. Free text in the
+/// fields shown (summaries, reasons) is published as written; the Share panel says so.
 pub fn public_view(doc: &Value) -> Value {
     fn pick(v: &Value, keys: &[&str]) -> Value {
         let mut out = serde_json::Map::new();
@@ -809,7 +811,7 @@ pub fn public_view(doc: &Value) -> Value {
     fn each(v: &Value, f: impl Fn(&Value) -> Value) -> Value {
         Value::Array(v.as_array().map(|a| a.iter().map(f).collect()).unwrap_or_default())
     }
-    let mut out = pick(doc, &["id", "title", "generated_at", "summary", "method"]);
+    let mut out = pick(doc, &["id", "title", "generated_at", "summary"]);
     out["decks"] = each(&doc["decks"], |d| {
         let mut deck = pick(d, &["key", "name", "commander", "summary", "recommended_build", "pilot", "warnings", "mechanics", "sources"]);
         deck["builds"] = each(&d["builds"], |b| {
