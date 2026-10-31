@@ -531,13 +531,15 @@ export function PlayerSearch({ label = "Player", text, people, onText, onPick, p
     .filter((p) => !q || p.name.toLowerCase().includes(q) || (!!p.handle && !!handlePrefix(q) && p.handle.startsWith(handlePrefix(q)!)))
     .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)));
   const found = usePeopleSearch(text);
+  // Someone already at another seat (by their handle) isn't offered again, known or found.
+  const free = known.filter((p) => !p.handle || !seatedHandles.includes(p.handle));
   // Someone found by handle who's already in the list (a member with that handle) shows once.
   const listed = new Set(people.flatMap((p) => (p.handle ? [p.handle] : [])).concat(seatedHandles));
   const remote: Person[] = handlePrefix(text)
     ? (found.data ?? []).filter((f) => !listed.has(f.handle)).map((f) => ({ name: `@${f.handle}`, handle: f.handle, sub: "On Yama" }))
     : [];
   // A guest once typed as "@sam" gives way to @sam's profile.
-  const shown = known.filter((p) => p.handle || !remote.some((r) => r.name.toLowerCase() === p.name.toLowerCase()));
+  const shown = free.filter((p) => p.handle || !remote.some((r) => r.name.toLowerCase() === p.name.toLowerCase()));
   const matches = [...shown.slice(0, 8 - Math.min(remote.length, 3)), ...remote].slice(0, 8);
   // Picking the exact name already in the field changes nothing, so it isn't offered again.
   const options: Option<Person>[] = matches

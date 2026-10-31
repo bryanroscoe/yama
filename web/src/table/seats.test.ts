@@ -34,6 +34,12 @@ describe("patchSeat", () => {
     expect(seats[0]).toMatchObject({ userId: undefined, deckId: undefined, name: "" });
   });
 
+  it("someone found by their handle sits once", () => {
+    const seats = patchSeat([{ ...emptySeat(), name: "Kim", handle: "kim" }, emptySeat()], 1, { name: "Kim", handle: "kim" });
+    expect(seats.map((s) => s.handle)).toEqual([undefined, "kim"]);
+    expect(seats[0]!.name).toBe("");
+  });
+
   it("a playgroup member sits once", () => {
     const seats = patchSeat([{ ...emptySeat(), name: "Jo", memberId: "m-jo" }, emptySeat()], 1, { memberId: "m-jo", name: "Jo" });
     expect(seats.map((s) => s.memberId)).toEqual([undefined, "m-jo"]);

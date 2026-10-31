@@ -54,15 +54,16 @@ export function emptySeat(): SeatDraft {
 }
 
 /**
- * Change one seat. A person sits once: claiming an account or a playgroup member for this seat
- * takes them off any other seat, which becomes a blank guest seat again.
+ * Change one seat. A person sits once: claiming an account, a playgroup member or a profile
+ * handle for this seat takes them off any other seat, which becomes a blank guest seat again.
  */
 export function patchSeat(seats: SeatDraft[], i: number, patch: Partial<SeatDraft>): SeatDraft[] {
   return seats.map((s, j) => {
     if (j === i) return { ...s, ...patch };
     const sameAccount = patch.userId !== undefined && s.userId === patch.userId;
     const sameMember = patch.memberId !== undefined && s.memberId === patch.memberId;
-    return sameAccount || sameMember ? { ...s, ...NOT_AN_ACCOUNT, memberId: undefined, name: "" } : s;
+    const sameHandle = patch.handle !== undefined && s.handle === patch.handle;
+    return sameAccount || sameMember || sameHandle ? { ...s, ...NOT_AN_ACCOUNT, memberId: undefined, name: "" } : s;
   });
 }
 
