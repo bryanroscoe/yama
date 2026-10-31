@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Playgroup } from "../api";
-import { afterRemoving, commandersPatch, emptySeat, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
+import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, stillHolds, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
 
 const me = { id: "u-me", display_name: "Bryan" };
 const mine: SeatDraft = { ...emptySeat(), name: "Bryan", userId: "u-me", deckId: "d1", deckVersionId: "v1", commanderName: "Atraxa" };
@@ -89,5 +89,23 @@ describe("commandersPatch", () => {
 
   it("keeps it while the commanders are the same (art and colors filled in)", () => {
     expect(commandersPatch(saved, { commanderName: "Tymna the Weaver", partnerName: "Kraum, Ludevic's Opus", art: "a.jpg" })).not.toHaveProperty("deckVersionId");
+  });
+});
+
+describe("late lookups", () => {
+  const picked: SeatDraft = { ...emptySeat(), name: "Sam", deckLabel: "Food and Fellowship", commanderName: "Frodo, Adventurous Hobbit", partnerName: "Sam, Loyal Attendant" };
+  const art = (now: SeatDraft) => (stillHolds(now, picked) ? { art: "frodo.jpg" } : null);
+
+  it("land on a seat that still holds the deck and commanders", () => {
+    expect(applySeatPatch([picked], 0, art)[0]).toMatchObject({ art: "frodo.jpg" });
+  });
+
+  it("are dropped once the partner, the deck or the seat's occupant changed, or the seat is gone", () => {
+    expect(applySeatPatch([{ ...picked, partnerName: undefined }], 0, art)[0]!.art).toBeUndefined();
+    expect(applySeatPatch([{ ...picked, deckLabel: undefined }], 0, art)[0]!.art).toBeUndefined();
+    // Seat four was removed and added back empty before the lookup finished.
+    expect(applySeatPatch([emptySeat()], 0, art)[0]!.art).toBeUndefined();
+    expect(applySeatPatch([picked], 3, art)).toEqual([picked]);
+    expect(applySeatPatch([picked], -1, { name: "x" })).toEqual([picked]);
   });
 });

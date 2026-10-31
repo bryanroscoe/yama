@@ -11,7 +11,7 @@ import { BracketChips } from "../components/Bracket";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
-import { afterRemoving, commandersPatch, emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
+import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
 import { layout } from "./TablePlay";
 import { panelArt, useShowArt } from "./art";
@@ -217,7 +217,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
   }, [wanted, decks.data, me.data, navigate, groupId, groups.data]);
 
   const group = groups.data?.find((g) => g.id === groupId);
-  const update = (i: number, patch: Partial<SeatDraft>) => setSeats((s) => patchSeat(s, i, patch));
+  const update = (i: number, patch: SeatPatch) => setSeats((s) => applySeatPatch(s, i, patch));
   const chooseGroup = (id: string) => {
     setGroupId(id);
     setSeats((s) => fitSeatsToGroup(s, groups.data?.find((g) => g.id === id), me.data));
@@ -282,7 +282,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
       index: i,
       seat: s,
       where: seatWhere(i, seats.length),
-      onChange: (p: Partial<SeatDraft>) => update(i, p),
+      onChange: (p: SeatPatch) => update(i, p),
       group,
       decks: decks.data,
       deckName: decks.data?.find((d) => d.id === s.deckId)?.name ?? s.deckLabel,
@@ -482,7 +482,7 @@ function usePeople(group: Playgroup | undefined, groups: Playgroup[] | undefined
 function SeatEditor({ index, seat, onChange, group, decks, deckName, where, people = [], seatedHandles, commander = true, footer }: {
   index: number;
   seat: SeatDraft;
-  onChange: (p: Partial<SeatDraft>) => void;
+  onChange: (p: SeatPatch) => void;
   group?: Playgroup;
   /** Your decks: yours to play, or to lend to whoever sits here. */
   decks?: DeckSummary[];
@@ -504,8 +504,6 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
   const deckShown = chosen?.name ?? seat.deckLabel;
   // What's typed in the deck field before anything is picked; null shows the deck picked.
   const [deckText, setDeckText] = useState<string | null>(null);
-  // The deck picked last: a slower lookup for an earlier pick mustn't land on top of it.
-  const lastDeck = useRef<string | null>(null);
 
   const pickPerson = (p: Person) => {
     if (group && p.memberId) {
@@ -533,9 +531,7 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
         : p.kind === "theirs"
           ? { commanders: p.deck.commanders, commander_image: p.deck.art, commander_artist: p.deck.artist }
           : { commanders: p.precon.commanders, commander_image: p.precon.art?.url ?? null, commander_artist: p.precon.art?.artist ?? null };
-    const key = p.kind === "mine" ? p.deck.id : p.kind === "theirs" ? `${p.handle}:${p.deck.name}` : p.precon.id;
-    lastDeck.current = key;
-    onChange({
+    const picked = {
       // Your deck by id (its version on the day is looked up on save); anyone else's by its list now.
       deckId: p.kind === "mine" ? p.deck.id : undefined,
       deckVersionId: p.kind === "mine" ? (p.deck.current_version_id ?? undefined) : p.kind === "theirs" ? (p.deck.version_id ?? undefined) : undefined,
@@ -545,14 +541,15 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
       colorIdentity: p.kind === "mine" ? p.deck.color_identity : p.kind === "theirs" ? p.deck.color_identity : p.precon.color_identity,
       art: d.commander_image ?? undefined,
       artist: d.commander_artist ?? undefined,
-    });
-    void deckCommanders(d).then((c) => c && lastDeck.current === key && onChange(c));
+    };
+    onChange(picked);
+    // The cards' own art and colors land only if the seat still holds this deck by then.
+    void deckCommanders(d).then((c) => c && onChange((now) => (stillHolds(now, picked) ? c : null)));
   };
   const typeDeck = (t: string) => {
     setDeckText(t);
     // Typing over a deck puts the seat back on its commander alone.
     if (deckShown) {
-      lastDeck.current = null;
       onChange({ deckId: undefined, deckVersionId: undefined, deckLabel: undefined });
     }
   };
@@ -725,7 +722,7 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
     form.seats.forEach((s, key) => {
       if (!s.commanderName || s.art) return;
       void deckCommanders({ commanders: [s.commanderName, ...(s.partnerName ? [s.partnerName] : [])] }).then(
-        (c) => c && updateSeat(key, (now) => (now.commanderName === s.commanderName && !now.art ? c : null)),
+        (c) => c && updateSeat(key, (now) => (stillHolds(now, s) && !now.art ? c : null)),
       );
     });
   }, [form]);
@@ -736,17 +733,9 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   // before it was removed meanwhile, and on none if it was removed itself.
   const keysNow = useRef(keys);
   keysNow.current = keys;
-  const updateSeat = (key: number, patch: Partial<SeatDraft> | ((s: SeatDraft) => Partial<SeatDraft> | null)) =>
-    setSeats((all) => {
-      const i = keysNow.current.indexOf(key);
-      const seat = all[i];
-      if (!seat) return all;
-      const p = typeof patch === "function" ? patch(seat) : patch;
-      return p ? patchSeat(all, i, p) : all;
-    });
+  const updateSeat = (key: number, patch: SeatPatch) => setSeats((all) => applySeatPatch(all, keysNow.current.indexOf(key), patch));
   const group = groups.data?.find((g) => g.id === groupId);
   const people = usePeople(group, groups.data);
-  const update = (i: number, patch: Partial<SeatDraft>) => setSeats((s) => patchSeat(s, i, patch));
   const addSeat = () => {
     setSeats((s) => [...s, emptySeat()]);
     setKeys((k) => [...k, nextKey.current++]);

@@ -66,6 +66,26 @@ export function patchSeat(seats: SeatDraft[], i: number, patch: Partial<SeatDraf
   });
 }
 
+/** A change to a seat, or one decided from the seat as it is by then (null: no change). */
+export type SeatPatch = Partial<SeatDraft> | ((now: SeatDraft) => Partial<SeatDraft> | null);
+
+/** Apply a seat change to the seat at `i`, if there still is one. */
+export function applySeatPatch(seats: SeatDraft[], i: number, patch: SeatPatch): SeatDraft[] {
+  const seat = seats[i];
+  if (!seat) return seats;
+  const p = typeof patch === "function" ? patch(seat) : patch;
+  return p ? patchSeat(seats, i, p) : seats;
+}
+
+/**
+ * Whether a seat still holds the deck and commanders a slow lookup was started for. A result
+ * that comes back after the seat changed (another deck, other commanders, a removed seat whose
+ * place someone else took) is dropped rather than written onto what's there now.
+ */
+export function stillHolds(now: SeatDraft, then: Pick<SeatDraft, "deckId" | "deckLabel" | "commanderName" | "partnerName">): boolean {
+  return now.deckId === then.deckId && now.deckLabel === then.deckLabel && now.commanderName === then.commanderName && (now.partnerName ?? "") === (then.partnerName ?? "");
+}
+
 /**
  * The seat's commander fields as edited. Other commanders aren't the deck the seat was saved with
  * (an edited game can hold a deck version with no name to show), so the deck goes; art and colors
