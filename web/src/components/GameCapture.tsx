@@ -2,6 +2,7 @@
 // optional: skipping leaves it unrecorded, never a default.
 
 import { WIN_CONDITIONS, type FunRating, type WinCondition } from "@yama/core";
+import { useState } from "react";
 import "./stats.css";
 
 export interface CaptureSeat {
@@ -41,10 +42,30 @@ export function WinConditionPicker({ value, onChange, winner }: { value: WinCond
   );
 }
 
+/**
+ * Who took the first turn. "Don't remember" says so out loud and leaves it unrecorded, like
+ * skipping: the turn order stats only count games that know.
+ */
 export function FirstPlayerPicker({ seats, value, onChange }: { seats: CaptureSeat[]; value: number | null; onChange: (seat: number | null) => void }) {
+  const [forgot, setForgot] = useState(false);
+  const pick = (seat: number | null) => {
+    setForgot(false);
+    onChange(seat);
+  };
   return (
     <Question title="Who went first?">
-      <Chips options={seats.map((s) => ({ key: s.seat, label: s.name }))} value={value} onChange={onChange} label="First player" />
+      <Chips options={seats.map((s) => ({ key: s.seat, label: s.name }))} value={forgot ? null : value} onChange={pick} label="First player" />
+      <button
+        type="button"
+        className="choice choice-unknown"
+        aria-pressed={forgot && value === null}
+        onClick={() => {
+          setForgot(!forgot || value !== null);
+          onChange(null);
+        }}
+      >
+        Don't remember
+      </button>
     </Question>
   );
 }

@@ -107,6 +107,8 @@ pub struct Limits {
     pub search: RateLimiter,
     /// `/api/cards/autocomplete`, per account (it runs while someone types).
     pub autocomplete: RateLimiter,
+    /// Player searches by handle and their public decks (Log a game, New game), per account.
+    pub people: RateLimiter,
     /// The 5 MB offline card bundle, per account.
     pub offline_cards: RateLimiter,
     /// Joining a playgroup or an online game by code, right or wrong, per account: a 6-letter
@@ -140,6 +142,7 @@ impl Default for Limits {
             sign_in_email: RateLimiter::new("sign-in attempts for this email", SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW),
             search: RateLimiter::new("card searches", 120, MINUTE),
             autocomplete: RateLimiter::new("card name lookups", 300, MINUTE),
+            people: RateLimiter::new("player searches", 120, MINUTE),
             offline_cards: RateLimiter::new("offline card downloads", 10, 60 * MINUTE),
             join_codes: RateLimiter::new("join codes tried", 20, 10 * MINUTE),
             imports: RateLimiter::new("imports", 60, 60 * MINUTE),
