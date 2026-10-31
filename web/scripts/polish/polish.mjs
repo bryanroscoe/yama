@@ -287,7 +287,8 @@ async function settle(page, net, { quiet = 500, max = 12_000 } = {}) {
                 const r = img.getBoundingClientRect();
                 return !img.complete && r.bottom > 0 && r.top < innerHeight && r.width > 0;
               })
-              .map((img) => new Promise((ok) => ((img.onload = ok), (img.onerror = ok)))),
+              // Listeners, not onload/onerror: the app's own fallbacks must still run.
+              .map((img) => new Promise((ok) => (img.addEventListener("load", ok, { once: true }), img.addEventListener("error", ok, { once: true })))),
           ),
           new Promise((ok) => setTimeout(ok, ms)),
         ]),
@@ -296,12 +297,13 @@ async function settle(page, net, { quiet = 500, max = 12_000 } = {}) {
     .catch(() => {});
 }
 
-/** The thing that scrolls: the window, or the biggest scrolling box filling most of the screen. */
+/** The thing that scrolls: a big scrolling box on top in the middle of the screen (a full-screen
+ *  sheet over a longer page), else the window, else the biggest scrolling box. */
 async function findScroller(page) {
   return page.evaluate(() => {
     document.querySelectorAll("[data-polish-scroller]").forEach((e) => e.removeAttribute("data-polish-scroller"));
     const doc = document.scrollingElement || document.documentElement;
-    if (doc.scrollHeight > innerHeight + 2) return { window: true, height: doc.scrollHeight, view: innerHeight };
+    const hit = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
     let best = null;
     for (const el of document.querySelectorAll("*")) {
       const s = getComputedStyle(el);
@@ -309,9 +311,11 @@ async function findScroller(page) {
       const r = el.getBoundingClientRect();
       const area = r.width * r.height;
       if (area < innerWidth * innerHeight * 0.4) continue;
-      if (!best || area > best.area) best = { el, area };
+      const onTop = !!hit && el.contains(hit);
+      if (!best || onTop > best.onTop || (onTop === best.onTop && area > best.area)) best = { el, area, onTop };
     }
-    if (!best) return { window: true, height: doc.scrollHeight, view: innerHeight };
+    const docScrolls = doc.scrollHeight > innerHeight + 2;
+    if (!best || (docScrolls && !best.onTop)) return { window: true, height: doc.scrollHeight, view: innerHeight };
     best.el.setAttribute("data-polish-scroller", "");
     return { window: false, height: best.el.scrollHeight, view: best.el.clientHeight };
   });
