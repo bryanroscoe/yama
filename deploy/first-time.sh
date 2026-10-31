@@ -3,7 +3,7 @@
 # shellcheck disable=SC2029
 # One-time server setup for Yama on saget. Changes the server: run only with Bryan's go.
 set -eu
-DEPLOY_DIR=$(cd "$(dirname "$0")" && pwd)
+DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama
 CARD_DATA=card-data-1e5608e61683de41.json

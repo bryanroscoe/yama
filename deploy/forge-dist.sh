@@ -9,7 +9,7 @@
 # Install it before merging a change to the pin: the release build fails without it (and keeps production).
 # "install" changes the server (an image and $DIR/forge-dist/<name>); it restarts nothing.
 set -eu
-DEPLOY_DIR=$(cd "$(dirname "$0")" && pwd)
+DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 cd "$DEPLOY_DIR/.."
 . "$DEPLOY_DIR/target.sh"
 NAME=$(sed -n 's/^ARG FORGE_DIST=//p' deploy/Dockerfile.forge-worker)

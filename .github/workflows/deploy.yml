@@ -87,10 +87,13 @@ jobs:
     steps:
       # Still no checkout: the job holds only the pinned cloudflared binary and
       # the deploy key, which the host restricts to its release gate.
+      # 2026.5.1 is the last release reported to honor Access service tokens
+      # for `access ssh`; 2026.6.0 and later fall back to browser login
+      # (cloudflare/cloudflared#1674). Check headless auth before upgrading.
       - name: Install pinned cloudflared
         env:
-          CLOUDFLARED_VERSION: 2026.10.7
-          CLOUDFLARED_SHA256: 1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872
+          CLOUDFLARED_VERSION: 2026.5.1
+          CLOUDFLARED_SHA256: 3c6a5ba995a258dbe90f98e5fdb2c2620b7be72c3ca761614f6eb52aee252cea
         shell: bash
         run: |
           set -euo pipefail
@@ -127,14 +130,18 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$ssh_dir/id_ed25519"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
           chmod 600 "$ssh_dir/id_ed25519" "$ssh_dir/known_hosts"
-          # ssh runs the proxy through a shell, which expands the Access service
-          # token from this step's environment; it never enters ssh's arguments.
+          # cloudflared reads the Access service token (its --id/--secret) from
+          # the environment, so it never appears in any command's arguments.
+          export TUNNEL_SERVICE_TOKEN_ID="$CF_ACCESS_CLIENT_ID"
+          export TUNNEL_SERVICE_TOKEN_SECRET="$CF_ACCESS_CLIENT_SECRET"
+          # Keepalives hold the tunnel open while the host builds silently.
           printf '%s\n' "$GH_TOKEN" | ssh -T \
             -i "$ssh_dir/id_ed25519" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$ssh_dir/known_hosts" \
-            -o 'ProxyCommand=cloudflared access ssh --hostname %h --id "$CF_ACCESS_CLIENT_ID" --secret "$CF_ACCESS_CLIENT_SECRET"' \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+            -o 'ProxyCommand=cloudflared access ssh --hostname %h' \
             "root@$DEPLOY_SSH_HOST" \
             "/mnt/user/appdata/yama-release/host.py deploy $RELEASE_SHA" | tee "$release_log"
           result="$(sed -n 's/^YAMA_RELEASE_RESULT=//p' "$release_log" | tail -n 1)"

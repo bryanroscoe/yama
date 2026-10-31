@@ -114,8 +114,8 @@ checking and report the same `YAMA_RELEASE_RESULT`. No backend checks out code.
 - **`cloudflare`:** a one-use GitHub-hosted `ubuntu-24.04` job in the GitHub environment
   `production`. It installs a pinned `cloudflared` release, checks its SHA-256, writes the
   deploy key and known hosts to a mode-600 temporary directory that is removed on exit, and
-  connects with `ProxyCommand cloudflared access ssh --hostname %h` and an Access service
-  token. It needs these secrets, set on the `production` environment:
+  connects with `ProxyCommand cloudflared access ssh --hostname %h`, passing the Access service
+  token through cloudflared's `TUNNEL_SERVICE_TOKEN_ID`/`TUNNEL_SERVICE_TOKEN_SECRET` environment. It needs these secrets, set on the `production` environment:
 
   | Secret | Value |
   |---|---|
@@ -130,9 +130,12 @@ checking and report the same `YAMA_RELEASE_RESULT`. No backend checks out code.
   the account's plan offers no environment secrets for this private repository, set them as
   repository secrets at the moment of switching instead (replacing the runner's host).
 
-To update the pinned `cloudflared`, change `CLOUDFLARED_VERSION` and `CLOUDFLARED_SHA256`
-together in `deploy.yml`, taking the digest from the release asset `cloudflared-linux-amd64`
-and checking it against a fresh download.
+The pin is `cloudflared` 2026.5.1: later releases are reported to ignore service tokens for
+`access ssh` and fall back to browser login
+([cloudflare/cloudflared#1674](https://github.com/cloudflare/cloudflared/issues/1674)). To
+update it, first confirm that a newer release authenticates headlessly with the service token,
+then change `CLOUDFLARED_VERSION` and `CLOUDFLARED_SHA256` together in `deploy.yml`, taking the
+digest from the release asset `cloudflared-linux-amd64` and checking it against a fresh download.
 
 ### Set up the Cloudflare backend
 

@@ -12,7 +12,7 @@
 #
 # This changes the server: run it only when Bryan says to.
 set -eu
-DEPLOY_DIR=$(cd "$(dirname "$0")" && pwd)
+DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama
 

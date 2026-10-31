@@ -17,7 +17,7 @@
 # CPU is capped with --cpus and given a low share, so Plex and the other containers win any
 # contention.
 set -eu
-DEPLOY_DIR=$(cd "$(dirname "$0")" && pwd)
+DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 cd "$DEPLOY_DIR/.."
 . "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama-lab

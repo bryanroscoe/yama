@@ -625,6 +625,7 @@ with host.release_lock():
         binary.mkdir(exist_ok=True)
         ssh = binary / 'ssh'
         ssh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$FAKE_SSH_ARGS"\n'
+                       'printf "%s\\n" "${TUNNEL_SERVICE_TOKEN_ID:-}" "${TUNNEL_SERVICE_TOKEN_SECRET:-}" > "$FAKE_SSH_ARGS.token"\n'
                        'for a in "$@"; do case "$a" in */id_ed25519) cp "$a" "$FAKE_SSH_ARGS.key" ;; esac; done\n'
                        'cat >/dev/null\nprintf "%s\\n" "$FAKE_HOST_RESULT"\nexit "$FAKE_SSH_EXIT"\n')
         ssh.chmod(0o755)
@@ -674,9 +675,12 @@ with host.release_lock():
         run, _, args = self.run_workflow_script(script, FAKE_HOST_RESULT='YAMA_RELEASE_RESULT=success')
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         joined = '\n'.join(args)
-        self.assertIn('ProxyCommand=cloudflared access ssh --hostname %h '
-                      '--id "$CF_ACCESS_CLIENT_ID" --secret "$CF_ACCESS_CLIENT_SECRET"', args)
+        self.assertIn('ProxyCommand=cloudflared access ssh --hostname %h', args)
+        self.assertIn('ServerAliveInterval=30', args)
         self.assertNotIn('private-fixture-access-secret', joined)
+        # The proxy gets the Access service token from its environment, never its arguments.
+        self.assertEqual((self.root / 'ssh-args.token').read_text(),
+                         'fixture-access-id\nprivate-fixture-access-secret\n')
         key = Path(args[args.index('-i') + 1])
         self.assertEqual((self.root / 'ssh-args.key').read_text(), 'private-fixture-key\n')
         self.assertFalse(key.exists(), 'the deploy key outlives the step')
@@ -688,6 +692,18 @@ with host.release_lock():
                 self.assertNotEqual(run.returncode, 0)
                 self.assertIn(missing, run.stdout)
                 self.assertIsNone(args, 'ssh ran without its configuration')
+
+    def test_workflow_backends_share_guards_and_exclude_each_other(self):
+        text = (Path(__file__).resolve().parents[1] / '.github/workflows/deploy.yml').read_text()
+        guards = re.findall(r"^    if: >-\n((?:      .*\n)+)", text, re.M)
+        self.assertEqual(len(guards), 2)
+        runner, cloudflare = (' '.join(line.strip() for line in guard.splitlines()) for guard in guards)
+        self.assertTrue(runner.startswith("vars.DEPLOY_BACKEND != 'cloudflare' && "), runner)
+        self.assertTrue(cloudflare.startswith("vars.DEPLOY_BACKEND == 'cloudflare' && "), cloudflare)
+        shared = "github.ref == 'refs/heads/main' &&"
+        self.assertEqual(runner.split(' && ', 1)[1], cloudflare.split(' && ', 1)[1])
+        self.assertIn(shared, runner)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", runner)
 
     def test_runner_workflow_refuses_unknown_backend_or_host(self):
         script, _ = self.workflow_deploy_scripts()

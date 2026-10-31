@@ -1,7 +1,7 @@
 #!/bin/sh
 # Manual releases use the same server-owned lock and CI gate as GitHub Actions.
 set -eu
-DEPLOY_DIR=$(cd "$(dirname "$0")" && pwd)
+DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 cd "$DEPLOY_DIR/.."
 case "$#:$*" in
   0:) CHECK_ONLY=0 ;;

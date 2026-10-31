@@ -9,7 +9,7 @@
 # first. Afterwards, sign in locally as yourself with dev login (YAMA_DEV_LOGIN=1) or give your
 # account a password: `./target/debug/yama-server user add you@example.com --admin`.
 set -eu
-DEPLOY_DIR=$(cd "$(dirname "$0")" && pwd)
+DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 cd "$DEPLOY_DIR/.."
 . "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama

@@ -1,7 +1,7 @@
 # shellcheck shell=sh
 # Sourced by the deploy scripts that reach saget: sets HOST to user@host from the environment
 # or from deploy/.env (gitignored; copy deploy/.env.example). Values already in the environment
-# win. The caller sets DEPLOY_DIR to this directory first. Never put saget's address in a
+# win, then the first occurrence in the file. The caller sets DEPLOY_DIR to this directory first. Never put saget's address in a
 # tracked file.
 if [ -f "$DEPLOY_DIR/.env" ]; then
   while IFS= read -r line || [ -n "$line" ]; do

@@ -4,7 +4,7 @@ Yama and its advisor/Forge sidecars run on saget, Bryan's Unraid server on his L
 
 - **Directory:** `/mnt/user/appdata/yama` on the cache SSD. It holds `compose.yaml`, a server-local `yama.env` (not in git), and `data/` (the SQLite database, engine card data and backups).
 - **Reaching saget:** the scripts here read its address and SSH user from `deploy/.env` (gitignored; copy [`deploy/.env.example`](.env.example)) or the environment (`YAMA_DEPLOY_HOST`, `YAMA_DEPLOY_USER`, default `root`), and stop if it is unset. Saget's address is never written in a tracked file. In the commands below, `ssh saget` means `ssh $YAMA_DEPLOY_USER@$YAMA_DEPLOY_HOST`; a `Host saget` entry in `~/.ssh/config` makes them work as written.
-- **LAN:** `http://saget:8099` (saget's LAN address, port 8099). The container listens on 8787. Compose publishes the port on `YAMA_LAN_ADDRESS` from a server-local `.env` beside `compose.yaml` (`/mnt/user/appdata/yama/.env`, not in git; for example `YAMA_LAN_ADDRESS=` saget's LAN address), so only the LAN interface answers. Without it the port listens on every IPv4 interface. The release gate checks health on whatever address the running container publishes.
+- **LAN:** port 8099 on saget's LAN address (`http://$YAMA_DEPLOY_HOST:8099`). The container listens on 8787. Compose publishes the port on `YAMA_LAN_ADDRESS` from a server-local `.env` beside `compose.yaml` (`/mnt/user/appdata/yama/.env`, not in git; for example `YAMA_LAN_ADDRESS=` saget's LAN address), so only the LAN interface answers. Without it the port listens on every IPv4 interface. Until the updated `host.py` is installed on saget, its health check still expects the LAN address, so keep `YAMA_LAN_ADDRESS` unset or equal to it; the updated gate checks whatever address the running container publishes.
 - **Public:** joins the existing `novalyst_default` Docker network, so the existing Cloudflare tunnel (`novalyst-cloudflared`) can route a hostname to `http://yama:8787`. No router ports are opened. Never restart `novalyst-cloudflared` or any other container for a Yama deploy.
 - **Container hardening:** runs as `99:100`, read-only filesystem, all capabilities dropped, 5 GB memory cap. The rules engine uses about 720 MB; the lab's game threads and live games take the rest. At its cap a container doesn't fail, it slows down: every allocation waits on the kernel reclaiming pages. That is how 3 GB once turned minute-long lab games into time-outs.
 
@@ -168,7 +168,7 @@ Android only. The default is the installable web app, with no store; an optional
 
 ```sh
 ssh saget 'docker logs --tail 50 yama'
-curl -s http://saget:8099/api/health   # saget's LAN address from deploy/.env
+curl -s "http://$YAMA_DEPLOY_HOST:8099/api/health"   # saget's LAN address from deploy/.env
 ```
 
 ## Debugging with real data
