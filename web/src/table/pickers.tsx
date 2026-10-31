@@ -48,6 +48,8 @@ export function Combobox<T>({
   autoFocus = false,
   footer,
   onLeave,
+  onOpen,
+  toggle,
 }: {
   label: string;
   text: string;
@@ -64,6 +66,10 @@ export function Combobox<T>({
   footer?: ReactNode;
   /** Focus left the field (to resolve text that was typed but never picked). */
   onLeave?: () => void;
+  /** The list opened without typing: on focus, the arrow key or the toggle. */
+  onOpen?: () => void;
+  /** A button at the field's end that opens the whole list, as a dropdown does; its label. */
+  toggle?: string;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -89,10 +95,14 @@ export function Combobox<T>({
     setOpen(false);
   };
   const showList = open && (options.length > 0 || (!!empty && text.trim().length > 0) || loading);
+  const openList = () => {
+    onOpen?.();
+    setOpen(true);
+  };
   return (
     <label className="combo" ref={root}>
       {label}
-      <span className="combo-wrap">
+      <span className={toggle ? "combo-wrap has-toggle" : "combo-wrap"}>
         <input
           ref={input}
           role="combobox"
@@ -108,7 +118,7 @@ export function Combobox<T>({
             onText(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={openList}
           // Let a tap on an option land before the list closes.
           onBlur={() => {
             window.setTimeout(() => setOpen(false), 150);
@@ -117,7 +127,7 @@ export function Combobox<T>({
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") {
               e.preventDefault();
-              setOpen(true);
+              if (!open) openList();
               setActive((a) => Math.min(a + 1, options.length - 1));
             } else if (e.key === "ArrowUp") {
               e.preventDefault();
@@ -131,6 +141,26 @@ export function Combobox<T>({
           }}
         />
         {trailing}
+        {toggle && (
+          <button
+            type="button"
+            className="combo-toggle"
+            aria-label={toggle}
+            aria-expanded={showList}
+            tabIndex={-1}
+            // Keep the field focused, so the list stays open under the pointer.
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => {
+              if (showList) return setOpen(false);
+              input.current?.focus();
+              openList();
+            }}
+          >
+            <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+              <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
         {showList && (
           <ul className="combo-list" role="listbox" id={`${id}-list`} aria-label={label}>
             {options.map((o, i) => (
@@ -559,9 +589,10 @@ function deckMatches(q: string, name: string, commanders: string[]): boolean {
 }
 
 /**
- * The decks offered for what was typed, at most eight: on your own seat your decks, then
- * precons; on anyone else's their public decks, then yours (to lend), then precons. Precons only
- * once two letters are typed (there are hundreds); a reprinted list shows once.
+ * The decks offered for what was typed: on your own seat your decks, then precons; on anyone
+ * else's their public decks, then yours (to lend), then precons. With nothing typed, every one of
+ * theirs and yours, as a dropdown would; typed, the first twenty matches. Precons only once two
+ * letters are typed (there are hundreds); a reprinted list shows once.
  */
 export function deckPicks(
   text: string,
@@ -572,7 +603,8 @@ export function deckPicks(
   const own: DeckPick[] = mine.filter((d) => hit(d.name, d.commanders)).map((deck) => ({ kind: "mine", deck }));
   const theirsPicks: DeckPick[] = handle && !yours ? theirs.filter((d) => hit(d.name, d.commanders)).map((deck) => ({ kind: "theirs", handle, deck })) : [];
   const preconPicks: DeckPick[] = q.length >= 2 ? precons.filter((p) => !p.same_list_as && hit(p.name, p.commanders)).map((precon) => ({ kind: "precon", precon })) : [];
-  return [...theirsPicks, ...own, ...preconPicks].slice(0, 8);
+  const all = [...theirsPicks, ...own, ...preconPicks];
+  return q ? all.slice(0, 20) : all;
 }
 
 /**
@@ -592,7 +624,10 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
   onLeave?: () => void;
   trailing?: ReactNode;
 }) {
-  const typing = text.trim().length >= 2;
+  // Opened without typing (focus, the arrow): the whole list, even with a deck's name in the field.
+  const [browsing, setBrowsing] = useState(false);
+  const query = browsing ? "" : text;
+  const typing = query.trim().length >= 2;
   const theirs = useProfileDecks(yours ? undefined : handle);
   const precons = usePreconCatalog(typing);
   const toOption = (p: DeckPick): Option<DeckPick> => {
@@ -614,21 +649,39 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
     }
   };
   const artist = (p: DeckPick) => (p.kind === "mine" ? p.deck.commander_artist : p.kind === "theirs" ? p.deck.artist : (p.precon.art?.artist ?? null));
-  const picks = deckPicks(text, { mine: decks, handle, theirs: theirs.data, precons: precons.data?.precons, yours });
+  const picks = deckPicks(query, { mine: decks, handle, theirs: theirs.data, precons: precons.data?.precons, yours });
   const options = picks.map(toOption);
   return (
     <Combobox
       label="Deck"
       text={text}
-      onText={onText}
+      onText={(t) => {
+        setBrowsing(false);
+        onText(t);
+      }}
       options={options}
-      onPick={onPick}
-      onLeave={onLeave}
+      onPick={(p) => {
+        setBrowsing(false);
+        onPick(p);
+      }}
+      onLeave={() => {
+        setBrowsing(false);
+        onLeave?.();
+      }}
+      onOpen={() => setBrowsing(true)}
+      toggle="Show all decks"
       trailing={trailing}
       placeholder={handle && !yours ? `Search @${handle}'s decks, yours or precons` : "Search your decks or precons"}
       loading={(typing && precons.isFetching && !precons.data) || (theirs.isFetching && !theirs.data)}
       // Scryfall asks for the artist wherever an art crop shows.
-      footer={options.some((o) => o.art) ? artCredits(picks.filter((_, i) => options[i]!.art).map(artist)) : undefined}
+      footer={
+        options.length > 0 && (
+          <>
+            {!typing && <span className="combo-hint">Type two letters to search the precons too.</span>}
+            {options.some((o) => o.art) && <span>{artCredits(picks.filter((_, i) => options[i]!.art).map(artist))}</span>}
+          </>
+        )
+      }
       empty={typing ? "No deck by that name. Pick a commander instead." : undefined}
     />
   );

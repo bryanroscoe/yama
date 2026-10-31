@@ -38,6 +38,14 @@ describe("deckPicks", () => {
   });
 });
 
+describe("deckPicks as a dropdown", () => {
+  it("lists every deck with nothing typed, and the first twenty matches once something is", () => {
+    const many = Array.from({ length: 30 }, (_, i) => mine(`Deck ${i + 1}`, ["Test Commander"]));
+    expect(deckPicks("", { mine: many, yours: true })).toHaveLength(30);
+    expect(deckPicks("deck", { mine: many, yours: true })).toHaveLength(20);
+  });
+});
+
 describe("handlePrefix", () => {
   it("is what a handle could start with, never a display name", () => {
     expect(handlePrefix(" @SaG")).toBe("sag");
