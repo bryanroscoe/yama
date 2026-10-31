@@ -1,0 +1,184 @@
+"""Test the PR CI gate, its workflow wiring and scripts/local-ci.sh without GitHub.
+
+Run from any directory: python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+"""
+
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+sys.path.insert(0, str(HERE))
+import gate  # noqa: E402
+
+TREE = 'a' * 40
+OTHER = 'b' * 40
+
+
+def job(workflow, name):
+    """Return one job's text from ci.yml (jobs are two-space indented keys)."""
+    match = re.search(rf'^  {name}:\n(.*?)(?=^  \S|\Z)', workflow, re.M | re.S)
+    return match.group(1)
+
+
+class Decision(unittest.TestCase):
+    def test_matching_trailer_on_current_branch_skips(self):
+        message = f'Fix a thing\n\nLocal-CI: passed tree={TREE} on Darwin/arm64\n'
+        skip, reason = gate.decide(set(), message, TREE, 0)
+        self.assertTrue(skip)
+        self.assertIn(TREE, reason)
+
+    def test_missing_or_other_tree_runs(self):
+        for message in ('Fix a thing\n', f'Fix\n\nLocal-CI: passed tree={OTHER} on Linux/x86_64\n',
+                        f'Fix\n\nLocal-CI: failed tree={TREE}\n', f'Fix\n\nLocal-CI: passed tree={TREE}0\n',
+                        f'Fix\n\n  Local-CI: passed tree={TREE}\n'):
+            with self.subTest(message=message):
+                self.assertFalse(gate.decide(set(), message, TREE, 0)[0])
+
+    def test_branch_behind_base_runs(self):
+        message = f'Fix\n\nLocal-CI: passed tree={TREE} on Darwin/arm64\n'
+        skip, reason = gate.decide(set(), message, TREE, 3)
+        self.assertFalse(skip)
+        self.assertIn('3 commit(s) behind', reason)
+
+    def test_label_skips_anything(self):
+        self.assertTrue(gate.decide({'bug', 'skip-ci'}, 'No trailer\n', TREE, 9)[0])
+        self.assertFalse(gate.decide({'skip-ci-later'}, 'No trailer\n', TREE, 0)[0])
+
+    def test_unreadable_pr_runs_ci(self):
+        with tempfile.TemporaryDirectory() as temp:
+            out, summary = Path(temp, 'out'), Path(temp, 'summary')
+            env = {'HEAD_SHA': TREE, 'GITHUB_REPOSITORY': 'o/r', 'PR_NUMBER': '1',
+                   'GH_TOKEN': 'x', 'GITHUB_API_URL': 'http://127.0.0.1:9',
+                   'GITHUB_OUTPUT': str(out), 'GITHUB_STEP_SUMMARY': str(summary)}
+            result = subprocess.run([sys.executable, str(HERE / 'gate.py')], env={**os.environ, **env},
+                                    capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(out.read_text(), 'skip=false\n')
+            self.assertIn('CI runs', summary.read_text())
+
+
+class Workflow(unittest.TestCase):
+    workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+
+    def test_drafts_start_no_jobs_and_ready_runs(self):
+        self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', self.workflow)
+        self.assertIn('!github.event.pull_request.draft', job(self.workflow, 'gate'))
+        for name in ('web', 'rust'):
+            self.assertIn('!github.event.pull_request.draft', job(self.workflow, name))
+
+    def test_gate_only_runs_for_trusted_pull_requests(self):
+        gate_job = job(self.workflow, 'gate')
+        self.assertIn("github.event_name == 'pull_request' &&", gate_job)
+        self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', gate_job)
+        self.assertNotIn('secrets.', gate_job)
+        self.assertIn('sparse-checkout: scripts/ci/gate.py', gate_job)
+
+    def test_push_and_manual_runs_never_consult_the_gate(self):
+        # The release gate: anything that is not a PR runs both jobs whatever the gate did.
+        for name in ('web', 'rust'):
+            with self.subTest(job=name):
+                text = job(self.workflow, name)
+                self.assertIn('needs: gate', text)
+                condition = re.search(r'if: >-\n(.*?)\n    runs-on', text, re.S).group(1)
+                self.assertRegex(condition, r"^\s*!cancelled\(\) &&\n\s*\(github\.event_name != 'pull_request' \|\|")
+                self.assertIn("needs.gate.outputs.skip != 'true'", condition)
+                self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', condition)
+
+
+class LocalScript(unittest.TestCase):
+    """Run scripts/local-ci.sh in a throwaway repo with every check command stubbed."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='yama-local-ci-test-')
+        self.addCleanup(self.temp.cleanup)
+        base = Path(self.temp.name)
+        self.repo, phase, self.bin = base / 'yama', base / 'yama-phase', base / 'bin'
+        self.log = base / 'calls'
+        self.env = {**os.environ, 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1',
+                    'GIT_AUTHOR_NAME': 'T', 'GIT_AUTHOR_EMAIL': 't@example.invalid',
+                    'GIT_COMMITTER_NAME': 'T', 'GIT_COMMITTER_EMAIL': 't@example.invalid',
+                    'PATH': f'{self.bin}{os.pathsep}{os.environ["PATH"]}', 'CALL_LOG': str(self.log)}
+        self.bin.mkdir()
+        for name in ('npm', 'cargo', 'python3'):
+            self.stub(name, 0)
+        self.stub('node', 0, output='22')
+        phase.mkdir()
+        self.git(phase, 'init', '-q')
+        self.git(phase, 'commit', '-q', '--allow-empty', '-m', 'engine')
+        self.repo.mkdir()
+        self.git(self.repo, 'init', '-q')
+        (self.repo / 'deploy').mkdir()
+        (self.repo / 'deploy/phase-rev').write_text(self.git(phase, 'rev-parse', 'HEAD'))
+        (self.repo / 'scripts').mkdir()
+        shutil.copy(ROOT / 'scripts/local-ci.sh', self.repo / 'scripts/local-ci.sh')
+        self.git(self.repo, 'add', '.')
+        self.git(self.repo, 'commit', '-q', '-m', 'Change\n\nLonger body.')
+
+    def stub(self, name, status, output=''):
+        command = self.bin / name
+        command.write_text(f'#!/bin/sh\necho "{name} $*" >> "$CALL_LOG"\n'
+                           + (f'echo {output}\n' if output else '') + f'exit {status}\n')
+        command.chmod(0o755)
+
+    def git(self, cwd, *args):
+        return subprocess.run(['git', *args], cwd=cwd, env=self.env, check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def run_script(self, *args):
+        return subprocess.run(['bash', 'scripts/local-ci.sh', *args], cwd=self.repo, env=self.env,
+                              capture_output=True, text=True, timeout=60)
+
+    def message(self):
+        return self.git(self.repo, 'log', '-1', '--format=%B')
+
+    def test_passing_checks_record_this_tree_once(self):
+        tree = self.git(self.repo, 'rev-parse', 'HEAD^{tree}')
+        for _ in range(2):
+            result = self.run_script()
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD^{tree}'), tree)
+        message = self.message()
+        self.assertEqual(message.count('Local-CI:'), 1, message)
+        self.assertEqual(gate.attested_trees(message), {tree})
+        self.assertTrue(gate.decide(set(), message, tree, 0)[0])
+        calls = self.log.read_text()
+        for check in ('npm ci', 'npm test', 'npm run typecheck', 'npm run build', 'cargo test --locked',
+                      'python3 deploy/test_release.py', 'python3 -O -m unittest'):
+            self.assertIn(check, calls)
+
+    def test_failing_check_records_nothing(self):
+        self.stub('cargo', 1)
+        head = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.assertNotEqual(self.run_script().returncode, 0)
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), head)
+        self.assertNotIn('Local-CI', self.message())
+
+    def test_uncommitted_or_untracked_files_are_refused(self):
+        (self.repo / 'scratch.txt').write_text('not committed')
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('commit or remove local changes', result.stderr)
+        self.assertFalse(self.log.exists())
+
+    def test_engine_off_the_pin_is_refused(self):
+        self.git(self.repo.parent / 'yama-phase', 'commit', '-q', '--allow-empty', '-m', 'newer')
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('not at deploy/phase-rev', result.stderr)
+        self.assertFalse(self.log.exists())
+
+    def test_no_amend_leaves_head(self):
+        head = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.assertEqual(self.run_script('--no-amend').returncode, 0)
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), head)
+
+
+if __name__ == '__main__':
+    unittest.main()

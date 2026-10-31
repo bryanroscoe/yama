@@ -144,7 +144,8 @@ Create an OAuth client ID (type "Web application") in Google Cloud Console, add 
 ## Checks
 
 [GitHub CI](docs/ci.md) runs the Rust and Python suites, web tests, typecheck and web build on
-every PR into main and every main push. Both CI jobs must pass before merge.
+every ready PR into main and every main push. Both CI jobs must pass before merge, or be skipped
+because `scripts/local-ci.sh` passed on that exact commit. Draft PRs run no CI.
 
 The opt-in [lab worker pilot](docs/lab-workers.md) lets an admin route Phase pods to saget,
 a laptop or GitHub-hosted Actions, choose among available workers, and compare matching samples.

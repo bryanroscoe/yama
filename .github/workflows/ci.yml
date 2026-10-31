@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    # Draft PRs start no jobs; marking a PR ready for review runs CI.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
@@ -16,9 +18,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Ready PRs only: skips the web and Rust jobs when the head commit records local
+  # checks on its exact tree (scripts/local-ci.sh) or the PR has the skip-ci label.
+  # Pushes to main and manual runs never consult it; push CI is the release gate.
+  gate:
+    name: Local CI gate
+    if: >-
+      github.event_name == 'pull_request' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # A gate failure never fails CI: the web and Rust jobs then simply run.
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      skip: ${{ steps.decide.outputs.skip }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/gate.py
+          sparse-checkout-cone-mode: false
+      - name: Decide whether local checks cover this PR
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python3 scripts/ci/gate.py
+
   web:
     name: Web checks
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: gate
+    # A skipped gate (push, manual run) or a failed one runs the job; only an
+    # explicit skip from the gate, a draft or a fork PR does not.
+    if: >-
+      !cancelled() &&
+      (github.event_name != 'pull_request' ||
+       (!github.event.pull_request.draft &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        needs.gate.outputs.skip != 'true'))
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 15 }}
     steps:
@@ -47,7 +90,13 @@ jobs:
 
   rust:
     name: Rust and Python tests
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: gate
+    if: >-
+      !cancelled() &&
+      (github.event_name != 'pull_request' ||
+       (!github.event.pull_request.draft &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        needs.gate.outputs.skip != 'true'))
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 90 }}
     defaults:
@@ -143,6 +192,8 @@ jobs:
         run: python3 -m unittest discover -s tools -p 'test_lab*.py'
       - name: Test the Forge worker
         run: python3 forge-worker/test_worker.py
+      - name: Test the CI gate and local CI script
+        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py'
       - name: Test commander evidence and list validation
         run: python3 -m unittest discover -s scripts/research -p 'test_*.py'
       - name: Test dataset recovery conversion
