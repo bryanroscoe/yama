@@ -135,4 +135,4 @@ Server configuration, the local Compose override and secrets remain on saget. No
 the automatic workflow already handles this after main CI passes; a manual call is for
 an explicitly requested retry. `--check` still makes no server calls.
 
-Record the deployed revision, check `curl -fsS "http://$YAMA_DEPLOY_HOST:8099/api/health"` (saget's LAN address from `deploy/.env`), confirm the revision in Admin, Server, and smoke-test the changed feature on the live site. See [the deployment notes](README.md) for logs and rollback. A rollback of an existing production image is a separate recovery action, not permission to deploy a feature branch.
+Record the deployed revision, check `./deploy/health.sh` (it reads saget's LAN address from `deploy/.env` or the environment), confirm the revision in Admin, Server, and smoke-test the changed feature on the live site. See [the deployment notes](README.md) for logs and rollback. A rollback of an existing production image is a separate recovery action, not permission to deploy a feature branch.

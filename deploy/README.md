@@ -168,7 +168,7 @@ Android only. The default is the installable web app, with no store; an optional
 
 ```sh
 ssh saget 'docker logs --tail 50 yama'
-curl -s "http://$YAMA_DEPLOY_HOST:8099/api/health"   # saget's LAN address from deploy/.env
+./deploy/health.sh   # reads saget's LAN address from deploy/.env or the environment
 ```
 
 ## Debugging with real data
