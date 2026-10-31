@@ -591,6 +591,31 @@ pub async fn set_disabled_by_email(pool: &SqlitePool, email: &str, disabled: boo
     }
 }
 
+/// Longest session `yama-server user session` will make.
+pub const CLI_SESSION_MAX_HOURS: i64 = 24;
+
+/// `yama-server user session EMAIL --hours N`: a short session for an existing account, printed
+/// once, for a tool that drives the web app as that person (the polish screenshots, docs/polish.md).
+/// Only someone with a shell on the server can make one, the same trust as a password from
+/// `user add`. It never makes an account, refuses a turned-off one, and the usual checks still apply
+/// when it's used (an account that isn't invited only works while open sign-up is on).
+pub async fn cli_session(pool: &SqlitePool, email: &str, hours: i64) -> anyhow::Result<String> {
+    anyhow::ensure!((1..=CLI_SESSION_MAX_HOURS).contains(&hours), "--hours is 1 to {CLI_SESSION_MAX_HOURS}");
+    let email = email.trim().to_lowercase();
+    let acc = account_by_email(pool, &email).await?.ok_or_else(|| anyhow::anyhow!("there's no account for {email}"))?;
+    anyhow::ensure!(!acc.disabled, "{email} is turned off");
+    let token = random_token();
+    let expires = Utc::now() + Duration::hours(hours);
+    sqlx::query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
+        .bind(sha256_hex(&token))
+        .bind(&acc.user.id)
+        .bind(now())
+        .bind(expires.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .execute(pool)
+        .await?;
+    Ok(token)
+}
+
 pub fn hash_password(password: &str) -> anyhow::Result<String> {
     use argon2::password_hash::PasswordHasher;
     argon2::Argon2::default()
@@ -976,5 +1001,26 @@ mod tests {
 
         assert!(remove_local_password(&pool, "debug@example.com").await.unwrap());
         assert!(!remove_local_password(&pool, "debug@example.com").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn cli_sessions_are_short_and_only_for_live_accounts() {
+        let (app, pool) = crate::testutil::app().await;
+        crate::testutil::user(&pool, "polish@example.com").await;
+        let token = cli_session(&pool, "Polish@Example.com", 2).await.unwrap();
+        let (status, me) = crate::testutil::send(&app, axum::http::Method::GET, "/api/me", Some(&token), None).await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(me["email"], "polish@example.com");
+        let expires: String = sqlx::query_scalar("SELECT expires_at FROM sessions WHERE token_hash = ?").bind(sha256_hex(&token)).fetch_one(&pool).await.unwrap();
+        let left = chrono::DateTime::parse_from_rfc3339(&expires).unwrap().with_timezone(&Utc) - Utc::now();
+        assert!(left <= Duration::hours(2) && left > Duration::minutes(110), "{left}");
+
+        assert!(cli_session(&pool, "polish@example.com", 0).await.is_err());
+        assert!(cli_session(&pool, "polish@example.com", CLI_SESSION_MAX_HOURS + 1).await.is_err());
+        assert!(cli_session(&pool, "nobody@example.com", 1).await.is_err());
+        assert!(set_disabled_by_email(&pool, "polish@example.com", true).await.unwrap());
+        assert!(cli_session(&pool, "polish@example.com", 1).await.is_err());
+        let (status, _) = crate::testutil::send(&app, axum::http::Method::GET, "/api/me", Some(&token), None).await;
+        assert_eq!(status, axum::http::StatusCode::UNAUTHORIZED);
     }
 }
