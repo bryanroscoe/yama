@@ -2258,35 +2258,46 @@ async fn tournament_progress_is_exact_between_summary_batches_and_cancel_flushes
 }
 
 #[tokio::test]
-async fn a_stock_tournament_can_be_the_rating_simulation_one_engine_at_a_time() {
+async fn stock_tournaments_pool_into_the_rating_simulation_one_engine_and_build_at_a_time() {
     use crate::precon_evidence::{choose_simulation, chosen_simulation, clear_simulation};
     let pool = fixture().await;
     let sim = FakeSim::new();
     let admin = user("admin", true);
-    let request = req(json!({"mode":"tournament","entrants":[{"kind":"precon","id":"p1"}],"field":{"kind":"precons_all"},"games":100}));
-    let d = create(&pool, &admin, request, sim.as_ref()).await.unwrap();
+    let tournament = |op: &str| req(json!({"op_id": op, "mode":"tournament","entrants":[{"kind":"precon","id":"p1"}],"field":{"kind":"precons_all"},"games":100}));
+    let a = create(&pool, &admin, tournament("t-a"), sim.as_ref()).await.unwrap().item.id;
+    let b = create(&pool, &admin, tournament("t-b"), sim.as_ref()).await.unwrap().item.id;
     LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
     assert!(chosen_simulation(&pool).await.unwrap().is_none(), "nothing chosen, no simulation");
 
-    choose_simulation(&pool, &d.item.id, "phase").await.unwrap();
-    let s = chosen_simulation(&pool).await.unwrap().expect("its phase games give strengths");
-    assert_eq!(s.kind, "tournament");
-    assert_eq!(s.precons, 5, "every stock entrant");
-    assert!(s.name.starts_with("Stock precon tournament, Phase ("), "{}", s.name);
-    assert!(!s.name.contains("Tournament:"), "the owner's experiment name stays private");
-    // The engine filter: this tournament played no Forge games.
-    choose_simulation(&pool, &d.item.id, "forge").await.unwrap();
-    assert!(chosen_simulation(&pool).await.unwrap().is_none());
-    assert!(choose_simulation(&pool, &d.item.id, "mtga").await.is_err());
+    let build = choose_simulation(&pool, &[a.clone()], "phase", None).await.unwrap();
+    assert!(!build.is_empty() && !build.contains('+'), "the newest game's engine version: {build}");
+    let one = chosen_simulation(&pool).await.unwrap().expect("its phase games give strengths");
+    assert_eq!(one.kind, "tournament");
+    assert_eq!(one.precons, 5, "every stock entrant");
+    assert!(one.name.starts_with("128 stock-precon tournament games"), "{}", one.name);
+    assert!(!one.name.contains("Tournament:"), "the owner's experiment name stays private");
+    choose_simulation(&pool, &[a.clone(), b.clone()], "phase", None).await.unwrap();
+    let both = chosen_simulation(&pool).await.unwrap().unwrap();
+    assert!(both.name.starts_with("256 stock-precon tournament games"), "two tournaments pool: {}", both.name);
+    assert_eq!(both.precons, 5, "one entrant per stock list across tournaments");
 
-    // A field with any list that isn't a current stock precon is refused, and stops counting.
+    // Another engine or engine version contributes nothing.
+    assert!(choose_simulation(&pool, &[a.clone()], "forge", None).await.is_err(), "no forge games to name a build");
+    choose_simulation(&pool, &[a.clone()], "phase", Some("phase-rs v9")).await.unwrap();
+    assert!(chosen_simulation(&pool).await.unwrap().is_none());
+    assert!(choose_simulation(&pool, &[a.clone()], "mtga", None).await.is_err());
+
+    // Pods with a list that isn't a current stock precon drop out; the rest still count.
+    choose_simulation(&pool, &[a.clone()], "phase", Some(&build)).await.unwrap();
     sqlx::query("UPDATE lab_experiments SET spec = json_set(spec, '$.entrants[0].sha256', 'not-stock') WHERE id = ?")
-        .bind(&d.item.id)
+        .bind(&a)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(choose_simulation(&pool, &d.item.id, "phase").await.is_err());
-    assert!(chosen_simulation(&pool).await.is_err());
+    let fewer = chosen_simulation(&pool).await.unwrap().unwrap();
+    let kept: u32 = fewer.name.split(' ').next().unwrap().parse().unwrap();
+    assert!(kept > 0 && kept < 128, "{}", fewer.name);
+    assert!(fewer.precons <= 4, "the altered list has no strength");
     clear_simulation(&pool).await.unwrap();
     assert!(chosen_simulation(&pool).await.unwrap().is_none());
 }
