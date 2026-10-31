@@ -34,6 +34,8 @@ describe("power signals from card text", () => {
     expect(isCheapMana(natureLore)).toBe(true);
     expect(isCheapMana(farseek)).toBe(true);
     expect(isCheapMana(card("Growth Spiral", "Instant", 2, "Draw a card. You may put a land card from your hand onto the battlefield."))).toBe(true);
+    expect(isCheapMana(card("Summer Bloom", "Sorcery", 2, "You may play up to three additional lands this turn."))).toBe(true);
+    expect(isCheapMana(card("Manabond", "Enchantment", 1, "At the beginning of your end step, you may reveal your hand and put all land cards from it onto the battlefield. If you do, discard your hand."))).toBe(true);
     expect(isCheapMana(card("Exploration", "Enchantment", 1, "You may play an additional land on each of your turns."))).toBe(true);
     // A spell with a land back is a land drop, not ramp.
     expect(isCheapMana(rebirth)).toBe(false);
@@ -59,6 +61,7 @@ describe("power signals from card text", () => {
       ["Condemn", "Put target attacking creature on the bottom of its owner's library. Its controller gains life equal to its toughness."],
       ["Darkblast", "Target creature gets -1/-1 until end of turn.\nDredge 3"],
       ["White Orchid Phantom", "Flash\nFirst strike\nWhen White Orchid Phantom enters, destroy up to one target nonbasic land. Its controller may search their library for a basic land card."],
+      ["Ram Through", "Target creature you control deals damage equal to its power to target creature you don't control. If the creature you control has trample, excess damage is dealt to that creature's controller instead."],
       ["Diabolic Edict", "Target player sacrifices a creature of their choice."],
       ["Sheoldred's Edict", "Choose one —\n• Each opponent sacrifices a nontoken creature of their choice."],
       ["Prey Upon", "Target creature you control fights target creature you don't control."],

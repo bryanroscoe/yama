@@ -67,6 +67,7 @@ const INTERACTION = new RegExp(
     String.raw`\bexile ${T} (?!card from|cards from)`,
     String.raw`\breturn ${T} (?:[^.]*?) to (?:its|their) owner'?s'? hands?\b`,
     String.raw`\bdeals? (?:\d+|x) damage to (?:any target|${T} (?:creature|planeswalker|player|opponent|attacking|blocking))`,
+    String.raw`\bdeals? damage equal to [^.]*? to (?:any target|${T}\b)`,
     String.raw`\bput ${T} (?:[^.]*?) (?:into|on (?:the )?(?:top|bottom) of) (?:its|their) owner'?s'? library`,
     String.raw`\btarget (?:[^.]*?)\bgets? -(?:\d+|x)\/-(?:\d+|x)`,
     String.raw`\bfights? ${T}\b`,
@@ -94,7 +95,7 @@ export function isCheapMana(c: StatCard): boolean {
   const text = frontText(c);
   if (/search your library for [^.]*\b(?:land|plains|island|swamp|mountain|forest)s? cards?\b[^.]*onto the battlefield/i.test(text)) return true;
   // A land from your hand (Growth Spiral, Arboreal Grazer) or an extra land drop (Exploration).
-  if (/\bput (?:a|an|up to \w+) (?:basic )?lands? cards? from your hand onto the battlefield|\bplay (?:an|two) additional lands?\b/i.test(text)) return true;
+  if (/\bput (?:a|an|all|up to \w+) (?:basic )?lands? cards? from [^.]*?onto the battlefield|\bplay (?:an|two|three|up to \w+) additional lands?\b/i.test(text)) return true;
   // Produced mana covers every face, so a spell with a land back (Malakir Rebirth) would count
   // for its land; then only the front face's own mana counts.
   // While produced mana isn't loaded, the rules text says whether the card makes mana.
