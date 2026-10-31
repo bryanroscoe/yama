@@ -632,7 +632,13 @@ async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
         .await?
         .rows_affected();
     if n == 0 {
-        return Err(AppError::NotFound("game"));
+        // Someone else's game, or an online one: not yours to delete, and nothing is recorded.
+        let exists: Option<String> = sqlx::query_scalar("SELECT id FROM games WHERE id = ?").bind(&id).fetch_optional(&mut *tx).await?;
+        if exists.is_some() {
+            return Err(AppError::NotFound("game"));
+        }
+        // Never uploaded: still remember the id, so another tab or device that has the game
+        // can't upload it after this. Ids are random UUIDs made by the device that started it.
     }
     // Remembered by id, so a device that still has the game can't upload it again.
     sqlx::query("INSERT OR IGNORE INTO deleted_games (id, deleted_at) VALUES (?, ?)").bind(&id).bind(now()).execute(&mut *tx).await?;

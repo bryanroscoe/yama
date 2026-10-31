@@ -255,3 +255,23 @@ async fn only_whoever_recorded_a_table_game_can_delete_it() {
         .unwrap();
     assert_eq!(left, 0);
 }
+
+#[tokio::test]
+async fn deleting_a_game_never_uploaded_stops_it_being_uploaded_later() {
+    let (app, pool) = open_server().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (_, st) = user(&pool, "sam@example.com").await;
+    let game = "5d0c7a2b-8e1f-4b3a-9c6d-2a1e0f9b8c77";
+    assert_eq!(send(&app, Method::DELETE, &format!("/api/games/{game}"), Some(&bt), None).await.0, StatusCode::OK);
+    let upload = json!({ "id": game, "started_at": "2026-10-31T01:00:00Z", "seats": [{ "seat": 0, "user_id": bryan }] });
+    assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(upload)).await.0, StatusCode::GONE);
+
+    // Someone else's game is still "not found" to Sam, and stays undeleted.
+    let other = "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b";
+    let upload = json!({ "id": other, "started_at": "2026-10-31T01:00:00Z", "seats": [{ "seat": 0, "user_id": bryan }] });
+    assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(upload)).await.0, StatusCode::OK);
+    assert_eq!(send(&app, Method::DELETE, &format!("/api/games/{other}"), Some(&st), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(get(&app, &bt, &format!("/api/games/{other}")).await.0, StatusCode::OK);
+    let fenced: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deleted_games WHERE id = ?").bind(other).fetch_one(&pool).await.unwrap();
+    assert_eq!(fenced, 0);
+}
