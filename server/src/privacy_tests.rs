@@ -274,4 +274,9 @@ async fn deleting_a_game_never_uploaded_stops_it_being_uploaded_later() {
     assert_eq!(get(&app, &bt, &format!("/api/games/{other}")).await.0, StatusCode::OK);
     let fenced: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deleted_games WHERE id = ?").bind(other).fetch_one(&pool).await.unwrap();
     assert_eq!(fenced, 0);
+    // Sam deleting an id Bryan hasn't uploaded yet (it's in the join link) doesn't block Bryan.
+    let early = "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f";
+    assert_eq!(send(&app, Method::DELETE, &format!("/api/games/{early}"), Some(&st), None).await.0, StatusCode::OK);
+    let upload = json!({ "id": early, "started_at": "2026-10-31T01:00:00Z", "seats": [{ "seat": 0, "user_id": bryan }] });
+    assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(upload)).await.0, StatusCode::OK);
 }

@@ -284,7 +284,11 @@ async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> AppResult<ser
     }
     let mut tx = pool.begin().await?;
     // A game deleted on purpose stays deleted, even if another device still has it.
-    let deleted: Option<String> = sqlx::query_scalar("SELECT id FROM deleted_games WHERE id = ?").bind(&g.id).fetch_optional(&mut *tx).await?;
+    let deleted: Option<String> = sqlx::query_scalar("SELECT id FROM deleted_games WHERE id = ? AND deleted_by = ?")
+        .bind(&g.id)
+        .bind(user)
+        .fetch_optional(&mut *tx)
+        .await?;
     if deleted.is_some() {
         return Err(AppError::Gone("game"));
     }
@@ -641,7 +645,13 @@ async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
         // can't upload it after this. Ids are random UUIDs made by the device that started it.
     }
     // Remembered by id, so a device that still has the game can't upload it again.
-    sqlx::query("INSERT OR IGNORE INTO deleted_games (id, deleted_at) VALUES (?, ?)").bind(&id).bind(now()).execute(&mut *tx).await?;
+    // Only for this account: someone else who knows the id can't block the real game.
+    sqlx::query("INSERT OR IGNORE INTO deleted_games (id, deleted_by, deleted_at) VALUES (?, ?, ?)")
+        .bind(&id)
+        .bind(&user.id)
+        .bind(now())
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(())
 }
