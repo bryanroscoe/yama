@@ -112,13 +112,14 @@ fn deck_of<'a>(doc: &'a Value, key: &str) -> Option<&'a Value> {
     doc["decks"].as_array()?.iter().find(|d| text(d, "key") == key)
 }
 
-/// The build `?build=` names, else the recommended one, else the first.
+/// The build `?build=` names, else the recommended one, else the first. A named build that isn't
+/// there (removed or renamed since the link was sent) is not found, never another build.
 fn build_of<'a>(deck: &'a Value, wanted: Option<&str>) -> Option<&'a Value> {
     let builds = deck["builds"].as_array()?;
-    wanted
-        .and_then(|w| builds.iter().find(|b| text(b, "id") == w))
-        .or_else(|| builds.iter().find(|b| text(b, "id") == text(deck, "recommended_build")))
-        .or_else(|| builds.first())
+    match wanted {
+        Some(w) => builds.iter().find(|b| text(b, "id") == w),
+        None => builds.iter().find(|b| text(b, "id") == text(deck, "recommended_build")).or_else(|| builds.first()),
+    }
 }
 
 fn deck_href(token: &str, deck: &str, build: Option<&str>) -> String {
@@ -267,7 +268,7 @@ pub(super) async fn deck(
         Err(res) => return Ok(res),
     };
     let (Some(d), title) = (deck_of(&doc, &key), text(&doc, "title")) else { return Ok(not_found(&st, "Deck")) };
-    let Some(b) = build_of(d, q.build.as_deref()) else { return Ok(not_found(&st, "Deck")) };
+    let Some(b) = build_of(d, q.build.as_deref()) else { return Ok(not_found(&st, "Build")) };
     let name = text(d, "name");
     let commander = text(d, "commander");
     let build_id = text(b, "id");

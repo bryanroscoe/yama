@@ -489,6 +489,7 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     assert!(!eowyn.contains("Not in Yama's card data: Nalia de&#39;Arnise, Éowyn"));
     crate::deck_research::save(&pool, &bryan, &note()).await.unwrap();
     assert_eq!(page(&app, &format!("/r/{token}/nope")).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(page(&app, &format!("/r/{token}/party?build=b9")).await.0, StatusCode::NOT_FOUND);
     assert_eq!(page(&app, &format!("/r/{token}/party/b9-names.txt")).await.0, StatusCode::NOT_FOUND);
     assert!(!page(&app, "/u/saget").await.2.contains(&format!("/r/{token}")));
 
