@@ -4,7 +4,7 @@ import { api, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
 import { VISIBILITY_CHOICES, useCopy } from "../decks/ShareDeck";
-import { noteShareUrl, resetNoteLink, setNoteSharing, type ResearchBundle } from "./api";
+import { noteShareUrl, resetNoteLink, setNoteSharing, type NoteSharing, type ResearchBundle } from "./api";
 
 /** Who can see this note, and its link: the same three choices as a deck. */
 export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
@@ -13,14 +13,17 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
   const id = bundle.document.id;
   const sharing = useQuery({ queryKey: ["sharing"], queryFn: () => api<Sharing>("/api/me/sharing") });
   const [copied, copy] = useCopy();
-  const refresh = () => {
+  // The server's answer is the note's sharing now: put it in the cached note at once, so a reset
+  // link never leaves the old one on screen, then refetch.
+  const refresh = (r: NoteSharing) => {
+    qc.setQueryData<ResearchBundle>(["research", userId, id], (b) => b && { ...b, visibility: r.visibility, share_token: r.share_token });
     void qc.invalidateQueries({ queryKey: ["research", userId, id] });
     void qc.invalidateQueries({ queryKey: ["research", userId, "list"] });
   };
   const set = useMutation({ mutationFn: (v: Visibility) => setNoteSharing(id, v), onSuccess: refresh });
   const reset = useMutation({ mutationFn: () => resetNoteLink(id), onSuccess: refresh });
   const visibility = (set.isPending ? set.variables : bundle.visibility) ?? "private";
-  const token = set.data?.share_token ?? bundle.share_token;
+  const token = bundle.share_token;
   const link = token ? noteShareUrl(token) : null;
   const handle = sharing.data?.handle;
   return <details className="research-share" open={visibility !== "private"}>

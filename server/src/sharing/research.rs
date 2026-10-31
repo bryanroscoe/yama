@@ -53,18 +53,47 @@ async fn commander_art(pool: &SqlitePool, name: &str) -> AppResult<(Option<(Stri
     Ok((art, "WUBRG".chars().filter(|c| ci.contains(*c)).collect()))
 }
 
-/// A build's plain-text list as cards the shared list views can show.
-async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<Vec<SharedCard>> {
-    let mut out = Vec::new();
-    for line in crate::decks::parse_list(list, true) {
-        let row = card_by_name(pool, &line.name).await?;
-        let (type_line, cmc, layout, image) = match row {
-            Some((t, cmc, layout, image, ..)) => (t, cmc, layout, scryfall_image(image)),
-            None => (None, 0.0, None, None),
-        };
-        out.push(SharedCard { name: line.name, qty: line.qty, board: line.board, type_line, cmc, layout, image, printing: None });
+/// The most lines of a build's list a shared page reads. A Commander list is about 100 lines;
+/// a note can hold far longer text, and a public page mustn't do work in proportion to it.
+const MAX_LINES: usize = 300;
+
+/// A build's plain-text list as cards the shared list views can show, and whether it was cut
+/// at `MAX_LINES`. Every name is looked up in one query.
+async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, bool)> {
+    let mut lines = crate::decks::parse_list(list, true);
+    let cut = lines.len() > MAX_LINES;
+    lines.truncate(MAX_LINES);
+    let front = |n: &str| n.split(" // ").next().unwrap_or(n).to_lowercase();
+    let mut names: Vec<String> = lines.iter().flat_map(|l| [l.name.to_lowercase(), front(&l.name)]).collect();
+    names.sort();
+    names.dedup();
+    type Row = (String, Option<String>, f64, Option<String>, Option<String>);
+    // Real cards before tokens of the same name, Commander-legal ones first; the first row per
+    // name wins.
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT lower(n.name), c.type_line, c.cmc, c.layout, c.image_normal
+         FROM json_each(?) j JOIN card_names n ON n.name = j.value JOIN cards c ON c.oracle_id = n.oracle_id
+         ORDER BY c.type_line LIKE 'Token%', json_extract(c.legalities, '$.commander') IS NOT 'legal'",
+    )
+    .bind(serde_json::to_string(&names).map_err(anyhow::Error::from)?)
+    .fetch_all(pool)
+    .await?;
+    let mut found: HashMap<String, Row> = HashMap::new();
+    for row in rows {
+        found.entry(row.0.clone()).or_insert(row);
     }
-    Ok(out)
+    let out = lines
+        .into_iter()
+        .map(|line| {
+            let row = found.get(&line.name.to_lowercase()).or_else(|| found.get(&front(&line.name)));
+            let (type_line, cmc, layout, image) = match row {
+                Some((_, t, cmc, layout, image)) => (t.clone(), *cmc, layout.clone(), scryfall_image(image.clone())),
+                None => (None, 0.0, None, None),
+            };
+            SharedCard { name: line.name, qty: line.qty, board: line.board, type_line, cmc, layout, image, printing: None }
+        })
+        .collect();
+    Ok((out, cut))
 }
 
 async fn load(st: &AppState, address: &ClientAddress, token: &str) -> AppResult<Result<(Option<String>, Value, String), Response>> {
@@ -228,7 +257,7 @@ pub(super) async fn deck(
     let commander = text(d, "commander");
     let build_id = text(b, "id");
     let (art, identity) = commander_art(&st.pool, commander).await?;
-    let cards = cards_of(&st.pool, text(b, "list")).await?;
+    let (cards, cut) = cards_of(&st.pool, text(b, "list")).await?;
     let size: i64 = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
 
     let mut body = format!("<a class=\"back-link\" href=\"/r/{}\">← {}</a>", e(&token), e(title));
@@ -357,6 +386,9 @@ pub(super) async fn deck(
         e(&export(&cards, "names"))
     )
     .unwrap();
+    if cut {
+        write!(body, "<p class=\"dim\">Only the first {MAX_LINES} lines of this list are shown.</p>").unwrap();
+    }
     // Unknown names stay in the list as written; say so rather than hide them.
     let unknown: Vec<&str> = cards.iter().filter(|c| c.type_line.is_none()).map(|c| c.name.as_str()).collect();
     if !unknown.is_empty() {
@@ -381,7 +413,7 @@ pub(super) async fn download(
     let (build_id, format) = stem.rsplit_once('-').filter(|(_, f)| matches!(*f, "names" | "moxfield")).ok_or(AppError::NotFound("export"))?;
     let d = deck_of(&doc, &key).ok_or(AppError::NotFound("deck"))?;
     let b = d["builds"].as_array().and_then(|bs| bs.iter().find(|b| text(b, "id") == build_id)).ok_or(AppError::NotFound("build"))?;
-    let cards = cards_of(&st.pool, text(b, "list")).await?;
+    let (cards, _) = cards_of(&st.pool, text(b, "list")).await?;
     let res = fresh(&headers, export(&cards, format), "text/plain; charset=utf-8");
     Ok(attachment(res, &file_name(&format!("{} {}", text(d, "name"), text(b, "label")), format)))
 }
