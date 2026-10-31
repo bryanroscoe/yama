@@ -28,6 +28,8 @@ export interface LogForm {
   condition: WinCondition | null;
   fun: FunRating[];
   seats: SeatDraft[];
+  /** Each seat's label as saved, for a "partner" that turns out to be part of a deck's name. */
+  savedLabels: (string | null)[];
 }
 
 /** A guest named "@sam" was found by that handle; their seat can offer their public decks again. */
@@ -50,9 +52,13 @@ export function formFromGame(g: GameDetail, decks: DeckSummary[] = []): LogForm 
     first: place(g.first_seat),
     condition: (g.win_condition as WinCondition | null) ?? null,
     fun: seats.flatMap((s, i) => (s.fun != null ? [{ seat: i, rating: s.fun }] : [])),
+    savedLabels: seats.map((s) => s.deck_label),
     seats: seats.map((s) => {
-      const { commander, partner } = splitPair(s);
       const mine = decks.find((d) => d.id === g.your_decks?.[s.seat]);
+      const read = splitPair(s);
+      const commander = read.commander;
+      // On your own deck, a "partner" that isn't one of its commanders is part of its name.
+      const partner = mine && read.partner && !mine.commanders.includes(read.partner) ? undefined : read.partner;
       // The label names a precon or someone's public deck unless it's only the commanders.
       const label = s.deck_label && s.deck_label !== commander && !partner ? s.deck_label : undefined;
       return {
@@ -73,4 +79,13 @@ export function formFromGame(g: GameDetail, decks: DeckSummary[] = []): LogForm 
       };
     }),
   };
+}
+
+/**
+ * A rebuilt seat once its cards are looked up. A partner read from the label ("Tymna the Weaver
+ * and Kraum, Ludevic's Opus") that isn't a card was part of a deck's name ("Tymna the Weaver and
+ * Friends"): the lookup drops it, and the name comes back as the seat's deck.
+ */
+export function settleRebuilt(found: Partial<SeatDraft>, readPartner: boolean, savedLabel: string | null | undefined): Partial<SeatDraft> {
+  return readPartner && !found.partnerName && savedLabel ? { ...found, deckLabel: savedLabel } : found;
 }

@@ -18,7 +18,7 @@ import { panelArt, useShowArt } from "./art";
 import { recentGameText, winningSeat } from "./recent";
 import { cardNamed, CommanderFields, DeckSearch, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type DeckPick, type Person } from "./pickers";
 import { gameSummary } from "./history";
-import { formFromGame } from "./logEdit";
+import { formFromGame, settleRebuilt } from "./logEdit";
 import "./seats.css";
 import "./home.css";
 
@@ -722,7 +722,7 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
     form.seats.forEach((s, key) => {
       if (!s.commanderName || s.art) return;
       void deckCommanders({ commanders: [s.commanderName, ...(s.partnerName ? [s.partnerName] : [])] }).then(
-        (c) => c && updateSeat(key, (now) => (stillHolds(now, s) && !now.art ? c : null)),
+        (c) => c && updateSeat(key, (now) => (stillHolds(now, s) && !now.art ? settleRebuilt(c, !!s.partnerName, form.savedLabels[key]) : null)),
       );
     });
   }, [form]);

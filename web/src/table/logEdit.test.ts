@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DeckSummary, GameDetail, GameSeat } from "../api";
-import { formFromGame, splitPair } from "./logEdit";
+import { formFromGame, settleRebuilt, splitPair } from "./logEdit";
 
 const seat = (n: number, p: Partial<GameSeat>): GameSeat => ({
   seat: n, member_id: null, user_id: null, guest_name: null, deck_version_id: null, deck_label: null, commander_name: null,
@@ -37,6 +37,15 @@ describe("formFromGame", () => {
     expect(f.seats[3]).toMatchObject({ name: "Jo", deckId: "d1", deckLabel: "Riders of Rohan" });
   });
 
+  it("reads a lent deck named after its commander as a name, not a pair", () => {
+    const tymna = { ...myDeck, name: "Tymna the Weaver and Friends", commanders: ["Tymna the Weaver"] } as DeckSummary;
+    const f = formFromGame(
+      game({ your_decks: { 0: "d1" }, seats: [seat(0, { guest_name: "Jo", deck_version_id: "v1", deck_label: "Tymna the Weaver and Friends", commander_name: "Tymna the Weaver" })] }),
+      [tymna],
+    );
+    expect(f.seats[0]).toMatchObject({ commanderName: "Tymna the Weaver", partnerName: undefined, deckLabel: "Tymna the Weaver and Friends" });
+  });
+
   it("keeps a game's format and starting life", () => {
     expect(formFromGame(game({ format: "standard", starting_life: 20 }))).toMatchObject({ format: "standard", startingLife: 20 });
     expect(formFromGame(game({}))).toMatchObject({ format: "commander", startingLife: 40 });
@@ -51,5 +60,17 @@ describe("splitPair", () => {
   it("finds the partner in the label", () => {
     expect(splitPair({ commander_name: "Tymna the Weaver", deck_label: "Tymna the Weaver and Kraum, Ludevic's Opus" })).toEqual({ commander: "Tymna the Weaver", partner: "Kraum, Ludevic's Opus" });
     expect(splitPair({ commander_name: "Frodo", deck_label: "Food and Fellowship" })).toEqual({ commander: "Frodo", partner: undefined });
+  });
+});
+
+describe("settleRebuilt", () => {
+  it("gives a deck its name back when the partner read from it isn't a card", () => {
+    expect(settleRebuilt({ commanderName: "Tymna the Weaver", partnerName: undefined }, true, "Tymna the Weaver and Friends")).toMatchObject({ partnerName: undefined, deckLabel: "Tymna the Weaver and Friends" });
+  });
+
+  it("keeps a real pair as a pair, and a seat with no partner as it was", () => {
+    const pair = { commanderName: "Tymna the Weaver", partnerName: "Kraum, Ludevic's Opus" };
+    expect(settleRebuilt(pair, true, "Tymna the Weaver and Kraum, Ludevic's Opus")).toEqual(pair);
+    expect(settleRebuilt({ commanderName: "Atraxa, Praetors' Voice" }, false, "Atraxa, Praetors' Voice")).toEqual({ commanderName: "Atraxa, Praetors' Voice" });
   });
 });
