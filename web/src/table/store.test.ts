@@ -15,12 +15,15 @@ class ApiError extends Error {
 }
 const calls: { path: string; method: string }[] = [];
 let failWith: number | "offline" | null = null;
+/** POSTs to /api/games answer 410: the game was deleted on another device. */
+let goneOnPost = false;
 vi.mock("../api", () => ({
   ApiError,
   api: vi.fn(async (path: string, init?: { method?: string }) => {
     const method = init?.method ?? "GET";
     if (failWith === "offline") throw new TypeError("Failed to fetch");
     if (method === "DELETE" && failWith !== null) throw new ApiError(failWith);
+    if (method === "POST" && path === "/api/games" && goneOnPost) throw new ApiError(410);
     calls.push({ path, method });
     return {};
   }),
@@ -35,6 +38,7 @@ describe("deleting table games", () => {
   beforeEach(() => {
     calls.length = 0;
     failWith = null;
+    goneOnPost = false;
   });
 
   it("discarding a game deletes Yama's copy too", async () => {
@@ -58,5 +62,13 @@ describe("deleting table games", () => {
   it("a game Yama never had counts as deleted", async () => {
     failWith = 404;
     expect(await store.deleteGame("g-never")).toBe(true);
+  });
+
+  it("a game deleted on another device leaves this one too, without an error", async () => {
+    store.startGame(setup("g-elsewhere"));
+    goneOnPost = true;
+    await store.sync();
+    expect(store.getGame()).toBeNull();
+    expect(JSON.parse(items.get("yama.table.rejected")!)).toEqual([]);
   });
 });

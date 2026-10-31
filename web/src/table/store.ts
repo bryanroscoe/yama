@@ -136,6 +136,11 @@ async function pushDeletes() {
   }
 }
 
+/** Yama says the game was deleted on purpose (410). */
+function isGone(e: unknown) {
+  return e instanceof ApiError && e.status === 410;
+}
+
 /** A 4xx other than auth or rate limits: retrying the same upload won't help. */
 function isPermanent(e: unknown) {
   return e instanceof ApiError && e.status >= 400 && e.status < 500 && ![401, 408, 429].includes(e.status);
@@ -281,10 +286,12 @@ export function sync(): Promise<void> {
           await pushGame(g);
         } catch (e) {
           if (!isPermanent(e)) throw e;
-          // Set it aside so the games behind it still upload.
-          rejected = [...rejected, { game: g, error: e instanceof Error ? e.message : String(e) }];
+          // Set it aside so the games behind it still upload; one deleted meanwhile, or deleted
+          // on another device (410), is simply gone.
+          if (!deletes.includes(g.setup.id) && !isGone(e)) rejected = [...rejected, { game: g, error: e instanceof Error ? e.message : String(e) }];
         }
-        outbox = outbox.slice(1);
+        // By identity: a delete while this one uploaded may have changed the list.
+        outbox = outbox.filter((o) => o !== g);
         emit();
       }
       await pushDeletes();
@@ -294,7 +301,17 @@ export function sync(): Promise<void> {
         current = { ...current, frozenThrough: Math.max(current.frozenThrough ?? 0, through) };
         emit();
         const snapshot = current;
-        await pushGame(snapshot);
+        try {
+          await pushGame(snapshot);
+        } catch (e) {
+          if (!isGone(e)) throw e;
+          // Whoever recorded it deleted it on another device: it goes from this one too.
+          if (current?.setup.id === snapshot.setup.id) {
+            forgetPrompts(snapshot.setup.id);
+            current = null;
+            derived = null;
+          }
+        }
         // Only advance if the game is still the same one (it may have been finished meanwhile).
         if (current && current.setup.id === snapshot.setup.id) {
           current = { ...current, syncedThrough: Math.max(current.syncedThrough, through) };

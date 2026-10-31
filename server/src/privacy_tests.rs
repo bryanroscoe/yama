@@ -244,6 +244,9 @@ async fn only_whoever_recorded_a_table_game_can_delete_it() {
     assert_eq!(detail["can_delete"], true);
     assert_eq!(send(&app, Method::DELETE, &path, Some(&bt), None).await.0, StatusCode::OK);
     assert_eq!(get(&app, &bt, &path).await.0, StatusCode::NOT_FOUND);
+    // Another device that still has it can't put it back.
+    let again = json!({ "id": game, "started_at": "2026-10-31T01:00:00Z", "seats": [{ "seat": 0, "user_id": bryan }] });
+    assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(again)).await.0, StatusCode::GONE);
     // Its seats and events go with it.
     let left: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM game_seats WHERE game_id = ?1) + (SELECT COUNT(*) FROM game_events WHERE game_id = ?1)")
         .bind(game)
