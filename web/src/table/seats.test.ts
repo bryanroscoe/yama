@@ -131,6 +131,11 @@ describe("withHandles", () => {
     );
     expect(seats.map((s) => s.handle)).toEqual(["sam", "kim", undefined, "pat"]);
   });
+
+  it("leaves a guest alone when the name is more than one person's", () => {
+    const third: Playgroup = { ...other, id: "pg3", members: [{ id: "m-kim2", user_id: "u-kim2", guest_name: null, display_name: "Kim", handle: "kimberly" }] };
+    expect(withHandles([{ ...emptySeat(), name: "Kim" }], group, [group, other, third])[0]!.handle).toBeUndefined();
+  });
 });
 
 describe("withoutGroup", () => {

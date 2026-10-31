@@ -145,7 +145,7 @@ export function fitSeatsToGroup(seats: SeatDraft[], group: Playgroup | undefined
 
 /**
  * Handles for seats rebuilt from a saved game, which know only a member or a guest's name: a
- * member's from the playgroup, a guest's from someone in your other playgroups by that name.
+ * member's from the playgroup, a guest's from the one person in your other playgroups by that name.
  * With the handle on the seat, their public decks are offered and they can't sit twice.
  */
 export function withHandles(seats: SeatDraft[], group: Playgroup | undefined, groups: Playgroup[]): SeatDraft[] {
@@ -157,8 +157,11 @@ export function withHandles(seats: SeatDraft[], group: Playgroup | undefined, gr
     }
     const name = s.name.trim().toLowerCase();
     if (s.userId || !name) return s;
-    const known = groups.flatMap((g) => (g.id === group?.id ? [] : g.members)).find((m) => m.user_id && m.handle && m.display_name.toLowerCase() === name);
-    return known?.handle ? { ...s, handle: known.handle } : s;
+    // Only when the name is one person's: two Alexes with accounts leave the seat a plain guest.
+    const known = groups.flatMap((g) => (g.id === group?.id ? [] : g.members)).filter((m) => m.user_id && m.display_name.toLowerCase() === name);
+    const people = new Set(known.map((m) => m.user_id));
+    const handle = people.size === 1 ? known[0]!.handle : null;
+    return handle ? { ...s, handle } : s;
   });
 }
 

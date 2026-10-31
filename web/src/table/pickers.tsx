@@ -535,8 +535,10 @@ export function PlayerSearch({ label = "Player", text, people, onText, onPick, p
   const free = known.filter((p) => !p.handle || !seatedHandles.includes(p.handle));
   // Someone found by handle who's already in the list (a member with that handle) shows once.
   const listed = new Set(people.flatMap((p) => (p.handle ? [p.handle] : [])).concat(seatedHandles));
-  const remote: Person[] = handlePrefix(text)
-    ? (found.data ?? []).filter((f) => !listed.has(f.handle)).map((f) => ({ name: `@${f.handle}`, handle: f.handle, sub: "On Yama" }))
+  // Results kept from the last search while the next one loads only count if they still match.
+  const prefix = handlePrefix(text);
+  const remote: Person[] = prefix
+    ? (found.data ?? []).filter((f) => f.handle.startsWith(prefix) && !listed.has(f.handle)).map((f) => ({ name: `@${f.handle}`, handle: f.handle, sub: "On Yama" }))
     : [];
   // A guest once typed as "@sam" gives way to @sam's profile.
   const shown = free.filter((p) => p.handle || !remote.some((r) => r.name.toLowerCase() === p.name.toLowerCase()));
