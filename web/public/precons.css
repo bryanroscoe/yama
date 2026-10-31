@@ -1417,3 +1417,11 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 .public-panel details { margin-top:16px; }
 .public-panel details p { max-width:72ch; }
 .public-panel > details:last-child { padding-bottom:0; }
+
+/* Shared research notes (/r/): the change table and the profile's list of notes. */
+.share-swaps td:nth-child(-n+2) { white-space:nowrap; font-weight:600; }
+.share-note-method { margin:8px 0 0; max-width:80ch; }
+.share-notes { margin:32px 0; }
+.share-notes h2 { font-size:32px; margin:0 0 12px; }
+.share-note-list { list-style:none; margin:0; padding:0; display:grid; gap:10px; font-size:18px; }
+@media(max-width:700px) { .share-swaps td:nth-child(-n+2) { white-space:normal; } }

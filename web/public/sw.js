@@ -33,7 +33,7 @@ self.addEventListener("fetch", (event) => {
 
   if (url.origin === location.origin && url.pathname.startsWith("/api/")) return; // always live
   // Public reference/notice pages and exports are not the private app shell: never cache them as "/".
-  if (url.origin === location.origin && (/^\/(about|privacy|tos|precons|docs|u|d)(\/|$)/.test(url.pathname) || url.pathname === "/sitemap.xml")) return;
+  if (url.origin === location.origin && (/^\/(about|privacy|tos|precons|docs|u|d|r)(\/|$)/.test(url.pathname) || url.pathname === "/sitemap.xml")) return;
 
   // Page loads: network first so updates arrive, cached shell when offline.
   if (req.mode === "navigate") {
