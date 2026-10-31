@@ -780,7 +780,8 @@ export function PlayerSheet({ state, seat, onClose, artFor, onAttack }: {
           {state.initiative === seat ? "Remove initiative" : "Take the initiative"}
         </button>
         <button className="outline" aria-pressed={(p.counters.blessing ?? 0) > 0} onClick={() => dispatch({ type: "counter", seat, counter: "blessing", delta: (p.counters.blessing ?? 0) > 0 ? -1 : 1 })}>
-          {(p.counters.blessing ?? 0) > 0 ? "Remove city's blessing" : "City's blessing"}
+          {/* The blessing is for good (CR 702.131c); taking it back is only for a mistaken tap. */}
+          {(p.counters.blessing ?? 0) > 0 ? "Take back city's blessing (tapped by mistake)" : "Got the city's blessing"}
         </button>
       </div>
       {p.eliminated ? (
