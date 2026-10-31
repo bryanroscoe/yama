@@ -784,8 +784,9 @@ async fn catalog_by_sha(pool: &SqlitePool) -> AppResult<(HashSet<String>, HashMa
     let mut allowed: HashMap<String, Vec<String>> = HashMap::new();
     for (id, cards) in catalog {
         if let Ok(cards) = serde_json::from_str::<Vec<crate::lab::PreconCard>>(&cards) {
-            let sha = crate::lab::experiments::precon_list_sha(&cards);
-            if crate::upgradeability::allows_reference_results(&id, &cards) {
+            let allows = crate::upgradeability::allows_reference_results(&id, &cards);
+            let sha = crate::lab::experiments::precon_list_sha(cards);
+            if allows {
                 allowed.entry(sha.clone()).or_default().push(id);
             }
             all.insert(sha);
@@ -1261,18 +1262,18 @@ pub async fn rating_v2_from(
         };
         rows.push((id.to_string(), rate, var, real_share));
     }
-    // Rank ranges: redraw every estimate from its uncertainty and rank again.
+    let z = 1.644_853_626_951_472_2;
+    let low = |rate: f64, var: f64| (rate - z * var.sqrt()).max(0.0);
+    // Rank ranges: redraw every estimate from its uncertainty and rank again by the same low end.
     let n = rows.len();
     let mut draws: Vec<Vec<usize>> = vec![Vec::with_capacity(1000); n];
     let mut rng = Normal(0x9e37_79b9_7f4a_7c15);
     for _ in 0..1000 {
-        let sample: Vec<f64> = rows.iter().map(|r| r.1 + r.2.sqrt() * rng.next()).collect();
+        let sample: Vec<f64> = rows.iter().map(|r| low(r.1 + r.2.sqrt() * rng.next(), r.2)).collect();
         for i in 0..n {
             draws[i].push(1 + sample.iter().filter(|x| **x > sample[i]).count());
         }
     }
-    let z = 1.644_853_626_951_472_2;
-    let low = |rate: f64, var: f64| (rate - z * var.sqrt()).max(0.0);
     let mut precons: Vec<V2Estimate> = rows
         .iter()
         .zip(draws.iter_mut())
