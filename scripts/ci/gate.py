@@ -58,7 +58,7 @@ def api(path):
 
 def gather(repo, number, head_sha, base_ref):
     # Labels are read live so a re-run notices a removed label.
-    labels = {label['name'] for label in api(f'/repos/{repo}/issues/{number}/labels?per_page=100')}
+    labels = {label['name'] for label in api(f'/repos/{repo}/pulls/{number}')['labels']}
     commit = api(f'/repos/{repo}/git/commits/{head_sha}')
     base = urllib.parse.quote(base_ref, safe='')
     behind_by = api(f'/repos/{repo}/compare/{base}...{head_sha}')['behind_by']
