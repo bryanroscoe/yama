@@ -674,16 +674,25 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
   );
 }
 
+/** A new game's answers: nobody has said who won, who went first, how, or how fun it was. */
+const UNANSWERED = { turns: "", winner: null, first: null, condition: null, fun: [] as FunRating[] } as const;
+
 /**
  * Log a game played without Yama, or (`editing`) change one logged before: the same form, filled
- * in, saved again under the game's own id.
+ * in, saved again under the game's own id. `copyFrom` starts a new log from another game's
+ * playgroup, day, players and decks, with nothing answered yet.
  */
-export function LogGame({ onClose, editing }: { onClose: () => void; editing?: GameDetail }) {
+export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; editing?: GameDetail; copyFrom?: GameDetail }) {
   const qc = useQueryClient();
   const me = useMe();
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
-  const [form] = useState(() => (editing ? formFromGame(editing, qc.getQueryData<DeckSummary[]>(["decks"])) : null));
+  const [form] = useState(() => {
+    const from = editing ?? copyFrom;
+    if (!from) return null;
+    const f = formFromGame(from, qc.getQueryData<DeckSummary[]>(["decks"]));
+    return editing ? f : { ...f, ...UNANSWERED };
+  });
   const [groupId, setGroupId] = useState(form?.groupId ?? "");
   // The day here, not in UTC: after 7 pm in Texas, UTC is already tomorrow.
   const [date, setDate] = useState(() => form?.date ?? localDay());
@@ -694,7 +703,9 @@ export function LogGame({ onClose, editing }: { onClose: () => void; editing?: G
   const [condition, setCondition] = useState<WinCondition | null>(form?.condition ?? null);
   const [fun, setFun] = useState<FunRating[]>(form?.fun ?? []);
   // One id per form, so pressing Save again after a failed or slow upload can't log it twice.
-  const [gameId] = useState(() => editing?.id ?? crypto.randomUUID());
+  const [gameId, setGameId] = useState(() => editing?.id ?? crypto.randomUUID());
+  // Games saved from this form with "Save and log another".
+  const [savedHere, setSavedHere] = useState(0);
   const [seats, setSeats] = useState<SeatDraft[]>(() =>
     form?.seats ?? [
       { ...emptySeat(), name: me.data?.display_name ?? "", userId: me.data?.id },
@@ -737,13 +748,18 @@ export function LogGame({ onClose, editing }: { onClose: () => void; editing?: G
     setGroupId(id);
     setSeats((s) => fitSeatsToGroup(s, groups.data?.find((g) => g.id === id), me.data));
   };
+  // A game copied from someone else's playgroup (you sat in but aren't a member of) is logged
+  // without it: its members become names.
+  useEffect(() => {
+    if (groups.data && groupId && !groups.data.some((g) => g.id === groupId)) chooseGroup("");
+  }, [groups.data]);
   // Seats left blank are dropped; the rest are numbered in order, and picks follow them.
   const filled = seats.map((s, i) => ({ s, i })).filter(({ s }) => s.name.trim() || s.memberId);
   const seatOf = (i: number | null) => (i === null ? null : filled.findIndex((f) => f.i === i));
   const named = filled.map(({ s, i }) => ({ seat: i, name: s.name.trim() || `Player ${i + 1}` }));
 
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (_another: boolean) => {
       if (filled.length < 1) throw new Error("Add at least one player.");
       // A draw is an answer; no answer isn't a draw.
       if (winner === null) throw new Error("Pick who won, or choose It was a draw.");
@@ -783,18 +799,26 @@ export function LogGame({ onClose, editing }: { onClose: () => void; editing?: G
         },
       });
     },
-    onSuccess: () => {
+    onSuccess: (_, another) => {
       void qc.invalidateQueries({ queryKey: ["games"] });
       void qc.invalidateQueries({ queryKey: ["stats"] });
       void qc.invalidateQueries({ queryKey: ["deck-results"] });
       void qc.invalidateQueries({ queryKey: ["game", gameId] });
-      onClose();
+      if (!another) return onClose();
+      // The next game: a new id, the same playgroup, day, players and decks, nothing answered.
+      setGameId(crypto.randomUUID());
+      setTurns(UNANSWERED.turns);
+      setWinner(UNANSWERED.winner);
+      setFirst(UNANSWERED.first);
+      setCondition(UNANSWERED.condition);
+      setFun(UNANSWERED.fun);
+      setSavedHere((n) => n + 1);
     },
   });
 
   return (
     <Sheet label={editing ? "Edit the game" : "Log a game"} onClose={onClose}>
-      <form className="stack capture" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+      <form className="stack capture" onSubmit={(e) => { e.preventDefault(); save.mutate(false); }}>
         <div className="sheet-head">
           <h2>{editing ? "Edit the game" : "Log a game"}</h2>
           <button type="button" className="quiet" onClick={onClose}>Close</button>
@@ -852,13 +876,23 @@ export function LogGame({ onClose, editing }: { onClose: () => void; editing?: G
         {named.length > 0 && (
           <>
             {typeof winner === "number" && <WinConditionPicker value={condition} onChange={setCondition} winner={named.find((n) => n.seat === winner)?.name} />}
-            <FirstPlayerPicker seats={named} value={first} onChange={setFirst} />
+            <FirstPlayerPicker key={gameId} seats={named} value={first} onChange={setFirst} />
             <FunPicker seats={named} value={fun.filter((r) => named.some((n) => n.seat === r.seat))} onChange={setFun} />
           </>
         )}
         <ErrorText error={save.error} />
+        {savedHere > 0 && !save.isPending && !save.error && (
+          <p className="small dim" role="status">
+            {savedHere === 1 ? "Saved." : `${savedHere} games saved.`} The same players are ready for the next game: pick who won and what changed.
+          </p>
+        )}
         <div className="row">
           <button className="primary" disabled={save.isPending}>{editing ? "Save the changes" : "Save the game"}</button>
+          {!editing && (
+            <button type="button" disabled={save.isPending} onClick={() => save.mutate(true)}>
+              Save and log another
+            </button>
+          )}
         </div>
       </form>
     </Sheet>

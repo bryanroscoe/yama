@@ -77,9 +77,10 @@ export function GameDetailPage() {
     refetchInterval: 15_000,
   });
   const art = useCardArt(g?.seats.flatMap((s) => [splitPair(s).commander]) ?? []);
-  const [editing, setEditing] = useState(false);
-  // Editing names the seats' decks from your list, so it opens once that's here.
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !!game.data?.can_edit });
+  /** The Log a game sheet: editing this game, or a new log starting from it. */
+  const [sheet, setSheet] = useState<"edit" | "copy" | null>(null);
+  // Both name the seats' decks from your list, so they open once that's here.
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: game.data?.mode === "in_person" });
 
   const carryOn = useMutation({
     mutationFn: async () => {
@@ -144,14 +145,15 @@ export function GameDetailPage() {
         <div className="gd-title">
           <h1>{title}</h1>
           <p className="dim">{facts.join(" ")}</p>
-          {g.can_edit && !isViewing() && (
+          {g.mode === "in_person" && !going && !isViewing() && (
             <div className="row">
-              <button disabled={!decks.data && !decks.isError} onClick={() => setEditing(true)}>Edit this game</button>
+              {g.can_edit && <button disabled={!decks.data && !decks.isError} onClick={() => setSheet("edit")}>Edit this game</button>}
+              <button disabled={!decks.data && !decks.isError} onClick={() => setSheet("copy")}>Log another like this</button>
             </div>
           )}
         </div>
       </header>
-      {editing && <LogGame editing={g} onClose={() => setEditing(false)} />}
+      {sheet && <LogGame editing={sheet === "edit" ? g : undefined} copyFrom={sheet === "copy" ? g : undefined} onClose={() => setSheet(null)} />}
 
       {going && (
         <section className="gd-going" aria-label="This game is still going">

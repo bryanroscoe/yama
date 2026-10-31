@@ -22,6 +22,7 @@ export const NEWS: NewsEntry[] = [
       "Each seat's Deck field searches the player's public decks, your own decks (lent, on someone else's seat) and the precons. Picking one fills in its commanders, or just pick a commander as before.",
       "Log a game can remove a player, and Who went first? has a Don't remember answer, here and at the end of a table game.",
       "Games you logged can be edited: open one and choose Edit this game.",
+      "Logging a night of games? Save and log another keeps the same players and decks for the next one, and any game's page has Log another like this.",
     ],
     link: { to: "/", label: "Log a game" },
   },
