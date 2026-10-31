@@ -793,6 +793,8 @@ export function PlayerSheet({ state, seat, onClose, artFor, onAttack }: {
   );
 }
 
+const MAX_TYPED_LIFE = 99_999;
+
 /** The big life total on the player sheet. Tap it to type a new total (a big lifegain, a reset). */
 function SetLife({ life, onSet }: { life: number; onSet: (n: number) => void }) {
   const [typing, setTyping] = useState<string | null>(null);
@@ -805,7 +807,8 @@ function SetLife({ life, onSet }: { life: number; onSet: (n: number) => void }) 
   }
   const done = () => {
     const n = Number.parseInt(typing, 10);
-    if (Number.isFinite(n)) onSet(n);
+    // Five digits either way is more than any real game, and keeps the total a safe whole number.
+    if (Number.isSafeInteger(n) && Math.abs(n) <= MAX_TYPED_LIFE) onSet(n);
     setTyping(null);
   };
   return (
@@ -817,7 +820,10 @@ function SetLife({ life, onSet }: { life: number; onSet: (n: number) => void }) 
         autoFocus
         value={typing}
         onFocus={(e) => e.currentTarget.select()}
-        onChange={(e) => setTyping(e.target.value.replace(/[^\d-]/g, "").replace(/(?!^)-/g, ""))}
+        onChange={(e) => {
+          const v = e.target.value.replace(/[^\d-]/g, "").replace(/(?!^)-/g, "");
+          setTyping(v.startsWith("-") ? `-${v.slice(1, 6)}` : v.slice(0, 5));
+        }}
         onBlur={done}
       />
     </form>
