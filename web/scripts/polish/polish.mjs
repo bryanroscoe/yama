@@ -20,7 +20,7 @@ import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { audit, clearOverlay, drawOverlay, visibleText } from "./audit.mjs";
-import { NEVER_VISIT, patternMatcher, routesFromApp, sampleKey, slugFor } from "./routes.mjs";
+import { NEVER_VISIT, SERVER_ROUTES, patternMatcher, routesFromApp, sampleKey, slugFor } from "./routes.mjs";
 import { writeReports } from "./report.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -706,22 +706,20 @@ async function shoot() {
 
     const appSource = readFileSync(join(REPO, "web", "src", "App.tsx"), "utf8");
     const patterns = routesFromApp(appSource);
-    const matchers = patterns.map(patternMatcher);
+    const appMatchers = patterns.map(patternMatcher);
+    const matchers = [...appMatchers, ...SERVER_ROUTES.map(patternMatcher)];
     const only = args.only ? new RegExp(args.only) : null;
     const exclude = args.exclude ? new RegExp(args.exclude) : null;
 
-    const seeds = positionals.length
-      ? positionals
-      : me
-        ? [...patterns.filter((p) => !p.includes(":")), "/precons", "/about/", "/privacy/", "/tos/"]
-        : ["/", "/precons", "/about/", "/privacy/", "/tos/"];
+    const publicPages = SERVER_ROUTES.filter((p) => !p.includes(":"));
+    const seeds = positionals.length ? positionals : me ? [...patterns.filter((p) => !p.includes(":")), ...publicPages] : ["/", ...publicPages];
     const queue = [];
     const queued = new Set();
     const perKey = new Map();
     const crawl = !args["no-crawl"] && !positionals.length;
     // Signed out, every app route is the sign-in screen: follow only links to the server's public
     // pages (/precons/..., /u/..., /d/...).
-    const appRoute = (u) => matchers.some((m) => m.re.test(u.pathname));
+    const appRoute = (u) => appMatchers.some((m) => m.re.test(u.pathname));
     const allowed = (u) =>
       u.origin === base.origin && !NEVER_VISIT.some((re) => re.test(u.pathname)) && (!only || only.test(u.pathname)) && !(exclude && exclude.test(u.pathname));
     const enqueue = (u, force = false) => {

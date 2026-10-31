@@ -35,6 +35,9 @@ describe("polish routes", () => {
     expect(patternFor("/decks/plan/d/xyz", m)).toBe("/decks/plan/d/:key");
     expect(patternFor("/precons/some-deck", m)).toBe("/precons/:id");
     expect(sampleKey(new URL("https://x/decks/1?tab=a&b=2"), m)).toBe("/decks/:id?b&tab");
+    const server = ["/precons/methodology", "/precons/:slug"].map(patternMatcher);
+    expect(patternFor("/precons/methodology", server)).toBe("/precons/methodology");
+    expect(patternFor("/precons/tinker-time", server)).toBe("/precons/:slug");
   });
 
   it("names files safely", () => {

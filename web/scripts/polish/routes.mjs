@@ -85,6 +85,22 @@ export function patternFor(pathname, matchers) {
     .join("/");
 }
 
+// Public pages the server renders itself (server/src/public_precons.rs, sharing.rs) and static
+// files in web/public. Listed so their static pages (methodology) aren't sampled as if they were
+// one more deck, and seeded so a run always reaches them.
+export const SERVER_ROUTES = [
+  "/precons",
+  "/precons/methodology",
+  "/precons/:slug",
+  "/u/:handle",
+  "/u/:handle/collection",
+  "/d/:token",
+  "/about/",
+  "/privacy/",
+  "/tos/",
+  "/docs/mcp/",
+];
+
 // Never visit these: they act on visiting (joining a table seat, an OAuth consent), or aren't pages.
 export const NEVER_VISIT = [
   /^\/api\//,

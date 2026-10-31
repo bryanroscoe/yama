@@ -30,7 +30,7 @@ npm run polish -- shoot --base https://yama.saget.org --as bryanroscoe@gmail.com
 
 Without `--as` it uses the session saved for that host (`~/.config/yama-polish/<host>.json`, mode 600) and otherwise shoots signed out: the sign-in screen and the public pages. `npm run polish -- --help` lists every option. Other ways to sign in: `login --dev-email`, `login --browser` (sign in by hand in a Chrome window) and `login --cookie-stdin`.
 
-Signed in, it starts from every static route in `web/src/App.tsx` plus `/precons`, `/about/`, `/privacy/` and `/tos/`, then follows links it finds, keeping `--samples` pages (default 2) per route pattern such as `/decks/:id`, to `--max-pages` (default 80). The laptop pass finds the pages; the other sizes visit the same list. Given paths, it visits just those.
+Signed in, it starts from every static route in `web/src/App.tsx` plus the server's public pages (`SERVER_ROUTES` in `routes.mjs`: `/precons`, `/precons/methodology`, `/about/`, `/privacy/`, `/tos/`, `/docs/mcp/`), then follows links it finds, keeping `--samples` pages (default 2) per route pattern such as `/decks/:id` or `/precons/:slug`, to `--max-pages` (default 80). Signed out, it starts from `/` and the public pages and follows only links outside the app's routes. The laptop pass finds the pages; the other sizes visit the same list. Given paths, it visits just those.
 
 ## Read-only on purpose
 
