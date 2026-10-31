@@ -473,6 +473,17 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     assert_eq!(status, StatusCode::OK);
     assert!(file.starts_with("Commander\n1 Nalia de'Arnise\n"), "{file}");
     assert!(file.contains("98 Plains"));
+    // Names resolve as written, accents included, in one lookup.
+    card(&pool, "o-eowyn", "Éowyn, Lady of Rohan", "Legendary Creature — Human Noble", "p-eowyn", "ltr", "10").await;
+    sqlx::query("UPDATE cards SET image_normal = 'https://cards.scryfall.io/normal/eowyn.jpg' WHERE oracle_id = 'o-eowyn'").execute(&pool).await.unwrap();
+    let mut with_eowyn = note();
+    with_eowyn["decks"][0]["builds"][0]["list"] = json!("Commander\n1 Nalia de'Arnise\nDeck\n1 Éowyn, Lady of Rohan\n98 Plains");
+    with_eowyn["decks"][0]["builds"][0]["swaps"] = json!([]);
+    crate::deck_research::save(&pool, &bryan, &with_eowyn).await.unwrap();
+    let eowyn = page(&app, &format!("/r/{token}/party")).await.2;
+    assert!(eowyn.contains("https://cards.scryfall.io/normal/eowyn.jpg"), "Éowyn's image");
+    assert!(!eowyn.contains("Not in Yama's card data: Nalia de&#39;Arnise, Éowyn"));
+    crate::deck_research::save(&pool, &bryan, &note()).await.unwrap();
     assert_eq!(page(&app, &format!("/r/{token}/nope")).await.0, StatusCode::NOT_FOUND);
     assert_eq!(page(&app, &format!("/r/{token}/party/b9-names.txt")).await.0, StatusCode::NOT_FOUND);
     assert!(!page(&app, "/u/saget").await.2.contains(&format!("/r/{token}")));

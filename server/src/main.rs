@@ -250,6 +250,8 @@ async fn main() -> anyhow::Result<()> {
             let visibility = flag_value(&args, "--visibility").context("--visibility private|link|public is required")?;
             let owner = decks::cli::owner_id(&pool, &email).await?;
             let err = |e: error::AppError| anyhow::anyhow!("{e}");
+            // A bad visibility changes nothing, the link included.
+            sharing::visibility(&visibility).map_err(err)?;
             if args.iter().any(|a| a == "--reset-link") {
                 deck_research::reset_link(&pool, &owner, &id).await.map_err(err)?;
             }

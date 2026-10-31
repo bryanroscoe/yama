@@ -63,15 +63,17 @@ async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, 
     let mut lines = crate::decks::parse_list(list, true);
     let cut = lines.len() > MAX_LINES;
     lines.truncate(MAX_LINES);
-    let front = |n: &str| n.split(" // ").next().unwrap_or(n).to_lowercase();
-    let mut names: Vec<String> = lines.iter().flat_map(|l| [l.name.to_lowercase(), front(&l.name)]).collect();
+    // Names as written: SQLite's lower() and NOCASE fold ASCII only, so Rust's Unicode
+    // lowercasing ("Éowyn" → "éowyn") would never match. card_names' NOCASE covers ASCII case.
+    let front = |n: &str| n.split(" // ").next().unwrap_or(n).to_string();
+    let mut names: Vec<String> = lines.iter().flat_map(|l| [l.name.clone(), front(&l.name)]).collect();
     names.sort();
     names.dedup();
     type Row = (String, Option<String>, f64, Option<String>, Option<String>);
-    // Real cards before tokens of the same name, Commander-legal ones first; the first row per
-    // name wins.
+    // Keyed by the name asked for. Real cards before tokens of the same name, Commander-legal
+    // ones first; the first row per name wins.
     let rows: Vec<Row> = sqlx::query_as(
-        "SELECT lower(n.name), c.type_line, c.cmc, c.layout, c.image_normal
+        "SELECT j.value, c.type_line, c.cmc, c.layout, c.image_normal
          FROM json_each(?) j JOIN card_names n ON n.name = j.value JOIN cards c ON c.oracle_id = n.oracle_id
          ORDER BY c.type_line LIKE 'Token%', json_extract(c.legalities, '$.commander') IS NOT 'legal'",
     )
@@ -85,7 +87,7 @@ async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, 
     let out = lines
         .into_iter()
         .map(|line| {
-            let row = found.get(&line.name.to_lowercase()).or_else(|| found.get(&front(&line.name)));
+            let row = found.get(&line.name).or_else(|| found.get(&front(&line.name)));
             let (type_line, cmc, layout, image) = match row {
                 Some((_, t, cmc, layout, image)) => (t.clone(), *cmc, layout.clone(), scryfall_image(image.clone())),
                 None => (None, 0.0, None, None),
