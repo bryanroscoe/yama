@@ -584,7 +584,7 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
             .bind(&id)
             .fetch_all(&st.pool)
             .await?;
-    let events = rows
+    let events: Vec<Event> = rows
         .into_iter()
         .map(|(seq, actor_seat, kind, payload, created_at)| Event {
             seq,
