@@ -119,7 +119,8 @@ the successful push run is what authorizes deployment.
 
 - **Drafts run no jobs.** Open work-in-progress PRs as drafts (`gh pr create --draft`). The
   workflow still starts for each push, but every job is skipped, so it uses no runner time.
-  Marking the PR ready (`gh pr ready`) runs CI; later pushes run it as usual.
+  Marking the PR ready (`gh pr ready`) runs CI; later pushes run it as usual. Converting it
+  back to draft (`gh pr ready --undo`) cancels CI still in progress.
 - **Local checks.** On a clean worktree with Rust 1.98.1 and `../yama-phase` at the published
   commit in `deploy/phase-rev` (checked with `deploy/check-phase.sh`), run `scripts/local-ci.sh`.
   It runs every CI check (`npm ci`, `npm test`, `npm run typecheck`, `npm run build`,

@@ -70,7 +70,8 @@ class Workflow(unittest.TestCase):
     workflow = (ROOT / '.github/workflows/ci.yml').read_text()
 
     def test_drafts_start_no_jobs_and_ready_runs(self):
-        self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', self.workflow)
+        self.assertIn('types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]',
+                      self.workflow)
         self.assertIn('!github.event.pull_request.draft', job(self.workflow, 'gate'))
         for name in ('web', 'rust'):
             self.assertIn('!github.event.pull_request.draft', job(self.workflow, name))
