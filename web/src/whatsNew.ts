@@ -14,6 +14,15 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-31-scan-closeups-switch",
+    date: "2026-10-31",
+    title: "Scan with a camera that stays put",
+    items: [
+      "The scanner's close-up step is now a switch under the camera. Leave Close-ups on to hold the phone near the set code and number when several printings share the art. Turn it off for a stand or card feeder: the scanner reads the whole card and asks you to tap the printing when that isn't enough.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-10-29-precon-real-history",
     date: "2026-10-29",
     title: "Precon pages show real games over time",
