@@ -74,6 +74,7 @@ cargo build -p yama-server
 
 npm install
 npm run dev                                  # web app on http://localhost:5173 (proxies /api)
+npm run polish -- shoot --as you@example.com # screenshots of every page at three sizes (docs/polish.md)
 ```
 
 Online play needs the local phase fork and its card data (see docs/engine-integration.md):
