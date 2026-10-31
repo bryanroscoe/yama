@@ -161,3 +161,16 @@ export function withHandles(seats: SeatDraft[], group: Playgroup | undefined, gr
     return known?.handle ? { ...s, handle: known.handle } : s;
   });
 }
+
+/**
+ * Seats copied from a playgroup you can't log in (you sat in it but aren't a member): its members
+ * become guests by name, keeping their decks, labels and handles; only your own account stays
+ * tied. Unlike choosing "None" yourself, nothing about what they played is dropped.
+ */
+export function withoutGroup(seats: SeatDraft[], me: Me | null | undefined): SeatDraft[] {
+  return seats.map((s) => {
+    if (!s.memberId && !s.userId) return s;
+    if (me && s.userId === me.id) return { ...s, memberId: undefined };
+    return { ...s, memberId: undefined, userId: undefined };
+  });
+}

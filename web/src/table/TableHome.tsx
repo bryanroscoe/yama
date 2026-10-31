@@ -11,7 +11,7 @@ import { BracketChips } from "../components/Bracket";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
-import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, seatDeckLabel, stillHolds, withHandles, type SeatDraft, type SeatPatch } from "./seats";
+import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, seatDeckLabel, stillHolds, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
 import { layout } from "./TablePlay";
 import { panelArt, useShowArt } from "./art";
@@ -763,10 +763,15 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   // aren't a member of) is logged without it, its members becoming names; and seats rebuilt from
   // a saved game get their players' handles.
   useEffect(() => {
-    if (!groups.data) return;
-    if (groupId && !groups.data.some((g) => g.id === groupId)) chooseGroup("");
-    else if (form) setSeats((s) => withHandles(s, groups.data.find((g) => g.id === groupId), groups.data));
-  }, [groups.data]);
+    if (!groups.data || !me.data) return;
+    const all = groups.data;
+    if (groupId && !all.some((g) => g.id === groupId)) {
+      setGroupId("");
+      setSeats((s) => withHandles(withoutGroup(s, me.data), undefined, all));
+    } else if (form) {
+      setSeats((s) => withHandles(s, all.find((g) => g.id === groupId), all));
+    }
+  }, [groups.data, me.data]);
   // Seats left blank are dropped; the rest are numbered in order, and picks follow them.
   const filled = seats.map((s, i) => ({ s, i })).filter(({ s }) => s.name.trim() || s.memberId);
   const seatOf = (i: number | null) => (i === null ? null : filled.findIndex((f) => f.i === i));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Playgroup } from "../api";
-import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, stillHolds, withHandles, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
+import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, stillHolds, withHandles, withoutGroup, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
 
 const me = { id: "u-me", display_name: "Bryan" };
 const mine: SeatDraft = { ...emptySeat(), name: "Bryan", userId: "u-me", deckId: "d1", deckVersionId: "v1", commanderName: "Atraxa" };
@@ -130,5 +130,21 @@ describe("withHandles", () => {
       [group, other],
     );
     expect(seats.map((s) => s.handle)).toEqual(["sam", "kim", undefined, "pat"]);
+  });
+});
+
+describe("withoutGroup", () => {
+  it("makes a playgroup you can't log in guests by name, keeping what they played", () => {
+    const seats = withoutGroup(
+      [
+        { ...mine, memberId: "m-me" },
+        { ...emptySeat(), name: "Sam Smith", memberId: "m-sam", userId: "u-sam", handle: "sam", deckLabel: "Riders of Rohan", commanderName: "Éowyn, Shieldmaiden" },
+        { ...emptySeat(), name: "Jo", memberId: "m-jo" },
+      ],
+      me,
+    );
+    expect(seats[0]).toMatchObject({ memberId: undefined, userId: "u-me", deckId: "d1", deckVersionId: "v1" });
+    expect(seats[1]).toMatchObject({ name: "Sam Smith", memberId: undefined, userId: undefined, handle: "sam", deckLabel: "Riders of Rohan", commanderName: "Éowyn, Shieldmaiden" });
+    expect(seats[2]).toMatchObject({ name: "Jo", memberId: undefined });
   });
 });
