@@ -377,15 +377,16 @@ pub(super) async fn deck(
                 format!("{count}<a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a>", e(name), e(&image), e(&scryfall(name)))
             }
         };
+        let line = |label: &str, t: &str| if t.is_empty() { String::new() } else { format!("<br><span class=\"dim\">{label}{}</span>", e(t)) };
         for s in &swaps {
-            let out = text(s, "why_out");
             write!(
                 body,
-                "<tr><td>{}</td><td>{}</td><td>{}{}</td></tr>",
+                "<tr><td>{}</td><td>{}</td><td>{}{}{}</td></tr>",
                 link(text(s, "card_in"), qty(s)),
                 link(text(s, "card_out"), qty(s)),
                 e(text(s, "why")),
-                if out.is_empty() { String::new() } else { format!("<br><span class=\"dim\">Cut: {}</span>", e(out)) },
+                line("Cut: ", text(s, "why_out")),
+                line("", text(s, "pairing_note")),
             )
             .unwrap();
         }
