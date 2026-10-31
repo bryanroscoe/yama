@@ -19,6 +19,11 @@ const demonic = card("Demonic Tutor", "Sorcery", 2, "Search your library for a c
 const woodElves = card("Wood Elves", "Creature — Elf Scout", 3, "When Wood Elves enters, search your library for a Forest card and put that card onto the battlefield. Then shuffle.");
 const forest = card("Forest", "Basic Land — Forest", 0, "({T}: Add {G}.)", "G");
 const fetch = card("Wooded Foothills", "Land", 0, "{T}, Pay 1 life, Sacrifice Wooded Foothills: Search your library for a Mountain or Forest card, put it onto the battlefield, then shuffle.");
+const natureLore = card("Nature's Lore", "Sorcery", 2, "Search your library for a Forest card, put that card onto the battlefield, then shuffle.");
+const farseek = card("Farseek", "Sorcery", 2, "Search your library for a Plains, Island, Swamp, or Mountain card and put it onto the battlefield tapped, then shuffle.");
+const rebirth = card("Malakir Rebirth // Malakir Mire", "Instant // Land", 1, "Choose target creature. It gains \"When this creature dies, return it to the battlefield tapped under its owner's control.\"\n//\nAs Malakir Mire enters, you may pay 3 life. If you don't, it enters tapped.\n{T}: Add {B}.", "B");
+const rift = card("Cyclonic Rift", "Instant", 2, "Return target nonland permanent you don't control to its owner's hand.\nOverload {6}{U}");
+const finale = card("Finale of Devastation", "Sorcery", 2, "Search your library and/or graveyard for a creature card with mana value X or less and put it onto the battlefield.");
 const big = card("Ulamog, the Ceaseless Hunger", "Legendary Creature — Eldrazi", 10, "When you cast this spell, exile two target permanents.");
 
 describe("power signals from card text", () => {
@@ -26,6 +31,10 @@ describe("power signals from card text", () => {
     expect(isCheapMana(solRing)).toBe(true);
     expect(isCheapMana(rampant)).toBe(true);
     expect(isCheapMana(cultivate)).toBe(false);
+    expect(isCheapMana(natureLore)).toBe(true);
+    expect(isCheapMana(farseek)).toBe(true);
+    // A spell with a land back is a land drop, not ramp.
+    expect(isCheapMana(rebirth)).toBe(false);
     expect(isCheapMana(forest)).toBe(false);
   });
 
@@ -35,12 +44,15 @@ describe("power signals from card text", () => {
     expect(isCheapDraw(swords)).toBe(false);
     expect(isCheapInteraction(swords)).toBe(true);
     expect(isCheapInteraction(counterspell)).toBe(true);
+    expect(isCheapInteraction(rift)).toBe(true);
     expect(isCheapInteraction(relic)).toBe(false);
     expect(isCheapInteraction(big)).toBe(false);
   });
 
   it("counts tutors for nonland cards only, never land searches or lands", () => {
     expect(isTutor(demonic)).toBe(true);
+    expect(isTutor(finale)).toBe(true);
+    expect(isTutor(natureLore)).toBe(false);
     expect(isTutor(woodElves)).toBe(false);
     expect(isTutor(rampant)).toBe(false);
     expect(isTutor(fetch)).toBe(false);

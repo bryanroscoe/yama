@@ -57,12 +57,19 @@ const CHEAP = 2;
 const BASIC_OR_LAND = /\b(?:land|plains|island|swamp|mountain|forest|wastes)\b/i;
 
 const faceText = (c: StatCard) => c.oracleText ?? "";
+/** The card data joins a multi-face card's rules text with a "//" line. */
+const frontText = (c: StatCard) => faceText(c).split(/\n\/\/\n/)[0]!;
+const hasLandBack = (c: StatCard) => (c.typeLine ?? "").split(" // ").slice(1).some((t) => t.includes("Land"));
 
 /** A rock, dork or ritual, or a spell that puts a land onto the battlefield. */
 export function isCheapMana(c: StatCard): boolean {
   if (c.cmc == null || c.cmc > CHEAP || isLand(c)) return false;
-  if (c.producedMana) return true;
-  return /search your library for [^.]*\bland cards?\b[^.]*onto the battlefield/i.test(faceText(c));
+  const text = frontText(c);
+  if (/search your library for [^.]*\b(?:land|plains|island|swamp|mountain|forest)s? cards?\b[^.]*onto the battlefield/i.test(text)) return true;
+  // Produced mana covers every face, so a spell with a land back (Malakir Rebirth) would count
+  // for its land; then only the front face's own mana counts.
+  if (hasLandBack(c)) return /\badd \{/i.test(text);
+  return !!c.producedMana;
 }
 
 export function isCheapDraw(c: StatCard): boolean {
@@ -73,13 +80,13 @@ export function isCheapDraw(c: StatCard): boolean {
 /** Removal, a counterspell or a bounce that targets, at two mana or less. */
 export function isCheapInteraction(c: StatCard): boolean {
   if (c.cmc == null || c.cmc > CHEAP || isLand(c)) return false;
-  return /\bcounter target\b|\bdestroy target\b|\bexile target (?!card from|cards from)|\breturn target (?:[^.]*?) to (?:its|their) owners?'? hands?\b|\bdeals? (?:\d+|x) damage to (?:any target|target (?:creature|planeswalker|player|opponent|attacking|blocking))/i.test(faceText(c));
+  return /\bcounter target\b|\bdestroy target\b|\bexile target (?!card from|cards from)|\breturn target (?:[^.]*?) to (?:its|their) owner'?s'? hands?\b|\bdeals? (?:\d+|x) damage to (?:any target|target (?:creature|planeswalker|player|opponent|attacking|blocking))/i.test(faceText(c));
 }
 
 /** Finds a card other than a land from the library. */
 export function isTutor(c: StatCard): boolean {
   if (isLand(c)) return false;
-  for (const [, what] of faceText(c).matchAll(/search(?:es)? (?:your|their) library for ([^.]*?)\bcards?\b/gi)) {
+  for (const [, what] of faceText(c).matchAll(/search(?:es)? (?:your|their) (?:library|graveyard and\/or library|library and\/or graveyard) for ([^.]*?)\bcards?\b/gi)) {
     if (!BASIC_OR_LAND.test(what!)) return true;
   }
   return false;
