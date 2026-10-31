@@ -498,6 +498,8 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
 }) {
   const me = useMe().data;
   const chosen = decks?.find((d) => d.id === seat.deckId);
+  // A member's handle from the playgroup (a seat rebuilt from a saved game knows only the member).
+  const handle = seat.handle ?? group?.members.find((m) => m.id === seat.memberId)?.handle ?? undefined;
   // A deck named for this seat: one of yours, or a precon or the player's public deck.
   const deckShown = chosen?.name ?? seat.deckLabel;
   // What's typed in the deck field before anything is picked; null shows the deck picked.
@@ -582,7 +584,7 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
             onPick={pickDeck}
             onLeave={() => setDeckText(null)}
             decks={decks}
-            handle={seat.handle}
+            handle={handle}
             yours={isMe}
             trailing={deckShown && seat.colorIdentity ? <span className="combo-trailing"><Pips identity={seat.colorIdentity} label={false} /></span> : null}
           />
