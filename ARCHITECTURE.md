@@ -957,6 +957,10 @@ publication) re-derives the ranks on the next request; unchanged inputs are reus
 With no enabled source the pages fall back to meta rank v1, which stays documented on the
 methodology page.
 
+### Polish runs (2026-10-31)
+
+`npm run polish` (`web/scripts/polish/`, docs/polish.md) screenshots every page at laptop, tablet and phone sizes, scrolling down each one and opening its menus, sheets, tabs and disclosures, and checks layout and copy as it goes (overflow, clipped or overlapping text, small targets, the Night table rules, copy slips, off-scale spacing). It's for Claude's polish passes and for Bryan to page through. A run is read-only: writes are blocked at the browser, so it can run on production as Bryan with a short session minted on the server (`yama-server user session`).
+
 ## 11. Risks
 
 - **Legal and IP:**

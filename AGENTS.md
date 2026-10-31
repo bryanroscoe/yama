@@ -10,6 +10,7 @@
 - Don't copy AGPL code (e.g. CollectorVision) into this repo while it's private.
 - The disk is nearly full. Keep Rust debug info low (already set in Cargo.toml), use `CARGO_BUILD_JOBS=4`, and delete large downloads after use.
 - Before committing: `cargo test`, `npm test`, `npm run typecheck`.
+- To see the site (a polish pass, checking a UI change at every size), use `npm run polish` (docs/polish.md): screenshots of every page, press and size with layout and copy checks, read-only even on production.
 
 ## Code
 
