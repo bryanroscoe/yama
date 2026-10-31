@@ -447,6 +447,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "lab_ratings", &[("run_id", t(&run))]).await;
     let global_run = fill(&pool, "lab_runs", &[("owner_id", V::Null)]).await;
     let experiment = fill(&pool, "lab_experiments", &[("owner_id", t(&v))]).await;
+    fill(&pool, "precon_evidence_simulation", &[("owner_id", t(&v)), ("experiment_id", t(&experiment)), ("engine", t("forge"))]).await;
     fill(&pool, "lab_experiment_games", &[("experiment_id", t(&experiment))]).await;
     fill(&pool, "lab_usage", &[("owner_id", t(&v)), ("experiment_id", t(&experiment))]).await;
     let execution = fill(&pool, "lab_execution_runs", &[("owner_id", t(&v)), ("experiment_id", t(&experiment)), ("target", t("laptop"))]).await;

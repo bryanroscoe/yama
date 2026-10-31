@@ -82,6 +82,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("playgroup_members", "user_id"),
     ("playgroups", "owner_id"),
     ("precon_evidence_sources", "owner_id"),
+    ("precon_evidence_simulation", "owner_id"),
     ("research_reports", "owner_id"),
     ("research_review_ops", "owner_id"),
     ("research_reviews", "owner_id"),
@@ -95,6 +96,8 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
 const OWNED_DELETES: &[(&str, &str)] = &[
     // The account stops feeding shared precon evidence along with its datasets.
     ("precon_evidence_sources", "owner_id"),
+    // and its chosen simulation, whose tournaments go with it.
+    ("precon_evidence_simulation", "owner_id"),
     ("evidence_datasets", "owner_id"),
     ("research_reviews", "owner_id"),
     ("research_review_ops", "owner_id"),

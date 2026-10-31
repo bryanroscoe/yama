@@ -23,6 +23,7 @@ mod mcp;
 mod oauth;
 mod play;
 mod plan;
+mod people;
 mod playgroups;
 mod precon_evidence;
 mod public_page;
