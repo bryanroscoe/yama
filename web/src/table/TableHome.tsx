@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FORMATS, formatLabel, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { api, type DeckSummary, type DeckVersionRow, type GameRow, type Playgroup } from "../api";
+import { api, type DeckSummary, type DeckVersionRow, type GameDetail, type GameRow, type Playgroup } from "../api";
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
@@ -18,6 +18,7 @@ import { panelArt, useShowArt } from "./art";
 import { recentGameText, winningSeat } from "./recent";
 import { cardNamed, CommanderFields, DeckSearch, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type DeckPick, type Person } from "./pickers";
 import { gameSummary } from "./history";
+import { formFromGame } from "./logEdit";
 import "./seats.css";
 import "./home.css";
 
@@ -673,26 +674,44 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
   );
 }
 
-function LogGame({ onClose }: { onClose: () => void }) {
+/**
+ * Log a game played without Yama, or (`editing`) change one logged before: the same form, filled
+ * in, saved again under the game's own id.
+ */
+export function LogGame({ onClose, editing }: { onClose: () => void; editing?: GameDetail }) {
   const qc = useQueryClient();
   const me = useMe();
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
-  const [groupId, setGroupId] = useState("");
+  const [form] = useState(() => (editing ? formFromGame(editing, qc.getQueryData<DeckSummary[]>(["decks"])) : null));
+  const [groupId, setGroupId] = useState(form?.groupId ?? "");
   // The day here, not in UTC: after 7 pm in Texas, UTC is already tomorrow.
-  const [date, setDate] = useState(() => localDay());
-  const [turns, setTurns] = useState("");
+  const [date, setDate] = useState(() => form?.date ?? localDay());
+  const [turns, setTurns] = useState(form?.turns ?? "");
   /** A seat (its index in the form), "draw", or null while nobody has answered. */
-  const [winner, setWinner] = useState<number | "draw" | null>(null);
-  const [first, setFirst] = useState<number | null>(null);
-  const [condition, setCondition] = useState<WinCondition | null>(null);
-  const [fun, setFun] = useState<FunRating[]>([]);
+  const [winner, setWinner] = useState<number | "draw" | null>(form?.winner ?? null);
+  const [first, setFirst] = useState<number | null>(form?.first ?? null);
+  const [condition, setCondition] = useState<WinCondition | null>(form?.condition ?? null);
+  const [fun, setFun] = useState<FunRating[]>(form?.fun ?? []);
   // One id per form, so pressing Save again after a failed or slow upload can't log it twice.
-  const [gameId] = useState(() => crypto.randomUUID());
-  const [seats, setSeats] = useState<SeatDraft[]>(() => [
-    { ...emptySeat(), name: me.data?.display_name ?? "", userId: me.data?.id },
-    ...Array.from({ length: 3 }, emptySeat),
-  ]);
+  const [gameId] = useState(() => editing?.id ?? crypto.randomUUID());
+  const [seats, setSeats] = useState<SeatDraft[]>(() =>
+    form?.seats ?? [
+      { ...emptySeat(), name: me.data?.display_name ?? "", userId: me.data?.id },
+      ...Array.from({ length: 3 }, emptySeat),
+    ],
+  );
+  // An edited game's seats know only their commanders' names: look the cards up again for their
+  // art and colors, unless the seat has changed meanwhile.
+  useEffect(() => {
+    if (!form) return;
+    form.seats.forEach((s, i) => {
+      if (!s.commanderName || s.art) return;
+      void deckCommanders({ commanders: [s.commanderName, ...(s.partnerName ? [s.partnerName] : [])] }).then(
+        (c) => c && setSeats((all) => (all[i]?.commanderName === s.commanderName && !all[i]?.art ? patchSeat(all, i, c) : all)),
+      );
+    });
+  }, [form]);
   // A key per seat, so removing one from the middle doesn't hand its fields' state to the next.
   const nextKey = useRef(seats.length);
   const [keys, setKeys] = useState(() => seats.map((_, i) => i));
@@ -730,7 +749,8 @@ function LogGame({ onClose }: { onClose: () => void }) {
       if (winner === null) throw new Error("Pick who won, or choose It was a draw.");
       const winnerSeat = winner === "draw" ? null : seatOf(winner);
       if (winnerSeat === -1) throw new Error("The winner's seat needs a name.");
-      const at = new Date(`${date}T20:00:00`).toISOString();
+      // An edit that keeps the day keeps the time it was saved with.
+      const at = editing && date === form?.date ? editing.started_at : new Date(`${date}T20:00:00`).toISOString();
       // The deck version that was current on the day played, not whatever it is now.
       const versions = await Promise.all(
         // Anyone else's public deck carries its list as it is now; the server keeps it only on its owner's seat.
@@ -759,7 +779,7 @@ function LogGame({ onClose }: { onClose: () => void }) {
             win_condition: winnerSeat === null ? null : condition,
             seats: fun.map((r) => ({ seat: seatOf(r.seat), fun: r.rating })).filter((r) => r.seat !== null && r.seat >= 0),
           },
-          note: "Logged after the game",
+          note: editing?.note ?? "Logged after the game",
         },
       });
     },
@@ -767,15 +787,16 @@ function LogGame({ onClose }: { onClose: () => void }) {
       void qc.invalidateQueries({ queryKey: ["games"] });
       void qc.invalidateQueries({ queryKey: ["stats"] });
       void qc.invalidateQueries({ queryKey: ["deck-results"] });
+      void qc.invalidateQueries({ queryKey: ["game", gameId] });
       onClose();
     },
   });
 
   return (
-    <Sheet label="Log a game" onClose={onClose}>
+    <Sheet label={editing ? "Edit the game" : "Log a game"} onClose={onClose}>
       <form className="stack capture" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
         <div className="sheet-head">
-          <h2>Log a game</h2>
+          <h2>{editing ? "Edit the game" : "Log a game"}</h2>
           <button type="button" className="quiet" onClick={onClose}>Close</button>
         </div>
         <div className="row" style={{ alignItems: "end" }}>
@@ -837,7 +858,7 @@ function LogGame({ onClose }: { onClose: () => void }) {
         )}
         <ErrorText error={save.error} />
         <div className="row">
-          <button className="primary" disabled={save.isPending}>Save the game</button>
+          <button className="primary" disabled={save.isPending}>{editing ? "Save the changes" : "Save the game"}</button>
         </div>
       </form>
     </Sheet>

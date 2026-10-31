@@ -2,28 +2,23 @@
 // game still going can be followed live from another device, or carried on here.
 
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { formatLabel, winConditionLabel, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup } from "@yama/core";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, type GameDetail, type GameSeat } from "../api";
+import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { artCredits } from "../components/ArtPanel";
 import { ErrorText } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
+import { splitPair } from "./logEdit";
 import { cardNamed, unionIdentity } from "./pickers";
 import { resumeGame, useOutbox, useTable } from "./store";
+import { LogGame } from "./TableHome";
 import { isViewing } from "../viewingFlag";
 import "./home.css";
 
 const FORMAT_KEYS: TableFormat[] = ["commander", "standard", "other"];
-
-/** "Tana and Tymna" on the server's label, back into a commander and a partner. */
-function splitPair(s: GameSeat): { commander?: string; partner?: string } {
-  const commander = s.commander_name ?? undefined;
-  const label = s.deck_label ?? "";
-  const partner = commander && label.startsWith(`${commander} and `) ? label.slice(commander.length + 5) : undefined;
-  return { commander, partner };
-}
 
 const seatName = (s: GameSeat) => s.display_name ?? s.guest_name ?? `Player ${s.seat + 1}`;
 
@@ -82,6 +77,9 @@ export function GameDetailPage() {
     refetchInterval: 15_000,
   });
   const art = useCardArt(g?.seats.flatMap((s) => [splitPair(s).commander]) ?? []);
+  const [editing, setEditing] = useState(false);
+  // Editing names the seats' decks from your list, so it opens once that's here.
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !!game.data?.can_edit });
 
   const carryOn = useMutation({
     mutationFn: async () => {
@@ -146,8 +144,14 @@ export function GameDetailPage() {
         <div className="gd-title">
           <h1>{title}</h1>
           <p className="dim">{facts.join(" ")}</p>
+          {g.can_edit && !isViewing() && (
+            <div className="row">
+              <button disabled={!decks.data && !decks.isError} onClick={() => setEditing(true)}>Edit this game</button>
+            </div>
+          )}
         </div>
       </header>
+      {editing && <LogGame editing={g} onClose={() => setEditing(false)} />}
 
       {going && (
         <section className="gd-going" aria-label="This game is still going">

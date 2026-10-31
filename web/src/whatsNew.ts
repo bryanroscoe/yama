@@ -21,6 +21,7 @@ export const NEWS: NewsEntry[] = [
       "New game and Log a game find anyone on Yama by their @handle, as well as your playgroups and past games. Someone found by handle plays as a guest unless they're in the playgroup you chose.",
       "Each seat's Deck field searches the player's public decks, your own decks (lent, on someone else's seat) and the precons. Picking one fills in its commanders, or just pick a commander as before.",
       "Log a game can remove a player, and Who went first? has a Don't remember answer, here and at the end of a table game.",
+      "Games you logged can be edited: open one and choose Edit this game.",
     ],
     link: { to: "/", label: "Log a game" },
   },

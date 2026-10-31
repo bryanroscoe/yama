@@ -405,6 +405,12 @@ async fn insert_events(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, game: &str,
     Ok(n)
 }
 
+/// A game logged after it was played (Log a game): finished, with no table events. Only those
+/// can be saved again with different players (`create_game`).
+fn is_logged(game: &GameRow, events: &[Event]) -> bool {
+    game.mode == "in_person" && game.status == "finished" && events.is_empty()
+}
+
 /// Only the phone that created an in-person game writes to it. Online games are written by
 /// the rules engine alone.
 async fn can_write(pool: &SqlitePool, game: &str, user: &str) -> AppResult<bool> {
@@ -556,6 +562,12 @@ struct GameDetail {
     events: Vec<Event>,
     /// This account started this in-person game, so it can carry on with it on another device.
     can_continue: bool,
+    /// A game this account logged after it was played: Log a game can open it again, and saving
+    /// it again stores what the form says now (`create_game`).
+    can_edit: bool,
+    /// Seat number to deck id, for seats that played one of this account's own decks (so editing
+    /// can name it); never anyone else's deck.
+    your_decks: std::collections::BTreeMap<i64, String>,
 }
 
 async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<GameDetail>> {
@@ -582,8 +594,23 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
             created_at: Some(created_at),
         })
         .collect();
-    let can_continue = game.status == "in_progress" && can_write(&st.pool, &id, &user.id).await?;
-    Ok(Json(GameDetail { game, events, can_continue }))
+    let mine = can_write(&st.pool, &id, &user.id).await?;
+    let can_continue = game.status == "in_progress" && mine;
+    let can_edit = mine && is_logged(&game, &events);
+    let mut your_decks = std::collections::BTreeMap::new();
+    for s in &game.seats {
+        if let Some(v) = &s.deck_version_id {
+            let deck: Option<String> = sqlx::query_scalar("SELECT d.id FROM deck_versions v JOIN decks d ON d.id = v.deck_id WHERE v.id = ? AND d.owner_id = ?")
+                .bind(v)
+                .bind(&user.id)
+                .fetch_optional(&st.pool)
+                .await?;
+            if let Some(d) = deck {
+                your_decks.insert(s.seat, d);
+            }
+        }
+    }
+    Ok(Json(GameDetail { game, events, can_continue, can_edit, your_decks }))
 }
 
 async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
@@ -735,6 +762,62 @@ mod tests {
         assert_eq!((d.first_seat, d.win_condition.clone()), (Some(0), None));
         let l = games.iter().find(|g| g.id == logged).unwrap();
         assert_eq!((l.first_seat, l.win_condition.as_deref(), l.seats[2].fun), (Some(1), Some("alternate"), Some(3)));
+    }
+
+    #[tokio::test]
+    async fn a_logged_game_can_be_edited_by_whoever_logged_it() {
+        let pool = setup().await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0010";
+        let game = |seats: serde_json::Value, finish: serde_json::Value| -> NewGame {
+            serde_json::from_value(json!({ "id": id, "started_at": "2026-10-20T20:00:00Z", "seats": seats, "finish": finish, "note": "Logged after the game" })).unwrap()
+        };
+        let three = json!([{ "seat": 0, "user_id": "me" }, { "seat": 1, "guest_name": "Sam" }, { "seat": 2, "guest_name": "Alex" }]);
+        create_game(&pool, "me", game(three, json!({ "winner_seat": 2, "first_seat": 2, "seats": [{ "seat": 2, "fun": 5 }] }))).await.unwrap();
+        let stored: GameRow = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {GAME_COLUMNS} FROM games g WHERE g.id = ?"))).bind(id).fetch_one(&pool).await.unwrap();
+        assert!(is_logged(&stored, &[]) && can_write(&pool, id, "me").await.unwrap());
+        assert!(!can_write(&pool, id, "sam").await.unwrap());
+        // A table game, with its play-by-play, isn't one to edit in Log a game.
+        let event = Event { seq: 1, actor_seat: None, kind: "life".into(), payload: json!({}), created_at: None };
+        assert!(!is_logged(&stored, &[event]));
+
+        // Alex was never there: the edit drops the seat, and the answers about it go with it.
+        let two = json!([{ "seat": 0, "user_id": "me" }, { "seat": 1, "guest_name": "Sam" }]);
+        create_game(&pool, "me", game(two, json!({ "winner_seat": 1, "first_seat": null, "seats": [] }))).await.unwrap();
+        let g = &crate::stats::finished_games(&pool, crate::stats::Scope::User("me")).await.unwrap()[0];
+        assert_eq!(g.seats.len(), 2);
+        assert_eq!((g.winner_seat, g.first_seat), (Some(1), None));
+        assert!(g.seats.iter().all(|s| s.fun.is_none()));
+        // Someone else can't rewrite it.
+        let theirs = game(json!([{ "seat": 0, "guest_name": "Sam" }]), json!({ "winner_seat": 0, "seats": [] }));
+        assert!(create_game(&pool, "sam", theirs).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn the_detail_says_who_can_edit_and_names_only_your_own_decks() {
+        use crate::testutil::{app, deck, send, user};
+        use axum::http::{Method, StatusCode};
+        let (app, pool) = app().await;
+        let (me, mt) = user(&pool, "me@example.com").await;
+        let (sam, st) = user(&pool, "sam@example.com").await;
+        let (my_deck, my_version) = deck(&pool, &me, "Riders of Rohan").await;
+        let (_, sams_version) = deck(&pool, &sam, "Sam's brew").await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0011";
+        let body = json!({
+            "id": id,
+            "seats": [
+                { "seat": 0, "user_id": me, "deck_version_id": my_version },
+                { "seat": 1, "guest_name": "Guest", "deck_version_id": sams_version, "deck_label": "Sam's brew" },
+            ],
+            "finish": { "winner_seat": 0, "seats": [] },
+            "note": "Logged after the game",
+        });
+        assert_eq!(send(&app, Method::POST, "/api/games", Some(&mt), Some(body)).await.0, StatusCode::OK);
+        let (s, g) = send(&app, Method::GET, &format!("/api/games/{id}"), Some(&mt), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(g["can_edit"], true);
+        assert_eq!(g["your_decks"], json!({ "0": my_deck }));
+        // Sam has no seat on it, so can't even see it (and Sam's list on a guest seat was dropped).
+        assert_eq!(send(&app, Method::GET, &format!("/api/games/{id}"), Some(&st), None).await.0, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

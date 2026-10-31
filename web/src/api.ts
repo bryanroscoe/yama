@@ -600,6 +600,10 @@ export interface GameRow {
 export interface GameDetail extends GameRow {
   events: { seq: number; actor_seat: number | null; kind: string; payload: unknown; created_at: string | null }[];
   can_continue: boolean;
+  /** Logged after it was played, by this account: Log a game can open it again. */
+  can_edit?: boolean;
+  /** Seat number to deck id, for seats that played one of your own decks. */
+  your_decks?: Record<number, string>;
 }
 
 /** GET /api/decks/:id/results: finished games per deck version, newest version first. */
