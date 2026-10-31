@@ -957,6 +957,21 @@ publication) re-derives the ranks on the next request; unchanged inputs are reus
 With no enabled source the pages fall back to meta rank v1, which stays documented on the
 methodology page.
 
+**Rating v2 reads Forge, not Phase (Bryan, 2026-10-31).** Phase's results track real games poorly
+(rank correlation with Playgroup.gg's all-time rates 0.14 over 87 precons in the 30 Oct stock
+tournament, against 0.30 for Forge with a third of its games played), so the published Phase
+benchmark no longer feeds rating v2. Its simulation is the operator's explicit choice of one engine's
+games from one or more tournaments (`precon-evidence simulate EXPERIMENT... --owner EMAIL --engine forge [--build
+PREFIX]`, stored in `precon_evidence_simulation`; only the operator's own tournaments, all at one AI setting), pooled into one fit by stock-list hash and re-read
+as they play. Only pods of four current catalog stock lists count, so nobody's own list shapes a
+public strength, and only games whose engine version starts with the chosen build (default: the
+newest game's version without its `+` harness suffix), so Forge's speed-only harness rebuilds (yama2,
+yama3) pool while Forge 2.0.15 doesn't. The public sees a generic label, never an experiment's name.
+A choice that stops qualifying drops the simulation, not the rating. With nothing chosen, the public
+pages rank with real games alone; the signed-in Lab falls back to the newest global run. The
+published benchmark still shows as its own simulation result. Rating v2 ranks by the low end of each
+precon's 90% interval (Bryan, same day), so a precon with a few lucky games can't top the list.
+
 ## 11. Risks
 
 - **Legal and IP:**
