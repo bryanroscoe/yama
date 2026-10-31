@@ -33,6 +33,8 @@ describe("power signals from card text", () => {
     expect(isCheapMana(cultivate)).toBe(false);
     expect(isCheapMana(natureLore)).toBe(true);
     expect(isCheapMana(farseek)).toBe(true);
+    expect(isCheapMana(card("Growth Spiral", "Instant", 2, "Draw a card. You may put a land card from your hand onto the battlefield."))).toBe(true);
+    expect(isCheapMana(card("Exploration", "Enchantment", 1, "You may play an additional land on each of your turns."))).toBe(true);
     // A spell with a land back is a land drop, not ramp.
     expect(isCheapMana(rebirth)).toBe(false);
     // Before produced mana is loaded, the rules text decides.

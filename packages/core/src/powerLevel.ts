@@ -93,6 +93,8 @@ export function isCheapMana(c: StatCard): boolean {
   if (c.cmc == null || c.cmc > CHEAP || isLand(c)) return false;
   const text = frontText(c);
   if (/search your library for [^.]*\b(?:land|plains|island|swamp|mountain|forest)s? cards?\b[^.]*onto the battlefield/i.test(text)) return true;
+  // A land from your hand (Growth Spiral, Arboreal Grazer) or an extra land drop (Exploration).
+  if (/\bput (?:a|an|up to \w+) (?:basic )?lands? cards? from your hand onto the battlefield|\bplay (?:an|two) additional lands?\b/i.test(text)) return true;
   // Produced mana covers every face, so a spell with a land back (Malakir Rebirth) would count
   // for its land; then only the front face's own mana counts.
   // While produced mana isn't loaded, the rules text says whether the card makes mana.
