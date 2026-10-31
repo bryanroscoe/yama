@@ -8,8 +8,13 @@ export interface SeatDraft {
   name: string;
   memberId?: string;
   userId?: string;
+  /** The player's profile handle, when they have one: their seat can offer their public decks. */
+  handle?: string;
+  /** One of your decks. */
   deckId?: string;
   deckVersionId?: string;
+  /** A deck picked that isn't one of yours: a precon, or one of the player's public decks. */
+  deckLabel?: string;
   commanderName: string;
   colorIdentity: string;
   art?: string;
@@ -30,8 +35,19 @@ export interface Me {
   display_name: string;
 }
 
-/** What a seat drops when it stops being an account's: the account and that account's deck. */
-export const NOT_AN_ACCOUNT = { userId: undefined, deckId: undefined, deckVersionId: undefined } as const;
+/** What a seat drops when it stops being someone's: their account, profile and deck. */
+export const NOT_AN_ACCOUNT = { userId: undefined, handle: undefined, deckId: undefined, deckVersionId: undefined, deckLabel: undefined } as const;
+
+/**
+ * The seat's label on the server: the deck picked (a precon, or the player's public deck), else
+ * the commander. A pair always travels as "Commander and Partner", so another device can rebuild
+ * it (GameDetail's splitPair).
+ */
+export function seatDeckLabel(s: Pick<SeatDraft, "commanderName" | "partnerName" | "deckLabel">): string | undefined {
+  const partner = s.partnerName?.trim();
+  if (s.commanderName && partner) return `${s.commanderName} and ${partner}`;
+  return s.deckLabel || s.commanderName || undefined;
+}
 
 export function emptySeat(): SeatDraft {
   return { name: "", commanderName: "", colorIdentity: "" };
@@ -48,6 +64,15 @@ export function patchSeat(seats: SeatDraft[], i: number, patch: Partial<SeatDraf
     const sameMember = patch.memberId !== undefined && s.memberId === patch.memberId;
     return sameAccount || sameMember ? { ...s, ...NOT_AN_ACCOUNT, memberId: undefined, name: "" } : s;
   });
+}
+
+/**
+ * A seat's place in the form after the seat at `gone` was removed: the seats after it move up
+ * one, and the removed seat itself is no longer anyone's answer (null).
+ */
+export function afterRemoving(seat: number | null, gone: number): number | null {
+  if (seat === null || seat === gone) return null;
+  return seat > gone ? seat - 1 : seat;
 }
 
 /**
@@ -72,6 +97,9 @@ export function fitSeatsToGroup(seats: SeatDraft[], group: Playgroup | undefined
       if (s.memberId && group.members.some((m) => m.id === s.memberId)) return s;
       const member = s.userId ? group.members.find((m) => m.user_id === s.userId) : undefined;
       if (member) return { ...s, memberId: member.id, name: member.display_name };
+      // Someone found by their handle who is in this group: their member row, account and all.
+      const found = !s.userId && s.handle ? group.members.find((m) => m.user_id && m.handle === s.handle) : undefined;
+      if (found) return { ...s, memberId: found.id, userId: found.user_id!, name: found.display_name };
       return { ...s, memberId: undefined, ...(s.userId ? NOT_AN_ACCOUNT : {}) };
     }
     if (!s.memberId && (!s.userId || s.userId === me?.id)) return s;

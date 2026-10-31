@@ -570,6 +570,8 @@ pub(crate) struct ProfileDeck {
     /// The main list's own label ("Main" unless it has one), as its page names it.
     pub(crate) label: String,
     pub(crate) configurations: Vec<(String, String)>,
+    /// The list as it is now, for a game logged with this deck (`people.rs`).
+    pub(crate) version_id: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -629,6 +631,7 @@ pub(crate) async fn profile_decks(pool: &SqlitePool, owner: &str) -> AppResult<V
             card_count: cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum(),
             label: r.configuration.clone().unwrap_or_else(|| "Main".into()),
             configurations,
+            version_id: r.current_version_id.clone(),
         });
     }
     Ok(out)

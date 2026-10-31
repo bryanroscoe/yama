@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Playgroup } from "../api";
-import { emptySeat, fitSeatsToGroup, patchSeat, renameSeat, type SeatDraft } from "./seats";
+import { afterRemoving, emptySeat, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
 
 const me = { id: "u-me", display_name: "Bryan" };
 const mine: SeatDraft = { ...emptySeat(), name: "Bryan", userId: "u-me", deckId: "d1", deckVersionId: "v1", commanderName: "Atraxa" };
@@ -10,8 +10,9 @@ const group: Playgroup = {
   owner_id: "u-me",
   join_code: "ABC123",
   members: [
-    { id: "m-me", user_id: "u-me", guest_name: null, display_name: "Bryan" },
-    { id: "m-jo", user_id: null, guest_name: "Jo", display_name: "Jo" },
+    { id: "m-me", user_id: "u-me", guest_name: null, display_name: "Bryan", handle: "saget" },
+    { id: "m-jo", user_id: null, guest_name: "Jo", display_name: "Jo", handle: null },
+    { id: "m-sam", user_id: "u-sam", guest_name: null, display_name: "Sam Smith", handle: "sam" },
   ],
 };
 
@@ -51,5 +52,30 @@ describe("fitSeatsToGroup", () => {
     const seats = fitSeatsToGroup([{ ...mine, memberId: "m-me" }, { ...emptySeat(), name: "Jo", memberId: "m-jo" }], undefined, me);
     expect(seats[0]).toMatchObject({ memberId: undefined, userId: "u-me", deckVersionId: "v1" });
     expect(seats[1]).toMatchObject({ memberId: undefined, userId: undefined, name: "Jo" });
+  });
+
+  it("someone found by their handle becomes their member row when they're in the group", () => {
+    const found: SeatDraft = { ...emptySeat(), name: "@sam", handle: "sam", deckVersionId: "v-sam", deckLabel: "Riders of Rohan" };
+    expect(fitSeatsToGroup([found], group, me)[0]).toMatchObject({ memberId: "m-sam", userId: "u-sam", name: "Sam Smith", deckLabel: "Riders of Rohan" });
+    // Not in the group, or no group: still a guest named by the handle.
+    const stranger: SeatDraft = { ...found, handle: "kim", name: "@kim" };
+    expect(fitSeatsToGroup([stranger], group, me)[0]).toEqual(stranger);
+    expect(fitSeatsToGroup([found], undefined, me)[0]).toEqual(found);
+  });
+});
+
+describe("seatDeckLabel", () => {
+  it("names the deck picked, else the commander, and a pair as both commanders", () => {
+    expect(seatDeckLabel({ commanderName: "Éomer, King of Rohan", deckLabel: "Riders of Rohan" })).toBe("Riders of Rohan");
+    expect(seatDeckLabel({ commanderName: "Atraxa, Praetors' Voice" })).toBe("Atraxa, Praetors' Voice");
+    expect(seatDeckLabel({ commanderName: "Tymna the Weaver", partnerName: "Kraum, Ludevic's Opus", deckLabel: "Blood and ink" })).toBe("Tymna the Weaver and Kraum, Ludevic's Opus");
+    expect(seatDeckLabel({ commanderName: "" })).toBeUndefined();
+  });
+});
+
+describe("afterRemoving", () => {
+  it("moves later seats up one and forgets the removed seat", () => {
+    expect([0, 1, 2, 3].map((i) => afterRemoving(i, 1))).toEqual([0, null, 1, 2]);
+    expect(afterRemoving(null, 0)).toBeNull();
   });
 });

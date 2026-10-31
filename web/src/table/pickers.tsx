@@ -5,7 +5,8 @@
 import { useQuery } from "@tanstack/react-query";
 import type { CommanderPick } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { api, type Card, type SearchResult } from "../api";
+import { api, type Card, type DeckSummary, type FoundPerson, type ProfileDeck, type SearchResult } from "../api";
+import type { PreconItem, PreconList } from "../lab/api";
 import { artCredits } from "../components/ArtPanel";
 import { Pips } from "../components/ui";
 import "./pickers.css";
@@ -455,32 +456,63 @@ export interface Person {
   name: string;
   memberId?: string;
   userId?: string;
+  /** Their profile handle: someone found on Yama by it, or a member who has one. */
+  handle?: string;
   /** "You", "Thursday group", "Played Oct 12". */
   sub?: string;
 }
 
+/** What was typed, as the start of a handle ("@sag" or "sag"), or null if no handle could start so. */
+export function handlePrefix(text: string): string | null {
+  const h = text.trim().replace(/^@/, "").toLowerCase();
+  return h.length >= 2 && h.length <= 30 && /^[a-z0-9_-]+$/.test(h) ? h : null;
+}
+
+/** People on Yama whose profile handle starts with what was typed (only handles, never names). */
+function usePeopleSearch(text: string) {
+  const q = useDebounced(handlePrefix(text) ?? "", 250);
+  return useQuery({
+    queryKey: ["people-search", q],
+    queryFn: () => api<FoundPerson[]>(`/api/people?q=${encodeURIComponent(q)}`),
+    enabled: q.length >= 2,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
+  });
+}
+
 /**
  * Who's in this seat: type a name, or pick from the people this account knows (you, the
- * playgroup's members, everyone in its other playgroups and recent games). Typing a name nobody
- * picked makes the seat a guest.
+ * playgroup's members, everyone in its other playgroups and recent games), or anyone on Yama by
+ * their profile handle. Typing a name nobody picked makes the seat a guest, and so does someone
+ * found by handle: only a playgroup puts a game on someone's record.
  */
-export function PlayerSearch({ label = "Player", text, people, onText, onPick, placeholder }: {
+export function PlayerSearch({ label = "Player", text, people, onText, onPick, placeholder, seatedHandles = [] }: {
   label?: string;
   text: string;
   people: Person[];
   onText: (t: string) => void;
   onPick: (p: Person) => void;
   placeholder?: string;
+  /** Handles already sitting at another seat. */
+  seatedHandles?: string[];
 }) {
   const q = text.trim().toLowerCase();
-  const matches = people
-    .filter((p) => !q || p.name.toLowerCase().includes(q))
-    .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
-    .slice(0, 8);
+  const known = people
+    .filter((p) => !q || p.name.toLowerCase().includes(q) || (!!p.handle && !!handlePrefix(q) && p.handle.startsWith(handlePrefix(q)!)))
+    .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)));
+  const found = usePeopleSearch(text);
+  // Someone found by handle who's already in the list (a member with that handle) shows once.
+  const listed = new Set(people.flatMap((p) => (p.handle ? [p.handle] : [])).concat(seatedHandles));
+  const remote: Person[] = handlePrefix(text)
+    ? (found.data ?? []).filter((f) => !listed.has(f.handle)).map((f) => ({ name: `@${f.handle}`, handle: f.handle, sub: "On Yama" }))
+    : [];
+  // A guest once typed as "@sam" gives way to @sam's profile.
+  const shown = known.filter((p) => p.handle || !remote.some((r) => r.name.toLowerCase() === p.name.toLowerCase()));
+  const matches = [...shown.slice(0, 8 - Math.min(remote.length, 3)), ...remote].slice(0, 8);
   // Picking the exact name already in the field changes nothing, so it isn't offered again.
   const options: Option<Person>[] = matches
     .filter((p) => !(p.name === text && matches.length === 1 && !p.memberId && !p.userId))
-    .map((p) => ({ key: `${p.memberId ?? ""}:${p.userId ?? ""}:${p.name}`, value: p, label: p.name, sub: p.sub }));
+    .map((p) => ({ key: `${p.memberId ?? ""}:${p.userId ?? ""}:${p.handle ?? ""}:${p.name}`, value: p, label: p.name, sub: p.sub }));
   return (
     <Combobox
       label={label}
@@ -490,6 +522,114 @@ export function PlayerSearch({ label = "Player", text, people, onText, onPick, p
       onPick={onPick}
       placeholder={placeholder}
       empty={q ? `${text.trim()} plays as a guest.` : undefined}
+    />
+  );
+}
+
+// ── decks ─────────────────────────────────────────────────────────────────
+
+/** A deck a seat can name: one of yours, one of the player's public decks, or a precon. */
+export type DeckPick =
+  | { kind: "mine"; deck: DeckSummary }
+  | { kind: "theirs"; handle: string; deck: ProfileDeck }
+  | { kind: "precon"; precon: PreconItem };
+
+/** The precon catalog (the Lab's query, so either page fills the other's cache). */
+function usePreconCatalog(enabled: boolean) {
+  return useQuery({ queryKey: ["lab", "precons"], queryFn: () => api<PreconList>("/api/precons"), staleTime: 5 * 60_000, enabled });
+}
+
+/** The public decks on someone's profile. */
+function useProfileDecks(handle: string | undefined) {
+  return useQuery({
+    queryKey: ["people-decks", handle],
+    queryFn: () => api<ProfileDeck[]>(`/api/people/${encodeURIComponent(handle!)}/decks`),
+    enabled: !!handle,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Lowercase, without accents: "eowyn" finds Éowyn. */
+const fold = (t: string) => t.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
+/** Its name or a commander's has every word typed. */
+function deckMatches(q: string, name: string, commanders: string[]): boolean {
+  const hay = fold([name, ...commanders].join(" "));
+  return fold(q).split(/\s+/).every((w) => hay.includes(w));
+}
+
+/**
+ * The decks offered for what was typed, at most eight: on your own seat your decks, then
+ * precons; on anyone else's their public decks, then yours (to lend), then precons. Precons only
+ * once two letters are typed (there are hundreds); a reprinted list shows once.
+ */
+export function deckPicks(
+  text: string,
+  { mine = [], handle, theirs = [], precons = [], yours }: { mine?: DeckSummary[]; handle?: string; theirs?: ProfileDeck[]; precons?: PreconItem[]; yours: boolean },
+): DeckPick[] {
+  const q = text.trim().toLowerCase();
+  const hit = (name: string, commanders: string[]) => !q || deckMatches(q, name, commanders);
+  const own: DeckPick[] = mine.filter((d) => hit(d.name, d.commanders)).map((deck) => ({ kind: "mine", deck }));
+  const theirsPicks: DeckPick[] = handle && !yours ? theirs.filter((d) => hit(d.name, d.commanders)).map((deck) => ({ kind: "theirs", handle, deck })) : [];
+  const preconPicks: DeckPick[] = q.length >= 2 ? precons.filter((p) => !p.same_list_as && hit(p.name, p.commanders)).map((precon) => ({ kind: "precon", precon })) : [];
+  return [...theirsPicks, ...own, ...preconPicks].slice(0, 8);
+}
+
+/**
+ * A seat's deck: search the player's public decks (when they have a profile handle), your decks
+ * (on someone else's seat, lent to them) and the precon catalog. Picking one names its
+ * commanders; the commander fields stay the other way to say what the seat played.
+ */
+export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, onLeave, trailing }: {
+  text: string;
+  onText: (t: string) => void;
+  onPick: (p: DeckPick) => void;
+  decks?: DeckSummary[];
+  /** The player's profile handle. */
+  handle?: string;
+  /** The seat is yours: your decks come first and aren't "lent". */
+  yours: boolean;
+  onLeave?: () => void;
+  trailing?: ReactNode;
+}) {
+  const typing = text.trim().length >= 2;
+  const theirs = useProfileDecks(yours ? undefined : handle);
+  const precons = usePreconCatalog(typing);
+  const toOption = (p: DeckPick): Option<DeckPick> => {
+    const lead = (c: string[]) => c.join(" and ");
+    switch (p.kind) {
+      case "mine": {
+        const d = p.deck;
+        return { key: `mine:${d.id}`, value: p, label: d.name, sub: `${lead(d.commanders) || "No commander set"} (${yours ? "your deck" : "your deck, lent"})`, art: d.commander_image, identity: d.color_identity };
+      }
+      case "theirs": {
+        const d = p.deck;
+        return { key: `theirs:${d.version_id ?? d.name}`, value: p, label: d.name, sub: `${lead(d.commanders) || "No commander set"} (@${p.handle})`, art: d.art, identity: d.color_identity };
+      }
+      case "precon": {
+        const d = p.precon;
+        const year = d.released?.slice(0, 4);
+        return { key: `precon:${d.id}`, value: p, label: d.name, sub: `${lead(d.commanders)} (precon${year ? `, ${year}` : ""})`, art: d.art?.url ?? null, identity: d.color_identity };
+      }
+    }
+  };
+  const artist = (p: DeckPick) => (p.kind === "mine" ? p.deck.commander_artist : p.kind === "theirs" ? p.deck.artist : (p.precon.art?.artist ?? null));
+  const picks = deckPicks(text, { mine: decks, handle, theirs: theirs.data, precons: precons.data?.precons, yours });
+  const options = picks.map(toOption);
+  return (
+    <Combobox
+      label="Deck"
+      text={text}
+      onText={onText}
+      options={options}
+      onPick={onPick}
+      onLeave={onLeave}
+      trailing={trailing}
+      placeholder={handle && !yours ? `Search @${handle}'s decks, yours or precons` : "Search your decks or precons"}
+      loading={(typing && precons.isFetching && !precons.data) || (theirs.isFetching && !theirs.data)}
+      // Scryfall asks for the artist wherever an art crop shows.
+      footer={options.some((o) => o.art) ? artCredits(picks.filter((_, i) => options[i]!.art).map(artist)) : undefined}
+      empty={typing ? "No deck by that name. Pick a commander instead." : undefined}
     />
   );
 }
