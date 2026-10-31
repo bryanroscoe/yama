@@ -130,6 +130,26 @@ fn deck_href(token: &str, deck: &str, build: Option<&str>) -> String {
     path
 }
 
+/// A swap's copies: `qty`, else one.
+fn qty(s: &Value) -> i64 {
+    s.get("qty").and_then(Value::as_i64).filter(|n| *n > 0).unwrap_or(1)
+}
+
+/// Copies added and cut by a build's swaps.
+fn moved(swaps: &[Value], side: &str) -> i64 {
+    swaps.iter().filter(|s| !text(s, side).is_empty()).map(qty).sum()
+}
+
+/// A source link, only for http(s) addresses; anything else is its title as text.
+fn source(s: &Value) -> String {
+    let title = e(text(s, "title"));
+    let accessed = if text(s, "accessed").is_empty() { String::new() } else { format!(" <span class=\"dim\">checked {}</span>", e(text(s, "accessed"))) };
+    match url::Url::parse(text(s, "url")).ok().filter(|u| matches!(u.scheme(), "http" | "https")) {
+        Some(u) => format!("<li><a href=\"{}\" rel=\"noreferrer\">{title}</a>{accessed}</li>", e(u.as_str())),
+        None => format!("<li>{title}{accessed}</li>"),
+    }
+}
+
 fn bracket_label(b: &Value) -> Option<String> {
     b.get("bracket").and_then(Value::as_i64).filter(|n| (1..=5).contains(n)).map(|n| format!("Bracket {n}, {}", bracket_name(n)))
 }
@@ -295,7 +315,7 @@ pub(super) async fn deck(
         write!(body, "<span class=\"pill\">{} Game Changer{}</span>", gcs.len(), if gcs.len() == 1 { "" } else { "s" }).unwrap();
     }
     let swaps = b["swaps"].as_array().cloned().unwrap_or_default();
-    write!(body, "<a class=\"pill dashed\" href=\"#changes-head\">{} changes from the starting list</a>", swaps.len()).unwrap();
+    write!(body, "<a class=\"pill dashed\" href=\"#changes-head\">{} in, {} out from the starting list</a>", moved(&swaps, "card_in"), moved(&swaps, "card_out")).unwrap();
     body.push_str("</div>");
 
     // What the deck does and how to play it come first: the reason someone opens the link.
@@ -314,6 +334,10 @@ pub(super) async fn deck(
     if !warnings.is_empty() {
         write!(body, "<h3>Good to know</h3>{}", list_items(&warnings)).unwrap();
     }
+    let mechanics = strings(d, "mechanics");
+    if !mechanics.is_empty() {
+        write!(body, "<h3>Mechanics</h3>{}", list_items(&mechanics)).unwrap();
+    }
     let risks = strings(b, "risks");
     if !risks.is_empty() {
         write!(body, "<h3>Limits of this build</h3>{}", list_items(&risks)).unwrap();
@@ -325,26 +349,31 @@ pub(super) async fn deck(
     if let Some(p) = b.get("gameplay_profile").filter(|p| p.is_object()) {
         body.push_str(&profile_panel(p));
     }
+    let sources: Vec<String> = d["sources"].as_array().into_iter().flatten().filter(|s| !text(s, "title").is_empty()).map(source).collect();
+    if !sources.is_empty() {
+        write!(body, "<section class=\"public-panel\" aria-labelledby=\"sources-head\"><h2 id=\"sources-head\">Sources</h2><ul>{}</ul></section>", sources.concat()).unwrap();
+    }
     body.push_str("</div>");
 
     // The changes, as a table a player can work through with the deck box open.
     write!(
         body,
         "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} in, {} out</p><h2 id=\"changes-head\">Changes from the starting list</h2></div></div>",
-        swaps.iter().filter(|s| !text(s, "card_in").is_empty()).count(),
-        swaps.iter().filter(|s| !text(s, "card_out").is_empty()).count(),
+        moved(&swaps, "card_in"),
+        moved(&swaps, "card_out"),
     )
     .unwrap();
     if swaps.is_empty() {
         body.push_str("<p class=\"dim\">This build is the starting list.</p>");
     } else {
         body.push_str("<table class=\"share-collection share-swaps\"><thead><tr><th scope=\"col\">Add</th><th scope=\"col\">Cut</th><th scope=\"col\">Why</th></tr></thead><tbody>");
-        let link = |name: &str| {
+        let link = |name: &str, n: i64| {
             if name.is_empty() {
                 "<span class=\"dim\">Nothing</span>".to_string()
             } else {
                 let image = cards.iter().find(|c| c.name == name).and_then(|c| c.image.clone()).unwrap_or_default();
-                format!("<a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a>", e(name), e(&image), e(&scryfall(name)))
+                let count = if n > 1 { format!("{n} × ") } else { String::new() };
+                format!("{count}<a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a>", e(name), e(&image), e(&scryfall(name)))
             }
         };
         for s in &swaps {
@@ -352,8 +381,8 @@ pub(super) async fn deck(
             write!(
                 body,
                 "<tr><td>{}</td><td>{}</td><td>{}{}</td></tr>",
-                link(text(s, "card_in")),
-                link(text(s, "card_out")),
+                link(text(s, "card_in"), qty(s)),
+                link(text(s, "card_out"), qty(s)),
                 e(text(s, "why")),
                 if out.is_empty() { String::new() } else { format!("<br><span class=\"dim\">Cut: {}</span>", e(out)) },
             )

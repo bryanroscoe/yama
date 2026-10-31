@@ -417,6 +417,7 @@ fn note() -> serde_json::Value {
             "key": "party", "name": "Party Time", "commander": "Nalia de'Arnise", "recommended_build": "b3",
             "ownership": "Owner holds a secret binder", "installed_state": "Installed secretly",
             "pilot": "Play a party member every turn.",
+            "sources": [{"title": "EDHREC guide", "url": "https://edhrec.com/x"}, {"title": "Bad link", "url": "javascript:alert(1)"}],
             "builds": [{
                 "id": "b3", "label": "Bracket 3 · Upgraded", "bracket": 3, "why": "Cleaner removal.",
                 "list": "Commander\n1 Nalia de'Arnise\nDeck\n1 Swords to Plowshares\n98 Plains",
@@ -464,6 +465,8 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
     let (status, _, deck) = page(&app, &format!("/r/{token}/party")).await;
     assert_eq!(status, StatusCode::OK);
+    assert!(deck.contains("href=\"https://edhrec.com/x\"") && deck.contains("Bad link") && !deck.contains("javascript:"));
+    assert!(deck.contains("1 in, 1 out from the starting list"));
     for shown in ["Cleaner removal.", "Play a party member every turn.", "One-mana exile.", "Symmetrical.", "Swords to Plowshares", "Stick Together"] {
         assert!(deck.contains(shown), "{shown}");
     }
