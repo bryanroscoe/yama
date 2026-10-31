@@ -855,6 +855,8 @@ export function ScannerView({
               <button onClick={() => setCloseup(null)}>Back to scanning</button>
               <NameEntry onPick={(n) => fromName(n)} />
             </div>
+            {/* The Close-ups switch among them: a fixed camera can't do this step. */}
+            {controls}
           </div>
         )}
         {!isFound && closeup !== "title" && (
