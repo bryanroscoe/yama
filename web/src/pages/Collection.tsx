@@ -26,6 +26,8 @@ const AddedList = lazy(() => scanner().then((m) => ({ default: m.AddedList })));
 
 /** Keep adding is remembered on this device. */
 const KEEP_ADDING = "yama.scan.keepAdding";
+/** The close-up step, on unless turned off on this device (a fixed camera). Shared with the deck scan. */
+const CLOSEUPS = "yama.scan.closeups";
 
 /** A collection row with its printing's art crop and artist, for the art thumbnails. */
 type Item = CollectionItem & { image_art_crop?: string | null; artist?: string | null };
@@ -469,6 +471,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const [finish, setFinish] = useState<Finish>("nonfoil");
   const [container, setContainer] = useState("");
   const [keepAdding, setKeepAdding] = useState(() => localStorage.getItem(KEEP_ADDING) === "1");
+  const [closeups, setCloseups] = useState(() => localStorage.getItem(CLOSEUPS) !== "0");
   /**
    * What this session added, newest first, so mistakes can be fixed (see scanner/session.ts). The
    * ref is the truth (read right after a write); the state mirrors it for rendering.
@@ -663,6 +666,19 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           <strong>Keep adding.</strong> Add each card as soon as the scanner is sure of its printing, and go on to the next. It still stops to ask when it isn't sure.
         </span>
       </label>
+      <label className="scan-keep">
+        <input
+          type="checkbox"
+          checked={closeups}
+          onChange={(e) => {
+            setCloseups(e.target.checked);
+            localStorage.setItem(CLOSEUPS, e.target.checked ? "1" : "0");
+          }}
+        />
+        <span>
+          <strong>Close-ups.</strong> When several printings share the art, ask to bring the camera close to the set code and number. Turn off for a camera that stays put, such as a stand or card feeder: you tap the printing instead.
+        </span>
+      </label>
       <ErrorText error={error} />
     </div>
   );
@@ -676,6 +692,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           onShowAdded={() => setReviewing(true)}
           unsavedCount={added.filter((a) => a.pending?.error && a.pending.fix === null).length}
           autoAdd={keepAdding}
+          closeups={closeups}
           paused={reviewing}
           recent={[...new Set(added.map((a) => (a.set ? `${a.name} (${a.set.toUpperCase()})` : a.name)))]}
           finish={finish === "proxy" ? "nonfoil" : finish}
