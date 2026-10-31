@@ -46,6 +46,7 @@ describe("power signals from card text", () => {
     expect(isCheapDraw(brainstorm)).toBe(true);
     expect(isCheapDraw(relic)).toBe(true);
     expect(isCheapDraw(swords)).toBe(false);
+    expect(isCheapDraw(card("Kederekt Parasite", "Creature — Horror", 1, "Whenever an opponent draws a card, if you control a red permanent, you may have Kederekt Parasite deal 1 damage to that player."))).toBe(false);
     expect(isCheapDraw(card("Foulmire Knight // Profane Insight", "Creature — Zombie Knight // Instant — Adventure", 1, "Deathtouch\n//\nYou draw a card and you lose 1 life."))).toBe(false);
     expect(isCheapInteraction(swords)).toBe(true);
     expect(isCheapInteraction(counterspell)).toBe(true);
@@ -55,6 +56,7 @@ describe("power signals from card text", () => {
       ["Oust", "Put target creature into its owner's library second from the top. Its controller gains 3 life."],
       ["Condemn", "Put target attacking creature on the bottom of its owner's library. Its controller gains life equal to its toughness."],
       ["Darkblast", "Target creature gets -1/-1 until end of turn.\nDredge 3"],
+      ["White Orchid Phantom", "Flash\nFirst strike\nWhen White Orchid Phantom enters, destroy up to one target nonbasic land. Its controller may search their library for a basic land card."],
       ["Diabolic Edict", "Target player sacrifices a creature of their choice."],
       ["Sheoldred's Edict", "Choose one —\n• Each opponent sacrifices a nontoken creature of their choice."],
       ["Prey Upon", "Target creature you control fights target creature you don't control."],

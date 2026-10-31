@@ -58,7 +58,22 @@ const BASIC_OR_LAND = /\b(?:land|plains|island|swamp|mountain|forest|wastes)\b/i
 const NONLAND_TYPE = /\b(?:creature|artifact|enchantment|instant|sorcery|planeswalker|battle|equipment|aura)\b/i;
 
 const MAKES_MANA = /\badds? (?:\{|(?:one|two|three|x|an amount of) mana\b)/i;
-const INTERACTION = /\bcounter target\b|\bdestroy target\b|\bexile target (?!card from|cards from)|\breturn target (?:[^.]*?) to (?:its|their) owner'?s'? hands?\b|\bdeals? (?:\d+|x) damage to (?:any target|target (?:creature|planeswalker|player|opponent|attacking|blocking))|\bput target (?:[^.]*?) (?:into|on (?:the )?(?:top|bottom) of) (?:its|their) owner'?s'? library|\btarget (?:[^.]*?)\bgets? -(?:\d+|x)\/-(?:\d+|x)|\bfights? (?:up to one )?target\b|\b(?:target (?:player|opponent)|each opponent) sacrifices\b/i;
+/** "Target", or the optional "up to one target". */
+const T = String.raw`(?:up to (?:one|two|three|x) )?target`;
+const INTERACTION = new RegExp(
+  [
+    String.raw`\bcounter ${T}\b`,
+    String.raw`\bdestroy ${T}\b`,
+    String.raw`\bexile ${T} (?!card from|cards from)`,
+    String.raw`\breturn ${T} (?:[^.]*?) to (?:its|their) owner'?s'? hands?\b`,
+    String.raw`\bdeals? (?:\d+|x) damage to (?:any target|${T} (?:creature|planeswalker|player|opponent|attacking|blocking))`,
+    String.raw`\bput ${T} (?:[^.]*?) (?:into|on (?:the )?(?:top|bottom) of) (?:its|their) owner'?s'? library`,
+    String.raw`\btarget (?:[^.]*?)\bgets? -(?:\d+|x)\/-(?:\d+|x)`,
+    String.raw`\bfights? ${T}\b`,
+    String.raw`\b(?:target (?:player|opponent)|each opponent) sacrifices\b`,
+  ].join("|"),
+  "i",
+);
 /** Targets limited to your own things (Ephemerate, Cloudshift) make a blink, not interaction;
  *  a sentence counts while one target isn't yours (Prey Upon). */
 const OWN_TARGET = /\btarget (?:[^.]*?)\byou (?:control|own)\b/gi;
@@ -87,7 +102,8 @@ export function isCheapMana(c: StatCard): boolean {
 
 export function isCheapDraw(c: StatCard): boolean {
   if (c.cmc == null || c.cmc > CHEAP || isLand(c)) return false;
-  return /\bdraws? (?:a|an|one|two|three|four|five|x|that many) (?:additional )?cards?\b|\bdraws? cards? equal\b/i.test(frontText(c));
+  // "Whenever an opponent draws a card" (Orcish Bowmasters) isn't this deck drawing.
+  return /(?<!opponent )\bdraws? (?:a|an|one|two|three|four|five|x|that many) (?:additional )?cards?\b|(?<!opponent )\bdraws? cards? equal\b/i.test(frontText(c));
 }
 
 /** Removal (destroy, exile, damage, -N/-N, fight, edict, tuck), a counterspell or a bounce,
