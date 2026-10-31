@@ -637,13 +637,18 @@ async function shoot() {
   for (const v of viewports) if (!VIEWPORTS[v]) throw new Error(`Unknown viewport ${v}; use ${Object.keys(VIEWPORTS).join(", ")}`);
   if (!["safe", "all", "none"].includes(args.interact)) throw new Error("--interact is safe, all or none");
   if (args["allow-writes"] && !isLocal(base)) throw new Error("--allow-writes only works against localhost");
+  const count = (name, min) => {
+    const n = Number(args[name]);
+    if (!Number.isInteger(n) || n < min) throw new Error(`--${name} takes a whole number of at least ${min}`);
+    return n;
+  };
   const opts = {
     viewports,
     interact: args.interact,
-    maxPages: Number(args["max-pages"]),
-    samples: Number(args.samples),
-    maxFrames: Number(args["max-frames"]),
-    maxInteractions: Number(args["max-interactions"]),
+    maxPages: count("max-pages", 1),
+    samples: count("samples", 1),
+    maxFrames: count("max-frames", 1),
+    maxInteractions: count("max-interactions", 0),
     details: !args["no-details"],
     jpeg: !!args.jpeg,
   };
@@ -713,7 +718,10 @@ async function shoot() {
     const queue = [];
     const queued = new Set();
     const perKey = new Map();
-    const crawl = !args["no-crawl"] && !positionals.length && !!me;
+    const crawl = !args["no-crawl"] && !positionals.length;
+    // Signed out, every app route is the sign-in screen: follow only links to the server's public
+    // pages (/precons/..., /u/..., /d/...).
+    const appRoute = (u) => matchers.some((m) => m.re.test(u.pathname));
     const allowed = (u) =>
       u.origin === base.origin && !NEVER_VISIT.some((re) => re.test(u.pathname)) && (!only || only.test(u.pathname)) && !(exclude && exclude.test(u.pathname));
     const enqueue = (u, force = false) => {
@@ -721,6 +729,7 @@ async function shoot() {
       if (!allowed(u)) return;
       const key = u.pathname + u.search;
       if (queued.has(key)) return;
+      if (!me && !force && appRoute(u)) return;
       const sk = sampleKey(u, matchers);
       const n = perKey.get(sk) ?? 0;
       if (!force && n >= opts.samples) return;
