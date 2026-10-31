@@ -41,8 +41,8 @@ phase_dir="$root/../yama-phase"
 [ -d "$phase_dir" ] || die "no engine checkout at $phase_dir; check out bryanroscoe/yama-phase there at $phase_rev."
 [ "$(git -C "$phase_dir" rev-parse HEAD)" = "$phase_rev" ] \
   || die "$phase_dir is not at deploy/phase-rev ($phase_rev); CI tests that engine."
-[ -z "$(git -C "$phase_dir" status --porcelain --untracked-files=no)" ] \
-  || die "$phase_dir has local changes; CI tests the published engine."
+[ -z "$(git -C "$phase_dir" status --porcelain --untracked-files=all)" ] \
+  || die "$phase_dir has local changes or untracked files; CI tests the published engine."
 # A pin only on this machine would pass here and then break push CI on main.
 YAMA_PHASE_DIR="$phase_dir" deploy/check-phase.sh >/dev/null \
   || die 'the engine pin must be published first (see deploy/check-phase.sh above).'
