@@ -35,6 +35,10 @@ describe("power signals from card text", () => {
     expect(isCheapMana(farseek)).toBe(true);
     // A spell with a land back is a land drop, not ramp.
     expect(isCheapMana(rebirth)).toBe(false);
+    // Before produced mana is loaded, the rules text decides.
+    expect(isCheapMana({ ...solRing, producedMana: null })).toBe(true);
+    expect(isCheapMana(card("Arcane Signet", "Artifact", 2, "{T}: Add one mana of any color in your commander's color identity.", null as unknown as string))).toBe(true);
+    expect(isCheapMana({ ...brainstorm, producedMana: null })).toBe(false);
     expect(isCheapMana(forest)).toBe(false);
   });
 
@@ -46,6 +50,8 @@ describe("power signals from card text", () => {
     expect(isCheapInteraction(swords)).toBe(true);
     expect(isCheapInteraction(counterspell)).toBe(true);
     expect(isCheapInteraction(rift)).toBe(true);
+    expect(isCheapInteraction(card("Ephemerate", "Instant", 1, "Exile target creature you control, then return it to the battlefield under its owner's control.\nRebound"))).toBe(false);
+    expect(isCheapInteraction(card("Feed the Swarm", "Sorcery", 2, "Destroy target creature or enchantment an opponent controls. You lose life equal to that permanent's mana value."))).toBe(true);
     expect(isCheapInteraction(relic)).toBe(false);
     expect(isCheapInteraction(big)).toBe(false);
   });

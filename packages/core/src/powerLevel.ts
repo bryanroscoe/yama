@@ -57,6 +57,11 @@ const CHEAP = 2;
 const BASIC_OR_LAND = /\b(?:land|plains|island|swamp|mountain|forest|wastes)\b/i;
 const NONLAND_TYPE = /\b(?:creature|artifact|enchantment|instant|sorcery|planeswalker|battle|equipment|aura)\b/i;
 
+const MAKES_MANA = /\badds? (?:\{|(?:one|two|three|x|an amount of) mana\b)/i;
+const INTERACTION = /\bcounter target\b|\bdestroy target\b|\bexile target (?!card from|cards from)|\breturn target (?:[^.]*?) to (?:its|their) owner'?s'? hands?\b|\bdeals? (?:\d+|x) damage to (?:any target|target (?:creature|planeswalker|player|opponent|attacking|blocking))/i;
+/** A target limited to your own things (Ephemerate, Cloudshift): a blink, not interaction. */
+const OWN_TARGET = /\btarget (?:[^.]*?)\byou (?:control|own)\b/i;
+
 const faceText = (c: StatCard) => c.oracleText ?? "";
 /** The card data joins a multi-face card's rules text with a "//" line. The mana value is the
  *  front face's, so the cheap factors read only the front face: an Adventure's draw costs more. */
@@ -70,7 +75,8 @@ export function isCheapMana(c: StatCard): boolean {
   if (/search your library for [^.]*\b(?:land|plains|island|swamp|mountain|forest)s? cards?\b[^.]*onto the battlefield/i.test(text)) return true;
   // Produced mana covers every face, so a spell with a land back (Malakir Rebirth) would count
   // for its land; then only the front face's own mana counts.
-  if (hasLandBack(c)) return /\badd \{/i.test(text);
+  // While produced mana isn't loaded, the rules text says whether the card makes mana.
+  if (hasLandBack(c) || c.producedMana == null) return MAKES_MANA.test(text);
   return !!c.producedMana;
 }
 
@@ -82,7 +88,7 @@ export function isCheapDraw(c: StatCard): boolean {
 /** Removal, a counterspell or a bounce that targets, at two mana or less. */
 export function isCheapInteraction(c: StatCard): boolean {
   if (c.cmc == null || c.cmc > CHEAP || isLand(c)) return false;
-  return /\bcounter target\b|\bdestroy target\b|\bexile target (?!card from|cards from)|\breturn target (?:[^.]*?) to (?:its|their) owner'?s'? hands?\b|\bdeals? (?:\d+|x) damage to (?:any target|target (?:creature|planeswalker|player|opponent|attacking|blocking))/i.test(frontText(c));
+  return frontText(c).split(/[.\n]/).some((sentence) => INTERACTION.test(sentence) && !OWN_TARGET.test(sentence));
 }
 
 /** Finds a card other than a land from the library. */
