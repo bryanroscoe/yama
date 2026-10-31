@@ -795,11 +795,13 @@ async fn catalog_by_sha(pool: &SqlitePool) -> AppResult<(HashSet<String>, HashMa
     Ok((all, allowed))
 }
 
-/// A tournament's spec, refused unless it is a tournament with no other opponents.
-async fn tournament_spec(pool: &SqlitePool, id: &str) -> AppResult<(String, String, crate::lab::experiments::ExperimentSpec)> {
-    let row: Option<(String, String, String)> = sqlx::query_as("SELECT status, created_at, spec FROM lab_experiments WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
+/// `owner`'s tournament, refused unless it is a four-player tournament with no other opponents.
+async fn tournament_spec(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<(String, String, crate::lab::experiments::ExperimentSpec)> {
+    let row: Option<(String, String, String)> =
+        sqlx::query_as("SELECT status, created_at, spec FROM lab_experiments WHERE id = ? AND owner_id = ?")
+            .bind(id)
+            .bind(owner)
+            .fetch_optional(pool)
         .await?;
     let (status, created_at, spec) = row.ok_or(AppError::NotFound("experiment"))?;
     let spec: crate::lab::experiments::ExperimentSpec = serde_json::from_str(&spec).map_err(anyhow::Error::from)?;
@@ -807,6 +809,14 @@ async fn tournament_spec(pool: &SqlitePool, id: &str) -> AppResult<(String, Stri
         return Err(AppError::bad("a simulation must be a four-player tournament with no other opponents"));
     }
     Ok((status, created_at, spec))
+}
+
+/// The AI setting `engine`'s seats played in a tournament: Forge's profile, else Phase's difficulty.
+fn ai_setting(spec: &crate::lab::experiments::ExperimentSpec, engine: &str) -> String {
+    match engine {
+        "forge" => spec.engines.forge_ai.clone().unwrap_or_else(|| "Default".into()),
+        _ => spec.difficulty.clone(),
+    }
 }
 
 /// The operator's chosen simulation (`precon-evidence simulate`): one engine's games from the chosen
@@ -824,17 +834,23 @@ pub const CHOSEN_SIMULATION_ID: &str = "chosen-simulation";
 /// The chosen simulation from the games finished by `cutoff`, or all of them.
 pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateTime<Utc>>) -> AppResult<Option<SimSource>> {
     let cutoff = cutoff.map(|c| c.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
-    let chosen: Vec<(String, String, String, String, String)> =
-        sqlx::query_as("SELECT experiment_id, engine, build, card_data, chosen_at FROM precon_evidence_simulation ORDER BY experiment_id")
+    let chosen: Vec<(String, String, String, String, String, String)> =
+        sqlx::query_as("SELECT experiment_id, owner_id, engine, build, card_data, chosen_at FROM precon_evidence_simulation ORDER BY experiment_id")
             .fetch_all(pool)
             .await?;
-    let Some((_, engine, build, card_data, chosen_at)) = chosen.first().cloned() else { return Ok(None) };
+    let Some((_, owner, engine, build, card_data, chosen_at)) = chosen.first().cloned() else { return Ok(None) };
     let (all, allowed) = catalog_by_sha(pool).await?;
     let mut labels: BTreeMap<String, String> = BTreeMap::new();
     let mut rows: Vec<(String, Option<String>)> = Vec::new();
     let (mut newest, mut done) = (String::new(), true);
+    let mut ai: Option<String> = None;
     for (id, ..) in &chosen {
-        let (status, created_at, spec) = tournament_spec(pool, id).await?;
+        let (status, created_at, spec) = tournament_spec(pool, &owner, id).await?;
+        // One AI setting: games at another difficulty would pool unlike strengths.
+        let setting = ai_setting(&spec, &engine);
+        if ai.get_or_insert_with(|| setting.clone()) != &setting {
+            return Err(AppError::bad("the chosen tournaments played different AI settings"));
+        }
         done &= status == "done";
         newest = newest.max(created_at);
         let sha: HashMap<&str, &str> = spec.entrants.iter().map(|l| (l.id.as_str(), l.sha256.as_str())).collect();
@@ -896,7 +912,7 @@ pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateT
         kind: "tournament",
         id: CHOSEN_SIMULATION_ID.into(),
         name,
-        engine: format!("{build}, {engine}"),
+        engine: format!("{build}, card data {card_data}, {} AI", ai.unwrap_or_default()),
         status: if done { "done" } else { "running" }.into(),
         // The choice was made knowing what came before it, so the source dates from the later of the
         // choice and the newest tournament's start; the time-split test only credits one older than the split.
@@ -909,15 +925,27 @@ pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateT
 /// Choose `engine`'s games from `experiments` as the simulation rating v2 reads, replacing any
 /// earlier choice. `build` defaults to the engine version of the newest such game, without the
 /// harness suffix after `+`; the card data pooled is that game's, likewise.
-pub async fn choose_simulation(pool: &SqlitePool, experiments: &[String], engine: &str, build: Option<&str>) -> AppResult<String> {
+pub async fn choose_simulation(
+    pool: &SqlitePool,
+    owner: &str,
+    experiments: &[String],
+    engine: &str,
+    build: Option<&str>,
+) -> AppResult<String> {
     if !matches!(engine, "phase" | "forge") {
         return Err(AppError::bad("engine must be phase or forge"));
     }
     if experiments.is_empty() || experiments.len() > 20 {
         return Err(AppError::bad("choose 1–20 tournaments"));
     }
+    // All the operator's own tournaments, at one AI setting.
+    let mut settings = HashSet::new();
     for id in experiments {
-        tournament_spec(pool, id).await?;
+        let (_, _, spec) = tournament_spec(pool, owner, id).await?;
+        settings.insert(ai_setting(&spec, engine));
+    }
+    if settings.len() > 1 {
+        return Err(AppError::bad("the tournaments played different AI settings; choose ones that match"));
     }
     // The newest game of that engine (and build, when given) names the build and card data pooled.
     let given = build.map(|b| b.trim().to_string());
@@ -952,14 +980,17 @@ pub async fn choose_simulation(pool: &SqlitePool, experiments: &[String], engine
     sqlx::query("DELETE FROM precon_evidence_simulation").execute(&mut *tx).await?;
     let at = now();
     for id in experiments {
-        sqlx::query("INSERT INTO precon_evidence_simulation(experiment_id, engine, build, card_data, chosen_at) VALUES (?,?,?,?,?)")
-            .bind(id)
-            .bind(engine)
-            .bind(&build)
-            .bind(&card_data)
-            .bind(&at)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO precon_evidence_simulation(experiment_id, owner_id, engine, build, card_data, chosen_at) VALUES (?,?,?,?,?,?)",
+        )
+        .bind(id)
+        .bind(owner)
+        .bind(engine)
+        .bind(&build)
+        .bind(&card_data)
+        .bind(&at)
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
     Ok(build)
@@ -1411,7 +1442,7 @@ async fn disable_route(State(st): State<AppState>, AdminUser(user): AdminUser, P
 }
 
 /// `yama-server precon-evidence report | use SOURCE --owner EMAIL | stop SOURCE --owner EMAIL |
-/// simulate EXPERIMENT... [--engine forge|phase] [--build PREFIX] | simulate --none |
+/// simulate EXPERIMENT... --owner EMAIL [--engine forge|phase] [--build PREFIX] | simulate --none |
 /// link PRECON ENTITY [--source NAME] [--note TEXT] | exclude PRECON ENTITY [--source NAME] [--note TEXT] | unlink PRECON ENTITY [--source NAME]`
 pub async fn cli(pool: &SqlitePool, args: &[String]) -> anyhow::Result<()> {
     let flag = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
@@ -1430,7 +1461,7 @@ pub async fn cli(pool: &SqlitePool, args: &[String]) -> anyhow::Result<()> {
         out
     };
     let err = |e: AppError| anyhow::anyhow!("{e}");
-    const USAGE: &str = "usage: yama-server precon-evidence report | calibrate [--split YYYY-MM-DD] [--owner EMAIL] | use SOURCE --owner EMAIL | stop SOURCE --owner EMAIL | simulate EXPERIMENT... [--engine forge|phase] [--build PREFIX] | simulate --none | link PRECON ENTITY [--source NAME] [--note TEXT] | exclude PRECON ENTITY [--source NAME] [--note TEXT] | unlink PRECON ENTITY [--source NAME]";
+    const USAGE: &str = "usage: yama-server precon-evidence report | calibrate [--split YYYY-MM-DD] [--owner EMAIL] | use SOURCE --owner EMAIL | stop SOURCE --owner EMAIL | simulate EXPERIMENT... --owner EMAIL [--engine forge|phase] [--build PREFIX] | simulate --none | link PRECON ENTITY [--source NAME] [--note TEXT] | exclude PRECON ENTITY [--source NAME] [--note TEXT] | unlink PRECON ENTITY [--source NAME]";
     match (args.first().map(String::as_str), positional.as_slice()) {
         (Some("report"), []) => {}
         (Some("calibrate"), []) => {
@@ -1458,9 +1489,11 @@ pub async fn cli(pool: &SqlitePool, args: &[String]) -> anyhow::Result<()> {
             .map_err(err)?;
         }
         (Some("simulate"), experiments) if !experiments.is_empty() => {
+            let email = flag("--owner").ok_or_else(|| anyhow::anyhow!("--owner EMAIL is required"))?;
+            let owner = crate::decks::cli::owner_id(pool, &email).await?;
             let engine = flag("--engine").unwrap_or_else(|| "forge".into());
             let experiments: Vec<String> = experiments.iter().map(|e| e.to_string()).collect();
-            choose_simulation(pool, &experiments, &engine, flag("--build").as_deref()).await.map_err(err)?;
+            choose_simulation(pool, &owner, &experiments, &engine, flag("--build").as_deref()).await.map_err(err)?;
             let chosen = chosen_simulation(pool).await.map_err(err)?;
             println!("{}", serde_json::to_string_pretty(&chosen)?);
             return Ok(());

@@ -2269,7 +2269,7 @@ async fn stock_tournaments_pool_into_the_rating_simulation_one_engine_and_build_
     LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
     assert!(chosen_simulation(&pool).await.unwrap().is_none(), "nothing chosen, no simulation");
 
-    let build = choose_simulation(&pool, &[a.clone()], "phase", None).await.unwrap();
+    let build = choose_simulation(&pool, "admin", &[a.clone()], "phase", None).await.unwrap();
     assert!(!build.is_empty() && !build.contains('+'), "the newest game's engine version: {build}");
     let one = chosen_simulation(&pool).await.unwrap().expect("its phase games give strengths");
     assert_eq!(one.kind, "tournament");
@@ -2281,21 +2281,22 @@ async fn stock_tournaments_pool_into_the_rating_simulation_one_engine_and_build_
     // Frozen at a date, as the time-split test sees it: no games had finished an hour ago.
     let past = chrono::Utc::now() - chrono::Duration::hours(1);
     assert!(crate::precon_evidence::chosen_simulation_at(&pool, Some(past)).await.unwrap().is_none());
-    choose_simulation(&pool, &[a.clone(), b.clone()], "phase", None).await.unwrap();
+    choose_simulation(&pool, "admin", &[a.clone(), b.clone()], "phase", None).await.unwrap();
     let both = chosen_simulation(&pool).await.unwrap().unwrap();
     assert!(both.name.starts_with("256 stock-precon tournament games"), "two tournaments pool: {}", both.name);
     assert_eq!(both.precons, 5, "one entrant per stock list across tournaments");
 
     // Another engine or engine version contributes nothing.
-    assert!(choose_simulation(&pool, &[a.clone()], "forge", None).await.is_err(), "no forge games to name a build");
-    assert!(choose_simulation(&pool, &[a.clone()], "phase", Some("phase-rs v9")).await.is_err(), "no games from that build");
+    assert!(choose_simulation(&pool, "admin", &[a.clone()], "forge", None).await.is_err(), "no forge games to name a build");
+    assert!(choose_simulation(&pool, "admin", &[a.clone()], "phase", Some("phase-rs v9")).await.is_err(), "no games from that build");
     // Games from other card data drop out of a choice.
     sqlx::query("UPDATE precon_evidence_simulation SET card_data = 'other-card-data'").execute(&pool).await.unwrap();
     assert!(chosen_simulation(&pool).await.unwrap().is_none());
-    assert!(choose_simulation(&pool, &[a.clone()], "mtga", None).await.is_err());
+    assert!(choose_simulation(&pool, "admin", &[a.clone()], "mtga", None).await.is_err());
+    assert!(choose_simulation(&pool, "bryan", &[a.clone()], "phase", None).await.is_err(), "only the operator's own tournaments");
 
     // Pods with a list that isn't a current stock precon drop out; the rest still count.
-    choose_simulation(&pool, &[a.clone()], "phase", Some(&build)).await.unwrap();
+    choose_simulation(&pool, "admin", &[a.clone()], "phase", Some(&build)).await.unwrap();
     sqlx::query("UPDATE lab_experiments SET spec = json_set(spec, '$.entrants[0].sha256', 'not-stock') WHERE id = ?")
         .bind(&a)
         .execute(&pool)

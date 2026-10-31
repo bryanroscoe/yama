@@ -961,8 +961,8 @@ methodology page.
 (rank correlation with Playgroup.gg's all-time rates 0.14 over 87 precons in the 30 Oct stock
 tournament, against 0.30 for Forge with a third of its games played), so the published Phase
 benchmark no longer feeds rating v2. Its simulation is the operator's explicit choice of one engine's
-games from one or more tournaments (`precon-evidence simulate EXPERIMENT... --engine forge [--build
-PREFIX]`, stored in `precon_evidence_simulation`), pooled into one fit by stock-list hash and re-read
+games from one or more tournaments (`precon-evidence simulate EXPERIMENT... --owner EMAIL --engine forge [--build
+PREFIX]`, stored in `precon_evidence_simulation`; only the operator's own tournaments, all at one AI setting), pooled into one fit by stock-list hash and re-read
 as they play. Only pods of four current catalog stock lists count, so nobody's own list shapes a
 public strength, and only games whose engine version starts with the chosen build (default: the
 newest game's version without its `+` harness suffix), so Forge's speed-only harness rebuilds (yama2,
