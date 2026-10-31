@@ -58,9 +58,14 @@ const BASIC_OR_LAND = /\b(?:land|plains|island|swamp|mountain|forest|wastes)\b/i
 const NONLAND_TYPE = /\b(?:creature|artifact|enchantment|instant|sorcery|planeswalker|battle|equipment|aura)\b/i;
 
 const MAKES_MANA = /\badds? (?:\{|(?:one|two|three|x|an amount of) mana\b)/i;
-const INTERACTION = /\bcounter target\b|\bdestroy target\b|\bexile target (?!card from|cards from)|\breturn target (?:[^.]*?) to (?:its|their) owner'?s'? hands?\b|\bdeals? (?:\d+|x) damage to (?:any target|target (?:creature|planeswalker|player|opponent|attacking|blocking))/i;
-/** A target limited to your own things (Ephemerate, Cloudshift): a blink, not interaction. */
-const OWN_TARGET = /\btarget (?:[^.]*?)\byou (?:control|own)\b/i;
+const INTERACTION = /\bcounter target\b|\bdestroy target\b|\bexile target (?!card from|cards from)|\breturn target (?:[^.]*?) to (?:its|their) owner'?s'? hands?\b|\bdeals? (?:\d+|x) damage to (?:any target|target (?:creature|planeswalker|player|opponent|attacking|blocking))|\bput target (?:[^.]*?) (?:into|on (?:the )?(?:top|bottom) of) (?:its|their) owner'?s'? library|\btarget (?:[^.]*?)\bgets? -(?:\d+|x)\/-(?:\d+|x)|\bfights? (?:up to one )?target\b|\b(?:target (?:player|opponent)|each opponent) sacrifices\b/i;
+/** Targets limited to your own things (Ephemerate, Cloudshift) make a blink, not interaction;
+ *  a sentence counts while one target isn't yours (Prey Upon). */
+const OWN_TARGET = /\btarget (?:[^.]*?)\byou (?:control|own)\b/gi;
+function onlyOwnTargets(sentence: string): boolean {
+  const targets = (sentence.match(/\btarget\b/gi) ?? []).length;
+  return targets > 0 && (sentence.match(OWN_TARGET) ?? []).length >= targets;
+}
 
 const faceText = (c: StatCard) => c.oracleText ?? "";
 /** The card data joins a multi-face card's rules text with a "//" line. The mana value is the
@@ -85,10 +90,11 @@ export function isCheapDraw(c: StatCard): boolean {
   return /\bdraws? (?:a|an|one|two|three|four|five|x|that many) (?:additional )?cards?\b|\bdraws? cards? equal\b/i.test(frontText(c));
 }
 
-/** Removal, a counterspell or a bounce that targets, at two mana or less. */
+/** Removal (destroy, exile, damage, -N/-N, fight, edict, tuck), a counterspell or a bounce,
+ *  at two mana or less. */
 export function isCheapInteraction(c: StatCard): boolean {
   if (c.cmc == null || c.cmc > CHEAP || isLand(c)) return false;
-  return frontText(c).split(/[.\n]/).some((sentence) => INTERACTION.test(sentence) && !OWN_TARGET.test(sentence));
+  return frontText(c).split(/[.\n]/).some((sentence) => INTERACTION.test(sentence) && !onlyOwnTargets(sentence));
 }
 
 /** Finds a card other than a land from the library. */

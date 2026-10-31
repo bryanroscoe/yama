@@ -51,6 +51,14 @@ describe("power signals from card text", () => {
     expect(isCheapInteraction(counterspell)).toBe(true);
     expect(isCheapInteraction(rift)).toBe(true);
     expect(isCheapInteraction(card("Ephemerate", "Instant", 1, "Exile target creature you control, then return it to the battlefield under its owner's control.\nRebound"))).toBe(false);
+    for (const [name, text] of [
+      ["Oust", "Put target creature into its owner's library second from the top. Its controller gains 3 life."],
+      ["Condemn", "Put target attacking creature on the bottom of its owner's library. Its controller gains life equal to its toughness."],
+      ["Darkblast", "Target creature gets -1/-1 until end of turn.\nDredge 3"],
+      ["Diabolic Edict", "Target player sacrifices a creature of their choice."],
+      ["Sheoldred's Edict", "Choose one —\n• Each opponent sacrifices a nontoken creature of their choice."],
+      ["Prey Upon", "Target creature you control fights target creature you don't control."],
+    ]) expect(isCheapInteraction(card(name!, "Instant", 1, text))).toBe(true);
     expect(isCheapInteraction(card("Feed the Swarm", "Sorcery", 2, "Destroy target creature or enchantment an opponent controls. You lose life equal to that permanent's mana value."))).toBe(true);
     expect(isCheapInteraction(relic)).toBe(false);
     expect(isCheapInteraction(big)).toBe(false);
