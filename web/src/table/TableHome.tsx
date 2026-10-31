@@ -13,7 +13,8 @@ import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
 import { emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, type SeatDraft } from "./seats";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
-import { layout } from "./TablePlay";
+import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
+import { useLayoutChoice } from "./layouts";
 import { panelArt, useShowArt } from "./art";
 import { recentGameText, winningSeat } from "./recent";
 import { cardNamed, CommanderFields, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type Person } from "./pickers";
@@ -111,7 +112,7 @@ export function TableHome() {
           </div>
         </section>
       ) : (
-        <NewGame onStart={() => navigate("/table/play")} />
+        <NewGame onStart={(share) => navigate("/table/play", { state: { share } })} />
       )}
 
       <RecentGames
@@ -137,13 +138,21 @@ export function TableHome() {
   );
 }
 
-function NewGame({ onStart }: { onStart: () => void }) {
+function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   const me = useMe();
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const [groupId, setGroupId] = useState<string>("");
   const [life, setLife] = useState(40);
   const [format, setFormat] = useState<TableFormat>("commander");
+  /** Everyone keeps their own totals on their own phone: the join code shows as the game opens. */
+  const [phones, setPhones] = useState<"one" | "everyone">(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null")?.phones === "everyone" ? "everyone" : "one";
+    } catch {
+      return "one";
+    }
+  });
   const wide = useWide();
   const [editing, setEditing] = useState<number | null>(null);
   // When the seats came back from the last game set up on this phone, and when that was.
@@ -226,6 +235,9 @@ function NewGame({ onStart }: { onStart: () => void }) {
     setLife(FORMATS.find((x) => x.key === f)!.life);
   };
   const setCount = (n: number) => setSeats((s) => (n > s.length ? [...s, ...Array.from({ length: n - s.length }, emptySeat)] : s.slice(0, n)));
+  const shuffle = () => setSeats((s) => shuffled(s));
+  const layoutKey = useLayoutChoice(seats.length);
+  const seatArt = (i: number) => seats[i]?.art;
 
   const [starting, setStarting] = useState(false);
   const start = async () => {
@@ -259,9 +271,9 @@ function NewGame({ onStart }: { onStart: () => void }) {
       playgroupId: groupId || undefined,
       players,
     };
-    localStorage.setItem(LAST_SETUP, JSON.stringify({ seats: seatsNow, groupId, life, format, at: new Date().toISOString() }));
+    localStorage.setItem(LAST_SETUP, JSON.stringify({ seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() }));
     startGame(setup);
-    onStart();
+    onStart(phones === "everyone");
   };
 
   const groupSelect = (className: string, label: boolean) => (
@@ -325,7 +337,12 @@ function NewGame({ onStart }: { onStart: () => void }) {
         <Choice label="Game" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
         <Choice label="Players" options={[1, 2, 3, 4, 5, 6]} value={seats.length} onChange={setCount} />
         <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
+        <Choice label="Phones" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "Just this one" : "Everyone's own")} />
       </div>
+      {phones === "everyone" && (
+        <p className="small dim ng-note">The join code shows as soon as the game starts. Friends scan it, pick their seat and keep their own total.</p>
+      )}
+      {!wide && <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />}
       {wide ? (
         <div className="ng-body">
           <div className="ng-seats">
@@ -333,9 +350,10 @@ function NewGame({ onStart }: { onStart: () => void }) {
               <SeatEditor key={i} {...seatProps(i)} />
             ))}
           </div>
-          <aside className="ng-phone" aria-label="How the phone sits">
-            <PhoneSketch seats={seats} />
-            <p>Seats go clockwise from whoever holds the phone. Each panel faces its player.</p>
+          <aside className="ng-phone" aria-label="How the panels sit">
+            <LayoutSketch n={seats.length} layout={layoutKey} art={seatArt} className="phone-sketch" />
+            <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />
+            {seats.length > 2 && <button className="quiet small" onClick={shuffle}>Shuffle the seats</button>}
           </aside>
         </div>
       ) : (
@@ -347,6 +365,7 @@ function NewGame({ onStart }: { onStart: () => void }) {
               </li>
             ))}
           </ol>
+          {seats.length > 2 && <button className="quiet small ng-shuffle" onClick={shuffle}>Shuffle the seats</button>}
           <p className="small dim ng-note">
             Seats go clockwise from you. Tap a seat to change the player{format === "commander" ? " or commander" : ""}.
             {artists.length > 0 && ` ${artCredits(artists)}`}
@@ -384,26 +403,6 @@ function Choice<T extends string | number>({ label, options, value, onChange, na
   );
 }
 
-/** The life counter's panels in miniature, each with its seat's art and number, facing its player. */
-function PhoneSketch({ seats }: { seats: SeatDraft[] }) {
-  const { cols, rows, cells } = layout(seats.length);
-  return (
-    <div className="phone-sketch" aria-hidden="true" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}>
-      {cells.map(({ seat, rot, area }) => {
-        const s = seats[seat];
-        return (
-          <span key={seat} className={`sketch-cell${s?.art ? " has-art" : ""}`} style={{ gridArea: area }}>
-            {s?.art && <img src={s.art} alt="" />}
-            <span className="sketch-n">
-              <span style={{ transform: `rotate(${rot}deg)` }}>{seat + 1}</span>
-            </span>
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
 /** A seat on a phone: the commander art washed from the left, name and commander on it. Opens the seat's fields. */
 function SeatRow({ index, seat, deckName, onOpen, commander = true }: { index: number; seat: SeatDraft; deckName?: string; onOpen: () => void; commander?: boolean }) {
   const who = seat.name.trim() || `Player ${index + 1}`;
@@ -421,6 +420,18 @@ function SeatRow({ index, seat, deckName, onOpen, commander = true }: { index: n
       </ArtPanel>
     </button>
   );
+}
+
+/** The seats in a random order (Fisher-Yates, from the browser's random source). */
+export function shuffled<T>(items: T[]): T[] {
+  const out = [...items];
+  const r = new Uint32Array(1);
+  for (let i = out.length - 1; i > 0; i--) {
+    crypto.getRandomValues(r);
+    const j = r[0]! % (i + 1);
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
 }
 
 /** A deck's commanders (and partner) as picked cards, with art and colors; null offline. */

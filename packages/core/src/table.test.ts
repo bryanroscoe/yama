@@ -224,11 +224,30 @@ describe("finish", () => {
     expect(body.seats).toEqual([
       { seat: 0, final_life: 40, eliminated_turn: null, eliminated_by_seat: null, fun: 4 },
       { seat: 1, final_life: 40, eliminated_turn: null, eliminated_by_seat: null, fun: null },
-      // An out-of-range rating is dropped, not clamped.
-      { seat: 2, final_life: 40, eliminated_turn: 1, eliminated_by_seat: 1, fun: null },
+      // An out-of-range rating is dropped, not clamped. Nobody passed the turn, so no turn is sent.
+      { seat: 2, final_life: 40, eliminated_turn: null, eliminated_by_seat: 1, fun: null },
     ]);
+    expect(body.turns).toBeNull();
     // Same log, same body: retries are harmless.
     expect(toServerFinish(setup, log)).toEqual(body);
+  });
+
+  it("sends turns only from a table that passed the turn", () => {
+    let log = record([], { type: "pass_turn" }, t0);
+    for (let i = 1; i < 5; i++) log = record(log, { type: "pass_turn" }, later(i * 100));
+    log = record(log, { type: "eliminate", seat: 2, bySeat: 1 }, later(600));
+    log = record(log, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(700));
+    const body = toServerFinish(setup, log)!;
+    expect(body.turns).toBe(2);
+    expect(body.seats[2]).toMatchObject({ eliminated_turn: 2 });
+  });
+
+  it("keeps the city's blessing at one, and other counters at zero or more", () => {
+    let s = initialState(setup);
+    s = apply(s, { type: "counter", seat: 0, counter: "blessing", delta: 1 });
+    s = apply(s, { type: "counter", seat: 0, counter: "blessing", delta: 1 });
+    s = apply(s, { type: "counter", seat: 0, counter: "storm", delta: -2 });
+    expect(s.players[0]!.counters).toEqual({ blessing: 1, storm: 0 });
   });
 
   it("a draw sends no win condition, and an unfinished log sends nothing", () => {

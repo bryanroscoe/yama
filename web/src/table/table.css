@@ -1417,3 +1417,174 @@
 .panel-inner:has(> .attack-layer) > .panel-credit {
   z-index: 5;
 }
+
+/* Not counting turns: the hub is just the menu. */
+.hub.hub-menu {
+  display: grid;
+  place-items: center;
+}
+/* Shared with other phones: a small connected dot on the hub's rim. */
+.hub-live {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 2px var(--ground);
+}
+
+/* Partners: two art crops side by side, each cover-fitted in its own half. */
+.panel-inner > .panel-art-pair {
+  display: flex;
+}
+.panel-art-pair > .art-panel {
+  flex: 1 1 50%;
+  min-width: 0;
+  border-radius: 0;
+}
+
+/* The life total on the player sheet is a button: tap to type a new total. */
+.player-sheet button.ps-life {
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+}
+.player-sheet .ps-life-set input {
+  width: 3.2ch;
+  font-weight: 700;
+  font-size: 72px;
+  line-height: 0.9;
+  padding: 0 4px;
+  text-align: right;
+  background: var(--art-chip);
+  color: var(--on-art);
+  border: 2px solid var(--text);
+  border-radius: var(--r-input);
+}
+
+/* The menu's join code opens the full-size one. */
+.table-menu .tm-qr-btn {
+  padding: 0;
+  min-height: 0;
+  border: none;
+}
+.table-menu .tm-layout,
+.table-menu .tm-log {
+  margin-top: 4px;
+}
+.tm-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--t-sm);
+}
+.tm-log-list li {
+  display: flex;
+  gap: 10px;
+}
+.tm-log-when {
+  flex: none;
+  min-width: 4.5em;
+  color: var(--dim);
+}
+
+/* The join code, full size: as wide as the sheet allows, light on dark so cameras read it. */
+.join-sheet .join-qr {
+  width: min(78vw, 340px);
+  aspect-ratio: 1;
+  align-self: center;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--text);
+}
+.join-sheet .join-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.join-sheet .join-qr-wait {
+  background: var(--raised);
+}
+.join-sheet .tm-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.join-sheet .status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.join-sheet .status-dot.good {
+  background: var(--good);
+}
+.join-sheet .status-dot.warn {
+  background: var(--warn);
+}
+
+/* Dice and coin. */
+.dice-result {
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: var(--r-list);
+  background: var(--raised);
+}
+.dice-title {
+  color: var(--dim);
+  font-size: var(--t-sm);
+}
+.dice-value {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 64px;
+  line-height: 1;
+  animation: dice-pop 220ms ease-out;
+}
+@keyframes dice-pop {
+  from {
+    transform: scale(0.7);
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dice-value {
+    animation: none;
+  }
+}
+.dice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.dice-grid button {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-md);
+}
+.dice-row {
+  align-items: center;
+}
+.dice-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--display);
+  font-weight: 700;
+}
+.dice-custom input {
+  width: 5.5rem;
+  min-width: 0;
+}

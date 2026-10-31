@@ -1,6 +1,6 @@
 // A table game told as it happened: one line per logged event, for the game's detail page.
 
-import { apply, commanderTax, formatLabel, keySeat, sourceName, initialState, winConditionLabel, type LoggedEvent, type TableEvent, type TableSetup, type TableState } from "@yama/core";
+import { apply, commanderTax, formatLabel, keySeat, sourceName, initialState, turnsCounted, winConditionLabel, type LoggedEvent, type TableEvent, type TableSetup, type TableState } from "@yama/core";
 
 export interface HistoryLine {
   seq: number;
@@ -11,10 +11,11 @@ export interface HistoryLine {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** "Commander game on turn 5. Alex's turn." */
+/** "Commander game on turn 5. Alex's turn.", or "Commander game, 4 players." when nobody counts turns. */
 export function gameSummary(state: TableState): string {
   const active = state.players.find((p) => p.seat === state.activeSeat);
   const kind = formatLabel(state.setup.format);
+  if (!turnsCounted(state)) return `${kind} game, ${state.players.length} ${state.players.length === 1 ? "player" : "players"}.`;
   return `${kind} game on turn ${state.turn}.${active && !state.finished ? ` ${active.name}'s turn.` : ""}`;
 }
 

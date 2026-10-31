@@ -2,12 +2,13 @@
 // with everyone else along the top, or the whole table. Tap anyone to see or change their
 // totals; the host's phone keeps the game and only it can end it.
 
-import { panelFills, replay, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
+import { panelFills, replay, turnsCounted, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { Pips, Sheet } from "../components/ui";
 import { wsUrl } from "./share";
+import { useLandscape } from "./layouts";
 import { DispatchContext, KnockOut, LethalSheet, Panel, PlayerSheet, pendingDelta, uprightLayout, useLethalPrompt, useTableArt } from "./TablePlay";
 import "./table.css";
 
@@ -23,6 +24,11 @@ const WATCH = -1;
 
 export function GuestTable() {
   const { gameId = "" } = useParams();
+  // A new game (the table played again) starts fresh: its own key, seat and connection.
+  return <GuestGame key={gameId} gameId={gameId} />;
+}
+
+function GuestGame({ gameId }: { gameId: string }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [hostOnline, setHostOnline] = useState<boolean | null>(null);
   const [connected, setConnected] = useState(false);
@@ -37,6 +43,8 @@ export function GuestTable() {
   const [knockSeat, setKnockSeat] = useState<number | null>(null);
   const [attack, setAttack] = useState<{ seat: number; partner: boolean } | null>(null);
   const socket = useRef<WebSocket | null>(null);
+  const navigate = useNavigate();
+  const landscape = useLandscape();
   // The share key comes in the link's #fragment; keep it so a reload can reconnect. The game's
   // own creator (following from another device) needs none.
   const [key] = useState(() => {
@@ -62,7 +70,14 @@ export function GuestTable() {
       ws.onmessage = (m) => {
         const msg = JSON.parse(m.data);
         if (msg.type === "host") setHostOnline(msg.connected);
-        else if (msg.type === "state") setSnapshot({ setup: msg.setup, log: msg.log });
+        else if (msg.type === "state" && msg.next?.gameId && msg.next?.key) {
+          // The table is playing again: follow it to the next game, in the same seat.
+          const next = msg.next as { gameId: string; key: string };
+          const mine = localStorage.getItem(`yama.guest.${gameId}`);
+          if (mine !== null) localStorage.setItem(`yama.guest.${next.gameId}`, mine);
+          localStorage.setItem(`yama.guestkey.${next.gameId}`, next.key);
+          navigate(`/table/join/${next.gameId}#k=${next.key}`, { replace: true });
+        } else if (msg.type === "state") setSnapshot({ setup: msg.setup, log: msg.log });
       };
       ws.onclose = () => {
         setConnected(false);
@@ -152,7 +167,7 @@ export function GuestTable() {
   // A commander attack always shows the whole table: that's where the damage goes.
   const shown: View = !me || attack ? "table" : view;
   const credited = (shown === "table" ? state.players : others).map((p) => artFor(p.seat)).filter((a) => !!a).map((a) => a!.artist);
-  const grid = uprightLayout(state.players.length);
+  const grid = uprightLayout(state.players.length, landscape);
   const panel = (s: number, area: string, vertical = false) => {
     const p = state.players.find((x) => x.seat === s)!;
     return (
@@ -161,7 +176,7 @@ export function GuestTable() {
         p={p}
         rot={0}
         area={area}
-        active={state.activeSeat === s}
+        active={turnsCounted(state) && state.activeSeat === s}
         state={state}
         pending={pendingDelta(snapshot!.log, s)}
         fill={fillOf(s)}
@@ -197,13 +212,13 @@ export function GuestTable() {
             <ul className="guest-others" aria-label="Everyone else. Tap a player to see or change their totals">
               {others.map((p) => {
                 const a = artFor(p.seat);
-                const note = p.eliminated ? `Out on turn ${p.eliminated.turn}` : state.activeSeat === p.seat ? "Their turn" : p.poison > 0 ? `${p.poison} poison` : "";
+                const note = p.eliminated ? "Out" : turnsCounted(state) && state.activeSeat === p.seat ? "Their turn" : p.poison > 0 ? `${p.poison} poison` : "";
                 return (
                   <li key={p.seat}>
                     <button className="guest-tile-btn" onClick={() => setSheetSeat(p.seat)} aria-label={`${p.name}, ${p.eliminated ? "out" : `${p.life} life`}. Open`}>
                       <ArtPanel
                         as="span"
-                        className={`guest-tile${p.eliminated ? " out" : ""}${state.activeSeat === p.seat ? " active" : ""}`}
+                        className={`guest-tile${p.eliminated ? " out" : ""}${turnsCounted(state) && state.activeSeat === p.seat ? " active" : ""}`}
                         art={a?.art}
                         artist={a?.artist}
                         wash="bottom"

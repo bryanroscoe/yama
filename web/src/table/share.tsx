@@ -80,6 +80,30 @@ function open(gameId: string, attempt = 0) {
   };
 }
 
+/**
+ * Tell the phones following this game that the table is playing again, with the next game's
+ * link: they follow it without scanning again. Sent just before this game finishes.
+ */
+export function announceNext(nextId: string) {
+  const g = getGame();
+  if (!socket || socket.readyState !== WebSocket.OPEN || !g || g.setup.id !== status.gameId) return;
+  socket.send(JSON.stringify({ type: "state", setup: g.setup, log: g.log, next: { gameId: nextId, key: shareKey(nextId) } }));
+}
+
+/** The link a phone opens to join `gameId`, share key in the #fragment. */
+export function joinUrl(gameId: string): string {
+  return `${publicOrigin()}/table/join/${gameId}#k=${shareKey(gameId)}`;
+}
+
+function useQrSvg(url: string, on: boolean): string {
+  const [svg, setSvg] = useState("");
+  useEffect(() => {
+    if (!on) return;
+    QRCode.toString(url, { type: "svg", margin: 1, color: { dark: "#0b0c0e", light: "#f2efe8" } }).then(setSvg);
+  }, [on, url]);
+  return svg;
+}
+
 export function startHosting(gameId: string) {
   if (status.gameId === gameId) return;
   stopHosting();
@@ -117,19 +141,19 @@ export function useHosting() {
  * "Everyone's phone", in the table menu: the code to scan, and the link for anyone who'd rather
  * tap. Sharing starts when someone asks for the code, not whenever the menu opens.
  */
-export function ShareCard({ gameId }: { gameId: string }) {
+export function ShareCard({ gameId, onBigger }: { gameId: string; onBigger?: () => void }) {
   const hosting = useHosting();
   const sharing = hosting.gameId === gameId;
-  const [svg, setSvg] = useState("");
-  const url = `${publicOrigin()}/table/join/${gameId}#k=${shareKey(gameId)}`;
-  useEffect(() => {
-    if (!sharing) return;
-    QRCode.toString(url, { type: "svg", margin: 1, color: { dark: "#0b0c0e", light: "#f2efe8" } }).then(setSvg);
-  }, [sharing, url]);
+  const url = joinUrl(gameId);
+  const svg = useQrSvg(url, sharing);
   return (
     <section className="tm-share" aria-labelledby="tm-share-title">
       {sharing && svg ? (
-        <div className="tm-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" />
+        onBigger ? (
+          <button className="tm-qr tm-qr-btn" onClick={onBigger} aria-label="Show the join code full size" dangerouslySetInnerHTML={{ __html: svg }} />
+        ) : (
+          <div className="tm-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" />
+        )
       ) : (
         <button className="tm-qr tm-qr-off" onClick={() => startHosting(gameId)} aria-label="Show the join code">
           <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -163,5 +187,46 @@ export function ShareCard({ gameId }: { gameId: string }) {
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * The join code as big as the sheet allows, for the table to scan at the start of a game (or a
+ * late arrival). Sharing starts when this opens.
+ */
+export function JoinSheet({ gameId, onDone }: { gameId: string; onDone: () => void }) {
+  const hosting = useHosting();
+  const sharing = hosting.gameId === gameId;
+  const url = joinUrl(gameId);
+  const svg = useQrSvg(url, sharing);
+  useEffect(() => {
+    if (!sharing) startHosting(gameId);
+    // Only on opening: "Stop sharing" here stays stopped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameId]);
+  return (
+    <div className="stack join-sheet">
+      <div className="sheet-head">
+        <h2>Everyone on their own phone</h2>
+        <button className="quiet" onClick={onDone}>Done</button>
+      </div>
+      <p className="dim" style={{ margin: 0 }}>
+        Scan this with a phone camera, pick your seat and keep your own totals. Everyone signs in to Yama with Google the first time.
+      </p>
+      {svg ? <div className="join-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" /> : <div className="join-qr join-qr-wait" aria-hidden="true" />}
+      <p role="status" className="tm-status">
+        <span className={`status-dot ${hosting.connected ? "good" : "warn"}`} aria-hidden="true" />
+        {!sharing ? "Not sharing" : hosting.connected ? "Live: phones that join follow along" : "Connecting to Yama…"}
+      </p>
+      <div className="row">
+        {"share" in navigator && <button onClick={() => void navigator.share({ title: "Join our game on Yama", url })}>Send the link</button>}
+        {sharing ? (
+          <button className="quiet" onClick={stopHosting}>Stop sharing</button>
+        ) : (
+          <button onClick={() => startHosting(gameId)}>Share again</button>
+        )}
+      </div>
+      <p className="small dim" style={{ margin: 0 }}>This phone keeps the game, so it carries on if the signal drops. The code stays in the table menu.</p>
+    </div>
   );
 }

@@ -15,7 +15,8 @@ export type CommanderKey = `${number}` | `${number}b` | `${number}~${number}` | 
 /** The seat a commander key belongs to. */
 export const keySeat = (k: string): Seat => Number.parseInt(k, 10);
 
-export type CounterKind = "energy" | "experience" | "rad" | "tickets";
+/** Player counters beyond life and poison. "blessing" is the city's blessing: 0 or 1, kept for good. */
+export type CounterKind = "energy" | "experience" | "rad" | "tickets" | "storm" | "treasure" | "blessing";
 
 export interface PlayerSetup {
   seat: Seat;
@@ -198,10 +199,11 @@ export function apply(state: TableState, e: TableEvent): TableState {
         return { ...p, life: p.life - (after - before), commanderDamage: { ...p.commanderDamage, [e.source]: after } };
       });
     case "counter":
-      return updatePlayer(state, e.seat, (p) => ({
-        ...p,
-        counters: { ...p.counters, [e.counter]: Math.max(0, (p.counters[e.counter] ?? 0) + e.delta) },
-      }));
+      return updatePlayer(state, e.seat, (p) => {
+        const next = Math.max(0, (p.counters[e.counter] ?? 0) + e.delta);
+        // Once you have the city's blessing you keep it (CR 702.131c); it's a yes or no.
+        return { ...p, counters: { ...p.counters, [e.counter]: e.counter === "blessing" ? Math.min(1, next) : next } };
+      });
     case "commander_cast":
       return updatePlayer(state, e.seat, (p) =>
         e.partner
@@ -423,6 +425,14 @@ export function turnPosition(seats: Seat[], firstSeat: Seat | null, seat: Seat):
   return ((s - f + seats.length) % seats.length) + 1;
 }
 
+/**
+ * Whether this table counted turns: someone passed the turn at least once. Tables that don't
+ * (most don't bother) send no turn count, so the stats don't learn that every game lasted one turn.
+ */
+export function turnsCounted(state: TableState): boolean {
+  return state.passes > 0;
+}
+
 /** The finish body POST /api/games/:id/finish expects, from a log that ends in "finish". */
 export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
   const last = log[log.length - 1];
@@ -432,7 +442,7 @@ export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
   const ratings = new Map((f.fun ?? []).filter((r) => r.rating >= 1 && r.rating <= 5).map((r) => [r.seat, Math.round(r.rating)]));
   return {
     winner_seat: f.winnerSeat,
-    turns: state.turn,
+    turns: turnsCounted(state) ? state.turn : null,
     ended_at: f.endedAt,
     first_seat: state.firstSeat,
     // A draw has no way it was won.
@@ -440,7 +450,7 @@ export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
     seats: state.players.map((p) => ({
       seat: p.seat,
       final_life: p.life,
-      eliminated_turn: p.eliminated?.turn ?? null,
+      eliminated_turn: turnsCounted(state) ? (p.eliminated?.turn ?? null) : null,
       eliminated_by_seat: p.eliminated?.bySeat ?? null,
       fun: ratings.get(p.seat) ?? null,
     })),
