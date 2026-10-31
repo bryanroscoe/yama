@@ -957,6 +957,22 @@ publication) re-derives the ranks on the next request; unchanged inputs are reus
 With no enabled source the pages fall back to meta rank v1, which stays documented on the
 methodology page.
 
+### Mythic Tools bridge (2026-10-31, proposal)
+
+Bryan (2026-10-31): "productionize it on the site so people who use this site can import data from there", then "I would love to be able to export my Yama data back into Mythic Tools … some sort of way of matching up data and be able to upsert", because friends still use Mythic. "This might be something that we get rid of later so it should be written in a way that we can easily rip this out." Mythic Tools has no public API or export for games; its web app (mythic.tools, Nuxt) talks to a private REST API with a Firebase sign-in. Endpoints, request signing and what was learnt exporting Bryan's own account are in [docs/mythic-bridge.md](docs/mythic-bridge.md). The API can change without notice, so everything here is best-effort and says so in the UI.
+
+- **One removable module.** Server code in `server/src/bridges/mythic/`, web code in `web/src/bridges/mythic/`, one migration adding only bridge tables, one route registration, one nav entry, and `YAMA_MYTHIC_BRIDGE=1` to switch it on (off by default). No Mythic columns in core tables. Removing it is deleting those folders and lines and dropping the tables; core games, decks and collection rows it created stay as ordinary Yama data. The existing Mythic collection file import (`collection/mythic.rs`, section above) predates the bridge and stays where it is; the bridge calls it rather than copying it.
+- **Mythic credentials never reach Yama's server.** Mythic answers only its own site, so the bridge runs in the user's browser on mythic.tools (a bookmarklet, with a console snippet as the fallback) using the page's own session. Yama issues a short-lived, single-purpose bridge token (15 minutes, bridge endpoints only, owner-bound, like an upload grant), and only the bridge endpoints answer CORS for `https://mythic.tools`. A JSON file the user downloads and uploads on Yama is the no-CORS fallback for the same import.
+- **Links make it an upsert.** `mythic_links` (owner, kind: game, deck, list or player, Yama id, Mythic id, Mythic's last-changed value, the Yama version or op it last matched, synced at; unique per owner on (kind, Mythic id) and on (kind, Yama id)). A second run updates what it linked before instead of adding it again, in either direction. Yama ids for imported records are derived from the Mythic id (UUID v5 of `mythic:<kind>:<id>` within the owner), so a retried import applies once, keeping the offline-first idempotency rule. Account deletion removes the owner's links.
+- **Import (Mythic to Yama), first.**
+  - Games become logged games (finish with winner, seats, deck labels, start and end times, Mythic's notes and tags as notes). The user's own Mythic seat is "This is me". Other Mythic players are matched once per owner to playgroup members (a `player` link the user confirms), else they keep the typed name. A game both sides already have, by the same people within minutes, is offered as a match, never merged silently.
+  - Decks become Yama decks in the "Mythic Tools" folder with their main list, printings and commander. A linked deck whose Mythic list changed gets a new Yama version (shown first, like "Update from a list"); an unlinked one with the same name and commander is offered as a match.
+  - The collection goes through the existing Mythic import, from Mythic's own export file fetched by the bridge instead of downloaded by hand.
+  - Every import is a dry run first, then Apply, like the existing Mythic and deck imports.
+- **Export (Yama to Mythic), second.** Yama computes a push plan (what's new or changed since each link's last sync) and the bridge carries it out with Mythic's own create and update calls, then reports the new Mythic ids back so they're linked. Games first, then decks; collection only if friends need it. Pushing a game names other Mythic users, who may be asked to confirm their seat, so the plan lists who would be notified and pushes nothing without the user's Apply. The first push is tried on one test record with Bryan before any batch.
+- **Conflicts are shown, not resolved silently.** When both sides changed since the last sync, the preview shows both and the user picks; there's no background two-way merge.
+- **Commander signal.** Bryan (2026-10-31) chose to use Mythic's per-commander platform aggregates (`/deck/{id}/platform-meta`) as one low-weight input to a Metacritic-style commander and precon score: derived scores only, not a copy of Mythic's data. A clean-room collection outside the repo produced scores for 174 commanders and 182 precons; it stays outside Yama until it's checked against Playgroup.gg real-game rates and Bryan decides whether it may influence public pages. Users' imports may later add the platform figures for their own decks' commanders.
+
 ## 11. Risks
 
 - **Legal and IP:**
@@ -985,6 +1001,8 @@ Still open:
 
 1. Which Mythic Tools features do your friends actually use?
 2. Should Yama eventually replace the `commander-decks` scripts, or stay separate and only export?
+3. Mythic bridge: may Yama keep your own Mythic token on saget for a scheduled sync of your account only (everyone else stays browser-side)?
+4. Mythic bridge: may the Mythic commander signal ever feed the public precon ranks, or only private and signed-in views?
 
 ## Sources
 
