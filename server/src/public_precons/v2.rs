@@ -80,7 +80,7 @@ async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
                     WHERE owner_id IN (SELECT owner_id FROM precon_evidence_sources) ORDER BY k))
              || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT source_name || ':' || precon_id || ':' || entity || ':' || rule || ':' || created_at AS k FROM precon_evidence_links ORDER BY k))
              || '#' || (SELECT IFNULL(max(imported_at), '') || ':' || count(*) FROM precons)
-             || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT experiment_id || ':' || engine || ':' || build || ':' || chosen_at AS k FROM precon_evidence_simulation ORDER BY k))",
+             || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT experiment_id || ':' || engine || ':' || build || ':' || card_data || ':' || chosen_at AS k FROM precon_evidence_simulation ORDER BY k))",
     )
     .fetch_one(pool)
     .await?;

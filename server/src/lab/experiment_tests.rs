@@ -2288,7 +2288,9 @@ async fn stock_tournaments_pool_into_the_rating_simulation_one_engine_and_build_
 
     // Another engine or engine version contributes nothing.
     assert!(choose_simulation(&pool, &[a.clone()], "forge", None).await.is_err(), "no forge games to name a build");
-    choose_simulation(&pool, &[a.clone()], "phase", Some("phase-rs v9")).await.unwrap();
+    assert!(choose_simulation(&pool, &[a.clone()], "phase", Some("phase-rs v9")).await.is_err(), "no games from that build");
+    // Games from other card data drop out of a choice.
+    sqlx::query("UPDATE precon_evidence_simulation SET card_data = 'other-card-data'").execute(&pool).await.unwrap();
     assert!(chosen_simulation(&pool).await.unwrap().is_none());
     assert!(choose_simulation(&pool, &[a.clone()], "mtga", None).await.is_err());
 

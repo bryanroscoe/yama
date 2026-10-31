@@ -824,11 +824,11 @@ pub const CHOSEN_SIMULATION_ID: &str = "chosen-simulation";
 /// The chosen simulation from the games finished by `cutoff`, or all of them.
 pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateTime<Utc>>) -> AppResult<Option<SimSource>> {
     let cutoff = cutoff.map(|c| c.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
-    let chosen: Vec<(String, String, String, String)> =
-        sqlx::query_as("SELECT experiment_id, engine, build, chosen_at FROM precon_evidence_simulation ORDER BY experiment_id")
+    let chosen: Vec<(String, String, String, String, String)> =
+        sqlx::query_as("SELECT experiment_id, engine, build, card_data, chosen_at FROM precon_evidence_simulation ORDER BY experiment_id")
             .fetch_all(pool)
             .await?;
-    let Some((_, engine, build, chosen_at)) = chosen.first().cloned() else { return Ok(None) };
+    let Some((_, engine, build, card_data, chosen_at)) = chosen.first().cloned() else { return Ok(None) };
     let (all, allowed) = catalog_by_sha(pool).await?;
     let mut labels: BTreeMap<String, String> = BTreeMap::new();
     let mut rows: Vec<(String, Option<String>)> = Vec::new();
@@ -841,6 +841,7 @@ pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateT
         let games: Vec<(String, String)> = sqlx::query_as(
             "SELECT spec, result FROM lab_experiment_games
              WHERE experiment_id = ? AND result IS NOT NULL AND engine = ? AND substr(IFNULL(json_extract(result, '$.engine'), ''), 1, length(?)) = ?
+               AND substr(IFNULL(json_extract(result, '$.card_data'), ''), 1, length(?)) = ?
                AND (? IS NULL OR finished_at <= ?)
              ORDER BY ord",
         )
@@ -848,6 +849,8 @@ pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateT
         .bind(&engine)
         .bind(&build)
         .bind(&build)
+        .bind(&card_data)
+        .bind(&card_data)
         .bind(&cutoff)
         .bind(&cutoff)
         .fetch_all(pool)
@@ -905,7 +908,7 @@ pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateT
 
 /// Choose `engine`'s games from `experiments` as the simulation rating v2 reads, replacing any
 /// earlier choice. `build` defaults to the engine version of the newest such game, without the
-/// harness suffix after `+`.
+/// harness suffix after `+`; the card data pooled is that game's, likewise.
 pub async fn choose_simulation(pool: &SqlitePool, experiments: &[String], engine: &str, build: Option<&str>) -> AppResult<String> {
     if !matches!(engine, "phase" | "forge") {
         return Err(AppError::bad("engine must be phase or forge"));
@@ -916,28 +919,32 @@ pub async fn choose_simulation(pool: &SqlitePool, experiments: &[String], engine
     for id in experiments {
         tournament_spec(pool, id).await?;
     }
-    let build = match build {
-        Some(b) => b.trim().to_string(),
-        None => {
-            let mut newest: Option<(String, String)> = None;
-            for id in experiments {
-                let row: Option<(String, String)> = sqlx::query_as(
-                    "SELECT finished_at, json_extract(result, '$.engine') FROM lab_experiment_games
-                     WHERE experiment_id = ? AND engine = ? AND result IS NOT NULL AND json_extract(result, '$.engine') IS NOT NULL
-                     ORDER BY finished_at DESC LIMIT 1",
-                )
-                .bind(id)
-                .bind(engine)
-                .fetch_optional(pool)
-                .await?;
-                if row.as_ref().is_some_and(|r| newest.as_ref().is_none_or(|n| r.0 > n.0)) {
-                    newest = row;
-                }
-            }
-            let (_, label) = newest.ok_or_else(|| AppError::bad("no games from that engine yet; pass --build"))?;
-            label.split('+').next().unwrap_or(&label).trim().to_string()
+    // The newest game of that engine (and build, when given) names the build and card data pooled.
+    let given = build.map(|b| b.trim().to_string());
+    let mut newest: Option<(String, String, String)> = None;
+    for id in experiments {
+        let row: Option<(String, String, String)> = sqlx::query_as(
+            "SELECT finished_at, json_extract(result, '$.engine'), IFNULL(json_extract(result, '$.card_data'), '') FROM lab_experiment_games
+             WHERE experiment_id = ? AND engine = ? AND result IS NOT NULL AND json_extract(result, '$.engine') IS NOT NULL
+               AND (? IS NULL OR substr(json_extract(result, '$.engine'), 1, length(?)) = ?)
+             ORDER BY finished_at DESC LIMIT 1",
+        )
+        .bind(id)
+        .bind(engine)
+        .bind(&given)
+        .bind(&given)
+        .bind(&given)
+        .fetch_optional(pool)
+        .await?;
+        if row.as_ref().is_some_and(|r| newest.as_ref().is_none_or(|n| r.0 > n.0)) {
+            newest = row;
         }
-    };
+    }
+    let (_, label, card_data) = newest.ok_or_else(|| AppError::bad("no games from that engine and build yet"))?;
+    let stem = |s: &str| s.split('+').next().unwrap_or(s).trim().to_string();
+    let build = given.unwrap_or_else(|| stem(&label));
+    // Card data likewise without a harness suffix: Forge's names its version, Phase's is a hash.
+    let card_data = stem(&card_data);
     if build.is_empty() || build.len() > 120 {
         return Err(AppError::bad("build must be 1–120 bytes"));
     }
@@ -945,10 +952,11 @@ pub async fn choose_simulation(pool: &SqlitePool, experiments: &[String], engine
     sqlx::query("DELETE FROM precon_evidence_simulation").execute(&mut *tx).await?;
     let at = now();
     for id in experiments {
-        sqlx::query("INSERT INTO precon_evidence_simulation(experiment_id, engine, build, chosen_at) VALUES (?,?,?,?)")
+        sqlx::query("INSERT INTO precon_evidence_simulation(experiment_id, engine, build, card_data, chosen_at) VALUES (?,?,?,?,?)")
             .bind(id)
             .bind(engine)
             .bind(&build)
+            .bind(&card_data)
             .bind(&at)
             .execute(&mut *tx)
             .await?;
