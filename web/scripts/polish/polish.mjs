@@ -54,7 +54,8 @@ function usage(code = 0) {
   polish shoot --base URL [paths...] [options]
 
 Sign-in for shoot: the saved session for the host, else with --as EMAIL a new one (dev login on
-localhost, else --ssh-session over SSH to YAMA_POLISH_SSH, default root@<saget-lan-address>).
+localhost, else --ssh-session over SSH to YAMA_POLISH_SSH, default the deploy target from
+YAMA_DEPLOY_USER/YAMA_DEPLOY_HOST or deploy/.env).
 
 Options for shoot:
   --viewports laptop,tablet,mobile   sizes to shoot (default all three)
@@ -129,7 +130,24 @@ async function whoAmI(request) {
   return me ? { name: me.name ?? me.user?.name ?? null, email: me.email ?? me.user?.email ?? null } : null;
 }
 
-const SSH_HOST = process.env.YAMA_POLISH_SSH || "root@<saget-lan-address>";
+/** user@host for --ssh-session: YAMA_POLISH_SSH, else the deploy target (environment, then the
+ *  gitignored deploy/.env, as deploy/target.sh reads it). Saget's address never lives in this file. */
+function sshHost() {
+  if (process.env.YAMA_POLISH_SSH) return process.env.YAMA_POLISH_SSH;
+  const file = {};
+  const envPath = join(REPO, "deploy", ".env");
+  if (existsSync(envPath)) {
+    for (const line of readFileSync(envPath, "utf8").split("\n")) {
+      const m = /^(YAMA_DEPLOY_HOST|YAMA_DEPLOY_USER)=(.*)$/.exec(line.trim());
+      if (m && !(m[1] in file)) file[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2");
+    }
+  }
+  const host = process.env.YAMA_DEPLOY_HOST || file.YAMA_DEPLOY_HOST;
+  const user = process.env.YAMA_DEPLOY_USER || file.YAMA_DEPLOY_USER || "root";
+  if (!host) throw new Error("Set YAMA_POLISH_SSH, or YAMA_DEPLOY_HOST in deploy/.env (see deploy/.env.example)");
+  if (!/^[A-Za-z0-9.:_-]+$/.test(host) || !/^[A-Za-z0-9._-]+$/.test(user)) throw new Error("YAMA_DEPLOY_HOST/USER must be plain names");
+  return `${user}@${host}`;
+}
 const isLocal = (u) => ["localhost", "127.0.0.1", "::1", "[::1]"].includes(u.hostname);
 
 function sessionCookie(value) {
@@ -165,7 +183,7 @@ async function sshSession(email, hours) {
   if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$/.test(email)) throw new Error(`${email} isn't an email address`);
   const out = execFileSync(
     "ssh",
-    ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", SSH_HOST, `docker exec yama yama-server user session ${email} --hours ${Number(hours)}`],
+    ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", sshHost(), `docker exec yama yama-server user session ${email} --hours ${Number(hours)}`],
     { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
   );
   const token = out.trim().split("\n").pop();

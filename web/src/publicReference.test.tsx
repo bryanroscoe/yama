@@ -59,7 +59,7 @@ describe("public reference and content rights", () => {
       location: { origin: "https://yama.saget.org" },
       URL,
     });
-    for (const path of ["/precons", "/precons?c=UG", "/precons/a-deck", "/precons/a-deck/decklist.txt", "/precons/methodology", "/docs/mcp", "/docs/mcp/", "/docs/mcp/guide.css", "/sitemap.xml", "/api/public/precons"]) {
+    for (const path of ["/precons", "/precons?c=UG", "/precons/a-deck", "/precons/a-deck/decklist.txt", "/precons/methodology", "/docs/mcp", "/docs/mcp/", "/docs/mcp/guide.css", "/sitemap.xml", "/api/public/precons", "/r/0123456789abcdef01234567", "/r/0123456789abcdef01234567/a-deck?build=b3"]) {
       let intercepted = false;
       fetchHandler({ request: { method: "GET", mode: "navigate", url: `https://yama.saget.org${path}` }, respondWith: () => { intercepted = true; } });
       expect(intercepted, path).toBe(false);

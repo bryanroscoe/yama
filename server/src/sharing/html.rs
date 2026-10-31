@@ -7,7 +7,7 @@ use crate::public_precons::html::stylesheet;
 use axum::extract::Query;
 use std::fmt::Write;
 
-fn page(st: &AppState, path: &str, title: &str, description: &str, image: Option<&str>, body: &str) -> String {
+pub(super) fn page(st: &AppState, path: &str, title: &str, description: &str, image: Option<&str>, body: &str) -> String {
     let base = st.cfg.public_url.as_deref().map(|b| b.trim_end_matches('/'));
     let url = base.map(|b| format!("<meta property=\"og:url\" content=\"{}{}\">", e(b), e(path))).unwrap_or_default();
     let og_image = image.map(|i| format!("<meta property=\"og:image\" content=\"{}\">", e(i))).unwrap_or_default();
@@ -19,13 +19,13 @@ fn page(st: &AppState, path: &str, title: &str, description: &str, image: Option
     )
 }
 
-fn response(headers: &HeaderMap, body: String) -> Response {
+pub(super) fn response(headers: &HeaderMap, body: String) -> Response {
     let mut res = fresh(headers, body, "text/html; charset=utf-8");
     secure(&mut res);
     res
 }
 
-fn not_found(st: &AppState, what: &str) -> Response {
+pub(super) fn not_found(st: &AppState, what: &str) -> Response {
     let body = format!(
         "<section class=\"empty-state\"><h1>{what} not found</h1><p>It may be private now, or the link was reset. Ask whoever sent it for a new one.</p><p><a href=\"/\">Go to Yama</a></p></section>"
     );
@@ -35,7 +35,7 @@ fn not_found(st: &AppState, what: &str) -> Response {
     res
 }
 
-fn credit(art: &Option<(String, Option<String>, String)>) -> String {
+pub(super) fn credit(art: &Option<(String, Option<String>, String)>) -> String {
     art.as_ref()
         .map(|(_, artist, card)| format!("{}. Art by {}, © Wizards of the Coast.", e(card), e(artist.as_deref().unwrap_or("unknown"))))
         .unwrap_or_default()
@@ -71,7 +71,7 @@ fn group(c: &SharedCard) -> &'static str {
 const GROUP_ORDER: [&str; 11] =
     ["Commander", "Creatures", "Planeswalkers", "Instants", "Sorceries", "Artifacts", "Enchantments", "Battles", "Lands", "Other", "Sideboard"];
 
-fn scryfall(name: &str) -> String {
+pub(super) fn scryfall(name: &str) -> String {
     let mut u = url::Url::parse("https://scryfall.com/search").expect("constant URL");
     u.query_pairs_mut().append_pair("q", &format!("!\"{}\"", name.replace('"', "")));
     u.into()
@@ -158,26 +158,51 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
     // The list: stacks of card images or a list with thumbnails. The choice is two radio
     // buttons and CSS, so it works without script.
     write!(body, "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{size} cards</p><h2>Decklist</h2></div></div>").unwrap();
-    body.push_str("<input class=\"layout-pick\" type=\"radio\" name=\"layout\" id=\"layout-stacks\" checked><input class=\"layout-pick\" type=\"radio\" name=\"layout\" id=\"layout-list\"><div class=\"layout-toggle\" role=\"group\" aria-label=\"View\"><label for=\"layout-stacks\">Stacks</label><label for=\"layout-list\">List</label></div>");
+    body.push_str(&card_views(&d.cards));
+    write!(
+        body,
+        "<details><summary>Select the list to copy</summary><textarea readonly rows=\"14\" aria-label=\"Decklist, Moxfield format\">{}</textarea></details></section>",
+        e(&export(&d.cards, "moxfield"))
+    )
+    .unwrap();
+
+    // Everything else about the deck, under the cards, as on the deck page.
+    body.push_str("<div class=\"share-more\">");
+    body.push_str(&crate::public_page::bracket_panel(d.bracket, x.check.as_ref(), x.game_changers.as_deref()));
+    if let Some((run, key)) = &x.sim {
+        body.push_str(&crate::public_page::sim_panel(run, key, &x.sim_states, x.sim_matches));
+    }
+    body.push_str(&crate::public_page::stats_panel(&x.stats));
+    body.push_str(&crate::public_page::singles_panel(&x.singles));
+    body.push_str("</div>");
+    let description = format!("{}{}, a Commander deck shared on Yama.", d.name, if d.commanders.is_empty() { String::new() } else { format!(" ({})", d.commanders.join(" and ")) });
+    Ok(response(&headers, page(&st, &format!("/d/{token}"), &d.name, &description, d.art.as_ref().map(|a| a.0.as_str()), &body)))
+}
+
+/// A list as the deck page shows it: stacks of card images or a list with thumbnails, picked with
+/// two radio buttons and CSS, so it works without script. One per page (the radios have ids).
+pub(super) fn card_views(cards: &[SharedCard]) -> String {
+    let mut s = String::new();
+    s.push_str("<input class=\"layout-pick\" type=\"radio\" name=\"layout\" id=\"layout-stacks\" checked><input class=\"layout-pick\" type=\"radio\" name=\"layout\" id=\"layout-list\"><div class=\"layout-toggle\" role=\"group\" aria-label=\"View\"><label for=\"layout-stacks\">Stacks</label><label for=\"layout-list\">List</label></div>");
     let groups: Vec<(&str, Vec<&SharedCard>)> = GROUP_ORDER
         .iter()
         .filter_map(|g| {
-            let mut cards: Vec<&SharedCard> = d.cards.iter().filter(|c| group(c) == *g).collect();
+            let mut cards: Vec<&SharedCard> = cards.iter().filter(|c| group(c) == *g).collect();
             cards.sort_by(|a, b| a.cmc.total_cmp(&b.cmc).then_with(|| a.name.cmp(&b.name)));
             (!cards.is_empty()).then_some((*g, cards))
         })
         .collect();
-    body.push_str("<div class=\"public-stacks\">");
+    s.push_str("<div class=\"public-stacks\">");
     for (g, cards) in &groups {
-        write!(body, "<section class=\"public-stack\" aria-label=\"{g}\"><h3>{g} <span class=\"dim\">{}</span></h3><div class=\"public-stack-cards\">", cards.iter().map(|c| c.qty).sum::<i64>()).unwrap();
+        write!(s, "<section class=\"public-stack\" aria-label=\"{g}\"><h3>{g} <span class=\"dim\">{}</span></h3><div class=\"public-stack-cards\">", cards.iter().map(|c| c.qty).sum::<i64>()).unwrap();
         for c in cards {
-            body.push_str(&stack_card(&c.name, c.image.as_deref(), &scryfall(&c.name), c.qty));
+            s.push_str(&stack_card(&c.name, c.image.as_deref(), &scryfall(&c.name), c.qty));
         }
-        body.push_str("</div></section>");
+        s.push_str("</div></section>");
     }
-    body.push_str("</div><div class=\"public-list\">");
+    s.push_str("</div><div class=\"public-list\">");
     for (g, cards) in &groups {
-        write!(body, "<h3>{g} <span class=\"dim\">{}</span></h3><ul class=\"public-card-list\">", cards.iter().map(|c| c.qty).sum::<i64>()).unwrap();
+        write!(s, "<h3>{g} <span class=\"dim\">{}</span></h3><ul class=\"public-card-list\">", cards.iter().map(|c| c.qty).sum::<i64>()).unwrap();
         for c in cards {
             let printing = c
                 .printing
@@ -197,29 +222,12 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
                 (None, false) => e(&printing),
                 (None, true) => "Card details on Scryfall".into(),
             };
-            body.push_str(&card_item(&c.name, c.image.as_deref(), &scryfall(&c.name), c.qty, &small));
+            s.push_str(&card_item(&c.name, c.image.as_deref(), &scryfall(&c.name), c.qty, &small));
         }
-        body.push_str("</ul>");
+        s.push_str("</ul>");
     }
-    body.push_str("</div><p class=\"dim\">Images and card details from Scryfall.</p>");
-    write!(
-        body,
-        "<details><summary>Select the list to copy</summary><textarea readonly rows=\"14\" aria-label=\"Decklist, Moxfield format\">{}</textarea></details></section>",
-        e(&export(&d.cards, "moxfield"))
-    )
-    .unwrap();
-
-    // Everything else about the deck, under the cards, as on the deck page.
-    body.push_str("<div class=\"share-more\">");
-    body.push_str(&crate::public_page::bracket_panel(d.bracket, x.check.as_ref(), x.game_changers.as_deref()));
-    if let Some((run, key)) = &x.sim {
-        body.push_str(&crate::public_page::sim_panel(run, key, &x.sim_states, x.sim_matches));
-    }
-    body.push_str(&crate::public_page::stats_panel(&x.stats));
-    body.push_str(&crate::public_page::singles_panel(&x.singles));
-    body.push_str("</div>");
-    let description = format!("{}{}, a Commander deck shared on Yama.", d.name, if d.commanders.is_empty() { String::new() } else { format!(" ({})", d.commanders.join(" and ")) });
-    Ok(response(&headers, page(&st, &format!("/d/{token}"), &d.name, &description, d.art.as_ref().map(|a| a.0.as_str()), &body)))
+    s.push_str("</div><p class=\"dim\">Images and card details from Scryfall.</p>");
+    s
 }
 
 pub(super) async fn profile(State(st): State<AppState>, address: ClientAddress, headers: HeaderMap, Path(handle): Path<String>) -> AppResult<Response> {
@@ -275,6 +283,22 @@ pub(super) async fn profile(State(st): State<AppState>, address: ClientAddress, 
         if !credits.is_empty() {
             write!(body, "<p class=\"art-credits dim\">{}</p>", credits.join(" ")).unwrap();
         }
+    }
+    let notes = crate::deck_research::profile_reports(&st.pool, &sharer.id).await?;
+    if !notes.is_empty() {
+        body.push_str("<section class=\"share-notes\" aria-labelledby=\"notes-head\"><h2 id=\"notes-head\">Deck notes</h2><ul class=\"share-note-list\">");
+        for (token, title, decks, saved) in &notes {
+            write!(
+                body,
+                "<li><a href=\"/r/{}\">{}</a> <span class=\"dim\">{decks} {}, saved {}</span></li>",
+                e(token),
+                e(title),
+                if *decks == 1 { "deck" } else { "decks" },
+                when(saved)
+            )
+            .unwrap();
+        }
+        body.push_str("</ul></section>");
     }
     let description = format!("@{h}'s Commander decks on Yama.");
     let image = decks.iter().find_map(|d| d.art.as_ref().map(|a| a.0.clone()));

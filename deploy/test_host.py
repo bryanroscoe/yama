@@ -200,10 +200,30 @@ class HostGate(unittest.TestCase):
         response.status = 200
         response.read.return_value = b'ok'
         with patch.object(host, 'inspect', return_value={'Image': 'candidate', 'State': {
-            'Running': True, 'Health': {'Status': 'healthy'}}}), patch.object(host, 'urlopen', return_value=response):
+            'Running': True, 'Health': {'Status': 'healthy'}}, 'NetworkSettings': {'Ports': {
+            '8787/tcp': [{'HostIp': '192.0.2.40', 'HostPort': '8099'}]}}}), \
+                patch.object(host, 'urlopen', return_value=response) as http:
             self.assertTrue(host.healthy(['candidate'] * 3))
+            self.assertEqual(http.call_args.args[0], 'http://192.0.2.40:8099/api/health')
             response.read.return_value = b'{"ok":true}'
             self.assertFalse(host.healthy(['candidate'] * 3))
+
+    def test_health_url_follows_the_published_port(self):
+        def container(*bindings):
+            return {'NetworkSettings': {'Ports': {'8787/tcp': list(bindings)}}}
+        self.assertEqual(host.health_url(container({'HostIp': '0.0.0.0', 'HostPort': '8099'})),
+                         'http://127.0.0.1:8099/api/health')
+        self.assertEqual(host.health_url(container({'HostIp': '::', 'HostPort': '8099'},
+                                                   {'HostIp': '192.0.2.40', 'HostPort': '8100'})),
+                         'http://192.0.2.40:8100/api/health')
+        self.assertIsNone(host.health_url(container()))
+        self.assertIsNone(host.health_url({'NetworkSettings': {'Ports': {'8787/tcp': None}}}))
+        self.assertIsNone(host.health_url({}))
+        # An unpublished yama container cannot pass health.
+        with patch.object(host, 'inspect', return_value={'Image': 'candidate', 'State': {
+            'Running': True, 'Health': {'Status': 'healthy'}}}), patch.object(host, 'urlopen') as http:
+            self.assertFalse(host.healthy(['candidate'] * 3))
+            http.assert_not_called()
 
     def test_successful_activation_keeps_override_backup_and_exact_images(self):
         source = self.root / 'source'
@@ -586,39 +606,115 @@ with host.release_lock():
         with (pool / 'admission.lock').open('r') as lock:
             host.fcntl.flock(lock, host.fcntl.LOCK_EX | host.fcntl.LOCK_NB)
 
-    def test_workflow_reports_real_outcome_and_propagates_ssh_failure(self):
+    def workflow_deploy_scripts(self):
+        """The release step of each deploy backend: the saget runner, then Cloudflare Access."""
         workflow = Path(__file__).resolve().parents[1] / '.github/workflows/deploy.yml'
-        script = workflow.read_text().split('        run: |\n', 1)[1]
-        script = '\n'.join(line[10:] for line in script.splitlines())
-        script = 'ssh() { /bin/sh "$FAKE_SSH" "$@"; }\n' + script
+        scripts = []
+        for step in workflow.read_text().split('      - name: Deploy the successful main revision\n')[1:]:
+            lines = []
+            for line in step.split('        run: |\n', 1)[1].splitlines():
+                if line and not line.startswith(' ' * 10):
+                    break
+                lines.append(line[10:])
+            scripts.append('\n'.join(lines))
+        self.assertEqual(len(scripts), 2)
+        return scripts
+
+    def run_workflow_script(self, script, **values):
         binary = self.root / 'bin'
-        binary.mkdir()
+        binary.mkdir(exist_ok=True)
         ssh = binary / 'ssh'
-        ssh.write_text('#!/bin/sh\ncat >/dev/null\nprintf "%s\\n" "$FAKE_HOST_RESULT"\nexit "$FAKE_SSH_EXIT"\n')
+        ssh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$FAKE_SSH_ARGS"\n'
+                       'printf "%s\\n" "${TUNNEL_SERVICE_TOKEN_ID:-}" "${TUNNEL_SERVICE_TOKEN_SECRET:-}" > "$FAKE_SSH_ARGS.token"\n'
+                       'for a in "$@"; do case "$a" in */id_ed25519) cp "$a" "$FAKE_SSH_ARGS.key" ;; esac; done\n'
+                       'cat >/dev/null\nprintf "%s\\n" "$FAKE_HOST_RESULT"\nexit "$FAKE_SSH_EXIT"\n')
         ssh.chmod(0o755)
         summary = self.root / 'summary'
-        for result, exit_code, expected in (
-            ('success', 0, 'Deployed and health-verified'),
-            ('already_healthy', 0, 'nothing restarted'),
-            ('superseded', 0, 'did not activate production'),
-            ('unknown', 0, None), ('', 0, None), ('success', 23, None),
-        ):
-            summary.write_text('')
-            env = dict(os.environ, FAKE_SSH=str(ssh),
-                       GH_TOKEN='private-fixture-token', RELEASE_SHA=SHA,
-                       GITHUB_STEP_SUMMARY=str(summary), FAKE_HOST_RESULT='YAMA_RELEASE_RESULT=' + result,
-                       FAKE_SSH_EXIT=str(exit_code))
-            # The fixture must never contact a real host, including inside a CI image.
-            env.pop('BASH_ENV', None)
-            env.pop('ENV', None)
-            with self.subTest(result=result, ssh_exit=exit_code):
-                run = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, timeout=5)
-                self.assertEqual(run.returncode == 0, expected is not None, run.stdout + run.stderr)
-                if expected:
-                    self.assertIn(expected, summary.read_text())
-                else:
-                    self.assertEqual(summary.read_text(), '')
-                self.assertNotIn('private-fixture-token', run.stdout + run.stderr)
+        summary.write_text('')
+        arguments = self.root / 'ssh-args'
+        arguments.unlink(missing_ok=True)
+        env = dict(os.environ, FAKE_SSH=str(ssh), FAKE_SSH_ARGS=str(arguments),
+                   GH_TOKEN='private-fixture-token', RELEASE_SHA=SHA, DEPLOY_BACKEND='',
+                   DEPLOY_SSH_HOST='192.0.2.40', DEPLOY_SSH_KEY='private-fixture-key',
+                   DEPLOY_KNOWN_HOSTS='192.0.2.40 ssh-ed25519 AAAAfixture',
+                   CF_ACCESS_CLIENT_ID='fixture-access-id', CF_ACCESS_CLIENT_SECRET='private-fixture-access-secret',
+                   GITHUB_STEP_SUMMARY=str(summary), FAKE_HOST_RESULT='', FAKE_SSH_EXIT='0')
+        env.update(values)
+        # The fixture must never contact a real host, including inside a CI image.
+        env.pop('BASH_ENV', None)
+        env.pop('ENV', None)
+        script = 'ssh() { /bin/sh "$FAKE_SSH" "$@"; }\n' + script
+        run = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, timeout=5)
+        args = arguments.read_text().splitlines() if arguments.exists() else None
+        return run, summary.read_text(), args
+
+    def test_workflow_reports_real_outcome_and_propagates_ssh_failure(self):
+        for backend, script in zip(('runner', 'cloudflare'), self.workflow_deploy_scripts()):
+            for result, exit_code, expected in (
+                ('success', 0, 'Deployed and health-verified'),
+                ('already_healthy', 0, 'nothing restarted'),
+                ('superseded', 0, 'did not activate production'),
+                ('unknown', 0, None), ('', 0, None), ('success', 23, None),
+            ):
+                with self.subTest(backend=backend, result=result, ssh_exit=exit_code):
+                    run, summary, args = self.run_workflow_script(
+                        script, FAKE_HOST_RESULT='YAMA_RELEASE_RESULT=' + result, FAKE_SSH_EXIT=str(exit_code))
+                    self.assertEqual(run.returncode == 0, expected is not None, run.stdout + run.stderr)
+                    if expected:
+                        self.assertIn(expected, summary)
+                    else:
+                        self.assertEqual(summary, '')
+                    self.assertNotIn('private-fixture', run.stdout + run.stderr)
+                    self.assertIn('root@192.0.2.40', args)
+                    self.assertIn('StrictHostKeyChecking=yes', args)
+                    self.assertEqual(args[-1], '/mnt/user/appdata/yama-release/host.py deploy ' + SHA)
+                    self.assertNotIn('private-fixture-token', '\n'.join(args))
+
+    def test_cloudflare_workflow_uses_access_proxy_and_removes_its_key(self):
+        _, script = self.workflow_deploy_scripts()
+        run, _, args = self.run_workflow_script(script, FAKE_HOST_RESULT='YAMA_RELEASE_RESULT=success')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        joined = '\n'.join(args)
+        self.assertIn('ProxyCommand=cloudflared access ssh --hostname %h', args)
+        self.assertIn('ServerAliveInterval=30', args)
+        self.assertNotIn('private-fixture-access-secret', joined)
+        # The proxy gets the Access service token from its environment, never its arguments.
+        self.assertEqual((self.root / 'ssh-args.token').read_text(),
+                         'fixture-access-id\nprivate-fixture-access-secret\n')
+        key = Path(args[args.index('-i') + 1])
+        self.assertEqual((self.root / 'ssh-args.key').read_text(), 'private-fixture-key\n')
+        self.assertFalse(key.exists(), 'the deploy key outlives the step')
+        self.assertFalse(key.parent.exists())
+        for missing in ('DEPLOY_SSH_HOST', 'DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS',
+                        'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'):
+            with self.subTest(missing=missing):
+                run, summary, args = self.run_workflow_script(script, **{missing: ''})
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIn(missing, run.stdout)
+                self.assertIsNone(args, 'ssh ran without its configuration')
+
+    def test_workflow_backends_share_guards_and_exclude_each_other(self):
+        text = (Path(__file__).resolve().parents[1] / '.github/workflows/deploy.yml').read_text()
+        guards = re.findall(r"^    if: >-\n((?:      .*\n)+)", text, re.M)
+        self.assertEqual(len(guards), 2)
+        runner, cloudflare = (' '.join(line.strip() for line in guard.splitlines()) for guard in guards)
+        self.assertTrue(runner.startswith("vars.DEPLOY_BACKEND != 'cloudflare' && "), runner)
+        self.assertTrue(cloudflare.startswith("vars.DEPLOY_BACKEND == 'cloudflare' && "), cloudflare)
+        shared = "github.ref == 'refs/heads/main' &&"
+        self.assertEqual(runner.split(' && ', 1)[1], cloudflare.split(' && ', 1)[1])
+        self.assertIn(shared, runner)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", runner)
+
+    def test_runner_workflow_refuses_unknown_backend_or_host(self):
+        script, _ = self.workflow_deploy_scripts()
+        for values in ({'DEPLOY_BACKEND': 'clodflare'}, {'DEPLOY_SSH_HOST': ''},
+                       {'DEPLOY_SSH_HOST': '-oProxyCommand=x'}):
+            with self.subTest(**values):
+                run, summary, args = self.run_workflow_script(
+                    script, FAKE_HOST_RESULT='YAMA_RELEASE_RESULT=success', **values)
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIsNone(args)
+                self.assertEqual(summary, '')
 
     def test_entrypoint_emits_outcome_only_after_completed_request(self):
         for outcome in ('success', 'already_healthy', 'superseded', 'ready'):
