@@ -52,6 +52,7 @@ describe("power signals from card text", () => {
   it("counts tutors for nonland cards only, never land searches or lands", () => {
     expect(isTutor(demonic)).toBe(true);
     expect(isTutor(finale)).toBe(true);
+    expect(isTutor(card("Traverse the Ulvenwald", "Sorcery", 1, "Search your library for a basic land card, reveal it, put it into your hand, then shuffle.\nDelirium — If there are four or more card types among cards in your graveyard, instead search your library for a creature or land card, reveal it, put it into your hand, then shuffle."))).toBe(true);
     expect(isTutor(natureLore)).toBe(false);
     expect(isTutor(woodElves)).toBe(false);
     expect(isTutor(rampant)).toBe(false);

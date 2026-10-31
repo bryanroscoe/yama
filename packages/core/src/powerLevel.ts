@@ -55,6 +55,7 @@ const CURVE_FLAT = 4;
 
 const CHEAP = 2;
 const BASIC_OR_LAND = /\b(?:land|plains|island|swamp|mountain|forest|wastes)\b/i;
+const NONLAND_TYPE = /\b(?:creature|artifact|enchantment|instant|sorcery|planeswalker|battle|equipment|aura)\b/i;
 
 const faceText = (c: StatCard) => c.oracleText ?? "";
 /** The card data joins a multi-face card's rules text with a "//" line. */
@@ -87,7 +88,8 @@ export function isCheapInteraction(c: StatCard): boolean {
 export function isTutor(c: StatCard): boolean {
   if (isLand(c)) return false;
   for (const [, what] of faceText(c).matchAll(/search(?:es)? (?:your|their) (?:library|graveyard and\/or library|library and\/or graveyard) for ([^.]*?)\bcards?\b/gi)) {
-    if (!BASIC_OR_LAND.test(what!)) return true;
+    // "A creature or land card" can still find a nonland card.
+    if (!BASIC_OR_LAND.test(what!) || NONLAND_TYPE.test(what!)) return true;
   }
   return false;
 }
