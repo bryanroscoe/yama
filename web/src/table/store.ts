@@ -158,6 +158,7 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
 export function resumeGame(setup: TableSetup, log: LoggedEvent[]) {
   const through = log[log.length - 1]?.seq ?? 0;
   setCurrent({ setup, log, redo: [], syncedThrough: through, frozenThrough: through });
+  posted.add(setup.id);
   void sync();
 }
 
@@ -200,6 +201,7 @@ async function pushGame(g: LocalGame): Promise<number> {
       })),
     },
   });
+  posted.add(s.id);
   const upTo = g.frozenThrough ?? Infinity;
   const fresh = g.log.filter((l) => l.seq > g.syncedThrough && l.seq <= upTo);
   if (fresh.length) await api(`/api/games/${s.id}/events`, { method: "POST", json: toServerEvents(fresh) });
@@ -210,6 +212,12 @@ async function pushGame(g: LocalGame): Promise<number> {
 }
 
 let inflight: Promise<void> | null = null;
+
+/** Games this device has seen the server accept (the shared-table relay needs the game there first). */
+const posted = new Set<string>();
+export function isPosted(gameId: string): boolean {
+  return posted.has(gameId);
+}
 
 export function sync(): Promise<void> {
   // An admin viewing as someone sends nothing: games recorded on this device wait until the view

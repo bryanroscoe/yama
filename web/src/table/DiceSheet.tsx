@@ -64,8 +64,8 @@ export function DiceSheet({ players, onDone }: { players: PlayerState[]; onDone:
       </span>
       <div className="row dice-row">
         <label className="dice-custom">
-          <span className="visually-hidden">Sides</span>
-          d<input inputMode="numeric" value={sides} onChange={(e) => setSides(e.target.value.replace(/\D/g, "").slice(0, 4))} />
+          <span aria-hidden="true">d</span>
+          <input aria-label="Sides on a custom die" inputMode="numeric" value={sides} onChange={(e) => setSides(e.target.value.replace(/\D/g, "").slice(0, 4))} />
         </label>
         <button disabled={!(custom >= 2)} onClick={() => dice(custom)}>Roll</button>
       </div>

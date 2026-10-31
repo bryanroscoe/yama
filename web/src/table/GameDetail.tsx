@@ -127,6 +127,8 @@ export function GameDetailPage() {
     if (last && last.turn === l.turn) last.lines.push(l);
     else turns.push({ turn: l.turn, lines: [l] });
   }
+  // A table that never passed the turn has one long "turn": no headings for it.
+  const counted = log.some((l) => l.event.type === "pass_turn");
   const how = winConditionLabel(g.win_condition);
   const title = going ? "Still going" : winner ? `${seatName(winner)} won` : g.status === "finished" ? "A draw" : "Game";
   const facts = [
@@ -220,7 +222,7 @@ export function GameDetailPage() {
           <ol className="gd-turns">
             {turns.map((t, i) => (
               <li key={`${t.turn}:${i}`}>
-                <h3>Turn {t.turn}</h3>
+                {counted && <h3>Turn {t.turn}</h3>}
                 <ul>
                   {t.lines.map((l) => (
                     <li key={l.seq}>

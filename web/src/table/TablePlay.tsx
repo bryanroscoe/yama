@@ -61,6 +61,11 @@ export function TablePlay() {
   const [dice, setDice] = useState(false);
   const navigate = useNavigate();
   const hosting = useHosting();
+  // "Show the code" is a one-off: a reload of this page mustn't open it (and start sharing) again.
+  useEffect(() => {
+    if ((location.state as { share?: boolean } | null)?.share) navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const layoutKey = useLayoutChoice(state?.players.length ?? 0);
   const landscape = useLandscape();
 
@@ -510,7 +515,7 @@ export function Panel(props: {
             Out? {loss.text}
           </button>
         )}
-        {out && <div className="out-label">Out on turn {p.eliminated!.turn}</div>}
+        {out && <div className="out-label">{turnsCounted(state) ? `Out on turn ${p.eliminated!.turn}` : "Out"}</div>}
         {onAttack && commanderGame && !out && !attack && (
           <button className="attack-btn" onClick={() => onAttack(false)} aria-label={`Deal commander damage with ${p.commanderName ?? `${p.name}'s commander`}`} title="Commander damage">
             <SwordsIcon />
@@ -1056,8 +1061,8 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
       <div className="tm-pass">
         {/* Counting turns is optional: the first pass starts it, and the hub shows the turn from then. */}
         <button className={counting ? "primary" : "outline"} onClick={() => { dispatch({ type: "pass_turn" }); onClose(); }}>
-          {counting && next && <SeatDot art={artFor(next.seat)} colorIdentity={next.colorIdentity} className="tm-pass-dot" />}
-          {counting ? (next ? `Pass to ${next.name}` : "Pass the turn") : "Count turns"}
+          {next && <SeatDot art={artFor(next.seat)} colorIdentity={next.colorIdentity} className="tm-pass-dot" />}
+          {next ? `Pass to ${next.name}` : "Pass the turn"}
         </button>
         <button className="tm-icon" onClick={undo} disabled={!canUndo()} aria-label="Undo">
           <UndoIcon />
@@ -1068,6 +1073,8 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
       </div>
 
       <ShareCard gameId={state.setup.id} onBigger={onJoin} />
+
+      {!counting && <p className="small dim tm-count-note">Turns aren't counted. Passing the turn starts counting from here.</p>}
 
       <section className="tm-section" aria-labelledby="tm-on-table">
         <h3 id="tm-on-table">On the table</h3>

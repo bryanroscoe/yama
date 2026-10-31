@@ -5,7 +5,7 @@ import type { TableEvent } from "@yama/core";
 import QRCode from "qrcode";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { API_BASE } from "../api";
-import { dispatch, getGame, subscribeTable } from "./store";
+import { dispatch, getGame, isPosted, subscribeTable, sync } from "./store";
 
 export function wsUrl(gameId: string, role: "host" | "guest", key: string) {
   const base = new URL(API_BASE || location.origin);
@@ -87,6 +87,7 @@ function open(gameId: string, attempt = 0) {
 export function announceNext(nextId: string) {
   const g = getGame();
   if (!socket || socket.readyState !== WebSocket.OPEN || !g || g.setup.id !== status.gameId) return;
+  // If the connection is down right now, guests scan the new game's code instead.
   socket.send(JSON.stringify({ type: "state", setup: g.setup, log: g.log, next: { gameId: nextId, key: shareKey(nextId) } }));
 }
 
@@ -113,7 +114,21 @@ export function startHosting(gameId: string) {
     if (!g || g.setup.id !== gameId) stopHosting(); // game finished or discarded
     else sendSnapshot();
   });
-  open(gameId);
+  void openWhenPosted(gameId);
+}
+
+/**
+ * The relay only lets the game's creator host a game the server already has, so a game started
+ * a moment ago (setup with everyone's phones, or a rematch) uploads first. Offline, it keeps
+ * trying while this game is still being shared; the table works meanwhile.
+ */
+async function openWhenPosted(gameId: string) {
+  for (let attempt = 0; status.gameId === gameId && !isPosted(gameId); attempt++) {
+    await sync();
+    if (status.gameId !== gameId || isPosted(gameId)) break;
+    await new Promise((r) => (retry = window.setTimeout(r, Math.min(15_000, 1000 * 2 ** attempt))));
+  }
+  if (status.gameId === gameId && !socket) open(gameId);
 }
 
 export function stopHosting() {
