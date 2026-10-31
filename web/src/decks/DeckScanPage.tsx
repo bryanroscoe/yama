@@ -20,6 +20,8 @@ import "./deckScan.css";
 const scanner = () => import("../scanner");
 const ScannerView = lazy(() => scanner().then((m) => ({ default: m.ScannerView })));
 const KEEP_ADDING = "yama.deckScan.keepAdding";
+/** The close-up step; the same setting as the collection scanner's. */
+const CLOSEUPS = "yama.scan.closeups";
 
 export function DeckScanPage() {
   const { id = "" } = useParams();
@@ -196,6 +198,7 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
   const [error, setError] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [keepAdding, setKeepAdding] = useState(() => deviceFlag(KEEP_ADDING, true));
+  const [closeups, setCloseups] = useState(() => deviceFlag(CLOSEUPS, true));
   const names = useRef(deck.cards.map((c) => c.name));
   useEffect(() => {
     let cancelled = false;
@@ -230,6 +233,19 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
           <strong>Keep adding.</strong> Add each card as soon as the scanner knows it, and go on to the next. It still asks when a card looks like another.
         </span>
       </label>
+      <label className="scan-keep">
+        <input
+          type="checkbox"
+          checked={closeups}
+          onChange={(e) => {
+            setCloseups(e.target.checked);
+            setDeviceFlag(CLOSEUPS, e.target.checked);
+          }}
+        />
+        <span>
+          <strong>Close-ups.</strong> When the scanner can't tell which card it is, ask to bring the camera close to the name. Turn off for a camera that stays put, such as a stand or card feeder.
+        </span>
+      </label>
     </div>
   );
   return (
@@ -240,6 +256,7 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
             catalog={catalog}
             identityOnly
             autoAdd={keepAdding}
+            closeups={closeups}
             paused={reviewing}
             onAccept={(card) => setDraft((x) => addCard(x, card.name))}
             onClose={onClose}

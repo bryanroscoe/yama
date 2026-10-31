@@ -308,7 +308,7 @@ mod tests {
         // Through the tunnel: the visitor's address.
         assert_eq!(client_address(connector, Some("203.0.113.9"), &tunnel), Some(ip("203.0.113.9")));
         // From the LAN, or any peer outside the list, the header is ignored.
-        assert_eq!(client_address(Some(ip("<saget-lan-address>")), Some("203.0.113.9"), &tunnel), Some(ip("<saget-lan-address>")));
+        assert_eq!(client_address(Some(ip("192.0.2.17")), Some("203.0.113.9"), &tunnel), Some(ip("192.0.2.17")));
         // With no list nothing is trusted, so every tunnel visitor counts as the connector.
         assert_eq!(client_address(connector, Some("203.0.113.9"), &[]), connector);
         // A garbled header from the tunnel falls back to the peer; no header is the peer.

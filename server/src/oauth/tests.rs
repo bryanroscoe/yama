@@ -231,7 +231,7 @@ async fn registration_accepts_only_loopback_and_allowlisted_https() {
         assert_eq!(made["token_endpoint_auth_method"], "none");
         assert!(made.get("client_secret").is_none(), "a public client gets no secret");
     }
-    for bad in ["https://evil.com/callback", "http://evil.com/callback", "http://192.168.1.10:8080/callback", "https://claude.ai.evil.com/cb", "myapp://callback"] {
+    for bad in ["https://evil.com/callback", "http://evil.com/callback", "http://192.0.2.10:8080/callback", "https://claude.ai.evil.com/cb", "myapp://callback"] {
         let (status, err) = register(&app, json!({"redirect_uris": [bad], "token_endpoint_auth_method": "none"})).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
         assert_eq!(err["error"], "invalid_redirect_uri", "{bad}");

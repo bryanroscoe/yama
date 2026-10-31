@@ -49,6 +49,13 @@ export interface ScannerViewProps {
    * With `identityOnly`, any card the camera found is added unless it might be another card.
    */
   autoAdd?: boolean;
+  /**
+   * The close-up step: when the whole-card view can't settle the printing (or the name of a card
+   * whose art isn't known), ask for the camera close to the corner (or the name). Off for a camera
+   * that can't be moved (a stand or a card feeder): the printing is then picked by tap, and the
+   * close-up only runs when asked for. Default on.
+   */
+  closeups?: boolean;
   /** Stop reading the camera (something is shown over the scanner). */
   paused?: boolean;
   /** The last few cards added, newest first. */
@@ -191,6 +198,7 @@ export function ScannerView({
   onShowAdded,
   unsavedCount = 0,
   autoAdd = false,
+  closeups = true,
   paused = false,
   recent = [],
   finish = "nonfoil",
@@ -537,7 +545,7 @@ export function ScannerView({
             if (!stop && handleText(res, false)) return;
             // Still nothing: ask for a close-up of the name.
             // (Not while the card just added is held: that would read it again.)
-            if (!stop && !res.candidates[0] && !blockedName.current && ++failedReads >= TITLE_AFTER) {
+            if (!stop && closeups && !res.candidates[0] && !blockedName.current && ++failedReads >= TITLE_AFTER) {
               setCloseup("title");
               return;
             }
@@ -570,7 +578,7 @@ export function ScannerView({
       stop = true;
       clearTimeout(timer);
     };
-  }, [phase, mode, closeup, photoBusy, paused, identityOnly, showArt, handleText, textReader]);
+  }, [phase, mode, closeup, photoBusy, paused, identityOnly, closeups, showArt, handleText, textReader]);
 
   const fromPhoto = async (file: File) => {
     setStatus("Reading the photo");
@@ -664,11 +672,15 @@ export function ScannerView({
   };
 
   // Step 2 starts by itself when the printing isn't settled: several share the art and the
-  // collector line couldn't be read from the whole-card view.
-  const needsCollector = live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading;
+  // collector line couldn't be read from the whole-card view. Without close-ups, the picker asks.
+  const needsCollector = closeups && live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading;
   useEffect(() => {
     if (needsCollector) setCloseup("collector");
   }, [needsCollector]);
+  // Turning close-ups off ends one in progress.
+  useEffect(() => {
+    if (!closeups) setCloseup(null);
+  }, [closeups]);
   useEffect(() => {
     if (phase !== "found" && closeup === "collector") setCloseup(null);
     if (phase === "found" && closeup === "title") setCloseup(null);
@@ -843,6 +855,8 @@ export function ScannerView({
               <button onClick={() => setCloseup(null)}>Back to scanning</button>
               <NameEntry onPick={(n) => fromName(n)} />
             </div>
+            {/* The Close-ups switch among them: a fixed camera can't do this step. */}
+            {controls}
           </div>
         )}
         {!isFound && closeup !== "title" && (
