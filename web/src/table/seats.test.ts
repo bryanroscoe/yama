@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Playgroup } from "../api";
-import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, stillHolds, withHandles, withoutGroup, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
+import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, rebuildForGroup, stillHolds, withHandles, withoutGroup, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
 
 const me = { id: "u-me", display_name: "Bryan" };
 const mine: SeatDraft = { ...emptySeat(), name: "Bryan", userId: "u-me", deckId: "d1", deckVersionId: "v1", commanderName: "Atraxa" };
@@ -146,5 +146,26 @@ describe("withoutGroup", () => {
     expect(seats[0]).toMatchObject({ memberId: undefined, userId: "u-me", deckId: "d1", deckVersionId: "v1" });
     expect(seats[1]).toMatchObject({ name: "Sam Smith", memberId: undefined, userId: undefined, handle: "sam", deckLabel: "Riders of Rohan", commanderName: "Éowyn, Shieldmaiden" });
     expect(seats[2]).toMatchObject({ name: "Jo", memberId: undefined });
+  });
+});
+
+describe("rebuildForGroup", () => {
+  it("finds a returning member's new row, and makes anyone no longer in the group a guest who keeps their deck", () => {
+    const seats = rebuildForGroup(
+      [
+        // Sam left (the seat lost its member row) and rejoined as m-sam.
+        { ...emptySeat(), name: "Sam Smith", userId: "u-sam", deckVersionId: "v-sam", deckLabel: "Riders of Rohan" },
+        { ...emptySeat(), name: "Jo", memberId: "m-jo" },
+        // Kim left and didn't come back.
+        { ...emptySeat(), name: "Kim", userId: "u-kim", handle: "kim", deckLabel: "Food and Fellowship" },
+        { ...emptySeat(), name: "Guest" },
+      ],
+      group,
+      me,
+    );
+    expect(seats[0]).toMatchObject({ memberId: "m-sam", userId: "u-sam", deckVersionId: "v-sam", deckLabel: "Riders of Rohan" });
+    expect(seats[1]).toMatchObject({ memberId: "m-jo" });
+    expect(seats[2]).toMatchObject({ name: "Kim", userId: undefined, memberId: undefined, handle: "kim", deckLabel: "Food and Fellowship" });
+    expect(seats[3]).toMatchObject({ name: "Guest" });
   });
 });

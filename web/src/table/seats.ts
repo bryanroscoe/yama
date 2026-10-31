@@ -174,3 +174,16 @@ export function withoutGroup(seats: SeatDraft[], me: Me | null | undefined): Sea
     return { ...s, memberId: undefined, userId: undefined };
   });
 }
+
+/**
+ * Seats rebuilt from a saved game, fitted to the playgroup as it is now: someone who left and
+ * rejoined has a new member row (removal clears the old one from past seats), so their account
+ * finds it again; anyone with no row in it now becomes a guest by name, keeping what they played.
+ */
+export function rebuildForGroup(seats: SeatDraft[], group: Playgroup | undefined, me: Me | null | undefined): SeatDraft[] {
+  if (!group) return seats;
+  return seats.map((s) => {
+    const fitted = fitSeatsToGroup([s], group, me)[0]!;
+    return fitted.memberId || fitted.userId || !(s.memberId || s.userId) ? fitted : withoutGroup([s], me)[0]!;
+  });
+}

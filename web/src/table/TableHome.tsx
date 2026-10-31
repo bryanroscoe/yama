@@ -11,7 +11,7 @@ import { BracketChips } from "../components/Bracket";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
-import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, seatDeckLabel, stillHolds, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
+import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, seatDeckLabel, rebuildForGroup, stillHolds, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
 import { layout } from "./TablePlay";
 import { panelArt, useShowArt } from "./art";
@@ -769,7 +769,8 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       setGroupId("");
       setSeats((s) => withHandles(withoutGroup(s, me.data), undefined, all));
     } else if (form) {
-      setSeats((s) => withHandles(s, all.find((g) => g.id === groupId), all));
+      const group = all.find((g) => g.id === groupId);
+      setSeats((s) => withHandles(rebuildForGroup(s, group, me.data), group, all));
     }
   }, [groups.data, me.data]);
   // Seats left blank are dropped; the rest are numbered in order, and picks follow them.
