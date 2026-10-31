@@ -58,7 +58,8 @@ const BASIC_OR_LAND = /\b(?:land|plains|island|swamp|mountain|forest|wastes)\b/i
 const NONLAND_TYPE = /\b(?:creature|artifact|enchantment|instant|sorcery|planeswalker|battle|equipment|aura)\b/i;
 
 const faceText = (c: StatCard) => c.oracleText ?? "";
-/** The card data joins a multi-face card's rules text with a "//" line. */
+/** The card data joins a multi-face card's rules text with a "//" line. The mana value is the
+ *  front face's, so the cheap factors read only the front face: an Adventure's draw costs more. */
 const frontText = (c: StatCard) => faceText(c).split(/\n\/\/\n/)[0]!;
 const hasLandBack = (c: StatCard) => (c.typeLine ?? "").split(" // ").slice(1).some((t) => t.includes("Land"));
 
@@ -75,13 +76,13 @@ export function isCheapMana(c: StatCard): boolean {
 
 export function isCheapDraw(c: StatCard): boolean {
   if (c.cmc == null || c.cmc > CHEAP || isLand(c)) return false;
-  return /\bdraws? (?:a|an|one|two|three|four|five|x|that many) (?:additional )?cards?\b|\bdraws? cards? equal\b/i.test(faceText(c));
+  return /\bdraws? (?:a|an|one|two|three|four|five|x|that many) (?:additional )?cards?\b|\bdraws? cards? equal\b/i.test(frontText(c));
 }
 
 /** Removal, a counterspell or a bounce that targets, at two mana or less. */
 export function isCheapInteraction(c: StatCard): boolean {
   if (c.cmc == null || c.cmc > CHEAP || isLand(c)) return false;
-  return /\bcounter target\b|\bdestroy target\b|\bexile target (?!card from|cards from)|\breturn target (?:[^.]*?) to (?:its|their) owner'?s'? hands?\b|\bdeals? (?:\d+|x) damage to (?:any target|target (?:creature|planeswalker|player|opponent|attacking|blocking))/i.test(faceText(c));
+  return /\bcounter target\b|\bdestroy target\b|\bexile target (?!card from|cards from)|\breturn target (?:[^.]*?) to (?:its|their) owner'?s'? hands?\b|\bdeals? (?:\d+|x) damage to (?:any target|target (?:creature|planeswalker|player|opponent|attacking|blocking))/i.test(frontText(c));
 }
 
 /** Finds a card other than a land from the library. */

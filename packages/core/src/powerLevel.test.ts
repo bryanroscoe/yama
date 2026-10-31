@@ -42,6 +42,7 @@ describe("power signals from card text", () => {
     expect(isCheapDraw(brainstorm)).toBe(true);
     expect(isCheapDraw(relic)).toBe(true);
     expect(isCheapDraw(swords)).toBe(false);
+    expect(isCheapDraw(card("Foulmire Knight // Profane Insight", "Creature — Zombie Knight // Instant — Adventure", 1, "Deathtouch\n//\nYou draw a card and you lose 1 life."))).toBe(false);
     expect(isCheapInteraction(swords)).toBe(true);
     expect(isCheapInteraction(counterspell)).toBe(true);
     expect(isCheapInteraction(rift)).toBe(true);
