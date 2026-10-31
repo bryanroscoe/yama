@@ -15,7 +15,10 @@ Keep the repository private and its repository-level **Run workflows from fork p
 requests** setting disabled (verified disabled during installation). This server-side
 setting is the fork boundary: workflow job guards alone can be changed by a PR.
 Recheck it with `gh api repos/bryanroscoe/yama/actions/permissions/fork-pr-workflows-private-repos`
-before registering a replacement runner or changing repository access.
+before registering a replacement runner or changing repository access. Before the repository
+could be made public, unregister every persistent self-hosted runner (this CI worker and the
+production deploy runner) and keep CI on GitHub-hosted Linux; deploys then use the Cloudflare
+backend in [deploy/RUNNER.md](../deploy/RUNNER.md#choose-the-deploy-backend).
 
 - **Web checks:** preinstalled Node 22 (the production web build's major), `npm ci`,
   `npm test`, `npm run typecheck`, and `npm run build`.

@@ -155,7 +155,10 @@ reviewed work to main now requests production release. The runner has no Docker 
 production data/env mounts or general server shell. A restricted SSH command invokes the
 server-owned `deploy/host.py`, which independently verifies current main and successful
 push CI, fetches a dedicated clean main checkout and the published Phase pin, and builds
-committed exports on saget. CI jobs can select saget or GitHub-hosted Linux using the repository
+committed exports on saget. The repository variable `DEPLOY_BACKEND` can move that request
+from the saget runner to a one-use GitHub-hosted job that reaches the same gate over
+Cloudflare Access SSH (deploy/RUNNER.md). Saget's address and deploy credentials live only in
+the gitignored `deploy/.env` and Actions secrets, never in tracked files. CI jobs can select saget or GitHub-hosted Linux using the repository
 `CI_LINUX_RUNNER` JSON variable; both run the same checks. On saget, a fast pre-job
 hook records the reservation; the first normal workflow step waits for capacity
 before checkout so runner reporting and cancellation stay responsive. The

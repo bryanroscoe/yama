@@ -304,14 +304,32 @@ def inspect(service):
     return json.loads(run(['docker', 'inspect', service]))[0]
 
 
+def health_url(container):
+    # The yama container's published port, wherever server-local Compose
+    # configuration binds it; an all-interfaces bind is checked on loopback.
+    for binding in (container.get('NetworkSettings', {}).get('Ports') or {}).get('8787/tcp') or []:
+        address, port = binding.get('HostIp') or '0.0.0.0', binding.get('HostPort')
+        if ':' in address or not port:
+            continue
+        if address == '0.0.0.0':
+            address = '127.0.0.1'
+        return f'http://{address}:{port}/api/health'
+    return None
+
+
 def healthy(images):
+    url = None
     for service, image in zip(SERVICES, images):
         container = inspect(service)
         if (container['Image'] != image or not container['State'].get('Running')
                 or container['State'].get('Health', {}).get('Status') != 'healthy'):
             return False
+        if service == 'yama':
+            url = health_url(container)
+    if url is None:
+        return False
     try:
-        with urlopen('http://<saget-lan-address>:8099/api/health', timeout=5) as response:
+        with urlopen(url, timeout=5) as response:
             return response.status == 200 and response.read(32).strip() == b'ok'
     except (OSError, URLError):
         return False
