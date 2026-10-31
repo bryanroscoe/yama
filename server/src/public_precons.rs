@@ -554,7 +554,7 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
         .map(|s| 1 + s.comparisons.len())
         .unwrap_or(0);
     let meta_cohort = consensus::assign(&mut rows, source_count);
-    let rating_v2 = v2::assign(pool, &mut rows, snapshot.as_ref().map(|s| &s.publication)).await?;
+    let rating_v2 = v2::assign(pool, &mut rows).await?;
     Filters::default().apply(&mut rows)?;
     Ok(Catalog {
         publication: snapshot.map(|s| s.publication),

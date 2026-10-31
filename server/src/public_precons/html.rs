@@ -157,7 +157,7 @@ fn rating_v2(v: &v2::Row, detailed: bool) -> String {
     if detailed {
         write!(
             out,
-            "<details><summary>How this rank is made</summary><p>Estimated four-player win rate {:.1}%, 90% interval {:.1}–{:.1}%. Rank range {}–{}.</p><p>{:.0}% of the estimate’s weight is real games; the rest is the published simulation.</p>",
+            "<details><summary>How this rank is made</summary><p>Estimated four-player win rate {:.1}%, 90% interval {:.1}–{:.1}%. Rank range {}–{}.</p><p>{:.0}% of the estimate’s weight is real games; the rest is the simulation.</p>",
             v.rate, v.lo, v.hi, v.rank_lo, v.rank_hi, 100.0 * v.real_share
         )
         .unwrap();
@@ -649,14 +649,11 @@ pub(super) async fn index(
     if let Some(info) = &data.rating_v2 {
         write!(
             body,
-            "<p>Rating v2 ranks {} precons by estimated four-player win rate, from recent real games ({}) and the published simulation. {}</p>",
+            "<p>Rating v2 ranks {} precons by estimated four-player win rate, from recent real games ({}){}. {}</p>",
             info.ranked,
             sources_line(info),
-            if info.gate_passed {
-                "The published simulation passed the time-split test against later real games, so it is weighed beside them."
-            } else {
-                "The published simulation has not passed the time-split test against later real games, so it only ranks precons without real games."
-            }
+            info.simulation.as_deref().map(|n| format!(" and the simulation: {}", e(n))).unwrap_or_default(),
+            simulation_test(info)
         )
         .unwrap();
     } else if data.meta_cohort >= 4 {
@@ -925,18 +922,14 @@ pub(super) async fn methodology(
         "<div class=\"public-intro\"><p class=\"eyebrow\">Sources and methods</p><h1>Precon methodology</h1><p class=\"lede\">How results, upgrade assessments and market references are collected.</p></div><nav class=\"method-nav\" aria-label=\"Methodology sections\"><a class=\"button\" href=\"#upgradeability\">Upgradeability</a><a class=\"button\" href=\"#v2\">Rating v2</a><a class=\"button\" href=\"#meta\">Meta rank v1</a><a class=\"button\" href=\"#simulation\">Simulation</a><a class=\"button\" href=\"#real\">Real games</a><a class=\"button\" href=\"#sources\">Sources</a></nav><div class=\"public-prose\"><section id=\"upgradeability\"><h2>Upgradeability</h2><p>Upgradeability is Yama’s judgment of improvements that retain the precon’s main theme. Each commander configuration has its own assessment, including in-box alternatives and supported on-theme commander swaps. A replacement strategy is a separate deck build. Each grade needs a published guide covering that commander, at least two checked nonstock card examples, and written reasons covering card support, commander payoff and restrictions. The guide supplies evidence; Yama assigns the grade. Reviewer grades remain in their original scales. The old unsupported estimates were withdrawn on 27 October 2026.</p></section><section id=\"meta\"><p class=\"eyebrow\">Experimental / v1</p><h2>What the meta rank means</h2><p>Meta means agreement across evidence sources, rather than a forecast for your local playgroup. We use only stock lists with at least 20 real games and 20 simulated appearances in every published engine. At least four decks must qualify. Unranked decks remain browsable.</p><div class=\"formula\">Meta score = ½ real-game percentile<br>+ ½ mean simulation percentile</div><p>We re-rank each source within that same shared cohort. Higher is better: the lowest value scores 0, the highest 100, with tied values given their average rank. For n decks, percentile = 100 × (number below + (number equal − 1) / 2) / (n − 1). Real games use the reported four-player-normalised win rate; each engine uses its fitted strength. The score’s descending order gives the meta rank; tied scores share a rank. Filtering this page never changes the cohort or rank.</p><p>The two evidence groups have equal editorial weight. Phase and Forge, when both published, share the simulation half; extra runs from one engine cannot add votes. These weights have not been optimised or validated as a win prediction. Prices, popularity and reviewer opinion have no weight. Sources are dated but not age-weighted, so older results need care.</p><p>Engine confidence warnings remain visible and do not change the score or select the cohort: some warnings already use disagreement with real games, so filtering by those warnings would favour agreement by construction. The meta score has no probability interpretation or confidence interval. Large source disagreements and wide simulation intervals remain reasons to inspect a deck.</p><h3>Why there is no blended win-rate forecast yet</h3><p>A simulation’s opponents are a closed precon field; real games have different opponents, pilots and selection effects. Averaging those percentages would hide those differences. We show the separate model and observed win rates. A future forecast needs a declared target field, validation against held-out real results, and an interval that includes calibration error. More simulated games alone cannot establish real-world accuracy.</p></section><section id=\"simulation\"><p class=\"eyebrow\">The lab</p><h2>What simulation measures</h2><p>Four-player stock-precon pods are fitted with a Plackett–Luce finishing-order model, including turn-position effects. The model win rate estimates a deck’s chance against three random opponents from that run’s field. A 25% baseline represents four equally strong decks. Observed wins are the raw fraction of scored appearances won; they can differ because opponents and seats differ.</p><p>Intervals use the published game-cluster bootstrap and their stated coverage level. They describe sampling uncertainty within this simulation, not AI or rules accuracy. Rank ranges can be wide and overlapping. Known engine/AI limitations remain attached to their deck. An unreliable simulation is evidence to investigate, not a reliable power judgment.</p><p>Failures and timeouts are excluded, not counted as losses. Turn/action-cap finishes retained by the analysis have no winner. Legacy imports may carry a generic difficulty label without recording the Forge profile; that profile remains unverified unless the reviewed source notes document it. Each engine keeps its own field, scoring, build and dates; percentiles on a shared subset make orderings comparable, but cannot remove differences in their original opponent fields.</p>",
     );
     let v2_section = format!(
-        "<section id=\"v2\"><p class=\"eyebrow\">Experimental / v2</p><h2>Rating v2: the default rank</h2><p>Rating v2 estimates each stock precon’s four-player win rate from real games, read over time. A real-game source reports cumulative snapshots; the games played between two snapshots give that period’s rate. Periods are pooled to at least 40 games and weighted towards recent play with a 180-day half-life, and a precon’s trend is the change in those rates per month. Uploading a new dataset revision updates every rank within minutes.</p><p>The published simulation joins in only on merit. Every few minutes the rating rebuilds a test: freeze everything known six weeks ago, predict each precon’s real games since, and compare. The simulation gets weight beside real games only when that combined prediction beats real games alone, with a 90% interval clear of zero. Until then it ranks only precons with no real games, mapped onto the real-game scale. Each estimated win rate shows a 90% interval, and each rank a range drawn from that uncertainty; the share of weight from real games is on each deck’s page.</p><p>{}</p><p>Real-game results come from different pilots, opponents and selection effects than our simulation, and none of this is a forecast for your table. Decks with neither real games nor a published simulation stay unranked.</p></section>",
+        "<section id=\"v2\"><p class=\"eyebrow\">Experimental / v2</p><h2>Rating v2: the default rank</h2><p>Rating v2 estimates each stock precon’s four-player win rate from real games, read over time. A real-game source reports cumulative snapshots; the games played between two snapshots give that period’s rate. Periods are pooled to at least 40 games and weighted towards recent play with a 180-day half-life, and a precon’s trend is the change in those rates per month. Uploading a new dataset revision updates every rank within minutes.</p><p>The simulation joins in only on merit. It is one engine’s games, named below, from tournaments of stock precons in balanced four-player pods, pooled across runs of one engine version and counting only pods of four stock lists. We choose Forge, whose results have tracked real games more closely than Phase’s. Precons are ranked by the low end of their 90% interval, so a deck with a few lucky games can’t top the list. Every few minutes the rating rebuilds a test: freeze everything known six weeks ago, predict each precon’s real games since, and compare. The simulation gets weight beside real games only when that combined prediction beats real games alone, with a 90% interval clear of zero. Until then it ranks only precons with no real games, mapped onto the real-game scale. Each estimated win rate shows a 90% interval, and each rank a range drawn from that uncertainty; the share of weight from real games is on each deck’s page.</p><p>{}</p><p>Real-game results come from different pilots, opponents and selection effects than our simulation, and none of this is a forecast for your table. Decks with neither real games nor a simulated result stay unranked.</p></section>",
         match &rating {
             Some(info) => format!(
                 "Currently {} precons, as of {}. Real-game sources: {}. {}",
                 info.ranked,
                 when(&info.as_of.format("%Y-%m-%d").to_string()),
                 sources_line(info),
-                if info.gate_passed {
-                    "The published simulation passed the test and is weighed beside real games."
-                } else {
-                    "The published simulation has not passed the test, so real games alone rank every precon they cover."
-                }
+                info.simulation.as_deref().map(|n| format!("Simulation: {}. ", e(n))).unwrap_or_default() + simulation_test(info)
             ),
             None => "No real-game source is enabled, so the pages fall back to meta rank v1 below.".into(),
         }
@@ -1055,4 +1048,13 @@ pub(super) async fn sitemap(
     }
     body.push_str("</urlset>");
     Ok(cached(&headers, body, "application/xml; charset=utf-8"))
+}
+
+/// Whether the simulation counts beside real games, in a sentence.
+fn simulation_test(info: &v2::Info) -> &'static str {
+    match (&info.simulation, info.gate_passed) {
+        (None, _) => "No simulation is chosen, so only precons with real games are ranked.",
+        (Some(_), true) => "The simulation passed the time-split test against later real games, so it is weighed beside them.",
+        (Some(_), false) => "The simulation has not passed the time-split test against later real games, so it only ranks precons without real games.",
+    }
 }

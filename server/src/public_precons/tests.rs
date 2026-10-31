@@ -699,13 +699,13 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
     let c = catalog(&st.pool).await.unwrap();
     let info = c.rating_v2.as_ref().expect("an enabled source ranks the pages");
     assert_eq!(info.sources[0].license, "CC BY 4.0");
-    assert_eq!(info.simulation.as_deref(), Some("Reviewed benchmark"));
+    assert_eq!(info.simulation, None, "the published Phase benchmark doesn't feed rating v2");
     let island = c.precons.iter().find(|p| p.id == "island-deck").unwrap();
     let v = island.v2.as_ref().unwrap();
     let real = v.real.as_ref().unwrap();
     assert_eq!(real.games, 447);
     assert!(real.recent.is_some());
-    // The published simulation hasn't passed the time-split test, so real games carry the estimate.
+    // With no simulation chosen, real games carry the estimate.
     assert!(!info.gate_passed);
     assert_eq!(v.real_share, 1.0);
     assert_eq!(c.precons[0].id, "island-deck", "the default order follows rating v2");
