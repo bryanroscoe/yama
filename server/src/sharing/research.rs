@@ -415,7 +415,11 @@ pub(super) async fn download(
     let (build_id, format) = stem.rsplit_once('-').filter(|(_, f)| matches!(*f, "names" | "moxfield")).ok_or(AppError::NotFound("export"))?;
     let d = deck_of(&doc, &key).ok_or(AppError::NotFound("deck"))?;
     let b = d["builds"].as_array().and_then(|bs| bs.iter().find(|b| text(b, "id") == build_id)).ok_or(AppError::NotFound("build"))?;
-    let (cards, _) = cards_of(&st.pool, text(b, "list")).await?;
+    // The whole list, with no card lookups: these formats need only names, counts and sections.
+    let cards: Vec<SharedCard> = crate::decks::parse_list(text(b, "list"), true)
+        .into_iter()
+        .map(|l| SharedCard { name: l.name, qty: l.qty, board: l.board, type_line: None, cmc: 0.0, layout: None, image: None, printing: None })
+        .collect();
     let res = fresh(&headers, export(&cards, format), "text/plain; charset=utf-8");
     Ok(attachment(res, &file_name(&format!("{} {}", text(d, "name"), text(b, "label")), format)))
 }
