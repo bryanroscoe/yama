@@ -1136,7 +1136,7 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
             <button
               className="outline tm-discard"
               onClick={() => {
-                if (confirm("Throw this game away? It won't be saved.")) {
+                if (confirm("Throw this game away? It won't count, and it's deleted from Yama.")) {
                   discardGame();
                   onLeave();
                 }

@@ -35,6 +35,8 @@ const CURRENT = "yama.table.current";
 const OUTBOX = "yama.table.outbox";
 /** Finished games the server refused (not a network problem). Kept so nothing is lost. */
 const REJECTED = "yama.table.rejected";
+/** Games to delete from Yama: discarded or deleted here, waiting for a connection. */
+const DELETES = "yama.table.deletes";
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -51,6 +53,7 @@ function read<T>(key: string, fallback: T): T {
 let current: LocalGame | null = read<LocalGame | null>(CURRENT, null);
 let outbox: LocalGame[] = read<LocalGame[]>(OUTBOX, []);
 let rejected: { game: LocalGame; error: string }[] = read(REJECTED, []);
+let deletes: string[] = read<string[]>(DELETES, []);
 let derived: TableState | null = current ? replay(current.setup, current.log) : null;
 let syncState: { syncing: boolean; error: string | null; lastSyncedAt: string | null } = {
   syncing: false,
@@ -62,6 +65,7 @@ function emit() {
   localStorage.setItem(CURRENT, JSON.stringify(current));
   localStorage.setItem(OUTBOX, JSON.stringify(outbox));
   localStorage.setItem(REJECTED, JSON.stringify(rejected));
+  localStorage.setItem(DELETES, JSON.stringify(deletes));
   for (const l of listeners) l();
 }
 
@@ -88,6 +92,48 @@ export function useOutbox() {
 
 export function useRejected() {
   return useSyncExternalStore(subscribe, () => rejected);
+}
+
+/** Games deleted on this device that Yama hasn't removed yet (offline): lists leave them out. */
+export function usePendingDeletes() {
+  return useSyncExternalStore(subscribe, () => deletes);
+}
+
+/**
+ * Delete a table game this account recorded: every copy on this device now, and Yama's once the
+ * server answers (queued while offline). Resolves true once Yama has removed it.
+ */
+export async function deleteGame(gameId: string): Promise<boolean> {
+  if (current?.setup.id === gameId) {
+    forgetPrompts(gameId);
+    current = null;
+    derived = null;
+  }
+  outbox = outbox.filter((g) => g.setup.id !== gameId);
+  rejected = rejected.filter((r) => r.game.setup.id !== gameId);
+  if (!deletes.includes(gameId)) deletes = [...deletes, gameId];
+  emit();
+  await settle();
+  return !deletes.includes(gameId);
+}
+
+/** Sync, then once more if a run that was already going missed something queued since. */
+async function settle() {
+  await sync();
+  if (deletes.length || current || outbox.length) await sync();
+}
+
+async function pushDeletes() {
+  for (const id of deletes) {
+    try {
+      await api(`/api/games/${id}`, { method: "DELETE" });
+    } catch (e) {
+      // Not found: the server never had it (or it's gone already), which is what we wanted.
+      if (!(e instanceof ApiError && e.status === 404) && !isPermanent(e)) throw e;
+    }
+    deletes = deletes.filter((d) => d !== id);
+    emit();
+  }
 }
 
 /** A 4xx other than auth or rate limits: retrying the same upload won't help. */
@@ -167,9 +213,9 @@ function forgetPrompts(gameId: string) {
   localStorage.removeItem(`yama.table.dismissed.${gameId}`);
 }
 
+/** Throw away the game on this device. If it already reached Yama, it's deleted there too. */
 export function discardGame() {
-  if (current) forgetPrompts(current.setup.id);
-  setCurrent(null);
+  if (current) void deleteGame(current.setup.id);
 }
 
 /** The seat's label on the server: its commander, and its partner, so another device can rebuild the pair. */
@@ -241,6 +287,7 @@ export function sync(): Promise<void> {
         outbox = outbox.slice(1);
         emit();
       }
+      await pushDeletes();
       if (current) {
         // Freeze what we're about to send: later taps start new events instead of changing these.
         const through = current.log[current.log.length - 1]?.seq ?? 0;
@@ -268,9 +315,9 @@ if (typeof window !== "undefined") {
   window.addEventListener("online", () => void sync());
   // A game or finished games left on this device from before (a reload, a phone that was off)
   // go up straight away, so sharing and other devices can find them.
-  if (current || outbox.length) queueMicrotask(() => void sync());
+  if (current || outbox.length || deletes.length) queueMicrotask(() => void sync());
   setInterval(() => {
-    if (navigator.onLine && (current || outbox.length)) void sync();
+    if (navigator.onLine && (current || outbox.length || deletes.length)) void sync();
   }, 20_000);
 }
 

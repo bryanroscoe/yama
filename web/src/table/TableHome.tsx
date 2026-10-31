@@ -12,7 +12,7 @@ import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
 import { emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, type SeatDraft } from "./seats";
-import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
+import { discardGame, startGame, sync, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
 import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
 import { useLayoutChoice } from "./layouts";
 import { panelArt, useShowArt } from "./art";
@@ -106,7 +106,7 @@ export function TableHome() {
           )}
           <div className="row">
             <button className="primary" onClick={() => navigate("/table/play")}>Back to the table</button>
-            <button className="quiet" onClick={() => confirm("Throw this game away? It won't be saved.") && discardGame()}>
+            <button className="quiet" onClick={() => confirm("Throw this game away? It won't count, and it's deleted from Yama.") && discardGame()}>
               Discard
             </button>
           </div>
@@ -587,7 +587,9 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
   const games = useQuery({ queryKey: ["games"], queryFn: () => api<(GameRow & { note?: string | null })[]>("/api/games") });
   const [logging, setLogging] = useState(false);
   const wide = useWide();
-  const shown = games.data?.slice(0, wide ? RECENT_WIDE : RECENT_PHONE) ?? [];
+  // A game deleted while offline stays out of the list until Yama catches up.
+  const deleting = usePendingDeletes();
+  const shown = games.data?.filter((g) => !deleting.includes(g.id)).slice(0, wide ? RECENT_WIDE : RECENT_PHONE) ?? [];
   // A game with a winner shows the winner's art; one still going, or a draw, shows up to four
   // seats' art as a mosaic. The credit names exactly the art shown.
   const winnerShown = winningSeat;

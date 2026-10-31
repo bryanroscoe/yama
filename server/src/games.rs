@@ -556,6 +556,8 @@ struct GameDetail {
     events: Vec<Event>,
     /// This account started this in-person game, so it can carry on with it on another device.
     can_continue: bool,
+    /// This account recorded this in-person game, so it may delete it (`DELETE /api/games/:id`).
+    can_delete: bool,
 }
 
 async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<GameDetail>> {
@@ -582,8 +584,9 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
             created_at: Some(created_at),
         })
         .collect();
-    let can_continue = game.status == "in_progress" && can_write(&st.pool, &id, &user.id).await?;
-    Ok(Json(GameDetail { game, events, can_continue }))
+    let mine = can_write(&st.pool, &id, &user.id).await?;
+    let can_continue = game.status == "in_progress" && mine;
+    Ok(Json(GameDetail { game, events, can_continue, can_delete: mine }))
 }
 
 async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {

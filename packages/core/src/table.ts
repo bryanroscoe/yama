@@ -443,6 +443,9 @@ export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
   if (!last || last.event.type !== "finish") return null;
   const f = last.event;
   const state = replay(setup, log);
+  // Elimination turns go all or nothing: the stats order knockouts by them (first out, last out),
+  // so one knockout from before the table counted turns leaves the order unknown for everyone.
+  const outTurns = state.players.every((p) => !p.eliminated?.uncounted);
   const ratings = new Map((f.fun ?? []).filter((r) => r.rating >= 1 && r.rating <= 5).map((r) => [r.seat, Math.round(r.rating)]));
   return {
     winner_seat: f.winnerSeat,
@@ -454,7 +457,7 @@ export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
     seats: state.players.map((p) => ({
       seat: p.seat,
       final_life: p.life,
-      eliminated_turn: p.eliminated && !p.eliminated.uncounted ? p.eliminated.turn : null,
+      eliminated_turn: outTurns ? (p.eliminated?.turn ?? null) : null,
       eliminated_by_seat: p.eliminated?.bySeat ?? null,
       fun: ratings.get(p.seat) ?? null,
     })),

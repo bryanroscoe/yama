@@ -216,3 +216,39 @@ async fn online_games_a_stranger_can_host_are_capped() {
     }
     assert_eq!(send(&app, Method::POST, "/api/play", Some(&mt), Some(body)).await.0, StatusCode::CONFLICT);
 }
+
+#[tokio::test]
+async fn only_whoever_recorded_a_table_game_can_delete_it() {
+    let (app, pool) = open_server().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (_alex, at) = user(&pool, "alex@example.com").await;
+    // Alex is in Bryan's playgroup, and the game is a playgroup game.
+    let (_, group) = send(&app, Method::POST, "/api/playgroups", Some(&bt), Some(json!({ "name": "Thursday" }))).await;
+    let (group_id, code) = (group["id"].as_str().unwrap().to_string(), group["join_code"].as_str().unwrap().to_string());
+    assert_eq!(send(&app, Method::POST, "/api/playgroups/join", Some(&at), Some(json!({ "code": code }))).await.0, StatusCode::OK);
+    let game = "0b5a3d1e-2f4c-4e8a-9a51-7c2d9e1f0b11";
+    let new_game = json!({ "id": game, "playgroup_id": group_id, "started_at": "2026-10-31T01:00:00Z",
+        "seats": [{ "seat": 0, "user_id": bryan }, { "seat": 1, "guest_name": "Alex" }] });
+    assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(new_game)).await.0, StatusCode::OK);
+    let event = json!([{ "seq": 1, "actor_seat": 0, "kind": "life", "payload": { "type": "life", "seat": 0, "delta": -3 }, "created_at": "2026-10-31T01:01:00Z" }]);
+    assert_eq!(send(&app, Method::POST, &format!("/api/games/{game}/events"), Some(&bt), Some(event)).await.0, StatusCode::OK);
+    let path = format!("/api/games/{game}");
+
+    // Alex can read it through the playgroup, but it's Bryan's record.
+    let (status, detail) = get(&app, &at, &path).await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(detail["can_delete"], false);
+    assert_eq!(send(&app, Method::DELETE, &path, Some(&at), None).await.0, StatusCode::NOT_FOUND);
+
+    let (_, detail) = get(&app, &bt, &path).await;
+    assert_eq!(detail["can_delete"], true);
+    assert_eq!(send(&app, Method::DELETE, &path, Some(&bt), None).await.0, StatusCode::OK);
+    assert_eq!(get(&app, &bt, &path).await.0, StatusCode::NOT_FOUND);
+    // Its seats and events go with it.
+    let left: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM game_seats WHERE game_id = ?1) + (SELECT COUNT(*) FROM game_events WHERE game_id = ?1)")
+        .bind(game)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 0);
+}

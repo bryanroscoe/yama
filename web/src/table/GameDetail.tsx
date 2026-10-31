@@ -1,7 +1,7 @@
 // One table game: who played what, how it ended, and everything that happened, turn by turn. A
 // game still going can be followed live from another device, or carried on here.
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatLabel, winConditionLabel, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup } from "@yama/core";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, type GameDetail, type GameSeat } from "../api";
@@ -11,7 +11,7 @@ import { ErrorText } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
 import { cardNamed, unionIdentity } from "./pickers";
-import { resumeGame, useOutbox, useTable } from "./store";
+import { deleteGame, resumeGame, useOutbox, useTable } from "./store";
 import { isViewing } from "../viewingFlag";
 import "./home.css";
 
@@ -103,6 +103,16 @@ export function GameDetailPage() {
       resumeGame({ ...setup, players }, log);
     },
     onSuccess: () => navigate("/table/play"),
+  });
+
+  const qc = useQueryClient();
+  const remove = useMutation({
+    mutationFn: () => deleteGame(id),
+    // Offline, it's gone from this device now and from Yama once the connection is back.
+    onSuccess: () => {
+      for (const key of ["games", "stats", "deck-results", "game"]) void qc.invalidateQueries({ queryKey: [key] });
+      navigate("/", { replace: true });
+    },
   });
 
   if (game.isLoading) return <main className="page"><p className="dim">Loading the game…</p></main>;
@@ -236,6 +246,20 @@ export function GameDetailPage() {
           </ol>
         )}
       </section>
+
+      {g.can_delete && !isViewing() && (
+        <section className="gd-delete" aria-label="Delete this game">
+          <button
+            className="outline bad"
+            disabled={remove.isPending}
+            onClick={() => confirm("Delete this game from Yama? It comes out of the history and stats for everyone who played. This can't be undone.") && remove.mutate()}
+          >
+            {remove.isPending ? "Deleting…" : "Delete this game"}
+          </button>
+          <p className="small dim">Only you can, since you recorded it. Use it for a test game or one entered by mistake.</p>
+          <ErrorText error={remove.error} />
+        </section>
+      )}
     </main>
   );
 }

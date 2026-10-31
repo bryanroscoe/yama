@@ -251,6 +251,17 @@ describe("finish", () => {
     expect(body.seats[2]).toMatchObject({ eliminated_turn: null, eliminated_by_seat: 1 });
   });
 
+  it("sends no elimination turns at all if one knockout came before turns were counted", () => {
+    let log = record([], { type: "eliminate", seat: 2, bySeat: 1 }, t0);
+    for (let i = 1; i <= 3; i++) log = record(log, { type: "pass_turn" }, later(i * 100));
+    log = record(log, { type: "eliminate", seat: 0, bySeat: 1 }, later(500));
+    log = record(log, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(600));
+    const body = toServerFinish(setup, log)!;
+    expect(body.turns).toBe(2);
+    expect(body.seats.map((s) => s.eliminated_turn)).toEqual([null, null, null]);
+    expect(body.seats.map((s) => s.eliminated_by_seat)).toEqual([1, null, 1]);
+  });
+
   it("keeps the city's blessing at one, and other counters at zero or more", () => {
     let s = initialState(setup);
     s = apply(s, { type: "counter", seat: 0, counter: "blessing", delta: 1 });

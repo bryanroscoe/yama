@@ -734,3 +734,16 @@ a.rg-row:focus-visible {
 .new-game2 .ng-phone .ng-layout .field-label {
   text-align: center;
 }
+
+/* Deleting a game you recorded: last on its page, away from everything else. */
+.gd-delete {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.gd-delete p {
+  margin: 0;
+}
