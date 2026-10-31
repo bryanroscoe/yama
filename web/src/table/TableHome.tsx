@@ -11,7 +11,7 @@ import { BracketChips } from "../components/Bracket";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
-import { afterRemoving, emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
+import { afterRemoving, commandersPatch, emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
 import { layout } from "./TablePlay";
 import { panelArt, useShowArt } from "./art";
@@ -591,7 +591,7 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
         {commander && !deckShown && (
           <CommanderFields
             value={seat as CommanderDraft}
-            onChange={(d) => onChange({ ...d, commanderName: d.commanderName ?? "", colorIdentity: d.colorIdentity ?? "" })}
+            onChange={(d) => onChange(commandersPatch(seat, d))}
           />
         )}
         {commander && <span className="seat-credit">{seatCredit(seat, deckShown ? (deckName ?? deckShown) : undefined)}</span>}
@@ -694,6 +694,9 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
     return editing ? f : { ...f, ...UNANSWERED };
   });
   const [groupId, setGroupId] = useState(form?.groupId ?? "");
+  const format = form?.format ?? "commander";
+  const startingLife = form?.startingLife ?? 40;
+  const cmdr = format === "commander";
   // The day here, not in UTC: after 7 pm in Texas, UTC is already tomorrow.
   const [date, setDate] = useState(() => form?.date ?? localDay());
   const [turns, setTurns] = useState(form?.turns ?? "");
@@ -716,16 +719,29 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   // art and colors, unless the seat has changed meanwhile.
   useEffect(() => {
     if (!form) return;
-    form.seats.forEach((s, i) => {
+    // The seats' keys start as their places in the form.
+    form.seats.forEach((s, key) => {
       if (!s.commanderName || s.art) return;
       void deckCommanders({ commanders: [s.commanderName, ...(s.partnerName ? [s.partnerName] : [])] }).then(
-        (c) => c && setSeats((all) => (all[i]?.commanderName === s.commanderName && !all[i]?.art ? patchSeat(all, i, c) : all)),
+        (c) => c && updateSeat(key, (now) => (now.commanderName === s.commanderName && !now.art ? c : null)),
       );
     });
   }, [form]);
   // A key per seat, so removing one from the middle doesn't hand its fields' state to the next.
   const nextKey = useRef(seats.length);
   const [keys, setKeys] = useState(() => seats.map((_, i) => i));
+  // Edits by seat key, not position: a slow lookup for a seat lands on that seat even if one
+  // before it was removed meanwhile, and on none if it was removed itself.
+  const keysNow = useRef(keys);
+  keysNow.current = keys;
+  const updateSeat = (key: number, patch: Partial<SeatDraft> | ((s: SeatDraft) => Partial<SeatDraft> | null)) =>
+    setSeats((all) => {
+      const i = keysNow.current.indexOf(key);
+      const seat = all[i];
+      if (!seat) return all;
+      const p = typeof patch === "function" ? patch(seat) : patch;
+      return p ? patchSeat(all, i, p) : all;
+    });
   const group = groups.data?.find((g) => g.id === groupId);
   const people = usePeople(group, groups.data);
   const update = (i: number, patch: Partial<SeatDraft>) => setSeats((s) => patchSeat(s, i, patch));
@@ -736,7 +752,11 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   // The answers about the removed seat go with it; the rest follow their seats up.
   const removeSeat = (i: number) => {
     setSeats((s) => s.filter((_, j) => j !== i));
-    setKeys((k) => k.filter((_, j) => j !== i));
+    setKeys((k) => {
+      const next = k.filter((_, j) => j !== i);
+      keysNow.current = next;
+      return next;
+    });
     setWinner((w) => (w === "draw" ? w : afterRemoving(w, i)));
     setFirst((f) => afterRemoving(f, i));
     setFun((all) => all.flatMap((r) => {
@@ -770,13 +790,16 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       // The deck version that was current on the day played, not whatever it is now.
       const versions = await Promise.all(
         // Anyone else's public deck carries its list as it is now; the server keeps it only on its owner's seat.
-        filled.map(async ({ s }) => (s.deckId ? versionOn(await api<DeckVersionRow[]>(`/api/decks/${s.deckId}/versions`), date) : (s.deckVersionId ?? null))),
+        // Only a Commander game names Commander decks, as at the table.
+        filled.map(async ({ s }) => (!cmdr ? null : s.deckId ? versionOn(await api<DeckVersionRow[]>(`/api/decks/${s.deckId}/versions`), date) : (s.deckVersionId ?? null))),
       );
       return api("/api/games", {
         method: "POST",
         json: {
           id: gameId,
           playgroup_id: groupId || null,
+          format,
+          starting_life: startingLife,
           started_at: at,
           seats: filled.map(({ s }, n) => ({
             seat: n,
@@ -784,8 +807,8 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
             user_id: s.userId ?? null,
             guest_name: s.memberId ? null : s.name.trim(),
             deck_version_id: versions[n],
-            commander_name: s.commanderName || null,
-            deck_label: seatDeckLabel(s) ?? null,
+            commander_name: (cmdr && s.commanderName) || null,
+            deck_label: (cmdr && seatDeckLabel(s)) || null,
           })),
           finish: {
             winner_seat: winnerSeat,
@@ -840,13 +863,17 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
             <input inputMode="numeric" value={turns} onChange={(e) => setTurns(e.target.value.replace(/\D/g, ""))} />
           </label>
         </div>
-        <p className="small dim" style={{ margin: 0 }}>List the players clockwise, so turn order counts from whoever went first.</p>
+        <p className="small dim" style={{ margin: 0 }}>
+          {!cmdr && `A ${formatLabel(format)} game at ${startingLife} life, like the game it started from. `}
+          List the players clockwise, so turn order counts from whoever went first.
+        </p>
         {seats.map((s, i) => (
           <SeatEditor
             key={keys[i] ?? i}
             index={i}
             seat={s}
-            onChange={(p) => update(i, p)}
+            onChange={(p) => updateSeat(keys[i] ?? i, p)}
+            commander={cmdr}
             group={group}
             decks={decks.data}
             people={people}

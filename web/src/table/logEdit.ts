@@ -1,7 +1,7 @@
 // A logged game back in the Log a game form, to edit it. Saving it again under the same id
 // stores what the form says now (server/src/games.rs, create_game).
 
-import type { FunRating, WinCondition } from "@yama/core";
+import { FORMATS, type FunRating, type TableFormat, type WinCondition } from "@yama/core";
 import type { DeckSummary, GameDetail, GameSeat } from "../api";
 import { emptySeat, type SeatDraft } from "./seats";
 import { localDay } from "./versions";
@@ -16,6 +16,9 @@ export function splitPair(s: Pick<GameSeat, "commander_name" | "deck_label">): {
 
 export interface LogForm {
   groupId: string;
+  /** The game's format and starting life, kept as they were (a copied Standard game stays one). */
+  format: TableFormat;
+  startingLife: number;
   /** YYYY-MM-DD, the local day it was played. */
   date: string;
   turns: string;
@@ -39,6 +42,8 @@ export function formFromGame(g: GameDetail, decks: DeckSummary[] = []): LogForm 
   const place = (seat: number | null) => (at(seat) >= 0 ? at(seat) : null);
   return {
     groupId: g.playgroup_id ?? "",
+    format: FORMATS.some((f) => f.key === g.format) ? (g.format as TableFormat) : "commander",
+    startingLife: g.starting_life ?? 40,
     date: localDay(new Date(g.started_at)),
     turns: g.turns != null ? String(g.turns) : "",
     winner: g.status !== "finished" ? null : g.winner_seat === null ? "draw" : place(g.winner_seat),

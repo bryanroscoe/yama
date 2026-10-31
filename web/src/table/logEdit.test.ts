@@ -34,6 +34,11 @@ describe("formFromGame", () => {
     expect(f.seats[2]).toMatchObject({ name: "@sam", handle: "sam", deckLabel: "Food and Fellowship", commanderName: "Frodo, Adventurous Hobbit" });
   });
 
+  it("keeps a game's format and starting life", () => {
+    expect(formFromGame(game({ format: "standard", starting_life: 20 }))).toMatchObject({ format: "standard", startingLife: 20 });
+    expect(formFromGame(game({}))).toMatchObject({ format: "commander", startingLife: 40 });
+  });
+
   it("reads a finished game without a winner as a draw", () => {
     expect(formFromGame(game({ winner_seat: null, first_seat: null, seats: [seat(0, { guest_name: "Jo" })] }))).toMatchObject({ winner: "draw", first: null });
   });

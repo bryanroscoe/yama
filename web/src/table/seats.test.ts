@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Playgroup } from "../api";
-import { afterRemoving, emptySeat, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
+import { afterRemoving, commandersPatch, emptySeat, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
 
 const me = { id: "u-me", display_name: "Bryan" };
 const mine: SeatDraft = { ...emptySeat(), name: "Bryan", userId: "u-me", deckId: "d1", deckVersionId: "v1", commanderName: "Atraxa" };
@@ -77,5 +77,17 @@ describe("afterRemoving", () => {
   it("moves later seats up one and forgets the removed seat", () => {
     expect([0, 1, 2, 3].map((i) => afterRemoving(i, 1))).toEqual([0, null, 1, 2]);
     expect(afterRemoving(null, 0)).toBeNull();
+  });
+});
+
+describe("commandersPatch", () => {
+  const saved: SeatDraft = { ...emptySeat(), name: "Sam", commanderName: "Tymna the Weaver", partnerName: "Kraum, Ludevic's Opus", deckVersionId: "v-sam" };
+  it("drops the deck a seat was saved with once its commanders change", () => {
+    expect(commandersPatch(saved, { commanderName: "Atraxa, Praetors' Voice" })).toMatchObject({ commanderName: "Atraxa, Praetors' Voice", deckVersionId: undefined });
+    expect(commandersPatch(saved, { commanderName: "Tymna the Weaver", partnerName: undefined })).toHaveProperty("deckVersionId", undefined);
+  });
+
+  it("keeps it while the commanders are the same (art and colors filled in)", () => {
+    expect(commandersPatch(saved, { commanderName: "Tymna the Weaver", partnerName: "Kraum, Ludevic's Opus", art: "a.jpg" })).not.toHaveProperty("deckVersionId");
   });
 });

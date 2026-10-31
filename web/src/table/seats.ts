@@ -67,6 +67,21 @@ export function patchSeat(seats: SeatDraft[], i: number, patch: Partial<SeatDraf
 }
 
 /**
+ * The seat's commander fields as edited. Other commanders aren't the deck the seat was saved with
+ * (an edited game can hold a deck version with no name to show), so the deck goes; art and colors
+ * filled in for the same commanders keep it.
+ */
+export function commandersPatch(seat: SeatDraft, d: Partial<SeatDraft>): Partial<SeatDraft> {
+  const changed = (d.commanderName ?? "") !== seat.commanderName || (d.partnerName ?? "") !== (seat.partnerName ?? "");
+  return {
+    ...d,
+    commanderName: d.commanderName ?? "",
+    colorIdentity: d.colorIdentity ?? "",
+    ...(changed ? { deckId: undefined, deckVersionId: undefined, deckLabel: undefined } : {}),
+  };
+}
+
+/**
  * A seat's place in the form after the seat at `gone` was removed: the seats after it move up
  * one, and the removed seat itself is no longer anyone's answer (null).
  */
