@@ -478,7 +478,7 @@ function usePeople(group: Playgroup | undefined, groups: Playgroup[] | undefined
   return out;
 }
 
-function SeatEditor({ index, seat, onChange, group, decks, deckName, where, people = [], seatedHandles, commander = true }: {
+function SeatEditor({ index, seat, onChange, group, decks, deckName, where, people = [], seatedHandles, commander = true, footer }: {
   index: number;
   seat: SeatDraft;
   onChange: (p: Partial<SeatDraft>) => void;
@@ -492,6 +492,8 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
   seatedHandles?: string[];
   /** A Commander game: the seat names its commander. */
   commander?: boolean;
+  /** The last line in the seat's box (Log a game: who won, and Remove). */
+  footer?: ReactNode;
 }) {
   const me = useMe().data;
   const chosen = decks?.find((d) => d.id === seat.deckId);
@@ -593,6 +595,7 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
         )}
         {commander && <span className="seat-credit">{seatCredit(seat, deckShown ? (deckName ?? deckShown) : undefined)}</span>}
         {chosen && (chosen.bracket != null || chosen.estimate) && <BracketChips declared={chosen.bracket} estimate={chosen.estimate} />}
+        {footer && <div className="seat-foot">{footer}</div>}
       </div>
     </fieldset>
   );
@@ -794,28 +797,29 @@ function LogGame({ onClose }: { onClose: () => void }) {
         </div>
         <p className="small dim" style={{ margin: 0 }}>List the players clockwise, so turn order counts from whoever went first.</p>
         {seats.map((s, i) => (
-          <div key={keys[i] ?? i} className="stack" style={{ gap: "0.4rem" }}>
-            <SeatEditor
-              index={i}
-              seat={s}
-              onChange={(p) => update(i, p)}
-              group={group}
-              decks={decks.data}
-              people={people}
-              seatedHandles={seats.flatMap((o, j) => (j !== i && o.handle ? [o.handle] : []))}
-            />
-            <div className="row log-seat-foot">
-              <label className="check-row">
-                <input type="radio" name="winner" checked={winner === i} onChange={() => setWinner(i)} />
-                Won this game
-              </label>
-              {seats.length > 1 && (
-                <button type="button" className="quiet small" onClick={() => removeSeat(i)}>
-                  Remove {s.name.trim() || "this player"}
-                </button>
-              )}
-            </div>
-          </div>
+          <SeatEditor
+            key={keys[i] ?? i}
+            index={i}
+            seat={s}
+            onChange={(p) => update(i, p)}
+            group={group}
+            decks={decks.data}
+            people={people}
+            seatedHandles={seats.flatMap((o, j) => (j !== i && o.handle ? [o.handle] : []))}
+            footer={
+              <>
+                <label className="check-row">
+                  <input type="radio" name="winner" checked={winner === i} onChange={() => setWinner(i)} />
+                  Won this game
+                </label>
+                {seats.length > 1 && (
+                  <button type="button" className="quiet small" onClick={() => removeSeat(i)}>
+                    Remove {s.name.trim() || "this player"}
+                  </button>
+                )}
+              </>
+            }
+          />
         ))}
         <label className="check-row">
           <input type="radio" name="winner" checked={winner === "draw"} onChange={() => { setWinner("draw"); setCondition(null); }} />

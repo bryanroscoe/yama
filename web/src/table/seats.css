@@ -27,9 +27,3 @@
   flex: 0 0 auto;
   align-self: end;
 }
-
-/* Log a game: "Won this game" and "Remove" under each seat, at either end of one line. */
-.log-seat-foot {
-  justify-content: space-between;
-  align-items: center;
-}
