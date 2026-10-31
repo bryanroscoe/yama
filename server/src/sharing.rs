@@ -1,5 +1,6 @@
 //! Sharing: a handle for a profile (`/u/<handle>`), decks shared by link (`/d/<token>`) or on the
-//! profile, and the collection's card list. Everything starts private; only what its owner shares
+//! profile, research notes shared the same way (`/r/<token>`, `sharing/research.rs`), and the
+//! collection's card list. Everything starts private; only what its owner shares
 //! is served, and only through the projections here. They never carry prices paid, notes,
 //! containers, proxies, ownership counts, plans, games, playgroups or account details (the Google
 //! display name and email included). A deck's printings are the ones its exports name. A deck
@@ -7,6 +8,7 @@
 //! market value) and, when the owner turns it on, its plan's simulated win rates for the lists
 //! it and its listed configurations stand for, nothing else from the plan.
 mod html;
+mod research;
 #[cfg(test)]
 mod tests;
 
@@ -37,6 +39,9 @@ pub fn router() -> Router<AppState> {
         .route("/u/{handle}/collection.csv", get(collection_csv))
         .route("/d/{token}", get(html::deck))
         .route("/d/{token}/{file}", get(download))
+        .route("/r/{token}", get(research::note))
+        .route("/r/{token}/{deck}", get(research::deck))
+        .route("/r/{token}/{deck}/{file}", get(research::download))
 }
 
 /// Only this GET API bypasses view-as resolution: its output has no account context.
@@ -50,7 +55,7 @@ pub fn new_token() -> String {
     crate::util::random_token()[..24].to_string()
 }
 
-fn valid_token(s: &str) -> bool {
+pub(crate) fn valid_token(s: &str) -> bool {
     (16..=40).contains(&s.len()) && s.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
 

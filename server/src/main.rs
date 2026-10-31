@@ -106,6 +106,11 @@ USAGE:
   yama-server import-research FILE --owner EMAIL [--dry-run]
                                              Store private yama-research/1 notes for review;
                                              never changes decks, plans or collection cards
+  yama-server research share --owner EMAIL --id ID --visibility private|link|public [--reset-link]
+                                             Who can see one of EMAIL's research notes:
+                                             only them, anyone with /r/<token>, or that and
+                                             listed on their profile; prints the link.
+                                             --reset-link makes a new link (old ones stop)
   yama-server import-dataset FILE --owner EMAIL [--dry-run]
                                              Import a private versioned yama-dataset/1
                                              JSON or gzip document; never publishes data
@@ -236,6 +241,19 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 println!("{}",deck_research::save(&pool,&owner,&doc).await.map_err(|e|anyhow::anyhow!("{e}"))?);
             }
+            Ok(())
+        }
+        Some("research") => {
+            anyhow::ensure!(args.get(1).map(String::as_str) == Some("share"), "usage: yama-server research share --owner EMAIL --id ID --visibility private|link|public [--reset-link]");
+            let email = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
+            let id = flag_value(&args, "--id").context("--id ID is required")?;
+            let visibility = flag_value(&args, "--visibility").context("--visibility private|link|public is required")?;
+            let owner = decks::cli::owner_id(&pool, &email).await?;
+            let err = |e: error::AppError| anyhow::anyhow!("{e}");
+            if args.iter().any(|a| a == "--reset-link") {
+                deck_research::reset_link(&pool, &owner, &id).await.map_err(err)?;
+            }
+            println!("{}", deck_research::set_visibility(&pool, &owner, &id, &visibility).await.map_err(err)?);
             Ok(())
         }
         Some("import-plan") => {

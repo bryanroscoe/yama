@@ -406,3 +406,110 @@ fn a_deck_matches_a_plan_list_by_cards_not_label() {
     let swapped = [("Éowyn", 1, "main"), ("Sol Ring", 1, "commander"), ("Island", 2, "main")];
     assert_ne!(super::list_key(deck.iter().copied()), super::list_key(swapped.iter().copied()), "a different commander is a different list");
 }
+
+fn note() -> serde_json::Value {
+    json!({
+        "schema": "yama-research/1", "id": "easy", "title": "Easy builds for Justin", "generated_at": "2026-10-31T00:00:00Z",
+        "summary": "Upgrades that play themselves.",
+        "scenarios": [{"id": "shop", "label": "Secret shopping list", "buys": [{"card": "Sol Ring", "store": "Secret Store", "price": 1.25}]}],
+        "decks": [{
+            "key": "party", "name": "Party Time", "commander": "Nalia de'Arnise", "recommended_build": "b3",
+            "ownership": "Owner holds a secret binder", "installed_state": "Installed secretly",
+            "pilot": "Play a party member every turn.",
+            "builds": [{
+                "id": "b3", "label": "Bracket 3 · easy+", "bracket": 3, "why": "Cleaner removal.",
+                "list": "Commander\n1 Nalia de'Arnise\nDeck\n1 Swords to Plowshares\n98 Plains",
+                "acquisition": {"buys": [{"card": "Swords to Plowshares", "store": "Hidden Hobby Shop", "price": 3.5}]},
+                "swaps": [{"id": "stp", "card_in": "Swords to Plowshares", "card_out": "Stick Together", "why": "One-mana exile.", "why_out": "Symmetrical.",
+                           "acquisition": {"store": "Hidden Hobby Shop", "price": 3.5}}]
+            }]
+        }]
+    })
+}
+
+#[tokio::test]
+async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (_, other) = user(&pool, "other@example.com").await;
+    sqlx::query("UPDATE users SET handle = 'saget' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    crate::deck_research::save(&pool, &bryan, &note()).await.unwrap();
+    let (s, _) = send(&app, Method::POST, "/api/research/easy/reviews", Some(&bt), Some(json!({
+        "op_id": "op1", "target": "swap:party:b3:stp", "decision": "want", "note": "my private review note",
+        "expected_version": 0,
+        "target_hash": crate::util::sha256_hex(&note()["decks"][0]["builds"][0]["swaps"][0].to_string())
+    }))).await;
+    assert_eq!(s, StatusCode::OK);
+
+    // Private: no link yet, and the owner list says so.
+    let (_, list) = send(&app, Method::GET, "/api/research", Some(&bt), None).await;
+    assert_eq!(list[0]["visibility"], "private");
+    assert!(list[0]["share_token"].is_null());
+
+    // Someone else can't share it; it isn't theirs.
+    let (s, _) = send(&app, Method::PUT, "/api/research/easy/sharing", Some(&other), Some(json!({"visibility": "public"}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = send(&app, Method::PUT, "/api/research/easy/sharing", Some(&bt), Some(json!({"visibility": "everyone"}))).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Link: the note, its deck page and the download work signed out; the profile doesn't list it.
+    let (s, shared) = send(&app, Method::PUT, "/api/research/easy/sharing", Some(&bt), Some(json!({"visibility": "link"}))).await;
+    assert_eq!(s, StatusCode::OK);
+    let token = shared["share_token"].as_str().unwrap().to_string();
+    assert_eq!(shared["link"], format!("/r/{token}"));
+    let (status, headers, body) = page(&app, &format!("/r/{token}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Easy builds for Justin") && body.contains("Party Time") && body.contains("@saget"));
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
+    let (status, _, deck) = page(&app, &format!("/r/{token}/party")).await;
+    assert_eq!(status, StatusCode::OK);
+    for shown in ["Cleaner removal.", "Play a party member every turn.", "One-mana exile.", "Symmetrical.", "Swords to Plowshares", "Stick Together"] {
+        assert!(deck.contains(shown), "{shown}");
+    }
+    for hidden in ["my private review note", "Secret Store", "Hidden Hobby Shop", "Secret shopping list", "secret binder", "Installed secretly", "3.5"] {
+        assert!(!body.contains(hidden) && !deck.contains(hidden), "{hidden}");
+    }
+    let (status, _, file) = page(&app, &format!("/r/{token}/party/b3-names.txt")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(file.starts_with("Commander\n1 Nalia de'Arnise\n"), "{file}");
+    assert!(file.contains("98 Plains"));
+    assert_eq!(page(&app, &format!("/r/{token}/nope")).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(page(&app, &format!("/r/{token}/party/b9-names.txt")).await.0, StatusCode::NOT_FOUND);
+    assert!(!page(&app, "/u/saget").await.2.contains(&format!("/r/{token}")));
+
+    // Public: listed on the profile. Refreshing the note keeps its sharing and link.
+    send(&app, Method::PUT, "/api/research/easy/sharing", Some(&bt), Some(json!({"visibility": "public"}))).await;
+    assert!(page(&app, "/u/saget").await.2.contains(&format!("/r/{token}")));
+    let mut changed = note();
+    changed["title"] = json!("Easy builds, revised");
+    crate::deck_research::save(&pool, &bryan, &changed).await.unwrap();
+    let (_, bundle) = send(&app, Method::GET, "/api/research/easy", Some(&bt), None).await;
+    assert_eq!((bundle["visibility"].as_str(), bundle["share_token"].as_str()), (Some("public"), Some(token.as_str())));
+    assert!(page(&app, &format!("/r/{token}")).await.2.contains("Easy builds, revised"));
+
+    // A new link ends the old one; private ends both; a disabled account shares nothing.
+    let (_, reset) = send(&app, Method::POST, "/api/research/easy/share-link", Some(&bt), None).await;
+    let fresh_token = reset["share_token"].as_str().unwrap().to_string();
+    assert_ne!(fresh_token, token);
+    assert_eq!(page(&app, &format!("/r/{token}")).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(page(&app, &format!("/r/{fresh_token}")).await.0, StatusCode::OK);
+    sqlx::query("UPDATE users SET disabled_at = 'now' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    assert_eq!(page(&app, &format!("/r/{fresh_token}")).await.0, StatusCode::NOT_FOUND);
+    sqlx::query("UPDATE users SET disabled_at = NULL WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    send(&app, Method::PUT, "/api/research/easy/sharing", Some(&bt), Some(json!({"visibility": "private"}))).await;
+    let (status, _, body) = page(&app, &format!("/r/{fresh_token}")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!body.contains("Easy builds"));
+    assert!(!page(&app, "/u/saget").await.2.contains("/r/"));
+}
+
+#[test]
+fn the_public_view_of_a_note_is_an_allow_list() {
+    let view = crate::deck_research::public_view(&note());
+    let text = view.to_string();
+    for hidden in ["scenarios", "acquisition", "ownership", "installed_state", "Hidden Hobby Shop", "Secret"] {
+        assert!(!text.contains(hidden), "{hidden}");
+    }
+    assert_eq!(view["decks"][0]["builds"][0]["swaps"][0]["why"], "One-mana exile.");
+    assert_eq!(view["decks"][0]["pilot"], "Play a party member every turn.");
+}
