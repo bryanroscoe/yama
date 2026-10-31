@@ -197,6 +197,20 @@ fieldset.seat.seat-card2 {
   min-height: var(--target);
   border-radius: 10px;
 }
+/* The seat's last line (Log a game): "Won this game" and Remove, at either end, inside the box. */
+.seat-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.seat-fields2 .seat-foot input[type="radio"] {
+  min-height: 0;
+  border-radius: 50%;
+}
 .seat-player {
   display: flex;
   gap: 12px;

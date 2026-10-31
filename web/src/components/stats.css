@@ -37,6 +37,11 @@
   border-color: var(--st-accent);
   color: var(--st-ground);
 }
+/* "Don't remember": an answer in its own right, set apart from the players' names. */
+.capture .choice-unknown {
+  justify-self: start;
+  font-weight: 400;
+}
 .capture .question {
   display: grid;
   gap: 0.45rem;
