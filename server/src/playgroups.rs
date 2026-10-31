@@ -26,6 +26,8 @@ pub struct Member {
     pub user_id: Option<String>,
     pub guest_name: Option<String>,
     pub display_name: String,
+    /// Their profile handle, if they picked one: the seat can then offer their public decks.
+    pub handle: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -53,7 +55,8 @@ pub async fn is_member(pool: &SqlitePool, group: &str, user: &str) -> AppResult<
 
 pub async fn members(pool: &SqlitePool, group: &str) -> AppResult<Vec<Member>> {
     Ok(sqlx::query_as(
-        "SELECT m.id, m.user_id, m.guest_name, COALESCE(u.display_name, m.guest_name) AS display_name
+        "SELECT m.id, m.user_id, m.guest_name, COALESCE(u.display_name, m.guest_name) AS display_name,
+                CASE WHEN u.disabled_at IS NULL THEN u.handle END AS handle
          FROM playgroup_members m LEFT JOIN users u ON u.id = m.user_id
          WHERE m.playgroup_id = ? ORDER BY m.created_at",
     )
