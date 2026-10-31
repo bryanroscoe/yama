@@ -132,13 +132,32 @@ export function fitSeatsToGroup(seats: SeatDraft[], group: Playgroup | undefined
     if (group) {
       if (s.memberId && group.members.some((m) => m.id === s.memberId)) return s;
       const member = s.userId ? group.members.find((m) => m.user_id === s.userId) : undefined;
-      if (member) return { ...s, memberId: member.id, name: member.display_name };
+      if (member) return { ...s, memberId: member.id, name: member.display_name, handle: member.handle ?? undefined };
       // Someone found by their handle who is in this group: their member row, account and all.
       const found = !s.userId && s.handle ? group.members.find((m) => m.user_id && m.handle === s.handle) : undefined;
-      if (found) return { ...s, memberId: found.id, userId: found.user_id!, name: found.display_name };
+      if (found) return { ...s, memberId: found.id, userId: found.user_id!, name: found.display_name, handle: found.handle ?? undefined };
       return { ...s, memberId: undefined, ...(s.userId ? NOT_AN_ACCOUNT : {}) };
     }
     if (!s.memberId && (!s.userId || s.userId === me?.id)) return s;
     return { ...s, memberId: undefined, ...(s.userId === me?.id ? {} : NOT_AN_ACCOUNT) };
+  });
+}
+
+/**
+ * Handles for seats rebuilt from a saved game, which know only a member or a guest's name: a
+ * member's from the playgroup, a guest's from someone in your other playgroups by that name.
+ * With the handle on the seat, their public decks are offered and they can't sit twice.
+ */
+export function withHandles(seats: SeatDraft[], group: Playgroup | undefined, groups: Playgroup[]): SeatDraft[] {
+  return seats.map((s) => {
+    if (s.handle) return s;
+    if (s.memberId) {
+      const handle = group?.members.find((m) => m.id === s.memberId)?.handle;
+      return handle ? { ...s, handle } : s;
+    }
+    const name = s.name.trim().toLowerCase();
+    if (s.userId || !name) return s;
+    const known = groups.flatMap((g) => (g.id === group?.id ? [] : g.members)).find((m) => m.user_id && m.handle && m.display_name.toLowerCase() === name);
+    return known?.handle ? { ...s, handle: known.handle } : s;
   });
 }

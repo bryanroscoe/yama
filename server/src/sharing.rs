@@ -558,6 +558,43 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     })
 }
 
+/// What a deck list shows on its tile: its commanders, their colors, the first commander's art
+/// crop (only Scryfall's, and only with its artist) and the cards outside the sideboard.
+pub(crate) struct DeckFace {
+    pub(crate) commanders: Vec<String>,
+    pub(crate) color_identity: String,
+    pub(crate) art: Option<(String, Option<String>, String)>,
+    pub(crate) card_count: i64,
+}
+
+pub(crate) async fn deck_face(pool: &SqlitePool, version: Option<&str>) -> AppResult<DeckFace> {
+    let cards = match version {
+        Some(v) => crate::decks::load_version_cards(pool, v).await?,
+        None => vec![],
+    };
+    let (mut commanders, mut identity, mut art) = (vec![], String::new(), None);
+    for c in cards.iter().filter(|c| c.board == Board::Commander) {
+        commanders.push(c.name.clone());
+        let row: Option<(String, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT color_identity, image_art_crop, artist FROM cards WHERE oracle_id = ?").bind(&c.oracle_id).fetch_optional(pool).await?;
+        if let Some((ci, crop, artist)) = row {
+            identity.push_str(&ci);
+            if art.is_none()
+                && let Some(url) = crop.filter(|u| u.starts_with("https://cards.scryfall.io/"))
+                && artist.is_some()
+            {
+                art = Some((url, artist, c.name.clone()));
+            }
+        }
+    }
+    Ok(DeckFace {
+        commanders,
+        color_identity: "WUBRG".chars().filter(|c| identity.contains(*c)).collect(),
+        art,
+        card_count: cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum(),
+    })
+}
+
 /// A profile's public decks: each main deck with its public configurations, and any public
 /// configuration whose main deck isn't public on its own.
 pub(crate) struct ProfileDeck {
@@ -570,8 +607,6 @@ pub(crate) struct ProfileDeck {
     /// The main list's own label ("Main" unless it has one), as its page names it.
     pub(crate) label: String,
     pub(crate) configurations: Vec<(String, String)>,
-    /// The list as it is now, for a game logged with this deck (`people.rs`).
-    pub(crate) version_id: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -602,36 +637,17 @@ pub(crate) async fn profile_decks(pool: &SqlitePool, owner: &str) -> AppResult<V
             .map(|c| (c.share_token.clone(), c.configuration.clone().unwrap_or_else(|| c.name.clone())))
             .collect();
         configurations.sort_by_key(|c| c.1.to_lowercase());
-        let cards = match &r.current_version_id {
-            Some(v) => crate::decks::load_version_cards(pool, v).await?,
-            None => vec![],
-        };
-        let (mut commanders, mut identity, mut art) = (vec![], String::new(), None);
-        for c in cards.iter().filter(|c| c.board == Board::Commander) {
-            commanders.push(c.name.clone());
-            let row: Option<(String, Option<String>, Option<String>)> =
-                sqlx::query_as("SELECT color_identity, image_art_crop, artist FROM cards WHERE oracle_id = ?").bind(&c.oracle_id).fetch_optional(pool).await?;
-            if let Some((ci, crop, artist)) = row {
-                identity.push_str(&ci);
-                if art.is_none()
-                    && let Some(url) = crop.filter(|u| u.starts_with("https://cards.scryfall.io/"))
-                    && artist.is_some()
-                {
-                    art = Some((url, artist, c.name.clone()));
-                }
-            }
-        }
+        let face = deck_face(pool, r.current_version_id.as_deref()).await?;
         // A configuration listed on its own (its main deck isn't public) keeps its full name.
         out.push(ProfileDeck {
             token: r.share_token.clone(),
             name: r.name.clone(),
-            commanders,
-            color_identity: "WUBRG".chars().filter(|c| identity.contains(*c)).collect(),
-            art,
-            card_count: cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum(),
+            commanders: face.commanders,
+            color_identity: face.color_identity,
+            art: face.art,
+            card_count: face.card_count,
             label: r.configuration.clone().unwrap_or_else(|| "Main".into()),
             configurations,
-            version_id: r.current_version_id.clone(),
         });
     }
     Ok(out)

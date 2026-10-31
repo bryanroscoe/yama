@@ -11,7 +11,7 @@ import { BracketChips } from "../components/Bracket";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
-import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
+import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, seatDeckLabel, stillHolds, withHandles, type SeatDraft, type SeatPatch } from "./seats";
 import { discardGame, startGame, sync, useOutbox, useRejected, useSyncStatus, useTable } from "./store";
 import { layout } from "./TablePlay";
 import { panelArt, useShowArt } from "./art";
@@ -498,14 +498,6 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
 }) {
   const me = useMe().data;
   const chosen = decks?.find((d) => d.id === seat.deckId);
-  // A seat rebuilt from a saved game knows only the member, or a guest's name: their handle comes
-  // from the playgroup, or from someone you know by that name (another group's member).
-  const guestName = !seat.memberId && !seat.userId ? seat.name.trim().toLowerCase() : "";
-  const handle =
-    seat.handle ??
-    group?.members.find((m) => m.id === seat.memberId)?.handle ??
-    (guestName ? people.find((p) => p.handle && !p.memberId && !p.userId && p.name.toLowerCase() === guestName)?.handle : undefined) ??
-    undefined;
   // A deck named for this seat: one of yours, or a precon or the player's public deck.
   const deckShown = chosen?.name ?? seat.deckLabel;
   // What's typed in the deck field before anything is picked; null shows the deck picked.
@@ -541,7 +533,9 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
       // Your deck by id (its version on the day is looked up on save); anyone else's by its list now.
       deckId: p.kind === "mine" ? p.deck.id : undefined,
       deckVersionId: p.kind === "mine" ? (p.deck.current_version_id ?? undefined) : p.kind === "theirs" ? (p.deck.version_id ?? undefined) : undefined,
-      deckLabel: p.kind === "mine" ? undefined : p.kind === "theirs" ? p.deck.name : p.precon.name,
+      // A deck you lend keeps its name on the seat: the server keeps its list only on a guest's seat
+      // (a seat with an account holds that account's own decks), and the name says what was played.
+      deckLabel: p.kind === "mine" ? (me && seat.userId === me.id ? undefined : p.deck.name) : p.kind === "theirs" ? p.deck.name : p.precon.name,
       commanderName: d.commanders[0] ?? "",
       partnerName: d.commanders[1],
       colorIdentity: p.kind === "mine" ? p.deck.color_identity : p.kind === "theirs" ? p.deck.color_identity : p.precon.color_identity,
@@ -587,7 +581,7 @@ function SeatEditor({ index, seat, onChange, group, decks, deckName, where, peop
             onPick={pickDeck}
             onLeave={() => setDeckText(null)}
             decks={decks}
-            handle={handle}
+            handle={seat.handle}
             yours={isMe}
             trailing={deckShown && seat.colorIdentity ? <span className="combo-trailing"><Pips identity={seat.colorIdentity} label={false} /></span> : null}
           />
@@ -765,10 +759,13 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
     setGroupId(id);
     setSeats((s) => fitSeatsToGroup(s, groups.data?.find((g) => g.id === id), me.data));
   };
-  // A game copied from someone else's playgroup (you sat in but aren't a member of) is logged
-  // without it: its members become names.
+  // Once the playgroups are here: a game copied from someone else's playgroup (you sat in but
+  // aren't a member of) is logged without it, its members becoming names; and seats rebuilt from
+  // a saved game get their players' handles.
   useEffect(() => {
-    if (groups.data && groupId && !groups.data.some((g) => g.id === groupId)) chooseGroup("");
+    if (!groups.data) return;
+    if (groupId && !groups.data.some((g) => g.id === groupId)) chooseGroup("");
+    else if (form) setSeats((s) => withHandles(s, groups.data.find((g) => g.id === groupId), groups.data));
   }, [groups.data]);
   // Seats left blank are dropped; the rest are numbered in order, and picks follow them.
   const filled = seats.map((s, i) => ({ s, i })).filter(({ s }) => s.name.trim() || s.memberId);

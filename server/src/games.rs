@@ -287,7 +287,7 @@ async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> AppResult<ser
     for s in &g.seats {
         seats.push(resolve_seat(&mut tx, user, g.playgroup_id.as_deref(), s).await?);
     }
-    let found: Option<(String, String, Option<String>)> = sqlx::query_as("SELECT created_by, mode, playgroup_id FROM games WHERE id = ?")
+    let found: Option<(String, String, Option<String>, String)> = sqlx::query_as("SELECT created_by, mode, playgroup_id, status FROM games WHERE id = ?")
         .bind(&g.id)
         .fetch_optional(&mut *tx)
         .await?;
@@ -310,9 +310,12 @@ async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> AppResult<ser
             insert_events(&mut tx, &g.id, &g.events).await?;
             false
         }
-        Some((by, mode, stored_group)) if by == user && mode == "in_person" => {
+        Some((by, mode, stored_group, status)) if by == user && mode == "in_person" => {
             let has_events: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM game_events WHERE game_id = ?)").bind(&g.id).fetch_one(&mut *tx).await?;
-            if g.finish.is_some() && g.events.is_empty() && !has_events {
+            // Only a game already stored as logged (finished, no table events) takes the form's
+            // players as they are now; a table game still going keeps its seats, even before its
+            // first event has uploaded.
+            if g.finish.is_some() && g.events.is_empty() && !has_events && status == "finished" {
                 sqlx::query("UPDATE games SET playgroup_id = ?, format = ?, starting_life = ?, started_at = COALESCE(?, started_at), note = ? WHERE id = ?")
                     .bind(&g.playgroup_id)
                     .bind(&g.format)
@@ -790,6 +793,21 @@ mod tests {
         // Someone else can't rewrite it.
         let theirs = game(json!([{ "seat": 0, "guest_name": "Sam" }]), json!({ "winner_seat": 0, "seats": [] }));
         assert!(create_game(&pool, "sam", theirs).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_table_game_still_going_keeps_its_seats_when_a_log_comes_in() {
+        let pool = setup().await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0012";
+        // Started at the table; no event has uploaded yet.
+        create_game(&pool, "me", new_game(id, None)).await.unwrap();
+        let other: NewGame = serde_json::from_value(json!({
+            "id": id, "seats": [{ "seat": 0, "guest_name": "Somebody else" }], "finish": { "winner_seat": 0, "seats": [] },
+        }))
+        .unwrap();
+        assert!(matches!(create_game(&pool, "me", other).await, Err(AppError::Conflict(_))));
+        let names: Vec<Option<String>> = sqlx::query_scalar("SELECT guest_name FROM game_seats WHERE game_id = ? ORDER BY seat").bind(id).fetch_all(&pool).await.unwrap();
+        assert_eq!(names.len(), 3);
     }
 
     #[tokio::test]

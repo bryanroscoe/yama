@@ -18,12 +18,14 @@ describe("formFromGame", () => {
   it("puts every answer back on the seat it was about", () => {
     const f = formFromGame(
       game({
-        your_decks: { 0: "d1" },
+        your_decks: { 0: "d1", 3: "d1" },
         // Out of order on purpose: the form follows seat numbers.
         seats: [
           seat(2, { guest_name: "@sam", deck_label: "Food and Fellowship", commander_name: "Frodo, Adventurous Hobbit", fun: 4 }),
           seat(0, { user_id: "u-me", display_name: "Bryan", deck_version_id: "v1", deck_label: "Éomer, King of Rohan", commander_name: "Éomer, King of Rohan" }),
           seat(1, { guest_name: "Alex", deck_label: "Tymna the Weaver and Kraum, Ludevic's Opus", commander_name: "Tymna the Weaver" }),
+          // Your deck, lent to a guest.
+          seat(3, { guest_name: "Jo", deck_version_id: "v1", deck_label: "Riders of Rohan", commander_name: "Éomer, King of Rohan" }),
         ],
       }),
       [myDeck],
@@ -32,6 +34,7 @@ describe("formFromGame", () => {
     expect(f.seats[0]).toMatchObject({ name: "Bryan", userId: "u-me", deckId: "d1", deckVersionId: "v1", deckLabel: undefined, art: myDeck.commander_image });
     expect(f.seats[1]).toMatchObject({ name: "Alex", commanderName: "Tymna the Weaver", partnerName: "Kraum, Ludevic's Opus", deckLabel: undefined });
     expect(f.seats[2]).toMatchObject({ name: "@sam", handle: "sam", deckLabel: "Food and Fellowship", commanderName: "Frodo, Adventurous Hobbit" });
+    expect(f.seats[3]).toMatchObject({ name: "Jo", deckId: "d1", deckLabel: "Riders of Rohan" });
   });
 
   it("keeps a game's format and starting life", () => {

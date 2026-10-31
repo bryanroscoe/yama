@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Playgroup } from "../api";
-import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, stillHolds, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
+import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, stillHolds, withHandles, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
 
 const me = { id: "u-me", display_name: "Bryan" };
 const mine: SeatDraft = { ...emptySeat(), name: "Bryan", userId: "u-me", deckId: "d1", deckVersionId: "v1", commanderName: "Atraxa" };
@@ -113,5 +113,22 @@ describe("late lookups", () => {
     expect(applySeatPatch([emptySeat()], 0, art)[0]!.art).toBeUndefined();
     expect(applySeatPatch([picked], 3, art)).toEqual([picked]);
     expect(applySeatPatch([picked], -1, { name: "x" })).toEqual([picked]);
+  });
+});
+
+describe("withHandles", () => {
+  const other: Playgroup = { ...group, id: "pg2", name: "Sunday", members: [{ id: "m-kim", user_id: "u-kim", guest_name: null, display_name: "Kim", handle: "kim" }] };
+  it("gives rebuilt seats their players' handles, so they're offered decks and sit once", () => {
+    const seats = withHandles(
+      [
+        { ...emptySeat(), name: "Sam Smith", memberId: "m-sam", userId: "u-sam" },
+        { ...emptySeat(), name: "kim" },
+        { ...emptySeat(), name: "Jo", memberId: "m-jo" },
+        { ...emptySeat(), name: "@pat", handle: "pat" },
+      ],
+      group,
+      [group, other],
+    );
+    expect(seats.map((s) => s.handle)).toEqual(["sam", "kim", undefined, "pat"]);
   });
 });

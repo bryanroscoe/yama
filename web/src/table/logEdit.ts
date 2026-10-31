@@ -63,7 +63,8 @@ export function formFromGame(g: GameDetail, decks: DeckSummary[] = []): LogForm 
         handle: s.user_id ? undefined : handleOf(s.guest_name),
         deckId: mine?.id,
         deckVersionId: s.deck_version_id ?? undefined,
-        deckLabel: mine ? undefined : label,
+        // Your deck lent to someone keeps its name too.
+        deckLabel: label,
         commanderName: commander ?? "",
         partnerName: partner,
         colorIdentity: mine?.color_identity ?? "",

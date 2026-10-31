@@ -7,7 +7,7 @@
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
-use crate::sharing::{parse_handle, profile_decks};
+use crate::sharing::{deck_face, parse_handle};
 use axum::extract::{Path, Query, State};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -71,8 +71,9 @@ struct PublicDeck {
     version_id: Option<String>,
 }
 
-/// A handle's public decks, as their profile lists them (main decks, and configurations whose
-/// main deck isn't public). Not found for a handle nobody has, or a disabled account's.
+/// A handle's public decks, as their profile lists them, with each public configuration as a
+/// deck of its own ("Riders of Rohan (stock)"), since each is its own list. Not found for a handle
+/// nobody has, or a disabled account's.
 async fn decks(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(handle): Path<String>) -> AppResult<Json<Vec<PublicDeck>>> {
     st.limits.people.check_user(&user)?;
     let handle = parse_handle(&handle).map_err(|_| AppError::NotFound("profile"))?;
@@ -81,16 +82,26 @@ async fn decks(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(
         .fetch_optional(&st.pool)
         .await?
         .ok_or(AppError::NotFound("profile"))?;
-    let decks = profile_decks(&st.pool, &owner).await?;
-    Ok(Json(
-        decks
-            .into_iter()
-            .map(|d| {
-                let (art, artist) = d.art.map(|(url, artist, _)| (Some(url), artist)).unwrap_or_default();
-                PublicDeck { name: d.name, commanders: d.commanders, color_identity: d.color_identity, art, artist, card_count: d.card_count, version_id: d.version_id }
-            })
-            .collect(),
-    ))
+    let rows: Vec<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT d.name, d.parent_id, d.configuration, d.current_version_id FROM decks d
+         LEFT JOIN decks p ON p.id = d.parent_id
+         WHERE d.owner_id = ? AND d.archived = 0 AND d.visibility = 'public' AND d.share_token IS NOT NULL
+         ORDER BY lower(COALESCE(p.name, d.name)), d.parent_id IS NOT NULL, lower(COALESCE(d.configuration, d.name))",
+    )
+    .bind(&owner)
+    .fetch_all(&st.pool)
+    .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for (name, parent, configuration, version) in rows {
+        let face = deck_face(&st.pool, version.as_deref()).await?;
+        let name = match (&parent, &configuration) {
+            (Some(_), Some(c)) if !name.contains(c.as_str()) => format!("{name} ({c})"),
+            _ => name,
+        };
+        let (art, artist) = face.art.map(|(url, artist, _)| (Some(url), artist)).unwrap_or_default();
+        out.push(PublicDeck { name, commanders: face.commanders, color_identity: face.color_identity, art, artist, card_count: face.card_count, version_id: version });
+    }
+    Ok(Json(out))
 }
 
 #[cfg(test)]
@@ -132,14 +143,19 @@ mod tests {
         // Only public decks, with nothing the profile doesn't show.
         let (public, version) = deck(&pool, &sam, "Riders of Rohan").await;
         let (_private, _) = deck(&pool, &sam, "Secret brew").await;
-        sqlx::query("UPDATE decks SET visibility = 'public' WHERE id = ?").bind(&public).execute(&pool).await.unwrap();
+        let (stock, stock_version) = deck(&pool, &sam, "Riders of Rohan").await;
+        sqlx::query("UPDATE decks SET visibility = 'public' WHERE id IN (?, ?)").bind(&public).bind(&stock).execute(&pool).await.unwrap();
+        sqlx::query("UPDATE decks SET parent_id = ?, configuration = 'stock' WHERE id = ?").bind(&public).bind(&stock).execute(&pool).await.unwrap();
         let (s, decks) = send(&app, Method::GET, "/api/people/@Sa_M/decks", Some(&mt), None).await;
         assert_eq!(s, StatusCode::OK);
         let decks = decks.as_array().unwrap();
-        assert_eq!(decks.len(), 1);
+        // The main list, then its public configuration as a deck of its own.
+        assert_eq!(decks.len(), 2, "{decks:?}");
         assert_eq!(decks[0]["name"], "Riders of Rohan");
         assert_eq!(decks[0]["commanders"], json!(["Test Commander"]));
         assert_eq!(decks[0]["version_id"], json!(version));
+        assert_eq!(decks[1]["name"], "Riders of Rohan (stock)");
+        assert_eq!(decks[1]["version_id"], json!(stock_version));
         assert_eq!(send(&app, Method::GET, "/api/people/sam/decks", Some(&mt), None).await.0, StatusCode::NOT_FOUND);
         assert_eq!(send(&app, Method::GET, "/api/people/nobody/decks", Some(&mt), None).await.0, StatusCode::NOT_FOUND);
     }
