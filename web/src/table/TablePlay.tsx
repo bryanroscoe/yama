@@ -402,9 +402,11 @@ export function Panel(props: {
   const dispatch = useContext(DispatchContext);
   const showArt = useShowArt();
   // useTableArt already honours the per-device "mana colors instead of art" switch.
-  const art = artFor?.(p.seat) ?? null;
-  // Partners (and a Background) share the panel, each with its own half.
-  const partnerArt = art ? (artFor?.(p.seat, true) ?? null) : null;
+  // Partners (and a Background) share the panel, each with its own half; either one alone fills it.
+  const mainArt = artFor?.(p.seat) ?? null;
+  const secondArt = artFor?.(p.seat, true) ?? null;
+  const art = mainArt ?? secondArt;
+  const partnerArt = mainArt ? secondArt : null;
   // With art on, a seat whose art is missing is a raised block, not a mana fill; the identity
   // band along its top still says whose it is. Plain colors are the per-device choice.
   const noArt = showArt && !art;
@@ -515,7 +517,7 @@ export function Panel(props: {
             Out? {loss.text}
           </button>
         )}
-        {out && <div className="out-label">{turnsCounted(state) ? `Out on turn ${p.eliminated!.turn}` : "Out"}</div>}
+        {out && <div className="out-label">{p.eliminated!.uncounted ? "Out" : `Out on turn ${p.eliminated!.turn}`}</div>}
         {onAttack && commanderGame && !out && !attack && (
           <button className="attack-btn" onClick={() => onAttack(false)} aria-label={`Deal commander damage with ${p.commanderName ?? `${p.name}'s commander`}`} title="Commander damage">
             <SwordsIcon />

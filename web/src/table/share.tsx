@@ -99,7 +99,8 @@ export function joinUrl(gameId: string): string {
 function useQrSvg(url: string, on: boolean): string {
   const [svg, setSvg] = useState("");
   useEffect(() => {
-    if (!on) return;
+    // Stopped sharing: no code left on screen for anyone to scan into an empty room.
+    if (!on) return setSvg("");
     QRCode.toString(url, { type: "svg", margin: 1, color: { dark: "#0b0c0e", light: "#f2efe8" } }).then(setSvg);
   }, [on, url]);
   return svg;
@@ -228,7 +229,7 @@ export function JoinSheet({ gameId, onDone }: { gameId: string; onDone: () => vo
       <p className="dim" style={{ margin: 0 }}>
         Scan this with a phone camera, pick your seat and keep your own totals. Everyone signs in to Yama with Google the first time.
       </p>
-      {svg ? <div className="join-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" /> : <div className="join-qr join-qr-wait" aria-hidden="true" />}
+      {sharing && svg ? <div className="join-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" /> : <div className="join-qr join-qr-wait" aria-hidden="true" />}
       <p role="status" className="tm-status">
         <span className={`status-dot ${hosting.connected ? "good" : "warn"}`} aria-hidden="true" />
         {!sharing ? "Not sharing" : hosting.connected ? "Live: phones that join follow along" : "Connecting to Yama…"}

@@ -129,7 +129,8 @@ export interface PlayerState extends PlayerSetup {
   /** Times each commander has been cast from the command zone; tax is 2 per cast. */
   commanderCasts: number;
   partnerCasts: number;
-  eliminated?: { turn: number; bySeat?: Seat };
+  /** `uncounted`: knocked out before the table started counting turns, so `turn` means nothing. */
+  eliminated?: { turn: number; bySeat?: Seat; uncounted?: true };
 }
 
 export interface TableState {
@@ -240,7 +241,10 @@ export function apply(state: TableState, e: TableEvent): TableState {
       // Before anyone has passed, it's also their turn now. Later it only corrects the record.
       return { ...state, firstSeat: e.seat, activeSeat: state.passes === 0 ? e.seat : state.activeSeat };
     case "eliminate":
-      return updatePlayer(state, e.seat, (p) => ({ ...p, eliminated: { turn: state.turn, bySeat: e.bySeat } }));
+      return updatePlayer(state, e.seat, (p) => ({
+        ...p,
+        eliminated: { turn: state.turn, bySeat: e.bySeat, ...(turnsCounted(state) ? {} : { uncounted: true as const }) },
+      }));
     case "seat": {
       const { type: _, seat, was: __, ...pick } = e;
       const old = state.players.find((p) => p.seat === seat);
@@ -450,7 +454,7 @@ export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
     seats: state.players.map((p) => ({
       seat: p.seat,
       final_life: p.life,
-      eliminated_turn: turnsCounted(state) ? (p.eliminated?.turn ?? null) : null,
+      eliminated_turn: p.eliminated && !p.eliminated.uncounted ? p.eliminated.turn : null,
       eliminated_by_seat: p.eliminated?.bySeat ?? null,
       fun: ratings.get(p.seat) ?? null,
     })),

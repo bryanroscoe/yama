@@ -242,6 +242,15 @@ describe("finish", () => {
     expect(body.seats[2]).toMatchObject({ eliminated_turn: 2 });
   });
 
+  it("an elimination before the table counted turns has no turn, even once counting starts", () => {
+    let log = record([], { type: "eliminate", seat: 2, bySeat: 1 }, t0);
+    log = record(log, { type: "pass_turn" }, later(100));
+    log = record(log, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(200));
+    const body = toServerFinish(setup, log)!;
+    expect(body.turns).toBe(1);
+    expect(body.seats[2]).toMatchObject({ eliminated_turn: null, eliminated_by_seat: 1 });
+  });
+
   it("keeps the city's blessing at one, and other counters at zero or more", () => {
     let s = initialState(setup);
     s = apply(s, { type: "counter", seat: 0, counter: "blessing", delta: 1 });

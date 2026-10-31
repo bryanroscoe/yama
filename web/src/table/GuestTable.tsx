@@ -212,7 +212,7 @@ function GuestGame({ gameId }: { gameId: string }) {
             <ul className="guest-others" aria-label="Everyone else. Tap a player to see or change their totals">
               {others.map((p) => {
                 const a = artFor(p.seat);
-                const note = p.eliminated ? "Out" : turnsCounted(state) && state.activeSeat === p.seat ? "Their turn" : p.poison > 0 ? `${p.poison} poison` : "";
+                const note = p.eliminated ? (p.eliminated.uncounted ? "Out" : `Out on turn ${p.eliminated.turn}`) : turnsCounted(state) && state.activeSeat === p.seat ? "Their turn" : p.poison > 0 ? `${p.poison} poison` : "";
                 return (
                   <li key={p.seat}>
                     <button className="guest-tile-btn" onClick={() => setSheetSeat(p.seat)} aria-label={`${p.name}, ${p.eliminated ? "out" : `${p.life} life`}. Open`}>
