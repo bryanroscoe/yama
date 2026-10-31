@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 // Which pages a polish run visits: the static routes in web/src/App.tsx as seeds, then links
 // found on the pages themselves, a few samples per route pattern (so ten decks don't mean ten
 // near-identical deck pages).
@@ -101,12 +103,14 @@ export function sampleKey(url, matchers) {
   return patternFor(url.pathname, matchers) + (keys ? `?${keys}` : "");
 }
 
-/** A short file-safe name for a URL. */
+/** A short file-safe name for a URL, unique to its path and query (a hash tells apart URLs the
+ *  readable part makes the same, like ?q=A-B and ?q=A.B). */
 export function slugFor(url) {
   const s = (url.pathname + (url.search ? `-${url.search.slice(1)}` : ""))
     .replace(/^\/+|\/+$/g, "")
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-  return s || "home";
+    .slice(0, 70);
+  const hash = createHash("sha256").update(url.pathname + url.search).digest("hex").slice(0, 6);
+  return `${s || "home"}-${hash}`;
 }

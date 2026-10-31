@@ -38,7 +38,8 @@ describe("polish routes", () => {
   });
 
   it("names files safely", () => {
-    expect(slugFor(new URL("https://x/"))).toBe("home");
-    expect(slugFor(new URL("https://x/decks/plan/d/ab_c?x=1"))).toBe("decks-plan-d-ab-c-x-1");
+    expect(slugFor(new URL("https://x/"))).toMatch(/^home-[0-9a-f]{6}$/);
+    expect(slugFor(new URL("https://x/decks/plan/d/ab_c?x=1"))).toMatch(/^decks-plan-d-ab-c-x-1-[0-9a-f]{6}$/);
+    expect(slugFor(new URL("https://x/cards?q=A-B"))).not.toBe(slugFor(new URL("https://x/cards?q=A.B")));
   });
 });

@@ -34,10 +34,11 @@ Signed in, it starts from every static route in `web/src/App.tsx` plus `/precons
 
 ## Read-only on purpose
 
-A run can't change anyone's data, so it's safe on production:
+A run can't change anyone's decks, collection, games, plans or settings, so it's safe on production. The only writes are sign-in bookkeeping: `--as` adds a session row (`user session`), and requests update the account's `last_seen_at`, as any visit does.
 
-- Every request that isn't GET, HEAD or OPTIONS is blocked (`--allow-writes` lifts that, on localhost only). The report lists what was blocked.
+- Every request that isn't GET, HEAD or OPTIONS is blocked (`--allow-writes` lifts that, on localhost only). WebSockets never reach the server either: Yama's sockets write (a game's stop preferences, a shared table's state), so live pages show as disconnected. The report lists what was blocked.
 - Each size starts from an empty browser profile with service workers off, so offline queues and local state die with the run.
+- A remote base must be https, so the session token never crosses the network in the clear.
 - Presses skip buttons that act (delete, save, buy, apply, start, sign out, …), and nothing is pressed on live-game pages (`/play/…`, `/table/…`). `/table/join/…` and `/oauth/…` are never visited.
 - `--interact safe` (the default) presses only things that say they open something: `aria-haspopup`, `aria-expanded`, `<summary>`, tabs, `popovertarget`, and buttons labelled More, Menu, Filter, Sort, Details and so on. `--interact all` presses every other button too; `none` presses nothing.
 

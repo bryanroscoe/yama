@@ -9,8 +9,9 @@
 //   npm run polish -- shoot --base http://localhost:5173 /decks /cards   just these pages
 //
 // Read-only by default: every request that isn't GET, HEAD or OPTIONS is blocked, service workers
-// are off and each run starts from an empty browser profile, so a run on production can't change
-// anyone's data however many buttons it presses.
+// and WebSockets are answered in the browser, service workers are off and each run starts from an
+// empty browser profile, so a run on production changes no one's data however many buttons it
+// presses (signing in still records the session and last_seen_at).
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -267,7 +268,9 @@ function trackNetwork(page) {
 async function settle(page, net, { quiet = 500, max = 12_000 } = {}) {
   const start = Date.now();
   await page.waitForLoadState("domcontentloaded", { timeout: max }).catch(() => {});
-  await page.evaluate(() => document.fonts?.ready.then(() => true)).catch(() => {});
+  await page
+    .evaluate((ms) => Promise.race([document.fonts?.ready.then(() => true), new Promise((ok) => setTimeout(ok, ms))]), Math.min(max, 5000))
+    .catch(() => {});
   while (Date.now() - start < max) {
     // Long polls don't count once they've been open a while.
     const pending = [...net.inflight].filter((r) => Date.now() - (r.timing().startTime || start) < 8000);
@@ -434,7 +437,7 @@ async function candidates(page, mode) {
         if (el.closest("details:not([open])") && el.tagName !== "SUMMARY") continue;
         const label = (el.getAttribute("aria-label") || el.innerText || el.title || "").replace(/\s+/g, " ").trim().slice(0, 60);
         if (neverRe.test(label) || neverRe.test(el.title || "")) continue;
-        if (el.type === "submit" || el.closest("a[href]")) continue;
+        if ((el.type === "submit" && el.form) || el.closest("a[href]")) continue;
         let kind;
         if (el.tagName === "SUMMARY") kind = "disclosure";
         else if (el.getAttribute("role") === "tab") {
@@ -541,11 +544,13 @@ async function interact(run, page, entry, vp, view, url, discover) {
     const after = await openState(page, cand.index);
     const overlay = await addedOverlay(page);
     if (after.url !== before.url) {
-      discover?.(new URL(after.url, base));
+      const next = new URL(after.url, base);
+      discover?.(next);
       stale = true;
-      continue;
+      // A tab or filter kept in the query string: the same page in another state, so shoot it.
+      if (next.pathname !== new URL(before.url, base).pathname) continue;
     }
-    const changed = after.popups > before.popups || overlay || after.expanded !== before.expanded || after.open !== before.open || after.selected !== before.selected;
+    const changed = after.url !== before.url || after.popups > before.popups || overlay || after.expanded !== before.expanded || after.open !== before.open || after.selected !== before.selected;
     if (!changed) continue;
     const name = `${cand.kind}-${String(pressed).padStart(2, "0")}-${cand.label.replace(/[^a-z0-9]+/gi, "-").slice(0, 30).replace(/^-|-$/g, "") || "x"}`;
     const shot = await capture(run, page, entry, vp, name, view, { atStart: false });
@@ -553,7 +558,9 @@ async function interact(run, page, entry, vp, view, url, discover) {
     shot.kind = cand.kind;
     // Put it back: Escape for a popup, a second press for a disclosure. A tab stays (the next
     // candidates are on it); anything that won't close means a fresh load.
-    if (after.popups > before.popups || overlay) {
+    if (stale) {
+      // Reloaded before the next press.
+    } else if (after.popups > before.popups || overlay) {
       await page.keyboard.press("Escape");
       await sleep(250);
       const now = await openState(page, cand.index);
@@ -670,6 +677,14 @@ async function shoot() {
         run.blocked.push({ method: req.method(), url: req.url().slice(0, 200), viewport: vp });
         return route.abort("blockedbyclient");
       });
+      // context.route doesn't see WebSocket traffic, and Yama's sockets write (a game's stop
+      // preferences on connect, a shared table's state). Answer them here, never connecting to
+      // the server: live pages show as disconnected, which is the price of a read-only run.
+      await context.routeWebSocket(/.*/, (ws) => {
+        const url = ws.url().slice(0, 200);
+        if (!run.blocked.some((b) => b.method === "WEBSOCKET" && b.url === url && b.viewport === vp)) run.blocked.push({ method: "WEBSOCKET", url, viewport: vp });
+        ws.onMessage(() => {});
+      });
     }
     return context;
   };
@@ -741,6 +756,8 @@ async function shoot() {
 }
 
 try {
+  // A session token sent over plain HTTP to another machine could be read on the way.
+  if (base.protocol !== "https:" && !isLocal(base)) throw new Error(`Use https for ${base.host}: only localhost may be plain http`);
   if (command === "login") await login();
   else if (command === "shoot") await shoot();
   else usage(1);
