@@ -17,9 +17,15 @@ concurrency:
   group: yama-production
   cancel-in-progress: false
 
+# The repository variable DEPLOY_BACKEND picks how this workflow reaches saget
+# (deploy/RUNNER.md, "Choose the deploy backend"): unset or `runner` uses the
+# self-hosted runner on saget's LAN; `cloudflare` uses a GitHub-hosted job over
+# Cloudflare Access SSH. Both run the same forced host release gate.
 jobs:
   deploy:
+    name: Deploy (saget runner)
     if: >-
+      vars.DEPLOY_BACKEND != 'cloudflare' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
        (github.event.workflow_run.event == 'push' &&
@@ -33,12 +39,20 @@ jobs:
       # downloaded PR artifacts. SSH can invoke only the host release gate.
       - name: Deploy the successful main revision
         env:
+          DEPLOY_BACKEND: ${{ vars.DEPLOY_BACKEND }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
+          case "$DEPLOY_BACKEND" in
+            ''|runner) ;;
+            *) echo "::error::Unknown DEPLOY_BACKEND '$DEPLOY_BACKEND'; use runner or cloudflare."; exit 1 ;;
+          esac
           [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$DEPLOY_SSH_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.:-]*$ ]] || {
+            echo '::error::Repository secret DEPLOY_SSH_HOST is missing or not a plain host.'; exit 1; }
           release_log="$(mktemp)"
           trap 'rm -f "$release_log"' EXIT
           printf '%s\n' "$GH_TOKEN" | ssh -T \
@@ -46,7 +60,82 @@ jobs:
             -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile=/run/yama-deploy/known_hosts \
-            root@<saget-lan-address> \
+            "root@$DEPLOY_SSH_HOST" \
+            "/mnt/user/appdata/yama-release/host.py deploy $RELEASE_SHA" | tee "$release_log"
+          result="$(sed -n 's/^YAMA_RELEASE_RESULT=//p' "$release_log" | tail -n 1)"
+          case "$result" in
+            success) message='Deployed and health-verified' ;;
+            already_healthy) message='Already deployed and health-verified; nothing restarted' ;;
+            superseded) message='Superseded by newer main; this request did not activate production' ;;
+            *) echo '::error::Host did not report a recognized release outcome; check the installed host.py version.'; exit 1 ;;
+          esac
+          printf '%s: %s.\n' "$message" "$RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-cloudflare:
+    name: Deploy (Cloudflare Access)
+    if: >-
+      vars.DEPLOY_BACKEND == 'cloudflare' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    environment: production
+    # Covers the host lock wait (110m), release deadline (105m), and cleanup.
+    timeout-minutes: 240
+    steps:
+      # Still no checkout: the job holds only the pinned cloudflared binary and
+      # the deploy key, which the host restricts to its release gate.
+      - name: Install pinned cloudflared
+        env:
+          CLOUDFLARED_VERSION: 2026.10.7
+          CLOUDFLARED_SHA256: 1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872
+        shell: bash
+        run: |
+          set -euo pipefail
+          download="$(mktemp)"
+          trap 'rm -f "$download"' EXIT
+          curl -fsSL --retry 3 -o "$download" \
+            "https://github.com/cloudflare/cloudflared/releases/download/$CLOUDFLARED_VERSION/cloudflared-linux-amd64"
+          echo "$CLOUDFLARED_SHA256  $download" | sha256sum -c -
+          sudo install -m 0755 "$download" /usr/local/bin/cloudflared
+          cloudflared --version
+
+      - name: Deploy the successful main revision
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$DEPLOY_SSH_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || {
+            echo '::error::Secret DEPLOY_SSH_HOST is missing or not a plain host name.'; exit 1; }
+          for name in DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET; do
+            [[ -n "${!name}" ]] || { echo "::error::Secret $name is missing."; exit 1; }
+          done
+          umask 077
+          ssh_dir="$(mktemp -d)"
+          release_log="$(mktemp)"
+          trap 'rm -rf "$ssh_dir" "$release_log"' EXIT
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$ssh_dir/id_ed25519"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/id_ed25519" "$ssh_dir/known_hosts"
+          # ssh runs the proxy through a shell, which expands the Access service
+          # token from this step's environment; it never enters ssh's arguments.
+          printf '%s\n' "$GH_TOKEN" | ssh -T \
+            -i "$ssh_dir/id_ed25519" \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$ssh_dir/known_hosts" \
+            -o 'ProxyCommand=cloudflared access ssh --hostname %h --id "$CF_ACCESS_CLIENT_ID" --secret "$CF_ACCESS_CLIENT_SECRET"' \
+            "root@$DEPLOY_SSH_HOST" \
             "/mnt/user/appdata/yama-release/host.py deploy $RELEASE_SHA" | tee "$release_log"
           result="$(sed -n 's/^YAMA_RELEASE_RESULT=//p' "$release_log" | tail -n 1)"
           case "$result" in

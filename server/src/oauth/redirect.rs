@@ -142,7 +142,7 @@ mod tests {
             "https://claude.ai:8443/api/mcp/auth_callback",
             "http://claude.ai/api/mcp/auth_callback",
             "http://evil.com/callback",
-            "http://192.168.1.5:8080/callback",
+            "http://192.0.2.5:8080/callback",
             "http://127.0.0.2/callback",
             "http://localhost.evil.com/callback",
             "https://localhost/callback",

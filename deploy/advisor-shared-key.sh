@@ -22,7 +22,8 @@
 #
 # This changes the server: run it only when Bryan says to.
 set -eu
-HOST=root@<saget-lan-address>
+DEPLOY_DIR=$(cd "$(dirname "$0")" && pwd)
+. "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama
 
 if [ "${1:-}" = "--remove" ]; then

@@ -1,9 +1,10 @@
 # Running Yama on saget
 
-Yama and its advisor/Forge sidecars run on saget, Bryan's Unraid server at `<saget-lan-address>`. It follows the same pattern as the house site (see `~/Developer/sagetserver/docs/HOUSE-DEPLOYMENT.md`):
+Yama and its advisor/Forge sidecars run on saget, Bryan's Unraid server on his LAN. It follows the same pattern as the house site (see `~/Developer/sagetserver/docs/HOUSE-DEPLOYMENT.md`):
 
 - **Directory:** `/mnt/user/appdata/yama` on the cache SSD. It holds `compose.yaml`, a server-local `yama.env` (not in git), and `data/` (the SQLite database, engine card data and backups).
-- **LAN:** http://<saget-lan-address>:8099. The container listens on 8787.
+- **Reaching saget:** the scripts here read its address and SSH user from `deploy/.env` (gitignored; copy [`deploy/.env.example`](.env.example)) or the environment (`YAMA_DEPLOY_HOST`, `YAMA_DEPLOY_USER`, default `root`), and stop if it is unset. Saget's address is never written in a tracked file. In the commands below, `ssh saget` means `ssh $YAMA_DEPLOY_USER@$YAMA_DEPLOY_HOST`; a `Host saget` entry in `~/.ssh/config` makes them work as written.
+- **LAN:** `http://saget:8099` (saget's LAN address, port 8099). The container listens on 8787. Compose publishes the port on `YAMA_LAN_ADDRESS` from a server-local `.env` beside `compose.yaml` (`/mnt/user/appdata/yama/.env`, not in git; for example `YAMA_LAN_ADDRESS=` saget's LAN address), so only the LAN interface answers. Without it the port listens on every IPv4 interface. The release gate checks health on whatever address the running container publishes.
 - **Public:** joins the existing `novalyst_default` Docker network, so the existing Cloudflare tunnel (`novalyst-cloudflared`) can route a hostname to `http://yama:8787`. No router ports are opened. Never restart `novalyst-cloudflared` or any other container for a Yama deploy.
 - **Container hardening:** runs as `99:100`, read-only filesystem, all capabilities dropped, 5 GB memory cap. The rules engine uses about 720 MB; the lab's game threads and live games take the rest. At its cap a container doesn't fail, it slows down: every allocation waits on the kernel reclaiming pages. That is how 3 GB once turned minute-long lab games into time-outs.
 
@@ -44,8 +45,8 @@ Follow [Releasing Yama](RELEASING.md) before a first deploy or update: fetch Git
 
 - **Google sign-in:** Google Cloud project `yama-512101`, OAuth web client `228285497505-i6ocbd3fndfdrjim4t0p2grsmiglrkfo.apps.googleusercontent.com`, authorized origins `https://yama.ing` and the legacy `https://yama.saget.org`. The client ID is public and is set in the server's `yama.env`. Yama never needs the client secret; Bryan keeps the downloaded JSON.
   - While the OAuth consent screen is in **Testing** mode, only listed test users can sign in. Either add each friend there, or publish the app (the email and profile scopes need no Google review). Open sign-up needs it published (see "Open sign-up" below).
-  - Friends also need a Yama invite: `ssh root@<saget-lan-address> docker exec yama yama-server invite friend@gmail.com`. Admins (`YAMA_ADMIN_EMAILS`) can invite from the Group tab instead.
-- **Password accounts:** for debugging on the server, test players, or if Google sign-in breaks. `ssh root@<saget-lan-address> docker exec yama yama-server user add debug@example.com --admin` prints a generated password; the login screen then shows "Sign in with a password". `user list` shows every account; `user remove-password EMAIL` turns one off. Nobody can make a password account from the app: that command is the only way. `YAMA_PASSWORD_LOGIN=0` in `yama.env` turns password sign-in off altogether. Dev login (`YAMA_DEV_LOGIN`) never works here: the container listens on 0.0.0.0, so the server ignores it.
+  - Friends also need a Yama invite: `ssh saget docker exec yama yama-server invite friend@gmail.com`. Admins (`YAMA_ADMIN_EMAILS`) can invite from the Group tab instead.
+- **Password accounts:** for debugging on the server, test players, or if Google sign-in breaks. `ssh saget docker exec yama yama-server user add debug@example.com --admin` prints a generated password; the login screen then shows "Sign in with a password". `user list` shows every account; `user remove-password EMAIL` turns one off. Nobody can make a password account from the app: that command is the only way. `YAMA_PASSWORD_LOGIN=0` in `yama.env` turns password sign-in off altogether. Dev login (`YAMA_DEV_LOGIN`) never works here: the container listens on 0.0.0.0, so the server ignores it.
 - **Cloudflare Access:** optional, and not set up yet. If it's turned on, commander-decks' `publish.py` and `pull.py` also need an Access service token: set `YAMA_CF_ACCESS_CLIENT_ID` and `YAMA_CF_ACCESS_CLIENT_SECRET` on the Mac, and allow that token in the Access policy. The Yama script key still decides whose plan it is.
 - **Public route (2026-10-28):** `yama.ing` → `http://yama:8787` on the existing `novalyst` tunnel (proxied DNS CNAME to its `cfargotunnel.com` hostname). The legacy `yama.saget.org` route remains available during migration; other tunnel routes are unchanged.
 
@@ -80,7 +81,7 @@ Off unless `yama.env` says otherwise. To turn it on:
 2. **Tell Yama to believe the tunnel's client address.** Sign-in attempts are limited per address (10 in 10 minutes), and behind the tunnel every request arrives from the `novalyst-cloudflared` container. Cloudflare passes the visitor's address in `CF-Connecting-IP`, but Yama only believes that header from peers listed in `YAMA_TRUSTED_PROXIES`, because anyone on the LAN could send it. Find the tunnel network's range (read-only):
 
    ```sh
-   ssh root@<saget-lan-address> "docker network inspect novalyst_default -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}'"
+   ssh saget "docker network inspect novalyst_default -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}'"
    ```
 
    and put it in `yama.env`, for example `YAMA_TRUSTED_PROXIES=172.18.0.0/16`. LAN requests on port 8099 normally arrive from the LAN client's own address (Docker forwards published ports without changing the source), so they are counted per device and their header is ignored. If Docker's userland proxy hands them over from the network's gateway instead, a LAN device could set the header and pick its own count; to rule that out, list only the connector's address (`docker inspect novalyst-cloudflared -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}'`), which changes if that container is recreated. Without this setting the limits still work, but count every tunnel visitor as one address (Yama logs a warning the first time it sees the header from a peer it doesn't trust).
@@ -124,7 +125,7 @@ Setting it up:
 
    Optional settings in `yama.env` (the defaults need nothing): `YAMA_ADVISOR_SHARED_MONTHLY_USD=10`, `YAMA_ADVISOR_SHARED_MODELS=claude-haiku-5-5` (comma-separated), `YAMA_ADVISOR_SHARED_OWNER_NAME=Bryan` (else the granting admin's display name shows: "On Bryan Roscoe's shared key").
 
-Checks (read-only): `ssh root@<saget-lan-address> 'docker logs --tail 20 yama-advisor'` (its start line says whether the subscription token and the shared key are set, never their values).
+Checks (read-only): `ssh saget 'docker logs --tail 20 yama-advisor'` (its start line says whether the subscription token and the shared key are set, never their values).
 
 ## Forge (a second engine for Lab runs)
 
@@ -166,8 +167,8 @@ Android only. The default is the installable web app, with no store; an optional
 ## Useful commands (read-only)
 
 ```sh
-ssh root@<saget-lan-address> 'docker logs --tail 50 yama'
-curl -s http://<saget-lan-address>:8099/api/health
+ssh saget 'docker logs --tail 50 yama'
+curl -s http://saget:8099/api/health   # saget's LAN address from deploy/.env
 ```
 
 ## Debugging with real data

@@ -9,8 +9,9 @@
 # Install it before merging a change to the pin: the release build fails without it (and keeps production).
 # "install" changes the server (an image and $DIR/forge-dist/<name>); it restarts nothing.
 set -eu
-cd "$(dirname "$0")/.."
-HOST=root@<saget-lan-address>
+DEPLOY_DIR=$(cd "$(dirname "$0")" && pwd)
+cd "$DEPLOY_DIR/.."
+. "$DEPLOY_DIR/target.sh"
 NAME=$(sed -n 's/^ARG FORGE_DIST=//p' deploy/Dockerfile.forge-worker)
 SHA=$(sed -n 's/^ARG FORGE_DIST_SHA256=//p' deploy/Dockerfile.forge-worker)
 [ -n "$NAME" ] && [ -n "$SHA" ] || { echo "no FORGE_DIST / FORGE_DIST_SHA256 pin in deploy/Dockerfile.forge-worker"; exit 1; }

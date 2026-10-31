@@ -26,8 +26,9 @@
 # fix the deck directory ("decks") and start the run again; those games are replayed.
 # Extra runner flags: FORGE_ARGS="--max-seconds 1800" deploy/forge-lab.sh start ...
 set -eu
-cd "$(dirname "$0")/.."
-HOST=root@<saget-lan-address>
+DEPLOY_DIR=$(cd "$(dirname "$0")" && pwd)
+cd "$DEPLOY_DIR/.."
+. "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama-lab/forge
 CD=${COMMANDER_DECKS:-../commander-decks}
 FORGE_VERSION=2.0.15
