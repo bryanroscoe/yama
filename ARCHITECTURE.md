@@ -70,9 +70,12 @@ Today Yama is in no public store, which keeps it lower-profile for the legal sid
 
 ## 3. Rules engine (Play)
 
-**Engine source (Bryan, 2026-10-27):** maintain the engine in the private
+**Engine source (Bryan, 2026-10-27; public 2026-10-31):** maintain the engine in the public
 `bryanroscoe/yama-phase` repository with upstream history and licenses preserved. Its `origin`
-is the private fork and `upstream` is `phase-rs/phase`. Yama's patch-export workflow is retired.
+is the fork and `upstream` is `phase-rs/phase`. On 2026-10-31 the fork was republished as a new
+public repository with a work email rewritten out of five commits; upstream SHAs are unchanged,
+fork SHAs from before that date changed (old pin `8aff83e` is now `7f21137`), and the original
+private repository with its PR history is `bryanroscoe/yama-phase-archive`. Yama's patch-export workflow is retired.
 Development uses adjacent checkouts; releases fetch the repository in `deploy/phase-repo`,
 require the full `deploy/phase-rev` SHA on its published main or on a published `archive/*` tag,
 and archive that exact commit. (2026-10-30: rebasing the fork's main keeps the previous line under
@@ -139,7 +142,7 @@ event type so manual diagnostics cannot cancel deployment-authorizing push CI. B
 `saget-yama-ci` container after hosted jobs hit an account billing block. It runs one job at a
 time, capped at two CPUs/12 GiB, with preinstalled Rust 1.98.1 and Node 22. Locked Rust and
 Python regressions plus clean-installed web tests/typecheck/build retain the same acceptance
-checks. Rust builds the exact private Phase pin through a read-only deploy key and real sibling
+checks. Rust builds the exact Phase pin through a read-only deploy key and real sibling
 Cargo paths. A dedicated persistent Cargo/npm cache is separate from production; job checkouts,
 dependencies and temporary files are removed after post-actions. No Docker socket, production
 mounts or deployment key enter CI. Both jobs must pass on the actual PR before merge. Successful
