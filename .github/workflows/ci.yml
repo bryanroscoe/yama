@@ -27,8 +27,9 @@ jobs:
       github.event_name == 'pull_request' &&
       !github.event.pull_request.draft &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Same backend as the other jobs, so a hosted billing block can't stop it on saget.
+    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 5 }}
     # A gate failure never fails CI: the web and Rust jobs then simply run.
     continue-on-error: true
     permissions:
@@ -37,8 +38,16 @@ jobs:
     outputs:
       skip: ${{ steps.decide.outputs.skip }}
     steps:
+      - name: Wait for saget CI capacity
+        if: runner.environment == 'self-hosted'
+        working-directory: ${{ runner.temp }}
+        run: |
+          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
+          python3 /run/saget-ci/slot.py --step
+      # main's gate decides, never the copy in the PR under test.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
           sparse-checkout: scripts/ci/gate.py
           sparse-checkout-cone-mode: false

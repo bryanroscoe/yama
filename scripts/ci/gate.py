@@ -25,7 +25,8 @@ TRAILER = re.compile(r'^Local-CI: passed tree=([0-9a-f]{40}(?:[0-9a-f]{24})?)(?:
 
 
 def attested_trees(message):
-    return set(TRAILER.findall(message))
+    # Only the trailer block (the last paragraph) counts, not a body that quotes one.
+    return set(TRAILER.findall(message.strip().split('\n\n')[-1]))
 
 
 def decide(labels, message, tree, behind_by, base_ref='main'):
@@ -84,13 +85,14 @@ def main():
     except Exception as error:  # Fail safe: an unreadable PR runs CI.
         print(f'::warning::CI gate could not read the PR ({error}); running CI.')
         skip, reason = False, f'The gate could not read the PR ({type(error).__name__}), so CI runs.'
-    write('GITHUB_OUTPUT', f'skip={"true" if skip else "false"}\n')
     title = 'CI skipped' if skip else 'CI runs'
+    print(f'{title}: {reason}')
     write('GITHUB_STEP_SUMMARY',
           f'### {title} for `{head_sha[:12]}`\n\n{reason}\n\n'
           + ('The web and Rust jobs show as skipped. Push CI on main still runs every check '
              'before deployment.\n' if skip else ''))
-    print(f'{title}: {reason}')
+    # Last, so a failure anywhere above leaves no skip behind.
+    write('GITHUB_OUTPUT', f'skip={"true" if skip else "false"}\n')
     return 0
 
 

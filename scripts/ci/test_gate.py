@@ -37,7 +37,9 @@ class Decision(unittest.TestCase):
     def test_missing_or_other_tree_runs(self):
         for message in ('Fix a thing\n', f'Fix\n\nLocal-CI: passed tree={OTHER} on Linux/x86_64\n',
                         f'Fix\n\nLocal-CI: failed tree={TREE}\n', f'Fix\n\nLocal-CI: passed tree={TREE}0\n',
-                        f'Fix\n\n  Local-CI: passed tree={TREE}\n'):
+                        f'Fix\n\n  Local-CI: passed tree={TREE}\n',
+                        f'Fix\n\nQuoting Local-CI: passed tree={TREE} here\n',
+                        f'Fix\n\nLocal-CI: passed tree={TREE} on Linux/x86_64\n\nA later paragraph.\n'):
             with self.subTest(message=message):
                 self.assertFalse(gate.decide(set(), message, TREE, 0)[0])
 
@@ -79,6 +81,9 @@ class Workflow(unittest.TestCase):
         self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', gate_job)
         self.assertNotIn('secrets.', gate_job)
         self.assertIn('sparse-checkout: scripts/ci/gate.py', gate_job)
+        # main's copy of the gate decides, not the PR's.
+        self.assertIn('ref: ${{ github.event.pull_request.base.sha }}', gate_job)
+        self.assertIn('continue-on-error: true', gate_job)
 
     def test_push_and_manual_runs_never_consult_the_gate(self):
         # The release gate: anything that is not a PR runs both jobs whatever the gate did.
@@ -109,22 +114,28 @@ class LocalScript(unittest.TestCase):
         for name in ('npm', 'cargo', 'python3'):
             self.stub(name, 0)
         self.stub('node', 0, output='22')
+        self.stub('rustc', 0, output='rustc 1.98.1 (48a229cea 2026-09-01)')
         phase.mkdir()
-        self.git(phase, 'init', '-q')
+        self.git(phase, 'init', '-q', '-b', 'main')
         self.git(phase, 'commit', '-q', '--allow-empty', '-m', 'engine')
+        # The published engine repository that deploy/phase-repo names.
+        self.published = base / 'published/yama-phase.git'
+        self.git(base, 'clone', '-q', '--bare', str(phase), str(self.published))
         self.repo.mkdir()
         self.git(self.repo, 'init', '-q')
         (self.repo / 'deploy').mkdir()
         (self.repo / 'deploy/phase-rev').write_text(self.git(phase, 'rev-parse', 'HEAD'))
+        (self.repo / 'deploy/phase-repo').write_text(f'{self.published}\n')
         (self.repo / 'scripts').mkdir()
         shutil.copy(ROOT / 'scripts/local-ci.sh', self.repo / 'scripts/local-ci.sh')
+        shutil.copy(ROOT / 'deploy/check-phase.sh', self.repo / 'deploy/check-phase.sh')
         self.git(self.repo, 'add', '.')
         self.git(self.repo, 'commit', '-q', '-m', 'Change\n\nLonger body.')
 
     def stub(self, name, status, output=''):
         command = self.bin / name
         command.write_text(f'#!/bin/sh\necho "{name} $*" >> "$CALL_LOG"\n'
-                           + (f'echo {output}\n' if output else '') + f'exit {status}\n')
+                           + (f"echo '{output}'\n" if output else '') + f'exit {status}\n')
         command.chmod(0o755)
 
     def git(self, cwd, *args):
@@ -148,6 +159,7 @@ class LocalScript(unittest.TestCase):
         self.assertEqual(message.count('Local-CI:'), 1, message)
         self.assertEqual(gate.attested_trees(message), {tree})
         self.assertTrue(gate.decide(set(), message, tree, 0)[0])
+        self.assertIn(' node22', message)
         calls = self.log.read_text()
         for check in ('npm ci', 'npm test', 'npm run typecheck', 'npm run build', 'cargo test --locked',
                       'python3 deploy/test_release.py', 'python3 -O -m unittest'):
@@ -172,6 +184,29 @@ class LocalScript(unittest.TestCase):
         result = self.run_script()
         self.assertEqual(result.returncode, 1)
         self.assertIn('not at deploy/phase-rev', result.stderr)
+        self.assertFalse(self.log.exists())
+
+    def test_unpublished_engine_pin_is_refused(self):
+        phase = self.repo.parent / 'yama-phase'
+        self.git(phase, 'commit', '-q', '--allow-empty', '-m', 'only on this machine')
+        (self.repo / 'deploy/phase-rev').write_text(self.git(phase, 'rev-parse', 'HEAD'))
+        self.git(self.repo, 'commit', '-q', '-am', 'Pin an unpublished engine')
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('engine pin must be published', result.stderr)
+        self.assertNotIn('Local-CI', self.message())
+
+    def test_other_rust_is_refused(self):
+        self.stub('rustc', 0, output='rustc 1.99.0 (abc 2026-10-01)')
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('CI uses Rust 1.98.1', result.stderr)
+        self.assertNotIn('cargo', self.log.read_text())
+
+    def test_unknown_or_extra_options_are_refused(self):
+        for args in (('--amend',), ('--no-amend', 'extra')):
+            with self.subTest(args=args):
+                self.assertEqual(self.run_script(*args).returncode, 2)
         self.assertFalse(self.log.exists())
 
     def test_no_amend_leaves_head(self):
