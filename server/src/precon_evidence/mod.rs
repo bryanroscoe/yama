@@ -814,6 +814,15 @@ async fn tournament_spec(pool: &SqlitePool, id: &str) -> AppResult<(String, Stri
 /// sharing the chosen engine version (`build`, a prefix such as "forge 2.0.16-745401a4"), so
 /// harness-only changes pool but an engine upgrade doesn't. `None` when nothing is chosen or played.
 pub async fn chosen_simulation(pool: &SqlitePool) -> AppResult<Option<SimSource>> {
+    chosen_simulation_at(pool, None).await
+}
+
+/// The id every chosen simulation carries: the experiments behind it are their owner's.
+pub const CHOSEN_SIMULATION_ID: &str = "chosen-simulation";
+
+/// The chosen simulation from the games finished by `cutoff`, or all of them.
+pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateTime<Utc>>) -> AppResult<Option<SimSource>> {
+    let cutoff = cutoff.map(|c| c.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
     let chosen: Vec<(String, String, String)> =
         sqlx::query_as("SELECT experiment_id, engine, build FROM precon_evidence_simulation ORDER BY experiment_id")
             .fetch_all(pool)
@@ -831,12 +840,15 @@ pub async fn chosen_simulation(pool: &SqlitePool) -> AppResult<Option<SimSource>
         let games: Vec<(String, String)> = sqlx::query_as(
             "SELECT spec, result FROM lab_experiment_games
              WHERE experiment_id = ? AND result IS NOT NULL AND engine = ? AND substr(IFNULL(json_extract(result, '$.engine'), ''), 1, length(?)) = ?
+               AND (? IS NULL OR finished_at <= ?)
              ORDER BY ord",
         )
         .bind(id)
         .bind(&engine)
         .bind(&build)
         .bind(&build)
+        .bind(&cutoff)
+        .bind(&cutoff)
         .fetch_all(pool)
         .await?;
         for (g, r) in games {
@@ -878,7 +890,7 @@ pub async fn chosen_simulation(pool: &SqlitePool) -> AppResult<Option<SimSource>
     );
     Ok(Some(SimSource {
         kind: "tournament",
-        id: chosen.iter().map(|c| c.0.as_str()).collect::<Vec<_>>().join("+"),
+        id: CHOSEN_SIMULATION_ID.into(),
         name,
         engine: format!("{build}, {engine}"),
         status: if done { "done" } else { "running" }.into(),
@@ -1190,7 +1202,12 @@ pub async fn rating_v2_from(
     simulation: Option<SimSource>,
 ) -> AppResult<RatingV2> {
     let split = default_split(as_of);
-    let sims: Vec<SimSource> = simulation.iter().cloned().collect();
+    // A chosen tournament keeps playing: the time-split test sees only the games finished by the split.
+    let at_split = match &simulation {
+        Some(s) if s.id == CHOSEN_SIMULATION_ID => chosen_simulation_at(pool, Some(split)).await.unwrap_or(None),
+        s => s.clone(),
+    };
+    let sims: Vec<SimSource> = at_split.into_iter().collect();
     let report = calibrate_with(pool, split, as_of, &loaded, sims).await?;
     let evidence = loaded.by_precon;
     let calibration = simulation

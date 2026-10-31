@@ -2276,6 +2276,11 @@ async fn stock_tournaments_pool_into_the_rating_simulation_one_engine_and_build_
     assert_eq!(one.precons, 5, "every stock entrant");
     assert!(one.name.starts_with("128 stock-precon tournament games"), "{}", one.name);
     assert!(!one.name.contains("Tournament:"), "the owner's experiment name stays private");
+    assert_eq!(one.id, crate::precon_evidence::CHOSEN_SIMULATION_ID, "and so does its id");
+    assert!(!one.engine.contains(&a));
+    // Frozen at a date, as the time-split test sees it: no games had finished an hour ago.
+    let past = chrono::Utc::now() - chrono::Duration::hours(1);
+    assert!(crate::precon_evidence::chosen_simulation_at(&pool, Some(past)).await.unwrap().is_none());
     choose_simulation(&pool, &[a.clone(), b.clone()], "phase", None).await.unwrap();
     let both = chosen_simulation(&pool).await.unwrap().unwrap();
     assert!(both.name.starts_with("256 stock-precon tournament games"), "two tournaments pool: {}", both.name);
