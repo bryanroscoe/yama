@@ -824,16 +824,16 @@ pub const CHOSEN_SIMULATION_ID: &str = "chosen-simulation";
 /// The chosen simulation from the games finished by `cutoff`, or all of them.
 pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateTime<Utc>>) -> AppResult<Option<SimSource>> {
     let cutoff = cutoff.map(|c| c.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
-    let chosen: Vec<(String, String, String)> =
-        sqlx::query_as("SELECT experiment_id, engine, build FROM precon_evidence_simulation ORDER BY experiment_id")
+    let chosen: Vec<(String, String, String, String)> =
+        sqlx::query_as("SELECT experiment_id, engine, build, chosen_at FROM precon_evidence_simulation ORDER BY experiment_id")
             .fetch_all(pool)
             .await?;
-    let Some((_, engine, build)) = chosen.first().cloned() else { return Ok(None) };
+    let Some((_, engine, build, chosen_at)) = chosen.first().cloned() else { return Ok(None) };
     let (all, allowed) = catalog_by_sha(pool).await?;
     let mut labels: BTreeMap<String, String> = BTreeMap::new();
     let mut rows: Vec<(String, Option<String>)> = Vec::new();
     let (mut newest, mut done) = (String::new(), true);
-    for (id, _, _) in &chosen {
+    for (id, ..) in &chosen {
         let (status, created_at, spec) = tournament_spec(pool, id).await?;
         done &= status == "done";
         newest = newest.max(created_at);
@@ -895,8 +895,9 @@ pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateT
         name,
         engine: format!("{build}, {engine}"),
         status: if done { "done" } else { "running" }.into(),
-        // The newest tournament's start: none of the pool predates it.
-        created_at: newest,
+        // The choice was made knowing what came before it, so the source dates from the later of the
+        // choice and the newest tournament's start; the time-split test only credits one older than the split.
+        created_at: newest.max(chosen_at),
         precons: strengths.len(),
         strengths,
     }))
