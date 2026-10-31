@@ -1,9 +1,11 @@
-//! Rating v2 on the public pages: real games from the enabled datasets and the published benchmark,
-//! through the same time-split gate as the Lab. Re-derived whenever a dataset revision, source,
-//! link, catalog import or publication changes, and at least every few minutes for recency.
-use super::{Precon, Publication};
+//! Rating v2 on the public pages: real games from the enabled datasets and the operator's chosen
+//! stock-precon tournament (`precon-evidence simulate`), through the same time-split gate as the Lab.
+//! The published Phase benchmark doesn't feed it (Bryan, 31 Oct 2026: Forge tracks real results
+//! better). Re-derived whenever a dataset revision, source, link, catalog import or the chosen
+//! simulation changes, and at least every few minutes, which also takes in a tournament's new games.
+use super::Precon;
 use crate::error::AppResult;
-use crate::precon_evidence::{self, SimSource};
+use crate::precon_evidence;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -19,9 +21,9 @@ pub struct Info {
     pub method: &'static str,
     pub as_of: DateTime<Utc>,
     pub split: DateTime<Utc>,
-    /// Whether the published simulation earned weight beside real games in the time-split test.
+    /// Whether the chosen simulation earned weight beside real games in the time-split test.
     pub gate_passed: bool,
-    /// The simulation it reads, when one is published.
+    /// The simulation it reads, when one is chosen.
     pub simulation: Option<String>,
     pub ranked: usize,
     pub sources: Vec<Source>,
@@ -71,49 +73,21 @@ static CACHE: Mutex<Option<(Instant, String, Table)>> = Mutex::new(None);
 static REBUILD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Everything the rating reads, so any change is seen on the next request.
-async fn fingerprint(pool: &SqlitePool, publication: Option<&Publication>) -> AppResult<String> {
+async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
     let inputs: String = sqlx::query_scalar(
         "SELECT (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT owner_id || ':' || source_name || ':' || enabled_at AS k FROM precon_evidence_sources ORDER BY k))
              || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT id || ':' || IFNULL(current_revision_id, '') AS k FROM evidence_datasets
                     WHERE owner_id IN (SELECT owner_id FROM precon_evidence_sources) ORDER BY k))
              || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT source_name || ':' || precon_id || ':' || entity || ':' || rule || ':' || created_at AS k FROM precon_evidence_links ORDER BY k))
-             || '#' || (SELECT IFNULL(max(imported_at), '') || ':' || count(*) FROM precons)",
+             || '#' || (SELECT IFNULL(max(imported_at), '') || ':' || count(*) FROM precons)
+             || '#' || (SELECT IFNULL(group_concat(experiment_id || ':' || engine || ':' || chosen_at), '') FROM precon_evidence_simulation)",
     )
     .fetch_one(pool)
     .await?;
-    Ok(format!(
-        "{}#{}#{inputs}",
-        pool.connect_options().get_filename().display(),
-        publication.map(|p| p.id.as_str()).unwrap_or("")
-    ))
+    Ok(format!("{}#{inputs}", pool.connect_options().get_filename().display()))
 }
 
-/// The published benchmark as a simulation source: strengths of the stock lists it still matches.
-fn published(rows: &[Precon], publication: Option<&Publication>) -> Option<SimSource> {
-    let p = publication?;
-    let strengths: HashMap<String, f64> = rows
-        .iter()
-        .filter_map(|r| Some((r.id.clone(), r.rating.as_ref()?.strength.filter(|s| *s > 0.0)?)))
-        .collect();
-    // A date alone could be any time that day; only the day's end can't predate the split wrongly.
-    let created_at = if p.analysed_at.len() == 10 {
-        format!("{}T23:59:59Z", p.analysed_at)
-    } else {
-        p.analysed_at.clone()
-    };
-    Some(SimSource {
-        kind: "publication",
-        id: p.id.clone(),
-        name: p.title.clone(),
-        engine: format!("{}, card data {}, {} AI", p.engine, p.card_data, p.difficulty),
-        status: "done".into(),
-        created_at,
-        precons: strengths.len(),
-        strengths,
-    })
-}
-
-async fn derive(pool: &SqlitePool, rows: &[Precon], publication: Option<&Publication>) -> AppResult<Table> {
+async fn derive(pool: &SqlitePool) -> AppResult<Table> {
     let as_of = Utc::now();
     let loaded = precon_evidence::load(pool, as_of).await?;
     let sources: Vec<Source> = loaded
@@ -160,7 +134,11 @@ async fn derive(pool: &SqlitePool, rows: &[Precon], publication: Option<&Publica
         };
         return Ok(Arc::new((info, HashMap::new())));
     }
-    let simulation = published(rows, publication);
+    // A choice that no longer qualifies (a list changed) drops the simulation, not the rating.
+    let simulation = precon_evidence::chosen_simulation(pool).await.unwrap_or_else(|e| {
+        tracing::warn!(error = ?e, "chosen precon simulation unusable; rating v2 uses real games alone");
+        None
+    });
     let v2 = precon_evidence::rating_v2_from(pool, as_of, loaded, simulation).await?;
     let table = v2
         .precons
@@ -203,8 +181,8 @@ fn cached(key: &str) -> Option<Table> {
         .map(|(_, _, t)| t.clone())
 }
 
-async fn table(pool: &SqlitePool, rows: &[Precon], publication: Option<&Publication>) -> AppResult<Table> {
-    let key = fingerprint(pool, publication).await?;
+async fn table(pool: &SqlitePool) -> AppResult<Table> {
+    let key = fingerprint(pool).await?;
     if let Some(t) = cached(&key) {
         return Ok(t);
     }
@@ -212,19 +190,15 @@ async fn table(pool: &SqlitePool, rows: &[Precon], publication: Option<&Publicat
     if let Some(t) = cached(&key) {
         return Ok(t);
     }
-    let t = derive(pool, rows, publication).await?;
+    let t = derive(pool).await?;
     *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), key, t.clone()));
     Ok(t)
 }
 
 /// Attach rating v2 to every row it ranks. `None` when no real-game source is enabled, or when
 /// the rating can't be derived: the pages then keep meta rank v1 rather than fail.
-pub(super) async fn assign(
-    pool: &SqlitePool,
-    rows: &mut [Precon],
-    publication: Option<&Publication>,
-) -> AppResult<Option<Info>> {
-    let table = match table(pool, rows, publication).await {
+pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<Option<Info>> {
+    let table = match table(pool).await {
         Ok(t) => t,
         Err(e) => {
             tracing::warn!(error = ?e, "public rating v2 unavailable; showing meta rank v1");

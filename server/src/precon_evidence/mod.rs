@@ -703,62 +703,165 @@ pub async fn sim_sources(pool: &SqlitePool, owner: Option<&str>, cutoff: Option<
         });
     }
     if let Some(owner) = owner {
-        let rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
+        let rows: Vec<Tournament> = sqlx::query_as(
             "SELECT id, name, status, created_at, spec FROM lab_experiments
              WHERE owner_id = ? AND json_extract(spec, '$.mode') = 'tournament' ORDER BY created_at DESC LIMIT 20",
         )
         .bind(owner)
         .fetch_all(pool)
         .await?;
-        for (id, name, status, created_at, spec) in rows {
-            let spec: crate::lab::experiments::ExperimentSpec = serde_json::from_str(&spec).map_err(anyhow::Error::from)?;
-            let entrants: Vec<(String, String)> = spec.entrants.iter().map(|l| (l.id.clone(), l.label.clone())).collect();
-            // Summarised afresh, so runs stored before fitted strengths existed still count.
-            // One source per engine and exact build (engine version and card data), so a run that
-            // spans a deployment never pools two builds' games into one strength.
-            let games: Vec<(String, Option<String>, String)> = sqlx::query_as(
-                "SELECT spec, result, engine || ' ' || IFNULL(json_extract(result, '$.engine'), 'unknown') || ', card data ' || IFNULL(substr(json_extract(result, '$.card_data'), 1, 16), 'unknown')
-                 FROM lab_experiment_games
-                 WHERE experiment_id = ? AND result IS NOT NULL AND (? IS NULL OR finished_at <= ?) ORDER BY ord",
-            )
-            .bind(&id)
-            .bind(cutoff.map(|c| c.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)))
-            .bind(cutoff.map(|c| c.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)))
-            .fetch_all(pool)
-            .await?;
-            let builds: BTreeMap<&str, Vec<(String, Option<String>)>> = games.iter().fold(BTreeMap::new(), |mut m, (g, r, e)| {
-                m.entry(e.as_str()).or_insert_with(Vec::new).push((g.clone(), r.clone()));
-                m
-            });
-            for (label, part) in builds {
-                let summary = crate::lab::stats::summarize_versus(&part, &entrants, spec.pod, true);
-                let label = format!("{label}, {} AI", spec.difficulty);
-                let Some(v) = summary.versus else { continue };
-                let mut strengths = HashMap::new();
-                for e in &v.entrants {
-                    let (Some(list), Some(f)) = (spec.entrants.iter().find(|l| l.id == e.id), e.strength) else {
-                        continue;
-                    };
-                    for precon in by_sha.get(&list.sha256).into_iter().flatten() {
-                        strengths.insert(precon.clone(), f.strength);
-                    }
-                }
-                if !strengths.is_empty() {
-                    out.push(SimSource {
-                        kind: "tournament",
-                        id: id.clone(),
-                        name: name.clone(),
-                        engine: label,
-                        status: status.clone(),
-                        created_at: created_at.clone(),
-                        precons: strengths.len(),
-                        strengths,
-                    });
-                }
-            }
+        for row in rows {
+            out.extend(tournament_sources(pool, &by_sha, row, None, cutoff).await?);
         }
     }
     Ok(out)
+}
+
+/// A tournament's id, name, status, creation and spec.
+type Tournament = (String, String, String, String, String);
+
+/// One tournament's strengths: one source per engine and exact build (engine version and card
+/// data), so a run that spans a deployment never pools two builds' games into one strength.
+/// `engine` limits it to one engine's games; `cutoff` to the games finished by then.
+async fn tournament_sources(
+    pool: &SqlitePool,
+    by_sha: &HashMap<String, Vec<String>>,
+    (id, name, status, created_at, spec): Tournament,
+    engine: Option<&str>,
+    cutoff: Option<DateTime<Utc>>,
+) -> AppResult<Vec<SimSource>> {
+    let spec: crate::lab::experiments::ExperimentSpec = serde_json::from_str(&spec).map_err(anyhow::Error::from)?;
+    let entrants: Vec<(String, String)> = spec.entrants.iter().map(|l| (l.id.clone(), l.label.clone())).collect();
+    // Summarised afresh, so runs stored before fitted strengths existed still count.
+    let cutoff = cutoff.map(|c| c.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+    let games: Vec<(String, Option<String>, String)> = sqlx::query_as(
+        "SELECT spec, result, engine || ' ' || IFNULL(json_extract(result, '$.engine'), 'unknown') || ', card data ' || IFNULL(substr(json_extract(result, '$.card_data'), 1, 16), 'unknown')
+         FROM lab_experiment_games
+         WHERE experiment_id = ? AND result IS NOT NULL AND (? IS NULL OR finished_at <= ?) AND (? IS NULL OR engine = ?) ORDER BY ord",
+    )
+    .bind(&id)
+    .bind(&cutoff)
+    .bind(&cutoff)
+    .bind(engine)
+    .bind(engine)
+    .fetch_all(pool)
+    .await?;
+    let builds: BTreeMap<&str, Vec<(String, Option<String>)>> = games.iter().fold(BTreeMap::new(), |mut m, (g, r, e)| {
+        m.entry(e.as_str()).or_insert_with(Vec::new).push((g.clone(), r.clone()));
+        m
+    });
+    let mut out = Vec::new();
+    for (label, part) in builds {
+        let summary = crate::lab::stats::summarize_versus(&part, &entrants, spec.pod, true);
+        let label = format!("{label}, {} AI", spec.difficulty);
+        let Some(v) = summary.versus else { continue };
+        let mut strengths = HashMap::new();
+        for e in &v.entrants {
+            let (Some(list), Some(f)) = (spec.entrants.iter().find(|l| l.id == e.id), e.strength) else {
+                continue;
+            };
+            for precon in by_sha.get(&list.sha256).into_iter().flatten() {
+                strengths.insert(precon.clone(), f.strength);
+            }
+        }
+        if !strengths.is_empty() {
+            out.push(SimSource {
+                kind: "tournament",
+                id: id.clone(),
+                name: name.clone(),
+                engine: label,
+                status: status.clone(),
+                created_at: created_at.clone(),
+                precons: strengths.len(),
+                strengths,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Every catalog list's hash, and the precons by hash still allowed a stock list's simulated result.
+async fn catalog_by_sha(pool: &SqlitePool) -> AppResult<(HashSet<String>, HashMap<String, Vec<String>>)> {
+    let catalog: Vec<(String, String)> = sqlx::query_as("SELECT id, cards FROM precons").fetch_all(pool).await?;
+    let mut all = HashSet::new();
+    let mut allowed: HashMap<String, Vec<String>> = HashMap::new();
+    for (id, cards) in catalog {
+        if let Ok(cards) = serde_json::from_str::<Vec<crate::lab::PreconCard>>(&cards) {
+            let sha = crate::lab::experiments::precon_list_sha(&cards);
+            if crate::upgradeability::allows_reference_results(&id, &cards) {
+                allowed.entry(sha.clone()).or_default().push(id);
+            }
+            all.insert(sha);
+        }
+    }
+    Ok((all, allowed))
+}
+
+/// Check that `id` is a tournament whose every entrant is a current catalog stock list, so its
+/// strengths can't depend on anyone's own lists.
+async fn stock_tournament(pool: &SqlitePool, id: &str) -> AppResult<(Tournament, HashMap<String, Vec<String>>)> {
+    let row: Option<Tournament> = sqlx::query_as("SELECT id, name, status, created_at, spec FROM lab_experiments WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    let row = row.ok_or(AppError::NotFound("experiment"))?;
+    let spec: crate::lab::experiments::ExperimentSpec = serde_json::from_str(&row.4).map_err(anyhow::Error::from)?;
+    if spec.mode != crate::lab::experiments::Mode::Tournament || !spec.opponents.is_empty() || spec.entrants.is_empty() {
+        return Err(AppError::bad("the simulation must be a tournament of stock precons with no other opponents"));
+    }
+    let (all, allowed) = catalog_by_sha(pool).await?;
+    if let Some(l) = spec.entrants.iter().find(|l| !all.contains(&l.sha256)) {
+        return Err(AppError::bad(format!("entrant {:?} is not a current stock precon list", l.label)));
+    }
+    Ok((row, allowed))
+}
+
+/// The operator's chosen simulation (`precon-evidence simulate`): its engine's strengths for the
+/// stock precons in it, re-read as it plays. `None` when nothing is chosen.
+pub async fn chosen_simulation(pool: &SqlitePool) -> AppResult<Option<SimSource>> {
+    let chosen: Option<(String, String)> = sqlx::query_as("SELECT experiment_id, engine FROM precon_evidence_simulation")
+        .fetch_optional(pool)
+        .await?;
+    let Some((id, engine)) = chosen else { return Ok(None) };
+    let (row, by_sha) = stock_tournament(pool, &id).await?;
+    let (date, done) = (row.3.get(..10).unwrap_or(&row.3).to_string(), row.2 == "done");
+    // A run spanning a deployment has a source per build: the one rating the most precons speaks.
+    let best = tournament_sources(pool, &by_sha, row, Some(&engine), None)
+        .await?
+        .into_iter()
+        .max_by_key(|s| s.precons);
+    // The experiment's own name is its owner's; the public sees what it is.
+    Ok(best.map(|mut s| {
+        s.name = format!(
+            "Stock precon tournament, {} ({date}{})",
+            if engine == "forge" { "Forge" } else { "Phase" },
+            if done { "" } else { ", still playing" }
+        );
+        s
+    }))
+}
+
+/// Choose `experiment`'s `engine` games as the simulation rating v2 reads.
+pub async fn choose_simulation(pool: &SqlitePool, experiment: &str, engine: &str) -> AppResult<()> {
+    if !matches!(engine, "phase" | "forge") {
+        return Err(AppError::bad("engine must be phase or forge"));
+    }
+    stock_tournament(pool, experiment).await?;
+    sqlx::query(
+        "INSERT INTO precon_evidence_simulation(id, experiment_id, engine, chosen_at) VALUES (1, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET experiment_id = excluded.experiment_id, engine = excluded.engine, chosen_at = excluded.chosen_at",
+    )
+    .bind(experiment)
+    .bind(engine)
+    .bind(now())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn clear_simulation(pool: &SqlitePool) -> AppResult<()> {
+    sqlx::query("DELETE FROM precon_evidence_simulation").execute(pool).await?;
+    Ok(())
 }
 
 /// The time-split test for every simulation source, as of `as_of` with the split at `split`.
@@ -983,12 +1086,19 @@ pub async fn rating_v2(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Rat
 
 /// Rating v2 from evidence already loaded as of `as_of`.
 pub async fn rating_v2_with(pool: &SqlitePool, as_of: DateTime<Utc>, loaded: Evidence) -> AppResult<RatingV2> {
-    // Global runs only: a cutoff limits tournaments, which a shared rating never reads.
-    let sims = sim_sources(pool, None, None).await?;
-    rating_v2_from(pool, as_of, loaded, sims.into_iter().next()).await
+    // The operator's chosen simulation, else the newest global run.
+    let chosen = chosen_simulation(pool).await.unwrap_or_else(|e| {
+        tracing::warn!(error = ?e, "chosen precon simulation unusable; using the newest global run");
+        None
+    });
+    let simulation = match chosen {
+        Some(s) => Some(s),
+        None => sim_sources(pool, None, None).await?.into_iter().next(),
+    };
+    rating_v2_from(pool, as_of, loaded, simulation).await
 }
 
-/// Rating v2 with a chosen simulation source, or none. The public pages pass the published benchmark.
+/// Rating v2 with a chosen simulation source, or none. The public pages pass the operator's chosen tournament.
 pub async fn rating_v2_from(
     pool: &SqlitePool,
     as_of: DateTime<Utc>,
@@ -1188,6 +1298,7 @@ async fn disable_route(State(st): State<AppState>, AdminUser(user): AdminUser, P
 }
 
 /// `yama-server precon-evidence report | use SOURCE --owner EMAIL | stop SOURCE --owner EMAIL |
+/// simulate EXPERIMENT [--engine forge|phase] | simulate --none |
 /// link PRECON ENTITY [--source NAME] [--note TEXT] | exclude PRECON ENTITY [--source NAME] [--note TEXT] | unlink PRECON ENTITY [--source NAME]`
 pub async fn cli(pool: &SqlitePool, args: &[String]) -> anyhow::Result<()> {
     let flag = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
@@ -1206,7 +1317,7 @@ pub async fn cli(pool: &SqlitePool, args: &[String]) -> anyhow::Result<()> {
         out
     };
     let err = |e: AppError| anyhow::anyhow!("{e}");
-    const USAGE: &str = "usage: yama-server precon-evidence report | calibrate [--split YYYY-MM-DD] [--owner EMAIL] | use SOURCE --owner EMAIL | stop SOURCE --owner EMAIL | link PRECON ENTITY [--source NAME] [--note TEXT] | exclude PRECON ENTITY [--source NAME] [--note TEXT] | unlink PRECON ENTITY [--source NAME]";
+    const USAGE: &str = "usage: yama-server precon-evidence report | calibrate [--split YYYY-MM-DD] [--owner EMAIL] | use SOURCE --owner EMAIL | stop SOURCE --owner EMAIL | simulate EXPERIMENT [--engine forge|phase] | simulate --none | link PRECON ENTITY [--source NAME] [--note TEXT] | exclude PRECON ENTITY [--source NAME] [--note TEXT] | unlink PRECON ENTITY [--source NAME]";
     match (args.first().map(String::as_str), positional.as_slice()) {
         (Some("report"), []) => {}
         (Some("calibrate"), []) => {
@@ -1232,6 +1343,18 @@ pub async fn cli(pool: &SqlitePool, args: &[String]) -> anyhow::Result<()> {
                 disable(pool, &owner, source).await
             }
             .map_err(err)?;
+        }
+        (Some("simulate"), [experiment]) => {
+            let engine = flag("--engine").unwrap_or_else(|| "forge".into());
+            choose_simulation(pool, experiment, &engine).await.map_err(err)?;
+            let chosen = chosen_simulation(pool).await.map_err(err)?;
+            println!("{}", serde_json::to_string_pretty(&chosen)?);
+            return Ok(());
+        }
+        (Some("simulate"), []) if args.iter().any(|a| a == "--none") => {
+            clear_simulation(pool).await.map_err(err)?;
+            println!("No simulation: rating v2 ranks with real games alone on the public pages.");
+            return Ok(());
         }
         (Some(cmd @ ("link" | "exclude" | "unlink")), [precon, entity]) => {
             let rule = match cmd {

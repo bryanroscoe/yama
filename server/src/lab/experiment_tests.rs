@@ -2256,3 +2256,37 @@ async fn tournament_progress_is_exact_between_summary_batches_and_cancel_flushes
     assert_eq!(cancelled.item.progress.done,1);
     assert_eq!(cancelled.item.summary.unwrap().versus.unwrap().games,1,"cancel flushes the last partial summary batch");
 }
+
+#[tokio::test]
+async fn a_stock_tournament_can_be_the_rating_simulation_one_engine_at_a_time() {
+    use crate::precon_evidence::{choose_simulation, chosen_simulation, clear_simulation};
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let admin = user("admin", true);
+    let request = req(json!({"mode":"tournament","entrants":[{"kind":"precon","id":"p1"}],"field":{"kind":"precons_all"},"games":100}));
+    let d = create(&pool, &admin, request, sim.as_ref()).await.unwrap();
+    LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
+    assert!(chosen_simulation(&pool).await.unwrap().is_none(), "nothing chosen, no simulation");
+
+    choose_simulation(&pool, &d.item.id, "phase").await.unwrap();
+    let s = chosen_simulation(&pool).await.unwrap().expect("its phase games give strengths");
+    assert_eq!(s.kind, "tournament");
+    assert_eq!(s.precons, 5, "every stock entrant");
+    assert!(s.name.starts_with("Stock precon tournament, Phase ("), "{}", s.name);
+    assert!(!s.name.contains("Tournament:"), "the owner's experiment name stays private");
+    // The engine filter: this tournament played no Forge games.
+    choose_simulation(&pool, &d.item.id, "forge").await.unwrap();
+    assert!(chosen_simulation(&pool).await.unwrap().is_none());
+    assert!(choose_simulation(&pool, &d.item.id, "mtga").await.is_err());
+
+    // A field with any list that isn't a current stock precon is refused, and stops counting.
+    sqlx::query("UPDATE lab_experiments SET spec = json_set(spec, '$.entrants[0].sha256', 'not-stock') WHERE id = ?")
+        .bind(&d.item.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(choose_simulation(&pool, &d.item.id, "phase").await.is_err());
+    assert!(chosen_simulation(&pool).await.is_err());
+    clear_simulation(&pool).await.unwrap();
+    assert!(chosen_simulation(&pool).await.unwrap().is_none());
+}
