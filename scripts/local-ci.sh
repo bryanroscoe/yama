@@ -86,7 +86,10 @@ python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 
 # The checks must not have changed tracked files or HEAD.
 [ "$(git rev-parse HEAD)" = "$head" ] || die 'HEAD moved while the checks ran; run again.'
-[ -z "$(git status --porcelain --untracked-files=no)" ] || die 'the checks changed tracked files; commit them and run again.'
+[ -z "$(git status --porcelain --untracked-files=all)" ] \
+  || die 'the checks changed tracked files or left untracked ones; commit or remove them and run again.'
+[ -z "$(git -C "$phase_dir" status --porcelain --untracked-files=all)" ] \
+  || die "the checks changed $phase_dir; CI tests the published engine."
 
 trailer="Local-CI: passed tree=$tree on $(uname -s)/$(uname -m) node$node_major"
 if [ "$amend" = 0 ]; then
