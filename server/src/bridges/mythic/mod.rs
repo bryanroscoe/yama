@@ -442,6 +442,9 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
         }
         to_save.push((key.clone(), member.clone()));
     }
+    // The importer's own player is linked to them, not to a member, whatever the page still holds
+    // for it from before they said which player they are.
+    to_save.retain(|(k, _)| Some(k) != me.as_ref());
     to_save.sort();
     let mut matched: HashMap<String, String> = HashMap::new();
     for (key, (yama, _)) in &player_links {

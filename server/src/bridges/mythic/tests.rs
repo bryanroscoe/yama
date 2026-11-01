@@ -129,6 +129,18 @@ async fn players_are_matched_to_members_the_person_confirms() {
         sqlx::query_as("SELECT member_id, user_id FROM game_seats WHERE game_id = ? AND seat = 1").bind(&id).fetch_one(&pool).await.unwrap();
     assert_eq!(seat, (Some(chris_member.clone()), Some(chris.clone())));
 
+    // Saying "I'm Chris" with Bryan's old pick of Chris's member still on the page: that pick isn't
+    // saved, and Chris's own match (here, the guest Dana's player) stays.
+    let (s, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
+        Some(json!({ "export": file(), "playgroup_id": pg, "me": "1", "players": { "managed:77": chris_member, "1": chris_member } }))).await;
+    assert_eq!(s, StatusCode::OK, "{a}");
+    let kept: Option<String> = sqlx::query_scalar("SELECT mythic_id FROM mythic_links WHERE owner_id = ? AND kind = 'player' AND yama_id = ?")
+        .bind(&bryan).bind(&chris_member).fetch_optional(&pool).await.unwrap();
+    assert_eq!(kept.as_deref(), Some("managed:77"));
+    let (s, _) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
+        Some(json!({ "export": file(), "playgroup_id": pg, "players": { "2": chris_member, "managed:77": null } }))).await;
+    assert_eq!(s, StatusCode::OK);
+
     // The match is remembered for the next import.
     let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token),
         Some(json!({ "export": export(vec![mythic_game(21, "2026-10-12T01:00:00Z", 1, None)]), "playgroup_id": pg }))).await;
