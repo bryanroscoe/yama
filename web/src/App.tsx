@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { NavLink, Outlet, Route, Routes } from "react-router";
+import { NavLink, Outlet, Route, Routes, useMatch } from "react-router";
 import { AdminLayout } from "./admin/AdminLayout";
 import { LabRunsPage } from "./admin/LabRuns";
 import { PeoplePage } from "./admin/People";
@@ -47,6 +47,7 @@ import { Spares } from "./plan/Spares";
 import { SwapSheetPage } from "./plan/SwapSheet";
 import { SwapCardsPage } from "./plan/SwapCards";
 import { GuestTable } from "./table/GuestTable";
+import { joinLink } from "./table/share";
 import { GameDetailPage } from "./table/GameDetail";
 import { TableHome } from "./table/TableHome";
 import { TablePlay } from "./table/TablePlay";
@@ -98,6 +99,7 @@ function Shell() {
 
 export function App() {
   const me = useMe();
+  const joining = useMatch("/table/join/:gameId");
   // Another tab started or stopped viewing as someone: this one reloads as whoever it is now.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
@@ -106,6 +108,15 @@ export function App() {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+  // Following a shared table needs only its code, not an account, and works while Yama's
+  // server is offline: the Cloudflare relay carries it.
+  if (joining && joinLink(joining.params.gameId ?? "").relay === "edge") {
+    return (
+      <Routes>
+        <Route path="/table/join/:gameId" element={<GuestTable />} />
+      </Routes>
+    );
+  }
   if (me.isPending) return null;
   if (me.error) {
     return (

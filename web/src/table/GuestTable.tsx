@@ -2,12 +2,12 @@
 // with everyone else along the top, or the whole table. Tap anyone to see or change their
 // totals; the host's phone keeps the game and only it can end it.
 
-import { panelFills, replay, turnsCounted, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
+import { panelFills, RELAY_TOKEN, replay, turnsCounted, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { Pips, Sheet } from "../components/ui";
-import { wsUrl } from "./share";
+import { guestWsUrl, joinFragment, joinLink } from "./share";
 import { useLandscape } from "./layouts";
 import { DispatchContext, KnockOut, LethalSheet, Panel, PlayerSheet, pendingDelta, uprightLayout, useLethalPrompt, useTableArt } from "./TablePlay";
 import "./table.css";
@@ -47,20 +47,21 @@ function GuestGame({ gameId }: { gameId: string }) {
   const socket = useRef<WebSocket | null>(null);
   const navigate = useNavigate();
   const landscape = useLandscape();
-  // The share key comes in the link's #fragment; keep it so a reload can reconnect. The game's
-  // own creator (following from another device) needs none.
-  const [key] = useState(() => {
-    const fromLink = new URLSearchParams(location.hash.slice(1)).get("k");
-    if (fromLink) localStorage.setItem(`yama.guestkey.${gameId}`, fromLink);
-    return fromLink ?? localStorage.getItem(`yama.guestkey.${gameId}`) ?? "";
-  });
+  // The share key and relay come in the link's #fragment; kept so a reload can reconnect. The
+  // game's own creator (following from another device) needs no key on the server's relay.
+  const [{ key, relay }] = useState(() => joinLink(gameId));
 
   useEffect(() => {
+    // The Cloudflare relay refuses a link without a whole key every time: don't keep asking.
+    if (relay === "edge" && !RELAY_TOKEN.test(key)) {
+      setRefused(2);
+      return;
+    }
     let closed = false;
     let attempt = 0;
     let timer: number | null = null;
     const open = () => {
-      const ws = new WebSocket(wsUrl(gameId, "guest", key));
+      const ws = new WebSocket(guestWsUrl(gameId, key, relay));
       let opened = false;
       socket.current = ws;
       ws.onopen = () => {
@@ -74,11 +75,10 @@ function GuestGame({ gameId }: { gameId: string }) {
         if (msg.type === "host") setHostOnline(msg.connected);
         else if (msg.type === "state" && msg.next?.gameId && msg.next?.key) {
           // The table is playing again: follow it to the next game, in the same seat.
-          const next = msg.next as { gameId: string; key: string };
+          const next = msg.next as { gameId: string; key: string; relay?: string };
           const mine = localStorage.getItem(`yama.guest.${gameId}`);
           if (mine !== null) localStorage.setItem(`yama.guest.${next.gameId}`, mine);
-          localStorage.setItem(`yama.guestkey.${next.gameId}`, next.key);
-          navigate(`/table/join/${next.gameId}#k=${next.key}`, { replace: true });
+          navigate(`/table/join/${next.gameId}${joinFragment(next.key, next.relay === "cf" ? "edge" : "server")}`, { replace: true });
         } else if (msg.type === "state") setSnapshot({ setup: msg.setup, log: msg.log });
       };
       ws.onclose = () => {
@@ -93,7 +93,7 @@ function GuestGame({ gameId }: { gameId: string }) {
       if (timer) window.clearTimeout(timer);
       socket.current?.close();
     };
-  }, [gameId, key]);
+  }, [gameId, key, relay]);
 
   const state = useMemo(() => (snapshot ? replay(snapshot.setup, snapshot.log) : null), [snapshot]);
   const artFor = useTableArt(state?.players ?? []);

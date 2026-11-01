@@ -18,3 +18,6 @@ web/public/ocr/
 /tmp/pdfs/
 
 web/public/precon-fonts/
+
+# Cloudflare relay: wrangler dev state
+.wrangler/

@@ -1,13 +1,29 @@
 // Shared table, host side: this phone stays the source of truth and streams its state to
 // everyone who scanned the code. Their taps come back as events and go through our dispatch.
 
-import type { TableEvent } from "@yama/core";
+import { RELAY_TOKEN, relayShareKey, type TableEvent } from "@yama/core";
 import QRCode from "qrcode";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { API_BASE } from "../api";
+import { api, API_BASE } from "../api";
 import { dispatch, getGame, isPosted, subscribeTable, sync } from "./store";
 
-export function wsUrl(gameId: string, role: "host" | "guest", key: string) {
+/**
+ * Where shared tables meet. Set (production): Yama's relay on Cloudflare (relay/), which works
+ * while Yama's own server is offline and needs no account, only the share key. Unset (local
+ * development, a self-hosted copy): the server's own relay, for signed-in guests.
+ */
+export const EDGE_RELAY = (import.meta.env.VITE_RELAY_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+
+/** Which relay a shared game meets on. */
+export type Relay = "edge" | "server";
+/**
+ * Join links say which: `#k=<key>&r=cf` is the Cloudflare relay, no `r` the server's. Phones
+ * keep the app they loaded until they reload, so during a deploy an old host's link must still
+ * send a new guest to the server, and a new host's link a new guest to Cloudflare.
+ */
+const EDGE_MARK = "cf";
+
+function serverWsUrl(gameId: string, role: "host" | "guest", key: string) {
   const base = new URL(API_BASE || location.origin);
   const proto = base.protocol === "https:" ? "wss" : "ws";
   // Browsers can't set headers on WebSockets, so native apps pass their token in the URL.
@@ -15,16 +31,86 @@ export function wsUrl(gameId: string, role: "host" | "guest", key: string) {
   return `${proto}://${base.host}/api/table/${gameId}/ws?role=${role}&key=${encodeURIComponent(key)}${token ? `&token=${token}` : ""}`;
 }
 
+/** The connection a phone following `gameId` opens with the key from its link. */
+export function guestWsUrl(gameId: string, key: string, relay: Relay) {
+  return relay === "edge" ? `${EDGE_RELAY}/table/${gameId}/ws?role=guest&key=${encodeURIComponent(key)}` : serverWsUrl(gameId, "guest", key);
+}
+
+/**
+ * What a join link (or, after a reload, what this phone kept from it) says: the share key and
+ * the relay. A Cloudflare link opened by a build without the Cloudflare relay falls back to the
+ * server's, where the host isn't, rather than nowhere.
+ */
+export function joinLink(gameId: string): { key: string; relay: Relay } {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const fromLink = hash.get("k");
+  if (fromLink) {
+    localStorage.setItem(`yama.guestkey.${gameId}`, fromLink);
+    if (hash.get("r") === EDGE_MARK) localStorage.setItem(`yama.guestrelay.${gameId}`, EDGE_MARK);
+    else localStorage.removeItem(`yama.guestrelay.${gameId}`);
+  }
+  const key = fromLink ?? localStorage.getItem(`yama.guestkey.${gameId}`) ?? "";
+  const edge = EDGE_RELAY && localStorage.getItem(`yama.guestrelay.${gameId}`) === EDGE_MARK;
+  return { key, relay: edge ? "edge" : "server" };
+}
+
+/** The #fragment of a link to `gameId` on `relay`. */
+export function joinFragment(key: string, relay: Relay) {
+  return `#k=${key}${relay === "edge" ? `&r=${EDGE_MARK}` : ""}`;
+}
+
+/** Which relay this phone hosts `gameId` on. */
+function hostRelay(gameId: string): Relay {
+  // A game this phone already shared through the server (before 2026-11) stays there with its
+  // random key, so the phones that scanned it stay in.
+  return EDGE_RELAY && !localStorage.getItem(`yama.share.${gameId}`) ? "edge" : "server";
+}
+
+function hostWsUrl(gameId: string) {
+  return hostRelay(gameId) === "edge" ? `${EDGE_RELAY}/table/${gameId}/ws?role=host&secret=${hostCreds(gameId).secret}` : serverWsUrl(gameId, "host", shareKey(gameId));
+}
+
+const token = () => [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+const HOST_PREFIX = "yama.host.";
+/** Credentials for games this long ago are dropped when a new game gets its own. */
+const KEEP_CREDS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * This phone's credentials for hosting `gameId`: a secret that never leaves it (except to the
+ * relay, to prove it's the host) and the share key derived from it, for the QR code.
+ */
+function hostCreds(gameId: string): { secret: string; key: string } {
+  const k = HOST_PREFIX + gameId;
+  try {
+    const saved = JSON.parse(localStorage.getItem(k) ?? "null") as { secret?: unknown } | null;
+    if (typeof saved?.secret === "string" && RELAY_TOKEN.test(saved.secret)) return { secret: saved.secret, key: relayShareKey(gameId, saved.secret) };
+  } catch {
+    /* unreadable: start over */
+  }
+  forgetOldCreds();
+  const secret = token();
+  localStorage.setItem(k, JSON.stringify({ secret, at: Date.now() }));
+  return { secret, key: relayShareKey(gameId, secret) };
+}
+
+function forgetOldCreds() {
+  try {
+    const old: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k?.startsWith(HOST_PREFIX)) continue;
+      const at = (JSON.parse(localStorage.getItem(k) ?? "null") as { at?: unknown } | null)?.at;
+      if (typeof at !== "number" || Date.now() - at > KEEP_CREDS_MS) old.push(k);
+    }
+    for (const k of old) localStorage.removeItem(k);
+  } catch {
+    /* storage unavailable: nothing to tidy */
+  }
+}
+
 /** The share key for a game this phone hosts. It rides in the QR link's #fragment. */
 export function shareKey(gameId: string): string {
-  const k = `yama.share.${gameId}`;
-  let key = localStorage.getItem(k);
-  if (!key) {
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
-    key = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-    localStorage.setItem(k, key);
-  }
-  return key;
+  return (hostRelay(gameId) === "server" ? localStorage.getItem(`yama.share.${gameId}`) : null) ?? hostCreds(gameId).key;
 }
 
 /** Guests may adjust the table, but only the host's phone ends the game. */
@@ -48,17 +134,31 @@ const setStatus = (s: Partial<Status>) => {
 let socket: WebSocket | null = null;
 let unsubscribe: (() => void) | null = null;
 let retry: number | null = null;
+let postWait: number | null = null;
+let liveTimer: number | null = null;
+/** The last snapshot sent: the store emits on every sync, and most change nothing. */
+let lastSent: string | null = null;
 
 function sendSnapshot() {
   const g = getGame();
   if (!socket || socket.readyState !== WebSocket.OPEN || !g || g.setup.id !== status.gameId) return;
-  socket.send(JSON.stringify({ type: "state", setup: g.setup, log: g.log }));
+  const msg = JSON.stringify({ type: "state", setup: g.setup, log: g.log });
+  if (msg === lastSent) return;
+  lastSent = msg;
+  socket.send(msg);
 }
 
+/** Close codes after which trying again can't help. */
+const REPLACED = 4000; // this game is being shared from another tab or device now
+const TOO_LARGE = 1009; // the game outgrew the relay's message limit
+
 function open(gameId: string, attempt = 0) {
-  const ws = new WebSocket(wsUrl(gameId, "host", shareKey(gameId)));
+  const ws = new WebSocket(hostWsUrl(gameId));
+  let opened = false;
   socket = ws;
   ws.onopen = () => {
+    opened = true;
+    lastSent = null;
     setStatus({ connected: true });
     sendSnapshot();
   };
@@ -66,16 +166,28 @@ function open(gameId: string, attempt = 0) {
     try {
       const msg = JSON.parse(m.data) as { type: string; event?: TableEvent };
       if (msg.type === "event" && msg.event && GUEST_EVENTS.has(msg.event.type)) dispatch(msg.event);
+      // The Cloudflare relay slept and lost its newest copy, and someone joined.
+      else if (msg.type === "resend") {
+        lastSent = null;
+        sendSnapshot();
+      }
     } catch {
       /* ignore malformed */
     }
   };
-  ws.onclose = () => {
+  ws.onclose = (e) => {
     if (socket !== ws) return;
+    if (e.code === REPLACED || e.code === TOO_LARGE) {
+      // Not this phone's to share any more (another tab has the same game), or never will be:
+      // stop, but leave the share key with the server for whoever took over.
+      reset();
+      return;
+    }
     setStatus({ connected: false });
     // Keep trying while we're still sharing this game; the table works offline meanwhile.
     if (status.gameId === gameId) {
-      retry = window.setTimeout(() => open(gameId, attempt + 1), Math.min(15_000, 1000 * 2 ** attempt));
+      const next = opened ? 0 : attempt + 1;
+      retry = window.setTimeout(() => open(gameId, next), Math.min(15_000, 1000 * 2 ** next));
     }
   };
 }
@@ -88,12 +200,13 @@ export function announceNext(nextId: string) {
   const g = getGame();
   if (!socket || socket.readyState !== WebSocket.OPEN || !g || g.setup.id !== status.gameId) return;
   // If the connection is down right now, guests scan the new game's code instead.
-  socket.send(JSON.stringify({ type: "state", setup: g.setup, log: g.log, next: { gameId: nextId, key: shareKey(nextId) } }));
+  const next = { gameId: nextId, key: shareKey(nextId), ...(hostRelay(nextId) === "edge" ? { relay: EDGE_MARK } : {}) };
+  socket.send(JSON.stringify({ type: "state", setup: g.setup, log: g.log, next }));
 }
 
 /** The link a phone opens to join `gameId`, share key in the #fragment. */
 export function joinUrl(gameId: string): string {
-  return `${publicOrigin()}/table/join/${gameId}#k=${shareKey(gameId)}`;
+  return `${publicOrigin()}/table/join/${gameId}${joinFragment(shareKey(gameId), hostRelay(gameId))}`;
 }
 
 function useQrSvg(url: string, on: boolean): string {
@@ -115,32 +228,69 @@ export function startHosting(gameId: string) {
     if (!g || g.setup.id !== gameId) stopHosting(); // game finished or discarded
     else sendSnapshot();
   });
-  void openWhenPosted(gameId);
+  if (hostRelay(gameId) === "edge") {
+    // The Cloudflare relay needs nothing from Yama's server, so the table is live at once.
+    open(gameId);
+    void tellOwnDevices(gameId);
+  } else {
+    // The server's relay only lets the game's creator host a game it already has.
+    void untilPosted(gameId).then((ok) => ok && !socket && open(gameId));
+  }
 }
 
 /**
- * The relay only lets the game's creator host a game the server already has, so a game started
- * a moment ago (setup with everyone's phones, or a rematch) uploads first. Offline, it keeps
- * trying while this game is still being shared; the table works meanwhile.
+ * Whether the server has `gameId` yet: a game started a moment ago (setup with everyone's
+ * phones, or a rematch) uploads first. Offline, it keeps trying while this game is still being
+ * shared; the table works meanwhile. False if sharing stopped first.
  */
-async function openWhenPosted(gameId: string) {
+async function untilPosted(gameId: string): Promise<boolean> {
   for (let attempt = 0; status.gameId === gameId && !isPosted(gameId); attempt++) {
     await sync();
     if (status.gameId !== gameId || isPosted(gameId)) break;
-    await new Promise((r) => (retry = window.setTimeout(r, Math.min(15_000, 1000 * 2 ** attempt))));
+    await new Promise((r) => (postWait = window.setTimeout(r, Math.min(15_000, 1000 * 2 ** attempt))));
   }
-  if (status.gameId === gameId && !socket) open(gameId);
+  return status.gameId === gameId;
 }
 
-export function stopHosting() {
-  if (retry) window.clearTimeout(retry);
-  retry = null;
+const livePath = (gameId: string) => `/api/table/${gameId}/live`;
+/** The server forgets a share key after an hour, so it's left again while sharing goes on. */
+const LIVE_REFRESH_MS = 20 * 60 * 1000;
+
+/**
+ * Leave the share key with Yama's server, for the creator's own other devices: their game page
+ * offers to follow it live. Only them: the server hands it to no one else. Best effort; the
+ * table doesn't need it.
+ */
+async function tellOwnDevices(gameId: string) {
+  if (!(await untilPosted(gameId))) return;
+  const put = () => api(livePath(gameId), { method: "PUT", json: { key: shareKey(gameId) } }).catch(() => undefined);
+  await put();
+  // Stopped while that was on its way: take it back.
+  if (status.gameId !== gameId) {
+    await api(livePath(gameId), { method: "DELETE" }).catch(() => undefined);
+    return;
+  }
+  liveTimer = window.setInterval(() => void put(), LIVE_REFRESH_MS);
+}
+
+/** Stop sharing on this phone, without telling the server. */
+function reset() {
+  for (const t of [retry, postWait]) if (t) window.clearTimeout(t);
+  if (liveTimer) window.clearInterval(liveTimer);
+  retry = postWait = liveTimer = null;
   unsubscribe?.();
   unsubscribe = null;
   const s = socket;
   socket = null;
+  lastSent = null;
   s?.close();
   setStatus({ gameId: null, connected: false });
+}
+
+export function stopHosting() {
+  const gameId = status.gameId;
+  if (gameId && hostRelay(gameId) === "edge") void api(livePath(gameId), { method: "DELETE" }).catch(() => undefined);
+  reset();
 }
 
 export function useHosting() {
@@ -227,7 +377,7 @@ export function JoinSheet({ gameId, onDone }: { gameId: string; onDone: () => vo
         <button className="quiet" onClick={onDone}>Done</button>
       </div>
       <p className="dim" style={{ margin: 0 }}>
-        Scan this with a phone camera, pick your seat and keep your own totals. Everyone signs in to Yama with Google the first time.
+        Scan this with a phone camera, pick your seat and keep your own totals.{hostRelay(gameId) === "edge" ? " No account needed." : " Everyone signs in to Yama with Google the first time."}
       </p>
       {sharing && svg ? <div className="join-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" /> : <div className="join-qr join-qr-wait" aria-hidden="true" />}
       <p role="status" className="tm-status">
