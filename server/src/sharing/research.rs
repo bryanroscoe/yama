@@ -196,13 +196,20 @@ fn from_start(swaps: &[Value]) -> Vec<Change> {
         .collect()
 }
 
-/// Copies of each card a list plays (commander and main deck), in list order.
+/// A card name as builds are compared: ASCII case folded, as the card lookup matches names, so
+/// "Sol Ring" and "sol ring" are one card. Rows keep the spelling as written.
+fn same(name: &str) -> String {
+    name.to_ascii_lowercase()
+}
+
+/// Copies of each card a list plays (commander and main deck), keyed by `same`, and the names
+/// as first written, in list order.
 fn counts(list: &str) -> (Vec<String>, HashMap<String, i64>) {
     let mut lines = crate::decks::parse_list(list, true);
     lines.truncate(MAX_LINES);
     let (mut order, mut n) = (Vec::new(), HashMap::new());
     for line in lines.into_iter().filter(|l| l.board != Board::Side) {
-        let copies = n.entry(line.name.clone()).or_insert(0);
+        let copies = n.entry(same(&line.name)).or_insert(0);
         if *copies == 0 {
             order.push(line.name);
         }
@@ -213,10 +220,11 @@ fn counts(list: &str) -> (Vec<String>, HashMap<String, i64>) {
 
 /// Pairs up to `want` copies of `add` with `cut` while both are still unaccounted for.
 fn take(adds: &mut HashMap<String, i64>, add: &str, cuts: &mut HashMap<String, i64>, cut: &str, want: i64) -> i64 {
-    let n = want.min(adds.get(add).copied().unwrap_or(0)).min(cuts.get(cut).copied().unwrap_or(0));
+    let (add, cut) = (same(add), same(cut));
+    let n = want.min(adds.get(&add).copied().unwrap_or(0)).min(cuts.get(&cut).copied().unwrap_or(0));
     if n > 0 {
-        *adds.get_mut(add).unwrap() -= n;
-        *cuts.get_mut(cut).unwrap() -= n;
+        *adds.get_mut(&add).unwrap() -= n;
+        *cuts.get_mut(&cut).unwrap() -= n;
     }
     n
 }
@@ -236,17 +244,18 @@ pub(super) fn compare(list: &str, swaps: &[Value], vs_list: &str, vs_swaps: &[Va
     for s in swaps {
         let n = take(&mut adds, text(s, "card_in"), &mut cuts, text(s, "card_out"), qty(s));
         if n > 0 {
-            rows.push(Change { add: text(s, "card_in").into(), cut: text(s, "card_out").into(), n, why: text(s, "why").into(), notes: labelled("Cut: ", text(s, "why_out")) });
+            let notes = [labelled("Cut: ", text(s, "why_out")), labelled("", text(s, "pairing_note"))].concat();
+            rows.push(Change { add: text(s, "card_in").into(), cut: text(s, "card_out").into(), n, why: text(s, "why").into(), notes });
         }
     }
     // Both builds replace the same starting card, each with a different card. Indexed, so a long
     // note costs one pass over each build's swaps.
-    let mut replacing: HashMap<&str, Vec<&Value>> = HashMap::new();
+    let mut replacing: HashMap<String, Vec<&Value>> = HashMap::new();
     for t in vs_swaps.iter().filter(|t| !text(t, "card_out").is_empty()) {
-        replacing.entry(text(t, "card_out")).or_default().push(t);
+        replacing.entry(same(text(t, "card_out"))).or_default().push(t);
     }
     for s in swaps {
-        for t in replacing.get(text(s, "card_out")).into_iter().flatten() {
+        for t in replacing.get(&same(text(s, "card_out"))).into_iter().flatten() {
             let n = take(&mut adds, text(s, "card_in"), &mut cuts, text(t, "card_in"), qty(s).min(qty(t)));
             if n > 0 {
                 rows.push(Change {
@@ -273,9 +282,9 @@ pub(super) fn compare(list: &str, swaps: &[Value], vs_list: &str, vs_swaps: &[Va
         }
     }
     for name in &order {
-        let n = adds.get(name).copied().unwrap_or(0);
+        let n = adds.get(&same(name)).copied().unwrap_or(0);
         if n > 0 {
-            let why = match (swaps.iter().find(|s| text(s, "card_in") == name.as_str()), vs_swaps.iter().find(|t| text(t, "card_out") == name.as_str())) {
+            let why = match (swaps.iter().find(|s| text(s, "card_in").eq_ignore_ascii_case(name)), vs_swaps.iter().find(|t| text(t, "card_out").eq_ignore_ascii_case(name))) {
                 (Some(s), _) => text(s, "why").to_string(),
                 (None, Some(_)) => format!("Keeps the starting list's card; {vs_label} cuts it."),
                 _ => String::new(),
@@ -284,9 +293,9 @@ pub(super) fn compare(list: &str, swaps: &[Value], vs_list: &str, vs_swaps: &[Va
         }
     }
     for name in &vs_order {
-        let n = cuts.get(name).copied().unwrap_or(0);
+        let n = cuts.get(&same(name)).copied().unwrap_or(0);
         if n > 0 {
-            let why = match (swaps.iter().find(|s| text(s, "card_out") == name.as_str()), vs_swaps.iter().find(|t| text(t, "card_in") == name.as_str())) {
+            let why = match (swaps.iter().find(|s| text(s, "card_out").eq_ignore_ascii_case(name)), vs_swaps.iter().find(|t| text(t, "card_in").eq_ignore_ascii_case(name))) {
                 (Some(s), _) => text(s, "why_out").to_string(),
                 (None, Some(t)) => format!("Only in {vs_label}: {}", text(t, "why")),
                 _ => String::new(),
