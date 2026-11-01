@@ -152,11 +152,13 @@ export function App() {
       </main>
     );
   }
+  // A join link on Yama's own relay needs an account (the Cloudflare relay's links were let in
+  // above): sign in first, and the link opens once signed in.
+  if (guest && joining) return <Login />;
   if (guest) {
     return (
       <Routes>
         <Route path="/table/play" element={<TablePlay />} />
-        <Route path="/table/join/:gameId" element={<GuestTable />} />
         <Route index element={<TableHome />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
