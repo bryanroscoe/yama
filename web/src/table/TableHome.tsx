@@ -241,7 +241,9 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
         colorIdentity: d.color_identity,
         art: d.commander_image ?? undefined,
         artist: d.commander_artist ?? undefined,
-        partnerName: d.commanders[1],
+        // A choice until the cards say the two can pair (deckCommanders).
+        partnerName: undefined,
+        commanderChoices: d.commanders.length > 1 ? d.commanders : undefined,
       });
     });
     void deckCommanders(d).then((c) => c && setSeats((all) => (all[0]?.deckId === d.id ? patchSeat(all, 0, c) : all)));

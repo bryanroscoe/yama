@@ -181,9 +181,10 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
       // (a seat with an account holds that account's own decks), and the name says what was played.
       deckLabel: p.kind === "mine" ? (me && seat.userId === me.id ? undefined : p.deck.name) : p.kind === "theirs" ? p.deck.name : p.precon.name,
       commanderName: d.commanders[0] ?? "",
-      // Two are a pair until the cards say otherwise; more are a choice (deckCommanders).
-      partnerName: listed.length === 2 ? d.commanders[1] : undefined,
-      commanderChoices: listed.length > 2 ? listed : undefined,
+      // Two or more are a choice until the cards say two can pair (deckCommanders), so a game
+      // started before the lookup answers, or offline, never pairs alternatives.
+      partnerName: undefined,
+      commanderChoices: listed.length > 1 ? listed : undefined,
       colorIdentity: p.kind === "mine" ? p.deck.color_identity : p.kind === "theirs" ? p.deck.color_identity : p.precon.color_identity,
       art: d.commander_image ?? undefined,
       artist: d.commander_artist ?? undefined,

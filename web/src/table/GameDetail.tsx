@@ -32,6 +32,10 @@ export function setupFromServer(g: GameDetail): { setup: TableSetup; log: Logged
   // The server keeps a seat's newest commander; a seat that changed says what it started with.
   const started = new Map<number, { commanderName?: string; partnerName?: string }>();
   for (const { event: e } of log) if (e.type === "seat" && e.was && !started.has(e.seat)) started.set(e.seat, e.was);
+  // Its newest player too: a seat someone else took says who sat there first. The replay's
+  // "player" event puts the newest one (member and account included) back.
+  const firstPlayer = new Map<number, string>();
+  for (const { event: e } of log) if (e.type === "player" && e.was && !firstPlayer.has(e.seat)) firstPlayer.set(e.seat, e.was.name);
   const setup: TableSetup = {
     id: g.id,
     startedAt: g.started_at,
@@ -42,11 +46,12 @@ export function setupFromServer(g: GameDetail): { setup: TableSetup; log: Logged
       const now = splitPair(s);
       const before = started.get(s.seat);
       const { commander, partner } = before ? { commander: before.commanderName, partner: before.partnerName } : now;
+      const firstName = firstPlayer.get(s.seat);
       return {
         seat: s.seat,
-        name: seatName(s),
-        memberId: s.member_id ?? undefined,
-        userId: s.user_id ?? undefined,
+        name: firstName ?? seatName(s),
+        memberId: firstName === undefined ? (s.member_id ?? undefined) : undefined,
+        userId: firstName === undefined ? (s.user_id ?? undefined) : undefined,
         deckVersionId: before ? undefined : (s.deck_version_id ?? undefined),
         deckLabel: before ? commander : (s.deck_label ?? commander),
         commanderName: commander,
