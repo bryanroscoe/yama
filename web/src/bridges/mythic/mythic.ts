@@ -3,7 +3,8 @@
  * small rules the import page follows. The server side is server/src/bridges/mythic.
  */
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../../api";
+import { api, type DeckView } from "../../api";
+import type { MythicSend } from "./snippet";
 
 export interface MythicPlayer {
   mythic_id: string;
@@ -21,7 +22,7 @@ export interface MythicSeat {
   me: boolean;
 }
 
-export type MythicStatus = "new" | "update" | "conflict" | "note" | "unchanged" | "match" | "linked" | "deleted" | "invalid";
+export type MythicStatus = "new" | "update" | "conflict" | "note" | "unchanged" | "match" | "linked" | "deleted" | "duplicate" | "invalid";
 
 export interface MythicGameRow {
   mythic_id: string;
@@ -55,6 +56,39 @@ export interface MythicApplied {
 export interface MythicExport {
   me?: { id: string | number; name?: string | null };
   games: unknown[];
+  /** Files saved before decks were added have none. */
+  decks?: unknown[];
+}
+
+export type MythicDeckStatus = "new" | "match" | "unchanged" | "update" | "yama_changed" | "conflict" | "deleted" | "invalid";
+
+export interface MythicDeckRow {
+  mythic_id: string;
+  name: string;
+  status: MythicDeckStatus;
+  action: "import" | "link" | "update" | "keep" | "skip";
+  yama_id: string | null;
+  yama_name: string | null;
+  /** The Yama deck's version this preview compared; Apply sends it back. */
+  yama_version: string | null;
+  matches: { id: string; name: string }[];
+  cards: number;
+  commanders: string[];
+  unknown: string[];
+  reason: string | null;
+}
+
+export interface MythicDeckPreview {
+  decks: MythicDeckRow[];
+  counts: Partial<Record<MythicDeckStatus, number>>;
+}
+
+/** A Yama deck's link to a Mythic deck. */
+export interface MythicDeckLink {
+  mythic_id: string | null;
+  synced_at?: string;
+  /** Whether Yama's list is still the one last synced. */
+  same?: boolean;
 }
 
 /** Read an uploaded file, or say plainly why it isn't one the snippet saved. */
@@ -93,6 +127,8 @@ export function statusText(g: MythicGameRow): string {
       return g.action === "note" ? "Matched to a game in Yama before, Mythic's note updates" : "Matched to a game in Yama before";
     case "deleted":
       return "Deleted in Yama, stays deleted";
+    case "duplicate":
+      return g.action === "create" ? "Same as another game in the file, imported anyway" : "Same as another game in the file, Mythic saved it twice";
     case "invalid":
       return g.reason ? `Can't import: ${g.reason}` : "Can't import";
   }
@@ -116,6 +152,60 @@ export function initialMatches(players: MythicPlayer[]): Record<string, string |
       return [p.mythic_id, s];
     }),
   );
+}
+
+/** What Apply would do with a Mythic deck, in a few words. */
+export function deckStatusText(d: MythicDeckRow): string {
+  const yama = d.yama_name ? `"${d.yama_name}"` : "the Yama deck";
+  switch (d.status) {
+    case "new":
+      return d.action === "import" ? "New, imported into the Mythic Tools folder" : "Skipped";
+    case "match":
+      return d.action === "link" ? `Same commander as ${yama}, linked to it` : d.action === "import" ? "Imported as its own deck" : "Same commander as a Yama deck, choose";
+    case "unchanged":
+      return `Linked to ${yama}, the same list`;
+    case "update":
+      return d.action === "update" ? `Changed in Mythic, ${yama} gets the new list` : "Changed in Mythic, skipped";
+    case "yama_changed":
+      return d.action === "update" ? `Mythic's list replaces ${yama}'s` : `${yama} changed since; send it to Mythic from its page`;
+    case "conflict":
+      return d.action === "update" ? `Changed on both sides, Mythic's list replaces ${yama}'s` : d.action === "keep" ? `Changed on both sides, ${yama} stays` : "Changed on both sides, choose which to keep";
+    case "deleted":
+      return "Its Yama deck was deleted, skipped";
+    case "invalid":
+      return d.reason ? `Can't import: ${d.reason}` : "Can't import";
+  }
+}
+
+export function deckApplyLabel(decks: MythicDeckRow[]): string {
+  const n = decks.filter((d) => d.action !== "skip").length;
+  return n === 0 ? "Nothing to import" : `Import ${n} ${n === 1 ? "deck" : "decks"}`;
+}
+
+export function deckResultText(r: MythicApplied): string {
+  const parts = [
+    r.created && `${r.created} imported`,
+    r.updated && `${r.updated} updated`,
+    r.linked && `${r.linked} linked to Yama decks`,
+    r.kept && `${r.kept} kept as they are in Yama`,
+    r.skipped && `${r.skipped} skipped`,
+  ].filter(Boolean);
+  return parts.length ? `${parts.join(", ")}.` : "Nothing changed.";
+}
+
+/** The deck's commander and main deck as the send snippet carries them; cards with no printing on file stay behind. */
+export function sendCards(deck: Pick<DeckView, "cards">): { cards: MythicSend["cards"]; missing: string[] } {
+  const going = deck.cards.filter((c) => c.board !== "side");
+  return {
+    cards: going.map((c) => ({
+      name: c.name,
+      oracle_id: c.oracle_id,
+      qty: c.qty,
+      board: c.board,
+      printing: c.printing ? { set_code: c.printing.set_code, collector_number: c.printing.collector_number, finish: c.printing.finish } : null,
+    })),
+    missing: going.filter((c) => !c.printing).map((c) => c.name),
+  };
 }
 
 export function resultText(r: MythicApplied): string {

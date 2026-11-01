@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyLabel, initialMatches, parseExport, resultText, statusText, type MythicGameRow } from "./mythic";
-import { MYTHIC_SNIPPET } from "./snippet";
+import { applyLabel, deckApplyLabel, deckStatusText, initialMatches, parseExport, resultText, sendCards, statusText, type MythicDeckRow, type MythicGameRow } from "./mythic";
+import { MYTHIC_SNIPPET, mythicSendSnippet } from "./snippet";
 
 function game(over: Partial<MythicGameRow> = {}): MythicGameRow {
   return { mythic_id: "1", started_at: "2026-10-04T01:35:04Z", status: "new", action: "create", yama_id: null, matches: [], seats: [], reason: null, ...over };
@@ -20,6 +20,7 @@ describe("Mythic Tools import", () => {
     expect(statusText(game({ status: "conflict", action: "skip" }))).toBe("Changed in Mythic and in Yama, choose which to keep");
     expect(statusText(game({ status: "conflict", action: "keep" }))).toBe("Changed in Mythic and in Yama, Yama's version stays");
     expect(statusText(game({ status: "invalid", action: "skip", reason: "it isn't finished in Mythic" }))).toBe("Can't import: it isn't finished in Mythic");
+    expect(statusText(game({ status: "duplicate", action: "skip" }))).toBe("Same as another game in the file, Mythic saved it twice");
     expect(applyLabel([game(), game({ action: "skip" }), game({ action: "link" })])).toBe("Import 2 games");
     expect(applyLabel([game({ action: "skip" })])).toBe("Nothing to import");
   });
@@ -56,5 +57,32 @@ describe("Mythic Tools import", () => {
     // The POSTs are the token refresh and Mythic's own sign-in, which its web app also sends.
     expect(MYTHIC_SNIPPET.match(/"POST"/g)).toHaveLength(2);
     expect(MYTHIC_SNIPPET).toContain('call("POST", "/auth/signin"');
+  });
+
+  it("says what Apply does with each deck", () => {
+    const deck = (over: Partial<MythicDeckRow> = {}): MythicDeckRow => ({ mythic_id: "9", name: "Ramp", status: "new", action: "import", yama_id: null, yama_name: null, yama_version: null, matches: [], cards: 100, commanders: [], unknown: [], reason: null, ...over });
+    expect(deckStatusText(deck())).toBe("New, imported into the Mythic Tools folder");
+    expect(deckStatusText(deck({ status: "match", action: "link", yama_name: "Éowyn" }))).toBe('Same commander as "Éowyn", linked to it');
+    expect(deckStatusText(deck({ status: "yama_changed", action: "skip", yama_name: "Éowyn" }))).toBe('"Éowyn" changed since; send it to Mythic from its page');
+    expect(deckApplyLabel([deck(), deck({ action: "skip" })])).toBe("Import 1 deck");
+  });
+
+  it("sends the commander and main deck, and names cards with no printing", () => {
+    const card = (name: string, board: "commander" | "main" | "side", printing: boolean) => ({
+      oracle_id: name, name, qty: 1, board, card: null, owned: 0, in_deck_container: 0, proxies: 0, locations: {}, needed: 1, cheapest_usd: null, produced_mana: null,
+      printing: printing ? { set_code: "ltc", collector_number: "1", finish: "foil", from: "owned" as const } : null,
+    });
+    const { cards, missing } = sendCards({ cards: [card("Éowyn", "commander", true), card("Sol Ring", "main", false), card("Spare", "side", true)] });
+    expect(cards.map((c) => c.name)).toEqual(["Éowyn", "Sol Ring"]);
+    expect(cards[0]?.printing).toEqual({ set_code: "ltc", collector_number: "1", finish: "foil" });
+    expect(missing).toEqual(["Sol Ring"]);
+  });
+
+  it("ships a send snippet that parses and carries the deck as data", () => {
+    const s = mythicSendSnippet({ code: "c0de", mythic_id: null, name: 'Deck "quoted" \u2028', privacy: "private", cards: [], back: "https://yama.ing/mythic/sent" });
+    expect(() => new Function(s)).not.toThrow();
+    expect(s).toContain('"code":"c0de"');
+    // Mythic's own deck requests, and Yama only as the page it opens at the end.
+    for (const call of ['call("POST", "/deck"', '"/user/lists/" + deck.deck.listid + "/cards"', "window.open(back"]) expect(s).toContain(call);
   });
 });

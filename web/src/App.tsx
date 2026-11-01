@@ -27,6 +27,7 @@ import { ImportPage } from "./decks/ImportPage";
 import { DeckScanPage } from "./decks/DeckScanPage";
 import { DeckCheckPage } from "./decks/DeckCheckPage";
 import { GroupPage } from "./pages/Group";
+import { MythicSentPage } from "./bridges/mythic/MythicDeck";
 import { MythicImportPage } from "./bridges/mythic/MythicImport";
 import { LabHead, LabLayout } from "./lab/LabLayout";
 import { PowerOnly } from "./components/PowerOnly";
@@ -221,6 +222,7 @@ export function App() {
         <Route path="decks/:id/check" element={<DeckCheckPage />} />
         <Route path="group" element={<GroupPage />} />
         <Route path="group/mythic" element={<MythicImportPage />} />
+        <Route path="mythic/sent" element={<MythicSentPage />} />
         <Route path="new" element={<WhatsNewPage />} />
         <Route path="admin" element={<AdminLayout />}>
           <Route index element={<PeoplePage />} />
