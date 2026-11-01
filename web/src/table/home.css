@@ -761,3 +761,20 @@ a.rg-row:focus-visible {
 .gd-delete p {
   margin: 0;
 }
+
+/* Install Yama: a raised card between the game and Recent games, until installed or waved off. */
+.install-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 2rem;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--raised);
+}
+.install-card p {
+  margin: 0;
+  flex: 1 1 18rem;
+}

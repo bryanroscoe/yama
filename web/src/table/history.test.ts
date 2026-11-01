@@ -23,6 +23,26 @@ const setup: TableSetup = {
 const log = (events: TableEvent[]): LoggedEvent[] => events.map((event, i) => ({ seq: i + 1, at: `2026-10-29T19:0${i}:00Z`, event }));
 
 describe("table history", () => {
+  it("a saved game's history names whoever sat there at the time", () => {
+    const detail = {
+      id: "g9", started_at: "2026-10-29T19:00:00Z", format: "commander", starting_life: 40, playgroup_id: null,
+      seats: [{ seat: 0, guest_name: "Bryan" }, { seat: 1, guest_name: "Jo", member_id: "m-jo" }],
+      events: [
+        { seq: 1, created_at: "2026-10-29T19:01:00Z", payload: { type: "life", seat: 1, delta: -3 } },
+        { seq: 2, created_at: "2026-10-29T19:02:00Z", payload: { type: "player", seat: 1, name: "Jo", memberId: "m-jo", was: { name: "Sam" } } },
+      ],
+    } as unknown as GameDetail;
+    const { setup, log: saved } = setupFromServer(detail);
+    expect(history(setup, saved).map((l) => l.text)).toEqual(["Sam lost 3 life, now 37.", "Sam's seat is Jo now."]);
+    expect(replay(setup, saved).players[1]).toMatchObject({ name: "Jo", memberId: "m-jo" });
+  });
+
+  it("names a seat's new player with the old name, even from a saved game's seats", () => {
+    const renamed = { ...setup, players: [setup.players[0]!, { ...setup.players[1]!, name: "Samantha" }] };
+    const lines = history(renamed, log([{ type: "player", seat: 1, name: "Samantha", memberId: "m1", was: { name: "Sam" } }]));
+    expect(lines.map((l) => l.text)).toEqual(["Sam's seat is Samantha now."]);
+  });
+
   it("tells a game turn by turn, naming commanders and partners", () => {
     const lines = history(
       setup,
