@@ -11,6 +11,7 @@ import { BracketChips } from "../components/Bracket";
 import { commandersPatch, NOT_AN_ACCOUNT, personPatch, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
 import { canPair, cardNamed, CommanderFields, DeckSearch, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type DeckPick, type Person } from "./pickers";
 import { dispatch } from "./store";
+import { isGuest } from "../guest";
 import "./seats.css";
 
 const capitalize = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -93,7 +94,10 @@ export function availablePeople(people: Person[], seats: Pick<SeatDraft, "name" 
  */
 export function usePeople(group: Playgroup | undefined, groups: Playgroup[] | undefined): Person[] {
   const me = useMe().data;
-  const games = useQuery({ queryKey: ["games"], queryFn: () => api<GameRow[]>("/api/games") });
+  // Without an account there are no past games to offer people from.
+  const games = useQuery({ queryKey: ["games"], queryFn: () => api<GameRow[]>("/api/games"), enabled: !isGuest() });
+  // Without an account there's nobody to offer, whatever an earlier session left in the cache.
+  if (isGuest()) return [];
   const out: Person[] = [];
   const names = new Set<string>();
   const ids = new Set<string>();
@@ -238,8 +242,8 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
           onPick={pickPerson}
           placeholder={group ? "Search the playgroup or a @handle" : "Type a name or a @handle"}
         />
-        {/* Either a deck (yours, theirs or a precon) or just the commander. */}
-        {commander && (
+        {/* Either a deck (yours, theirs or a precon) or just the commander. Decks need an account. */}
+        {commander && !isGuest() && (
           <DeckSearch
             text={deckText ?? deckShown ?? ""}
             onText={typeDeck}
@@ -313,8 +317,9 @@ function draftFromPlayer(p: TableState["players"][number], decks: DeckSummary[] 
  * person and a "seat" event for the deck, each only if it changed.
  */
 export function EditSeat({ state, seat, onDone }: { state: TableState; seat: number; onDone: () => void }) {
-  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const guest = isGuest();
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups"), enabled: !guest });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !guest });
   const group = groups.data?.find((g) => g.id === state.setup.playgroupId);
   const p = state.players.find((x) => x.seat === seat)!;
   const i = state.players.indexOf(p);
