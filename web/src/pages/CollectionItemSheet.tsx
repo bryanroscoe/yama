@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { api, usd, type CollectionItem, type Container, type Printing } from "../api";
+import { api, ApiError, usd, type CollectionItem, type Container, type Printing } from "../api";
 import { CardRef } from "../components/CardRef";
 import { CardImage, ErrorText, Sheet } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
@@ -66,6 +66,14 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
     let list = printings.data;
     if (!list) {
       const r = await printings.refetch();
+      if (r.error instanceof ApiError && r.error.status === 404) {
+        // This row's printing isn't in our card data, so there's no card to check the scan
+        // against: the scanned printing replaces it (the server still checks it's a known one).
+        const p = { scryfall_id: c.scryfall_id, lang: c.lang ?? "en", finishes: [] as string[] };
+        await send.mutateAsync(reprintOps(item, p, scope, () => crypto.randomUUID()));
+        if (alive.current) onClose(`${c.name} is now ${c.set?.toUpperCase() ?? ""} #${c.number ?? ""}.`);
+        return true;
+      }
       if (r.error) throw new Error(`Couldn't load the printings of ${item.name ?? "this card"} to check the scan. Nothing was changed; try again.`);
       list = r.data ?? [];
     }
@@ -156,7 +164,11 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
           {picking && (
             <>
               {printings.isPending && <p className="dim small">Finding the printings…</p>}
-              <ErrorText error={printings.error} />
+              {printings.error instanceof ApiError && printings.error.status === 404 ? (
+                <p className="dim small">Yama's card data doesn't have this printing, so it can't list the others. Rescan this card instead.</p>
+              ) : (
+                <ErrorText error={printings.error} />
+              )}
               <ul className="coll-printings">
                 {printings.data?.map((p) => {
                   const current = p.scryfall_id === item.scryfall_id;
