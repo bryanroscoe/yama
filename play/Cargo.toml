@@ -19,3 +19,29 @@ anyhow = "1"
 mimalloc = "0.1"
 # The lab runner's per-thread CPU clock (clock_gettime); already in the graph.
 libc = "0.2"
+
+# These tools have no unit tests. Without `test = false`, `cargo test` builds and links a
+# second, test-harness copy of each against the whole engine, which costs CI minutes.
+[[bin]]
+name = "coverage"
+test = false
+
+[[bin]]
+name = "labtrace"
+test = false
+
+[[bin]]
+name = "loadbench"
+test = false
+
+[[bin]]
+name = "playbench"
+test = false
+
+[[bin]]
+name = "referee"
+test = false
+
+[[bin]]
+name = "soak"
+test = false

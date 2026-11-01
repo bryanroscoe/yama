@@ -69,7 +69,11 @@ Only push CI on main saves the Rust cache, so a PR reuses main's warm build and 
 evicts it. The engine checkout's files are dated to its commit first, because Cargo
 rebuilds a path dependency whose files look newer than its cached build. Hosted Rust jobs also
 delete unused preinstalled toolsets (.NET, Android, GHC, CodeQL) because the image leaves
-about 4 GiB free. Saget uses its preinstalled tools and persistent
+about 4 GiB free. `cargo test` runs with `--timings`; the **Show where Rust build time
+went** step prints the slowest compile units (then deletes the report, so saget's cache
+doesn't grow). Tools in `play/src/bin` without unit tests set `test = false`, so CI doesn't
+build and link a second copy of each against the engine; give a tool `test = true` when it
+gains tests. Saget uses its preinstalled tools and persistent
 cache, with no sudo or host swap changes. Tests and deployment authorization are
 identical on both backends. The local job budget includes time waiting for the
 shared compute slot; hosted job budgets retain their previous limits.

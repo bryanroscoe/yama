@@ -208,7 +208,10 @@ jobs:
           vmstat -w 30 &
           ci_monitor_pid=$!
           trap 'kill "$ci_monitor_pid" 2>/dev/null || true' EXIT
-          /usr/bin/time -v cargo test --locked
+          /usr/bin/time -v cargo test --locked --timings
+      - name: Show where Rust build time went
+        if: always()
+        run: python3 scripts/ci/build_timings.py "${CARGO_TARGET_DIR:-target}"
       - name: Report runner resources
         if: always()
         run: |
