@@ -21,3 +21,6 @@ web/public/precon-fonts/
 
 # phase's board, built by deploy/build-board.sh
 board-dist/
+
+# Cloudflare relay: wrangler dev state
+.wrangler/

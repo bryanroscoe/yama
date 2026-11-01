@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Confidence, Pace, PreconItem, Summary } from "./api";
 import {
+  fieldResult,
   allowanceText,
   gamesToSettle,
   podCountText,
@@ -365,5 +366,45 @@ describe("how a paired run's games count", () => {
     const close = { ...run, paired: { ...run.paired, delta_win_rate: 0.01, settle_pods: null } } as Summary;
     expect(settleText(close)).toContain("thousands of games");
     expect(settleText({ ...run, verdict: { ...run.verdict, kind: "better" } } as Summary)).toBeNull();
+  });
+});
+
+describe("fieldResult", () => {
+  const entrant = (id: string, win_rate: number, wilson: [number, number]) => ({ id, label: id, games: 100, wins: 0, win_rate, wilson, avg_place: null, first: 0 });
+  const run = (entrants: ReturnType<typeof entrant>[], kind: "better" | "unclear", games = 100) =>
+    ({
+      level: 0.9,
+      verdict: { kind, text: "server text", is_final: true },
+      versus: { pod: 4, games, pending: 0, entrants, meetings: [], filler_wins: 0, avg_turns: null },
+    }) as unknown as Summary;
+
+  it("leaves two-deck runs to their own verdict", () => {
+    expect(fieldResult(run([entrant("A", 0.6, [0.5, 0.7]), entrant("B", 0.4, [0.3, 0.5])], "better"), true)).toBeNull();
+  });
+
+  it("counts the decks within the margin of the leader and lists the top three", () => {
+    const r = fieldResult(
+      run([entrant("C", 0.2, [0.15, 0.25]), entrant("A", 0.65, [0.6, 0.71]), entrant("B", 0.62, [0.56, 0.67]), entrant("D", 0.61, [0.55, 0.66])], "unclear"),
+      true,
+    )!;
+    expect(r.clear).toBe(false);
+    expect(r.text).toBe("No clear winner: A wins most often (wins 65%, 90% interval 60 to 71%), but 2 other decks are within the margin");
+    expect(r.leaders.map((l) => l.label)).toEqual(["A", "B", "D"]);
+    expect(fieldResult(run([entrant("A", 0.65, [0.6, 0.71]), entrant("B", 0.62, [0.56, 0.67]), entrant("C", 0.1, [0.05, 0.15])], "unclear"), false)!.text).toMatch(
+      /^No clear winner yet: .*1 other deck is within/,
+    );
+  });
+
+  it("breaks a tie for the lead as the server does, towards the later entrant", () => {
+    const r = fieldResult(run([entrant("A", 0.4, [0.3, 0.5]), entrant("B", 0.4, [0.3, 0.5]), entrant("C", 0.2, [0.1, 0.3])], "unclear"), true)!;
+    expect(r.text).toMatch(/^No clear winner: B wins most often/);
+  });
+
+  it("names a clear winner and leaves runs with too few games to the ordinary verdict", () => {
+    expect(fieldResult(run([entrant("A", 0.6, [0.5, 0.7]), entrant("B", 0.2, [0.1, 0.3]), entrant("C", 0.2, [0.1, 0.3])], "better"), true)).toMatchObject({
+      clear: true,
+      text: "A wins most often, clear of the other 2 (wins 60%, 90% interval 50 to 70%)",
+    });
+    expect(fieldResult(run([entrant("A", 0.6, [0.5, 0.7]), entrant("B", 0.2, [0.1, 0.3]), entrant("C", 0.2, [0.1, 0.3])], "unclear", 5), true)).toBeNull();
   });
 });

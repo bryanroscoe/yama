@@ -75,6 +75,12 @@ export function describe(before: TableState, after: TableState, e: TableEvent): 
       const cmdr = e.partnerName ? `${e.commanderName} and ${e.partnerName}` : (e.commanderName ?? "no commander");
       return `${name(e.seat)} is playing ${cmdr} now.`;
     }
+    case "player": {
+      // A saved game's seats already carry the new name, so the old one comes from the event.
+      const old = e.was?.name ?? name(e.seat);
+      if (old !== e.name) return `${old}'s seat is ${e.name} now.`;
+      return e.memberId || e.userId ? `${e.name}'s seat is tied to their Yama player now.` : `${e.name} plays as a guest now.`;
+    }
     case "finish": {
       const how = winConditionLabel(e.winCondition);
       return e.winnerSeat === null ? "The game ended in a draw." : `${name(e.winnerSeat)} won${how ? ` (${how.toLowerCase()})` : ""}.`;

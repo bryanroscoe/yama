@@ -2,12 +2,12 @@
 // with everyone else along the top, or the whole table. Tap anyone to see or change their
 // totals; the host's phone keeps the game and only it can end it.
 
-import { panelFills, replay, turnsCounted, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
+import { panelFills, RELAY_TOKEN, replay, turnsCounted, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { Pips, Sheet } from "../components/ui";
-import { wsUrl } from "./share";
+import { guestWsUrl, joinFragment, joinLink } from "./share";
 import { useLandscape } from "./layouts";
 import { DispatchContext, KnockOut, LethalSheet, Panel, PlayerSheet, pendingDelta, uprightLayout, useLethalPrompt, useTableArt } from "./TablePlay";
 import "./table.css";
@@ -42,23 +42,26 @@ function GuestGame({ gameId }: { gameId: string }) {
   const [sheetSeat, setSheetSeat] = useState<number | null>(null);
   const [knockSeat, setKnockSeat] = useState<number | null>(null);
   const [attack, setAttack] = useState<{ seat: number; partner: boolean } | null>(null);
+  /** The player taking commander damage, Lifetap's way: tap the commander that hit them. */
+  const [taking, setTaking] = useState<number | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const navigate = useNavigate();
   const landscape = useLandscape();
-  // The share key comes in the link's #fragment; keep it so a reload can reconnect. The game's
-  // own creator (following from another device) needs none.
-  const [key] = useState(() => {
-    const fromLink = new URLSearchParams(location.hash.slice(1)).get("k");
-    if (fromLink) localStorage.setItem(`yama.guestkey.${gameId}`, fromLink);
-    return fromLink ?? localStorage.getItem(`yama.guestkey.${gameId}`) ?? "";
-  });
+  // The share key and relay come in the link's #fragment; kept so a reload can reconnect. The
+  // game's own creator (following from another device) needs no key on the server's relay.
+  const [{ key, relay }] = useState(() => joinLink(gameId));
 
   useEffect(() => {
+    // The Cloudflare relay refuses a link without a whole key every time: don't keep asking.
+    if (relay === "edge" && !RELAY_TOKEN.test(key)) {
+      setRefused(2);
+      return;
+    }
     let closed = false;
     let attempt = 0;
     let timer: number | null = null;
     const open = () => {
-      const ws = new WebSocket(wsUrl(gameId, "guest", key));
+      const ws = new WebSocket(guestWsUrl(gameId, key, relay));
       let opened = false;
       socket.current = ws;
       ws.onopen = () => {
@@ -72,11 +75,10 @@ function GuestGame({ gameId }: { gameId: string }) {
         if (msg.type === "host") setHostOnline(msg.connected);
         else if (msg.type === "state" && msg.next?.gameId && msg.next?.key) {
           // The table is playing again: follow it to the next game, in the same seat.
-          const next = msg.next as { gameId: string; key: string };
+          const next = msg.next as { gameId: string; key: string; relay?: string };
           const mine = localStorage.getItem(`yama.guest.${gameId}`);
           if (mine !== null) localStorage.setItem(`yama.guest.${next.gameId}`, mine);
-          localStorage.setItem(`yama.guestkey.${next.gameId}`, next.key);
-          navigate(`/table/join/${next.gameId}#k=${next.key}`, { replace: true });
+          navigate(`/table/join/${next.gameId}${joinFragment(next.key, next.relay === "cf" ? "edge" : "server")}`, { replace: true });
         } else if (msg.type === "state") setSnapshot({ setup: msg.setup, log: msg.log });
       };
       ws.onclose = () => {
@@ -91,7 +93,7 @@ function GuestGame({ gameId }: { gameId: string }) {
       if (timer) window.clearTimeout(timer);
       socket.current?.close();
     };
-  }, [gameId, key]);
+  }, [gameId, key, relay]);
 
   const state = useMemo(() => (snapshot ? replay(snapshot.setup, snapshot.log) : null), [snapshot]);
   const artFor = useTableArt(state?.players ?? []);
@@ -164,8 +166,9 @@ function GuestGame({ gameId }: { gameId: string }) {
   const others = state.players.filter((p) => p.seat !== me?.seat);
   const host = state.players[0];
   const live = connected && hostOnline !== false;
-  // A commander attack always shows the whole table: that's where the damage goes.
-  const shown: View = !me || attack ? "table" : view;
+  // Commander damage always shows the whole table: that's where it comes from and goes.
+  const busy = !!attack || taking !== null;
+  const shown: View = !me || busy ? "table" : view;
   const credited = (shown === "table" ? state.players : others).map((p) => artFor(p.seat)).filter((a) => !!a).map((a) => a!.artist);
   const grid = uprightLayout(state.players.length, landscape);
   const panel = (s: number, area: string, vertical = false) => {
@@ -185,7 +188,15 @@ function GuestGame({ gameId }: { gameId: string }) {
         onKnockOut={() => setKnockSeat(s)}
         vertical={vertical}
         attack={attack}
-        onAttack={(partner) => setAttack(attack?.seat === s && attack.partner === partner ? null : { seat: s, partner })}
+        onAttack={(partner) => {
+          setTaking(null);
+          setAttack(attack?.seat === s && attack.partner === partner ? null : { seat: s, partner });
+        }}
+        taking={taking}
+        onTake={() => {
+          setAttack(null);
+          setTaking(taking === s ? null : s);
+        }}
       />
     );
   };
@@ -196,7 +207,7 @@ function GuestGame({ gameId }: { gameId: string }) {
         <div className="guest-bar">
           {me ? (
             <div className="segmented" role="group" aria-label="View">
-              <button type="button" aria-pressed={shown === "mine"} disabled={!!attack} onClick={() => setView("mine")}>My seat</button>
+              <button type="button" aria-pressed={shown === "mine"} disabled={busy} onClick={() => setView("mine")}>My seat</button>
               <button type="button" aria-pressed={shown === "table"} onClick={() => setView("table")}>Whole table</button>
             </div>
           ) : (
@@ -241,7 +252,7 @@ function GuestGame({ gameId }: { gameId: string }) {
           </>
         ) : (
           <div
-            className={`table guest-table guest-grid${attack ? " attacking" : ""}`}
+            className={`table guest-table guest-grid${busy ? " attacking" : ""}`}
             style={{ position: "relative", inset: "auto", gridTemplateColumns: `repeat(${grid.cols}, 1fr)`, gridTemplateRows: `repeat(${grid.rows}, 1fr)` }}
           >
             {grid.cells.map(({ seat: s, area }) => panel(s, area))}
@@ -249,8 +260,8 @@ function GuestGame({ gameId }: { gameId: string }) {
         )}
 
         <div className="guest-status">
-          {attack ? (
-            <button className="primary" onClick={() => setAttack(null)}>Done dealing damage</button>
+          {busy ? (
+            <button className="primary" onClick={() => { setAttack(null); setTaking(null); }}>Done with commander damage</button>
           ) : (
             <p className="guest-status-line" role="status" style={{ margin: 0 }}>
               <span className={`status-dot ${live ? "good" : "warn"}`} aria-hidden="true" />
@@ -274,6 +285,10 @@ function GuestGame({ gameId }: { gameId: string }) {
                 setAttack({ seat: sheetSeat, partner });
                 setSheetSeat(null);
               }}
+              onTake={() => {
+                setTaking(sheetSeat);
+                setSheetSeat(null);
+              }}
             />
           </Sheet>
         )}
@@ -282,7 +297,7 @@ function GuestGame({ gameId }: { gameId: string }) {
             <KnockOut state={state} seat={knockSeat} onDone={() => setKnockSeat(null)} />
           </Sheet>
         )}
-        {lethal.ask && sheetSeat === null && knockSeat === null && !attack && (
+        {lethal.ask && sheetSeat === null && knockSeat === null && !busy && (
           <Sheet label="Out of the game?" onClose={lethal.dismiss}>
             <LethalSheet state={state} seat={lethal.ask.seat} loss={lethal.ask.loss} onDone={lethal.dismiss} />
           </Sheet>

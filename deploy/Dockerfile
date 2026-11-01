@@ -11,7 +11,9 @@ COPY web/package.json web/
 RUN npm ci --no-audit --no-fund
 COPY packages packages
 COPY web web
-RUN npm run build -w web
+# Shared tables meet on Yama's Cloudflare relay (relay/README.md), so they work while saget is down.
+ARG VITE_RELAY_URL=wss://relay.yama.ing
+RUN VITE_RELAY_URL="$VITE_RELAY_URL" npm run build -w web
 
 # Compile the pinned client's WASM roots with their own enlarged stack config.
 # The cache remains in BuildKit; neither native tools nor source enter the final image.

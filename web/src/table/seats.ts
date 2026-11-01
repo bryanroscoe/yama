@@ -28,6 +28,8 @@ export interface SeatDraft {
   pairs?: "partner" | "background" | null;
   pairsWith?: string | null;
   pairScope?: string;
+  /** The deck's listed commanders, when they can't all lead it together: the seat plays one. */
+  commanderChoices?: string[];
 }
 
 export interface Me {
@@ -36,7 +38,7 @@ export interface Me {
 }
 
 /** What a seat drops when it stops being someone's: their account, profile and deck. */
-export const NOT_AN_ACCOUNT = { userId: undefined, handle: undefined, deckId: undefined, deckVersionId: undefined, deckLabel: undefined } as const;
+export const NOT_AN_ACCOUNT = { userId: undefined, handle: undefined, deckId: undefined, deckVersionId: undefined, deckLabel: undefined, commanderChoices: undefined } as const;
 
 /**
  * The seat's label on the server: the deck picked (a precon, or the player's public deck), else
@@ -98,7 +100,7 @@ export function commandersPatch(seat: SeatDraft, d: Partial<SeatDraft>): Partial
     ...d,
     commanderName: d.commanderName ?? "",
     colorIdentity: d.colorIdentity ?? "",
-    ...(changed ? { deckId: undefined, deckVersionId: undefined, deckLabel: undefined } : {}),
+    ...(changed ? { deckId: undefined, deckVersionId: undefined, deckLabel: undefined, commanderChoices: undefined } : {}),
   };
 }
 
@@ -189,4 +191,52 @@ export function rebuildForGroup(seats: SeatDraft[], group: Playgroup | undefined
     const fitted = fitSeatsToGroup([s], group, me)[0]!;
     return fitted.memberId || fitted.userId || !(s.memberId || s.userId) ? fitted : withoutGroup([s], me)[0]!;
   });
+}
+
+/** Someone a seat can be, as the people search and the Who's playing row offer them. */
+export interface SeatPerson {
+  name: string;
+  memberId?: string;
+  userId?: string;
+  handle?: string;
+}
+
+/**
+ * The seat fields for a person picked: a member of the game's playgroup (their account comes
+ * with them), you (without a playgroup only your own account can be tied), or anyone else as a
+ * guest by name and the handle they were found by. null for a member no longer in the group.
+ */
+export function personPatch(p: SeatPerson, group: Playgroup | undefined, me: Me | null | undefined): Partial<SeatDraft> | null {
+  if (group && p.memberId) {
+    const m = group.members.find((x) => x.id === p.memberId);
+    if (!m) return null;
+    return { ...NOT_AN_ACCOUNT, memberId: m.id, userId: m.user_id ?? undefined, handle: m.handle ?? undefined, name: m.display_name };
+  }
+  if (!group && me && p.userId === me.id) return { userId: me.id, name: me.display_name, memberId: undefined };
+  return { ...NOT_AN_ACCOUNT, memberId: undefined, name: p.name, handle: p.handle };
+}
+
+/** Whether this seat is that person: the same member or account, or a guest by the same name. */
+export function seatHolds(s: Pick<SeatDraft, "name" | "memberId" | "userId">, p: SeatPerson): boolean {
+  if (p.memberId) return s.memberId === p.memberId;
+  if (p.userId) return !s.memberId && s.userId === p.userId;
+  return !s.memberId && !s.userId && !!p.name.trim() && s.name.trim().toLowerCase() === p.name.trim().toLowerCase();
+}
+
+/** A seat nobody has been put in yet. */
+export const isOpenSeat = (s: Pick<SeatDraft, "name" | "memberId" | "userId">) => !s.name.trim() && !s.memberId && !s.userId;
+
+/**
+ * Who's playing, one tap per person: someone already seated leaves, their seat staying as an
+ * open seat (seats never move, so New game's seat editors and their slow lookups stay on the
+ * right seat); anyone else takes the first open seat or a new one, up to `max`. The same seats
+ * back when there's no room.
+ */
+export function togglePerson(seats: SeatDraft[], p: SeatPerson, patch: Partial<SeatDraft>, max: number): SeatDraft[] {
+  const at = seats.findIndex((s) => seatHolds(s, p));
+  if (at >= 0) return seats.map((s, i) => (i === at ? emptySeat() : s));
+  const open = seats.findIndex(isOpenSeat);
+  if (open >= 0) return patchSeat(seats, open, { ...emptySeat(), ...patch });
+  if (seats.length >= max) return seats;
+  return patchSeat([...seats, emptySeat()], seats.length, patch);
 }

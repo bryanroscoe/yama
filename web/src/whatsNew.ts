@@ -14,6 +14,51 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-01-whos-playing",
+    date: "2026-11-01",
+    title: "New game: tap who's playing",
+    items: [
+      "Pick Friends or one of your playgroups, then tap the people at the table. Each one takes the next seat; tap again to take them off. Playgroup members' games count for them, and friends from past games sit as guests.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
+    id: "2026-11-01-table-pass",
+    date: "2026-11-01",
+    title: "Life counter: finish, edit players, take commander damage",
+    items: [
+      "Finish the game leads the table menu: tap the winner's picture (or It was a draw), and a player's sheet has \"Sam won\" too. Leave the table keeps the game going; Discard game throws it away.",
+      "Tap a player's name to change who's sitting there or what they're playing, mid-game: rename them, pick them from your playgroup so the game counts for them, or switch decks.",
+      "Commander damage the Lifetap way: tap the shield on the panel taking damage, then + on whoever's commander hit them. The swords still deal it from the attacker.",
+      "Turn counting is off unless you turn it on (Count turns, in the menu). Each game still opens by asking who goes first, or picks someone at random.",
+      "Picking one of your decks asks which list next (main, stock, after prints), and a deck that lists several commanders asks which one is playing. Poison reads as 3 / 10, and the other counters stay open.",
+      "Install Yama from the Table page to get it full screen, or use Full screen in the menu.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
+    id: "2026-11-01-fix-a-printing",
+    date: "2026-11-01",
+    title: "Fix a card's printing in your collection",
+    items: [
+      "Tap a card on the Collection page and choose Change printing to pick the right one from every printing of that card, with its picture, year and price.",
+      "Or choose Rescan this card and hold it up to the camera: the printing you confirm replaces the old one. A different card is refused, so nothing changes by mistake.",
+      "With several copies in one row, change all of them or just one. Copies stay where they live, in the same condition.",
+      "Delete from collection removes the whole row, after you confirm.",
+    ],
+    link: { to: "/collection", label: "Open your collection" },
+  },
+  {
+    id: "2026-11-01-table-relay",
+    date: "2026-11-01",
+    title: "Everyone's phones: no account needed, and it keeps going if Yama's server is down",
+    items: [
+      "Friends who scan the join code no longer sign in to Yama: the code is all they need.",
+      "Shared tables now meet on Cloudflare instead of Yama's own server, so a game everyone follows keeps going even when Yama's server or its internet connection is down. The host's phone still keeps the game and uploads it when it can.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
     id: "2026-11-01-check-a-deck",
     date: "2026-11-01",
     title: "Check a deck box card by card",

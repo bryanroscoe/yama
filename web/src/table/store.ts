@@ -250,8 +250,10 @@ export function deckLabel(p: { deckLabel?: string; commanderName?: string; partn
 
 async function pushGame(g: LocalGame): Promise<number> {
   const s = g.setup;
-  // A seat that changed commanders mid-game uploads the one it has now.
+  // A seat that changed commanders or players mid-game uploads the one it has now.
   const now = new Map(replay(s, g.log).players.map((p) => [p.seat, p]));
+  const upTo = g.frozenThrough ?? Infinity;
+  const fresh = g.log.filter((l) => l.seq > g.syncedThrough && l.seq <= upTo);
   await api("/api/games", {
     method: "POST",
     json: {
@@ -260,21 +262,24 @@ async function pushGame(g: LocalGame): Promise<number> {
       format: s.format,
       starting_life: s.startingLife,
       started_at: s.startedAt,
-      seats: s.players.map((p) => ({
-        seat: p.seat,
-        member_id: p.memberId ?? null,
-        user_id: p.userId ?? null,
-        guest_name: p.memberId || p.userId ? null : p.name,
-        deck_version_id: (now.get(p.seat) ?? p).deckVersionId ?? null,
-        deck_label: deckLabel(now.get(p.seat) ?? p),
-        commander_name: now.get(p.seat)?.commanderName ?? null,
-      })),
+      seats: s.players.map((p) => {
+        const c = now.get(p.seat) ?? p;
+        return {
+          seat: p.seat,
+          member_id: c.memberId ?? null,
+          user_id: c.userId ?? null,
+          guest_name: c.memberId || c.userId ? null : c.name,
+          deck_version_id: c.deckVersionId ?? null,
+          deck_label: deckLabel(c),
+          commander_name: now.get(p.seat)?.commanderName ?? null,
+        };
+      }),
+      // The events ride along, so a seat's new player arrives with the "player" event that
+      // explains it (Yama refuses different players without one).
+      events: toServerEvents(fresh),
     },
   });
   posted.add(s.id);
-  const upTo = g.frozenThrough ?? Infinity;
-  const fresh = g.log.filter((l) => l.seq > g.syncedThrough && l.seq <= upTo);
-  if (fresh.length) await api(`/api/games/${s.id}/events`, { method: "POST", json: toServerEvents(fresh) });
   // Built from the log alone, so a retry sends exactly the same finish.
   const finish = toServerFinish(s, g.log);
   if (finish) await api(`/api/games/${s.id}/finish`, { method: "POST", json: finish });

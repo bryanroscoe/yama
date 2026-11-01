@@ -261,6 +261,42 @@ export function verdictText(status: ExperimentStatus, s: Summary): string {
   return s.verdict.text;
 }
 
+/**
+ * A run of three or more decks, as its card says it: whether one deck clearly wins most often,
+ * how many others are within the margin of the leader, and the top few by win rate. Null when
+ * it isn't such a run or it has too few games to judge yet.
+ */
+export function fieldResult(
+  s: Summary | null | undefined,
+  finished: boolean,
+): { clear: boolean; text: string; leaders: { label: string; win_rate: number }[] } | null {
+  const v = s?.versus;
+  if (!s || !v || v.entrants.length < 3) return null;
+  // Ties go to the later entrant, as the server's `max_by` picks them, so both name the same leader.
+  const scored = v.entrants
+    .map((e, i) => ({ e, i }))
+    .filter((x): x is { e: typeof x.e & { win_rate: number; wilson: [number, number] }; i: number } => x.e.win_rate != null && x.e.wilson != null)
+    .sort((a, b) => b.e.win_rate - a.e.win_rate || b.i - a.i)
+    .map((x) => x.e);
+  const best = scored[0];
+  if (!best) return null;
+  const leaders = scored.slice(0, 3).map((e) => ({ label: e.label, win_rate: e.win_rate }));
+  // Too few games to judge (server `stats::MIN_PODS`): left to the ordinary verdict wording,
+  // which also says when a cancelled run won't play more.
+  if (scored.length < v.entrants.length || v.games < 10) return null;
+  // The server's test, in whole points: another deck is close when its upper bound reaches the leader's lower.
+  const round = (x: number) => Math.round(x * 100);
+  const lo = round(best.wilson[0]);
+  const close = scored.slice(1).filter((e) => round(e.wilson[1]) >= lo).length;
+  const level = `${Math.round(s.level * 100)}%`;
+  const detail = `wins ${pct(best.win_rate)}, ${level} interval ${lo} to ${round(best.wilson[1])}%`;
+  if (s.verdict.kind === "better" || close === 0) {
+    return { clear: true, text: `${best.label} wins most often, clear of the other ${scored.length - 1} (${detail})`, leaders };
+  }
+  const others = close === 1 ? "1 other deck is" : `${close} other decks are`;
+  return { clear: false, text: `No clear winner${finished ? "" : " yet"}: ${best.label} wins most often (${detail}), but ${others} within the margin`, leaders };
+}
+
 /** Which engine played a run's games (a "both" run's halves each say theirs). */
 export type HalfEngine = "phase" | "forge";
 
