@@ -395,6 +395,11 @@ describe("fieldResult", () => {
     );
   });
 
+  it("breaks a tie for the lead as the server does, towards the later entrant", () => {
+    const r = fieldResult(run([entrant("A", 0.4, [0.3, 0.5]), entrant("B", 0.4, [0.3, 0.5]), entrant("C", 0.2, [0.1, 0.3])], "unclear"), true)!;
+    expect(r.text).toMatch(/^No clear winner: B wins most often/);
+  });
+
   it("names a clear winner and keeps the server's word when too few games are in", () => {
     expect(fieldResult(run([entrant("A", 0.6, [0.5, 0.7]), entrant("B", 0.2, [0.1, 0.3]), entrant("C", 0.2, [0.1, 0.3])], "better"), true)).toMatchObject({
       clear: true,

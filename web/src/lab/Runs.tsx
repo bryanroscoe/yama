@@ -58,7 +58,9 @@ function runSubtitle(e: ExperimentItem): string {
   const f = e.field;
   const mode = e.mode ?? "change";
   const games = `${e.label.games.toLocaleString("en-GB")} games, started ${fmtDate(e.label.started_at ?? e.label.created_at)}`;
-  if (mode === "versus" || mode === "tournament") {
+  // A tournament's field decks are all entrants, scored like the rest: no empty seats to name.
+  if (mode === "tournament") return games;
+  if (mode === "versus") {
     return f && f.kind !== "none" ? `Empty seats from ${f.every_pod ? f.label : f.label.replace(/^./, (c) => c.toLowerCase())}, ${games}` : games;
   }
   return `${f?.label ?? "An unrecorded field"}, ${games}`;

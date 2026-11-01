@@ -272,9 +272,12 @@ export function fieldResult(
 ): { clear: boolean; text: string; leaders: { label: string; win_rate: number }[] } | null {
   const v = s?.versus;
   if (!s || !v || v.entrants.length < 3) return null;
+  // Ties go to the later entrant, as the server's `max_by` picks them, so both name the same leader.
   const scored = v.entrants
-    .filter((e): e is typeof e & { win_rate: number; wilson: [number, number] } => e.win_rate != null && e.wilson != null)
-    .sort((a, b) => b.win_rate - a.win_rate);
+    .map((e, i) => ({ e, i }))
+    .filter((x): x is { e: typeof x.e & { win_rate: number; wilson: [number, number] }; i: number } => x.e.win_rate != null && x.e.wilson != null)
+    .sort((a, b) => b.e.win_rate - a.e.win_rate || b.i - a.i)
+    .map((x) => x.e);
   const best = scored[0];
   if (!best) return null;
   const leaders = scored.slice(0, 3).map((e) => ({ label: e.label, win_rate: e.win_rate }));
