@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { ChangeCard, ChangesBanner, ChangesPage } from "./Changes";
 import { changesKey, type ProposalCard, type StagedChange } from "./api";
+import { ProposalText } from "./Proposal";
 
 // The page's unrelated navigation uses a browser-only offline store.
 vi.mock("../components/DeckTabs", () => ({ AreaHead: ({ title }: { title: string }) => <h1>{title}</h1> }));
@@ -83,5 +84,16 @@ describe("suggested change review", () => {
     expect(failed).toContain('role="alert"');
     expect(failed).toContain("The deck changed since this was suggested.");
     expect(failed).toContain(">Apply</button>");
+  });
+});
+
+describe("proposal text", () => {
+  it("keeps a pasted deck list a card a line instead of one paragraph", () => {
+    const html = renderToStaticMarkup(<ProposalText text={"Why: a list.\n\nCommander\n1 Kraum, Ludevic's Opus\n1 Tymna the Weaver\n\nDeck\n1 Ad Nauseam\n1 Ancient Tomb"} />);
+    expect(html).toContain('<ul class="proposal-deck-list"><li>1 Kraum, Ludevic&#x27;s Opus</li><li>1 Tymna the Weaver</li></ul>');
+    expect(html).toContain("<p>Deck</p>");
+    expect(html).not.toContain("Opus 1 Tymna");
+    // One numbered line on its own stays prose.
+    expect(renderToStaticMarkup(<ProposalText text={"Cards: 100\n2 changes since then."} />)).not.toContain("proposal-deck-list");
   });
 });

@@ -1319,10 +1319,12 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 
 /* Shared decks, profiles and collections (server/src/sharing/html.rs). */
 .share-profile-head { padding:40px 0 8px; }
-.share-profile-head h1 { font-size:64px; margin:6px 0 10px; overflow-wrap:anywhere; }
+/* A long shared-notes title wraps to three or four lines: the base .94 let descenders touch the next line. */
+.share-profile-head h1 { font-size:64px; line-height:1.04; margin:6px 0 16px; overflow-wrap:anywhere; }
 .share-decks { list-style:none; margin:24px 0 16px; padding:0; display:grid; gap:16px; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); }
 .share-deck { display:flex; flex-direction:column; border:1px solid var(--line); border-radius:var(--r-panel); background:var(--surface); overflow:hidden; }
-.share-deck-main { position:relative; isolation:isolate; display:flex; align-items:end; min-height:200px; color:inherit; text-decoration:none; }
+/* flex:1: in a row where another deck has build links, the art fills the height instead of leaving an empty band. */
+.share-deck-main { position:relative; isolation:isolate; display:flex; flex:1 0 auto; align-items:end; min-height:200px; color:inherit; text-decoration:none; }
 .share-deck-main>img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:-2; }
 .share-deck-copy { display:flex; flex-direction:column; gap:4px; padding:18px; }
 .share-deck-copy b { font-family:var(--display); font-weight:800; font-size:26px; line-height:1; }
@@ -1411,7 +1413,21 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 .sim-row .caution { display:block; margin-top:6px; }
 
 /* Comparable figures share one row; expanding one panel needn't stretch its neighbours. */
-.public-evidence { grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); align-items:start; }
+/* 220px, not 280px: at tablet width the three panels fit one row instead of leaving one alone. */
+.public-evidence { grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); align-items:start; }
+/* The interval's viewBox is 160 wide; at 100% width it was drawn centred, out of line with the text. */
+.public-panel .interval { width:160px; }
+/* The upgrade rubric (the only class-less table): its header and grades were centred,
+   "5: Exceptional" wrapped, and it sat on the paragraph above. */
+table:not([class]) { margin:16px 0; border-collapse:collapse; }
+table:not([class]) th, table:not([class]) td { text-align:left; vertical-align:top; padding:6px 12px 6px 0; }
+table:not([class]) tbody th { white-space:nowrap; }
+/* "Other commander options" sat right under the open-able row above it. */
+.public-panel details + h3 { margin-top:24px; }
+/* Centred cells put each row's big figures (#1, 45.3%, 19.7%, $59.67) at different heights. */
+@media(min-width:901px) { .public-table td,.public-table tbody th { vertical-align:top; } }
+/* "Sources & method ↗" broke over two lines beside the heading on phones (it fits on one). */
+.evidence-heading>a { white-space:nowrap; max-width:none; }
 .public-panel { padding:24px; }
 .public-panel h3 { margin-bottom:16px; }
 .public-panel details { margin-top:16px; }

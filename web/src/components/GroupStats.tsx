@@ -129,9 +129,10 @@ function WinConditions({ s }: { s: PlaygroupStats }) {
   return (
     <section>
       <h2>How games were won</h2>
-      <p className="lede">
+      {/* Empty, it reads like Knockouts' empty line beside it. */}
+      <p className={recorded === 0 ? "dim" : "lede"}>
         {recorded === 0
-          ? `None of the ${w.decided} games with a winner say how yet. The finish sheet and Log a game ask.`
+          ? `None of the ${w.decided} games with a winner say how it was won yet. The finish sheet and Log a game both ask.`
           : `Shares of the ${recorded} ${recorded === 1 ? "game" : "games"} where someone said how.${w.not_recorded ? ` ${w.not_recorded} more with a winner didn't say.` : ""}`}
       </p>
       {recorded > 0 && (

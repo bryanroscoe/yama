@@ -91,8 +91,10 @@ export function SharingSettings() {
         >
           Make all my decks public
         </button>
+        {/* Outlined like its partner: a quiet button wrapped onto its own line on a phone and
+            looked indented by its own padding. */}
         <button
-          className="quiet"
+          className="outline"
           disabled={all.isPending || total === 0 || s.decks.private === total}
           onClick={() => shareAll("private", `Make all ${total} decks private? Every link you've sent stops working until you share again.`)}
         >

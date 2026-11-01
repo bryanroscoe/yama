@@ -1,3 +1,4 @@
+import { fmtDate } from "@yama/core/plan";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, type DeckSummary } from "../api";
@@ -49,7 +50,7 @@ export function DeckChanged({ name, savedAt }: { name: string; savedAt: string }
   if (!d) return null;
   return (
     <p className="small warn">
-      Your <Link to={`/decks/${d.id}`}>{d.name}</Link> deck changed on {d.updated_at.slice(0, 10)}, after this note was saved. It may be out of date.
+      Your <Link to={`/decks/${d.id}`}>{d.name}</Link> deck changed on {fmtDate(d.updated_at)}, after this note was saved. It may be out of date.
     </p>
   );
 }

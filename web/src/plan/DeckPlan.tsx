@@ -197,7 +197,7 @@ export function DeckPlan() {
           </details>
         )}
         {other.length > 0 && (
-          <ul className="small dim">
+          <ul className="small dim plan-deck-notes">
             {other.map((n) => (
               <li key={n.text}>{n.text}</li>
             ))}

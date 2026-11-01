@@ -116,7 +116,7 @@ export function RunsPage() {
                   <span className="lab-runcard-title">
                     <Link to={`/lab/runs/${e.id}`}>{e.name}</Link>
                     <span>
-                      {e.field?.label ?? "An unrecorded field"}, {e.label.games} games, started {fmtDate(e.label.started_at ?? e.label.created_at)}
+                      {e.field?.label ?? "An unrecorded field"}, {e.label.games.toLocaleString()} games, started {fmtDate(e.label.started_at ?? e.label.created_at)}
                     </span>
                   </span>
                   <span className={`pill ${tag.tone}`}>{tag.text}</span>

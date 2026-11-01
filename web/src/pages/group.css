@@ -604,3 +604,12 @@
   }
 }
 
+
+/* Export games: label, JSON, CSV; the label column wraps on a phone instead of pushing the buttons. */
+.grp-export {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto auto;
+  justify-content: start;
+  align-items: center;
+  gap: 8px 12px;
+}

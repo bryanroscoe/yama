@@ -6,6 +6,15 @@ import { ago, bytes, usd } from "./logic";
 
 const yes = (b: boolean) => (b ? "On" : "Off");
 
+/** Build labels like "phase-rs v0.113.0+aifix+tempo" have no spaces; let them wrap at a "+"
+ *  rather than mid-word ("…+car / dfix…"). */
+const breakAtPlus = (label: string): ReactNode =>
+  label.split("+").map((part, i) => (i ? <span key={i}><wbr />+{part}</span> : part));
+
+/** Each import's source: MTGJSON's decklists aren't Scryfall's. */
+const importName = (kind: string) =>
+  kind.startsWith("mtgjson_") ? `MTGJSON ${kind.slice(8).replaceAll("_", " ")}` : `Scryfall ${kind.replace(/^scryfall_/, "").replaceAll("_", " ")}`;
+
 export function ServerPage() {
   const server = useQuery({ queryKey: ["admin-server"], queryFn: adminApi.server, refetchInterval: 15_000 });
   const s = server.data;
@@ -19,7 +28,7 @@ export function ServerPage() {
             <Facts
               rows={[
                 ["Version", s.version],
-                ["Running since", `${ago(s.started_at)} (${new Date(s.started_at).toLocaleString("en-US")})`],
+                ["Running since", `${ago(s.started_at)} (${new Date(s.started_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })})`],
                 ["Google sign-in", yes(s.sign_in.google)],
                 ["Open sign-up", yes(s.sign_in.open_signup)],
                 ["Password sign-in", yes(s.sign_in.password)],
@@ -35,11 +44,11 @@ export function ServerPage() {
             <Facts
               rows={[
                 ...s.scryfall.map((r): [string, ReactNode] => [
-                  `Scryfall ${r.kind.replace(/^scryfall_/, "").replaceAll("_", " ")}`,
+                  importName(r.kind),
                   r.error ? (
                     <span className="admin-bad">Failed {ago(r.started_at)}: {r.error}</span>
                   ) : r.finished_at ? (
-                    `${(r.rows ?? 0).toLocaleString("en-US")} rows, imported ${ago(r.finished_at)}${r.source_updated_at ? `; Scryfall's file from ${ago(r.source_updated_at)}` : ""}`
+                    `${(r.rows ?? 0).toLocaleString("en-US")} rows, imported ${ago(r.finished_at)}${r.source_updated_at ? `; ${r.kind.startsWith("mtgjson_") ? "MTGJSON" : "Scryfall"}'s file from ${ago(r.source_updated_at)}` : ""}`
                   ) : (
                     `Started ${ago(r.started_at)}, still running`
                   ),
@@ -106,7 +115,7 @@ function EngineSection({ s }: { s: ServerInfo }) {
       <h2 id="adm-engine">Rules engine</h2>
       <Facts
         rows={[
-          ["Engine", e.label],
+          ["Engine", breakAtPlus(e.label)],
           ["State", e.status === "ready" ? state : <span className="admin-bad">{state}</span>],
           ["Card data", e.card_data_file ?? "Not set"],
           ["Lab runner build", e.runner],
@@ -127,7 +136,7 @@ function ForgeSection({ s }: { s: ServerInfo }) {
       <Facts
         rows={[
           ["Worker", f.configured && !f.online ? <span className="admin-bad">{state}{f.error ? `: ${f.error}` : ""}</span> : state],
-          ["Engine", f.engine ?? "Unknown until it answers"],
+          ["Engine", f.engine ? breakAtPlus(f.engine) : "Unknown until it answers"],
           ["Worker build", f.runner ?? "Unknown until it answers"],
           ["Games at once", f.configured ? String(f.slots) : "None"],
           ["Playing now", String(f.playing)],

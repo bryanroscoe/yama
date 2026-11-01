@@ -43,7 +43,7 @@ export function Gameplay({ profile, legacy, names = [] }: { profile?: GameplayPr
     {list("How it closes the game", p.finishers)}{line("Interaction and protection", p.interaction)}
     {line("Finding its engines", p.consistency)}{line("Recovery", p.recovery)}{list("What stops it", p.weaknesses)}
     {line("Expected pace", p.pace)}{line("Ceiling and limits", p.ceiling)}
-    {p.confidence && <p className="small dim">Assessment confidence: {p.confidence}. Gameplay expectations are not measured win rates or guaranteed finish turns.</p>}
+    {p.confidence && <p className="small dim">Assessment confidence: {p.confidence.replace(/\.+$/, "")}. Gameplay expectations are not measured win rates or guaranteed finish turns.</p>}
   </div>;
 }
 

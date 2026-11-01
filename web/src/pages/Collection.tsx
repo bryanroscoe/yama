@@ -115,7 +115,7 @@ export function CollectionPage() {
                   {proxies > 0 ? ` Your ${proxies.toLocaleString()} ${proxies === 1 ? "proxy isn't" : "proxies aren't"} counted.` : ""}
                 </span>
                 <span className="coll-narrow">
-                  {s.copies.toLocaleString()} {s.copies === 1 ? "card" : "cards"}, {day}
+                  {real.toLocaleString()} {real === 1 ? "card" : "cards"}, {day}
                 </span>
               </span>
               <span className="coll-sub">

@@ -88,12 +88,27 @@
   margin: 0;
 }
 
-/* Declared and estimated side by side; they stack only when there's no room. */
+/* Declared and estimated side by side; they stack only when there's no room. Wide enough
+   that "About 3.6 / 10" stays on one line; a phone stacks them. */
 .bracket-pair {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
   gap: 0.6rem;
-  max-width: 36rem;
+  max-width: 48rem;
+}
+/* "Two-card combos: 0" in the body face, like the bold labels above it and the combos fold below. */
+.bracket-subhead {
+  font-family: var(--body);
+  font-size: var(--t-base);
+  margin: 0 0 0.4rem;
+}
+/* A grid item stretches; the link reads as a link at the start of its line, not centred. */
+.deck-panel > .name-link {
+  justify-self: start;
+}
+/* Two folds in a row: their 44px targets already part them, so the panel gap isn't added. */
+.deck-panel > .details-fold + .details-fold {
+  margin-top: -0.75rem;
 }
 .bracket-side {
   border: 1px solid var(--dk-line);

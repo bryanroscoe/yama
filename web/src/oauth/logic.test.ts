@@ -42,7 +42,7 @@ describe("the consent page's words", () => {
 
   it("gives Settings the command and a kind for each app", () => {
     expect(claudeCodeCommand("https://yama.saget.org/mcp")).toBe("claude mcp add --transport http yama https://yama.saget.org/mcp");
-    expect(appKind({ redirect_host: "localhost", loopback: true })).toBe("On this computer, such as Claude Code");
+    expect(appKind({ redirect_host: "localhost", loopback: true })).toBe("On this computer");
     expect(appKind({ redirect_host: "claude.ai", loopback: false })).toBe("Claude on the web, desktop and phone");
     expect(appKind({ redirect_host: "example.org", loopback: false })).toBe("example.org");
   });

@@ -4,6 +4,10 @@
 .bc-controls label { display: grid; gap: .4rem; }
 .bc-controls select { width: 100%; max-width: 100%; }
 .bc-controls .row label { min-width: 10rem; }
+/* The chosen track or bracket is filled in, at the same size as the others so the row doesn't jump. */
+.bc-toggles > button.primary { min-height: var(--target); padding: 0.5rem 1.125rem; }
+/* The print button lines up with the select, not with the select's label above it. */
+.bc-print { align-items: end; }
 .bc-sheet { margin-top: 1.5rem; display: grid; gap: 2rem; overflow-x: auto; }
 .bc-paper { display: grid; grid-template-columns: repeat(3, 2.5in); grid-template-rows: repeat(3, 3.5in); width: 7.5in; height: 10.5in; background: white; color: #111; }
 .bc-card, .bc-blank { width: 2.5in; height: 3.5in; box-sizing: border-box; }

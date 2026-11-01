@@ -8,14 +8,28 @@ function InlineText({ text }: { text: string }) {
   return <>{inline(text).map((s, i) => s.bold ? <b key={i}>{s.text}</b> : s.code ? <code key={i}>{s.text}</code> : <Fragment key={i}>{s.text}</Fragment>)}</>;
 }
 
+/** A deck list's line: "1 Sol Ring". */
+const DECK_LINE = /^\d+x?\s+\S/;
+
+/** A pasted deck list, one card a line, would otherwise join into one run-on paragraph. */
+function keepDeckLines(text: string) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  // Inside a ``` fence the lines are kept as they are already.
+  let fenced = false;
+  const inFence = lines.map((l) => (/^\s*```/.test(l) ? ((fenced = !fenced), true) : fenced));
+  const deck = (i: number) => !inFence[i] && DECK_LINE.test(lines[i]?.trim() ?? "");
+  return lines.map((l, i) => (deck(i) && (deck(i - 1) || deck(i + 1)) ? `- ${l.trim()}` : l)).join("\n");
+}
+
 /** Small, text-only Markdown vocabulary; external content is never interpreted as HTML. */
 export function ProposalText({ text }: { text: string }) {
   // Older tools put "Why:" before the first numbered reason, hiding its list structure.
-  const blocks = parseAnswer(text.replace(/^Why:\s*(?=\d+[.)]\s)/, ""));
+  const blocks = parseAnswer(keepDeckLines(text.replace(/^Why:\s*(?=\d+[.)]\s)/, "")));
   return <div className="proposal-text">{blocks.map((b, i) => {
     if (b.kind === "list") {
       const List = b.ordered ? "ol" : "ul";
-      return <List key={i}>{b.items.map((item, n) => <li key={n}><InlineText text={item} /></li>)}</List>;
+      const deck = !b.ordered && b.items.every((item) => DECK_LINE.test(item));
+      return <List key={i} className={deck ? "proposal-deck-list" : undefined}>{b.items.map((item, n) => <li key={n}><InlineText text={item} /></li>)}</List>;
     }
     if (b.kind === "heading") return <h4 key={i}><InlineText text={b.text} /></h4>;
     if (b.kind === "code" || b.kind === "suggestion") return <pre key={i}>{b.kind === "code" ? b.text : b.raw}</pre>;

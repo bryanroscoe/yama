@@ -5,7 +5,8 @@
  * the artists in the same view.
  */
 export function ArtMosaic({ arts, className = "" }: { arts: (string | null | undefined)[]; className?: string }) {
-  const shown = arts.filter((a): a is string => !!a).slice(0, 4);
+  // Seats on the same commander show it once: four copies of one picture read as a tiling bug.
+  const shown = [...new Set(arts.filter((a): a is string => !!a))].slice(0, 4);
   return (
     <span className={`art-mosaic${className ? ` ${className}` : ""}`} data-n={shown.length} aria-hidden="true">
       {shown.map((a, i) => (

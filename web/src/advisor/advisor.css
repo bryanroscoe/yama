@@ -230,6 +230,7 @@
 .ask-change-what {
   margin: 0;
   font-size: var(--t-lg);
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 .proposal {
@@ -308,6 +309,19 @@
 .proposal-text li + li {
   margin-top: 8px;
 }
+/* A deck list: a card a line, in columns, as it reads in a deck box list. */
+.proposal-text .proposal-deck-list {
+  list-style: none;
+  padding: 0;
+  columns: 10rem;
+  column-gap: 24px;
+  line-height: 1.4;
+}
+.proposal-text .proposal-deck-list li {
+  margin-top: 0;
+  padding-block: 2px;
+  break-inside: avoid;
+}
 .proposal-text pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -331,6 +345,13 @@
 }
 .ask-changes-group {
   margin-block: 16px;
+}
+/* "From an external app through MCP": a small label in the body face, a step above its cards. */
+.ask-changes-group > h2 {
+  font-family: var(--body);
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 0 0 8px;
 }
 .ask-changes-banner {
   border: 1px solid var(--line);

@@ -81,6 +81,12 @@
   gap: 8px;
   margin: 0 0 24px;
 }
+/* Tablets fit five across, which left Overview's sixth figure alone on a row: three by two. */
+@media (min-width: 600px) and (max-width: 899px) {
+  .plan-figures {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
 .plan .plan-figure {
   display: flex;
   flex-direction: column;
@@ -110,6 +116,10 @@
 }
 .plan-section {
   margin: 0 0 28px;
+}
+/* An art credit belongs to the list above it, so the next section keeps its distance. */
+.art-credits + .plan-section {
+  margin-top: 32px;
 }
 .plan-section-head {
   margin: 0 0 10px;
@@ -323,6 +333,11 @@
 .plan-deck-about {
   margin: 0 0 12px;
 }
+/* Planner notes can run to a long paragraph: a reading width like other text, a small indent. */
+.plan-deck-notes {
+  max-width: 68ch;
+  padding-left: 1.25rem;
+}
 
 /* An open question: warn-tinted, with the card it's about. */
 .plan-question {
@@ -416,10 +431,13 @@
   font-size: 0.75rem;
   color: var(--dim);
 }
+/* Flush left with the panel's text (side padding indented them); still 44 px tall to tap. */
 .plan .plan-panel-link {
   align-self: start;
+  display: inline-flex;
+  align-items: center;
   min-height: 44px;
-  padding: 0 12px;
+  padding: 0;
 }
 .plan-panel .button {
   min-height: 44px;
@@ -568,12 +586,11 @@
   border-radius: 10px;
   background: transparent;
 }
+/* Wraps rather than ellipsis: the card name is a button, so an ellipsis swallowed it whole ("Out: …"). */
 .swap-crop-label {
   font-size: 0.75rem;
+  line-height: 1.35;
   color: var(--dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .swap-crop.is-in .swap-crop-label {
   color: var(--text);
@@ -1027,6 +1044,11 @@
   justify-content: space-between;
   gap: 10px;
 }
+/* The figure on the right ("No price", "$2.05") stays on one line. */
+.review-price > .num {
+  flex: none;
+  white-space: nowrap;
+}
 .review-price.dim a {
   color: var(--dim);
 }
@@ -1155,12 +1177,15 @@
   line-height: 1.2;
   min-width: 0;
 }
+/* Up to two lines: beside the state word one line cut most names ("Archangel of Tith…"). */
 .review-qrow-in {
   font-weight: 700;
   font-size: var(--t-label);
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 .review-qrow-out {
   font-size: 0.75rem;
@@ -1240,11 +1265,15 @@
 .review-card.is-wide .review-body {
   gap: 16px;
 }
+/* 1.1, not tighter: a two-line name's dotted underline ran into the line below. */
 .review-card.is-wide .review-name {
   margin: 0;
   font-size: 3rem;
   font-weight: 800;
-  line-height: 0.95;
+  line-height: 1.1;
+}
+.review-card.is-wide .review-title {
+  gap: 8px;
 }
 .review-card.is-wide .review-title .dim {
   font-size: var(--t-base);
@@ -1290,6 +1319,11 @@
 
 .plan-settings section {
   margin-bottom: 1.5rem;
+}
+/* Connected apps and keys are two-part rows: text, then Disconnect or Revoke at the right edge
+   (the shared three-column row left the button floating mid-row). */
+.plan-settings .list-row {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 .plan-key {
   display: block;
@@ -1405,6 +1439,12 @@
   flex-basis: 100%;
   margin-left: 0;
 }
+.buy-row-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
 .plan .buy-mark {
   min-height: 44px;
   padding: 0 12px;
@@ -1415,11 +1455,12 @@
 .buy-row.is-bought .plan-bought {
   margin: 4px 0;
 }
+/* Top-aligned: centred, a long reason left the picture and the price floating mid-row. */
 .buy-mini {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) auto;
   gap: 12px;
-  align-items: center;
+  align-items: start;
   min-height: 52px;
   padding: 6px 0;
   border-top: 1px solid var(--line);
@@ -1448,9 +1489,11 @@
   font-size: var(--t-sm);
   color: var(--dim);
 }
+/* The quiet button's padding hangs past the edge so its words line up with the price above. */
 .plan .buy-mini-side button {
   min-height: 44px;
   padding: 0 8px;
+  margin-right: -8px;
 }
 
 .plan-fold {
@@ -1510,8 +1553,9 @@
   flex-direction: column;
   line-height: 1.2;
 }
+/* The display face's descenders reached the date line under it; 8 px keeps them apart. */
 .prints-order-title h2 {
-  margin: 0;
+  margin: 0 0 8px;
   font-weight: 800;
   font-size: 1.75rem;
 }

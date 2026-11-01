@@ -410,7 +410,9 @@ function BothResults({ e, live }: { e: ExperimentDetail; live: boolean }) {
     <>
       {a && a.kind !== "waiting" && (
         <p className={`lab-agreement ${a.kind}`} role="status">
-          <b>{a.kind === "agree" ? "The engines agree." : a.kind === "disagree" ? "The engines disagree." : "No clear answer yet."}</b> {a.text}.
+          {/* The server's text can open with the same words as the bold lead; say them once. */}
+          <b>{a.kind === "agree" ? "The engines agree." : a.kind === "disagree" ? "The engines disagree." : "No clear answer yet."}</b>{" "}
+          {a.text.replace(/^The engines (agree|disagree)[.:]\s*/, "")}.
         </p>
       )}
       {halves.map(({ h, d }) => (
