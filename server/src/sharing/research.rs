@@ -58,22 +58,22 @@ async fn commander_art(pool: &SqlitePool, name: &str) -> AppResult<(Option<(Stri
 /// a note can hold far longer text, and a public page mustn't do work in proportion to it.
 const MAX_LINES: usize = 300;
 
-/// A build's plain-text list as cards the shared list views can show, and whether it was cut
-/// at `MAX_LINES`. Every name is looked up in one query.
-async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, bool)> {
-    let mut lines = crate::decks::parse_list(list, true);
-    let cut = lines.len() > MAX_LINES;
-    lines.truncate(MAX_LINES);
+/// A looked-up card: (name asked for, type line, mana value, layout, image).
+type Found = (String, Option<String>, f64, Option<String>, Option<String>);
+
+fn front(name: &str) -> &str {
+    name.split(" // ").next().unwrap_or(name)
+}
+
+/// Each name's card (and its front face's, for double-faced names) in one query, keyed by the
+/// name asked for. Real cards before tokens of the same name, Commander-legal ones first.
+async fn lookup<'a>(pool: &SqlitePool, names: impl Iterator<Item = &'a str>) -> AppResult<HashMap<String, Found>> {
     // Names as written: SQLite's lower() and NOCASE fold ASCII only, so Rust's Unicode
     // lowercasing ("Éowyn" → "éowyn") would never match. card_names' NOCASE covers ASCII case.
-    let front = |n: &str| n.split(" // ").next().unwrap_or(n).to_string();
-    let mut names: Vec<String> = lines.iter().flat_map(|l| [l.name.clone(), front(&l.name)]).collect();
+    let mut names: Vec<&str> = names.flat_map(|n| [n, front(n)]).collect();
     names.sort();
     names.dedup();
-    type Row = (String, Option<String>, f64, Option<String>, Option<String>);
-    // Keyed by the name asked for. Real cards before tokens of the same name, Commander-legal
-    // ones first; the first row per name wins.
-    let rows: Vec<Row> = sqlx::query_as(
+    let rows: Vec<Found> = sqlx::query_as(
         "SELECT j.value, c.type_line, c.cmc, c.layout, c.image_normal
          FROM json_each(?) j JOIN card_names n ON n.name = j.value JOIN cards c ON c.oracle_id = n.oracle_id
          ORDER BY c.type_line LIKE 'Token%', json_extract(c.legalities, '$.commander') IS NOT 'legal'",
@@ -81,15 +81,28 @@ async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, 
     .bind(serde_json::to_string(&names).map_err(anyhow::Error::from)?)
     .fetch_all(pool)
     .await?;
-    let mut found: HashMap<String, Row> = HashMap::new();
+    let mut found = HashMap::new();
     for row in rows {
         found.entry(row.0.clone()).or_insert(row);
     }
+    Ok(found)
+}
+
+fn found<'a>(found: &'a HashMap<String, Found>, name: &str) -> Option<&'a Found> {
+    found.get(name).or_else(|| found.get(front(name)))
+}
+
+/// A build's plain-text list as cards the shared list views can show, and whether it was cut
+/// at `MAX_LINES`. Every name is looked up in one query.
+async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, bool)> {
+    let mut lines = crate::decks::parse_list(list, true);
+    let cut = lines.len() > MAX_LINES;
+    lines.truncate(MAX_LINES);
+    let rows = lookup(pool, lines.iter().map(|l| l.name.as_str())).await?;
     let out = lines
         .into_iter()
         .map(|line| {
-            let row = found.get(&line.name).or_else(|| found.get(&front(&line.name)));
-            let (type_line, cmc, layout, image) = match row {
+            let (type_line, cmc, layout, image) = match found(&rows, &line.name) {
                 Some((_, t, cmc, layout, image)) => (t.clone(), *cmc, layout.clone(), scryfall_image(image.clone())),
                 None => (None, 0.0, None, None),
             };
@@ -125,8 +138,20 @@ fn build_of<'a>(deck: &'a Value, wanted: Option<&str>) -> Option<&'a Value> {
 fn deck_href(token: &str, deck: &str, build: Option<&str>) -> String {
     let mut path = format!("/r/{}/{}", e(token), e(deck));
     if let Some(b) = build {
-        let enc: String = url::form_urlencoded::byte_serialize(b.as_bytes()).collect();
-        write!(path, "?build={enc}").unwrap();
+        write!(path, "?build={}", query_value(b)).unwrap();
+    }
+    path
+}
+
+fn query_value(v: &str) -> String {
+    url::form_urlencoded::byte_serialize(v.as_bytes()).collect()
+}
+
+/// A build's page compared with another build (`&vs=`), else with the starting list.
+fn compare_href(token: &str, deck: &str, build: &str, vs: Option<&str>) -> String {
+    let mut path = deck_href(token, deck, Some(build));
+    if let Some(v) = vs {
+        write!(path, "&amp;vs={}", query_value(v)).unwrap();
     }
     path
 }
@@ -139,6 +164,174 @@ fn qty(s: &Value) -> i64 {
 /// Copies added and cut by a build's swaps.
 fn moved(swaps: &[Value], side: &str) -> i64 {
     swaps.iter().filter(|s| !text(s, side).is_empty()).map(qty).sum()
+}
+
+/// One row of the changes table: copies of a card added and of one cut, with the reason and
+/// any notes under it.
+#[derive(Debug, Default, PartialEq)]
+pub(super) struct Change {
+    pub add: String,
+    pub cut: String,
+    pub n: i64,
+    pub why: String,
+    pub notes: Vec<String>,
+}
+
+/// `label` and `t` as one note, or nothing when `t` is empty.
+fn labelled(label: &str, t: &str) -> Vec<String> {
+    if t.is_empty() { Vec::new() } else { vec![format!("{label}{t}")] }
+}
+
+/// A build's changes from the starting list: its swaps as written.
+fn from_start(swaps: &[Value]) -> Vec<Change> {
+    swaps
+        .iter()
+        .map(|s| Change {
+            add: text(s, "card_in").into(),
+            cut: text(s, "card_out").into(),
+            n: qty(s),
+            why: text(s, "why").into(),
+            notes: [labelled("Cut: ", text(s, "why_out")), labelled("", text(s, "pairing_note"))].concat(),
+        })
+        .collect()
+}
+
+/// A card name as builds are compared, matching names as the card lookup does: its front face,
+/// ASCII case folded. "Sol Ring" and "sol ring" are one card, and so are "Fire // Ice" and
+/// "Fire". Rows keep the spelling as written.
+fn same(name: &str) -> String {
+    front(name).to_ascii_lowercase()
+}
+
+/// Copies of each card a list plays (commander and main deck), keyed by `same`, and the names
+/// as first written, in list order. The whole list: comparing only part of it could call two
+/// different builds the same.
+fn counts(list: &str) -> (Vec<String>, HashMap<String, i64>) {
+    let lines = crate::decks::parse_list(list, true);
+    let (mut order, mut n) = (Vec::new(), HashMap::new());
+    for line in lines.into_iter().filter(|l| l.board != Board::Side) {
+        let copies = n.entry(same(&line.name)).or_insert(0);
+        if *copies == 0 {
+            order.push(line.name);
+        }
+        *copies += line.qty;
+    }
+    (order, n)
+}
+
+/// Pairs up to `want` copies of `add` with `cut` while both are still unaccounted for.
+fn take(adds: &mut HashMap<String, i64>, add: &str, cuts: &mut HashMap<String, i64>, cut: &str, want: i64) -> i64 {
+    let (add, cut) = (same(add), same(cut));
+    let n = want.min(adds.get(&add).copied().unwrap_or(0)).min(cuts.get(&cut).copied().unwrap_or(0));
+    if n > 0 {
+        *adds.get_mut(&add).unwrap() -= n;
+        *cuts.get_mut(&cut).unwrap() -= n;
+    }
+    n
+}
+
+/// What a build changes from another build of the same deck. The two lists are compared card by
+/// card; each build's swaps (its changes from the starting list) pair the cards and give the
+/// reasons. Cards no swap explains are listed on their own.
+pub(super) fn compare<'a>(list: &str, swaps: &'a [Value], vs_list: &str, vs_swaps: &'a [Value], vs_label: &str) -> Vec<Change> {
+    let (order, here) = counts(list);
+    let (vs_order, there) = counts(vs_list);
+    let extra = |a: &HashMap<String, i64>, b: &HashMap<String, i64>| -> HashMap<String, i64> {
+        a.iter().map(|(k, n)| (k.clone(), n - b.get(k).copied().unwrap_or(0))).filter(|(_, n)| *n > 0).collect()
+    };
+    let (mut adds, mut cuts) = (extra(&here, &there), extra(&there, &here));
+    let mut rows = Vec::new();
+    // This build's own swap: its reason holds against either list.
+    for s in swaps {
+        let n = take(&mut adds, text(s, "card_in"), &mut cuts, text(s, "card_out"), qty(s));
+        if n > 0 {
+            let notes = [labelled("Cut: ", text(s, "why_out")), labelled("", text(s, "pairing_note"))].concat();
+            rows.push(Change { add: text(s, "card_in").into(), cut: text(s, "card_out").into(), n, why: text(s, "why").into(), notes });
+        }
+    }
+    // Both builds replace the same starting card, each with a different card. The other build's
+    // swaps wait by the card they replace, in order (a stack, so reversed); each is tried once
+    // and leaves, so this is one pass over each build's swaps however many replace one card.
+    // Each swap pairs no more copies than its own, on either side.
+    let mut replacing: HashMap<String, Vec<(&Value, i64)>> = HashMap::new();
+    for t in vs_swaps.iter().rev().filter(|t| !text(t, "card_out").is_empty()) {
+        replacing.entry(same(text(t, "card_out"))).or_default().push((t, qty(t)));
+    }
+    for s in swaps {
+        let Some(waiting) = replacing.get_mut(&same(text(s, "card_out"))).filter(|_| !text(s, "card_out").is_empty()) else { continue };
+        let mut mine = qty(s);
+        // Each turn pairs copies, or ends this swap, or retires a waiting one whose card is
+        // accounted for (it can't pair later either).
+        while mine > 0 {
+            let Some((t, theirs)) = waiting.last_mut() else { break };
+            let n = take(&mut adds, text(s, "card_in"), &mut cuts, text(t, "card_in"), mine.min(*theirs));
+            if n == 0 {
+                if adds.get(&same(text(s, "card_in"))).copied().unwrap_or(0) == 0 {
+                    break;
+                }
+                waiting.pop();
+                continue;
+            }
+            let t = *t;
+            mine -= n;
+            *theirs -= n;
+            if *theirs == 0 {
+                waiting.pop();
+            }
+            rows.push(Change {
+                add: text(s, "card_in").into(),
+                cut: text(t, "card_in").into(),
+                n,
+                why: text(s, "why").into(),
+                notes: [vec![format!("Both builds cut {} for these.", text(s, "card_out"))], labelled("", text(s, "pairing_note"))].concat(),
+            });
+        }
+    }
+    // The other build swapped a starting card out; this one keeps it.
+    for t in vs_swaps {
+        let n = take(&mut adds, text(t, "card_out"), &mut cuts, text(t, "card_in"), qty(t));
+        if n > 0 {
+            rows.push(Change {
+                add: text(t, "card_out").into(),
+                cut: text(t, "card_in").into(),
+                n,
+                why: format!("Keeps the starting list's card; {vs_label} swaps it for {}.", text(t, "card_in")),
+                notes: [labelled(&format!("{}: ", text(t, "card_in")), text(t, "why")), labelled("", text(t, "pairing_note"))].concat(),
+            });
+        }
+    }
+    // Each build's first swap per card, so the cards left over cost a lookup each.
+    let index = |swaps: &'a [Value], side: &str| {
+        let mut by: HashMap<String, &'a Value> = HashMap::new();
+        for s in swaps {
+            by.entry(same(text(s, side))).or_insert(s);
+        }
+        by
+    };
+    let (ins, outs, vs_ins, vs_outs) = (index(swaps, "card_in"), index(swaps, "card_out"), index(vs_swaps, "card_in"), index(vs_swaps, "card_out"));
+    for name in &order {
+        let n = adds.get(&same(name)).copied().unwrap_or(0);
+        if n > 0 {
+            let why = match (ins.get(&same(name)), vs_outs.get(&same(name))) {
+                (Some(s), _) => text(s, "why").to_string(),
+                (None, Some(_)) => format!("Keeps the starting list's card; {vs_label} cuts it."),
+                _ => String::new(),
+            };
+            rows.push(Change { add: name.clone(), n, why, ..Default::default() });
+        }
+    }
+    for name in &vs_order {
+        let n = cuts.get(&same(name)).copied().unwrap_or(0);
+        if n > 0 {
+            let why = match (outs.get(&same(name)), vs_ins.get(&same(name))) {
+                (Some(s), _) => text(s, "why_out").to_string(),
+                (None, Some(t)) => format!("Only in {vs_label}: {}", text(t, "why")),
+                _ => String::new(),
+            };
+            rows.push(Change { cut: name.clone(), n, why, ..Default::default() });
+        }
+    }
+    rows
 }
 
 /// A source link, only for http(s) addresses; anything else is its title as text.
@@ -225,6 +418,9 @@ pub(super) async fn note(State(st): State<AppState>, address: ClientAddress, hea
 pub(super) struct BuildQuery {
     #[serde(default)]
     build: Option<String>,
+    /// Another build to show the changes from; none means the starting list.
+    #[serde(default)]
+    vs: Option<String>,
 }
 
 fn list_items(items: &[String]) -> String {
@@ -269,6 +465,14 @@ pub(super) async fn deck(
     };
     let (Some(d), title) = (deck_of(&doc, &key), text(&doc, "title")) else { return Ok(not_found(&st, "Deck")) };
     let Some(b) = build_of(d, q.build.as_deref()) else { return Ok(not_found(&st, "Build")) };
+    // Like `?build=`: a comparison build that isn't there (or is this one) is not found.
+    let vs = match q.vs.as_deref().filter(|v| !v.is_empty()) {
+        Some(v) => match build_of(d, Some(v)).filter(|x| text(x, "id") != text(b, "id")) {
+            Some(x) => Some(x),
+            None => return Ok(not_found(&st, "Build")),
+        },
+        None => None,
+    };
     let name = text(d, "name");
     let commander = text(d, "commander");
     let build_id = text(b, "id");
@@ -301,7 +505,9 @@ pub(super) async fn deck(
             let id = text(x, "id");
             let recommended = if id == text(d, "recommended_build") { " (recommended)" } else { "" };
             let current = if id == build_id { " aria-current=\"page\"" } else { "" };
-            write!(body, "<li><a{current} href=\"{}\">{}{recommended}</a></li>", deck_href(&token, &key, Some(id)), e(text(x, "label"))).unwrap();
+            // Switching builds keeps the comparison, unless it's the build switched to.
+            let keep = vs.map(|v| text(v, "id")).filter(|v| *v != id);
+            write!(body, "<li><a{current} href=\"{}\">{}{recommended}</a></li>", compare_href(&token, &key, id, keep), e(text(x, "label"))).unwrap();
         }
         body.push_str("</ul></nav>");
     }
@@ -356,39 +562,55 @@ pub(super) async fn deck(
     }
     body.push_str("</div>");
 
-    // The changes, as a table a player can work through with the deck box open.
-    write!(
-        body,
-        "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} in, {} out</p><h2 id=\"changes-head\">Changes from the starting list</h2></div></div>",
-        moved(&swaps, "card_in"),
-        moved(&swaps, "card_out"),
-    )
-    .unwrap();
-    if swaps.is_empty() {
-        body.push_str("<p class=\"dim\">This build is the starting list.</p>");
+    // The changes, as a table a player can work through with the deck box open. From the
+    // starting list by default; the heading picks another build to compare with instead.
+    const START: &str = "the starting list";
+    let vs_label = vs.map(|v| text(v, "label")).filter(|l| !l.is_empty()).unwrap_or(START);
+    let changes = match vs {
+        Some(v) => compare(text(b, "list"), &swaps, text(v, "list"), v["swaps"].as_array().map(Vec::as_slice).unwrap_or_default(), vs_label),
+        None => from_start(&swaps),
+    };
+    let copies = |add: bool| -> i64 { changes.iter().filter(|c| !(if add { &c.add } else { &c.cut }).is_empty()).map(|c| c.n).sum() };
+    write!(body, "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} in, {} out</p>", copies(true), copies(false)).unwrap();
+    let others: Vec<&Value> = builds.iter().filter(|x| text(x, "id") != build_id).collect();
+    if others.is_empty() {
+        body.push_str("<h2 id=\"changes-head\">Changes from the starting list</h2>");
+    } else {
+        write!(
+            body,
+            "<div class=\"share-vs\"><h2 id=\"changes-head\">Changes from<span class=\"sr-only\"> {0}</span></h2><details><summary aria-label=\"Compare with: {0}\">{0}</summary><ul>",
+            e(vs_label)
+        )
+        .unwrap();
+        let option = |id: Option<&str>, label: &str| {
+            let current = if id == vs.map(|v| text(v, "id")) { " aria-current=\"true\"" } else { "" };
+            format!("<li><a{current} href=\"{}#changes-head\">{}</a></li>", compare_href(&token, &key, build_id, id), e(label))
+        };
+        body.push_str(&option(None, START));
+        for x in &others {
+            body.push_str(&option(Some(text(x, "id")), text(x, "label")));
+        }
+        body.push_str("</ul></details></div>");
+    }
+    body.push_str("</div></div>");
+    if changes.is_empty() {
+        body.push_str(if vs.is_some() { "<p class=\"dim\">These builds play the same cards.</p>" } else { "<p class=\"dim\">This build is the starting list.</p>" });
     } else {
         body.push_str("<table class=\"share-collection share-swaps\"><thead><tr><th scope=\"col\">Add</th><th scope=\"col\">Cut</th><th scope=\"col\">Why</th></tr></thead><tbody>");
+        // Cut cards aren't in the build's list, so both sides are looked up for their images.
+        let images = lookup(&st.pool, changes.iter().flat_map(|c| [c.add.as_str(), c.cut.as_str()]).filter(|n| !n.is_empty())).await?;
         let link = |name: &str, n: i64| {
             if name.is_empty() {
                 "<span class=\"dim\">Nothing</span>".to_string()
             } else {
-                let image = cards.iter().find(|c| c.name == name).and_then(|c| c.image.clone()).unwrap_or_default();
+                let image = found(&images, name).and_then(|f| scryfall_image(f.4.clone())).unwrap_or_default();
                 let count = if n > 1 { format!("{n} × ") } else { String::new() };
                 format!("{count}<a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a>", e(name), e(&image), e(&scryfall(name)))
             }
         };
-        let line = |label: &str, t: &str| if t.is_empty() { String::new() } else { format!("<br><span class=\"dim\">{label}{}</span>", e(t)) };
-        for s in &swaps {
-            write!(
-                body,
-                "<tr><td>{}</td><td>{}</td><td>{}{}{}</td></tr>",
-                link(text(s, "card_in"), qty(s)),
-                link(text(s, "card_out"), qty(s)),
-                e(text(s, "why")),
-                line("Cut: ", text(s, "why_out")),
-                line("", text(s, "pairing_note")),
-            )
-            .unwrap();
+        for c in &changes {
+            let notes: String = c.notes.iter().map(|t| format!("<br><span class=\"dim\">{}</span>", e(t))).collect();
+            write!(body, "<tr><td>{}</td><td>{}</td><td>{}{notes}</td></tr>", link(&c.add, c.n), link(&c.cut, c.n), e(&c.why)).unwrap();
         }
         body.push_str("</tbody></table>");
     }
