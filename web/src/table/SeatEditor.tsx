@@ -96,6 +96,8 @@ export function usePeople(group: Playgroup | undefined, groups: Playgroup[] | un
   const me = useMe().data;
   // Without an account there are no past games to offer people from.
   const games = useQuery({ queryKey: ["games"], queryFn: () => api<GameRow[]>("/api/games"), enabled: !isGuest() });
+  // Without an account there's nobody to offer, whatever an earlier session left in the cache.
+  if (isGuest()) return [];
   const out: Person[] = [];
   const names = new Set<string>();
   const ids = new Set<string>();

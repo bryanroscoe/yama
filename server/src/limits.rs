@@ -133,6 +133,9 @@ pub struct Limits {
     /// New accounts through open sign-up from everywhere together, so a flood from many addresses
     /// still stops (invited people are never counted or refused).
     pub new_accounts: RateLimiter,
+    /// Held while one sign-up checks both new-account limits, makes the account and counts it,
+    /// so sign-ups arriving together can't all pass the checks before any is counted.
+    pub new_account_gate: tokio::sync::Mutex<()>,
     /// `/api/cards/autocomplete`, per account (it runs while someone types).
     pub autocomplete: RateLimiter,
     /// Player searches by handle and their public decks (Log a game, New game), per account.
@@ -175,6 +178,7 @@ impl Default for Limits {
             guest_search: RateLimiter::new("card searches from this address", 60, MINUTE),
             new_accounts_address: RateLimiter::new("new accounts from this address", NEW_ACCOUNTS_PER_ADDRESS, DAY),
             new_accounts: RateLimiter::new("new accounts on Yama just now", NEW_ACCOUNTS_PER_HOUR, 60 * MINUTE),
+            new_account_gate: tokio::sync::Mutex::new(()),
             autocomplete: RateLimiter::new("card name lookups", 300, MINUTE),
             people: RateLimiter::new("player searches", 120, MINUTE),
             offline_cards: RateLimiter::new("offline card downloads", 10, 60 * MINUTE),

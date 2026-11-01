@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useMatch } from "react-router";
 import { setGuestActive, useGuestChosen } from "./guest";
 import { selectSlot } from "./table/store";
+import { useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "./admin/AdminLayout";
 import { LabRunsPage } from "./admin/LabRuns";
 import { PeoplePage } from "./admin/People";
@@ -102,6 +103,15 @@ function Shell() {
 export function App() {
   const me = useMe();
   const guestChosen = useGuestChosen();
+  const qc = useQueryClient();
+  const guestNow = !me.data && guestChosen && !me.isPending;
+  // Counting without an account: an earlier session's lists (its games, playgroups, decks, people)
+  // go from this tab's cache, so nothing of that account shows.
+  useEffect(() => {
+    if (!guestNow) return;
+    const accountLists = new Set(["games", "playgroups", "decks", "people-search", "people-decks", "stats", "game"]);
+    qc.removeQueries({ predicate: (q) => accountLists.has(String(q.queryKey[0])) });
+  }, [guestNow, qc]);
   const joining = useMatch("/table/join/:gameId");
   // Another tab started or stopped viewing as someone: this one reloads as whoever it is now.
   useEffect(() => {
