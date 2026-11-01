@@ -11,7 +11,8 @@ import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
 import { afterRemoving, applySeatPatch, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
-import { discardGame, startGame, sync, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
+import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useWaitingGuestGame, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
+import { chooseGuest, isGuest } from "../guest";
 import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
 import { useLayoutChoice } from "./layouts";
 import { panelArt, useShowArt } from "./art";
@@ -24,7 +25,8 @@ import { useInstall } from "../install";
 import "./seats.css";
 import "./home.css";
 
-const LAST_SETUP = "yama.table.lastSetup";
+/** The last setup on this device: an account's, or (apart, so no names carry over) a guest's. */
+const lastSetupKey = () => (isGuest() ? "yama.table.lastSetup.guest" : "yama.table.lastSetup");
 
 /** Laptop layout (the rail and inline seat cards) from 900 px, as in styles.css. */
 function useWide(): boolean {
@@ -65,9 +67,11 @@ export function TableHome() {
   const syncStatus = useSyncStatus();
   const navigate = useNavigate();
   const showArt = useShowArt();
+  const guest = isGuest();
 
   return (
     <main className="page table-home">
+      {guest ? <GuestBanner /> : <SaveGuestGames />}
       {game && state ? (
         <section className="stack" style={{ marginBottom: "2rem" }}>
           <div className="page-head">
@@ -110,7 +114,7 @@ export function TableHome() {
       )}
 
       <InstallCard />
-      <RecentGames
+      {!guest && <RecentGames
         waiting={
           outbox.length > 0 ? (
             <span className="rg-waiting" role="status">
@@ -122,14 +126,58 @@ export function TableHome() {
             </span>
           ) : null
         }
-      />
+      />}
       {syncStatus.error && outbox.length > 0 && <p className="small error">{syncStatus.error}</p>}
-      {rejected.length > 0 && (
+      {!guest && rejected.length > 0 && (
         <p className="small error">
           {rejected.length} finished {rejected.length === 1 ? "game" : "games"} couldn't be saved to Yama ({rejected[rejected.length - 1]!.error}). They're kept on this phone.
         </p>
       )}
     </main>
+  );
+}
+
+/** Counting without an account: what that means, and the way to sign in. */
+function GuestBanner() {
+  const games = useGuestGames();
+  return (
+    <aside className="guest-banner" aria-label="Counting without an account">
+      <p>
+        <b>Counting without an account.</b>
+        <span className="dim">
+          {" "}Games stay on this phone{games.length ? ` (${games.length} so far)` : ""}. Sign in with Google to share the table with everyone's phones, keep your playgroup's stats, and save these games.
+        </span>
+      </p>
+      <button className="primary" onClick={() => chooseGuest(false)}>Sign in</button>
+    </aside>
+  );
+}
+
+/** Signed in on a phone that counted games without an account: save them to this account? */
+function SaveGuestGames() {
+  const games = useGuestGames();
+  const waiting = useWaitingGuestGame();
+  const { game } = useTable();
+  if (!games.length && !waiting) return null;
+  // The game going without an account comes along only if this device has no other game going.
+  const canBring = !!waiting && !game;
+  const what = [games.length ? `${games.length} finished ${games.length === 1 ? "game" : "games"}` : null, canBring ? "the game going" : null].filter(Boolean).join(" and ");
+  return (
+    <aside className="guest-banner" aria-label="Games counted without an account">
+      <p>
+        <b>{what ? `Save ${what} to your account?` : "A game from before you signed in is waiting."}</b>
+        <span className="dim">
+          {" "}They were counted on this phone without an account. Nothing goes to Yama unless you say so.
+          {waiting && !canBring ? " The one still going comes over once you finish or discard the game going now." : ""}
+        </span>
+      </p>
+      <div className="row">
+        {what && <button className="primary" onClick={saveGuestGames}>Save them</button>}
+        <button className="quiet" onClick={() => confirm("Throw away the games counted without an account? They were never saved to Yama.") && dropGuestGames()}>
+          Throw away
+        </button>
+      </div>
+    </aside>
   );
 }
 
@@ -164,15 +212,16 @@ function InstallCard() {
 
 function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   const me = useMe();
-  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const guest = isGuest();
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups"), enabled: !guest });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !guest });
   const [groupId, setGroupId] = useState<string>("");
   const [life, setLife] = useState(40);
   const [format, setFormat] = useState<TableFormat>("commander");
   /** Everyone keeps their own totals on their own phone: the join code shows as the game opens. */
   const [phones, setPhones] = useState<"one" | "everyone">(() => {
     try {
-      return JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null")?.phones === "everyone" ? "everyone" : "one";
+      return JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null")?.phones === "everyone" ? "everyone" : "one";
     } catch {
       return "one";
     }
@@ -182,7 +231,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   // When the seats came back from the last game set up on this phone, and when that was.
   const [restored] = useState<{ at?: string } | null>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
+      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
       return saved?.seats?.length ? { at: saved.at } : null;
     } catch {
       return null;
@@ -190,7 +239,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   });
   const [seats, setSeats] = useState<SeatDraft[]>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
+      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
       if (saved?.seats?.length) return saved.seats;
     } catch {
       /* ignore */
@@ -204,7 +253,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   });
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
+      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
       if (saved?.groupId) setGroupId(saved.groupId);
       if (saved?.life) setLife(saved.life);
       if (FORMATS.some((f) => f.key === saved?.format)) setFormat(saved.format);
@@ -307,9 +356,9 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       playgroupId: groupId || undefined,
       players,
     };
-    localStorage.setItem(LAST_SETUP, JSON.stringify({ seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() }));
+    localStorage.setItem(lastSetupKey(), JSON.stringify({ seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() }));
     startGame(setup);
-    onStart(phones === "everyone");
+    onStart(phones === "everyone" && !guest);
   };
 
   // Tap someone in Who's playing: they take the next open seat, or leave theirs.
@@ -356,12 +405,13 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
         <Choice label="Game" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
         <Choice label="Players" options={Array.from({ length: MAX_SEATS }, (_, i) => i + 1)} value={seats.length} onChange={setCount} />
         <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
-        <Choice label="Phones" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "Just this one" : "Everyone's own")} />
+        {/* Sharing the table with everyone's phones needs an account. */}
+        {!guest && <Choice label="Phones" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "Just this one" : "Everyone's own")} />}
       </div>
       {phones === "everyone" && (
         <p className="small dim ng-note">The join code shows as soon as the game starts. Friends scan it, pick their seat and keep their own total.</p>
       )}
-      <WhoPlaying groups={groups.data ?? []} groupId={groupId} groupReady={!groupId || !!group} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />
+      {!guest && <WhoPlaying groups={groups.data ?? []} groupId={groupId} groupReady={!groupId || !!group} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />}
       {!wide && <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />}
       {wide ? (
         <div className="ng-body">

@@ -1,5 +1,6 @@
 import { useQueries } from "@tanstack/react-query";
 import { api, type SearchResult } from "../api";
+import { cardSearchPath } from "../guest";
 
 /** A card's art crop (loaded from Scryfall at runtime, never stored) and who painted it. */
 export interface CardArt {
@@ -8,7 +9,7 @@ export interface CardArt {
 }
 
 async function lookup(name: string): Promise<CardArt | null> {
-  const find = async (n: string) => (await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(`!"${n}"`)}`)).cards[0] ?? null;
+  const find = async (n: string) => (await api<SearchResult>(cardSearchPath(`!"${n}"`))).cards[0] ?? null;
   let card = await find(name);
   // Partner pairs arrive as "A and B". Some single cards have "and" in their names, so the whole
   // name goes first; only if that finds nothing is it read as a pair.
