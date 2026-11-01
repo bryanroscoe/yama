@@ -1141,9 +1141,6 @@ table.plain tr.few td {
   gap: 16px 32px;
   align-items: end;
 }
-.setup-group {
-  flex: 1 1 15rem;
-}
 .field-label {
   font-weight: 700;
   font-size: var(--t-label);

@@ -8,7 +8,7 @@ import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
 import { Pips } from "../components/ui";
 import { BracketChips } from "../components/Bracket";
-import { commandersPatch, NOT_AN_ACCOUNT, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
+import { commandersPatch, NOT_AN_ACCOUNT, personPatch, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
 import { canPair, cardNamed, CommanderFields, DeckSearch, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type DeckPick, type Person } from "./pickers";
 import { dispatch } from "./store";
 import "./seats.css";
@@ -147,17 +147,11 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
   const [deckText, setDeckText] = useState<string | null>(null);
 
   const pickPerson = (p: Person) => {
-    if (group && p.memberId) {
-      const m = group.members.find((x) => x.id === p.memberId);
-      if (!m) return;
-      // Your deck stays only on your own seat.
-      onChange({ ...NOT_AN_ACCOUNT, memberId: m.id, userId: m.user_id ?? undefined, handle: m.handle ?? undefined, name: m.display_name, ...(m.user_id && m.user_id === seat.userId ? { deckId: seat.deckId, deckVersionId: seat.deckVersionId, deckLabel: seat.deckLabel } : {}) });
-    } else if (!group && me && p.userId === me.id) {
-      onChange({ userId: me.id, name: me.display_name, memberId: undefined });
-    } else {
-      // Anyone else is a guest, by name or by the handle they were found by.
-      onChange({ ...NOT_AN_ACCOUNT, memberId: undefined, name: p.name, handle: p.handle });
-    }
+    const patch = personPatch(p, group, me);
+    if (!patch) return;
+    // Your deck stays only on your own seat.
+    const keepDeck = !!patch.memberId && !!patch.userId && patch.userId === seat.userId;
+    onChange(keepDeck ? { ...patch, deckId: seat.deckId, deckVersionId: seat.deckVersionId, deckLabel: seat.deckLabel, commanderChoices: seat.commanderChoices } : patch);
   };
   const typeName = (t: string) => {
     // Typing over a playgroup member, or someone found by handle, makes the seat a guest of that name.
