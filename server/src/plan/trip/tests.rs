@@ -102,4 +102,12 @@ fn unknown_stock_is_not_a_reason_to_go() {
     let t = plan(&b, "2026-11-01");
     assert!(t.stops.iter().all(|x| s(x.store, "key") != Some("multiverse-hobbies")));
     assert_eq!(t.print.iter().find(|p| p.want.card == "Exotic Orchard").unwrap().reason, "unknown-stock");
+    for q in b["quotes"].as_array_mut().unwrap() {
+        if q["card"] == "Exotic Orchard" {
+            q["in_stock"] = json!(true);
+            q["currency"] = json!("CAD");
+        }
+    }
+    let t = plan(&b, "2026-11-01");
+    assert_eq!(t.print.iter().find(|p| p.want.card == "Exotic Orchard").unwrap().reason, "no-price");
 }

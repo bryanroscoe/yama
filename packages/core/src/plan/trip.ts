@@ -319,7 +319,8 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
         unknown = true;
         continue;
       }
-      if (q.price == null) {
+      // A price in another currency can't be judged by the USD rule or summed with dollars.
+      if (q.price == null || (q.currency != null && q.currency.toUpperCase() !== "USD")) {
         unpriced ??= q;
         continue;
       }

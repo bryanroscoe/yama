@@ -565,7 +565,9 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
                 unknown = true;
                 continue;
             }
-            let Some(price) = q.get("price").and_then(num) else {
+            // A price in another currency can't be judged by the USD rule or summed with dollars.
+            let usd_price = s(q, "currency").is_none_or(|c| c.eq_ignore_ascii_case("USD"));
+            let Some(price) = q.get("price").and_then(num).filter(|_| usd_price) else {
                 unpriced = true;
                 continue;
             };
