@@ -53,7 +53,20 @@ function read<T>(key: string, fallback: T): T {
 let current: LocalGame | null = read<LocalGame | null>(CURRENT, null);
 let outbox: LocalGame[] = read<LocalGame[]>(OUTBOX, []);
 let rejected: { game: LocalGame; error: string }[] = read(REJECTED, []);
-let deletes: string[] = read<string[]>(DELETES, []);
+/** Each delete remembers whose it is: it's only sent while that account is signed in here. */
+type QueuedDelete = { id: string; owner: string | null };
+let deletes: QueuedDelete[] = read<(QueuedDelete | string)[]>(DELETES, []).map((d) => (typeof d === "string" ? { id: d, owner: null } : d));
+
+/** The account signed in on this device, as auth.tsx remembers it (the plan outbox does the same). */
+function signedInUser(): string | null {
+  try {
+    return (JSON.parse(localStorage.getItem("yama.me") ?? "null") as { id?: string } | null)?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+const mine = (d: QueuedDelete) => d.owner === null || d.owner === signedInUser();
+let pendingIds: string[] = [];
 let derived: TableState | null = current ? replay(current.setup, current.log) : null;
 let syncState: { syncing: boolean; error: string | null; lastSyncedAt: string | null } = {
   syncing: false,
@@ -96,7 +109,12 @@ export function useRejected() {
 
 /** Games deleted on this device that Yama hasn't removed yet (offline): lists leave them out. */
 export function usePendingDeletes() {
-  return useSyncExternalStore(subscribe, () => deletes);
+  return useSyncExternalStore(subscribe, () => {
+    const ids = deletes.filter(mine).map((d) => d.id);
+    // The same array while nothing changed, so React doesn't re-render forever.
+    if (ids.length !== pendingIds.length || ids.some((id, i) => id !== pendingIds[i])) pendingIds = ids;
+    return pendingIds;
+  });
 }
 
 /**
@@ -111,27 +129,28 @@ export async function deleteGame(gameId: string): Promise<boolean> {
   }
   outbox = outbox.filter((g) => g.setup.id !== gameId);
   rejected = rejected.filter((r) => r.game.setup.id !== gameId);
-  if (!deletes.includes(gameId)) deletes = [...deletes, gameId];
+  if (!deletes.some((d) => d.id === gameId)) deletes = [...deletes, { id: gameId, owner: signedInUser() }];
   emit();
   await settle();
-  return !deletes.includes(gameId);
+  return !deletes.some((d) => d.id === gameId);
 }
 
 /** Sync, then once more if a run that was already going missed something queued since. */
 async function settle() {
   await sync();
-  if (deletes.length || current || outbox.length) await sync();
+  if (deletes.some(mine) || current || outbox.length) await sync();
 }
 
 async function pushDeletes() {
-  for (const id of deletes) {
+  // Another account's deletes wait until it signs in here again.
+  for (const { id } of deletes.filter(mine)) {
     try {
       await api(`/api/games/${id}`, { method: "DELETE" });
     } catch (e) {
       // Not found: the server never had it (or it's gone already), which is what we wanted.
       if (!(e instanceof ApiError && e.status === 404) && !isPermanent(e)) throw e;
     }
-    deletes = deletes.filter((d) => d !== id);
+    deletes = deletes.filter((d) => d.id !== id);
     emit();
   }
 }
@@ -288,7 +307,7 @@ export function sync(): Promise<void> {
           if (!isPermanent(e)) throw e;
           // Set it aside so the games behind it still upload; one deleted meanwhile, or deleted
           // on another device (410), is simply gone.
-          if (!deletes.includes(g.setup.id) && !isGone(e)) rejected = [...rejected, { game: g, error: e instanceof Error ? e.message : String(e) }];
+          if (!deletes.some((d) => d.id === g.setup.id) && !isGone(e)) rejected = [...rejected, { game: g, error: e instanceof Error ? e.message : String(e) }];
         }
         // By identity: a delete while this one uploaded may have changed the list.
         outbox = outbox.filter((o) => o !== g);
@@ -332,9 +351,9 @@ if (typeof window !== "undefined") {
   window.addEventListener("online", () => void sync());
   // A game or finished games left on this device from before (a reload, a phone that was off)
   // go up straight away, so sharing and other devices can find them.
-  if (current || outbox.length || deletes.length) queueMicrotask(() => void sync());
+  if (current || outbox.length || deletes.some(mine)) queueMicrotask(() => void sync());
   setInterval(() => {
-    if (navigator.onLine && (current || outbox.length || deletes.length)) void sync();
+    if (navigator.onLine && (current || outbox.length || deletes.some(mine))) void sync();
   }, 20_000);
 }
 

@@ -247,7 +247,8 @@ describe("finish", () => {
     log = record(log, { type: "pass_turn" }, later(100));
     log = record(log, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(200));
     const body = toServerFinish(setup, log)!;
-    expect(body.turns).toBe(1);
+    // A knockout before the first pass means counting started late: no total either.
+    expect(body.turns).toBeNull();
     expect(body.seats[2]).toMatchObject({ eliminated_turn: null, eliminated_by_seat: 1 });
   });
 
@@ -257,9 +258,23 @@ describe("finish", () => {
     log = record(log, { type: "eliminate", seat: 0, bySeat: 1 }, later(500));
     log = record(log, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(600));
     const body = toServerFinish(setup, log)!;
-    expect(body.turns).toBe(2);
+    expect(body.turns).toBeNull();
     expect(body.seats.map((s) => s.eliminated_turn)).toEqual([null, null, null]);
     expect(body.seats.map((s) => s.eliminated_by_seat)).toEqual([1, null, 1]);
+  });
+
+  it("sends no turn count when counting started partway through", () => {
+    // Two players' totals moved before anyone passed: it wasn't the first turn any more.
+    let log = record([], { type: "life", seat: 0, delta: -2 }, t0);
+    log = record(log, { type: "life", seat: 1, delta: -5 }, later(3000));
+    log = record(log, { type: "pass_turn" }, later(6000));
+    log = record(log, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(9000));
+    expect(toServerFinish(setup, log)!.turns).toBeNull();
+    // Only the starting player paid life (a shock land), then passed: counted from the start.
+    let ok = record([], { type: "life", seat: 0, delta: -2 }, t0);
+    ok = record(ok, { type: "pass_turn" }, later(3000));
+    ok = record(ok, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(6000));
+    expect(toServerFinish(setup, ok)!.turns).toBe(1);
   });
 
   it("keeps the city's blessing at one, and other counters at zero or more", () => {

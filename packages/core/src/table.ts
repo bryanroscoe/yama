@@ -437,6 +437,22 @@ export function turnsCounted(state: TableState): boolean {
   return state.passes > 0;
 }
 
+/**
+ * Whether the turn count covers the whole game: someone passed the turn, and before the first
+ * pass only the starting player's own totals changed (a shock land on turn one is fine).
+ * Counting begun mid-game would undercount, so its total isn't sent.
+ */
+export function turnsFromStart(setup: TableSetup, log: LoggedEvent[]): boolean {
+  let s = initialState(setup);
+  for (const { event: e } of log) {
+    if (e.type === "pass_turn") return true;
+    const touches = e.type === "life" || e.type === "poison" || e.type === "commander_damage" || e.type === "counter" || e.type === "commander_cast" || e.type === "eliminate";
+    if (touches && e.seat !== s.activeSeat) return false;
+    s = apply(s, e);
+  }
+  return false;
+}
+
 /** The finish body POST /api/games/:id/finish expects, from a log that ends in "finish". */
 export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
   const last = log[log.length - 1];
@@ -445,11 +461,12 @@ export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
   const state = replay(setup, log);
   // Elimination turns go all or nothing: the stats order knockouts by them (first out, last out),
   // so one knockout from before the table counted turns leaves the order unknown for everyone.
-  const outTurns = state.players.every((p) => !p.eliminated?.uncounted);
+  const fromStart = turnsFromStart(setup, log);
+  const outTurns = fromStart && state.players.every((p) => !p.eliminated?.uncounted);
   const ratings = new Map((f.fun ?? []).filter((r) => r.rating >= 1 && r.rating <= 5).map((r) => [r.seat, Math.round(r.rating)]));
   return {
     winner_seat: f.winnerSeat,
-    turns: turnsCounted(state) ? state.turn : null,
+    turns: fromStart ? state.turn : null,
     ended_at: f.endedAt,
     first_seat: state.firstSeat,
     // A draw has no way it was won.

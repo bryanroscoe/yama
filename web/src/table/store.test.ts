@@ -30,6 +30,7 @@ vi.mock("../api", () => ({
 }));
 vi.mock("../viewingFlag", () => ({ isViewing: () => false }));
 
+items.set("yama.me", JSON.stringify({ id: "me" }));
 const store = await import("./store");
 
 const setup = (id: string) => ({ id, startedAt: "2026-10-31T19:00:00Z", format: "commander" as const, startingLife: 40, players: [{ seat: 0, name: "Bryan", colorIdentity: "" }] });
@@ -52,7 +53,7 @@ describe("deleting table games", () => {
   it("a delete waits offline and goes once the connection is back", async () => {
     failWith = "offline";
     expect(await store.deleteGame("g-offline")).toBe(false);
-    expect(JSON.parse(items.get("yama.table.deletes")!)).toEqual(["g-offline"]);
+    expect(JSON.parse(items.get("yama.table.deletes")!)).toEqual([{ id: "g-offline", owner: "me" }]);
     failWith = null;
     await store.sync();
     expect(calls).toContainEqual({ path: "/api/games/g-offline", method: "DELETE" });
@@ -70,5 +71,17 @@ describe("deleting table games", () => {
     await store.sync();
     expect(store.getGame()).toBeNull();
     expect(JSON.parse(items.get("yama.table.rejected")!)).toEqual([]);
+  });
+
+  it("another account's queued delete waits for that account", async () => {
+    failWith = "offline";
+    await store.deleteGame("g-theirs");
+    failWith = null;
+    items.set("yama.me", JSON.stringify({ id: "someone-else" }));
+    await store.sync();
+    expect(calls).not.toContainEqual({ path: "/api/games/g-theirs", method: "DELETE" });
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    await store.sync();
+    expect(calls).toContainEqual({ path: "/api/games/g-theirs", method: "DELETE" });
   });
 });

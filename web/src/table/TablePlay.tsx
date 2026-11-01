@@ -1083,7 +1083,7 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
 
       <ShareCard gameId={state.setup.id} onBigger={onJoin} />
 
-      {!counting && <p className="small dim tm-count-note">Turns aren't counted. Passing the turn starts counting from here.</p>}
+      {!counting && <p className="small dim tm-count-note">Turns aren't counted. To count them, pass the turn at the end of the first turn; counting started later isn't saved as the game's length.</p>}
 
       <section className="tm-section" aria-labelledby="tm-on-table">
         <h3 id="tm-on-table">On the table</h3>
