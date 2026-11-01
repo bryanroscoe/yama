@@ -124,6 +124,14 @@ async fn fixture() -> (AppState, String) {
     (st, owner)
 }
 
+#[test]
+fn agreement_wording_follows_the_correlation() {
+    assert_eq!(html::agreement_words(0.8), "agree closely");
+    assert_eq!(html::agreement_words(0.5), "broadly agree");
+    assert_eq!(html::agreement_words(0.0), "show no clear agreement");
+    assert_eq!(html::agreement_words(-0.5), "disagree");
+}
+
 #[tokio::test]
 async fn only_enabled_sources_feed_the_ranking_and_they_combine() {
     let (st, owner) = fixture().await;

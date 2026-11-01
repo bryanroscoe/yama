@@ -163,17 +163,29 @@ fn evidence_words(level: &str) -> &'static str {
     }
 }
 
+/// How far two sources' scores go together, in words that follow the figure.
+pub(super) fn agreement_words(r: f64) -> &'static str {
+    match r {
+        r if r >= 0.7 => "agree closely",
+        r if r >= 0.4 => "broadly agree",
+        r if r >= 0.1 => "agree only loosely",
+        r if r > -0.1 => "show no clear agreement",
+        _ => "disagree",
+    }
+}
+
 fn method(r: &Ranking) -> String {
     let mut out = String::from(
-        "<p>Each source is compared with its own average commander, because the apps' players and pod sizes differ. A commander's wins and games become an estimate of how its odds of winning compare with that average, pulled toward average by 100 games' worth of prior so a short lucky run can't top the list. Game records count as half a game each (four seats and repeat players aren't independent), at most four per pilot and 2,000 in all.</p><p>Where both sources have a commander, their estimates are combined, each weighted by how much evidence it carries. The score puts the result on a 0–100 scale: 50 is the average commander, about 80 is double its odds of winning and about 20 half. The bar shows the 95% interval; the mark in the middle is 50.</p><p>These are stock and upgraded decks, every power level and pod size, as players logged them. A score says how a commander has done in these apps, not how it will do at your table, and neighbouring ranks are often within each other's intervals.</p>",
+        "<p>Each source is compared with its own average commander, because the apps' players and pod sizes differ. A commander's wins and games become an estimate of how its odds of winning compare with that average, pulled toward average by 100 games' worth of prior so a short lucky run can't top the list. Game records count as half a game each (four seats and repeat players aren't independent), at most four per pilot and 2,000 in all.</p><p>Where both sources have a commander, their estimates are combined, each weighted by how much evidence it carries. The score puts the result on a 0–100 scale: 50 is the average commander, about 80 is double its odds of winning and about 20 half. The bar shows the 95% interval; the mark in the middle is 50.</p><p>A commander's games are the games it was played in; a four-player game counts once for each commander at the table, so the totals are game records rather than separate games. These are stock and upgraded decks, every power level and pod size, as players logged them. A score says how a commander has done in these apps, not how it will do at your table, and neighbouring ranks are often within each other's intervals.</p>",
     );
     if let Some(a) = &r.agreement {
         write!(
             out,
-            "<p>On the {} commanders both {} and {} have, their separate scores agree closely (correlation {:.2}).</p>",
+            "<p>On the {} commanders both {} and {} have, their separate scores {} (correlation {:.2}).</p>",
             count(a.commanders as i64),
             e(&a.a),
             e(&a.b),
+            agreement_words(a.correlation),
             a.correlation
         )
         .unwrap();
@@ -186,7 +198,7 @@ fn method(r: &Ranking) -> String {
         };
         write!(
             out,
-            "<li>{name}: {} commanders, {} games{}. {}. Licence: {}.</li>",
+            "<li>{name}: {} commanders, {} game records{}. {}. Licence: {}.</li>",
             count(s.commanders as i64),
             count(s.games as i64),
             s.baseline.map(|b| format!("; the average commander wins {:.1}%", b * 100.0)).unwrap_or_default(),
@@ -210,7 +222,7 @@ pub(super) async fn index(
     let rows = filters.apply(&r.commanders)?;
     let games: u64 = r.sources.iter().map(|s| s.games).sum();
     let mut body = format!(
-        "<section class=\"public-hero\"><div class=\"hero-copy\"><p class=\"eyebrow\">Commanders</p><h1>Which commanders<br>win the most?</h1><p class=\"lede\">Real games logged by players, combined into one score per commander.</p><p class=\"dim\">{} commanders from {} recorded games. Free to explore.</p></div>",
+        "<section class=\"public-hero\"><div class=\"hero-copy\"><p class=\"eyebrow\">Commanders</p><h1>Which commanders<br>win the most?</h1><p class=\"lede\">Real games logged by players, combined into one score per commander.</p><p class=\"dim\">{} commanders from {} game records, one per commander per game. Free to explore.</p></div>",
         count(r.commanders.len() as i64),
         count(games as i64)
     );
