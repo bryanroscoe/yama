@@ -20,9 +20,11 @@ import urllib.request
 ZONE = "yama.ing"
 HOST = "relay.yama.ing"
 DESCRIPTION = "yama relay: connections per address"
-# Requests per IP per 10 s at one Cloudflare location. A table is a few phones that connect once
-# and reconnect now and then; a flood is hundreds.
-REQUESTS_PER_10S = 50
+# Requests per IP per 10 s at one Cloudflare location. The Free plan's 100,000 requests a day are
+# 1.16 a second; at most 8 per 10 s, one address held just under the line all day makes about
+# 69,000, so it can't use the day up on its own. A table is a few phones connecting once (six on
+# one Wi-Fi fit) and reconnecting now and then with backoff; one briefly over waits 10 s and retries.
+REQUESTS_PER_10S = 8
 API = "https://api.cloudflare.com/client/v4"
 
 
