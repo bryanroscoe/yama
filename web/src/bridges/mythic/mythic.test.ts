@@ -30,6 +30,13 @@ describe("Mythic Tools import", () => {
         { mythic_id: "4", name: "Eli", games: 1, member_id: null, suggested: null },
       ]),
     ).toEqual({ 2: "m1", 3: "m2", 4: null });
+    // Two players suggested the same member: only the first gets it.
+    expect(
+      initialMatches([
+        { mythic_id: "2", name: "Chris", games: 3, member_id: "m1", suggested: null },
+        { mythic_id: "5", name: "Chris B", games: 1, member_id: null, suggested: "m1" },
+      ]),
+    ).toEqual({ 2: "m1", 5: null });
   });
 
   it("sums up an import", () => {

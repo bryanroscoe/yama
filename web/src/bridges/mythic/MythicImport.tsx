@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { api, type Playgroup } from "../../api";
+import { useMe } from "../../auth";
 import { Details, ErrorText } from "../../components/ui";
 import { applyLabel, initialMatches, parseExport, resultText, statusText, useMythicBridge, type MythicApplied, type MythicExport, type MythicGameRow, type MythicPreview } from "./mythic";
 import { MYTHIC_SNIPPET } from "./snippet";
@@ -68,6 +69,10 @@ export function MythicImportPage() {
   };
   const others = p?.players.filter((x) => x.mythic_id !== me) ?? [];
   const members = group?.members ?? [];
+  const account = useMe().data;
+  // A member sits at one seat: yours is you, and one matched to a player isn't offered for another.
+  const taken = (player: string, member: { id: string; user_id: string | null }) =>
+    (!!account && member.user_id === account.id) || others.some((o) => o.mythic_id !== player && players[o.mythic_id] === member.id);
 
   return (
     <main className="page stack mythic-import">
@@ -143,7 +148,7 @@ export function MythicImportPage() {
                                 <td>
                                   <select value={players[x.mythic_id] ?? ""} aria-label={`${x.name} in ${group?.name}`} onChange={(e) => setPlayers((m) => ({ ...m, [x.mythic_id]: e.target.value || null }))}>
                                     <option value="">Keep the name {x.name}</option>
-                                    {members.map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+                                    {members.map((m) => <option key={m.id} value={m.id} disabled={taken(x.mythic_id, m)}>{m.display_name}</option>)}
                                   </select>
                                 </td>
                               </tr>

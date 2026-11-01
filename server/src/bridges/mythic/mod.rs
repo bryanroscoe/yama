@@ -444,6 +444,31 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
             None => matched.remove(key),
         };
     }
+    // One member per Mythic player, and the importer's own member for their own player alone: a
+    // member at two seats would count twice in the group's stats. A match made in an earlier
+    // import gives way to one made now; two made now are refused.
+    let mut taken: HashMap<String, String> = HashMap::new();
+    if me.is_some() && let Some(mine) = &my_member {
+        taken.insert(mine.clone(), me.clone().unwrap_or_default());
+    }
+    let mut keys: Vec<String> = matched.keys().cloned().collect();
+    // Choices made now first, so they keep their member.
+    keys.sort_by_key(|k| (!req.players.contains_key(k), k.clone()));
+    for key in keys {
+        if Some(&key) == me.as_ref() {
+            matched.remove(&key);
+            continue;
+        }
+        let m = matched[&key].clone();
+        if taken.contains_key(&m) {
+            if req.players.get(&key).is_some_and(Option::is_some) {
+                return Err(AppError::bad("two Mythic players are matched to the same member, or a player is matched to you"));
+            }
+            matched.remove(&key);
+        } else {
+            taken.insert(m, key);
+        }
+    }
 
     // Everyone who played, once each, with a same-name member to suggest.
     let mut players: Vec<PlayerRow> = Vec::new();
@@ -599,6 +624,7 @@ fn to_preview(plan: Plan) -> Preview {
 }
 
 async fn preview(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(req): Json<ImportRequest>) -> AppResult<Json<Preview>> {
+    st.limits.mythic_bridge.check_user(&user)?;
     Ok(Json(to_preview(plan(&st.pool, &user.id, &req).await?)))
 }
 
@@ -646,6 +672,7 @@ async fn link(pool: &SqlitePool, owner: &str, kind: &str, mythic: &str, yama: &s
 }
 
 async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(req): Json<ImportRequest>) -> AppResult<Json<Applied>> {
+    st.limits.mythic_bridge.check_user(&user)?;
     let pool = &st.pool;
     let owner = user.id.as_str();
     let plan = plan(pool, owner, &req).await?;

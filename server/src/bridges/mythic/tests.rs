@@ -112,6 +112,14 @@ async fn players_are_matched_to_members_the_person_confirms() {
     let (s, _) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token),
         Some(json!({ "export": file(), "playgroup_id": pg, "players": { "2": "someone-else" } }))).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+    // One member can't be two players, nor anyone but the importer be the importer's member.
+    let bryan_member: String =
+        sqlx::query_scalar("SELECT id FROM playgroup_members WHERE playgroup_id = ? AND user_id = ?").bind(&pg).bind(&bryan).fetch_one(&pool).await.unwrap();
+    for players in [json!({ "2": chris_member, "managed:77": chris_member }), json!({ "2": bryan_member })] {
+        let (s, r) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token),
+            Some(json!({ "export": file(), "playgroup_id": pg, "players": players }))).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{r}");
+    }
 
     let (s, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
         Some(json!({ "export": file(), "playgroup_id": pg, "players": { "2": chris_member } }))).await;

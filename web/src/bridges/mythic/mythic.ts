@@ -96,7 +96,16 @@ export function applyLabel(games: MythicGameRow[]): string {
 
 /** Who each Mythic player starts as on the page: the member they were matched to, else a same-name member. */
 export function initialMatches(players: MythicPlayer[]): Record<string, string | null> {
-  return Object.fromEntries(players.map((p) => [p.mythic_id, p.member_id ?? p.suggested]));
+  // A member sits at one seat: a suggestion already taken by an earlier match isn't made again.
+  const used = new Set(players.flatMap((p) => (p.member_id ? [p.member_id] : [])));
+  return Object.fromEntries(
+    players.map((p) => {
+      if (p.member_id) return [p.mythic_id, p.member_id];
+      const s = p.suggested && !used.has(p.suggested) ? p.suggested : null;
+      if (s) used.add(s);
+      return [p.mythic_id, s];
+    }),
+  );
 }
 
 export function resultText(r: MythicApplied): string {
