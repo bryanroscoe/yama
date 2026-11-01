@@ -67,7 +67,9 @@ one-use VM for the engine compiler. They restore npm downloads and the Rust buil
 (dependencies and the pinned engine, keyed by `deploy/phase-rev`) from the Actions cache.
 Only push CI on main saves the Rust cache, so a PR reuses main's warm build and never
 evicts it. The engine checkout's files are dated to its commit first, because Cargo
-rebuilds a path dependency whose files look newer than its cached build. Saget uses its preinstalled tools and persistent
+rebuilds a path dependency whose files look newer than its cached build. Hosted Rust jobs also
+delete unused preinstalled toolsets (.NET, Android, GHC, CodeQL) because the image leaves
+about 4 GiB free. Saget uses its preinstalled tools and persistent
 cache, with no sudo or host swap changes. Tests and deployment authorization are
 identical on both backends. The local job budget includes time waiting for the
 shared compute slot; hosted job budgets retain their previous limits.

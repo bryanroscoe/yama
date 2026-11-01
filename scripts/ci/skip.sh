@@ -19,7 +19,9 @@ gh label create skip-ci --color BFD4F2 \
   --description 'Skip PR CI; checks ran locally (scripts/ci/skip.sh)' >/dev/null 2>&1 || true
 gh pr edit "$pr" --add-label skip-ci >/dev/null
 
-read -r branch head < <(gh pr view "$pr" --json headRefName,headRefOid --jq '"\(.headRefName) \(.headRefOid)"')
+pr_head="$(gh pr view "$pr" --json headRefName,headRefOid --jq '"\(.headRefName) \(.headRefOid)"')"
+read -r branch head <<<"$pr_head"
+gh pr comment "$pr" --body "CI skipped for \`${head:0:12}\` with the \`skip-ci\` label. Checked locally: $reason" >/dev/null
 run="$(gh run list --workflow CI --event pull_request --branch "$branch" --limit 20 \
   --json databaseId,headSha --jq "[.[] | select(.headSha == \"$head\")][0].databaseId // empty")"
 if [ -z "$run" ]; then
@@ -27,7 +29,7 @@ if [ -z "$run" ]; then
 else
   if [ "$(gh run view "$run" --json status --jq .status)" != completed ]; then
     gh run cancel "$run" >/dev/null || true
-    for _ in $(seq 60); do
+    for _ in $(seq 150); do
       [ "$(gh run view "$run" --json status --jq .status)" = completed ] && break
       sleep 2
     done
@@ -35,6 +37,4 @@ else
   gh run rerun "$run"
   echo "Re-ran CI run $run; the gate skips the web and Rust jobs."
 fi
-
-gh pr comment "$pr" --body "CI skipped for \`${head:0:12}\` with the \`skip-ci\` label. Checked locally: $reason" >/dev/null
 echo "PR #$pr: skip-ci recorded."

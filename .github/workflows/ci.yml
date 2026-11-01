@@ -162,6 +162,9 @@ jobs:
         run: |
           rustup toolchain install 1.98.1 --profile minimal
           echo 'RUSTUP_TOOLCHAIN=1.98.1' >> "$GITHUB_ENV"
+          # The hosted image leaves ~4 GiB free; drop toolsets CI never uses so the
+          # restored cache, the build and the swapfile fit.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           # Only the disposable hosted VM may create swap. Saget has no sudo.
           sudo fallocate -l 8G /swapfile-yama-ci
           sudo chmod 600 /swapfile-yama-ci
@@ -184,6 +187,9 @@ jobs:
         with:
           workspaces: yama -> target
           key: phase-${{ steps.phase.outputs.sha }}
+          # rust-cache counts ../yama-phase as a workspace crate (its path starts with
+          # this workspace's path), so keep workspace crates or the engine is dropped.
+          cache-workspace-crates: 'true'
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Check Rust and dedicated cache
         run: |
@@ -193,7 +199,8 @@ jobs:
           fi
           rustc --version
           free -h
-          df -h . "${CARGO_TARGET_DIR:-target}/.."
+          df -h .
+          if [ -n "${CARGO_TARGET_DIR:-}" ]; then df -h "$CARGO_TARGET_DIR/.."; fi
       - name: Test the Rust workspace
         run: |
           git log -1 --format='Tested Yama revision: %H'
