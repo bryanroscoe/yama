@@ -449,15 +449,16 @@ async fn add_copies(
     let id = new_id();
     let stamp = now();
     // The unique index on the copy identity turns a duplicate into a quantity bump.
-    // A merged row keeps its existing purchase price unless it had none.
+    // A merged row keeps its existing purchase price unless it had none, and the currency goes
+    // with whichever price it keeps.
     sqlx::query(
         "INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, finish, lang, altered, signed,
             misprint, proxy, container_id, purchase_price, purchase_currency, created_at, updated_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(owner_id, scryfall_id, condition, finish, lang, altered, signed, misprint, proxy, IFNULL(container_id, ''))
          DO UPDATE SET qty = qty + excluded.qty, updated_at = excluded.updated_at,
-            purchase_price = COALESCE(purchase_price, excluded.purchase_price),
-            purchase_currency = COALESCE(purchase_currency, excluded.purchase_currency)",
+            purchase_currency = CASE WHEN purchase_price IS NULL THEN excluded.purchase_currency ELSE purchase_currency END,
+            purchase_price = COALESCE(purchase_price, excluded.purchase_price)",
     )
     .bind(&id)
     .bind(owner)
@@ -1104,6 +1105,18 @@ mod tests {
                 .await
                 .unwrap()
         }
+
+        // A twin with a price but no currency keeps both as they were after a merge.
+        sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, finish, lang, altered, signed, misprint, proxy, purchase_price, created_at, updated_at) VALUES ('t','u1','ltr-x',1,'NM','nonfoil','en',0,0,0,0,5.0,'now','now')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &split("t1", 1)).await.unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(rows(&pool).await, vec![("ltr".into(), 2, Some(4.0), Some("EUR".into())), ("ltr-x".into(), 2, Some(5.0), None)]);
+        sqlx::query("DELETE FROM collection_items WHERE id = 't'").execute(&pool).await.unwrap();
+        sqlx::query("UPDATE collection_items SET qty = 3").execute(&pool).await.unwrap();
 
         // One copy moves, with its price and currency.
         let mut tx = pool.begin().await.unwrap();
