@@ -8,6 +8,7 @@ import { clearPlanData } from "./plan/store";
 import "./auth.css";
 import { noteViewing } from "./viewing";
 import { Landing } from "./pages/Landing";
+import { chooseGuest } from "./guest";
 
 const ME_KEY = "yama.me";
 
@@ -156,6 +157,7 @@ export function Login() {
 
   const signedIn = (r: { user: User; token: string }) => {
     setToken(r.token);
+    chooseGuest(false);
     qc.setQueryData(["me"], r.user);
   };
 
@@ -211,6 +213,8 @@ export function Login() {
       {/* Google's button is a light-scheme iframe. Inside our dark page Chrome paints an opaque
           white backdrop behind an iframe whose scheme differs, so give its box the light scheme. */}
       {clientId && <div ref={googleRef} style={{ colorScheme: "light" }} />}
+      {/* The life counter works without an account (guest.ts); sharing a table needs one. */}
+      <button className="login-secondary" onClick={() => chooseGuest(true)}>Count life without an account</button>
       {config.data?.cf_access && (
         <div className="stack">
           <p className="dim">Yama signs you in with the email your host invited.</p>

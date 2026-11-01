@@ -11,7 +11,8 @@ import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
 import { afterRemoving, applySeatPatch, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
-import { discardGame, startGame, sync, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
+import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
+import { chooseGuest, isGuest } from "../guest";
 import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
 import { useLayoutChoice } from "./layouts";
 import { panelArt, useShowArt } from "./art";
@@ -65,9 +66,11 @@ export function TableHome() {
   const syncStatus = useSyncStatus();
   const navigate = useNavigate();
   const showArt = useShowArt();
+  const guest = isGuest();
 
   return (
     <main className="page table-home">
+      {guest ? <GuestBanner /> : <SaveGuestGames />}
       {game && state ? (
         <section className="stack" style={{ marginBottom: "2rem" }}>
           <div className="page-head">
@@ -110,7 +113,7 @@ export function TableHome() {
       )}
 
       <InstallCard />
-      <RecentGames
+      {!guest && <RecentGames
         waiting={
           outbox.length > 0 ? (
             <span className="rg-waiting" role="status">
@@ -122,7 +125,7 @@ export function TableHome() {
             </span>
           ) : null
         }
-      />
+      />}
       {syncStatus.error && outbox.length > 0 && <p className="small error">{syncStatus.error}</p>}
       {rejected.length > 0 && (
         <p className="small error">
@@ -130,6 +133,47 @@ export function TableHome() {
         </p>
       )}
     </main>
+  );
+}
+
+/** Counting without an account: what that means, and the way to sign in. */
+function GuestBanner() {
+  const games = useGuestGames();
+  return (
+    <aside className="guest-banner" aria-label="Counting without an account">
+      <p>
+        <b>Counting without an account.</b>
+        <span className="dim">
+          {" "}Games stay on this phone{games.length ? ` (${games.length} so far)` : ""}. Sign in with Google to share the table with everyone's phones, keep your playgroup's stats, and save these games.
+        </span>
+      </p>
+      <button className="primary" onClick={() => chooseGuest(false)}>Sign in</button>
+    </aside>
+  );
+}
+
+/** Signed in on a phone that counted games without an account: save them to this account? */
+function SaveGuestGames() {
+  const games = useGuestGames();
+  const { game } = useTable();
+  const going = !!game?.guest;
+  if (!games.length && !going) return null;
+  const what = [games.length ? `${games.length} finished ${games.length === 1 ? "game" : "games"}` : null, going ? "the game going now" : null].filter(Boolean).join(" and ");
+  return (
+    <aside className="guest-banner" aria-label="Games counted without an account">
+      <p>
+        <b>Save {what} to your account?</b>
+        <span className="dim"> They were counted on this phone before you signed in. Nothing goes to Yama unless you say so.</span>
+      </p>
+      <div className="row">
+        <button className="primary" onClick={saveGuestGames}>Save them</button>
+        {games.length > 0 && (
+          <button className="quiet" onClick={() => confirm(`Throw away ${games.length === 1 ? "this finished game" : `these ${games.length} finished games`}? They were never saved to Yama.`) && dropGuestGames()}>
+            Throw away
+          </button>
+        )}
+      </div>
+    </aside>
   );
 }
 
@@ -164,8 +208,9 @@ function InstallCard() {
 
 function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   const me = useMe();
-  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const guest = isGuest();
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups"), enabled: !guest });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !guest });
   const [groupId, setGroupId] = useState<string>("");
   const [life, setLife] = useState(40);
   const [format, setFormat] = useState<TableFormat>("commander");
@@ -299,7 +344,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
     };
     localStorage.setItem(LAST_SETUP, JSON.stringify({ seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() }));
     startGame(setup);
-    onStart(phones === "everyone");
+    onStart(phones === "everyone" && !guest);
   };
 
   // Tap someone in Who's playing: they take the next open seat, or leave theirs.
@@ -346,12 +391,13 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
         <Choice label="Game" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
         <Choice label="Players" options={Array.from({ length: MAX_SEATS }, (_, i) => i + 1)} value={seats.length} onChange={setCount} />
         <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
-        <Choice label="Phones" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "Just this one" : "Everyone's own")} />
+        {/* Sharing the table with everyone's phones needs an account. */}
+        {!guest && <Choice label="Phones" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "Just this one" : "Everyone's own")} />}
       </div>
       {phones === "everyone" && (
         <p className="small dim ng-note">The join code shows as soon as the game starts. Friends scan it, pick their seat and keep their own total.</p>
       )}
-      <WhoPlaying groups={groups.data ?? []} groupId={groupId} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />
+      {!guest && <WhoPlaying groups={groups.data ?? []} groupId={groupId} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />}
       {!wide && <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />}
       {wide ? (
         <div className="ng-body">

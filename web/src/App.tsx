@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { NavLink, Outlet, Route, Routes, useMatch } from "react-router";
+import { Navigate, NavLink, Outlet, Route, Routes, useMatch } from "react-router";
+import { setGuestActive, useGuestChosen } from "./guest";
 import { AdminLayout } from "./admin/AdminLayout";
 import { LabRunsPage } from "./admin/LabRuns";
 import { PeoplePage } from "./admin/People";
@@ -99,6 +100,7 @@ function Shell() {
 
 export function App() {
   const me = useMe();
+  const guestChosen = useGuestChosen();
   const joining = useMatch("/table/join/:gameId");
   // Another tab started or stopped viewing as someone: this one reloads as whoever it is now.
   useEffect(() => {
@@ -129,6 +131,19 @@ export function App() {
           <p className="dim">The server didn't answer. If you're offline, the life counter still works once you've signed in on this device.</p>
         </div>
       </main>
+    );
+  }
+  // Nobody signed in: the life counter on its own if they chose it, else the sign-in page.
+  const guest = !me.data && guestChosen;
+  setGuestActive(guest);
+  if (guest) {
+    return (
+      <Routes>
+        <Route path="/table/play" element={<TablePlay />} />
+        <Route path="/table/join/:gameId" element={<GuestTable />} />
+        <Route index element={<TableHome />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     );
   }
   if (!me.data) return <Login />;

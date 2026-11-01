@@ -29,6 +29,8 @@ vi.mock("../api", () => ({
   }),
 }));
 vi.mock("../viewingFlag", () => ({ isViewing: () => false }));
+let guest = false;
+vi.mock("../guest", () => ({ isGuest: () => guest }));
 
 items.set("yama.me", JSON.stringify({ id: "me" }));
 const store = await import("./store");
@@ -83,5 +85,49 @@ describe("deleting table games", () => {
     items.set("yama.me", JSON.stringify({ id: "me" }));
     await store.sync();
     expect(calls).toContainEqual({ path: "/api/games/g-theirs", method: "DELETE" });
+  });
+});
+
+describe("games counted without an account", () => {
+  beforeEach(() => {
+    calls.length = 0;
+    failWith = null;
+    goneOnPost = false;
+  });
+
+  it("stay on the phone until whoever signs in saves them", async () => {
+    guest = true;
+    store.startGame(setup("guest-1"));
+    store.dispatch({ type: "life", seat: 0, delta: -3 });
+    await store.sync();
+    store.finishGame(0);
+    await store.sync();
+    expect(calls).toEqual([]);
+    expect(store.getGame()).toBeNull();
+    expect(JSON.parse(items.get("yama.table.guestGames")!).map((g: { setup: { id: string } }) => g.setup.id)).toEqual(["guest-1"]);
+    // Discarding one never asks Yama to delete anything.
+    store.startGame(setup("guest-2"));
+    store.discardGame();
+    await store.sync();
+    expect(calls).toEqual([]);
+    // Signed in, saved: it uploads with its finish.
+    guest = false;
+    store.saveGuestGames();
+    await store.sync();
+    expect(calls.map((c) => c.path)).toEqual(["/api/games", "/api/games/guest-1/finish"]);
+    expect(JSON.parse(items.get("yama.table.guestGames")!)).toEqual([]);
+  });
+
+  it("a game going when they sign in waits too, until saved", async () => {
+    guest = true;
+    store.startGame(setup("guest-3"));
+    guest = false;
+    await store.sync();
+    expect(calls).toEqual([]);
+    store.saveGuestGames();
+    await store.sync();
+    expect(calls.map((c) => c.path)).toContain("/api/games");
+    store.discardGame();
+    await store.sync();
   });
 });

@@ -9,6 +9,7 @@ import { api, type Card, type DeckSummary, type FoundPerson, type ProfileDeck, t
 import type { PreconItem, PreconList } from "../lab/api";
 import { artCredits } from "../components/ArtPanel";
 import { Pips } from "../components/ui";
+import { cardSearchPath, isGuest } from "../guest";
 import "./pickers.css";
 
 /** The value after the person stops typing for `ms`. */
@@ -255,7 +256,7 @@ export function canPair(a: Pick<Card, "name" | "oracle_text" | "type_line">, b: 
 }
 
 async function searchCards(q: string, order?: string): Promise<Card[]> {
-  return (await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(q)}${order ? `&order=${order}` : ""}`)).cards;
+  return (await api<SearchResult>(cardSearchPath(q, order))).cards;
 }
 
 /**
@@ -532,7 +533,8 @@ function usePeopleSearch(text: string) {
   return useQuery({
     queryKey: ["people-search", q],
     queryFn: () => api<FoundPerson[]>(`/api/people?q=${encodeURIComponent(q)}`),
-    enabled: q.length >= 2,
+    // Finding people by handle needs an account.
+    enabled: q.length >= 2 && !isGuest(),
     staleTime: 60_000,
     placeholderData: (prev) => prev,
   });

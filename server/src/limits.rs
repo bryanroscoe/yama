@@ -31,10 +31,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 const MINUTE: Duration = Duration::from_secs(60);
+const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Sign-in attempts (Google and password together), per address and per email.
 pub const SIGN_IN_ATTEMPTS: usize = 10;
 pub const SIGN_IN_WINDOW: Duration = Duration::from_secs(10 * 60);
+/// New open sign-up accounts per address per day, and from everywhere per hour.
+pub const NEW_ACCOUNTS_PER_ADDRESS: usize = 3;
+pub const NEW_ACCOUNTS_PER_HOUR: usize = 60;
 
 /// Keys kept before stale ones are swept out.
 const SWEEP_AT: usize = 10_000;
@@ -105,6 +109,14 @@ pub struct Limits {
     pub sign_in_email: RateLimiter,
     /// `/api/cards/search`, per account.
     pub search: RateLimiter,
+    /// `/api/guest/cards/search`: commander lookups from the life counter without an account,
+    /// per client address.
+    pub guest_search: RateLimiter,
+    /// New accounts through open sign-up, per client address: a person makes one, a script many.
+    pub new_accounts_address: RateLimiter,
+    /// New accounts through open sign-up from everywhere together, so a flood from many addresses
+    /// still stops (invited people are never counted or refused).
+    pub new_accounts: RateLimiter,
     /// `/api/cards/autocomplete`, per account (it runs while someone types).
     pub autocomplete: RateLimiter,
     /// Player searches by handle and their public decks (Log a game, New game), per account.
@@ -144,6 +156,9 @@ impl Default for Limits {
             sign_in_address: RateLimiter::new("sign-in attempts from this address", SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW),
             sign_in_email: RateLimiter::new("sign-in attempts for this email", SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW),
             search: RateLimiter::new("card searches", 120, MINUTE),
+            guest_search: RateLimiter::new("card searches from this address", 60, MINUTE),
+            new_accounts_address: RateLimiter::new("new accounts from this address", NEW_ACCOUNTS_PER_ADDRESS, DAY),
+            new_accounts: RateLimiter::new("new accounts on Yama just now", NEW_ACCOUNTS_PER_HOUR, 60 * MINUTE),
             autocomplete: RateLimiter::new("card name lookups", 300, MINUTE),
             people: RateLimiter::new("player searches", 120, MINUTE),
             offline_cards: RateLimiter::new("offline card downloads", 10, 60 * MINUTE),

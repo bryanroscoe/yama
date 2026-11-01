@@ -375,7 +375,7 @@ async fn google_login(
         return Err(AppError::Forbidden("the Google sign-in had no email address".into()));
     }
     st.limits.sign_in_email.check(&email)?;
-    let user = google_account(&st, &claims.sub, &email, claims.name.as_deref()).await?;
+    let user = google_account(&st, &claims.sub, &email, claims.name.as_deref(), &address_key(address)).await?;
     start_session(&st, jar, user).await
 }
 
@@ -402,7 +402,7 @@ fn display_name(name: Option<&str>, email: &str) -> String {
 
 /// The account a verified Google sign-in (`sub`, lower-cased `email`) belongs to, made if need
 /// be, or why it can't come in. See the module notes for the rules.
-async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str>) -> AppResult<User> {
+async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str>, address: &str) -> AppResult<User> {
     let invited = is_invited(st, email).await?;
     let open = st.cfg.open_signup;
     let id = if let Some(acc) = account_by_google(&st.pool, sub).await? {
@@ -442,6 +442,12 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
             None => {
                 if !open && !invited {
                     return Err(not_invited(email));
+                }
+                // Open sign-up makes accounts at a person's pace: a few per address a day, and a
+                // ceiling for everyone together, so scripted sign-ups stop. Invites aren't counted.
+                if !invited {
+                    st.limits.new_accounts_address.check(address)?;
+                    st.limits.new_accounts.check("all")?;
                 }
                 sqlx::query(
                     "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at) VALUES (?, ?, ?, ?, 0, ?) ON CONFLICT DO NOTHING",

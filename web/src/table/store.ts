@@ -15,6 +15,7 @@ import {
 import { useSyncExternalStore } from "react";
 import { api, ApiError } from "../api";
 import { isViewing } from "../viewingFlag";
+import { isGuest } from "../guest";
 
 export interface LocalGame {
   setup: TableSetup;
@@ -29,6 +30,11 @@ export interface LocalGame {
    */
   frozenThrough?: number;
   finishSynced?: boolean;
+  /**
+   * Counted without an account (guest.ts): it stays on this phone until whoever signs in here
+   * says to save it (saveGuestGames).
+   */
+  guest?: true;
 }
 
 const CURRENT = "yama.table.current";
@@ -37,6 +43,8 @@ const OUTBOX = "yama.table.outbox";
 const REJECTED = "yama.table.rejected";
 /** Games to delete from Yama: discarded or deleted here, waiting for a connection. */
 const DELETES = "yama.table.deletes";
+/** Finished games counted without an account, waiting for someone to sign in and save them. */
+const GUEST_GAMES = "yama.table.guestGames";
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -53,6 +61,7 @@ function read<T>(key: string, fallback: T): T {
 let current: LocalGame | null = read<LocalGame | null>(CURRENT, null);
 let outbox: LocalGame[] = read<LocalGame[]>(OUTBOX, []);
 let rejected: { game: LocalGame; error: string }[] = read(REJECTED, []);
+let guestGames: LocalGame[] = read<LocalGame[]>(GUEST_GAMES, []);
 /** Each delete remembers whose it is: it's only sent while that account is signed in here. */
 type QueuedDelete = { id: string; owner: string | null };
 let deletes: QueuedDelete[] = read<(QueuedDelete | string)[]>(DELETES, []).map((d) => (typeof d === "string" ? { id: d, owner: null } : d));
@@ -79,6 +88,7 @@ function emit() {
   localStorage.setItem(OUTBOX, JSON.stringify(outbox));
   localStorage.setItem(REJECTED, JSON.stringify(rejected));
   localStorage.setItem(DELETES, JSON.stringify(deletes));
+  localStorage.setItem(GUEST_GAMES, JSON.stringify(guestGames));
   for (const l of listeners) l();
 }
 
@@ -101,6 +111,29 @@ export function useTable() {
 
 export function useOutbox() {
   return useSyncExternalStore(subscribe, () => outbox);
+}
+
+/** Games counted on this phone without an account: the finished ones, and the one going. */
+export function useGuestGames() {
+  return useSyncExternalStore(subscribe, () => guestGames);
+}
+
+/** Put the games counted here without an account on the signed-in account, and upload them. */
+export function saveGuestGames() {
+  outbox = [...outbox, ...guestGames.map(({ guest: _, ...g }) => g)];
+  guestGames = [];
+  if (current?.guest) {
+    const { guest: _, ...g } = current;
+    current = g;
+  }
+  emit();
+  void sync();
+}
+
+/** Throw away the finished games counted here without an account; the one going stays. */
+export function dropGuestGames() {
+  guestGames = [];
+  emit();
 }
 
 export function useRejected() {
@@ -170,7 +203,7 @@ export function useSyncStatus() {
 }
 
 export function startGame(setup: TableSetup) {
-  setCurrent({ setup, log: [], redo: [], syncedThrough: 0 });
+  setCurrent({ setup, log: [], redo: [], syncedThrough: 0, ...(isGuest() ? { guest: true as const } : {}) });
   void sync();
 }
 
@@ -214,8 +247,10 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
   const fun = details.fun?.length ? details.fun : undefined;
   const winCondition = winnerSeat === null ? undefined : details.winCondition;
   log = record(log, { type: "finish", winnerSeat, endedAt: now.toISOString(), ...(winCondition ? { winCondition } : {}), ...(fun ? { fun } : {}) }, now, Infinity);
-  // A finished game uploads whole: drop the in-flight mark so nothing is held back.
-  outbox = [...outbox, { ...current, log, frozenThrough: undefined }];
+  // A finished game uploads whole: drop the in-flight mark so nothing is held back. One counted
+  // without an account waits on this phone instead.
+  if (current.guest) guestGames = [...guestGames, { ...current, log, frozenThrough: undefined }];
+  else outbox = [...outbox, { ...current, log, frozenThrough: undefined }];
   forgetPrompts(current.setup.id);
   setCurrent(null);
   void sync();
@@ -239,7 +274,13 @@ function forgetPrompts(gameId: string) {
 
 /** Throw away the game on this device. If it already reached Yama, it's deleted there too. */
 export function discardGame() {
-  if (current) void deleteGame(current.setup.id);
+  if (!current) return;
+  // Never uploaded: it only has to go from this phone.
+  if (current.guest) {
+    forgetPrompts(current.setup.id);
+    return setCurrent(null);
+  }
+  void deleteGame(current.setup.id);
 }
 
 /** The seat's label on the server: its commander, and its partner, so another device can rebuild the pair. */
@@ -298,6 +339,8 @@ export function sync(): Promise<void> {
   // An admin viewing as someone sends nothing: games recorded on this device wait until the view
   // ends (the server would refuse them, and they'd be set aside as rejected).
   if (isViewing()) return Promise.resolve();
+  // Nobody is signed in: there's no account to send anything to.
+  if (isGuest()) return Promise.resolve();
   if (inflight) return inflight;
   inflight = (async () => {
     syncState = { ...syncState, syncing: true };
@@ -319,7 +362,7 @@ export function sync(): Promise<void> {
         emit();
       }
       await pushDeletes();
-      if (current) {
+      if (current && !current.guest) {
         // Freeze what we're about to send: later taps start new events instead of changing these.
         const through = current.log[current.log.length - 1]?.seq ?? 0;
         current = { ...current, frozenThrough: Math.max(current.frozenThrough ?? 0, through) };
