@@ -110,9 +110,9 @@ describe("the trip", () => {
     const quotes = bundle.quotes.map((q) => (q.card === "Exotic Orchard" ? { ...q, in_stock: null } : q));
     const t = planTrip({ ...bundle, quotes }, { today: "2026-11-01" });
     expect(t.stops.map((s) => s.store.key)).not.toContain("multiverse-hobbies");
-    expect(t.print.find((p) => p.want.card === "Exotic Orchard")?.reason).toBe("unknown-stock");
+    expect(t.print.find((p) => p.want.card === "Exotic Orchard")).toMatchObject({ reason: "unknown-stock", stores: ["Multiverse Hobbies"] });
     const cad = planTrip({ ...bundle, quotes: bundle.quotes.map((q) => (q.card === "Exotic Orchard" ? { ...q, currency: "CAD" } : q)) }, { today: "2026-11-01" });
-    expect(cad.print.find((p) => p.want.card === "Exotic Orchard")?.reason).toBe("no-price");
+    expect(cad.print.find((p) => p.want.card === "Exotic Orchard")).toMatchObject({ reason: "no-price", stores: ["Multiverse Hobbies"] });
   });
 
   test("your chosen cut, carts, and totals that never count a missing price as $0", () => {

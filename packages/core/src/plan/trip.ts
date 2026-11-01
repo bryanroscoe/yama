@@ -167,7 +167,7 @@ export interface PrintRow {
   reason: PrintReason;
   /** The cheapest listing that explains the reason, when there is one. */
   offer: TripOffer | null;
-  /** For "never-store" and "not-local": the stores off the trip that have it under your rule. */
+  /** For "never-store" and "not-local": the stores off the trip that have it under your rule; for "no-price" and "unknown-stock": the stores to ask. */
   stores: string[];
 }
 
@@ -301,13 +301,14 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   const checked = new Set<string>();
   // Every want's in-stock, priced listings at known stores, judged; plus what was seen for the reasons.
   const offersOf = new Map<string, TripOffer[]>();
-  const seenOf = new Map<string, { checks: number; unpriced: Quote | null; unknown: boolean }>();
+  // The stores to ask about a card: in stock without a usable USD price, or stock not stated.
+  const seenOf = new Map<string, { checks: number; unpriced: string[]; unknown: string[] }>();
   for (const w of wants) {
     const quotes = quotesByCard.get(norm(w.card)) ?? [];
     const recorded = quotes.filter((q) => q.kind === "market_benchmark" && (q.currency == null || q.currency.toUpperCase() === "USD"));
     const latest = newestChecks(quotes);
-    let unpriced: Quote | null = null;
-    let unknown = false;
+    const unpriced: string[] = [];
+    const unknown: string[] = [];
     let checks = 0;
     const offers: TripOffer[] = [];
     for (const q of latest) {
@@ -319,12 +320,12 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
       if (q.in_stock === false) continue;
       // A check that didn't say whether it's in stock isn't a reason to go: ask the store.
       if (q.in_stock !== true) {
-        unknown = true;
+        if (!unknown.includes(store.name)) unknown.push(store.name);
         continue;
       }
       // A price in another currency can't be judged by the USD rule or summed with dollars.
       if (q.price == null || (q.currency != null && q.currency.toUpperCase() !== "USD")) {
-        unpriced ??= q;
+        if (!unpriced.includes(store.name)) unpriced.push(store.name);
         continue;
       }
       if (foilListing(q.result)) continue; // a plain copy is the rule; a foil isn't one
@@ -441,11 +442,12 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
     const notLocal = banned.filter((o) => o.preference !== "never");
     const off = notLocal.length ? notLocal : banned;
     if (off.length) print.push({ want: w, reason: notLocal.length ? "not-local" : "never-store", offer: off[0]!, stores: [...new Set(off.map((o) => o.store.name))] });
-    else if (firstOf("over-market") || firstOf("no-market") || firstOf("over-max")) {
-      const o = (firstOf("over-market") ?? firstOf("no-market") ?? firstOf("over-max"))!;
+    else if (firstOf("over-max") || firstOf("over-market") || firstOf("no-market")) {
+      // The order the design note gives: over the limit (print it) first.
+      const o = (firstOf("over-max") ?? firstOf("over-market") ?? firstOf("no-market"))!;
       print.push({ want: w, reason: o.verdict as PrintReason, offer: o, stores: [] });
-    } else if (seen.unpriced) print.push({ want: w, reason: "no-price", offer: null, stores: [] });
-    else if (seen.unknown) print.push({ want: w, reason: "unknown-stock", offer: null, stores: [] });
+    } else if (seen.unpriced.length) print.push({ want: w, reason: "no-price", offer: null, stores: seen.unpriced });
+    else if (seen.unknown.length) print.push({ want: w, reason: "unknown-stock", offer: null, stores: seen.unknown });
     else print.push({ want: w, reason: seen.checks ? "not-stocked" : "no-check", offer: null, stores: [] });
   }
 

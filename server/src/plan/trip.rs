@@ -547,11 +547,12 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
     }
     let mut checked = BTreeSet::new();
     let mut offers_of: HashMap<String, Vec<Offer>> = HashMap::new();
-    let mut seen_of: HashMap<String, (usize, bool, bool)> = HashMap::new();
+    let mut seen_of: HashMap<String, (usize, Vec<String>, Vec<String>)> = HashMap::new();
     for w in &wants {
         let quotes = by_card.get(&norm(&w.card)).cloned().unwrap_or_default();
         let latest = newest_checks(&quotes);
-        let (mut checks, mut unpriced, mut unknown) = (0, false, false);
+        // The stores to ask about it: in stock without a usable USD price, or stock not stated.
+        let (mut checks, mut unpriced, mut unknown) = (0, Vec::<String>::new(), Vec::<String>::new());
         let mut offers = Vec::new();
         for q in latest {
             let Some(st) = s(q, "store").and_then(|k| store(k)) else { continue };
@@ -567,13 +568,19 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
             }
             // A check that didn't say whether it's in stock isn't a reason to go: ask the store.
             if q["in_stock"] != true {
-                unknown = true;
+                let name = store_name(st).to_string();
+                if !unknown.contains(&name) {
+                    unknown.push(name);
+                }
                 continue;
             }
             // A price in another currency can't be judged by the USD rule or summed with dollars.
             let usd_price = s(q, "currency").is_none_or(|c| c.eq_ignore_ascii_case("USD"));
             let Some(price) = q.get("price").and_then(num).filter(|_| usd_price) else {
-                unpriced = true;
+                let name = store_name(st).to_string();
+                if !unpriced.contains(&name) {
+                    unpriced.push(name);
+                }
                 continue;
             };
             if foil_listing(s(q, "result")) {
@@ -733,7 +740,7 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
         }
         let banned: Vec<&Offer> = offers.iter().filter(|o| o.verdict == Verdict::Ok && !eligible(o.store)).collect();
         let first = |v: Verdict| offers.iter().find(|o| o.verdict == v && eligible(o.store)).cloned();
-        let (checks, unpriced, unknown) = seen_of[&w.id];
+        let (checks, unpriced, unknown) = seen_of[&w.id].clone();
         // Off the trip because the rule says buy local (the store is fine otherwise), or because they won't go.
         let not_local: Vec<&Offer> = banned.iter().copied().filter(|o| o.preference != "never").collect();
         let reason = if not_local.is_empty() { "never-store" } else { "not-local" };
@@ -747,12 +754,12 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
                 }
             }
             PrintRow { want: w.clone(), reason, offer: Some((*o).clone()), stores: names }
-        } else if let Some(o) = first(Verdict::OverMarket).or_else(|| first(Verdict::NoMarket)).or_else(|| first(Verdict::OverMax)) {
+        } else if let Some(o) = first(Verdict::OverMax).or_else(|| first(Verdict::OverMarket)).or_else(|| first(Verdict::NoMarket)) {
             PrintRow { want: w.clone(), reason: o.verdict.reason(), offer: Some(o), stores: vec![] }
-        } else if unpriced {
-            PrintRow { want: w.clone(), reason: "no-price", offer: None, stores: vec![] }
-        } else if unknown {
-            PrintRow { want: w.clone(), reason: "unknown-stock", offer: None, stores: vec![] }
+        } else if !unpriced.is_empty() {
+            PrintRow { want: w.clone(), reason: "no-price", offer: None, stores: unpriced }
+        } else if !unknown.is_empty() {
+            PrintRow { want: w.clone(), reason: "unknown-stock", offer: None, stores: unknown }
         } else {
             PrintRow { want: w.clone(), reason: if checks > 0 { "not-stocked" } else { "no-check" }, offer: None, stores: vec![] }
         };
@@ -988,8 +995,8 @@ pub fn text(t: &Trip) -> String {
                 "over-max" => format!("over the rule's limit ({at}): print it, and keep it on the real-card wishlist"),
                 "over-market" => format!("above the rule for its market ({at}; {})", market_words(&p.offer.as_ref().and_then(|o| o.market.clone()))),
                 "no-market" => format!("no market price to judge it by ({at})"),
-                "no-price" => "in stock with no listed price: ask the store".into(),
-                "unknown-stock" => "listed, but the check didn't say whether it's in stock: ask the store".into(),
+                "no-price" => format!("in stock with no listed price at {}: ask the store", p.stores.join(", ")),
+                "unknown-stock" => format!("listed at {}, but the check didn't say whether it's in stock: ask the store", p.stores.join(", ")),
                 "not-stocked" => "not in stock at the last check".into(),
                 _ => "no store check recorded".into(),
             };
