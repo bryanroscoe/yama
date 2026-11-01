@@ -292,7 +292,9 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
         commanderChoices: d.commanders.length > 1 ? d.commanders : undefined,
       });
     });
-    void deckCommanders(d).then((c) => c && setSeats((all) => (all[0]?.deckId === d.id ? patchSeat(all, 0, c) : all)));
+    // Only onto the seat as it was set here: a commander chosen from the deck's list meanwhile stays.
+    const first = d.commanders[0] ?? "";
+    void deckCommanders(d).then((c) => c && setSeats((all) => (all[0]?.deckId === d.id && all[0].commanderName === first && !all[0].partnerName ? patchSeat(all, 0, c) : all)));
     navigate(".", { replace: true, state: null });
   }, [wanted, decks.data, me.data, navigate, groupId, groups.data]);
 
