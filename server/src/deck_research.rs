@@ -7,7 +7,7 @@ use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use crate::util::{now, sha256_hex};
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -30,6 +30,8 @@ pub fn router() -> Router<AppState> {
         )
         .route("/api/research/{id}", get(get_route))
         .route("/api/research/{id}/reviews", post(review_route))
+        .route("/api/research/{id}/sharing", put(sharing_route))
+        .route("/api/research/{id}/share-link", post(reset_link_route))
 }
 
 // Deserialize the fields consumed by the UI. The original JSON, including additional fields,
@@ -569,10 +571,14 @@ pub struct Summary {
     pub title: String,
     pub revision: i64,
     pub updated_at: String,
+    /// private, link or public (`sharing::VISIBILITIES`).
+    pub visibility: String,
+    /// Made the first time the note is shared; `/r/<token>` while it isn't private.
+    pub share_token: Option<String>,
 }
 
 pub async fn list(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
-    let rows: Vec<Summary> = sqlx::query_as("SELECT id,title,revision,updated_at FROM research_reports WHERE owner_id=? ORDER BY updated_at DESC,id")
+    let rows: Vec<Summary> = sqlx::query_as("SELECT id,title,revision,updated_at,visibility,share_token FROM research_reports WHERE owner_id=? ORDER BY updated_at DESC,id")
         .bind(owner).fetch_all(pool).await?;
     Ok(json!(rows))
 }
@@ -619,19 +625,19 @@ pub struct Review {
 }
 
 pub async fn load(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Value> {
-    let row: Option<(String, i64, String)> = sqlx::query_as(
-        "SELECT document,revision,updated_at FROM research_reports WHERE owner_id=? AND id=?",
+    let row: Option<(String, i64, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT document,revision,updated_at,visibility,share_token FROM research_reports WHERE owner_id=? AND id=?",
     )
     .bind(owner)
     .bind(id)
     .fetch_optional(pool)
     .await?;
-    let (text, revision, updated_at) = row.ok_or(AppError::NotFound("research"))?;
+    let (text, revision, updated_at, visibility, share_token) = row.ok_or(AppError::NotFound("research"))?;
     let doc: Value = serde_json::from_str(&text).map_err(anyhow::Error::from)?;
     let hashes = targets(&doc)?;
     let reviews: Vec<Review> = sqlx::query_as("SELECT target,decision,note,target_hash,version,updated_at FROM research_reviews WHERE owner_id=? AND report_id=? ORDER BY target").bind(owner).bind(id).fetch_all(pool).await?;
     Ok(
-        json!({"document":doc,"revision":revision,"updated_at":updated_at,"target_hashes":hashes,"reviews":reviews}),
+        json!({"document":doc,"revision":revision,"updated_at":updated_at,"target_hashes":hashes,"reviews":reviews,"visibility":visibility,"share_token":share_token}),
     )
 }
 
@@ -748,6 +754,106 @@ pub async fn review(pool: &SqlitePool, owner: &str, id: &str, op: &ReviewOp) -> 
     Ok(result)
 }
 
+/// Who can see a note: `private`, `link` or `public`. Sharing it the first time makes its link;
+/// the link stays the same through later visibility changes and refreshes of the note.
+pub async fn set_visibility(pool: &SqlitePool, owner: &str, id: &str, visibility: &str) -> AppResult<Value> {
+    let v = crate::sharing::visibility(visibility)?;
+    let done = sqlx::query("UPDATE research_reports SET visibility=?, share_token=COALESCE(share_token, ?) WHERE owner_id=? AND id=?")
+        .bind(v)
+        .bind(crate::sharing::new_token())
+        .bind(owner)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    if done.rows_affected() == 0 {
+        return Err(AppError::NotFound("research"));
+    }
+    sharing_state(pool, owner, id).await
+}
+
+/// A new link for a note: every old link stops working.
+pub async fn reset_link(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Value> {
+    let done = sqlx::query("UPDATE research_reports SET share_token=? WHERE owner_id=? AND id=?")
+        .bind(crate::sharing::new_token())
+        .bind(owner)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    if done.rows_affected() == 0 {
+        return Err(AppError::NotFound("research"));
+    }
+    sharing_state(pool, owner, id).await
+}
+
+async fn sharing_state(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Value> {
+    let (visibility, token): (String, Option<String>) =
+        sqlx::query_as("SELECT visibility, share_token FROM research_reports WHERE owner_id=? AND id=?").bind(owner).bind(id).fetch_one(pool).await?;
+    let link = token.as_ref().filter(|_| visibility != "private").map(|t| format!("/r/{t}"));
+    Ok(json!({"id":id,"visibility":visibility,"share_token":token,"link":link}))
+}
+
+/// What a shared note shows the public: an allow-list of the guide fields, so a field added to
+/// the format later stays private until it is added here. Never review answers or notes,
+/// ownership or installed state, acquisition evidence (store quotes, owned copies, prints),
+/// shopping scenarios, accounting, local checks, `method` (where notes keep acquisition rules,
+/// price ceilings and print preferences) or anything else the format carries. Free text in the
+/// fields shown (summaries, reasons) is published as written; the Share panel says so.
+pub fn public_view(doc: &Value) -> Value {
+    fn pick(v: &Value, keys: &[&str]) -> Value {
+        let mut out = serde_json::Map::new();
+        for k in keys {
+            if let Some(x) = v.get(*k).filter(|x| !x.is_null()) {
+                out.insert((*k).to_string(), x.clone());
+            }
+        }
+        Value::Object(out)
+    }
+    fn each(v: &Value, f: impl Fn(&Value) -> Value) -> Value {
+        Value::Array(v.as_array().map(|a| a.iter().map(f).collect()).unwrap_or_default())
+    }
+    let mut out = pick(doc, &["id", "title", "generated_at", "summary"]);
+    out["decks"] = each(&doc["decks"], |d| {
+        let mut deck = pick(d, &["key", "name", "commander", "summary", "recommended_build", "pilot", "warnings", "mechanics", "sources"]);
+        deck["builds"] = each(&d["builds"], |b| {
+            let mut build = pick(b, &["id", "label", "bracket", "why", "risks", "game_changers", "gameplay_profile", "list"]);
+            build["swaps"] = each(&b["swaps"], |s| pick(s, &["id", "card_in", "card_out", "qty", "why", "why_out", "pairing_note"]));
+            build["gc_choices"] = each(&b["gc_choices"], |g| pick(g, &["card", "reason", "cut"]));
+            build
+        });
+        deck
+    });
+    out
+}
+
+/// A shared note by its link: (the sharer's handle, the public view, when it was saved). Private
+/// and unknown notes, and notes of disabled accounts, are all the same "not found".
+pub async fn shared(pool: &SqlitePool, token: &str) -> AppResult<(Option<String>, Value, String)> {
+    if !crate::sharing::valid_token(token) {
+        return Err(AppError::NotFound("research"));
+    }
+    let row: Option<(Option<String>, String, String)> = sqlx::query_as(
+        "SELECT u.handle, r.document, r.updated_at FROM research_reports r JOIN users u ON u.id = r.owner_id
+         WHERE r.share_token = ? AND r.visibility IN ('link', 'public') AND u.disabled_at IS NULL",
+    )
+    .bind(token)
+    .fetch_optional(pool)
+    .await?;
+    let (handle, text, updated_at) = row.ok_or(AppError::NotFound("research"))?;
+    let doc: Value = serde_json::from_str(&text).map_err(anyhow::Error::from)?;
+    Ok((handle, public_view(&doc), updated_at))
+}
+
+/// A profile's public notes: (token, title, deck count, saved at), newest first.
+pub async fn profile_reports(pool: &SqlitePool, owner: &str) -> AppResult<Vec<(String, String, i64, String)>> {
+    Ok(sqlx::query_as(
+        "SELECT share_token, title, json_array_length(document, '$.decks'), updated_at FROM research_reports
+         WHERE owner_id = ? AND visibility = 'public' AND share_token IS NOT NULL ORDER BY updated_at DESC, id",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?)
+}
+
 async fn list_route(
     State(st): State<AppState>,
     CurrentUser(u): CurrentUser,
@@ -775,6 +881,26 @@ async fn review_route(
     Json(op): Json<ReviewOp>,
 ) -> AppResult<Json<Review>> {
     Ok(Json(review(&st.pool, &u.id, &id, &op).await?))
+}
+
+#[derive(Deserialize)]
+struct SharingBody {
+    visibility: String,
+}
+async fn sharing_route(
+    State(st): State<AppState>,
+    CurrentUser(u): CurrentUser,
+    Path(id): Path<String>,
+    Json(body): Json<SharingBody>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(set_visibility(&st.pool, &u.id, &id, &body.visibility).await?))
+}
+async fn reset_link_route(
+    State(st): State<AppState>,
+    CurrentUser(u): CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(reset_link(&st.pool, &u.id, &id).await?))
 }
 
 #[cfg(test)]

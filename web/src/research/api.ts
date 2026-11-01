@@ -1,4 +1,4 @@
-import { api } from "../api";
+import { api, type Visibility } from "../api";
 
 export interface Source { title: string; url: string; accessed?: string }
 export interface Power { range?: string; label?: string; confidence?: string; rationale?: string; speed?: string; vulnerabilities?: string[] }
@@ -57,13 +57,18 @@ export interface ResearchDocument {
   local_checks?: Record<string, { reason?: string; coverage?: string; checked?: string; local_checks?: { store: string; checked?: string; errors?: string[]; search_may_be_truncated?: boolean }[]; rejected_offers?: Item[]; market_reference?: { market?: number | null; set?: string; num?: string; url?: string } }>;
 }
 export interface Review { target: string; decision: string | null; note: string | null; target_hash: string; version: number; updated_at: string }
-export interface ResearchBundle { document: ResearchDocument; revision: number; updated_at: string; target_hashes: Record<string, string>; reviews: Review[] }
-export interface ReportSummary { id: string; title: string; revision: number; updated_at: string }
+export interface ResearchBundle { document: ResearchDocument; revision: number; updated_at: string; target_hashes: Record<string, string>; reviews: Review[]; visibility?: Visibility; share_token?: string | null }
+export interface ReportSummary { id: string; title: string; revision: number; updated_at: string; visibility?: Visibility; share_token?: string | null }
+export interface NoteSharing { id: string; visibility: Visibility; share_token: string | null; link: string | null }
 export interface ReviewOp { op_id: string; target: string; decision: string | null; note: string | null; expected_version: number; target_hash: string }
 
 export const reports = () => api<ReportSummary[]>("/api/research");
 export const report = (id: string) => api<ResearchBundle>(`/api/research/${encodeURIComponent(id)}`);
 export const saveReview = (id: string, op: ReviewOp) => api<Review>(`/api/research/${encodeURIComponent(id)}/reviews`, { method: "POST", json: op });
+export const setNoteSharing = (id: string, visibility: Visibility) => api<NoteSharing>(`/api/research/${encodeURIComponent(id)}/sharing`, { method: "PUT", json: { visibility } });
+export const resetNoteLink = (id: string) => api<NoteSharing>(`/api/research/${encodeURIComponent(id)}/share-link`, { method: "POST" });
+/** "https://yama.example/r/abc…" for a shared note, on this site. */
+export const noteShareUrl = (token: string) => `${location.origin}/r/${token}`;
 export const importReport = (document: unknown) => api<{ id: string; changed: boolean; revision: number }>("/api/research", { method: "POST", json: document });
 
 export function safeUrl(raw?: string): string | undefined {

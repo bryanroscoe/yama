@@ -1,7 +1,8 @@
 #!/bin/sh
 # Manual releases use the same server-owned lock and CI gate as GitHub Actions.
 set -eu
-cd "$(dirname "$0")/.."
+DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+cd "$DEPLOY_DIR/.."
 case "$#:$*" in
   0:) CHECK_ONLY=0 ;;
   1:--check) CHECK_ONLY=1 ;;
@@ -13,9 +14,10 @@ if [ "$CHECK_ONLY" = 1 ]; then
   echo "Ready to deploy main at $RELEASE_REV. Check only; saget was not contacted."
   exit 0
 fi
+. "$DEPLOY_DIR/target.sh"
 # A short-lived workflow token or the current gh login. Never put it in arguments,
 # files, build contexts or logs. The server verifies current main and CI itself.
 TOKEN=${GH_TOKEN:-${GITHUB_TOKEN:-}}
 if [ -z "$TOKEN" ]; then TOKEN=$(gh auth token); fi
-printf '%s\n' "$TOKEN" | ssh -T root@<saget-lan-address> \
+printf '%s\n' "$TOKEN" | ssh -T "$HOST" \
   "/mnt/user/appdata/yama-release/host.py deploy $RELEASE_REV"

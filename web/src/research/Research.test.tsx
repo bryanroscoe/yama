@@ -94,3 +94,17 @@ it("counts a colon-suffixed research commander in the same board as the printer"
   const rows = listEntries("Commander:\n1 Leader\nDeck:\n99 Plains");
   expect(rows).toEqual([{ name: "Leader", qty: 1, commander: true }, { name: "Plains", qty: 99, commander: false }]);
 });
+
+it("shows a shared note's link and says what stays private", () => {
+  vi.stubGlobal("location", { origin: "https://yama.ing" });
+  const b: ResearchBundle = { document: { schema: "yama-research/1", id: "audit", title: "Deck review", generated_at: "2026-10-31", decks: [{ key: "energy", name: "Living Energy", commander: "Saheeli", builds: [{ id: "b3", label: "Bracket 3", list: "Commander\n1 Saheeli\nDeck\n99 Forest" }] }] }, revision: 1, updated_at: "2026-10-31", target_hashes: {}, reviews: [], visibility: "link", share_token: "0123456789abcdef01234567" };
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  client.setQueryData(["research", "owner", "audit"], b);
+  client.setQueryData(["sharing"], { handle: "saget", new_deck_visibility: "private", collection_public: false, share_lab_results: false, decks: { private: 0, link: 0, public: 0 } });
+  const html = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/decks/research/audit"]}><Routes><Route path="/decks/research/:reportId" element={<ResearchPage />} /></Routes></MemoryRouter></QueryClientProvider>);
+  client.clear();
+  vi.unstubAllGlobals();
+  expect(html).toContain("Share this note (anyone with the link)");
+  expect(html).toContain("https://yama.ing/r/0123456789abcdef01234567");
+  expect(html).toContain("as written, so read them before sharing");
+});
