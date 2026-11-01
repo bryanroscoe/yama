@@ -442,6 +442,8 @@ fn a_build_compares_with_another_build_card_by_card() {
     let loose = compare(&list(&["X", "Q"], 10), &[], &list(&["X"], 12), &[], "B2");
     assert_eq!(loose, vec![Change { add: "Q".into(), n: 1, ..Default::default() }, Change { cut: "Plains".into(), n: 2, ..Default::default() }]);
     assert!(compare(&b3, &b3s, &b3, &b3s, "B3").is_empty());
+    // Names compare as the card lookup matches them: ASCII case aside.
+    assert!(compare(&list(&["Sol Ring"], 10), &[], &list(&["sol ring"], 10), &[], "B2").is_empty());
 }
 
 fn note() -> serde_json::Value {
@@ -541,7 +543,7 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     let (status, _, up) = page(&app, &format!("/r/{token}/party?build=b3&vs=b2")).await;
     assert_eq!(status, StatusCode::OK);
     assert!(up.contains("<summary aria-label=\"Compare with: Bracket 2 · Core\">Bracket 2 · Core</summary>"));
-    assert!(up.contains("One-mana exile.") && up.contains("Cut: Symmetrical."));
+    assert!(up.contains("One-mana exile.") && up.contains("Cut: Symmetrical.") && up.contains("Swap together with the land change."));
     assert!(up.contains(&format!("href=\"/r/{token}/party?build=b2\">")), "switching to the compared build drops the comparison");
     let down = page(&app, &format!("/r/{token}/party?build=b2&vs=b3")).await.2;
     assert!(down.contains("Keeps the starting list&#39;s card; Bracket 3 · Upgraded swaps it for Swords to Plowshares.") && down.contains("Swords to Plowshares: One-mana exile."), "{down}");
