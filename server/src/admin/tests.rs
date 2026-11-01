@@ -507,6 +507,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     for owner in [&v,&b] {
         fill(&pool,"evidence_datasets",&[("owner_id",t(owner))]).await;
         fill(&pool,"precon_evidence_sources",&[("owner_id",t(owner))]).await;
+        fill(&pool,"commander_evidence_sources",&[("owner_id",t(owner))]).await;
         let report=crate::util::new_id();
         fill(&pool,"research_reports",&[("owner_id",t(owner)),("id",t(&report)),("document",t("{}"))]).await;
         fill(&pool,"research_reviews",&[("owner_id",t(owner)),("report_id",t(&report)),("version",V::I(1))]).await;

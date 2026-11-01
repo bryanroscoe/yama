@@ -1,7 +1,7 @@
 //! Anonymous, read-only stock reference. Public DTOs never serialize Lab summaries or owners.
 //! Publication copies reviewed results; importing or deleting a run cannot change that copy.
 mod consensus;
-mod v2;
+pub(crate) mod v2;
 pub(crate) mod html;
 #[cfg(test)]
 mod tests;
@@ -601,12 +601,12 @@ async fn detail_data(pool: &SqlitePool, slug: &str) -> AppResult<Detail> {
     })
 }
 
-fn limit(st: &AppState, address: ClientAddress) -> AppResult<()> {
+pub(crate) fn limit(st: &AppState, address: ClientAddress) -> AppResult<()> {
     st.limits.public_precons.check(&address_key(address.0))
 }
 
 /// ETag and public caching apply to these account-independent bodies only. Errors are never cached.
-fn cached(headers: &HeaderMap, body: String, content_type: &'static str) -> Response {
+pub(crate) fn cached(headers: &HeaderMap, body: String, content_type: &'static str) -> Response {
     let etag = format!("\"{}\"", sha256_hex(&body));
     let unchanged = headers
         .get(header::IF_NONE_MATCH)
