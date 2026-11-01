@@ -1408,9 +1408,29 @@ fn opt_number(args: &Value, key: &str) -> AppResult<Option<Option<f64>>> {
     }
 }
 
-/// `set_shopping_rules`: a new buy rule and sealed cap, as a rule set from the day they apply it.
-/// Parts left out keep the rule in force today.
-pub async fn set_shopping_rules(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+/// The parts of a buy-rule change Claude named, checked for type. Only these are applied, over
+/// whatever rule is in force when the person applies it, so a staged change never reverts an edit
+/// made in between.
+fn rules_changes(args: &Value) -> AppResult<Value> {
+    let mut out = serde_json::Map::new();
+    for key in ["max_usd", "always_ok_usd", "sealed_max_usd"] {
+        if let Some(v) = opt_number(args, key)? {
+            out.insert(key.into(), json!(v));
+        }
+    }
+    if let Some(t) = args.get("tiers").filter(|t| !t.is_null()) {
+        let tiers: Vec<crate::plan::shopping::Tier> =
+            serde_json::from_value(t.clone()).map_err(|_| AppError::bad("tiers must be a list of {market_under: number or null, max_multiple: number}"))?;
+        out.insert("tiers".into(), json!(tiers.iter().map(|t| json!({"market_under": t.market_under, "max_multiple": t.max_multiple})).collect::<Vec<_>>()));
+    }
+    if out.is_empty() {
+        return Err(AppError::bad("Name at least one of max_usd, always_ok_usd, tiers or sealed_max_usd. Nothing was staged."));
+    }
+    Ok(Value::Object(out))
+}
+
+/// The rule in force today with the named parts replaced, and what's wrong with it.
+async fn rules_with(st: &AppState, user: &User, changes: &Value) -> AppResult<(crate::plan::shopping::LocalBuy, Option<f64>, Vec<String>)> {
     use crate::plan::shopping::{LocalBuy, problems};
     let today = Utc::now().format("%Y-%m-%d").to_string();
     let bundle = crate::plan::bundle::load_bundle(&st.pool, &user.id).await?;
@@ -1419,20 +1439,28 @@ pub async fn set_shopping_rules(st: &AppState, user: &User, via: &Via, args: &Va
     let set = crate::plan::trip::rules_at(sets, &today);
     let current = crate::plan::trip::local_buy_rule(set).rule.unwrap_or(crate::plan::trip::LocalBuyRule { max_usd: None, always_ok_usd: None, tiers: vec![] });
     let mut lb = LocalBuy::from_rule(&current);
-    if let Some(v) = opt_number(args, "max_usd")? {
-        lb.max_usd = v;
-    }
-    if let Some(v) = opt_number(args, "always_ok_usd")? {
-        lb.always_ok_usd = v;
-    }
-    if let Some(t) = args.get("tiers").filter(|t| !t.is_null()) {
-        lb.tiers = serde_json::from_value(t.clone()).map_err(|_| AppError::bad("tiers must be a list of {market_under: number or null, max_multiple: number}"))?;
-    }
     let mut sealed = set.and_then(|s| s["rules"]["sealed_max_usd"].as_f64());
-    if let Some(v) = opt_number(args, "sealed_max_usd")? {
-        sealed = v;
+    if let Some(v) = changes.get("max_usd") {
+        lb.max_usd = v.as_f64();
+    }
+    if let Some(v) = changes.get("always_ok_usd") {
+        lb.always_ok_usd = v.as_f64();
+    }
+    if let Some(v) = changes.get("tiers") {
+        lb.tiers = serde_json::from_value(v.clone()).map_err(anyhow::Error::from)?;
+    }
+    if let Some(v) = changes.get("sealed_max_usd") {
+        sealed = v.as_f64();
     }
     let found = problems(&lb, sealed);
+    Ok((lb, sealed, found))
+}
+
+/// `set_shopping_rules`: a new buy rule and sealed cap, as a rule set from the day they apply it.
+/// Only the parts named change, over the rule in force when it's applied.
+pub async fn set_shopping_rules(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let changes = rules_changes(args)?;
+    let (lb, sealed, found) = rules_with(st, user, &changes).await?;
     if !found.is_empty() {
         return Err(AppError::bad(format!("{} Nothing was staged.", found.join(" "))));
     }
@@ -1440,45 +1468,80 @@ pub async fn set_shopping_rules(st: &AppState, user: &User, via: &Via, args: &Va
     let text = crate::plan::trip::rule_text(&lb.rule());
     let summary = "Change the buy rule".to_string();
     let detail = format!(
-        "{text} Sealed precons: {}. Applies from the day it's applied; older checks keep their own day's rules.",
+        "{text} Sealed precons: {}. Applies from the day it's applied; older checks keep their own day's rules. Only the parts named change; the rest stay as they are then.",
         sealed.map_or_else(|| "no limit".to_string(), |v| format!("at most ${v:.2} a deck before tax"))
     );
-    let payload = json!({"local_buy": lb.to_json(), "sealed_max_usd": sealed, "note": note});
+    let payload = json!({"changes": changes, "note": note});
     stage(st, user, via, Staged { kind: "set_shopping_rules", summary, detail, payload }).await
 }
 
 async fn apply_shopping_rules(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
-    let lb: crate::plan::shopping::LocalBuy = serde_json::from_value(p["local_buy"].clone()).map_err(anyhow::Error::from)?;
+    let (lb, sealed, found) = rules_with(st, user, &p["changes"]).await?;
+    if !found.is_empty() {
+        return Err(AppError::Conflict(format!("With the rule in force now, this change doesn't make sense: {}", found.join(" "))));
+    }
     let today = Utc::now().format("%Y-%m-%d").to_string();
-    let saved = crate::plan::shopping::save_rules(&st.pool, &user.id, &today, &lb, p["sealed_max_usd"].as_f64(), p["note"].as_str()).await?;
+    let saved = crate::plan::shopping::save_rules(&st.pool, &user.id, &today, &lb, sealed, p["note"].as_str()).await?;
     Ok(json!({"label": format!("New rule set from {today}."), "effective_from": saved["effective_from"]}))
 }
 
-/// `set_store_preference`: one store's level, place in their order and premium. Parts left out
-/// stay as they are.
-pub async fn set_store_preference(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
-    use crate::plan::shopping::{PREFERENCES, get_pref};
-    let (key, name) = their_store(&st.pool, &user.id, text_arg(args, "store")?).await?;
-    let mut p = get_pref(&st.pool, &user.id, &key).await?;
-    if p.preference == "default" {
-        p.preference = "favorite".into();
-    }
+/// The parts of a store setting Claude named, checked for type; only these are applied.
+fn pref_changes(args: &Value) -> AppResult<Value> {
+    use crate::plan::shopping::PREFERENCES;
+    let mut out = serde_json::Map::new();
     if let Some(v) = args.get("preference").filter(|v| !v.is_null()) {
         let v = v.as_str().filter(|v| PREFERENCES.contains(v)).ok_or_else(|| AppError::bad("preference must be favorite, ok, maybe or never"))?;
-        p.preference = v.into();
+        out.insert("preference".into(), json!(v));
     }
     match args.get("hassle") {
         None => {}
-        Some(Value::Null) => p.hassle = None,
-        Some(v) => p.hassle = Some(v.as_i64().ok_or_else(|| AppError::bad("hassle must be a whole number from 1 (easiest to get to)"))?),
+        Some(Value::Null) => {
+            out.insert("hassle".into(), Value::Null);
+        }
+        Some(v) => {
+            out.insert("hassle".into(), json!(v.as_i64().ok_or_else(|| AppError::bad("hassle must be a whole number from 1 (easiest to get to)"))?));
+        }
     }
     if let Some(v) = opt_number(args, "premium_usd")? {
-        p.premium_usd = v.filter(|x| *x > 0.0);
+        out.insert("premium_usd".into(), json!(v.filter(|x| *x > 0.0)));
     }
     if args.get("note").is_some() {
-        p.note = opt_text(args, "note", 500)?;
+        out.insert("note".into(), json!(opt_text(args, "note", 500)?));
+    }
+    if out.is_empty() {
+        return Err(AppError::bad("Name at least one of preference, hassle, premium_usd or note. Nothing was staged."));
+    }
+    Ok(Value::Object(out))
+}
+
+/// The store's setting now with the named parts replaced.
+async fn pref_with(pool: &SqlitePool, owner: &str, key: &str, changes: &Value) -> AppResult<crate::plan::shopping::Pref> {
+    let mut p = crate::plan::shopping::get_pref(pool, owner, key).await?;
+    if p.preference == "default" {
+        p.preference = "favorite".into();
+    }
+    if let Some(v) = changes.get("preference").and_then(Value::as_str) {
+        p.preference = v.into();
+    }
+    if let Some(v) = changes.get("hassle") {
+        p.hassle = v.as_i64();
+    }
+    if let Some(v) = changes.get("premium_usd") {
+        p.premium_usd = v.as_f64();
+    }
+    if let Some(v) = changes.get("note") {
+        p.note = v.as_str().map(String::from);
     }
     p.check()?;
+    Ok(p)
+}
+
+/// `set_store_preference`: one store's level, place in their order and premium. Only the parts
+/// named change, over the setting as it is when they apply it.
+pub async fn set_store_preference(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let (key, name) = their_store(&st.pool, &user.id, text_arg(args, "store")?).await?;
+    let changes = pref_changes(args)?;
+    let p = pref_with(&st.pool, &user.id, &key, &changes).await?;
     let level = crate::plan::trip::preference_text(&p.preference);
     let summary = format!("{name}: {level}");
     let mut parts = vec![format!("{name} ({key}): {level}")];
@@ -1491,7 +1554,7 @@ pub async fn set_store_preference(st: &AppState, user: &User, via: &Via, args: &
     if let Some(n) = &p.note {
         parts.push(format!("note: {n}"));
     }
-    let payload = json!({"store": key, "preference": p.preference, "hassle": p.hassle, "premium_usd": p.premium_usd, "note": p.note});
+    let payload = json!({"store": key, "changes": changes});
     stage(st, user, via, Staged { kind: "set_store_preference", summary, detail: parts.join("; ") + ".", payload }).await
 }
 
@@ -1506,14 +1569,9 @@ async fn apply_store_preference(st: &AppState, user: &User, p: &Value) -> AppRes
     if active.is_none() {
         return Err(AppError::Conflict(format!("{key} is no longer one of their stores.")));
     }
-    let pref = crate::plan::shopping::Pref {
-        preference: p["preference"].as_str().unwrap_or("ok").into(),
-        note: p["note"].as_str().map(String::from),
-        hassle: p["hassle"].as_i64(),
-        premium_usd: p["premium_usd"].as_f64(),
-    };
+    let pref = pref_with(&st.pool, &user.id, key, &p["changes"]).await?;
     crate::plan::shopping::set_pref(&st.pool, &user.id, key, &pref).await?;
-    if let Some(place) = pref.hassle {
+    if let Some(place) = p["changes"].get("hassle").and_then(Value::as_i64) {
         crate::plan::shopping::place_store(&st.pool, &user.id, key, place).await?;
     }
     Ok(json!({"label": format!("Saved your setting for {key}.")}))

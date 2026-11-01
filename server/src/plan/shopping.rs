@@ -296,12 +296,19 @@ pub async fn place_store(pool: &SqlitePool, owner: &str, key: &str, place: i64) 
 }
 
 /// The owner's order of how easy their stores are to get to: the given stores take places 1, 2, ...
-/// in one transaction, and keep their other settings. Each must be one of their current stores.
+/// and the rest follow in their current order, in one transaction; other settings stay. Each given
+/// key must be one of their current stores.
 pub async fn write_order(pool: &SqlitePool, owner: &str, keys: &[String]) -> AppResult<()> {
-    let known: Vec<String> = sqlx::query_scalar("SELECT key FROM plan_stores WHERE owner_id = ? AND retired_at IS NULL AND kind != 'printer'")
-        .bind(owner)
-        .fetch_all(pool)
-        .await?;
+    // Every current store, in today's order; those not named keep that order after the named ones,
+    // so no two stores share a place.
+    let known: Vec<String> = sqlx::query_scalar(
+        "SELECT s.key FROM plan_stores s LEFT JOIN plan_store_prefs p ON p.owner_id = s.owner_id AND p.store_key = s.key
+         WHERE s.owner_id = ? AND s.retired_at IS NULL AND s.kind != 'printer'
+         ORDER BY p.hassle IS NULL, p.hassle, s.sort, s.key",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
     let mut seen = std::collections::HashSet::new();
     for k in keys {
         if !known.contains(k) {
@@ -311,9 +318,10 @@ pub async fn write_order(pool: &SqlitePool, owner: &str, keys: &[String]) -> App
             return Err(AppError::bad(format!("\"{k}\" appears twice")));
         }
     }
+    let all: Vec<&String> = keys.iter().chain(known.iter().filter(|k| !seen.contains(k))).collect();
     let at = now();
     let mut tx = pool.begin().await?;
-    for (i, k) in keys.iter().enumerate() {
+    for (i, k) in all.iter().enumerate() {
         sqlx::query(
             "INSERT INTO plan_store_prefs (owner_id, store_key, preference, hassle, updated_at) VALUES (?, ?, 'ok', ?, ?)
              ON CONFLICT(owner_id, store_key) DO UPDATE SET hassle = excluded.hassle, updated_at = excluded.updated_at",
