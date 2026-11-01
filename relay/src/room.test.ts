@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_EVENT, MAX_GUESTS, MAX_SNAPSHOT, SAVE_EVERY_MS, TAP_BURST, TAPS_PER_SECOND, hasRoom, join, leave, message, type Role, type RoomIo } from "./room";
+import { MAX_EVENT, MAX_GUESTS, MAX_SNAPSHOT, MESSAGE_BURST, MESSAGES_PER_SECOND, SAVE_EVERY_MS, TAP_BURST, TAPS_PER_SECOND, hasRoom, join, leave, message, type Role, type RoomIo } from "./room";
 
 interface Fake {
   role: Role;
@@ -47,6 +47,25 @@ const resend = JSON.stringify({ type: "resend" });
 const taps = (host: Fake) => host.got.filter((t) => t !== resend);
 
 describe("table room", () => {
+  it("closes a connection that sends more than its share of messages, junk included", () => {
+    const r = fakeRoom();
+    const host = r.connect("host");
+    const flooder = r.connect("guest");
+    const quiet = r.connect("guest");
+    for (let i = 0; i < MESSAGE_BURST; i++) message(r.io, flooder, "not json");
+    expect(flooder.open).toBe(true);
+    message(r.io, flooder, "not json");
+    expect(flooder.closed?.code).toBe(4429);
+    // Others keep their own allowance, and a steady host is never cut off.
+    message(r.io, quiet, tap);
+    expect(quiet.open).toBe(true);
+    for (let s = 0; s < 10; s++) {
+      r.clock.now += 1000;
+      for (let i = 0; i < MESSAGES_PER_SECOND; i++) message(r.io, host, state(40 - i));
+    }
+    expect(host.open).toBe(true);
+  });
+
   it("passes the host's snapshots to guests and guests' taps to the host", () => {
     const r = fakeRoom();
     const host = r.connect("host");

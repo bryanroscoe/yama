@@ -116,7 +116,10 @@ export class TableRoom extends DurableObject<Env> {
   }
 
   async webSocketMessage(ws: WebSocket, msg: string | ArrayBuffer) {
-    if (typeof msg === "string") message(this.io, ws, msg);
+    // Phones send only text; anything else is closed rather than ignored, so it can't run up
+    // the room's message count unseen.
+    if (typeof msg !== "string") return this.io.close(ws, 1003, "text messages only");
+    message(this.io, ws, msg);
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string) {
