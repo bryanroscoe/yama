@@ -69,6 +69,8 @@ export const setNoteSharing = (id: string, visibility: Visibility) => api<NoteSh
 export const resetNoteLink = (id: string) => api<NoteSharing>(`/api/research/${encodeURIComponent(id)}/share-link`, { method: "POST" });
 /** "https://yama.example/r/abc…" for a shared note, on this site. */
 export const noteShareUrl = (token: string) => `${location.origin}/r/${token}`;
+/** Saves a copy of a note shared by link into your own notes; never replaces one of yours. */
+export const copySharedNote = (token: string, op?: string) => api<{ id: string }>("/api/research/copy", { method: "POST", json: { token, op } });
 export const importReport = (document: unknown) => api<{ id: string; changed: boolean; revision: number }>("/api/research", { method: "POST", json: document });
 
 export function safeUrl(raw?: string): string | undefined {
