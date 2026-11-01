@@ -265,6 +265,15 @@ async fn insert_seats(conn: &mut sqlx::SqliteConnection, game: &str, seats: &[St
 ///   and an edit made before saving again.
 /// - Online games are written by the rules engine alone; their ids are refused here.
 pub(crate) async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> AppResult<serde_json::Value> {
+    check_game(pool, user, &g).await?;
+    let mut tx = pool.begin().await?;
+    let saved = create_game_in(&mut tx, user, g).await?;
+    tx.commit().await?;
+    Ok(saved)
+}
+
+/// What `create_game` checks before writing anything: ids, seats, times, and the playgroup.
+pub(crate) async fn check_game(pool: &SqlitePool, user: &str, g: &NewGame) -> AppResult<()> {
     if uuid::Uuid::parse_str(&g.id).is_err() {
         return Err(AppError::bad("game id must be a UUID"));
     }
@@ -282,10 +291,15 @@ pub(crate) async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> Ap
     if let Some(pg) = &g.playgroup_id && !is_member(pool, pg, user).await? {
         return Err(AppError::NotFound("playgroup"));
     }
-    let mut tx = pool.begin().await?;
+    Ok(())
+}
+
+/// `create_game` after its checks, in the caller's transaction, so a caller can store more in
+/// the same commit (the Mythic Tools bridge's link and note). Call `check_game` first.
+pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, g: NewGame) -> AppResult<serde_json::Value> {
     let mut seats = Vec::with_capacity(g.seats.len());
     for s in &g.seats {
-        seats.push(resolve_seat(&mut tx, user, g.playgroup_id.as_deref(), s).await?);
+        seats.push(resolve_seat(&mut *tx, user, g.playgroup_id.as_deref(), s).await?);
     }
     let found: Option<(String, String, Option<String>, String)> = sqlx::query_as("SELECT created_by, mode, playgroup_id, status FROM games WHERE id = ?")
         .bind(&g.id)
@@ -306,8 +320,8 @@ pub(crate) async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> Ap
             .bind(&g.note)
             .execute(&mut *tx)
             .await?;
-            insert_seats(&mut tx, &g.id, &seats).await?;
-            insert_events(&mut tx, &g.id, &g.events).await?;
+            insert_seats(&mut *tx, &g.id, &seats).await?;
+            insert_events(&mut *tx, &g.id, &g.events).await?;
             false
         }
         Some((by, mode, stored_group, status)) if by == user && mode == "in_person" => {
@@ -326,7 +340,7 @@ pub(crate) async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> Ap
                     .execute(&mut *tx)
                     .await?;
                 sqlx::query("DELETE FROM game_seats WHERE game_id = ?").bind(&g.id).execute(&mut *tx).await?;
-                insert_seats(&mut tx, &g.id, &seats).await?;
+                insert_seats(&mut *tx, &g.id, &seats).await?;
             } else {
                 let stored: Vec<StoredSeat> = sqlx::query_as(
                     "SELECT seat, member_id, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name
@@ -353,7 +367,7 @@ pub(crate) async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> Ap
                         .execute(&mut *tx)
                         .await?;
                 }
-                insert_events(&mut tx, &g.id, &g.events).await?;
+                insert_events(&mut *tx, &g.id, &g.events).await?;
             }
             true
         }
@@ -361,13 +375,12 @@ pub(crate) async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> Ap
         Some(_) => return Err(AppError::Conflict("game id already used".into())),
     };
     if let Some(f) = g.finish {
-        finish_in(&mut tx, &g.id, f).await?;
+        finish_in(&mut *tx, &g.id, f).await?;
     }
-    tx.commit().await?;
     Ok(serde_json::json!({ "id": g.id, "existing": existing }))
 }
 
-async fn insert_events(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, game: &str, events: &[Event]) -> AppResult<u64> {
+async fn insert_events(tx: &mut sqlx::SqliteConnection, game: &str, events: &[Event]) -> AppResult<u64> {
     let mut n = 0;
     for e in events {
         let added = sqlx::query(
@@ -380,7 +393,7 @@ async fn insert_events(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, game: &str,
         .bind(&e.kind)
         .bind(e.payload.to_string())
         .bind(e.created_at.clone().unwrap_or_else(now))
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
         if added == 0 {
@@ -390,7 +403,7 @@ async fn insert_events(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, game: &str,
             let (kind, payload, created_at): (String, String, String) = sqlx::query_as("SELECT kind, payload, created_at FROM game_events WHERE game_id = ? AND seq = ?")
                 .bind(game)
                 .bind(e.seq)
-                .fetch_one(&mut **tx)
+                .fetch_one(&mut *tx)
                 .await?;
             // The time travels with the event, so two devices making the same tap under the same
             // number (both "life -1") still differ, and only an exact resend is a retry.

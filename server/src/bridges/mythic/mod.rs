@@ -813,12 +813,7 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
                     finish: Some(b.finish),
                     note: Some(NOTE.into()),
                 };
-                // The game first: if its link and note then fail, the next import finds the game
-                // without a link and saves it again.
-                match crate::games::create_game(pool, owner, game).await {
-                    Ok(_) => sync_game(pool, owner, Sync { mythic: &p.mythic_id, yama: &yama, fingerprint: &b.fingerprint, keep_yama: None, note: b.note.as_deref(), tags: &b.tags }).await,
-                    Err(e) => Err(e),
-                }
+                save_game(pool, owner, game, Sync { mythic: &p.mythic_id, yama: &yama, fingerprint: &b.fingerprint, keep_yama: None, note: b.note.as_deref(), tags: &b.tags }).await
             }
             // Only Mythic's note changed, or a game matched to one logged in Yama: the game stays as
             // it is, and Mythic's note is kept privately.
@@ -859,16 +854,32 @@ struct Sync<'a> {
 }
 
 async fn sync_game(pool: &SqlitePool, owner: &str, s: Sync<'_>) -> AppResult<()> {
-    let Sync { mythic, yama, fingerprint, keep_yama, note, tags } = s;
     let mut tx = pool.begin().await?;
+    sync_in(&mut tx, owner, s).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// A Mythic game saved as a Yama game, with its link and note, in one commit: a failure leaves
+/// the game, link and note all as they were, so importing the file again finishes the job.
+async fn save_game(pool: &SqlitePool, owner: &str, game: NewGame, s: Sync<'_>) -> AppResult<()> {
+    crate::games::check_game(pool, owner, &game).await?;
+    let mut tx = pool.begin().await?;
+    crate::games::create_game_in(&mut tx, owner, game).await?;
+    sync_in(&mut tx, owner, s).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn sync_in(tx: &mut sqlx::SqliteConnection, owner: &str, s: Sync<'_>) -> AppResult<()> {
+    let Sync { mythic, yama, fingerprint, keep_yama, note, tags } = s;
     let now = match keep_yama {
         Some(kept) => kept.to_string(),
         None => yama_print(&mut *tx, yama).await?,
     };
     let print = format!("{fingerprint} {now}");
-    link_in(&mut tx, owner, "game", mythic, yama, Some(&print)).await?;
-    save_note(&mut tx, owner, yama, note, tags).await?;
-    tx.commit().await?;
+    link_in(&mut *tx, owner, "game", mythic, yama, Some(&print)).await?;
+    save_note(&mut *tx, owner, yama, note, tags).await?;
     Ok(())
 }
 
