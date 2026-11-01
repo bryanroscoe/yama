@@ -411,8 +411,8 @@ export function PreconsPage() {
                 {few > 0 ? ` ${few} ${few === 1 ? "precon is" : "precons are"} under ${FEW} games, so the order may change.` : ""}
               </p>
               <p>
-                <b>Strength</b> is the same model's rating: 1 is an average precon, 2 finishes ahead about twice as often. Raw wins, rank ranges, matchups and
-                "Make this a Yama deck" are on each precon's page.
+                <b>Strength</b> is the same model's rating: 1 is an average precon, 2 finishes ahead about twice as often. Each precon's page has its list, raw wins, rank ranges,
+                matchups and "Make this a Yama deck".
               </p>
               {skipped > 0 && <p>Ranks are among all {run.ranked} decks in the run, and {skipped} of those aren't in this list, so some ranks are skipped.</p>}
               {mineShown.length > 0 && (
@@ -422,7 +422,7 @@ export function PreconsPage() {
                 </p>
               )}
             </div>
-            {run.confidence && (
+            {(run.confidence || unjudgedAll > 0 || doubtfulAll > 0) && (
               <div>
                 <h3>Sim unreliable and sim doubtful</h3>
                 <p>
@@ -431,13 +431,13 @@ export function PreconsPage() {
                 </p>
                 <p>
                   <b>Unreliable</b> means real games disagree strongly or a known gap breaks the deck's plan{unjudgedAll > 0 ? `: ${unjudgedAll} ${unjudgedAll === 1 ? "precon" : "precons"} here, ${hideUnjudged ? "hidden" : simSort ? "listed last" : "marked in the table"}` : ""}.
-                  {" "}<b>Doubtful</b> is a lesser warning{doubtfulAll > 0 ? `: ${doubtfulAll} ${doubtfulAll === 1 ? "precon" : "precons"}` : ""}. Tap a mark for why.
+                  {" "}<b>Doubtful</b> is a lesser warning{doubtfulAll > 0 ? `: ${doubtfulAll} ${doubtfulAll === 1 ? "precon" : "precons"}` : ""}.{unjudgedAll + doubtfulAll > 0 ? " Tap a mark for why." : ""}
                 </p>
                 <p>
                   No mark only means no problem is known: the simulation as a whole still follows real games only loosely.
-                  {run.confidence.reference_run ? ` Decks without real games of their own are judged by their precon in run ${run.confidence.reference_run}.` : ""}
+                  {run.confidence?.reference_run ? ` Decks without real games of their own are judged by their precon in run ${run.confidence.reference_run}.` : ""}
                 </p>
-                {run.confidence.method && (
+                {run.confidence?.method && (
                   <Details label="Method">
                     <p>{run.confidence.method}</p>
                   </Details>
@@ -494,6 +494,11 @@ export function PreconsPage() {
             </div>
           </div>
         </section>
+      )}
+      {!run && mineShown.length > 0 && (
+        <p className="lab-note">
+          The amber line is 25%, an even share at a 4-player table. Your lists come from your own runs, each with its own field and model fit.
+        </p>
       )}
     </>
   );
