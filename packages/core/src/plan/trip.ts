@@ -354,17 +354,33 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   const ranked = [...coverage.keys()]
     .map((k) => stores.get(k)!)
     .sort((x, y) => coverage.get(y.key)!.size - coverage.get(x.key)!.size || RANK[storePreference(b, x.key)] - RANK[storePreference(b, y.key)] || x.sort - y.sort || cmp(x.key, y.key));
-  const pool = ranked.slice(0, MAX_SEARCH).sort((x, y) => x.sort - y.sort || cmp(x.key, y.key));
-  // Past the search limit: a needed card that only stores past it have brings the first of them
-  // (in the same ranking) onto every trip, so no coverable card is lost.
-  const searched = new Set(pool.map((s) => s.key));
-  const rankOf = new Map(ranked.map((s, i) => [s.key, i]));
-  const onlyAt = new Set<string>();
-  for (const w of needed) {
-    const at = (offersOf.get(w.id) ?? []).filter((o) => usable(w, o) && eligible(o.store)).map((o) => o.store.key);
-    if (at.length && !at.some((k) => searched.has(k))) onlyAt.add(at.sort((x, y) => rankOf.get(x)! - rankOf.get(y)!)[0]!);
+  // At most 12 stores are searched exhaustively, so the trip is exact up to 12 candidate stores.
+  // With more, a greedy cover (the store adding the most cards not yet covered, ties in this
+  // ranking) picks the stores searched first, then the ranking fills the rest; a cover longer
+  // than 12 puts its later stores on every trip. Every coverable card stays reachable, but the
+  // fewest stores is approximate there.
+  let pool = ranked;
+  let forced: Store[] = [];
+  if (ranked.length > MAX_SEARCH) {
+    const left = new Set([...coverage.values()].flatMap((c) => [...c]));
+    const rest = [...ranked];
+    const cover: Store[] = [];
+    while (left.size) {
+      let bestAt = -1;
+      let bestN = 0;
+      rest.forEach((s, i) => {
+        const n = [...coverage.get(s.key)!].filter((id) => left.has(id)).length;
+        if (n > bestN) [bestAt, bestN] = [i, n];
+      });
+      if (bestAt < 0) break;
+      const [s] = rest.splice(bestAt, 1);
+      cover.push(s!);
+      for (const id of coverage.get(s!.key)!) left.delete(id);
+    }
+    forced = cover.slice(MAX_SEARCH);
+    pool = [...cover.slice(0, MAX_SEARCH), ...rest].slice(0, MAX_SEARCH);
   }
-  const forced = ranked.slice(MAX_SEARCH).filter((s) => onlyAt.has(s.key));
+  pool = [...pool].sort((x, y) => x.sort - y.sort || cmp(x.key, y.key));
 
   // Every subset: cards covered, then fewer "maybe" stores, then fewer stores that aren't your usual
   // one, then the lower total, then store order. The best of each size is an alternative.
@@ -476,8 +492,20 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
       .sort((x, y) => x.store.sort - y.store.sort || cmp(x.store.key, y.store.key)),
     skipped,
     checkedOn: [...checked].sort(),
-    wishlist: wishTiers(wants.filter((w) => w.source === "wishlist"), b),
+    wishlist: wishTiers(wishWants(b), b),
   };
+}
+
+/** Every card on your real-card wishlist once, also those the plan buys or proposes now. */
+function wishWants(b: TripData): Want[] {
+  const seen = new Set<string>();
+  const out: Want[] = [];
+  for (const w of b.wishlist ?? []) {
+    if (seen.has(norm(w.card))) continue;
+    seen.add(norm(w.card));
+    out.push({ id: `wish:${w.card}`, card: w.card, source: "wishlist", needed: false, deck: null, deckName: null, replaces: null, decision: null, reason: w.reason });
+  }
+  return out;
 }
 
 /** Price tiers for the wishlist, by the cheapest non-foil market. */

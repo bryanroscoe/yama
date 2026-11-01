@@ -99,7 +99,7 @@ is a port of `planTrip` over the same bundle JSON. Both are checked against one 
 
 **Choosing stores.** Stores that he'll go to (not "won't go"; and only local ones when his rule
 set says `buy_local_only`) and that have a qualifying copy of a needed card are searched
-exhaustively (at most 12, the ones covering most; 4,095 subsets). For each number of stores, the
+exhaustively (up to 12; 4,095 subsets). With more than 12, a greedy cover picks the stores searched (and puts the rest of a longer cover on every trip), so every coverable card is reached but the fewest stores is approximate. For each number of stores, the
 best subset covers the most needed cards, then has the fewest "maybe" stores, then the fewest
 stores other than his usual one, then the lowest total. The trip is the smallest set that covers as
 many cards as any set can; the smaller sets that cover fewer are shown as "with fewer stores"

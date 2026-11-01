@@ -9,9 +9,9 @@
     "rules": {
      "buy_local_only": true,
      "max_over_market_pct": 25,
-     "ceiling_key_usd": 4.0,
-     "ceiling_other_usd": 3.0,
-     "always_print_over_usd": 10.0
+     "ceiling_key_usd": 4,
+     "ceiling_other_usd": 3,
+     "always_print_over_usd": 10
     }
    },
    {
@@ -21,15 +21,15 @@
     "rules": {
      "buy_local_only": true,
      "max_over_market_pct": 100,
-     "ceiling_key_usd": 2.0,
-     "ceiling_other_usd": 2.0,
+     "ceiling_key_usd": 2,
+     "ceiling_other_usd": 2,
      "local_buy": {
-      "max_usd": 2.0,
+      "max_usd": 2,
       "always_ok_usd": 0.5,
       "tiers": [
        {
-        "market_under": 1.0,
-        "max_multiple": 2.0
+        "market_under": 1,
+        "max_multiple": 2
        },
        {
         "market_under": null,
@@ -818,7 +818,7 @@
     "checked": "2026-10-18",
     "result": null,
     "in_stock": true,
-    "price": 1.0,
+    "price": 1,
     "price_from_text": false,
     "currency": "USD",
     "printing": null,
@@ -950,7 +950,7 @@
     "checked": "2026-10-31",
     "result": "Lightly Played",
     "in_stock": true,
-    "price": 90.0,
+    "price": 90,
     "price_from_text": false,
     "currency": "USD",
     "printing": null,
@@ -1082,7 +1082,7 @@
     "checked": "2026-10-30",
     "result": null,
     "in_stock": true,
-    "price": 1.0,
+    "price": 1,
     "price_from_text": false,
     "currency": "USD",
     "printing": null,
@@ -1457,7 +1457,7 @@
   "market_by_printing": {
    "sr-c21": {
     "usd": 1.5,
-    "usd_foil": 3.0,
+    "usd_foil": 3,
     "date": "2026-10-31",
     "set": "c21",
     "num": "263",
@@ -1604,6 +1604,7 @@
      [
       "$50 to $200",
       [
+       "Mana Vault",
        "Rhystic Study"
       ]
      ],
@@ -1738,6 +1739,7 @@
      [
       "$50 to $200",
       [
+       "Mana Vault",
        "Rhystic Study"
       ]
      ],

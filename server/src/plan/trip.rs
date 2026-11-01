@@ -624,18 +624,33 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
             .then(sort_of(x).cmp(&sort_of(y)))
             .then(key_of(x).cmp(&key_of(y)))
     });
-    // Past the search limit: a needed card that only stores past it have brings the first of them
-    // (in the same ranking) onto every trip, so no coverable card is lost (`trip.ts`).
-    let ranked: Vec<String> = pool.iter().map(|x| key_of(x)).collect();
-    let searched: HashSet<&str> = ranked.iter().take(MAX_SEARCH).map(String::as_str).collect();
-    let mut only_at: HashSet<String> = HashSet::new();
-    for w in &needed {
-        let at: HashSet<&str> = offers_of[&w.id].iter().filter(|o| usable(w, o) && eligible(o.store)).map(|o| o.key()).collect();
-        if !at.is_empty() && !at.iter().any(|k| searched.contains(k)) {
-            only_at.extend(ranked.iter().find(|k| at.contains(k.as_str())).cloned());
+    // Exact up to 12 candidate stores; with more, a greedy cover picks the stores searched first
+    // and a cover longer than 12 puts its later stores on every trip (`trip.ts`).
+    let mut forced: Vec<&Value> = Vec::new();
+    if pool.len() > MAX_SEARCH {
+        let mut left: HashSet<&str> = coverage.values().flat_map(|c| c.iter().copied()).collect();
+        let mut rest = pool.clone();
+        let mut cover: Vec<&Value> = Vec::new();
+        while !left.is_empty() {
+            let mut best: Option<(usize, usize)> = None;
+            for (i, st) in rest.iter().enumerate() {
+                let n = coverage[&key_of(st)].iter().filter(|id| left.contains(*id)).count();
+                if n > best.map_or(0, |b| b.1) {
+                    best = Some((i, n));
+                }
+            }
+            let Some((i, _)) = best else { break };
+            let st = rest.remove(i);
+            for id in &coverage[&key_of(st)] {
+                left.remove(id);
+            }
+            cover.push(st);
         }
+        forced = cover.split_off(MAX_SEARCH.min(cover.len()));
+        cover.extend(rest);
+        cover.truncate(MAX_SEARCH);
+        pool = cover;
     }
-    let forced: Vec<&Value> = pool.split_off(MAX_SEARCH.min(pool.len())).into_iter().filter(|x| only_at.contains(&key_of(x))).collect();
     let by_order = |x: &&Value, y: &&Value| sort_of(x).cmp(&sort_of(y)).then(key_of(x).cmp(&key_of(y)));
     pool.sort_by(by_order);
 
@@ -786,7 +801,15 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
         .collect();
     elsewhere.sort_by(|x, y| sort_of(x.0).cmp(&sort_of(y.0)).then(key_of(x.0).cmp(&key_of(y.0))));
     let total = (covered > 0).then(|| cents(stops.iter().map(|x| x.total).sum()));
-    let wishlist = wish_tiers(wants.iter().filter(|w| w.source == "wishlist").cloned().collect(), b);
+    // Every wishlist card once, also those the plan buys or proposes now (`trip.ts` `wishWants`).
+    let mut seen_wish = HashSet::new();
+    let wish_wants: Vec<Want> = arr(b, "wishlist")
+        .iter()
+        .filter_map(|w| s(w, "card"))
+        .filter(|c| seen_wish.insert(norm(c)))
+        .map(|c| Want { id: format!("wish:{c}"), card: c.to_string(), source: "wishlist", needed: false, deck_name: None, replaces: None })
+        .collect();
+    let wishlist = wish_tiers(wish_wants, b);
     Trip {
         today: today.to_string(),
         rule,
