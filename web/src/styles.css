@@ -2019,36 +2019,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   cursor: progress;
 }
 
-/* Configurations: other builds of a deck, a row of links under its tile and switched on its page. */
-.deck-tiles > li.has-configs {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-}
-.deck-configs-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.deck-configs-list a {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  min-height: 44px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: inherit;
-  text-decoration: none;
-}
-.deck-configs-list a:hover,
-.deck-configs-list a:focus-visible {
-  background: var(--raised);
-}
+/* Configurations: other builds of a deck, switched on its page. */
 .deck-shared {
   font-weight: 600;
   color: var(--on-art);
